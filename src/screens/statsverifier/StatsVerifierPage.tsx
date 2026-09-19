@@ -109,6 +109,29 @@ const StatsVerifierPage: React.FC<StatsVerifierPageProps> = ({ bridge, subscript
   };
 
   /* --------------------------- entitlement UX --------------------------- */
+  // **No auth server on this build. §11 D187.**
+  //
+  // Blocked, unlike PublishReady, and the asymmetry is deliberate: PublishReady
+  // has five local lanes that produce a real report with the cloud step absent,
+  // so letting it run delivers measured work. Whether THIS lane degrades
+  // honestly with no cloud has not been measured, and opening it on the
+  // assumption that it does would be a claim resting on nothing — the shape
+  // this repo keeps correcting. What changes is the SENTENCE: "sign in" sent a
+  // researcher to a login screen that cannot work on this build.
+  if (entitlement.status === 'unverifiable_no_account') {
+    return (
+      <Shell navigate={navigate}>
+        <Card title="Statistical Analysis Verifier ★ — needs an account">
+          <p className="gds-jc__disclaimer" data-testid="sv-no-account">
+            This build has no account service configured, so there is nothing to sign in to. The
+            recompute itself is deterministic and local — it is gated here only because that has
+            not been measured end to end without an account, and claiming otherwise would be a
+            guess.
+          </p>
+        </Card>
+      </Shell>
+    );
+  }
   if (entitlement.status === 'signed_out') {
     return (
       <Shell navigate={navigate}>

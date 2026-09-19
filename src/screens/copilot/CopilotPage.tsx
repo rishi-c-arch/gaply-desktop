@@ -79,6 +79,32 @@ const CopilotPage: React.FC<CopilotPageProps> = ({ client, subscriptionService, 
     />
   );
 
+  // **No auth server on this build. §11 D187.**
+  //
+  // Blocked, unlike PublishReady, and the asymmetry is deliberate: PublishReady
+  // has five local lanes that produce a real report with the cloud step absent,
+  // so letting it run delivers measured work. Whether THIS lane degrades
+  // honestly with no cloud has not been measured, and opening it on the
+  // assumption that it does would be a claim resting on nothing — the shape
+  // this repo keeps correcting. What changes is the SENTENCE: "sign in" sent a
+  // researcher to a login screen that cannot work on this build.
+  if (entitlement.status === 'unverifiable_no_account') {
+    return (
+      <div className="gds-root" style={{ height: '100vh' }} data-testid="copilot-page">
+        <AppShell rail={rail} header={<HeaderBar title="Research Copilot ★" />}>
+          <Panel title="Research Copilot ★">
+            <Card title="Research Copilot ★ — needs an account" data-testid="copilot-no-account">
+              <p style={{ color: 'var(--g-text-2)', fontSize: 14 }}>
+                This build has no account service configured, and Copilot answers come from the
+                cloud — so there is nothing to sign in to and nothing to ask. Everything that runs
+                on this device keeps working.
+              </p>
+            </Card>
+          </Panel>
+        </AppShell>
+      </div>
+    );
+  }
   if (entitlement.status === 'signed_out') {
     return (
       <div className="gds-root" style={{ height: '100vh' }} data-testid="copilot-page">

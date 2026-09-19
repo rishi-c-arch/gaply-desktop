@@ -13676,3 +13676,76 @@ The startup load logs and continues. A stranger whose seed load fails gets the
 structural checklist — which is what they had before the seed existed — rather
 than an app that will not open. The seed makes the journal layer visible; it is
 not load-bearing for anything else.
+
+### D187 — the login gate had an offline grace and the entitlement gate did not, and a recipient could reach the whole product except the part fixed that day
+
+Two gates were introduced in the same commit, `6e69d65` (11 Jul 2026,
+*"login requirement + entitlement gating"*). Its message states the principle for
+one of them:
+
+> **RequireAuth** — *"Offline MODE (no Supabase config) passes — there is
+> nothing to sign in to, and the boundary is the proxy."*
+>
+> **Entitlement** — *"Four honest states: signed_out … not_entitled …
+> offline_unverified … entitled."*
+
+Four states, and none of them is *"there is no auth server"*.
+`offline_unverified` is documented as *"signed in (cached session) but the server
+is unreachable"*, which is a different condition. So a build with no Supabase
+configuration — the state any `npm run tauri build` without a `.env` produces —
+sent a researcher to `PublishReady ★ — sign in required`, whose button routes to
+`/auth`, which says *"No connection configured — use Continue offline"*, which
+returns to the app. **A loop of individually honest screens whose sum is a lie.**
+
+#### It was an oversight, and three things say so rather than one
+
+1. **The datum was available and unread.** `SessionProvider` exposes `offline`;
+   `RequireAuth` destructures it; `useEntitlement` destructured only
+   `{ session, loading }`.
+2. **`isOfflineMode()` had exactly one consumer in the whole app** — a re-export
+   in `src/lib/supabase.ts`. Nothing in the gating path called it.
+3. **The test pinned the behaviour without being able to see the question.**
+   `checkEntitlement(null, 'publishready', …) → 'signed_out'` passes `null`
+   directly, so it cannot distinguish *"signed out, and a server exists"* from
+   *"there is no server"*. It recorded an outcome, not a decision — the shape
+   §14's spec/impl/test entry describes with the artefacts reduced to two.
+
+#### The fix is a fifth state, not a disabled gate
+
+`unverifiable_no_account` fires only when there is no auth server at all, which
+is the exact condition `RequireAuth` already tests. `signed_out` keeps meaning
+*sign in* on a configured build. **It cannot leak paid work:** a build with no
+Supabase config also has no App Check signing key and a loopback proxy URL, so it
+cannot reach `/verify` at all — the real gate is unchanged and unreachable, and
+what this unlocks is local work that was always free.
+
+PublishReady **proceeds** on the new state, with the reviewer letter declared
+missing before the run — the same thing `reviewer_letter_availability` already
+announces. The other four premium screens **block** on it, with an honest
+sentence instead of a sign-in loop: whether they degrade honestly without cloud
+has not been measured, and opening them on the assumption that they do would be
+a claim resting on nothing.
+
+The pin is a PAIR of cases differing only in that flag and going opposite ways
+(`gating.vitest.tsx`). Deletion-tested: collapsing the state back into
+`signed_out` reddens exactly two of the four new tests — the pair and the screen
+case — while the pre-existing unit test stays green, which is the demonstration
+that it never could have caught this.
+
+#### The finding that made it worth doing
+
+**A researcher sent this build gets real findings and a real report, and cannot
+see the journal layer at all.** `/app/upload` has no entitlement gate; it invokes
+`run_full_analysis`, which runs the **same six lanes, the same debate and the
+same `compile_report`** as PublishReady, and `/app/report` renders the identical
+`PublishReadyReport`. Measured over every route: of 19 `/app` routes, exactly
+five call `useEntitlement`, and all five keys are in `PREMIUM_ONLY`; `grep -c
+useEntitlement` and `grep -c gateFeature` are 0 on every other screen.
+
+What the free route cannot produce is the journal-scoped checklist:
+`run_full_analysis` passes `journal_key: None` and `guidelines_url: None`, so
+`build_checklist` returns the four structural rows. **So the ten profiled
+journals D186 shipped, and the key alignment made reachable the same day, were
+unreachable by every route a recipient actually had.** The gate was the only door
+to the journal layer, and it was shut on builds that had no way to open it.
+

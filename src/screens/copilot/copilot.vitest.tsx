@@ -168,19 +168,25 @@ describe('response-side ghostwriting guard', () => {
 
 /* -------------------- M3 · entitlement gating (page) -------------------- */
 
-function auth(session: any): AuthService {
+function auth(session: any, offline = false): AuthService {
   return {
     signUp: vi.fn(), signIn: vi.fn(), signInWithOAuth: vi.fn(), signOut: vi.fn(),
-    getSession: vi.fn().mockResolvedValue({ session, offline: session === null }),
+    // **`offline` is INDEPENDENT of `session`.** It used to be
+    // `offline: session === null`, which made "this user is signed out" and
+    // "this build has no auth server" the same value — the exact conflation
+    // `unverifiable_no_account` exists to undo (§11 D187). With the two tied
+    // together, a signed-out fixture silently also asserted an unconfigured
+    // build, and no test in this file could tell the cases apart.
+    getSession: vi.fn().mockResolvedValue({ session, offline }),
     onAuthStateChange: (cb: any) => { cb(session); return () => {}; },
   } as any;
 }
 const SESSION = { user: { id: 'u1', email: 'a@b.c' } };
 
-function renderCopilot(props: any = {}, session: any = SESSION) {
+function renderCopilot(props: any = {}, session: any = SESSION, offline = false) {
   render(
     <MemoryRouter>
-      <GaplySessionProvider authService={auth(session)}>
+      <GaplySessionProvider authService={auth(session, offline)}>
         <CopilotPage client={makeMockChat()} {...props} />
       </GaplySessionProvider>
     </MemoryRouter>
@@ -219,5 +225,16 @@ describe('CopilotPage — entitlement gating mirrors the other paid pages (M3)',
     renderCopilot({}, null);
     expect(await screen.findByTestId('copilot-signin')).toBeTruthy();
     expect(screen.queryByTestId('copilot-teaser')).toBeNull();
+  });
+
+  // The PAIR, on this screen: same null session, opposite answers, decided
+  // only by whether an auth server exists. Copilot BLOCKS on the new state
+  // (unlike PublishReady, which proceeds) because its answers are cloud-only —
+  // what changes is the sentence, not the gate (§11 D187).
+  it('no auth server at all → an honest card, never a sign-in loop', async () => {
+    renderCopilot({}, null, true);
+    expect(await screen.findByTestId('copilot-no-account')).toBeTruthy();
+    expect(screen.queryByTestId('copilot-signin')).toBeNull();
+    expect(screen.queryByTestId('copilot-signin-cta')).toBeNull();
   });
 });

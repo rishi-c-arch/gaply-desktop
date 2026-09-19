@@ -106,6 +106,28 @@ const GapFinderPage: React.FC<GapFinderPageProps> = ({ bridge, subscriptionServi
   if (entitlement.status === 'checking') {
     return <Shell navigate={navigate}><p className="gds-jc__disclaimer" data-testid="gf-loading">Checking your plan…</p></Shell>;
   }
+  // **No auth server on this build. §11 D187.**
+  //
+  // Blocked, unlike PublishReady, and the asymmetry is deliberate: PublishReady
+  // has five local lanes that produce a real report with the cloud step absent,
+  // so letting it run delivers measured work. Whether THIS lane degrades
+  // honestly with no cloud has not been measured, and opening it on the
+  // assumption that it does would be a claim resting on nothing — the shape
+  // this repo keeps correcting. What changes is the SENTENCE: "sign in" sent a
+  // researcher to a login screen that cannot work on this build.
+  if (entitlement.status === 'unverifiable_no_account') {
+    return (
+      <Shell navigate={navigate}>
+        <Card title="Research Gap Finder ★ — needs an account">
+          <p className="gds-jc__disclaimer" data-testid="gf-no-account">
+            This build has no account service configured, so there is nothing to sign in to. Gap
+            Finder&apos;s analysis is a cloud step and cannot run here; your offline tools are
+            unaffected.
+          </p>
+        </Card>
+      </Shell>
+    );
+  }
   if (entitlement.status === 'signed_out') {
     return (
       <Shell navigate={navigate}>

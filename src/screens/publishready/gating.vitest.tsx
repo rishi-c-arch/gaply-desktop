@@ -40,10 +40,10 @@ function subsService(kind: 'premium' | 'free' | 'offline') {
   } as any;
 }
 
-function renderPage(session: any, props: any = {}) {
+function renderPage(session: any, props: any = {}, offline = false) {
   render(
     <MemoryRouter>
-      <GaplySessionProvider authService={auth(session)}>
+      <GaplySessionProvider authService={auth(session, offline)}>
         <PublishReadyPage {...props} />
       </GaplySessionProvider>
     </MemoryRouter>
@@ -130,6 +130,55 @@ describe('entitlement gating (UX-only; server owns the truth)', () => {
     expect((await checkEntitlement(SESSION as any, 'publishready', subsService('offline'))).status).toBe('offline_unverified');
     // non-premium features aren't entitlement-gated (session is enough)
     expect((await checkEntitlement(SESSION as any, 'ai_check', subsService('free'))).status).toBe('entitled');
+  });
+});
+
+/* ------------- no auth server at all is not "signed out" ---------------- */
+
+describe('unverifiable_no_account (no Supabase configuration at all)', () => {
+  // **THE PAIR IS THE TEST.** The pre-existing unit case passes `null` straight
+  // to `checkEntitlement` and asserts `signed_out`, which records a BEHAVIOUR:
+  // with one input it cannot tell "signed out, and a server exists to sign in
+  // to" from "there is no server". A state that fires on the second and not the
+  // first has to be pinned by two cases that differ ONLY in that fact and go
+  // different ways — otherwise collapsing the new state back into `signed_out`
+  // leaves every assertion green.
+  it('same null session, opposite answers, decided only by whether a server exists', async () => {
+    const subs = subsService('premium');
+    const configured = await checkEntitlement(null, 'publishready', subs, false);
+    const unconfigured = await checkEntitlement(null, 'publishready', subs, true);
+
+    expect(configured.status).toBe('signed_out');
+    expect(unconfigured.status).toBe('unverifiable_no_account');
+    expect(configured.status).not.toBe(unconfigured.status);
+  });
+
+  // A signed-in user is never touched by the new branch: it lives inside
+  // `if (!session)`, so the flag cannot reach a session-bearing caller.
+  it('a live session ignores the flag entirely', async () => {
+    const subs = subsService('premium');
+    expect((await checkEntitlement(SESSION as any, 'publishready', subs, true)).status)
+      .toBe('entitled');
+  });
+
+  it('SCREEN: no auth server → the real form renders, with the reviewer letter declared', async () => {
+    renderPage(null, {}, true);
+    // The form, not a card: this is the whole point of the state.
+    expect(await screen.findByTestId('pr-entry')).toBeTruthy();
+    expect(screen.getByTestId('pr-journal-input')).toBeTruthy();
+    // And it says what will be missing, before the run.
+    expect(screen.getByTestId('pr-no-account').textContent).toMatch(/reviewer letter/i);
+    // THE LOOP IS GONE. A sign-in button here returns the user to a login
+    // screen that cannot work on this build.
+    expect(screen.queryByTestId('pr-signin')).toBeNull();
+    expect(screen.queryByTestId('pr-signin-cta')).toBeNull();
+  });
+
+  it('SCREEN: a configured build with no session still gets the sign-in card', async () => {
+    renderPage(null, {}, false);
+    expect(await screen.findByTestId('pr-signin')).toBeTruthy();
+    expect(screen.queryByTestId('pr-no-account')).toBeNull();
+    expect(screen.queryByTestId('pr-entry')).toBeNull();
   });
 });
 

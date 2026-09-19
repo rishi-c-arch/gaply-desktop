@@ -421,6 +421,32 @@ const Inner: React.FC<PublishReadyPageProps> = ({ bridge, subscriptionService, f
   return (
     <Shell navigate={navigate}>
       <div className="gds-pr-entry" data-testid="pr-entry">
+        {/* **No auth server on this build — the run proceeds. §11 D187.**
+
+            `unverifiable_no_account` deliberately does NOT return early. Every
+            other entitlement state above blocks, because on a build that HAS an
+            account service each of them is a thing the user can act on: sign
+            in, upgrade, retry when the server is back. This one is not — there
+            is nothing to sign in to and no plan to read — and blocking on it
+            sent a researcher round a loop of honest screens (sign-in card →
+            /auth → "No connection configured" → back), which `RequireAuth` has
+            avoided since the commit that created both gates.
+
+            What they get is the five local lanes, the checklist and the
+            findings. What they do not get is the reviewer letter, and that is
+            stated here BEFORE the run rather than discovered after it — the
+            same thing `reviewer_letter_availability` already says, which on
+            this build also fires because the proxy URL is the loopback
+            default. Two independent reasons, one sentence each, and neither
+            invents a state the backend does not have. */}
+        {entitlement.status === 'unverifiable_no_account' && (
+          <p className="gds-jc__disclaimer" data-testid="pr-no-account">
+            <strong>Running locally.</strong> This build has no account service
+            configured, so the reviewer letter — the one cloud step — needs an
+            account and will not run. Everything else in the report is produced
+            on this device and is unaffected.
+          </p>
+        )}
         <Card title="1 · Choose your manuscript">
           <Button variant="secondary" data-testid="pr-pick" onClick={() => (isTauri ? void pickManuscript() : prInputRef.current?.click())}>
             Choose file
