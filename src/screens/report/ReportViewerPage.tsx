@@ -422,14 +422,63 @@ const ChecklistView: React.FC<{ items: ChecklistItem[]; guidelinesUrl?: string }
   const suppliedButEmpty = !hasGuidelineItems && !!guidelinesUrl;
   return (
     <div className="gds-checklist" data-testid="checklist">
-      {items.map((c, i) => (
+      {items.map((c, i) => {
+        // **THREE STATES, THREE MARKS. §11 D188.** `passed` is a bool and
+        // compliance is not: an item nobody could decide is neither met nor
+        // failed, and `c.passed ? '✓' : '✗'` drew it as a red cross — a
+        // compliance failure on a check that was never run. No row reaches this
+        // screen with the flag set today, so this is the prerequisite for the
+        // conditions work rather than a repair of something visible.
+        const mark = c.unevaluable ? '–' : c.passed ? '✓' : '✗';
+        // Every page the journal states this on. The first lives in
+        // `source_span`; the rest are carried because the backend refuses to
+        // pick a best one — see the type's doc comment.
+        const sources = [
+          ...(c.source_span ? [{ source_span: c.source_span, guideline_source: c.guideline_source ?? '', article_type: c.article_type }] : []),
+          ...(c.also_from ?? []),
+        ];
+        return (
         <div key={i} className="gds-checklist__item" data-testid={`check-${i}`}>
-          <span className="gds-checklist__mark" data-pass={c.passed}>
-            {c.passed ? '✓' : '✗'}
+          <span
+            className="gds-checklist__mark"
+            data-pass={c.unevaluable ? undefined : c.passed}
+            data-unevaluable={c.unevaluable ? 'true' : undefined}
+            data-testid={`check-mark-${i}`}
+          >
+            {mark}
           </span>
           <div>
             <div>{c.requirement}</div>
             <div className="gds-finding__detail" style={{ fontSize: 12 }}>{c.detail}</div>
+            {c.unevaluable && (
+              <div className="gds-finding__detail" style={{ fontSize: 12 }} data-testid={`check-undecided-${i}`}>
+                Not decided — this is not a finding about your manuscript.
+              </div>
+            )}
+            {/* CORROBORATION IS READABLE; a single span picked by storage order
+                is not. PLOS ONE states data availability on six pages and
+                Nature Medicine states competing interests on four, one of them
+                scoped to Matters Arising. Showing every one lets a reader see
+                which scope covers them, which is the judgement the code
+                demonstrably cannot make. */}
+            {sources.length > 1 && (
+              <details style={{ marginTop: 4 }} data-testid={`check-sources-${i}`}>
+                <summary className="gds-finding__detail" style={{ fontSize: 12, cursor: 'pointer' }}>
+                  the journal states this on {sources.length} pages
+                </summary>
+                <ul style={{ margin: '4px 0 0', paddingLeft: 16 }}>
+                  {sources.map((s, k) => (
+                    <li key={k} className="gds-finding__detail" style={{ fontSize: 12 }}>
+                      {s.article_type ? <strong>[{s.article_type}] </strong> : null}
+                      “{s.source_span}”
+                      {s.guideline_source ? (
+                        <span className="gds-mono" style={{ opacity: 0.7 }}> — {s.guideline_source}</span>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
           </div>
           {c.guideline_source && (
             <span className="gds-checklist__src">
@@ -437,7 +486,8 @@ const ChecklistView: React.FC<{ items: ChecklistItem[]; guidelinesUrl?: string }
             </span>
           )}
         </div>
-      ))}
+        );
+      })}
       {suppliedButEmpty ? (
         <p
           className="gds-finding__detail"

@@ -196,3 +196,95 @@ describe('local PDF export', () => {
     global.fetch = origFetch;
   });
 });
+
+/* ------------- D188: every source shown, and the third state -------------- */
+
+describe('checklist rows carry every page the journal states them on (§11 D188)', () => {
+  // The backend refuses to pick a best source because three selection rules
+  // were measured and all three fail. That refusal is only worth anything if
+  // the screen shows what it carried.
+  const withSources = (extra: any): PublishReadyReport =>
+    ({
+      ...SAMPLE_REPORT,
+      checklist: [
+        {
+          requirement: 'data availability statement',
+          passed: false,
+          detail: 'none of 3 phrasings was found anywhere in the manuscript',
+          guideline_source: 'https://www.nature.com/nm/aims/fasttrack',
+          source_span: 'all fast track submissions must include the following',
+          article_type: null,
+          checked_field: 'manuscript full text',
+          ...extra,
+        },
+      ],
+    }) as any;
+
+  it('shows every carried source, with its own article type', () => {
+    renderReport(
+      withSources({
+        also_from: [
+          {
+            guideline_source: 'https://www.nature.com/nm/editorial-policies/clinicalresearch',
+            source_span: 'must be included with all original research manuscripts',
+            article_type: null,
+          },
+          {
+            guideline_source: 'https://www.nature.com/nm/submission-guidelines/matters-arising',
+            source_span: 'A statement is required.',
+            article_type: 'Matters Arising',
+          },
+        ],
+      }),
+      true
+    );
+    fireEvent.click(screen.getByTestId('tab-Checklist'));
+    const box = screen.getByTestId('check-sources-0');
+    expect(box.textContent).toMatch(/states this on 3 pages/);
+    // THE SENTENCE THAT USED TO BE DISCARDED.
+    expect(box.textContent).toMatch(/all original research manuscripts/);
+    // …and the narrow one is not hidden: showing BOTH is the point, because a
+    // reader can tell which scope covers them and the code cannot.
+    expect(box.textContent).toMatch(/fast track/);
+    // The per-source article type survives — one page scopes it, another does not.
+    expect(box.textContent).toMatch(/\[Matters Arising\]/);
+  });
+
+  // **THE NEGATIVE IS PAIRED WITH ITS POSITIVE, and the deletion test is why.**
+  // Asserting only "no box for one source" passed while the corroboration
+  // feature was deleted outright — it cannot tell "no box because there is one
+  // source" from "no box ever". Rendering both cases in one test makes that
+  // impossible: remove the feature and the second half fails.
+  it('the box appears for several sources and not for one', () => {
+    const { unmount } = renderReport(withSources({}), true);
+    fireEvent.click(screen.getByTestId('tab-Checklist'));
+    expect(screen.queryByTestId('check-sources-0')).toBeNull();
+    unmount();
+
+    renderReport(
+      withSources({
+        also_from: [
+          {
+            guideline_source: 'https://example.test/other',
+            source_span: 'stated again elsewhere',
+            article_type: null,
+          },
+        ],
+      }),
+      true
+    );
+    fireEvent.click(screen.getByTestId('tab-Checklist'));
+    expect(screen.getByTestId('check-sources-0')).toBeTruthy();
+  });
+
+  it('an UNDECIDABLE row is not drawn as a failure', () => {
+    renderReport(withSources({ unevaluable: true, passed: false }), true);
+    fireEvent.click(screen.getByTestId('tab-Checklist'));
+    const mark = screen.getByTestId('check-mark-0');
+    // Neither a tick nor a cross: `passed: false` + `unevaluable: true` used to
+    // render '✗', telling a researcher they failed a check nobody could run.
+    expect(mark.textContent).not.toBe('✗');
+    expect(mark.textContent).not.toBe('✓');
+    expect(screen.getByTestId('check-undecided-0').textContent).toMatch(/not a finding about your manuscript/i);
+  });
+});

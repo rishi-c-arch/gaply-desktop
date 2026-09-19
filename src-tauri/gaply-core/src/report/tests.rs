@@ -2587,6 +2587,7 @@ fn an_absent_unevaluable_key_renders_as_a_verdict_and_the_risk_is_named() {
     // can be undecided while this type still carries two bools, that is the
     // moment this becomes live — and this test is where it is written down.
     let current = serde_json::to_string(&crate::report::ChecklistItem {
+        also_from: Vec::new(),
         requirement: "x".into(),
         passed: false,
         detail: "not checked".into(),

@@ -930,6 +930,7 @@ mod tests {
 
     fn chk(req: &str, source: Option<&str>) -> crate::report::ChecklistItem {
         crate::report::ChecklistItem {
+            also_from: Vec::new(),
             requirement: req.into(),
             passed: true,
             detail: "d".into(),

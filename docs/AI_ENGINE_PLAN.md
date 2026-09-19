@@ -13749,3 +13749,138 @@ journals D186 shipped, and the key alignment made reachable the same day, were
 unreachable by every route a recipient actually had.** The gate was the only door
 to the journal layer, and it was shut on builds that had no way to open it.
 
+### D188 — three rules for picking the right requirement row, all refuted; the code stops choosing
+
+The checklist showed ONE span per requirement, selected by storage order.
+`requirements_for` is `ORDER BY id DESC` (`journal_store.rs:429`) and
+`checklist_from_requirements` took the first match per statement needle, so the
+sentence a researcher read was whichever the crawl stored LAST. On Nature
+Medicine, data availability quoted:
+
+> *"Preparing your submission for the fast track … all fast track submissions
+> must include the following: … a data availability statement"*
+
+while this sat unread in the same table:
+
+> *"In accordance with the Nature Portfolio availability of data policy, a Data
+> Availability Statement **must be included with all original research
+> manuscripts**."*
+
+**13 of 25 statement groups across the nine seeded journals are contested this
+way** — PLOS ONE, PLOS Medicine, Frontiers and Statistics in Medicine as well as
+Nature Medicine. It is not a Nature Medicine quirk.
+
+#### THE CENTRE OF THIS ENTRY: three selection rules, each measured, each refuted
+
+A rule that cannot work is worth more written down than a rule that half-works
+and ships.
+
+**1. "Prefer the row with no condition" — picks the WORSE row, twice.**
+
+| group | the CONDITIONAL row (correct) | the "unconditional" row this rule would pick |
+|---|---|---|
+| `nature-medicine / code availability` | *"**If custom code was used** in the study, a separate Code Availability Statement must also be provided."* | *"…should be provided as a separate section **after** the data availability statement"* — states PLACEMENT, not obligation |
+| `plos-one / ethic` | *"**If the study made use of human or animal subjects** and/or tissue, you must provide an ethics statement."* | *"The ethics statement **must include**: Details of institutional review board approval"* — describes CONTENTS, presumes it exists |
+
+A condition is not a defect in a requirement. It is frequently the part that
+makes the requirement *correct*.
+
+**2. "Prefer the row whose URL names the topic" — picks a page about comments.**
+
+For competing interests on both PLOS journals it selects `/s/comments` —
+*"completion of the competing interests statement is required"* — a page about
+POST-PUBLICATION COMMENTS. And it misses Nature Medicine's best data-availability
+row, which lives on `/editorial-policies/clinicalresearch` and contains no
+data-shaped token at all.
+
+**3. "Prefer the span that states an inclusion obligation" — separates 2 of 13.**
+
+Built and measured. It rates the fast-track span as an obligation, because
+*"all fast track submissions **must include** the following"* genuinely is one.
+
+#### What actually separates them is not in the span
+
+The fast-track sentence and the correct sentence are both *"all ⟨X⟩ must
+include…"*. The difference is that one X is the general population of
+submissions and the other a subset. That is **scope breadth**, and it is not a
+property of the span — deciding it requires knowing that "fast track" names a
+submission route rather than a class of manuscript. No span-local rule can see
+that, which is why all three attempts fail for the same underlying reason rather
+than three different ones.
+
+#### So the code stops choosing
+
+`ChecklistItem` gains `also_from: Vec<ChecklistSource>` — the first source stays
+in `guideline_source`/`source_span` and the rest are carried, the same
+first-plus-the-others shape `Finding::location` and `Finding::also_at` use since
+§11 D180. **The row count does not change** (12 rows on the measured manuscript,
+before and after); what changes is that up to five of six sources per row are no
+longer discarded.
+
+Most contested groups are not conflicts at all. Frontiers states its ethics
+requirement in the *same sentence* on two pages; PLOS ONE states data
+availability on **six**. That is corroboration, and the existing `conflicted` /
+`conflict_id` machinery cannot mark it because it fires only when VALUES differ
+(`journal_store.rs:16-37`) — here the value is identical and only the span
+differs.
+
+**The fast-track span stays visible, and that is the argument rather than a
+concession.** A reader who sees *"required of all fast track submissions"* beside
+*"required of all original research manuscripts"* can tell which covers their
+manuscript. The code demonstrably cannot. Showing one of six picked by insertion
+order is a guess wearing the shape of an answer.
+
+`article_type` lives on the SOURCE, not only the item: `matters-arising` states a
+competing-interests requirement for one article type while
+`editorial-policies/competing-interests` states it for all, and collapsing them
+loses exactly the distinction that matters.
+
+#### Conditions are NOT built, and the reason is a measurement
+
+Three rows on the measured manuscript carry an explicit condition in their span
+and two carry `article_type`, and nothing reads either. Reading them is the
+obvious next step and it is deliberately not taken. Over all 213 seeded
+requirements:
+
+| | rows | share |
+|---|---:|---:|
+| `article_type` set (machine-readable) | 80 | 38% |
+| prose condition only | 21 | 10% |
+| no condition detected | 112 | 53% |
+
+The 38% is carried almost entirely by `figure_limit` (31) and
+`reporting_standard` (25). **Narrowed to the rows that produce statement checks,
+3 of 51 carry a machine-readable condition and 15 carry prose only.** So reading
+conditions means a prose classifier over spans — *"If custom code was used"*,
+*"For research involving human participants"*, *"where necessary"* — which is the
+lexicon problem in a new place, and this log has recorded that shape enough times
+to recognise it before building rather than after.
+
+The reassuring half: 18 of 51 statement rows carry a condition somewhere, so an
+`unevaluable` treatment would fire on about a third rather than on nearly
+everything. The checklist would not become a page of shrugs. That is an argument
+for the feature being worth building — later, with a measured classifier — not
+for building it now.
+
+#### `unevaluable` is a PREREQUISITE, not a detail
+
+`grep -rn unevaluable src/` returns **zero hits in the entire frontend**.
+`ChecklistView` renders `c.passed ? '✓' : '✗'` (`ReportViewerPage.tsx:427-429`)
+and reads nothing else, while Rust sets the flag true at `report.rs:2142` and
+`:2303`.
+
+**The gap is LATENT, not live, and the distinction is worth stating precisely
+because an earlier draft of this entry got it wrong.** Neither producer reaches a
+user through `build_checklist` today: the per-binding rows need a non-empty
+`bindings` and `build_checklist` passes `&[]` (`report.rs:1798`), and
+`unbound_standard_findings`' rows carry
+`checked_field: "journal_requirements.reporting_standard (absence)"`, which
+`design_independent` filters out (`report.rs:2441`). So nothing is being drawn as
+a red cross right now.
+
+That makes the renderer a PREREQUISITE rather than an outstanding bug: the FIRST
+row that sets the flag — which is exactly what a conditions treatment would
+produce — would be misdrawn as a compliance failure. Building the Rust half first
+would add a second invisible state to a screen that cannot show the first, which
+is the pattern §11 D187 records one layer out.
+

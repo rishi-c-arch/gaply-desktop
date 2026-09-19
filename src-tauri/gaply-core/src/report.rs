@@ -220,6 +220,18 @@ pub fn raised_at_phrase(summary: &str, places: usize, quoted: bool) -> String {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChecklistSource {
+    pub guideline_source: String,
+    pub source_span: String,
+    /// The article type THIS source bound the requirement to. Per-source, not
+    /// per-item: `matters-arising` states a competing-interests requirement for
+    /// one article type while `editorial-policies/competing-interests` states it
+    /// for all, and collapsing them would lose exactly the distinction a reader
+    /// needs.
+    pub article_type: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChecklistItem {
     pub requirement: String,
     pub passed: bool,
@@ -266,6 +278,39 @@ pub struct ChecklistItem {
     /// and one that has them says so.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub unevaluable: bool,
+    /// **Every OTHER page on which the journal states this requirement. §11 D188.**
+    ///
+    /// `guideline_source`/`source_span` hold the first; this holds the rest —
+    /// the same first-plus-the-others shape `Finding::location` and
+    /// `Finding::also_at` use, for the same reason.
+    ///
+    /// # Why the code stopped choosing
+    ///
+    /// `requirements_for` is `ORDER BY id DESC` and this loop used to take the
+    /// FIRST match per statement, so the row a researcher read was whichever
+    /// the crawl stored LAST. On Nature Medicine that surfaced
+    /// *"all fast track submissions must include…"* for data availability while
+    /// *"a Data Availability Statement must be included with all original
+    /// research manuscripts"* sat unread in the same table. 13 of 25 statement
+    /// groups across the nine seeded journals are contested this way.
+    ///
+    /// **Three selection rules were measured and all three fail** (D188):
+    /// preferring the row with no condition picks the WORSE row twice;
+    /// preferring a topical URL picks a post-publication comments page;
+    /// obligation language separates 2 of 13 because both spans are genuine
+    /// obligations. What separates them is SCOPE BREADTH — "all fast track
+    /// submissions" versus "all original research manuscripts" — and that is
+    /// not a property of the span.
+    ///
+    /// So every source is carried and none is privileged. A reader can tell
+    /// which scope covers their manuscript; the code demonstrably cannot, and
+    /// that asymmetry is the whole argument for showing both.
+    ///
+    /// `skip_serializing_if` for the reason `unevaluable` documents above: the
+    /// golden report is pinned byte-for-byte, and a structural-only checklist
+    /// has no sources, so its bytes are unchanged.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub also_from: Vec<ChecklistSource>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -1759,6 +1804,16 @@ pub fn build_checklist(
     Ok(items)
 }
 
+/// One stored requirement as a carried source. Kept beside the two grouping
+/// sites so both produce the same shape.
+fn source_of(r: &crate::journal_store::StoredRequirement) -> ChecklistSource {
+    ChecklistSource {
+        guideline_source: r.source_url.clone(),
+        source_span: r.source_span.clone(),
+        article_type: r.article_type.clone(),
+    }
+}
+
 /// Phrasings that satisfy a data availability statement.
 const DATA_AVAILABILITY_NAMES: &[&str] =
     &["data availability", "data availability statement", "availability of data"];
@@ -1936,6 +1991,8 @@ pub fn checklist_from_requirements(
             if let Ok(limit) = r.value.parse::<usize>() {
                 let passed = manuscript_words <= limit;
                 items.push(ChecklistItem {
+                    // One source: this row is not derived from journal_requirements.
+                    also_from: Vec::new(),
                     requirement: format!("word limit: {limit}"),
                     passed,
                     detail: format!(
@@ -1959,6 +2016,10 @@ pub fn checklist_from_requirements(
                 .collect::<Vec<_>>()
                 .join("; ");
             items.push(ChecklistItem {
+                // Same shape as the statement groups (§11 D188): the detail
+                // already names every limit, so carrying one span and dropping
+                // the others left the row unable to show where each came from.
+                also_from: word_limits[1..].iter().map(|r| source_of(r)).collect(),
                 requirement: "word limit depends on article type".into(),
                 passed: true,
                 detail: format!(
@@ -1990,6 +2051,8 @@ pub fn checklist_from_requirements(
             // the limit. Absence is UNEVALUABLE, not a failure.
             if abstract_words > 0 {
                 items.push(ChecklistItem {
+                    // One source: this row is not derived from journal_requirements.
+                    also_from: Vec::new(),
                     requirement: format!("abstract limit: {limit} words"),
                     passed: abstract_words <= limit,
                     detail: format!("abstract has {abstract_words} words against a limit of {limit}"),
@@ -2010,7 +2073,15 @@ pub fn checklist_from_requirements(
     let body_text = text_without_references(extraction, manuscript_text);
     let manuscript_text = body_text.as_str();
     let lower_text = manuscript_text.to_lowercase();
-    if let Some(r) = requirements.iter().find(|r| r.kind == RequirementKind::DataPolicy) {
+    // **EVERY data-policy source, not the newest one. §11 D188.** `.find()` took
+    // the first row `ORDER BY id DESC` returned, i.e. the last the crawl stored:
+    // on Nature Medicine that is the fast-track page, and on PLOS ONE it is one
+    // of six. The requirement is the same either way; which SCOPE it was stated
+    // under is what differs, and the code cannot tell which scope covers this
+    // manuscript.
+    let data_rows: Vec<&crate::journal_store::StoredRequirement> =
+        requirements.iter().filter(|r| r.kind == RequirementKind::DataPolicy).collect();
+    if let Some((first, rest)) = data_rows.split_first() {
         let found = statement_in_text(&lower_text, manuscript_text, DATA_AVAILABILITY_NAMES);
         items.push(ChecklistItem {
             requirement: "data availability statement".into(),
@@ -2022,11 +2093,12 @@ pub fn checklist_from_requirements(
                     DATA_AVAILABILITY_NAMES.len()
                 ),
             },
-            guideline_source: Some(r.source_url.clone()),
-            source_span: Some(r.source_span.clone()),
-            article_type: r.article_type.clone(),
+            guideline_source: Some(first.source_url.clone()),
+            source_span: Some(first.source_span.clone()),
+            article_type: first.article_type.clone(),
             checked_field: Some("manuscript full text".into()),
             unevaluable: false,
+            also_from: rest.iter().map(|r| source_of(r)).collect(),
         });
     }
 
@@ -2036,18 +2108,36 @@ pub fn checklist_from_requirements(
     // rule now finds. `journal_extract::REQUIRED_STATEMENTS` carries the
     // heading substring that satisfies each; the value is the statement name
     // as the journal stated it.
-    let mut seen_stmt: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
+    // **GROUPED, not deduplicated. §11 D188.** This used to `continue` past every
+    // row after the first for a statement, which threw away up to five of six
+    // sources and kept whichever the crawl happened to store last. Grouping
+    // keeps the row count identical — one row per statement, as before — and
+    // stops the discarding.
+    //
+    // Insertion order is preserved so the output is deterministic; it carries no
+    // authority, and nothing downstream may read `guideline_source` as "the"
+    // source. It is the first of several, exactly as `Finding::location` is.
+    let mut order: Vec<&'static str> = Vec::new();
+    let mut grouped: std::collections::BTreeMap<
+        &'static str,
+        Vec<&crate::journal_store::StoredRequirement>,
+    > = Default::default();
     for r in requirements.iter().filter(|r| r.kind == RequirementKind::SectionRequired) {
         let Some(needle) = crate::journal_extract::heading_for_statement(&r.value) else {
             continue;
         };
-        if !seen_stmt.insert(needle) {
-            continue;
+        if !grouped.contains_key(needle) {
+            order.push(needle);
         }
+        grouped.entry(needle).or_default().push(r);
+    }
+    for needle in order {
+        let rows = &grouped[needle];
+        let (first, rest) = rows.split_first().expect("a group exists only when a row made it");
         let names = synonyms_for(needle);
         let found = statement_in_text(&lower_text, manuscript_text, &names);
         items.push(ChecklistItem {
-            requirement: r.value.clone(),
+            requirement: first.value.clone(),
             passed: found.is_some(),
             detail: match &found {
                 Some(sentence) => format!("found in the manuscript: {sentence}"),
@@ -2057,11 +2147,12 @@ pub fn checklist_from_requirements(
                     names.join(", ")
                 ),
             },
-            guideline_source: Some(r.source_url.clone()),
-            source_span: Some(r.source_span.clone()),
-            article_type: r.article_type.clone(),
+            guideline_source: Some(first.source_url.clone()),
+            source_span: Some(first.source_span.clone()),
+            article_type: first.article_type.clone(),
             checked_field: Some("manuscript full text".into()),
             unevaluable: false,
+            also_from: rest.iter().map(|r| source_of(r)).collect(),
         });
     }
 
@@ -2104,6 +2195,8 @@ pub fn checklist_from_requirements(
         let verb = if mandatory { "requires" } else { "recommends" };
         let article = if b.design.starts_with(['a', 'e', 'i', 'o', 'u']) { "an" } else { "a" };
         items.push(ChecklistItem {
+            // One source: this row is not derived from journal_requirements.
+            also_from: Vec::new(),
             requirement: format!("{} applies to {article} {}", b.standard.as_str(), b.design),
             // Whether the manuscript IS that design is not known here, so this
             // reports the binding rather than judging compliance.
@@ -2158,6 +2251,8 @@ pub fn checklist_from_requirements(
         };
         for v in &eval.verdicts {
             items.push(ChecklistItem {
+                // One source: this row is not derived from journal_requirements.
+                also_from: Vec::new(),
                 // **THE FRACTION IS IN THE ROW.** Not a footnote, not a header
                 // the reader scrolled past: every item restates how much of the
                 // standard was examined, so no single row can be read as a
@@ -2281,6 +2376,8 @@ fn unbound_standard_findings(
         };
 
         out.push(ChecklistItem {
+            // One source: this row is not derived from journal_requirements.
+            also_from: Vec::new(),
             requirement,
             // Neither shape is a compliance failure. `passed` is the wrong axis
             // for a statement about what the journal asked, and `false` would
@@ -2363,6 +2460,8 @@ pub fn checklist_from_guidelines(
     ] {
         let present = extraction.sections.iter().any(|s| s.kind == kind);
         items.push(ChecklistItem {
+            // One source: this row is not derived from journal_requirements.
+            also_from: Vec::new(),
             requirement: format!("required section: {name}"),
             passed: present,
             detail: if present {
@@ -2429,6 +2528,8 @@ pub fn checklist_from_guidelines(
             let has_abstract =
                 extraction.sections.iter().any(|s| s.kind == SectionKind::Abstract);
             items.push(ChecklistItem {
+                // One source: this row is not derived from journal_requirements.
+                also_from: Vec::new(),
                 requirement: "structured abstract".into(),
                 passed: false,
                 detail: if has_abstract {
@@ -2472,6 +2573,8 @@ pub fn checklist_from_guidelines(
             let names = coi_names.clone();
             let found = statement_in_text(&text_lower, manuscript_text, &names);
             items.push(ChecklistItem {
+                // One source: this row is not derived from journal_requirements.
+                also_from: Vec::new(),
                 requirement: "conflict-of-interest declaration".into(),
                 passed: found.is_some(),
                 detail: match &found {
@@ -2502,6 +2605,8 @@ pub fn checklist_from_guidelines(
                 .count();
             let passed = total > 0 && numbered == total;
             items.push(ChecklistItem {
+                // One source: this row is not derived from journal_requirements.
+                also_from: Vec::new(),
                 requirement: "numbered (Vancouver) reference style".into(),
                 passed,
                 detail: format!("{numbered}/{total} reference entries are numbered"),

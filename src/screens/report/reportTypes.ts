@@ -56,6 +56,34 @@ export interface ChecklistItem {
   /** Which ResearchState / extraction field was actually checked. Item 12
    *  requires this so a passed item is auditable rather than trusted. */
   checked_field?: string | null;
+  /** **Every OTHER page on which the journal states this requirement. §11 D188.**
+   *
+   *  `guideline_source`/`source_span` hold the first; these hold the rest. The
+   *  backend deliberately does NOT pick a best one: three selection rules were
+   *  measured and all three fail, because what separates "required of all fast
+   *  track submissions" from "required of all original research manuscripts" is
+   *  scope breadth, which is not in the span. A reader can tell which covers
+   *  their manuscript; the code cannot — so all of them are shown.
+   *
+   *  Absent on reports compiled before D188, hence optional. */
+  also_from?: ChecklistSource[];
+  /** **Compliance has three states and `passed` is a bool.** Rust:
+   *  `ChecklistItem::unevaluable`. True means nobody could decide this item —
+   *  NOT that the manuscript failed it. Serialized only when true.
+   *
+   *  No row reaches this screen with the flag set today (both producers are
+   *  suppressed inside `build_checklist`), so this is read defensively: the
+   *  first row that sets it must not draw as a red cross. */
+  unevaluable?: boolean;
+}
+
+/** One page on which the journal states a requirement. Rust:
+ *  `gaply_core::report::ChecklistSource`. */
+export interface ChecklistSource {
+  guideline_source: string;
+  source_span: string;
+  /** The article type THIS page bound it to; `null` means not stated. */
+  article_type?: string | null;
 }
 
 export interface DebateSummary {

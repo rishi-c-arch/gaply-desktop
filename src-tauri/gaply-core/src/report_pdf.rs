@@ -1652,6 +1652,7 @@ mod tests {
             verdict: "Major revision".into(),
             combined_confidence: 0.8,
             checklist: vec![ChecklistItem {
+                also_from: Vec::new(),
                 requirement: "Structured abstract".into(),
                 passed: true,
                 detail: "Found.".into(),
@@ -2075,6 +2076,7 @@ mod layout_tests {
             recommendation: None,
             combined_confidence: 0.62,
             checklist: vec![crate::report::ChecklistItem {
+                also_from: Vec::new(),
                 requirement: "structured abstract".into(),
                 passed: true,
                 detail: "found".into(),
