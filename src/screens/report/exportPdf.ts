@@ -4,9 +4,45 @@
 // app's Object.freeze(Object.prototype) hardening — a real prototype-pollution
 // defense — rejects). Findings are emitted in priority order with certainty
 // tier + provenance, plus the mandatory disclaimer.
-import { AGENT_LABEL, PublishReadyReport, sortFindings } from './reportTypes';
+import { AGENT_LABEL, ChecklistItem, PublishReadyReport, sortFindings } from './reportTypes';
 import { disclosuresFor, PdfLine, renderTextPdf } from './miniPdf';
 import { saveBinaryFile } from '../../utils/saveBinaryFile';
+
+
+/** **The lines ONE checklist row becomes. §11 D190 — MIRROR of Rust.**
+ *
+ *  `gaply-core/src/report_compose.rs::checklist_lines` is the same function in
+ *  the other exporter. They cannot share code — different languages, different
+ *  renderers — so they share a SHAPE, pinned by `generated/checklist_line.json`:
+ *  Rust asserts its version matches the artifact, `checklist_line.vitest.ts`
+ *  asserts this one does, and neither can drop a field without a test failing.
+ *
+ *  The prefix used to be `[x]`/`[ ]` here and `[met]`/`[not met]` there — a
+ *  divergence nobody chose, which is exactly how the two artefacts a researcher
+ *  gets from the two buttons drift apart. Unified deliberately.
+ *
+ *  The span LEADS because it is the evidence: this exporter used to emit the
+ *  verdict with none of the journal's own words to check it against. `also_from`
+ *  follows because it is the corroboration — the backend refuses to choose
+ *  between sources, and an export showing one of them un-refuses on its behalf. */
+export function checklistLines(c: ChecklistItem): string[] {
+  // Three states; `passed` is a bool and compliance is not.
+  const status = c.unevaluable ? 'not decided' : c.passed ? 'met' : 'not met';
+  const out = [`[${status}] ${c.requirement}: ${c.detail}`];
+  if (c.source_span) {
+    // Whole, never clipped: a truncated span is not a span.
+    out.push(`the journal's words: \u201c${c.source_span}\u201d`);
+  }
+  const also = c.also_from ?? [];
+  if (also.length > 0) {
+    out.push(`also stated on ${also.length} other page(s); Gaply does not choose between them:`);
+    for (const s of also) {
+      const at = s.article_type ? `[${s.article_type}] ` : '';
+      out.push(`${at}\u201c${s.source_span}\u201d`);
+    }
+  }
+  return out;
+}
 
 function reportLines(report: PublishReadyReport, title: string): PdfLine[] {
   const lines: PdfLine[] = [];
@@ -36,7 +72,11 @@ function reportLines(report: PublishReadyReport, title: string): PdfLine[] {
   lines.push({ text: ' ', size: 6 });
   lines.push({ text: 'PublishReady checklist', size: 14 });
   for (const c of report.checklist) {
-    lines.push({ text: `${c.passed ? '[x]' : '[ ]'} ${c.requirement} — ${c.detail}`, size: 9, gray: 0.3 });
+    const rendered = checklistLines(c);
+    lines.push({ text: rendered[0], size: 9, gray: 0.3 });
+    for (const extra of rendered.slice(1)) {
+      lines.push({ text: `   ${extra}`, size: 8, gray: 0.5 });
+    }
   }
 
   lines.push({ text: ' ', size: 8 });

@@ -14000,3 +14000,87 @@ rescues **exactly one thing** and neither has a second witness: R3 fires on one
 paper's abstract, R2 on one paper's conclusion. Zero false positives is a
 property that was measured; correctness in general is not. If a second manuscript
 ever exercises either rule, that is the first independent vote it has had.
+
+### D190 — the checklist's evidence was on screen and absent from the exported PDF, in both exporters
+
+§11 D188 made the checklist carry every page a journal states a requirement on,
+and the screen renders them. **Neither PDF did.** `report_compose::checklist`
+emitted one bullet per row:
+
+```rust
+"[{}] {}: {}{origin}",  item.passed ? "met" : "not met",  item.requirement,  item.detail
+```
+
+and `exportPdf.ts` emitted its own line with different brackets. Between them
+they dropped THREE fields, not one:
+
+| | in `LocalReportModel` | in either PDF |
+|---|---|---|
+| `also_from` | yes | no, new with D188 |
+| `source_span` | yes | **no, and never had been** |
+| `unevaluable` | yes | no, prints as `[not met]` |
+
+**The data was never lost on the way.** `report_build.rs:204` clones the
+checklist whole and `report_model.rs:137` holds `Vec<ChecklistItem>`; only the
+composers failed to read the fields. This is the em-dash pattern in the export
+layer: a refusal the screen honours and the artefact discards, in the file a
+researcher forwards to a co-author.
+
+**`source_span` is the sharper half and it is pre-existing.** An exported row
+asserted *"not met: data availability statement"* carrying none of the journal's
+own words to check it against. By the span rule that is a claim a reader can only
+believe, and it had been that way since the PDF existed. The span therefore LEADS
+the rendering and `also_from` follows it, because the span is the evidence and the
+other pages are the corroboration.
+
+#### They cannot share code, so they share a SHAPE
+
+Two exporters, two languages, two renderers: `report_compose` (the "Open full
+report" PDF) and `exportPdf.ts` (the "Export summary PDF", miniPdf). No shared
+code is possible. They had already drifted in presentation, `[met]`/`[not met]`
+against `[x]`/`[ ]`, and the moment they drift in WHICH FIELDS they carry a
+researcher gets a different artefact from each button.
+
+`src/generated/checklist_line.json` is the instrument, and it is `vocabulary.rs`'s
+mirror applied to a RENDERING rather than to a table:
+
+```
+Rust asserts the artifact matches report_compose::checklist_lines
+vitest asserts exportPdf.ts's checklistLines matches the same artifact
+```
+
+The artifact carries the fixture's INPUT as well as its output, so the TypeScript
+side rebuilds the row rather than pinning against one TypeScript invented. The
+prefix is unified deliberately: pinning the fields while the two artefacts still
+looked different would leave the divergence that prompted this.
+
+Deletion-tested both directions. Reverting the TS prefix reddens two vitest
+assertions; dropping `also_from` in Rust reddens two Rust assertions. Neither
+side can move alone.
+
+#### `unevaluable` is LATENT, and the tests say so rather than implying otherwise
+
+No row reaches either exporter with the flag set: the per-binding rows need a
+non-empty `bindings` and `build_checklist` passes `&[]`, and
+`unbound_standard_findings`' rows are filtered by `design_independent` (§11 D188).
+
+So both sides pin it with a UNIT test over a constructed item, and each carries a
+comment saying it is not a claim that the export path handles the third state end
+to end. **A test driven through `build_checklist` would pass because nothing
+reaches it**, which is the vacuous shape this log keeps catching. The honest
+statement is: the composing function handles it; the path has never produced one.
+
+#### A blind spot in the em-dash guard, found by tripping half of it
+
+`audit_report::no_module_that_writes_to_the_reader_contains_an_em_dash` caught a
+literal em dash in a test assertion here, and **did not catch the one in the
+production string**, because that was written as the Rust escape `\u{2014}`. The
+guard tests `line.contains('\u{2014}')` — the character — and an escape in source
+is the ASCII text `\u{2014}`, which contains no such character.
+
+Both were removed rather than only the one the guard saw: the rule is editorial,
+not mechanical. `ai_signals` tracks `em_dash_per100` as an AI-authorship tell, so
+Gaply not writing them in its own prose is the point, and an escape is the same
+character by the time a reader meets it. The guard's blind spot is recorded here
+rather than widened, because widening it is a separate change with its own
+false-positive question over every regex and doc comment in the scanned modules.

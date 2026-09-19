@@ -1,0 +1,27 @@
+{
+  "_comment": "GENERATED from gaply-core/src/report_compose.rs. Do not hand-edit. Regenerate with UPDATE_CHECKLIST_MIRROR=1 cargo test -p gaply_core checklist_mirror",
+  "input": {
+    "also_from": [
+      {
+        "article_type": null,
+        "source_span": "a Data Availability Statement must be included with all original research manuscripts"
+      },
+      {
+        "article_type": "Matters Arising",
+        "source_span": "A statement is required."
+      }
+    ],
+    "detail": "none of 3 phrasings was found anywhere in the manuscript",
+    "passed": false,
+    "requirement": "data availability statement",
+    "source_span": "all fast track submissions must include the following",
+    "unevaluable": false
+  },
+  "lines": [
+    "[not met] data availability statement: none of 3 phrasings was found anywhere in the manuscript",
+    "the journal's words: “all fast track submissions must include the following”",
+    "also stated on 2 other page(s); Gaply does not choose between them:",
+    "“a Data Availability Statement must be included with all original research manuscripts”",
+    "[Matters Arising] “A statement is required.”"
+  ]
+}

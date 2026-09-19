@@ -563,6 +563,56 @@ pub const NOTE_NO_GUIDELINES: &str =
      manuscript against a specific journal's requirements. These are Gaply's always-on \
      structural checks. Their silence is not a journal's approval.";
 
+/// **The lines ONE checklist row becomes, in an exporter-independent form. §11 D190.**
+///
+/// There are two exporters — this composer (Rust, the "Open full report" PDF)
+/// and `src/screens/report/exportPdf.ts` (jsPDF, the "Export summary PDF").
+/// They already differed in bracket style (`[met]` vs `[x]`), and the moment
+/// they differ in WHICH FIELDS they carry a researcher gets a different artefact
+/// from each button. **They cannot share code** — different languages, different
+/// renderers — so they share a SHAPE, and `generated/checklist_line.json` pins
+/// them to it: Rust asserts this function matches the artifact, vitest asserts
+/// the TypeScript exporter matches the same artifact, and neither can drift
+/// without one of the two failing. That is the `vocabulary.rs` mirror applied to
+/// a rendering rather than to a table.
+///
+/// # What it carries, and why the span leads
+///
+/// The PDF used to emit `[met] requirement: detail` and nothing else, so an
+/// exported row asserted *"not met: data availability statement"* while carrying
+/// none of the journal's own words to check it against. **A verdict a reader can
+/// only believe, in the artefact they forward to a co-author.** The span comes
+/// first because it is the evidence; `also_from` follows because it is the
+/// corroboration behind it (§11 D188 — the code refuses to choose between
+/// sources, and an export that shows one of them un-refuses on its behalf).
+pub fn checklist_lines(item: &crate::report::ChecklistItem) -> Vec<String> {
+    // THREE STATES. `passed` is a bool and compliance is not; an undecidable row
+    // printed as "not met" tells a researcher they failed a check nobody ran.
+    let status = if item.unevaluable {
+        "not decided"
+    } else if item.passed {
+        "met"
+    } else {
+        "not met"
+    };
+    let mut out = vec![format!("[{status}] {}: {}", item.requirement, item.detail)];
+    if let Some(span) = &item.source_span {
+        // WHOLE, never clipped: a truncated span is not a span.
+        out.push(format!("the journal's words: \u{201c}{span}\u{201d}"));
+    }
+    if !item.also_from.is_empty() {
+        out.push(format!(
+            "also stated on {} other page(s); Gaply does not choose between them:",
+            item.also_from.len()
+        ));
+        for s in &item.also_from {
+            let at = s.article_type.as_deref().map(|a| format!("[{a}] ")).unwrap_or_default();
+            out.push(format!("{at}\u{201c}{}\u{201d}", s.source_span));
+        }
+    }
+    out
+}
+
 fn checklist(model: &LocalReportModel, out: &mut Vec<Block>) {
     if model.checklist.is_empty() {
         return;
@@ -588,15 +638,12 @@ fn checklist(model: &LocalReportModel, out: &mut Vec<Block>) {
         } else {
             ""
         };
-        out.push(Block::Bullet {
-            text: format!(
-                "[{}] {}: {}{origin}",
-                if item.passed { "met" } else { "not met" },
-                item.requirement,
-                item.detail
-            ),
-            indent: 0,
-        });
+        // ONE shared shape, indented for the page. The first line is the row;
+        // everything after it is the evidence behind the row.
+        for (i, line) in checklist_lines(item).into_iter().enumerate() {
+            let text = if i == 0 { format!("{line}{origin}") } else { line };
+            out.push(Block::Bullet { text, indent: if i == 0 { 0 } else { 1 } });
+        }
     }
 }
 
@@ -681,6 +728,119 @@ fn limitations(model: &LocalReportModel, out: &mut Vec<Block>) {
         for u in unexamined {
             out.push(Block::Bullet { text: u.into(), indent: 0 });
         }
+    }
+}
+
+/// **THE MIRROR ARTIFACT for the checklist line. §11 D190.**
+///
+/// `vocabulary.rs`'s shape, applied to a rendering. Rust asserts
+/// [`checklist_lines`] produces exactly what is on disk; `checklist_line.vitest.ts`
+/// asserts the jsPDF exporter produces the same. Neither exporter can drop a
+/// field without one of the two tests failing.
+///
+/// The fixture's INPUT is carried alongside its output so the TypeScript side
+/// builds the same row rather than a row it believes is the same.
+#[cfg(test)]
+const CHECKLIST_MIRROR: &str =
+    concat!(env!("CARGO_MANIFEST_DIR"), "/../../src/generated/checklist_line.json");
+
+#[cfg(test)]
+mod checklist_mirror {
+    use super::*;
+    use crate::report::{ChecklistItem, ChecklistSource};
+
+    /// A CONTESTED row — the case the export layer was dropping. Three sources,
+    /// one of them scoped to an article type, so the fixture exercises every
+    /// field the line can carry.
+    fn fixture() -> ChecklistItem {
+        ChecklistItem {
+            requirement: "data availability statement".into(),
+            passed: false,
+            detail: "none of 3 phrasings was found anywhere in the manuscript".into(),
+            guideline_source: Some("https://www.nature.com/nm/aims/fasttrack".into()),
+            source_span: Some("all fast track submissions must include the following".into()),
+            article_type: None,
+            checked_field: Some("manuscript full text".into()),
+            unevaluable: false,
+            also_from: vec![
+                ChecklistSource {
+                    guideline_source: "https://www.nature.com/nm/editorial-policies/clinicalresearch".into(),
+                    source_span: "a Data Availability Statement must be included with all original research manuscripts".into(),
+                    article_type: None,
+                },
+                ChecklistSource {
+                    guideline_source: "https://www.nature.com/nm/submission-guidelines/matters-arising".into(),
+                    source_span: "A statement is required.".into(),
+                    article_type: Some("Matters Arising".into()),
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn the_mirror_artifact_matches_the_composer() {
+        use serde_json::json;
+        let item = fixture();
+        let expected = json!({
+            "_comment": "GENERATED from gaply-core/src/report_compose.rs. Do not hand-edit. Regenerate with UPDATE_CHECKLIST_MIRROR=1 cargo test -p gaply_core checklist_mirror",
+            "input": {
+                "requirement": item.requirement,
+                "passed": item.passed,
+                "detail": item.detail,
+                "source_span": item.source_span,
+                "unevaluable": item.unevaluable,
+                "also_from": item.also_from.iter().map(|s| json!({
+                    "source_span": s.source_span,
+                    "article_type": s.article_type,
+                })).collect::<Vec<_>>(),
+            },
+            "lines": checklist_lines(&item),
+        });
+        let pretty = serde_json::to_string_pretty(&expected).unwrap() + "\n";
+        if std::env::var("UPDATE_CHECKLIST_MIRROR").is_ok() {
+            std::fs::write(CHECKLIST_MIRROR, &pretty).expect("write the mirror artifact");
+        }
+        let on_disk = std::fs::read_to_string(CHECKLIST_MIRROR).unwrap_or_default();
+        assert_eq!(
+            on_disk, pretty,
+            "the checklist-line artifact is stale. Regenerate with \
+             UPDATE_CHECKLIST_MIRROR=1 cargo test -p gaply_core checklist_mirror, and then \
+             check `exportPdf.ts` still agrees, because that is the half this pins."
+        );
+    }
+
+    /// The span LEADS and the corroboration FOLLOWS, in that order.
+    #[test]
+    fn the_evidence_is_carried_and_the_span_comes_first() {
+        let lines = checklist_lines(&fixture());
+        assert!(lines[0].starts_with("[not met] data availability statement"));
+        assert!(lines[1].contains("the journal's words"), "{lines:#?}");
+        // THE SENTENCE THE EXPORT USED TO DROP.
+        assert!(
+            lines.iter().any(|l| l.contains("all original research manuscripts")),
+            "{lines:#?}"
+        );
+        assert!(lines.iter().any(|l| l.contains("[Matters Arising]")), "{lines:#?}");
+    }
+
+    /// **`unevaluable` is LATENT and this test says so rather than pretending.**
+    ///
+    /// No row reaches either exporter with the flag set today: the per-binding
+    /// rows need a non-empty `bindings` and `build_checklist` passes `&[]`, and
+    /// `unbound_standard_findings`' rows are filtered by `design_independent`
+    /// (§11 D188). So this is a UNIT test on the composer with a constructed
+    /// item — honest — and it must not be read as a claim that the export path
+    /// handles the third state end to end. It does not, because nothing
+    /// produces one. A test driven through `build_checklist` would pass because
+    /// nothing reaches it, which is the vacuous shape.
+    #[test]
+    fn an_undecidable_row_does_not_print_as_a_failure() {
+        let mut item = fixture();
+        item.unevaluable = true;
+        item.passed = false;
+        let lines = checklist_lines(&item);
+        assert!(lines[0].starts_with("[not decided]"), "{lines:#?}");
+        assert!(!lines[0].starts_with("[not met]"));
     }
 }
 
