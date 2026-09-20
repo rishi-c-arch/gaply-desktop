@@ -1744,3 +1744,65 @@ time injection.
   reported by a statement you wrote, rather than by the thing it changed, is
   unverified however confident the wording. Read the file, count the lines, grep
   for the new identifier. **Never let the transcript be the evidence.**
+
+- **AND THE SAME FAMILY WITH THE FAILURE REMOVED: A PYTHON HEREDOC EATS A RUST
+  STRING CONTINUATION, AND THE RESULT COMPILES.**
+
+  The entry above is about a shell swallowing an edit and the edit never landing.
+  This is the shell swallowing *part* of an edit so that something **different
+  from what was written** lands instead — and the reason it belongs beside that
+  one rather than under it is that **the `cd` case at least fails loudly**. A
+  missing file, a missing symbol, a red test. This one produces valid Rust, a
+  clean `cargo build`, a green suite, and a sentence a user reads with fourteen
+  spaces in the middle of it.
+
+  Rust joins a string across source lines with a trailing `\`, which strips the
+  newline AND the leading whitespace of the next line. Python's own string
+  literals do the same thing. So inside a **non-raw** `python3 - <<'PY'` heredoc,
+  the `\` is consumed by PYTHON before Rust ever sees it: the lines are joined,
+  the indentation is kept, and what reaches the file is one long line with runs of
+  spaces inside the literal.
+
+  ```python
+  # WRONG — Python eats the backslash; the Rust file gets ONE line with 14-space
+  # runs inside the string, and it compiles perfectly.
+  new = """
+      format!("That page was reached, and no author guidance was found \
+               on it: {why}.")
+  """
+
+  # RIGHT — a raw string; the backslash survives into the Rust source, where it
+  # is a Rust string continuation and strips the following indentation.
+  new = r'''
+      format!("That page was reached, and no author guidance was found \
+               on it: {why}.")
+  '''
+  ```
+
+  **It shipped twice in two days, and the first time it was fixed by hand without
+  the cause being identified** — the whitespace runs were spotted in
+  `guidelines.rs`'s `Unavailable` reasons, rewritten, and the mechanism was never
+  asked about. So the same edit tool reintroduced it the next day into a different
+  reader-facing sentence in the same file. **That is this entry's whole argument:**
+  a defect repaired at the site rather than at the cause is a defect that comes
+  back through whatever produced it, and neither repair taught anything because
+  neither identified the producer.
+
+  **Nothing in the toolchain can catch it, and that is structural, not an
+  oversight.** `cargo build` is happy, `clippy` is happy, and a source scan for
+  runs of spaces flags deliberate column alignment everywhere a CLI prints a table
+  (measured: 59 lines in this repo, almost all `ai-eval.rs` `println!` padding).
+  The escape-blindness entry applies too — a scan cannot see `\u{2014}` either.
+
+  **So the check is on the RENDERED string, not the source.** Call the function,
+  read the sentence a user gets, and assert on that:
+  `!note.contains("   ")`, `!note.contains('\u{2014}')`, ends in a full stop.
+  `guidelines::tests::every_note_a_user_can_be_shown_is_clean_prose` is the worked
+  example — it drives all seven note branches through the real code path, and its
+  first run found an eighth defect nobody was looking for (a note that was a
+  semicolon fragment while every sibling was a sentence).
+
+  The general rule, which is the `cd` entry's rule one step further on: **after an
+  edit that writes prose, read back the prose — not the file, not the diff, the
+  rendered output.** A diff shows you what the tool wrote. Only rendering shows
+  you what it means.

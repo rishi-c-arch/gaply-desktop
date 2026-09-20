@@ -14612,3 +14612,34 @@ CLAUDE.md rule earning itself again, in a session that had already used it twice
 **Known limit, stated so nobody reads a green local run as CI coverage:** this is
 an app-crate test and both CI workflows run `-p gaply_core`, so it gates
 `cargo test --workspace` and nothing else.
+
+#### Named limit: the `lexicon` discovery tier is unmeasured, and stays as it is
+
+`discover_guidelines_links` returns candidates in two tiers — `Explicit`, where
+the anchor or path names author guidance outright, and `Lexicon`, where only a
+topic term from the crawler's `LEXICON` matched. **The sample contains exactly
+one `Lexicon`-tier extraction and it is the one false requirement in 46**:
+British Journal of Surgery, `reporting_standard = PRISMA`, whose span is a
+research article's abstract read off a journal landing page. All twelve other
+extractions came via `Explicit`, and all 45 of their requirements are real
+guidance.
+
+**Restricting the discovery path to `Explicit` is NOT being done, and the reason
+is the sample and not the rule.** One row is a sample of one. Choosing a
+discovery rule now would be choosing it *after* seeing which tier produced the
+bad row, which is the defect §11 D188 recorded when three row-selection rules
+were refuted by the journals they had been inferred from, and the same move this
+entry's own instrument avoided by fixing the 20 before the first fetch. A rule
+picked to explain the outcome that suggested it has been tested against nothing.
+
+The honest position: **one false row in 46, carrying a span that exposes it on
+sight.** That is the condition the span norm exists to produce — a record a
+reader can refute rather than one they must believe — and it is not a defect
+worth a post-hoc rule.
+
+**Reopening condition.** A second sample, drawn the same way (fresh seed,
+population 258, list fixed before the first fetch), with the tier recorded for
+every extraction **before** any rule is chosen. If `Lexicon`-tier rows are
+materially less reliable across both samples together, the rule follows from the
+measurement instead of preceding it. The instrument already reports the tier per
+row, so the second sample costs a run, not a build.
