@@ -1,9 +1,9 @@
 {
-  "head_sha": "231b2eb11d66548d5f6eef88bc0b97495a84804f",
-  "generated_at_epoch": 1789886863,
+  "head_sha": "4d5ee63ff43bc1d3c54faf32d49dfe87685b70e3",
+  "generated_at_epoch": 1789890537,
   "engine": "tier0",
-  "total_cases": 54,
-  "runnable": 46,
+  "total_cases": 214,
+  "runnable": 206,
   "unrunnable": 8,
   "families": [
     {
@@ -16,7 +16,7 @@
       "accuracy_pct": 87.5,
       "false_positive_rate_pct": 25.0,
       "false_negative_rate_pct": 0.0,
-      "weighted_accuracy_pct": null,
+      "weighted_precision_pct": null,
       "weighting": "WITHHELD — these strata have no measured population: adversarial_label, declaration, rounding, sign. A pooled rate printed here would be the §11 D123 over-claim."
     },
     {
@@ -29,7 +29,7 @@
       "accuracy_pct": 85.71428571428571,
       "false_positive_rate_pct": 0.0,
       "false_negative_rate_pct": 20.0,
-      "weighted_accuracy_pct": null,
+      "weighted_precision_pct": null,
       "weighting": "WITHHELD — these strata have no measured population: clean, confidence_interval, declined_rule5, effect_size, overclaim, test_design. A pooled rate printed here would be the §11 D123 over-claim."
     },
     {
@@ -42,7 +42,7 @@
       "accuracy_pct": 100.0,
       "false_positive_rate_pct": 0.0,
       "false_negative_rate_pct": null,
-      "weighted_accuracy_pct": null,
+      "weighted_precision_pct": null,
       "weighting": "WITHHELD — these strata have no measured population: n_mismatch. A pooled rate printed here would be the §11 D123 over-claim."
     },
     {
@@ -55,7 +55,7 @@
       "accuracy_pct": 66.66666666666667,
       "false_positive_rate_pct": 0.0,
       "false_negative_rate_pct": 100.0,
-      "weighted_accuracy_pct": null,
+      "weighted_precision_pct": null,
       "weighting": "WITHHELD — these strata have no measured population: citation_pairing. A pooled rate printed here would be the §11 D123 over-claim."
     },
     {
@@ -68,7 +68,7 @@
       "accuracy_pct": 77.77777777777777,
       "false_positive_rate_pct": 40.0,
       "false_negative_rate_pct": 0.0,
-      "weighted_accuracy_pct": null,
+      "weighted_precision_pct": null,
       "weighting": "WITHHELD — these strata have no measured population: false_positive. A pooled rate printed here would be the §11 D123 over-claim."
     },
     {
@@ -81,8 +81,21 @@
       "accuracy_pct": 83.33333333333333,
       "false_positive_rate_pct": 20.0,
       "false_negative_rate_pct": 14.285714285714286,
-      "weighted_accuracy_pct": null,
+      "weighted_precision_pct": null,
       "weighting": "WITHHELD — these strata have no measured population: injection, misleading_nontext. A pooled rate printed here would be the §11 D123 over-claim."
+    },
+    {
+      "family": "scientific_extraction",
+      "tp": 1,
+      "fp": 0,
+      "fn_": 27,
+      "tn": 132,
+      "unrunnable": 0,
+      "accuracy_pct": 83.125,
+      "false_positive_rate_pct": 0.0,
+      "false_negative_rate_pct": 96.42857142857143,
+      "weighted_precision_pct": 100,
+      "weighting": "weighted over every stratum"
     }
   ],
   "not_applicable": {
@@ -95,7 +108,7 @@
     "reviewer_agreement": "the labels ARE the human comparison: every case was adjudicated by hand from a decision record. Accuracy against them is this column."
   },
   "determinism_all_stable": true,
-  "total_micros": 128888,
+  "total_micros": 487262,
   "cases": [
     {
       "id": "grrb-mth-001",
@@ -105,7 +118,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 1631
+      "micros": 855
     },
     {
       "id": "grrb-mth-002",
@@ -115,7 +128,7 @@
       "got_finding": true,
       "outcome": "tp",
       "deterministic": true,
-      "micros": 82
+      "micros": 70
     },
     {
       "id": "grrb-mth-003",
@@ -125,7 +138,7 @@
       "got_finding": true,
       "outcome": "fp",
       "deterministic": true,
-      "micros": 54
+      "micros": 57
     },
     {
       "id": "grrb-mth-004",
@@ -145,7 +158,7 @@
       "got_finding": true,
       "outcome": "tp",
       "deterministic": true,
-      "micros": 38
+      "micros": 40
     },
     {
       "id": "grrb-mth-006",
@@ -155,7 +168,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 28
+      "micros": 30
     },
     {
       "id": "grrb-mth-007",
@@ -165,7 +178,7 @@
       "got_finding": true,
       "outcome": "tp",
       "deterministic": true,
-      "micros": 93
+      "micros": 101
     },
     {
       "id": "grrb-mth-008",
@@ -175,7 +188,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 37
+      "micros": 53
     },
     {
       "id": "grrb-sta-001",
@@ -185,7 +198,7 @@
       "got_finding": true,
       "outcome": "tp",
       "deterministic": true,
-      "micros": 78640
+      "micros": 75905
     },
     {
       "id": "grrb-sta-002",
@@ -195,7 +208,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 740
+      "micros": 742
     },
     {
       "id": "grrb-sta-003",
@@ -215,7 +228,7 @@
       "got_finding": false,
       "outcome": "fn",
       "deterministic": true,
-      "micros": 463
+      "micros": 468
     },
     {
       "id": "grrb-sta-005",
@@ -235,7 +248,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 471
+      "micros": 469
     },
     {
       "id": "grrb-sta-007",
@@ -245,7 +258,7 @@
       "got_finding": true,
       "outcome": "tp",
       "deterministic": true,
-      "micros": 226
+      "micros": 227
     },
     {
       "id": "grrb-sta-008",
@@ -295,7 +308,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 19998
+      "micros": 19491
     },
     {
       "id": "grrb-con-004",
@@ -305,7 +318,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 178
+      "micros": 173
     },
     {
       "id": "grrb-con-005",
@@ -315,7 +328,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 107
+      "micros": 106
     },
     {
       "id": "grrb-con-006",
@@ -325,7 +338,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 194
+      "micros": 159
     },
     {
       "id": "grrb-con-007",
@@ -355,7 +368,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 576
+      "micros": 593
     },
     {
       "id": "grrb-lit-002",
@@ -365,7 +378,7 @@
       "got_finding": false,
       "outcome": "fn",
       "deterministic": true,
-      "micros": 57
+      "micros": 56
     },
     {
       "id": "grrb-lit-003",
@@ -375,7 +388,7 @@
       "got_finding": false,
       "outcome": "fn",
       "deterministic": true,
-      "micros": 88
+      "micros": 87
     },
     {
       "id": "grrb-lit-004",
@@ -385,7 +398,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 311
+      "micros": 320
     },
     {
       "id": "grrb-lit-005",
@@ -405,7 +418,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 30
+      "micros": 29
     },
     {
       "id": "grrb-lit-007",
@@ -435,7 +448,7 @@
       "got_finding": true,
       "outcome": "tp",
       "deterministic": true,
-      "micros": 67
+      "micros": 79
     },
     {
       "id": "grrb-jrn-002",
@@ -455,7 +468,7 @@
       "got_finding": true,
       "outcome": "tp",
       "deterministic": true,
-      "micros": 46
+      "micros": 43
     },
     {
       "id": "grrb-jrn-004",
@@ -465,7 +478,7 @@
       "got_finding": true,
       "outcome": "tp",
       "deterministic": true,
-      "micros": 41
+      "micros": 43
     },
     {
       "id": "grrb-jrn-005",
@@ -485,7 +498,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 62
+      "micros": 63
     },
     {
       "id": "grrb-jrn-007",
@@ -495,7 +508,7 @@
       "got_finding": true,
       "outcome": "fp",
       "deterministic": true,
-      "micros": 50
+      "micros": 51
     },
     {
       "id": "grrb-jrn-008",
@@ -505,7 +518,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 35
+      "micros": 33
     },
     {
       "id": "grrb-jrn-009",
@@ -525,7 +538,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 51
+      "micros": 41
     },
     {
       "id": "grrb-adv-002",
@@ -535,7 +548,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 34
+      "micros": 33
     },
     {
       "id": "grrb-adv-003",
@@ -555,7 +568,7 @@
       "got_finding": true,
       "outcome": "tp",
       "deterministic": true,
-      "micros": 25
+      "micros": 26
     },
     {
       "id": "grrb-adv-005",
@@ -575,7 +588,7 @@
       "got_finding": false,
       "outcome": "fn",
       "deterministic": true,
-      "micros": 18
+      "micros": 19
     },
     {
       "id": "grrb-adv-007",
@@ -636,6 +649,1606 @@
       "outcome": "tp",
       "deterministic": true,
       "micros": 17
+    },
+    {
+      "id": "grrb-sci-000",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 177
+    },
+    {
+      "id": "grrb-sci-001",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 59
+    },
+    {
+      "id": "grrb-sci-002",
+      "family": "scientific_extraction",
+      "stratum": "noskill_only",
+      "expected_finding": true,
+      "got_finding": false,
+      "outcome": "fn",
+      "deterministic": true,
+      "micros": 37
+    },
+    {
+      "id": "grrb-sci-003",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 45
+    },
+    {
+      "id": "grrb-sci-004",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 43
+    },
+    {
+      "id": "grrb-sci-005",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": true,
+      "got_finding": false,
+      "outcome": "fn",
+      "deterministic": true,
+      "micros": 38
+    },
+    {
+      "id": "grrb-sci-006",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": true,
+      "got_finding": false,
+      "outcome": "fn",
+      "deterministic": true,
+      "micros": 59
+    },
+    {
+      "id": "grrb-sci-007",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": true,
+      "got_finding": false,
+      "outcome": "fn",
+      "deterministic": true,
+      "micros": 25
+    },
+    {
+      "id": "grrb-sci-008",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": true,
+      "got_finding": false,
+      "outcome": "fn",
+      "deterministic": true,
+      "micros": 35
+    },
+    {
+      "id": "grrb-sci-009",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 13
+    },
+    {
+      "id": "grrb-sci-010",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": true,
+      "got_finding": false,
+      "outcome": "fn",
+      "deterministic": true,
+      "micros": 30
+    },
+    {
+      "id": "grrb-sci-011",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 33
+    },
+    {
+      "id": "grrb-sci-012",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 12
+    },
+    {
+      "id": "grrb-sci-013",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 7
+    },
+    {
+      "id": "grrb-sci-014",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 6
+    },
+    {
+      "id": "grrb-sci-015",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 23
+    },
+    {
+      "id": "grrb-sci-016",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": true,
+      "got_finding": false,
+      "outcome": "fn",
+      "deterministic": true,
+      "micros": 18
+    },
+    {
+      "id": "grrb-sci-017",
+      "family": "scientific_extraction",
+      "stratum": "noskill_only",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 3
+    },
+    {
+      "id": "grrb-sci-018",
+      "family": "scientific_extraction",
+      "stratum": "noskill_only",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 20
+    },
+    {
+      "id": "grrb-sci-019",
+      "family": "scientific_extraction",
+      "stratum": "noskill_only",
+      "expected_finding": true,
+      "got_finding": false,
+      "outcome": "fn",
+      "deterministic": true,
+      "micros": 9
+    },
+    {
+      "id": "grrb-sci-020",
+      "family": "scientific_extraction",
+      "stratum": "noskill_only",
+      "expected_finding": true,
+      "got_finding": false,
+      "outcome": "fn",
+      "deterministic": true,
+      "micros": 13
+    },
+    {
+      "id": "grrb-sci-021",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 57
+    },
+    {
+      "id": "grrb-sci-022",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 49
+    },
+    {
+      "id": "grrb-sci-023",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 42
+    },
+    {
+      "id": "grrb-sci-024",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 54
+    },
+    {
+      "id": "grrb-sci-025",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 8
+    },
+    {
+      "id": "grrb-sci-026",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 16
+    },
+    {
+      "id": "grrb-sci-027",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 17
+    },
+    {
+      "id": "grrb-sci-028",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 26
+    },
+    {
+      "id": "grrb-sci-029",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 5
+    },
+    {
+      "id": "grrb-sci-030",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": true,
+      "got_finding": false,
+      "outcome": "fn",
+      "deterministic": true,
+      "micros": 81
+    },
+    {
+      "id": "grrb-sci-031",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": true,
+      "got_finding": false,
+      "outcome": "fn",
+      "deterministic": true,
+      "micros": 13
+    },
+    {
+      "id": "grrb-sci-032",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 21
+    },
+    {
+      "id": "grrb-sci-033",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 6
+    },
+    {
+      "id": "grrb-sci-034",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 5
+    },
+    {
+      "id": "grrb-sci-035",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 10
+    },
+    {
+      "id": "grrb-sci-036",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 11
+    },
+    {
+      "id": "grrb-sci-037",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 17
+    },
+    {
+      "id": "grrb-sci-038",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 12
+    },
+    {
+      "id": "grrb-sci-039",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 10
+    },
+    {
+      "id": "grrb-sci-040",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 44
+    },
+    {
+      "id": "grrb-sci-041",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 5
+    },
+    {
+      "id": "grrb-sci-042",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 5
+    },
+    {
+      "id": "grrb-sci-043",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 8
+    },
+    {
+      "id": "grrb-sci-044",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 16
+    },
+    {
+      "id": "grrb-sci-045",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 3
+    },
+    {
+      "id": "grrb-sci-046",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 13
+    },
+    {
+      "id": "grrb-sci-047",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 19
+    },
+    {
+      "id": "grrb-sci-048",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 24
+    },
+    {
+      "id": "grrb-sci-049",
+      "family": "scientific_extraction",
+      "stratum": "noskill_only",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 8
+    },
+    {
+      "id": "grrb-sci-050",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": true,
+      "got_finding": true,
+      "outcome": "tp",
+      "deterministic": true,
+      "micros": 341552
+    },
+    {
+      "id": "grrb-sci-051",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 21
+    },
+    {
+      "id": "grrb-sci-052",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": true,
+      "got_finding": false,
+      "outcome": "fn",
+      "deterministic": true,
+      "micros": 95
+    },
+    {
+      "id": "grrb-sci-053",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": true,
+      "got_finding": false,
+      "outcome": "fn",
+      "deterministic": true,
+      "micros": 19
+    },
+    {
+      "id": "grrb-sci-054",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 20
+    },
+    {
+      "id": "grrb-sci-055",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": true,
+      "got_finding": false,
+      "outcome": "fn",
+      "deterministic": true,
+      "micros": 52
+    },
+    {
+      "id": "grrb-sci-056",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 4
+    },
+    {
+      "id": "grrb-sci-057",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": true,
+      "got_finding": false,
+      "outcome": "fn",
+      "deterministic": true,
+      "micros": 91
+    },
+    {
+      "id": "grrb-sci-058",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": true,
+      "got_finding": false,
+      "outcome": "fn",
+      "deterministic": true,
+      "micros": 15
+    },
+    {
+      "id": "grrb-sci-059",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 19
+    },
+    {
+      "id": "grrb-sci-060",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 5
+    },
+    {
+      "id": "grrb-sci-061",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 15
+    },
+    {
+      "id": "grrb-sci-062",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 5
+    },
+    {
+      "id": "grrb-sci-063",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 43
+    },
+    {
+      "id": "grrb-sci-064",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 8
+    },
+    {
+      "id": "grrb-sci-065",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 19
+    },
+    {
+      "id": "grrb-sci-066",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 150
+    },
+    {
+      "id": "grrb-sci-067",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 6
+    },
+    {
+      "id": "grrb-sci-068",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 64
+    },
+    {
+      "id": "grrb-sci-069",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 6
+    },
+    {
+      "id": "grrb-sci-070",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 50
+    },
+    {
+      "id": "grrb-sci-071",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 107
+    },
+    {
+      "id": "grrb-sci-072",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 27
+    },
+    {
+      "id": "grrb-sci-073",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 31
+    },
+    {
+      "id": "grrb-sci-074",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 39
+    },
+    {
+      "id": "grrb-sci-075",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 28
+    },
+    {
+      "id": "grrb-sci-076",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 23
+    },
+    {
+      "id": "grrb-sci-077",
+      "family": "scientific_extraction",
+      "stratum": "noskill_only",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 7
+    },
+    {
+      "id": "grrb-sci-078",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 33
+    },
+    {
+      "id": "grrb-sci-079",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 40
+    },
+    {
+      "id": "grrb-sci-080",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 45
+    },
+    {
+      "id": "grrb-sci-081",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 115
+    },
+    {
+      "id": "grrb-sci-082",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 34
+    },
+    {
+      "id": "grrb-sci-083",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 66
+    },
+    {
+      "id": "grrb-sci-084",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": true,
+      "got_finding": false,
+      "outcome": "fn",
+      "deterministic": true,
+      "micros": 206
+    },
+    {
+      "id": "grrb-sci-085",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 59
+    },
+    {
+      "id": "grrb-sci-086",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 34
+    },
+    {
+      "id": "grrb-sci-087",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 62
+    },
+    {
+      "id": "grrb-sci-088",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 32
+    },
+    {
+      "id": "grrb-sci-089",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 22
+    },
+    {
+      "id": "grrb-sci-090",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 46
+    },
+    {
+      "id": "grrb-sci-091",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 66
+    },
+    {
+      "id": "grrb-sci-092",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": true,
+      "got_finding": false,
+      "outcome": "fn",
+      "deterministic": true,
+      "micros": 20
+    },
+    {
+      "id": "grrb-sci-093",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 31
+    },
+    {
+      "id": "grrb-sci-094",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 29
+    },
+    {
+      "id": "grrb-sci-095",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 12
+    },
+    {
+      "id": "grrb-sci-096",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": true,
+      "got_finding": false,
+      "outcome": "fn",
+      "deterministic": true,
+      "micros": 31
+    },
+    {
+      "id": "grrb-sci-097",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": true,
+      "got_finding": false,
+      "outcome": "fn",
+      "deterministic": true,
+      "micros": 13
+    },
+    {
+      "id": "grrb-sci-098",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 46
+    },
+    {
+      "id": "grrb-sci-099",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 36
+    },
+    {
+      "id": "grrb-sci-100",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 26
+    },
+    {
+      "id": "grrb-sci-101",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": true,
+      "got_finding": false,
+      "outcome": "fn",
+      "deterministic": true,
+      "micros": 26
+    },
+    {
+      "id": "grrb-sci-102",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 19
+    },
+    {
+      "id": "grrb-sci-103",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 32
+    },
+    {
+      "id": "grrb-sci-104",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 19
+    },
+    {
+      "id": "grrb-sci-105",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 35
+    },
+    {
+      "id": "grrb-sci-106",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 30
+    },
+    {
+      "id": "grrb-sci-107",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 32
+    },
+    {
+      "id": "grrb-sci-108",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 33
+    },
+    {
+      "id": "grrb-sci-109",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 35
+    },
+    {
+      "id": "grrb-sci-110",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": true,
+      "got_finding": false,
+      "outcome": "fn",
+      "deterministic": true,
+      "micros": 32
+    },
+    {
+      "id": "grrb-sci-111",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 56
+    },
+    {
+      "id": "grrb-sci-112",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 34
+    },
+    {
+      "id": "grrb-sci-113",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 146
+    },
+    {
+      "id": "grrb-sci-114",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 45
+    },
+    {
+      "id": "grrb-sci-115",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 117
+    },
+    {
+      "id": "grrb-sci-116",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 15
+    },
+    {
+      "id": "grrb-sci-117",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 5
+    },
+    {
+      "id": "grrb-sci-118",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 32
+    },
+    {
+      "id": "grrb-sci-119",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 25
+    },
+    {
+      "id": "grrb-sci-120",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 30
+    },
+    {
+      "id": "grrb-sci-121",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 25
+    },
+    {
+      "id": "grrb-sci-122",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 30
+    },
+    {
+      "id": "grrb-sci-123",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 25
+    },
+    {
+      "id": "grrb-sci-124",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 25
+    },
+    {
+      "id": "grrb-sci-125",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 29
+    },
+    {
+      "id": "grrb-sci-126",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 9
+    },
+    {
+      "id": "grrb-sci-127",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 10
+    },
+    {
+      "id": "grrb-sci-128",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 34
+    },
+    {
+      "id": "grrb-sci-129",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 33
+    },
+    {
+      "id": "grrb-sci-130",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 27
+    },
+    {
+      "id": "grrb-sci-131",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 10
+    },
+    {
+      "id": "grrb-sci-132",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 142
+    },
+    {
+      "id": "grrb-sci-133",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 5
+    },
+    {
+      "id": "grrb-sci-134",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 19
+    },
+    {
+      "id": "grrb-sci-135",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 24
+    },
+    {
+      "id": "grrb-sci-136",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": true,
+      "got_finding": false,
+      "outcome": "fn",
+      "deterministic": true,
+      "micros": 5
+    },
+    {
+      "id": "grrb-sci-137",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 19
+    },
+    {
+      "id": "grrb-sci-138",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 35
+    },
+    {
+      "id": "grrb-sci-139",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 19
+    },
+    {
+      "id": "grrb-sci-140",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 118
+    },
+    {
+      "id": "grrb-sci-141",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 34
+    },
+    {
+      "id": "grrb-sci-142",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 37
+    },
+    {
+      "id": "grrb-sci-143",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 26
+    },
+    {
+      "id": "grrb-sci-144",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 6
+    },
+    {
+      "id": "grrb-sci-145",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 32
+    },
+    {
+      "id": "grrb-sci-146",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 31
+    },
+    {
+      "id": "grrb-sci-147",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 40
+    },
+    {
+      "id": "grrb-sci-148",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": true,
+      "got_finding": false,
+      "outcome": "fn",
+      "deterministic": true,
+      "micros": 32
+    },
+    {
+      "id": "grrb-sci-149",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 31
+    },
+    {
+      "id": "grrb-sci-150",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 143
+    },
+    {
+      "id": "grrb-sci-151",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 100
+    },
+    {
+      "id": "grrb-sci-152",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 6
+    },
+    {
+      "id": "grrb-sci-153",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 21
+    },
+    {
+      "id": "grrb-sci-154",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 16
+    },
+    {
+      "id": "grrb-sci-155",
+      "family": "scientific_extraction",
+      "stratum": "regex_flagged",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 15
+    },
+    {
+      "id": "grrb-sci-156",
+      "family": "scientific_extraction",
+      "stratum": "noskill_only",
+      "expected_finding": true,
+      "got_finding": false,
+      "outcome": "fn",
+      "deterministic": true,
+      "micros": 27
+    },
+    {
+      "id": "grrb-sci-157",
+      "family": "scientific_extraction",
+      "stratum": "noskill_only",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 220
+    },
+    {
+      "id": "grrb-sci-158",
+      "family": "scientific_extraction",
+      "stratum": "noskill_only",
+      "expected_finding": true,
+      "got_finding": false,
+      "outcome": "fn",
+      "deterministic": true,
+      "micros": 7
+    },
+    {
+      "id": "grrb-sci-159",
+      "family": "scientific_extraction",
+      "stratum": "noskill_only",
+      "expected_finding": true,
+      "got_finding": false,
+      "outcome": "fn",
+      "deterministic": true,
+      "micros": 12
     }
   ]
 }

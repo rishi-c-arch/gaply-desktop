@@ -14924,3 +14924,114 @@ zero** — no real manuscript/analysis pair exists and `statistics.jnl` is now g
 as well — and **D166's cases have no family in §6c.1 at all**, since novelty is
 not one of the six. They are recorded as unrunnable rather than forced into a
 family they do not belong to.
+
+### D196 — a model was scored against D165's decline and came in below the regex, below the no-skill baseline, and below the base rate
+
+§11 D165 declined the scientific layer at 5.9% precision against a 50% no-skill
+baseline. Phase B asked whether a model beats it. **It does not, and the decline
+is now measured against an instrument rather than by hand.**
+
+#### The table, on 160 fixed paragraphs from the same six manuscripts
+
+| approach | precision |
+|---|---|
+| no-skill — first paragraph of each Methods section | **50.0%** (6/12) |
+| always answer "yes" (the pool's base rate) | 17.5% |
+| SLM1 Qwen2.5-0.5B-Instruct-Q4_K_M, prompt variant B | 17.7% (28/158) |
+| the nine-regex extractor, in-document verdict | 14.8% (22/149) |
+| SLM1, prompt variant A | **14.5%** (18/124) |
+
+**The sharpest form: variant A says "yes" MORE often on the non-genuine
+paragraphs than on the genuine ones — 80% against 64%, a separation of −16
+points.** It is not uninformative, it is mildly inverted. Variant B answered
+"yes" to 158 of 160, so its 17.7% *is* the base rate: a coin that always lands
+heads. **Zero unparseable outputs in 320 calls**, so this is not a format failure
+— the model answers cleanly and the answer carries no signal.
+
+#### The prediction was wrong in every row, and the reasoning is the diagnostic
+
+| | predicted | measured |
+|---|---|---|
+| SLM1 beats the 50% no-skill | 72–85% | no: 14.5% / 17.7% |
+| regex on fixed inputs | 20–40% | 14.8% |
+| unparseable outputs | 5–20% | 0% |
+
+The reasoning was that D165's failures are *category errors* — a Turnitin footer,
+a table row, a title — and that discriminating prose-about-method from page
+furniture is the one thing a language model does easily and a regex structurally
+cannot. **That was the wrong model of the task.** Most of the pool's negatives are
+not furniture: they are results, background about the field, and other people's
+work, all fluent academic prose. Separating *"this study did X"* from *"the
+literature says X"* is a judgment, not a surface cue, and a 0.5B model at Q4 does
+not make it.
+
+**§11 D121 was cited in the prediction and then under-weighted.** That entry
+measured five prompt variants across two tasks landing at or below baseline on
+this model class. These are the sixth and seventh. The prior was in hand, quoted,
+and discounted anyway — which is the lint-gate entry's lesson (*"knowing the rule
+is not the same as applying it"*) arriving in a prediction rather than a command.
+
+#### The structural finding: D165's metric cannot compare two extractors
+
+**D165 measured precision over the extractor's OWN output** — 152 objects it
+chose to emit. A second extractor emits a different number, so the two
+precisions have denominators each defined by the thing being measured. That is
+CLAUDE.md's denominator entry in its purest form, and it is why this
+re-measurement had to be BUILT rather than re-run: no amount of running D165's
+probe against a model produces a comparable number.
+
+Fixed inputs with per-input labels is what makes the comparison possible. That is
+now `evals/grrb/scientific_extraction.jsonl`, the benchmark's seventh family and
+**the only one whose populations are a complete census rather than a sample** —
+149 regex-flagged paragraphs and 11 no-skill-only, sample equal to population, so
+the weight is exactly 1.
+
+#### The non-reproduction, recorded plainly
+
+**Not that D165 was wrong: that a hand adjudication made once was not
+reproducible by a second adjudicator applying its own stated criterion.**
+
+| manuscript | D165 | re-adjudicated 20 Sep 2026 |
+|---|---|---|
+| IJAS Bombyx haemolymph | 0/2 | 0/2 |
+| R PAPER | 2/30 | 2/28 |
+| Revised Health Economics | 5/27 | 6/27 |
+| Lake Chapter 1 | 0/4 | **2/4** |
+| chapter3 | 0/10 | **4/10** |
+| final final L | 2/79 | **8/78** |
+| **total** | **9/152 = 5.9%** | **22/149 = 14.8%** |
+
+Exact agreement on three manuscripts, sharp disagreement on the three limnology
+theses. Paragraphs like *"The pH of the water samples was measured using a
+calibrated digital pH meter with an accuracy of ±0.01"* are unambiguous
+statements of this study's methodology, and D165 scored that manuscript 0/10.
+
+Two controls say the corpus and the extractor are unchanged: **the per-manuscript
+object counts reproduce exactly** (2, 4, 10, 30, 27, 79 = 152), and **the no-skill
+row reproduces exactly** (6/12 = 50.0%). So the difference is adjudication, not
+drift.
+
+**The conclusion survives either number.** 50% beats 14.8% by 3.4x and beats 5.9%
+by 8.5x. A one-line heuristic outperforms the extractor on both readings, and
+that is what D165 declined on.
+
+#### Two defects found in the instrument, again before any in the engine
+
+1. **A column named for a different quantity than it computed.**
+   `weighted_accuracy_pct` was produced by `stratified_precision_pct`, and on its
+   first run with the new family it printed **100%** — precision over a single
+   true positive with no false positives, for a family that finds 1 of 28 genuine
+   paragraphs. The unit of the numerator was not the unit of the NAME. Renamed
+   `weighted_precision_pct`.
+2. **The extractor is almost entirely driven by document context.** Given an
+   isolated paragraph it finds **1 of 28** genuine method statements (recall
+   3.6%), while in-document it flagged 149 of the same 160. The family records
+   both — `engine` scores the isolated verdict, `recorded.regex_flagged_in_document`
+   carries the other — because conflating them would make the 14.8% and the 3.6%
+   look like one number.
+
+#### What would reopen the layer
+
+Not this. A model that beats 50% precision on these 160 paragraphs, scored by
+`cargo run --bin grrb`. The inputs are fixed and committed, so the next candidate
+is a run rather than an argument — which is the whole of what Phase 2b was for.

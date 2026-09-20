@@ -103,5 +103,15 @@
       "population": 0,
       "how": "measured: zero offline. Every verdict here needs a registry through the proxy and the benchmark runs with no network."
     }
+  },
+  "scientific_extraction": {
+    "regex_flagged": {
+      "population": 149,
+      "how": "measured, and a COMPLETE CENSUS rather than a sample: every distinct paragraph the nine-regex scientific extractor anchored a Method to across the six \u00a711 D165 manuscripts. 152 objects, 149 distinct paragraphs (three pairs share one). Sample = population, so the weight is exactly 1 and the weighted figure equals the pooled one HONESTLY here \u2014 the only family where that is true."
+    },
+    "noskill_only": {
+      "population": 11,
+      "how": "measured, complete census: the 12 first-paragraphs-of-a-Methods-section the no-skill baseline guesses, less the one the extractor also flagged (counted in the other stratum)."
+    }
   }
 }

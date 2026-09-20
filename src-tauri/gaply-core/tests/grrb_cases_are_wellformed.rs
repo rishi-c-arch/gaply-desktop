@@ -26,13 +26,14 @@
 
 use std::collections::BTreeSet;
 
-const FAMILIES: [&str; 6] = [
+const FAMILIES: [&str; 7] = [
     "mathematical",
     "statistical",
     "manuscript_consistency",
     "literature",
     "journal",
     "adversarial",
+    "scientific_extraction",
 ];
 const DIR: &str = "../evals/grrb";
 const BASELINE: &str = "../evals/reports/grrb-baseline.json";

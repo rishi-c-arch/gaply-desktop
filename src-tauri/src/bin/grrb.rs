@@ -32,13 +32,14 @@ use gaply_core::extract::docparse::PagedBlock;
 use gaply_core::journal_extract::GuidelineBlock;
 use serde::{Deserialize, Serialize};
 
-const FAMILIES: [&str; 6] = [
+const FAMILIES: [&str; 7] = [
     "mathematical",
     "statistical",
     "manuscript_consistency",
     "literature",
     "journal",
     "adversarial",
+    "scientific_extraction",
 ];
 
 #[derive(Debug, Deserialize)]
@@ -104,10 +105,16 @@ struct FamilyReport {
     accuracy_pct: Option<f64>,
     false_positive_rate_pct: Option<f64>,
     false_negative_rate_pct: Option<f64>,
-    /// Integer percent: `eval_strata` returns whole points, and rounding a
-    /// weighted estimate to one decimal would imply a precision the sample sizes
-    /// here do not support.
-    weighted_accuracy_pct: Option<u32>,
+    /// **PRECISION, population-weighted - and the name says so because it did
+    /// not.** This field was `weighted_precision_pct` while being computed by
+    /// `stratified_precision_pct`, and on its first run with a family that finds
+    /// 1 of 28 genuine paragraphs it printed `100%`: precision over a single true
+    /// positive with no false positives. The unit of the numerator was not the
+    /// unit of the NAME - CLAUDE.md's denominator entry, with the error moved
+    /// into the label. §11 D196.
+    ///
+    /// Integer percent: `eval_strata` returns whole points.
+    weighted_precision_pct: Option<u32>,
     weighting: String,
 }
 
@@ -135,6 +142,7 @@ fn run_case(c: &Case) -> Option<bool> {
         "literature" => "citations",
         "journal" => "journal",
         "adversarial" => "sanitize",
+        "scientific_extraction" => "scientific",
         _ => "none",
     });
     match (engine, &c.input) {
@@ -190,6 +198,23 @@ fn run_case(c: &Case) -> Option<bool> {
                 })
                 .collect();
             Some(!gaply_core::journal_extract::extract_requirements(&gb).is_empty())
+        }
+        // **The DECLINED scientific layer, scored on fixed inputs. §11 D196.**
+        //
+        // §11 D165 measured precision over the extractor's OWN output, which is a
+        // denominator defined by the thing being measured — two extractors cannot
+        // be compared by it. These cases fix the inputs instead.
+        //
+        // Note what this arm measures and the case's `recorded` field does not:
+        // the extractor's verdict on an ISOLATED paragraph. `regex_flagged_in_document`
+        // is its verdict with the whole document in hand, and section context can
+        // move it. The two are reported separately rather than conflated.
+        ("scientific", Input::Text { text }) => {
+            let ex = gaply_core::extract::extract_from_text_with(
+                text,
+                gaply_core::extract::ExtractOptions::with_scientific(),
+            );
+            Some(ex.scientific.map(|s| !s.methods.is_empty()).unwrap_or(false))
         }
         ("sanitize", Input::Text { text }) => {
             Some(!gaply_core::sanitize::scan_injections(text).is_empty())
@@ -315,7 +340,7 @@ fn main() {
             accuracy_pct: pct(tp + tn, runnable),
             false_positive_rate_pct: pct(fp, fp + tn),
             false_negative_rate_pct: pct(fn_, fn_ + tp),
-            weighted_accuracy_pct: weighted,
+            weighted_precision_pct: weighted,
             weighting: why,
         });
     }
@@ -372,10 +397,10 @@ fn main() {
         "  {} cases  |  {} runnable  |  {} unrunnable  |  determinism stable: {}",
         report.total_cases, report.runnable, report.unrunnable, report.determinism_all_stable
     );
-    println!("\n  {:<24} {:>3} {:>3} {:>3} {:>3} {:>5}  {:>9}  weighted", "family", "tp", "fp", "fn", "tn", "unrun", "accuracy");
+    println!("\n  {:<24} {:>3} {:>3} {:>3} {:>3} {:>5}  {:>9}  w.prec", "family", "tp", "fp", "fn", "tn", "unrun", "accuracy");
     for f in &report.families {
         let acc = f.accuracy_pct.map(|a| format!("{a:.1}%")).unwrap_or_else(|| "-".into());
-        let w = f.weighted_accuracy_pct.map(|a| format!("{a}%")).unwrap_or_else(|| "withheld".into());
+        let w = f.weighted_precision_pct.map(|a| format!("{a}%")).unwrap_or_else(|| "withheld".into());
         println!(
             "  {:<24} {:>3} {:>3} {:>3} {:>3} {:>5}  {:>9}  {w}",
             f.family, f.tp, f.fp, f.fn_, f.tn, f.unrunnable, acc
