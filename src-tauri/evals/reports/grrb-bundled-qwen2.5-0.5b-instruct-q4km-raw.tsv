@@ -1,3 +1,7 @@
+# model: qwen2.5-0.5b-instruct-q4km
+# weights: Qwen2.5-0.5B-Instruct-Q4_K_M.gguf (bundled, STOCK - general.base_model.0.repo_url = Qwen/Qwen2.5-0.5B)
+# loader: BundledGenerativeLoader; NOT SLM-1, which is the 7B per models/mod.rs:102. §11 D199
+# run: examples/methods_model_probe, 160 cases x 2 prompt variants, 20 Sep 2026
 variant	idx	label	regex	noskill	answer	raw
 A	0	0	true	false	no	no
 A	1	0	true	false	yes	Yes

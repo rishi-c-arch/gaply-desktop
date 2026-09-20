@@ -6048,7 +6048,31 @@ The 38% agreement is 3 of 8, and all three are cases whose gold is `weak`. **A
 constant `weak` predictor scores exactly 38% on this set.** Wilson 95% CI
 [14%, 69%]. The output distribution has zero entropy across fourteen verdicts.
 
-##### What this changes
+##### The guard
+
+`gaply-core/tests/run_artefacts_name_their_model.rs`. Every committed
+`evals/reports/*-raw.tsv` must carry a `# model:` and a `# run:` header, **and a
+model name in the FILENAME must appear in that header.** The raw results of the
+D196 run were committed as `grrb-slm1-qwen05b-raw.tsv` — a filename asserting a
+model that produced none of the rows inside it — and the probe had printed
+`model: qwen2.5-0.5b-instruct-q4km` on stderr at the time with nothing connecting
+the two. The file is renamed and both artefacts now carry their provenance.
+
+A presence check alone would have sat happily inside a file still called `slm1`:
+the failure mode is a NAME disagreeing with CONTENT, so the assertion compares
+them. Same shape as `cited_tests_exist.rs` and `decision_records.rs`, which guard
+that shape in prose rather than in filenames.
+
+Three deletion tests, each predicted first. **Renaming the file back to
+`grrb-slm1-qwen05b-raw.tsv` reproduces the original defect and the guard catches
+it** — *"the FILENAME says slm1 and the header does not"*. Stripping the `# model:`
+header reddens on that. Pointing the scan at a directory with no artefacts fails
+rather than passing vacuously.
+
+It lives in `gaply_core` because both CI workflows run `-p gaply_core`, while the
+probes that produce these files are app-crate examples CI never runs.
+
+#### What this changes
 
 This is §11 D67's `citation_need` 0/65 again, and the consequence is the same
 kind: **it is not a labelling-volume problem, and more labels cannot fix it.**
@@ -14927,6 +14951,16 @@ family they do not belong to.
 
 ### D196 — a model was scored against D165's decline and came in below the regex, below the no-skill baseline, and below the base rate
 
+> **[CORRECTED — §11 D199, 20 Sep 2026. THE MODEL IS MISNAMED THROUGHOUT THIS
+> ENTRY.]** Every row below labelled `SLM1` measured the **bundled, STOCK
+> `Qwen2.5-0.5B-Instruct-Q4_K_M`** — `BundledGenerativeLoader`'s generative model,
+> whose GGUF metadata names `Qwen/Qwen2.5-0.5B` as its base and carries no Gaply
+> string in 38 keys. It is not a fine-tune, and it is **not SLM-1**: `models/mod.rs`
+> defines SLM-1 as the **7B** (`~/gaply-models/slm1/*.gguf`, *"the 7B is NOT
+> bundled"*) and SLM-1-MINI as the 1.5B. **SLM-1 has never been measured.** The
+> measurements are valid; only the label was false. Read every `SLM1` below as
+> "stock 0.5B".
+
 §11 D165 declined the scientific layer at 5.9% precision against a 50% no-skill
 baseline. Phase B asked whether a model beats it. **It does not, and the decline
 is now measured against an instrument rather than by hand.**
@@ -14937,9 +14971,9 @@ is now measured against an instrument rather than by hand.**
 |---|---|
 | no-skill — first paragraph of each Methods section | **50.0%** (6/12) |
 | always answer "yes" (the pool's base rate) | 17.5% |
-| SLM1 Qwen2.5-0.5B-Instruct-Q4_K_M, prompt variant B | 17.7% (28/158) |
+| bundled Qwen2.5-0.5B-Instruct-Q4_K_M (stock), prompt variant B | 17.7% (28/158) |
 | the nine-regex extractor, in-document verdict | 14.8% (22/149) |
-| SLM1, prompt variant A | **14.5%** (18/124) |
+| bundled Qwen2.5-0.5B-Instruct-Q4_K_M (stock), prompt variant A | **14.5%** (18/124) |
 
 > **[CORRECTED — §11 D198, 20 Sep 2026.]** A second adjudicator re-read all 19
 > disputed paragraphs cold and disagreed with two of the first adjudicator's
@@ -15046,6 +15080,12 @@ is a run rather than an argument — which is the whole of what Phase 2b was for
 
 ### D197 — a cloud model on the same fixed set: it discriminates, and it still loses to a one-line heuristic
 
+> **[CORRECTED — §11 D199, 20 Sep 2026.]** The `SLM1` rows in this entry carry the
+> same false label as §11 D196: they measured the bundled **stock**
+> `Qwen2.5-0.5B-Instruct-Q4_K_M`, not SLM-1. SLM-1 is a LoRA adapter over
+> Qwen2.5-**7B**-Instruct and has never been measured. Read `SLM1` as "stock
+> 0.5B" throughout; the gpt-4o-mini rows and every figure are unaffected.
+
 §11 D196 scored SLM1 on the 160-paragraph pool and it landed below the regex,
 below the 50% no-skill baseline, and below the base rate — on judgment, not
 format. The open question was whether scale fixes a judgment failure. **It fixes
@@ -15064,9 +15104,9 @@ model's and a stronger form of D165's decline than either alone.
 | gpt-4o-mini variant A | **38.8%** | 100% | **+66 pts** |
 | gpt-4o-mini variant B | **37.1%** | 100% | **+64 pts** |
 | always "yes" (base rate) | 17.5% | 100% | 0 |
-| SLM1 variant B | 17.7% | 100% | +2 |
+| stock 0.5B variant B | 17.7% | 100% | +2 |
 | the nine-regex extractor, in-document | 14.8% | — | — |
-| SLM1 variant A | 14.5% | 64% | **−16 pts** |
+| stock 0.5B variant A | 14.5% | 64% | **−16 pts** |
 
 > **[CORRECTED — §11 D198, 20 Sep 2026.]** Two labels were flipped after a second
 > adjudicator re-read the disputed paragraphs. Corrected figures on the same
@@ -15273,3 +15313,87 @@ yesterday.
 The 141 undisputed paragraphs still have one. That is the honest remaining limit,
 and the bar to close it is the same move applied to a sample of them: read cold,
 rule first, compare after.
+
+### D199 — SLM-1 exists, is a LoRA adapter over a 7B, has never been measured, and cannot currently be run by the product
+
+§11 D196 and §11 D197 label their small-model rows `SLM1`. **They measured the
+bundled stock `Qwen2.5-0.5B-Instruct-Q4_K_M`.** Both entries are corrected in
+place. The measurements are valid and unchanged; the label was false.
+
+#### How the bundled model's provenance was settled
+
+Not by filename — a stock Qwen and a fine-tune of Qwen share an architecture and
+a naming convention. By the GGUF's own metadata, 38 keys, none Gaply-specific:
+
+```
+general.name                   Qwen2.5 0.5B Instruct
+general.finetune               Instruct              <- Qwen's own instruct tune
+general.base_model.0.repo_url  https://huggingface.co/Qwen/Qwen2.5-0.5B
+general.license.link           .../Qwen/Qwen2.5-0.5B-Instruct/blob/main/LICENSE
+quantize.imatrix.file          /models_out/Qwen2.5-0.5B-Instruct-GGUF/...
+quantize.imatrix.dataset       /training_dir/calibration_datav3.txt
+```
+
+The last two are a third-party quantiser's build paths. This checkpoint was
+downloaded, not produced here.
+
+#### And it is not SLM-1 even as a stock model
+
+`models/mod.rs:102` defines **SLM-1 as the full 7B**, resolved from
+`~/gaply-models/slm1/*.gguf`, with the comment *"The 7B is NOT bundled (Set 1
+bundles only the 0.5B)"*. SLM-1-MINI is the 1.5B. What the probe loaded was
+`BundledGenerativeLoader` — the bundled **generative** model — and it reported
+itself honestly as `qwen2.5-0.5b-instruct-q4km`. The error was in the entry, not
+the loader.
+
+`~/gaply-models/slm1/` does not exist on this machine, and no 7B or 1.5B GGUF is
+present anywhere on it.
+
+#### What SLM-1 and SLM-2 actually are
+
+Found in the private HuggingFace repo **`rishibrucelee/gaply-slm-models`** (last
+modified 10 Jul 2026, 19 files). Both are **LoRA adapters, not full fine-tunes**:
+
+| | SLM-1 | SLM-2 |
+|---|---|---|
+| adapter | `slm1-adapter/adapter_model.safetensors`, **323 MB** | `slm2-adapter/adapter_model.safetensors`, **264 MB** |
+| trained from | `unsloth/Qwen2.5-7B-Instruct-bnb-4bit` | `unsloth/Qwen3-4B-Thinking-2507-unsloth-bnb-4bit` |
+| PEFT | LoRA, r=32, alpha=32, dropout 0 | LoRA, r=32, alpha=32, dropout 0 |
+| target modules | all seven: q/k/v/o, gate/up/down | the same seven |
+| base GGUFs in repo | `Qwen2.5-7B-Instruct` Q4_K_M 4.68 GB, Q8_0 8.10 GB | `qwen3-4b-thinking-2507` Q4_K_M 2.50 GB, Q8_0 4.28 GB |
+
+Both were SFT'd with unsloth/TRL. **Neither README records what they were trained
+on** — both are unfilled Hugging Face templates, so the training data, objective
+and evaluation of the two models Gaply is named around are undocumented.
+
+#### Two facts that decide what can be measured next
+
+1. **The adapters are not merged into the GGUFs.** The GGUFs in `slm1/` and
+   `slm2/` are the STOCK bases, and each `Modelfile`'s `FROM` points at the base.
+   Running those Modelfiles as shipped runs the base model with none of the
+   tuning.
+2. **The app has no LoRA path.** No `lora`, `peft`, `adapter_model` or merge
+   handling exists anywhere in `src/models/` or `src/ai/generative.rs`. The
+   runtime loads a GGUF and that is all it can do. So even with every file
+   downloaded, the product cannot apply SLM-1's adapter — it would run stock
+   Qwen2.5-7B.
+
+**`~/gaply-models/slm1-adapter/` locally holds only `tokenizer.json`** (sha256
+`6b4360dd…`, the file CLAUDE.md records). The adapter weights beside it in the
+repo were never pulled down, and `mod.rs:78` explains why nothing noticed: that
+directory is read only for the shared Qwen2.5 tokenizer, which is identical
+across every size. **A directory named `slm1-adapter` containing no adapter is
+how this went unexamined for two months.**
+
+#### What this changes
+
+**SLM-1 has never been measured, on this benchmark or anywhere in this log.**
+Measuring it requires, in order: pulling the adapter, merging it into the 7B and
+re-quantising (or adding a LoRA path to the runtime), placing the result at
+`~/gaply-models/slm1/`, and running `examples/methods_model_probe` against the
+same 160 paragraphs. That is a real piece of work, not a re-run.
+
+Until then the honest statement is the one D196 and D197 now carry: **a stock 0.5B
+scores 12.9–16.5% on this task, a stock mid-tier cloud model 35.7–37.3%, and a
+one-line heuristic 50%.** Nothing measured so far involves a model trained for
+this product.

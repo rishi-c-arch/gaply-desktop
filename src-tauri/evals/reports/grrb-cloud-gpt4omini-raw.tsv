@@ -1,3 +1,7 @@
+# model: gpt-4o-mini-2024-07-18
+# weights: hosted by OpenAI; named from the API's own result.model echo, not the config default
+# loader: ProxyReqwestClient::verify_with_envelope via gaply-proxy, GAPLY_LLM_PROVIDER=openai
+# run: examples/methods_cloud_probe, 160 cases x 2 prompt variants, 20 Sep 2026
 variant	id	label	answer	detail
 A	grrb-sci-000	0	no	no
 A	grrb-sci-001	0	no	no
