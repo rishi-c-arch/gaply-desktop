@@ -14411,3 +14411,204 @@ that goes red for a reason other than the predicted one is exactly as
 uninformative as one that goes green: **the prediction has to name the message,
 not just the colour.** Re-run as an addition that removes nothing, it fails with
 *"now HAVE a production caller — delete those lines"*.
+
+### D193 — three fixes measured on a 20-journal sample: 6 of 20 became 13, and none of the blockers was JavaScript
+
+§11 D192 ended by asking whether OpenAI-with-search was worth three days, and
+named the deciding measurement: how many journals serve guidance a plain fetch
+cannot read. **The answer is almost none, and the blockers were ours.**
+
+#### The sample
+
+`SEED=20260920`, population **258** — the bundled Scopus directory, all 258
+carrying a website and none an author-guidelines URL — n=20, fixed and written
+down before the first fetch. Because the directory has websites rather than
+guidance URLs, each journal needs its guidance page DISCOVERED first, and a
+discovery failure must stay distinguishable from a page that loads empty. Those
+are different findings and only one is what search would fix.
+
+**20 journals sit on 8 platforms** (Elsevier 7, Wiley 4, OUP 3), so the honest
+unit is the platform and the per-journal figure is weighted by catalogue size.
+
+#### The prediction, and where it was wrong
+
+| bucket | predicted | before the fixes | after |
+|---|---|---|---|
+| requirements extracted | 3-5 | 6 | **13** |
+| reached, no guidance (the D192 Annals case) | 7-10 | 2 | 2 |
+| fetch failed | 2-4 | 1 | 0 |
+| quarantined by Gaply | — | 6 | **0** |
+| homepage blocked | — | 5 | 5 |
+| no link discoverable | 4-6 | 0 | 0 |
+
+**The mechanism prediction was wrong in the direction that mattered.** It said
+JS rendering would be a minority and stale directory URLs the main blocker.
+`www.journals.elsevier.com` is not retired — it serves 495 KB of real content —
+and **zero of twenty were the Annals case.** Not one JS-rendered guidance page.
+
+Of the fourteen that did not extract, **eight were defects in Gaply**.
+
+#### 1. A quarantine was reported as the journal publishing nothing
+
+Six of twenty, every one a live ScienceDirect `guide-for-authors` page carrying
+54,000-68,000 characters. `any_ingested` counts only `Ingested | Skipped`, so a
+quarantine fell through to the unavailable branch and produced *"That page was
+reached, and no author guidance was found on it"* — a claim about the user's
+journal, caused by a decision in `guidelines.rs`.
+
+This is §14's backend-refusal pattern inverted. The recorded cases are a backend
+declining and a screen claiming anyway; here the backend declined and **blamed
+the page for it**. The fix was made before the predicate, because a refusal
+attributed to someone else is worse than a refusal: the note now says Gaply
+fetched the page and then refused it, that this is Gaply's decision and not a
+statement about the journal, and that the page is public and can be read
+directly. A decline with no remedy is where a decline becomes a dead end.
+
+#### 2. The predicate: one sentence, six journals
+
+`sanitize.rs` already documented one false positive of this family — PLOS ONE's
+*"supporting figures ... do not follow the same requirements as tables and
+figures in the main body"* — and asked for the rule an injection obeys: *"an
+injection names the INSTRUCTIONS it wants ignored."* This is the second witness,
+taken across a corpus rather than a fixture.
+
+**23 real author-guidance pages fetched, 6 flagged, and all 6 were the same
+sentence**, byte-identical across six unrelated titles because it is Elsevier's
+shared template:
+
+> Requests **which** do not comply with **the instructions** outlined in the form
+> will not be considered.
+
+`INSTRUCTION_OBJECTS` contains the bare word `instruction`, which that sentence
+satisfies. What separates it from an injection is not its subject matter but its
+**grammatical mood**: an injection is an imperative addressed to whoever is
+reading and has no subject; this is a relative clause that has just named one.
+The difference is visible one token to the left, and `RELATIVE_PRONOUNS` is the
+discriminator.
+
+The alternative — dropping bare `instruction` and keeping only the deictic words
+(`above`, `previous`, `preceding`) — would also have cleared all six. It was not
+chosen because it narrows what the guard can CATCH, while this narrows only what
+it MISREADS. `"ignore previous instructions"` and its family stay covered by
+`INJECTION_SUBSTRINGS`, independently of this function.
+
+**The fix broke its own first test, and the test said so.** The step-1 note test
+used the Elsevier sentence as its fixture and asserted, as a precondition, that
+the fixture actually reached the quarantine branch — *"or the test proves
+nothing"*. Once the predicate was fixed the sentence stopped quarantining and
+that assert went red immediately. One fixture had been carrying two claims; they
+are now two tests, and the precondition assert is why it took seconds rather than
+surviving as a test that passed while testing nothing.
+
+#### 3. `&amp;` in an href is a 404, and `links()` is the crawler's own
+
+HTML requires `&` to be written `&amp;` inside an attribute, so every
+query-string URL arrives encoded. `find_attr` decoded nothing and returned the
+raw slice. Measured on Taylor & Francis:
+
+```text
+.../authorSubmission?show=instructions&amp;journalCode=rwar20  -> 404,  2,378 chars
+.../authorSubmission?show=instructions&journalCode=rwar20      -> 200, 20,981 chars
+```
+
+One journal in this sample; the blast radius is every crawl, because `links` is
+what builds the frontier. Any site routing author guidance through a query string
+was unreachable and looked like a site without guidance.
+
+#### The hub case: what one more hop costs, measured rather than estimated
+
+A homepage's guidance link often lands on a HUB. Measured on both Nature titles:
+
+| | hop 0 | + one hop (cap 12) |
+|---|---|---|
+| fetches | 1 | **13** |
+| wall clock | 2.3 s | **26.4 s** |
+| requirements, Nature Sustainability | 0 | **7** |
+| requirements, Nature Medicine | 0 | **7** |
+
+10 of 12 children yield nothing; `matters-arising` and `aip-and-formatting` carry
+all of it. **Nature Medicine's bundled seed holds 39**, so one hop recovers
+**7 of 39 — 18% of the requirements for 11% of the crawl's 120-page budget.** One
+hop is not a cheap crawl; it is a partial recovery at eleven times the latency,
+and on the pasted-URL path that cost is paid while a user waits. Not built.
+
+#### What is left, and what it means for search
+
+Seven journals still do not extract: **five are WAF blocks** (OUP x3 and APA
+return stable, byte-identical 403s across rounds; Project Euclid serves an
+Incapsula block **with HTTP 200**, which the probe first filed as "no link
+found"), one is the hub, one is a lexicon mis-guess.
+
+So search's value here is bypassing **bot protection**, not JavaScript — a
+different argument from D192's, and a worse one for provenance. For a WAF-blocked
+publisher we never see the page, so a span would come from a provider's citation
+rather than from text we read, and a span whose source we did not read is exactly
+what the span norm forbids. Steps 2 and 3 stay unbuilt.
+
+#### The tier separation earned itself in one row
+
+Of 46 requirements extracted across 13 journals, **45 are real guidance and one
+is not**: British Journal of Surgery's `reporting_standard = PRISMA`, whose span
+is a research article's abstract — *"A PROSPERO-registered, PRISMA-compliant
+meta-analysis was conducted on clinical and patient-reported outcomes..."* — read
+off a journal landing page. It is the **only `lexicon`-tier extraction in the
+sample**; all twelve others came via `explicit`. Restricting the discovery path to
+`explicit` trades one false requirement for one fewer journal, which is the right
+trade for a checklist a researcher is asked to believe. No count showed this; the
+span did.
+
+#### Two instrument defects, both caught by absurdity rather than by a test
+
+* **A base URL that was an RSS host.** The probe resolved redirects by searching
+  a 300-character window around `rel="canonical"` for any `href`, and on Elsevier
+  that returned `rss.sciencedirect.com` — so the same-host rule dropped every
+  candidate and seven live journals looked like journals naming no guidance. A
+  wrong base is indistinguishable in the counts from a journal that publishes
+  nothing. Fixed by parsing the canonical tag itself.
+* **Python ate a Rust string continuation.** A `\` before a newline inside a
+  non-raw Python heredoc is a PYTHON line-continuation, so it joined the lines and
+  kept the indentation before ever writing Rust. The reader-facing sentence
+  shipped with fourteen-space runs inside it, and nothing failed: the result is
+  still valid Rust and still compiles. Caught only because a test compared the
+  sentence exactly. The earlier whitespace runs in this module's `Unavailable`
+  reasons had the same cause and were fixed by hand without the cause being
+  identified. Use a raw string, and assert on the rendered text.
+
+#### The guard, and the deletion test that went green
+
+`guidelines::tests::every_note_a_user_can_be_shown_is_clean_prose` drives all
+seven note branches through the real `ingest_with` and checks the sentence **as
+rendered**: no run of spaces, no em or en dash, no tab or newline, ends in a full
+stop, and each branch distinct.
+
+**Rendered, not scanned, and that is the whole point.** A source scan is blind to
+`\u{2014}` (§11 D190) and, run over a crate, flags deliberate column alignment in
+CLI tools — 59 lines, almost all `ai-eval.rs` table padding. By the time a string
+is rendered an escape has become a character and nothing aligns columns in a
+sentence. Its first run found the empty-input note was a semicolon fragment while
+every other note was a sentence.
+
+**Then a deletion test went green and turned out to be the more useful result.**
+Collapsing the `key.is_none()` branch left this test passing. Printing the seven
+notes showed why: **three cases were secretly the same branch.** `classify_page`
+runs BEFORE the injection scan, so an injected page with no obligation sentences
+is refused as navigation and never reaches the quarantine branch at all; the
+"nothing statable" fixture classified as navigation too. The `distinct.len() == 7`
+assertion still passed, because the navigation sentence embeds obligation and
+requirement COUNTS and those differed. **The assertion was satisfied by numbers
+differing, not by branches differing** — which is exactly the failure mode it was
+written to prevent, present in the test from the first run.
+
+Fixed by pinning each case to a marker phrase from its own branch rather than to
+distinctness, and by rewriting the fixtures so each reaches the arm it names. Both
+deletion tests now fail with the right message: collapsing a branch reports
+*"unkeyed: this case did not reach its branch"*, and softening the quarantine
+fixture so it no longer looks like guidance reports the same for *"quarantined"*.
+
+Eight deletion tests across this change: **seven red as predicted, one green** —
+and the green one produced the only defect in the guard itself. That is the
+CLAUDE.md rule earning itself again, in a session that had already used it twice.
+
+**Known limit, stated so nobody reads a green local run as CI coverage:** this is
+an app-crate test and both CI workflows run `-p gaply_core`, so it gates
+`cargo test --workspace` and nothing else.

@@ -354,6 +354,135 @@ fn in_scope(u: &Url, scope: &Option<Vec<String>>) -> bool {
     got.len() == want.len() && got.iter().zip(want).all(|(a, b)| a == b)
 }
 
+/// **How confidently a homepage named its own author guidelines.**
+///
+/// The two are reported separately because they answer different questions. An
+/// `Explicit` link is the journal telling us where its guidance is. A `Lexicon`
+/// link is Gaply guessing from a topic word, and a guess that lands on a policy
+/// page is a discovery limit, not a journal without guidance.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LinkConfidence {
+    /// The anchor or path says author guidance in so many words.
+    Explicit,
+    /// Only a `LEXICON` topic term matched. A candidate, not a claim.
+    Lexicon,
+}
+
+/// One discovered candidate, with the anchor text that justified it.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DiscoveredLink {
+    pub url: String,
+    pub anchor: String,
+    pub confidence: LinkConfidence,
+    /// **The link leaves the host the homepage was served from.**
+    ///
+    /// Reported rather than dropped, and the distinction is load-bearing. §11
+    /// D160's defect was a publisher's author-SERVICES site — which sells
+    /// translation and editing — being read as guidance; that is a rule about
+    /// what may be ADMITTED, and the page classifier and the extractor are what
+    /// enforce it. Enumeration is a different job: a publisher serving one
+    /// journal's guidance from a sibling host is ordinary, and a discovery step
+    /// that cannot see those links reports them as journals that publish no
+    /// guidance. Measured: Elsevier's journal homepages carry a "Guide for
+    /// authors" link onto `sciencedirect.com`.
+    ///
+    /// Same-host candidates come first, so a caller that takes `first()` keeps
+    /// the conservative behaviour without asking for it.
+    pub off_host: bool,
+}
+
+/// Anchor/path shapes that name author guidance outright. **Not a second
+/// lexicon**: `LEXICON` decides crawl ORDER over pages already in scope, and
+/// changing it cannot change what is admitted. This decides which single link to
+/// FOLLOW from a homepage we have no crawl budget for, so it has to be specific
+/// or the answer is a policy page every time.
+const EXPLICIT: &[&str] = &[
+    "instructions-for-authors", "instructions_for_authors", "instructionsforauthors",
+    "author-guidelines", "author_guidelines", "authorguidelines",
+    "submission-guidelines", "submissionguidelines",
+    "for-authors", "forauthors", "for_authors",
+    "authors/instructions", "authors-instructions",
+    "information-for-authors", "guide-for-authors", "guideforauthors",
+];
+
+/// **Does the homepage name its own author guidelines, and how plainly?**
+///
+/// Deterministic: no model, no proxy. It reuses this module's own `links`,
+/// `never_follow` and `carries_guidance` so a homepage cannot send the caller to
+/// a research article or a PDF, and it stays on the host it started from —
+/// a journal's guidance lives on its own platform, and following off-host links
+/// is how §11 D160's publisher-wide author-services page got mistaken for
+/// guidance.
+///
+/// Returns candidates best-first: every `Explicit` match before any `Lexicon`
+/// one. **The caller must report which tier it used** — a `Lexicon`-only result
+/// that yields nothing is evidence about this function, not about the journal.
+///
+/// Added for the §11 D192 follow-up measurement: the bundled Scopus directory
+/// carries websites and no guideline URLs (258 of 258), so sampling it needs a
+/// discovery step, and a discovery failure must be distinguishable from a page
+/// that loads empty.
+pub fn discover_guidelines_links(html: &str, base: &Url) -> Vec<DiscoveredLink> {
+    let host = base.host_str().unwrap_or_default().to_lowercase();
+    let mut explicit = Vec::new();
+    let mut lexicon = Vec::new();
+    let mut off_explicit = Vec::new();
+    let mut off_lexicon = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
+
+    for (url, anchor) in links(html, base) {
+        if never_follow(&url) {
+            continue;
+        }
+        let Ok(parsed) = Url::parse(&url) else { continue };
+        if !carries_guidance(&parsed) {
+            continue;
+        }
+        let h = parsed.host_str().unwrap_or_default().to_lowercase();
+        let off_host = h != host;
+        if !seen.insert(normalise(&url)) {
+            continue;
+        }
+        let hay = format!("{} {}", url.to_lowercase(), anchor.to_lowercase());
+        let plain = hay.replace(' ', "-");
+        if EXPLICIT.iter().any(|e| plain.contains(e))
+            || (hay.contains("author")
+                && (hay.contains("guideline") || hay.contains("instruction")))
+        {
+            let l = DiscoveredLink {
+                url,
+                anchor,
+                confidence: LinkConfidence::Explicit,
+                off_host,
+            };
+            if off_host {
+                off_explicit.push(l)
+            } else {
+                explicit.push(l)
+            }
+        } else if lexicon_hit(&url, &anchor) {
+            let l = DiscoveredLink {
+                url,
+                anchor,
+                confidence: LinkConfidence::Lexicon,
+                off_host,
+            };
+            if off_host {
+                off_lexicon.push(l)
+            } else {
+                lexicon.push(l)
+            }
+        }
+    }
+    // Same host before anything else, explicit before a guess. `first()` is the
+    // conservative choice and stays so.
+    explicit.extend(lexicon);
+    explicit.extend(off_explicit);
+    explicit.extend(off_lexicon);
+    explicit
+}
+
 /// Extract `(absolute_url, anchor_text)` for every `<a href>`.
 fn links(html: &str, base: &Url) -> Vec<(String, String)> {
     let mut out = Vec::new();
@@ -377,18 +506,82 @@ fn links(html: &str, base: &Url) -> Vec<(String, String)> {
     out
 }
 
+/// **Attribute values in HTML are entity-encoded, so the raw slice is not the
+/// value. §11 D193.**
+///
+/// `&` MUST be written `&amp;` inside an attribute, so every query-string URL in
+/// every page arrives encoded. Returning the raw slice produced a URL containing
+/// a literal `&amp;`, and measured on Taylor & Francis that is not a different
+/// spelling of the same page — it is a **404**:
+///
+/// ```text
+/// .../authorSubmission?show=instructions&amp;journalCode=rwar20  -> 404, 2,378 chars
+/// .../authorSubmission?show=instructions&journalCode=rwar20      -> 200, 20,981 chars
+/// ```
+///
+/// One journal in the D193 sample, and the blast radius is every crawl: `links`
+/// is what builds the frontier, so any site that routes author guidance through a
+/// query string was unreachable and looked like a site without guidance.
 fn find_attr(tag: &str, name: &str) -> Option<String> {
     let lower = tag.to_lowercase();
     let at = lower.find(&format!("{name}="))? + name.len() + 1;
     let rest = &tag[at..];
     let quote = rest.chars().next()?;
-    if quote == '"' || quote == '\'' {
+    let raw = if quote == '"' || quote == '\'' {
         let end = rest[1..].find(quote)? + 1;
-        Some(rest[1..end].to_string())
+        &rest[1..end]
     } else {
         let end = rest.find([' ', '>']).unwrap_or(rest.len());
-        Some(rest[..end].to_string())
+        &rest[..end]
+    };
+    Some(decode_entities(raw))
+}
+
+/// The named and numeric entities that appear in URLs. **Deliberately not a full
+/// HTML entity table**: this decodes an attribute value, and the only characters
+/// that must be escaped there are `&`, the quote in use, and `<`. A broad table
+/// would start rewriting path segments that legitimately contain `&#` sequences.
+fn decode_entities(s: &str) -> String {
+    if !s.contains('&') {
+        return s.to_string();
     }
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(i) = rest.find('&') {
+        out.push_str(&rest[..i]);
+        let tail = &rest[i..];
+        // Longest first, so `&amp;` is never read as a bare `&` followed by text.
+        let matched = [
+            ("&amp;", "&"),
+            ("&#38;", "&"),
+            ("&#x26;", "&"),
+            ("&#X26;", "&"),
+            ("&quot;", "\""),
+            ("&#34;", "\""),
+            ("&apos;", "'"),
+            ("&#39;", "'"),
+            ("&lt;", "<"),
+            ("&gt;", ">"),
+            ("&#47;", "/"),
+            ("&#61;", "="),
+            ("&#63;", "?"),
+        ]
+        .iter()
+        .find(|(e, _)| tail.starts_with(*e))
+        .copied();
+        match matched {
+            Some((e, r)) => {
+                out.push_str(r);
+                rest = &tail[e.len()..];
+            }
+            None => {
+                out.push('&');
+                rest = &tail[1..];
+            }
+        }
+    }
+    out.push_str(rest);
+    out
 }
 
 fn strip_tags_inline(s: &str) -> String {
@@ -1150,4 +1343,108 @@ mod tests {
         assert_eq!(urls, vec!["https://j.test/c", "https://j.test/d", "https://j.test/e"]);
         assert_eq!(got[0].1, "C");
     }
+    // ---------------------------------------------------------------
+    // Discovery from a homepage (§11 D192 follow-up)
+    // ---------------------------------------------------------------
+
+    fn home(body: &str) -> String {
+        format!("<html><body>{body}</body></html>")
+    }
+    fn base() -> Url {
+        Url::parse("https://j.test/").unwrap()
+    }
+
+    /// An explicit naming outranks a topic word, and the tier is reported. A
+    /// caller that cannot tell the two apart cannot tell "this journal hid its
+    /// guidance" from "Gaply guessed and guessed wrong".
+    #[test]
+    fn an_explicit_author_guidelines_link_outranks_a_lexicon_guess() {
+        let html = home(
+            r#"<a href="/about/policies">Editorial policies</a>
+               <a href="/authors/instructions">Instructions for authors</a>"#,
+        );
+        let got = discover_guidelines_links(&html, &base());
+        assert_eq!(got[0].url, "https://j.test/authors/instructions", "{got:?}");
+        assert_eq!(got[0].confidence, LinkConfidence::Explicit);
+        // The policy page is still a candidate — it is just not the first one.
+        assert!(got.iter().any(|l| l.confidence == LinkConfidence::Lexicon), "{got:?}");
+    }
+
+    /// A homepage that names nothing must return NOTHING, not its least bad
+    /// link. This is the bucket the measurement needs kept separate: "no URL
+    /// discoverable" is a discovery limit, and inventing a candidate here would
+    /// silently reclassify it as "the page had no guidance on it".
+    #[test]
+    fn a_homepage_that_names_no_guidance_yields_no_candidate() {
+        let html = home(r#"<a href="/issues/current">Current issue</a>
+                           <a href="/contact">Contact us</a>"#);
+        assert!(discover_guidelines_links(&html, &base()).is_empty());
+    }
+
+    /// Off-host links are refused. §11 D160: a publisher's author-SERVICES site
+    /// sells translation and editing to the same authors it advises, and reading
+    /// it as guidance is how a price list became a 12000-word limit.
+    /// **Off-host links are FLAGGED and ranked last, not dropped.**
+    ///
+    /// This test asserted `len() == 1` until the §11 D192 follow-up run showed
+    /// what dropping costs: Elsevier serves every journal's "Guide for authors"
+    /// from `sciencedirect.com`, so a same-host-only enumeration reported seven
+    /// live journals as publishing no guidance. The POLICY is unchanged —
+    /// `first()` is still same-host — but the caller can now see what it is
+    /// declining, which is the difference between a measurement and a blind spot.
+    #[test]
+    fn an_off_host_link_ranks_last_and_says_that_it_is_off_host() {
+        let html = home(
+            r#"<a href="https://authorservices.example.com/author-guidelines">Author guidelines</a>
+               <a href="/authors/guidelines">Author guidelines</a>"#,
+        );
+        let got = discover_guidelines_links(&html, &base());
+        assert_eq!(got.len(), 2, "{got:?}");
+        // The conservative pick is first and is on the host we started from.
+        assert_eq!(got[0].url, "https://j.test/authors/guidelines");
+        assert!(!got[0].off_host);
+        // The author-SERVICES page is visible and marked, so a caller cannot
+        // follow it by accident and cannot miss that it existed.
+        assert!(got[1].off_host, "{got:?}");
+        assert!(got[1].url.contains("authorservices"));
+    }
+
+    /// The existing cost rules still apply — a PDF or a research article cannot
+    /// become the discovered guidance page however it is labelled.
+    #[test]
+    fn discovery_reuses_the_crawlers_refusals_rather_than_restating_them() {
+        let html = home(
+            r#"<a href="/files/author-guidelines.pdf">Author guidelines (PDF)</a>
+               <a href="/article/10.1000/x">Author guidelines</a>"#,
+        );
+        assert!(discover_guidelines_links(&html, &base()).is_empty());
+    }
+
+    /// **The measured case. §11 D193.** The encoded URL is a 404 and the decoded
+    /// one is the journal's real author instructions, so this is not cosmetic.
+    #[test]
+    fn an_href_with_an_encoded_ampersand_yields_a_url_that_resolves() {
+        let html = r#"<a href="/action/authorSubmission?show=instructions&amp;journalCode=rwar20">Instructions for authors</a>"#;
+        let got = links(html, &Url::parse("https://www.tandfonline.com/").unwrap());
+        assert_eq!(got.len(), 1, "{got:?}");
+        assert_eq!(
+            got[0].0,
+            "https://www.tandfonline.com/action/authorSubmission?show=instructions&journalCode=rwar20"
+        );
+        assert!(!got[0].0.contains("amp;"), "a literal &amp; in a URL is a 404: {}", got[0].0);
+    }
+
+    /// A bare `&` that is not an entity must survive untouched, and a `&` inside
+    /// a path must not become anything else.
+    #[test]
+    fn decoding_leaves_a_non_entity_ampersand_alone() {
+        assert_eq!(decode_entities("a&b"), "a&b");
+        assert_eq!(decode_entities("?x=1&amp;y=2&amp;z=3"), "?x=1&y=2&z=3");
+        assert_eq!(decode_entities("no entities here"), "no entities here");
+        // Numeric forms of the same character.
+        assert_eq!(decode_entities("?a=1&#38;b=2"), "?a=1&b=2");
+        // `&amp;amp;` is a double-encoded ampersand: one pass, one level, no loop.
+        assert_eq!(decode_entities("&amp;amp;"), "&amp;");
+    }
+
 }
