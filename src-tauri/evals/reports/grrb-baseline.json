@@ -1,0 +1,641 @@
+{
+  "head_sha": "231b2eb11d66548d5f6eef88bc0b97495a84804f",
+  "generated_at_epoch": 1789886863,
+  "engine": "tier0",
+  "total_cases": 54,
+  "runnable": 46,
+  "unrunnable": 8,
+  "families": [
+    {
+      "family": "mathematical",
+      "tp": 4,
+      "fp": 1,
+      "fn_": 0,
+      "tn": 3,
+      "unrunnable": 0,
+      "accuracy_pct": 87.5,
+      "false_positive_rate_pct": 25.0,
+      "false_negative_rate_pct": 0.0,
+      "weighted_accuracy_pct": null,
+      "weighting": "WITHHELD — these strata have no measured population: adversarial_label, declaration, rounding, sign. A pooled rate printed here would be the §11 D123 over-claim."
+    },
+    {
+      "family": "statistical",
+      "tp": 4,
+      "fp": 0,
+      "fn_": 1,
+      "tn": 2,
+      "unrunnable": 2,
+      "accuracy_pct": 85.71428571428571,
+      "false_positive_rate_pct": 0.0,
+      "false_negative_rate_pct": 20.0,
+      "weighted_accuracy_pct": null,
+      "weighting": "WITHHELD — these strata have no measured population: clean, confidence_interval, declined_rule5, effect_size, overclaim, test_design. A pooled rate printed here would be the §11 D123 over-claim."
+    },
+    {
+      "family": "manuscript_consistency",
+      "tp": 0,
+      "fp": 0,
+      "fn_": 0,
+      "tn": 4,
+      "unrunnable": 4,
+      "accuracy_pct": 100.0,
+      "false_positive_rate_pct": 0.0,
+      "false_negative_rate_pct": null,
+      "weighted_accuracy_pct": null,
+      "weighting": "WITHHELD — these strata have no measured population: n_mismatch. A pooled rate printed here would be the §11 D123 over-claim."
+    },
+    {
+      "family": "literature",
+      "tp": 0,
+      "fp": 0,
+      "fn_": 2,
+      "tn": 4,
+      "unrunnable": 2,
+      "accuracy_pct": 66.66666666666667,
+      "false_positive_rate_pct": 0.0,
+      "false_negative_rate_pct": 100.0,
+      "weighted_accuracy_pct": null,
+      "weighting": "WITHHELD — these strata have no measured population: citation_pairing. A pooled rate printed here would be the §11 D123 over-claim."
+    },
+    {
+      "family": "journal",
+      "tp": 4,
+      "fp": 2,
+      "fn_": 0,
+      "tn": 3,
+      "unrunnable": 0,
+      "accuracy_pct": 77.77777777777777,
+      "false_positive_rate_pct": 40.0,
+      "false_negative_rate_pct": 0.0,
+      "weighted_accuracy_pct": null,
+      "weighting": "WITHHELD — these strata have no measured population: false_positive. A pooled rate printed here would be the §11 D123 over-claim."
+    },
+    {
+      "family": "adversarial",
+      "tp": 6,
+      "fp": 1,
+      "fn_": 1,
+      "tn": 4,
+      "unrunnable": 0,
+      "accuracy_pct": 83.33333333333333,
+      "false_positive_rate_pct": 20.0,
+      "false_negative_rate_pct": 14.285714285714286,
+      "weighted_accuracy_pct": null,
+      "weighting": "WITHHELD — these strata have no measured population: injection, misleading_nontext. A pooled rate printed here would be the §11 D123 over-claim."
+    }
+  ],
+  "not_applicable": {
+    "calibration_brier_ece": "n/a — Tier 0 emits no probability. §4.4 gives it authority because it is deterministic, not because it is confident.",
+    "citation_grounding": "n/a — Tier 0 findings cite manuscript spans, not retrieved sources; there is nothing to ground against.",
+    "context_efficiency_tokens_per_finding": "n/a — no context is constructed and no tokens are spent.",
+    "contradiction_rate_against_tier0": "n/a — this run IS Tier 0. The column becomes meaningful the first time a model-backed agent is scored.",
+    "cost": "n/a — no model is called and no proxy is reached; the number would be 0.00 and would read as a measurement.",
+    "evidence_policy_satisfaction": "not yet implemented — the agent graph's evidence_policy applies to specialists, and no specialist runs in this baseline.",
+    "reviewer_agreement": "the labels ARE the human comparison: every case was adjudicated by hand from a decision record. Accuracy against them is this column."
+  },
+  "determinism_all_stable": true,
+  "total_micros": 128888,
+  "cases": [
+    {
+      "id": "grrb-mth-001",
+      "family": "mathematical",
+      "stratum": "totals_row",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 1631
+    },
+    {
+      "id": "grrb-mth-002",
+      "family": "mathematical",
+      "stratum": "totals_row",
+      "expected_finding": true,
+      "got_finding": true,
+      "outcome": "tp",
+      "deterministic": true,
+      "micros": 82
+    },
+    {
+      "id": "grrb-mth-003",
+      "family": "mathematical",
+      "stratum": "rounding",
+      "expected_finding": false,
+      "got_finding": true,
+      "outcome": "fp",
+      "deterministic": true,
+      "micros": 54
+    },
+    {
+      "id": "grrb-mth-004",
+      "family": "mathematical",
+      "stratum": "rounding",
+      "expected_finding": true,
+      "got_finding": true,
+      "outcome": "tp",
+      "deterministic": true,
+      "micros": 53
+    },
+    {
+      "id": "grrb-mth-005",
+      "family": "mathematical",
+      "stratum": "sign",
+      "expected_finding": true,
+      "got_finding": true,
+      "outcome": "tp",
+      "deterministic": true,
+      "micros": 38
+    },
+    {
+      "id": "grrb-mth-006",
+      "family": "mathematical",
+      "stratum": "sign",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 28
+    },
+    {
+      "id": "grrb-mth-007",
+      "family": "mathematical",
+      "stratum": "adversarial_label",
+      "expected_finding": true,
+      "got_finding": true,
+      "outcome": "tp",
+      "deterministic": true,
+      "micros": 93
+    },
+    {
+      "id": "grrb-mth-008",
+      "family": "mathematical",
+      "stratum": "declaration",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 37
+    },
+    {
+      "id": "grrb-sta-001",
+      "family": "statistical",
+      "stratum": "effect_size",
+      "expected_finding": true,
+      "got_finding": true,
+      "outcome": "tp",
+      "deterministic": true,
+      "micros": 78640
+    },
+    {
+      "id": "grrb-sta-002",
+      "family": "statistical",
+      "stratum": "effect_size",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 740
+    },
+    {
+      "id": "grrb-sta-003",
+      "family": "statistical",
+      "stratum": "overclaim",
+      "expected_finding": true,
+      "got_finding": true,
+      "outcome": "tp",
+      "deterministic": true,
+      "micros": 234
+    },
+    {
+      "id": "grrb-sta-004",
+      "family": "statistical",
+      "stratum": "test_design",
+      "expected_finding": true,
+      "got_finding": false,
+      "outcome": "fn",
+      "deterministic": true,
+      "micros": 463
+    },
+    {
+      "id": "grrb-sta-005",
+      "family": "statistical",
+      "stratum": "confidence_interval",
+      "expected_finding": true,
+      "got_finding": true,
+      "outcome": "tp",
+      "deterministic": true,
+      "micros": 88
+    },
+    {
+      "id": "grrb-sta-006",
+      "family": "statistical",
+      "stratum": "declined_rule5",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 471
+    },
+    {
+      "id": "grrb-sta-007",
+      "family": "statistical",
+      "stratum": "clean",
+      "expected_finding": true,
+      "got_finding": true,
+      "outcome": "tp",
+      "deterministic": true,
+      "micros": 226
+    },
+    {
+      "id": "grrb-sta-008",
+      "family": "statistical",
+      "stratum": "analysis_pairing",
+      "expected_finding": false,
+      "got_finding": null,
+      "outcome": "unrunnable",
+      "deterministic": null,
+      "micros": 0
+    },
+    {
+      "id": "grrb-sta-009",
+      "family": "statistical",
+      "stratum": "analysis_pairing",
+      "expected_finding": false,
+      "got_finding": null,
+      "outcome": "unrunnable",
+      "deterministic": null,
+      "micros": 0
+    },
+    {
+      "id": "grrb-con-001",
+      "family": "manuscript_consistency",
+      "stratum": "n_mismatch",
+      "expected_finding": true,
+      "got_finding": null,
+      "outcome": "unrunnable",
+      "deterministic": null,
+      "micros": 0
+    },
+    {
+      "id": "grrb-con-002",
+      "family": "manuscript_consistency",
+      "stratum": "n_mismatch",
+      "expected_finding": false,
+      "got_finding": null,
+      "outcome": "unrunnable",
+      "deterministic": null,
+      "micros": 0
+    },
+    {
+      "id": "grrb-con-003",
+      "family": "manuscript_consistency",
+      "stratum": "nontext_block",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 19998
+    },
+    {
+      "id": "grrb-con-004",
+      "family": "manuscript_consistency",
+      "stratum": "nontext_block",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 178
+    },
+    {
+      "id": "grrb-con-005",
+      "family": "manuscript_consistency",
+      "stratum": "nontext_block",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 107
+    },
+    {
+      "id": "grrb-con-006",
+      "family": "manuscript_consistency",
+      "stratum": "nontext_block",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 194
+    },
+    {
+      "id": "grrb-con-007",
+      "family": "manuscript_consistency",
+      "stratum": "novelty_declined",
+      "expected_finding": false,
+      "got_finding": null,
+      "outcome": "unrunnable",
+      "deterministic": null,
+      "micros": 0
+    },
+    {
+      "id": "grrb-con-008",
+      "family": "manuscript_consistency",
+      "stratum": "novelty_declined",
+      "expected_finding": false,
+      "got_finding": null,
+      "outcome": "unrunnable",
+      "deterministic": null,
+      "micros": 0
+    },
+    {
+      "id": "grrb-lit-001",
+      "family": "literature",
+      "stratum": "citation_pairing",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 576
+    },
+    {
+      "id": "grrb-lit-002",
+      "family": "literature",
+      "stratum": "citation_pairing",
+      "expected_finding": true,
+      "got_finding": false,
+      "outcome": "fn",
+      "deterministic": true,
+      "micros": 57
+    },
+    {
+      "id": "grrb-lit-003",
+      "family": "literature",
+      "stratum": "citation_pairing",
+      "expected_finding": true,
+      "got_finding": false,
+      "outcome": "fn",
+      "deterministic": true,
+      "micros": 88
+    },
+    {
+      "id": "grrb-lit-004",
+      "family": "literature",
+      "stratum": "citation_pairing",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 311
+    },
+    {
+      "id": "grrb-lit-005",
+      "family": "literature",
+      "stratum": "citation_pairing",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 121
+    },
+    {
+      "id": "grrb-lit-006",
+      "family": "literature",
+      "stratum": "bibliography_noise",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 30
+    },
+    {
+      "id": "grrb-lit-007",
+      "family": "literature",
+      "stratum": "external_registry",
+      "expected_finding": true,
+      "got_finding": null,
+      "outcome": "unrunnable",
+      "deterministic": null,
+      "micros": 0
+    },
+    {
+      "id": "grrb-lit-008",
+      "family": "literature",
+      "stratum": "external_registry",
+      "expected_finding": true,
+      "got_finding": null,
+      "outcome": "unrunnable",
+      "deterministic": null,
+      "micros": 0
+    },
+    {
+      "id": "grrb-jrn-001",
+      "family": "journal",
+      "stratum": "requirement_present",
+      "expected_finding": true,
+      "got_finding": true,
+      "outcome": "tp",
+      "deterministic": true,
+      "micros": 67
+    },
+    {
+      "id": "grrb-jrn-002",
+      "family": "journal",
+      "stratum": "requirement_present",
+      "expected_finding": true,
+      "got_finding": true,
+      "outcome": "tp",
+      "deterministic": true,
+      "micros": 48
+    },
+    {
+      "id": "grrb-jrn-003",
+      "family": "journal",
+      "stratum": "requirement_present",
+      "expected_finding": true,
+      "got_finding": true,
+      "outcome": "tp",
+      "deterministic": true,
+      "micros": 46
+    },
+    {
+      "id": "grrb-jrn-004",
+      "family": "journal",
+      "stratum": "requirement_present",
+      "expected_finding": true,
+      "got_finding": true,
+      "outcome": "tp",
+      "deterministic": true,
+      "micros": 41
+    },
+    {
+      "id": "grrb-jrn-005",
+      "family": "journal",
+      "stratum": "false_positive",
+      "expected_finding": false,
+      "got_finding": true,
+      "outcome": "fp",
+      "deterministic": true,
+      "micros": 49
+    },
+    {
+      "id": "grrb-jrn-006",
+      "family": "journal",
+      "stratum": "false_positive",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 62
+    },
+    {
+      "id": "grrb-jrn-007",
+      "family": "journal",
+      "stratum": "false_positive",
+      "expected_finding": false,
+      "got_finding": true,
+      "outcome": "fp",
+      "deterministic": true,
+      "micros": 50
+    },
+    {
+      "id": "grrb-jrn-008",
+      "family": "journal",
+      "stratum": "false_positive",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 35
+    },
+    {
+      "id": "grrb-jrn-009",
+      "family": "journal",
+      "stratum": "false_positive",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 26
+    },
+    {
+      "id": "grrb-adv-001",
+      "family": "adversarial",
+      "stratum": "guideline_page",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 51
+    },
+    {
+      "id": "grrb-adv-002",
+      "family": "adversarial",
+      "stratum": "guideline_page",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 34
+    },
+    {
+      "id": "grrb-adv-003",
+      "family": "adversarial",
+      "stratum": "injection",
+      "expected_finding": true,
+      "got_finding": true,
+      "outcome": "tp",
+      "deterministic": true,
+      "micros": 20
+    },
+    {
+      "id": "grrb-adv-004",
+      "family": "adversarial",
+      "stratum": "injection",
+      "expected_finding": true,
+      "got_finding": true,
+      "outcome": "tp",
+      "deterministic": true,
+      "micros": 25
+    },
+    {
+      "id": "grrb-adv-005",
+      "family": "adversarial",
+      "stratum": "injection",
+      "expected_finding": true,
+      "got_finding": true,
+      "outcome": "tp",
+      "deterministic": true,
+      "micros": 16
+    },
+    {
+      "id": "grrb-adv-006",
+      "family": "adversarial",
+      "stratum": "injection",
+      "expected_finding": true,
+      "got_finding": false,
+      "outcome": "fn",
+      "deterministic": true,
+      "micros": 18
+    },
+    {
+      "id": "grrb-adv-007",
+      "family": "adversarial",
+      "stratum": "guideline_page",
+      "expected_finding": false,
+      "got_finding": true,
+      "outcome": "fp",
+      "deterministic": true,
+      "micros": 26
+    },
+    {
+      "id": "grrb-adv-008",
+      "family": "adversarial",
+      "stratum": "misleading_nontext",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 18
+    },
+    {
+      "id": "grrb-adv-009",
+      "family": "adversarial",
+      "stratum": "misleading_nontext",
+      "expected_finding": false,
+      "got_finding": false,
+      "outcome": "tn",
+      "deterministic": true,
+      "micros": 17
+    },
+    {
+      "id": "grrb-adv-010",
+      "family": "adversarial",
+      "stratum": "injection",
+      "expected_finding": true,
+      "got_finding": true,
+      "outcome": "tp",
+      "deterministic": true,
+      "micros": 16
+    },
+    {
+      "id": "grrb-adv-011",
+      "family": "adversarial",
+      "stratum": "injection",
+      "expected_finding": true,
+      "got_finding": true,
+      "outcome": "tp",
+      "deterministic": true,
+      "micros": 11
+    },
+    {
+      "id": "grrb-adv-012",
+      "family": "adversarial",
+      "stratum": "injection",
+      "expected_finding": true,
+      "got_finding": true,
+      "outcome": "tp",
+      "deterministic": true,
+      "micros": 17
+    }
+  ]
+}

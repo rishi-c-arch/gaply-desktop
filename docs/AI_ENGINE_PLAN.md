@@ -14777,3 +14777,150 @@ Until both are paid, the honest state is the one this entry replaces an admissio
 with: **the guard covers five modules and they are clean; twelve other modules
 write to the reader and hold 29 violations; and the instrument that would catch
 them properly exists and is demonstrated, on one module, out of CI.**
+
+### D195 — Phase 2b: the benchmark exists, and its first run found four defects in itself before it found any in the engine
+
+Phase 2b is the one phase never built, and every decline since §11 D165 depends
+on it: a measurement made once, by hand, against a corpus that may not survive,
+cannot be re-run against a different implementation. **54 labelled cases across
+six families now can be.**
+
+#### The baseline — engine `tier0`, head `231b2eb`
+
+| family | tp | fp | fn | tn | unrunnable | accuracy | weighted |
+|---|--:|--:|--:|--:|--:|--:|---|
+| mathematical | 4 | 1 | 0 | 3 | 0 | 87.5% | withheld |
+| statistical | 4 | 0 | 1 | 2 | 2 | 85.7% | withheld |
+| manuscript_consistency | 0 | 0 | 0 | 4 | 4 | 100% | withheld |
+| literature | 0 | 0 | 2 | 4 | 2 | 66.7% | withheld |
+| journal | 4 | 2 | 0 | 3 | 0 | 77.8% | withheld |
+| adversarial | 6 | 1 | 1 | 4 | 0 | 83.3% | withheld |
+
+54 cases, 46 runnable, 8 unrunnable, determinism stable. **No target values**, per
+§6c.2: this run IS the baseline, and the record is this entry.
+
+**Every weighted column is withheld**, and that is the design working rather than
+failing. 15 of 23 strata have no measured population, and `eval_strata`'s
+`Stratum::scale()` returns `None` for exactly that case. A pooled rate printed in
+a weighted slot is §11 D123's over-claim, so the runner prints the reason instead
+of a number.
+
+**Seven columns of §6c.2 print `n/a` with a reason** rather than a figure.
+Calibration, cost and context efficiency are written for a model; Tier 0 emits no
+probability, spends no tokens and calls no proxy. A `0.00` in those columns would
+read as a measurement.
+
+#### Prompt 4 names three things that do not exist
+
+Recorded because the standing instruction is to report where the design document
+is wrong about the code, and this is the prompt rather than the architecture:
+
+1. **"the ai-eval harness's `--json headSha` discipline."** No such flag. `--json`
+   and `headSha` occur nowhere in the repo. §6c.3 already recorded this in its own
+   `[v5 — corrected]` note; the prompt was not updated.
+2. **"the way the `--workspace` gate already guards those paths."** There is no
+   pre-commit hook in this repo at all — `.git/hooks/` holds only samples.
+3. **`agents/` and `harness/` paths.** Neither directory exists. The agent code is
+   `gaply-core/src/{specialist,swarm}/`, `*_agent.rs` and `agent_graph.rs`; the
+   harness is `src-tauri/src/ai/` and `src/bin/`. The hook's watch list is derived
+   from what the benchmark actually calls, which is the only defensible reading.
+
+**And §6c.1's family taxonomy does not match the shipped engine.** Its
+manuscript-consistency examples are *"N mismatch; table-text mismatch;
+abstract-results mismatch; methods-results mismatch"*. `consistency.rs` checks
+REFERENCE-LIST consistency — markers against entries — and has no
+abstract-versus-results check of any kind. Those two cases are marked unrunnable
+rather than failing, because a case with no engine is an absent instrument and
+not a product defect.
+
+#### Four defects in the benchmark, found before any in the engine
+
+This is the third phase running where the majority of the first findings were
+about the instrument, and the log's own prediction held.
+
+1. **The runner fired on 8 of 8 mathematical cases, correct sums included.**
+   `check_equation` returns an outcome for EVERY equation — a `Confirmed`
+   agreement is a finding object, not a defect — and production filters with
+   `is_reportable()`, which the runner did not. **Caught by the uniform-result
+   tell**, which CLAUDE.md calls the most reliable single signal in the file: a
+   column constant across rows that have no reason to agree.
+2. **A label was simply wrong.** `grrb-sta-007` expected no finding on a p-value
+   reported with no effect size. Rule 3 requires one, and the engine was right.
+   Corrected in the case file with the correction stated, not quietly amended —
+   a benchmark whose labels are edited to match the implementation is §14's
+   spec/impl/test agreement trap with the spec removed.
+3. **A case measured a different rule than the one it named.** `grrb-sta-006`
+   exists to pin the rule-5 decline, and omitted an effect size, so rule 3 fired
+   first and the case never reached rule 5. Both are now present.
+4. **The gate's first real test found the case set did not cover the check it
+   scores.** Breaking `refuses_instructions` by removing three of its four
+   phrases changed NO family score, so the hook correctly let the commit through.
+   No case exercised `don't follow`, `do not obey` or `do not comply with` in a
+   firing position — only in the Elsevier relative clause, which expects absence.
+   Three cases added; the same break now reports `ROLLBACK, worse on adversarial
+   (10/12 -> 7/12)`. **A deletion test that moves nothing is a finding about the
+   set**, and this is that rule arriving at a benchmark instead of a unit test.
+
+#### What the engine gets wrong, which is the point
+
+Eight failures survive, and each is a recorded or newly-measured defect rather
+than noise. `mth-003` fires on `33.3 + 33.3 + 33.3 = 100.0` — **the rounding
+failure §11 D167 predicted from two real tables and could not re-run until now.**
+`jrn-005` still reads a translation price list as a word limit (§11 D163);
+`jrn-007` still reads a research abstract as a reporting standard (§11 D194).
+`lit-002` and `lit-003` do not fire at all because `classify_reference_use`
+returns empty unless author-year style is determined, so **numeric-citation
+manuscripts are unevaluated by that check** — measured here for the first time.
+
+#### The gate
+
+`grrb-gate` takes two reports and classifies the diff, built from nothing because
+§6c.3 records there was no mechanism to generalise. Exit codes separate *did not
+improve* from *got worse*: §6c.3's *"a variant that scores at baseline does not
+ship"* is a rule about a prompt variant seeking promotion, and applying it to
+every commit would reject an ordinary refactor that moves no score. The verdict
+word stays faithful; the exit code carries the distinction the hook needs.
+
+**A changed case set BLOCKS rather than compares.** The benchmark grows by
+design, so two reports over different cases are the common case, and comparing
+them is the denominator defect CLAUDE.md records.
+
+Demonstrated end to end: break a Tier 0 check, `git commit` is refused with
+`ROLLBACK, worse on adversarial (10/12 -> 7/12)`, HEAD unmoved; revert, and the
+gate returns to baseline.
+
+#### The guard, and a fourth instrument in the same blind spot
+
+`gaply-core/tests/grrb_cases_are_wellformed.rs` asserts every case is
+well-formed, that ids are unique, that each family holds at least five, that the
+set holds at least fifty, that no provenance note is blank — and that **the
+committed baseline's case ids equal the case files' ids**.
+
+That last one is what the gate cannot do. `grrb-gate` BLOCKS when the case set
+changes, which is right, but blocking is a local pre-commit event: a case added
+without re-baselining reaches the remote as a baseline describing a set that no
+longer exists, and from then on every gate run blocks while looking like the gate
+is broken rather than the baseline stale.
+
+**It is placed in `gaply-core` deliberately.** `grrb` and `grrb-gate` are bins in
+the app crate, so the benchmark and its gate join the prose guard and the
+D-number citation guard as instruments that run on a developer's machine and
+never remotely (§11 D194). This test is the one piece of Phase 2b that CI can
+fail on, and it reads the case files by relative path because a CI checkout has
+them committed.
+
+Three deletion tests, each predicted first: adding a case without re-baselining
+reddens with *"the committed baseline does not describe the current case set"*;
+blanking a provenance note reddens on that field; and pointing the scan at a
+directory that does not exist fails rather than passing vacuously.
+
+#### What this changes about the declines
+
+D165, D166, D167, D191 and D193 each declined a lane on a measurement made once.
+Their cases are now in the set with their spans, so each decline has a reopening
+condition that is a command rather than a memory. Two caveats kept from the
+entries themselves: **D191's cases are unrunnable and its population is honestly
+zero** — no real manuscript/analysis pair exists and `statistics.jnl` is now gone
+as well — and **D166's cases have no family in §6c.1 at all**, since novelty is
+not one of the six. They are recorded as unrunnable rather than forced into a
+family they do not belong to.

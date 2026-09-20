@@ -1,0 +1,107 @@
+{
+  "_comment": "Population estimates for GRRB weighting (\u00a76c.1). Each entry says HOW the number was obtained. A null population is a declared absence, not a zero.",
+  "adversarial": {
+    "guideline_page": {
+      "population": 258,
+      "how": "measured: journals in src/data/scopusDirectory.json, every one of which a user can paste a guidelines URL for. Counted 20 Sep 2026."
+    },
+    "injection": {
+      "population": null,
+      "how": "null \u2014 unmeasured. Weighting is unavailable for this stratum and the runner must refuse to weight it rather than substitute the pooled rate (ai/eval_strata.rs Stratum::scale returns None for exactly this). Would be measured by the rate of injection-shaped text in fetched guideline pages; 0 of 23 in the \u00a711 D193 corpus, which is too small a denominator to weight with."
+    },
+    "misleading_nontext": {
+      "population": null,
+      "how": "null \u2014 unmeasured. Weighting is unavailable for this stratum and the runner must refuse to weight it rather than substitute the pooled rate (ai/eval_strata.rs Stratum::scale returns None for exactly this). Would be measured by a block-type census over the 20-manuscript corpus (footers, table rows, captions as a share of all blocks)."
+    }
+  },
+  "journal": {
+    "requirement_present": {
+      "population": 213,
+      "how": "measured: requirement rows in the bundled seed, gaply-core/data/journal-seed.json, counted 20 Sep 2026."
+    },
+    "false_positive": {
+      "population": null,
+      "how": "null \u2014 unmeasured. Weighting is unavailable for this stratum and the runner must refuse to weight it rather than substitute the pooled rate (ai/eval_strata.rs Stratum::scale returns None for exactly this). Would be measured by adjudicating every extracted requirement across a journal sample; 46 adjudicated in \u00a711 D193/D194 with 1 false, which is one row and not a rate."
+    }
+  },
+  "mathematical": {
+    "totals_row": {
+      "population": 2,
+      "how": "measured: DISTINCT tables with an explicit totals row across the 20-manuscript corpus (\u00a711 D167, corrected in D168-C). Two. The entry declines to publish a rate on n=2 and so does this file."
+    },
+    "rounding": {
+      "population": null,
+      "how": "null \u2014 unmeasured. Weighting is unavailable for this stratum and the runner must refuse to weight it rather than substitute the pooled rate (ai/eval_strata.rs Stratum::scale returns None for exactly this). \u00a711 D167 recorded 4 of 11 numeric columns failing a naive sum and deliberately did NOT record it as a rate."
+    },
+    "sign": {
+      "population": null,
+      "how": "null \u2014 unmeasured. Weighting is unavailable for this stratum and the runner must refuse to weight it rather than substitute the pooled rate (ai/eval_strata.rs Stratum::scale returns None for exactly this)."
+    },
+    "adversarial_label": {
+      "population": null,
+      "how": "null \u2014 unmeasured. Weighting is unavailable for this stratum and the runner must refuse to weight it rather than substitute the pooled rate (ai/eval_strata.rs Stratum::scale returns None for exactly this). One real instance is known (red_team::INJECTION_IN_AN_EQUATION_LABEL)."
+    },
+    "declaration": {
+      "population": null,
+      "how": "null \u2014 unmeasured. Weighting is unavailable for this stratum and the runner must refuse to weight it rather than substitute the pooled rate (ai/eval_strata.rs Stratum::scale returns None for exactly this)."
+    }
+  },
+  "statistical": {
+    "effect_size": {
+      "population": null,
+      "how": "null \u2014 unmeasured. Weighting is unavailable for this stratum and the runner must refuse to weight it rather than substitute the pooled rate (ai/eval_strata.rs Stratum::scale returns None for exactly this). Would be measured by running extract_from_text over the 20-manuscript corpus and counting p-value claims."
+    },
+    "overclaim": {
+      "population": null,
+      "how": "null \u2014 unmeasured. Weighting is unavailable for this stratum and the runner must refuse to weight it rather than substitute the pooled rate (ai/eval_strata.rs Stratum::scale returns None for exactly this)."
+    },
+    "test_design": {
+      "population": null,
+      "how": "null \u2014 unmeasured. Weighting is unavailable for this stratum and the runner must refuse to weight it rather than substitute the pooled rate (ai/eval_strata.rs Stratum::scale returns None for exactly this)."
+    },
+    "confidence_interval": {
+      "population": null,
+      "how": "null \u2014 unmeasured. Weighting is unavailable for this stratum and the runner must refuse to weight it rather than substitute the pooled rate (ai/eval_strata.rs Stratum::scale returns None for exactly this)."
+    },
+    "declined_rule5": {
+      "population": null,
+      "how": "null \u2014 unmeasured. Weighting is unavailable for this stratum and the runner must refuse to weight it rather than substitute the pooled rate (ai/eval_strata.rs Stratum::scale returns None for exactly this). Rule 5 is declined; the stratum exists so the decline is re-runnable."
+    },
+    "clean": {
+      "population": null,
+      "how": "null \u2014 unmeasured. Weighting is unavailable for this stratum and the runner must refuse to weight it rather than substitute the pooled rate (ai/eval_strata.rs Stratum::scale returns None for exactly this)."
+    },
+    "analysis_pairing": {
+      "population": 0,
+      "how": "measured: real manuscript/analysis pairs available on this machine (\u00a711 D191). ZERO. statistics.jnl is now gone as well, so these cases are unrunnable and the population is honestly zero rather than unknown."
+    }
+  },
+  "manuscript_consistency": {
+    "n_mismatch": {
+      "population": null,
+      "how": "null \u2014 unmeasured. Weighting is unavailable for this stratum and the runner must refuse to weight it rather than substitute the pooled rate (ai/eval_strata.rs Stratum::scale returns None for exactly this)."
+    },
+    "nontext_block": {
+      "population": 143,
+      "how": "measured: wrong Method objects across six manuscripts (\u00a711 D165), 143 of 152. Used as the population for 'blocks that look like content and are not', which is the shape these cases test."
+    },
+    "novelty_declined": {
+      "population": 12,
+      "how": "measured: candidate novelty sentences across 20 manuscripts, 37,557 sentences scanned (\u00a711 D166). Two are real claims; the stratum's population is the 12 candidates any novelty check would have to rule on."
+    }
+  },
+  "literature": {
+    "citation_pairing": {
+      "population": null,
+      "how": "null \u2014 unmeasured. Weighting is unavailable for this stratum and the runner must refuse to weight it rather than substitute the pooled rate (ai/eval_strata.rs Stratum::scale returns None for exactly this). Would be measured by counting in-text citations across the 20-manuscript corpus."
+    },
+    "bibliography_noise": {
+      "population": 1,
+      "how": "measured: reference-list entries that a novelty scan counted as candidate claims (\u00a711 D166). One, and the two instruments were reconciled by skipping references on both sides."
+    },
+    "external_registry": {
+      "population": 0,
+      "how": "measured: zero offline. Every verdict here needs a registry through the proxy and the benchmark runs with no network."
+    }
+  }
+}
