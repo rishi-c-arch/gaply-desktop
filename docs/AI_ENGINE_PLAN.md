@@ -14941,6 +14941,14 @@ is now measured against an instrument rather than by hand.**
 | the nine-regex extractor, in-document verdict | 14.8% (22/149) |
 | SLM1, prompt variant A | **14.5%** (18/124) |
 
+> **[CORRECTED — §11 D198, 20 Sep 2026.]** A second adjudicator re-read all 19
+> disputed paragraphs cold and disagreed with two of the first adjudicator's
+> labels; `grrb-sci-084` and `grrb-sci-092` are now not-a-method. Against the
+> corrected pool (26 genuine, not 28): **no-skill 50.0% unchanged** — neither
+> flip is a no-skill guess — **regex 13.4% (20/149)**, **SLM1 variant B 16.5%
+> (26/158)**, **SLM1 variant A 12.9% (16/124)**, whose recall also falls 64% to
+> 61.5%. Every number moves DOWN or stays, and the conclusion is unchanged.
+
 **The sharpest form: variant A says "yes" MORE often on the non-genuine
 paragraphs than on the genuine ones — 80% against 64%, a separation of −16
 points.** It is not uninformative, it is mildly inverted. Variant B answered
@@ -15060,6 +15068,14 @@ model's and a stronger form of D165's decline than either alone.
 | the nine-regex extractor, in-document | 14.8% | — | — |
 | SLM1 variant A | 14.5% | 64% | **−16 pts** |
 
+> **[CORRECTED — §11 D198, 20 Sep 2026.]** Two labels were flipped after a second
+> adjudicator re-read the disputed paragraphs. Corrected figures on the same
+> runs: **no-skill 50.0%** (unchanged), **gpt-4o-mini A 37.3%**, **B 35.7%**,
+> **SLM1 B 16.5%**, **SLM1 A 12.9%**, **regex 13.4%**. `grrb-sci-084` was one of
+> the twelve the proxy excluded, so only `grrb-sci-092` touches the cloud rows.
+> Recall stays 100% for both cloud variants and the separation figures are
+> essentially unmoved. **Every approach falls further below the 50% baseline.**
+
 *Separation* is the yes-rate on genuine paragraphs minus the yes-rate on the
 rest: how far apart the model holds the two classes, independent of where it puts
 its threshold.
@@ -15156,3 +15172,104 @@ model, one day. `OPENAI_MODEL=gpt-4o` or a Claude key against the same local
 proxy, then `examples/methods_cloud_probe`. **The instrument exists, the pool is
 committed, and the comparison is a command rather than an argument** — which is
 what Phase 2b was built for, arriving at the first decline to use it.
+
+### D198 — the benchmark's ground truth has two authors, and two of 19 labels were wrong
+
+Every number in §11 D196 and §11 D197 rested on labels with a single author. That
+was the weakest thing in the benchmark, and it was load-bearing: the cloud model's
+100% recall is a claim *against those labels*. **A second adjudicator has now read
+all 19 disputed paragraphs cold — text only, no verdicts, no reasoning shown — and
+ruled on each before seeing which way the first reading went.**
+
+#### The result: 17 of 19 agree, 2 against
+
+| manuscript | D165 | first adjudicator | second adjudicator |
+|---|---|---|---|
+| chapter3 | 0 of 10 | 6 method | **6 method** |
+| final final L | 2 of 79 | 11 method | **9 method** |
+| Lake Chapter 1 | 0 of 4 | 2 method | **2 method** |
+
+The two disagreements are `grrb-sci-084` and `grrb-sci-092`, both now corrected to
+not-a-method:
+
+* **084** opens *"The multi-tube fermentation technique employed in this
+  research…"* and then spends four fifths of its length on BIS and WHO standards,
+  CPCB use-classes, other people's coliform counts and public-health commentary.
+  The paragraph's primary function is argument. The first adjudicator had flagged
+  it as the weakest of its own calls, on the opening clause.
+* **092** is rationale for choosing *Lemna* as a botanical counterpart to the
+  zebrafish, citing the comparative whole-effluent literature. Why, not what was
+  done.
+
+#### D165's per-manuscript totals are not defensible
+
+**`chapter3` 0 of 10 and `Lake Chapter 1` 0 of 4**, against paragraphs two readers
+independently called methods statements:
+
+* a calibrated temperature probe with its accuracy, immersion depth, and the time
+  window chosen to reduce diurnal variation;
+* a pH meter calibrated against pH 4.00 / 7.00 / 10.00 buffers, with the rinse,
+  blot and stabilisation protocol;
+* a flame photometer warmed for 30 minutes, zeroed on deionised water, read at
+  589 nm, repeated thrice, concentrations interpolated from the calibration curve;
+* Kruskal-Wallis at α = 0.05 with epsilon-squared reported and its formula given,
+  Dunn's post-hoc under Holm correction, analyses named as Python 3 with SciPy and
+  scikit-posthocs;
+* Arnon's (1949) chlorophyll equations and the light-and-dark bottle oxygen method
+  with NPP, R and GPP defined.
+
+These are not borderline. **This entry does not claim D165 was dishonest or
+careless** — it claims that a hand adjudication of 152 objects, made once, in one
+sitting, by one reader, produced per-manuscript totals that do not survive a
+second reading. That is a property of one-author ground truth, not of the author.
+
+#### What moved, and a prediction that was derived rather than asserted
+
+| | before | after |
+|---|---|---|
+| no-skill — paragraph 1 of each Methods section | 50.0% (6/12) | **50.0%** |
+| gpt-4o-mini variant A | 38.8% | **37.3%** |
+| gpt-4o-mini variant B | 37.1% | **35.7%** |
+| SLM1 variant B | 17.7% | **16.5%** |
+| the nine-regex extractor, in-document | 14.8% (22/149) | **13.4%** (20/149) |
+| SLM1 variant A | 14.5% | **12.9%** |
+
+Every predicted figure was hit exactly, including SLM1 variant A landing at the
+bottom of its predicted 12.9–14.5% range — which resolved the one open branch:
+both flipped paragraphs were among the 18 it accepted, so it lost two true
+positives outright and its recall fell 64% to 61.5%. It had been *credited* for
+two paragraphs a second reader says are not methods statements.
+
+**The conclusion is unchanged and the margin is wider.** Every approach sits
+further below the 50% baseline than before.
+
+#### The prediction error, recorded because of its shape
+
+The instruction to apply these corrections came with a predicted direction:
+*"both were YES in your labels and both are genuine positives being removed, so
+the models' precision should rise slightly."* **That is wrong, and it is wrong for
+a reason arithmetic settles immediately.** Removing a genuine positive converts a
+true positive into a false positive when the model answered yes — `tp−1`, `fp+1`,
+denominator unchanged, so precision FALLS — or converts a false negative into a
+true negative when it answered no, leaving precision identical. **Precision cannot
+rise from this edit. What rises is recall**, because the pool of genuine
+paragraphs shrinks.
+
+Recorded here because it is the same shape as the figures this log keeps
+correcting — the `du -sh` number quoted as the size of a deletion, §11 D166's
+carried-in figures, the `16%` coverage fraction whose numerator and denominator
+counted different things. **A direction asserted confidently without the
+arithmetic behind it, caught by someone doing the arithmetic.** It was caught
+before the run rather than after, which is the only reason it cost nothing.
+
+#### What this changes about the benchmark
+
+`evals/grrb/second_adjudication.jsonl` carries all 19 second-reader labels with
+their reasoning, beside the case file. **The seventh family's ground truth now has
+two authors on every disputed paragraph**, which is the strongest statement the
+benchmark can make about itself, and it is the thing that was one-author
+yesterday.
+
+The 141 undisputed paragraphs still have one. That is the honest remaining limit,
+and the bar to close it is the same move applied to a sample of them: read cold,
+rule first, compare after.

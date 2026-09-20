@@ -1,0 +1,19 @@
+{"id": "grrb-sci-007", "adjudicator": "rishi", "label": 1, "date": "2026-09-20", "note": "unambiguous: instrument, accuracy, calibration protocol"}
+{"id": "grrb-sci-008", "adjudicator": "rishi", "label": 1, "date": "2026-09-20", "note": "unambiguous: instrument, accuracy, calibration protocol"}
+{"id": "grrb-sci-010", "adjudicator": "rishi", "label": 1, "date": "2026-09-20", "note": "unambiguous: wavelength, triplicate, interpolation"}
+{"id": "grrb-sci-016", "adjudicator": "rishi", "label": 1, "date": "2026-09-20", "note": "assay design with organism and duration; the trailing figure reference does not change what the paragraph is"}
+{"id": "grrb-sci-019", "adjudicator": "rishi", "label": 1, "date": "2026-09-20", "note": "sampling procedure, short but explicit"}
+{"id": "grrb-sci-020", "adjudicator": "rishi", "label": 1, "date": "2026-09-20", "note": "weakest of the six: says what was surveyed more than how, but still states something the authors did"}
+{"id": "grrb-sci-084", "adjudicator": "rishi", "label": 0, "date": "2026-09-20", "note": "opens with a method sentence then spends four-fifths on standards, use-classes, other people's coliform counts and public-health commentary; primary function is argument"}
+{"id": "grrb-sci-092", "adjudicator": "rishi", "label": 0, "date": "2026-09-20", "note": "rationale for choosing Lemna, citing comparative literature - why, not what was done"}
+{"id": "grrb-sci-096", "adjudicator": "rishi", "label": 1, "date": "2026-09-20", "note": "calibration, 589 nm, triplicate, interpolation; the spliced Turnitin furniture is extraction noise, not content"}
+{"id": "grrb-sci-097", "adjudicator": "rishi", "label": 1, "date": "2026-09-20", "note": "microcosm experimental design"}
+{"id": "grrb-sci-101", "adjudicator": "rishi", "label": 1, "date": "2026-09-20", "note": "tests, alpha, effect size with formula, Holm correction, software; unambiguous"}
+{"id": "grrb-sci-110", "adjudicator": "rishi", "label": 1, "date": "2026-09-20", "note": "treatment design, photoperiod, sampling intervals"}
+{"id": "grrb-sci-136", "adjudicator": "rishi", "label": 1, "date": "2026-09-20", "note": "marginal but passes: a fragment of a genuine methods statement"}
+{"id": "grrb-sci-148", "adjudicator": "rishi", "label": 1, "date": "2026-09-20", "note": "treatment design, photoperiod, sampling intervals"}
+{"id": "grrb-sci-156", "adjudicator": "rishi", "label": 1, "date": "2026-09-20", "note": "study design, stations, twelve-month cycle, APHA, triplicate"}
+{"id": "grrb-sci-158", "adjudicator": "rishi", "label": 1, "date": "2026-09-20", "note": "sampling procedure"}
+{"id": "grrb-sci-159", "adjudicator": "rishi", "label": 1, "date": "2026-09-20", "note": "same weakness as item 6: what was surveyed more than how, but still states something the authors did"}
+{"id": "grrb-sci-005", "adjudicator": "rishi", "label": 1, "date": "2026-09-20", "note": "Arnon's equations and the light-and-dark bottle protocol; framed top and tail but procedure in the body"}
+{"id": "grrb-sci-006", "adjudicator": "rishi", "label": 1, "date": "2026-09-20", "note": "weak - scope-and-limitations paragraph whose second half is caveats - but the first half states the design, so it passes the stated criterion; weakest of the nineteen alongside item 7"}

@@ -1,6 +1,6 @@
 {
-  "head_sha": "4d5ee63ff43bc1d3c54faf32d49dfe87685b70e3",
-  "generated_at_epoch": 1789890537,
+  "head_sha": "0ba0a95bf227ad7f49662633116052bff2eede65",
+  "generated_at_epoch": 1789921316,
   "engine": "tier0",
   "total_cases": 214,
   "runnable": 206,
@@ -88,12 +88,12 @@
       "family": "scientific_extraction",
       "tp": 1,
       "fp": 0,
-      "fn_": 27,
-      "tn": 132,
+      "fn_": 25,
+      "tn": 134,
       "unrunnable": 0,
-      "accuracy_pct": 83.125,
+      "accuracy_pct": 84.375,
       "false_positive_rate_pct": 0.0,
-      "false_negative_rate_pct": 96.42857142857143,
+      "false_negative_rate_pct": 96.15384615384616,
       "weighted_precision_pct": 100,
       "weighting": "weighted over every stratum"
     }
@@ -108,7 +108,7 @@
     "reviewer_agreement": "the labels ARE the human comparison: every case was adjudicated by hand from a decision record. Accuracy against them is this column."
   },
   "determinism_all_stable": true,
-  "total_micros": 487262,
+  "total_micros": 506036,
   "cases": [
     {
       "id": "grrb-mth-001",
@@ -118,7 +118,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 855
+      "micros": 773
     },
     {
       "id": "grrb-mth-002",
@@ -128,7 +128,7 @@
       "got_finding": true,
       "outcome": "tp",
       "deterministic": true,
-      "micros": 70
+      "micros": 81
     },
     {
       "id": "grrb-mth-003",
@@ -138,7 +138,7 @@
       "got_finding": true,
       "outcome": "fp",
       "deterministic": true,
-      "micros": 57
+      "micros": 55
     },
     {
       "id": "grrb-mth-004",
@@ -148,7 +148,7 @@
       "got_finding": true,
       "outcome": "tp",
       "deterministic": true,
-      "micros": 53
+      "micros": 52
     },
     {
       "id": "grrb-mth-005",
@@ -158,7 +158,7 @@
       "got_finding": true,
       "outcome": "tp",
       "deterministic": true,
-      "micros": 40
+      "micros": 41
     },
     {
       "id": "grrb-mth-006",
@@ -168,7 +168,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 30
+      "micros": 29
     },
     {
       "id": "grrb-mth-007",
@@ -178,7 +178,7 @@
       "got_finding": true,
       "outcome": "tp",
       "deterministic": true,
-      "micros": 101
+      "micros": 98
     },
     {
       "id": "grrb-mth-008",
@@ -188,7 +188,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 53
+      "micros": 40
     },
     {
       "id": "grrb-sta-001",
@@ -198,7 +198,7 @@
       "got_finding": true,
       "outcome": "tp",
       "deterministic": true,
-      "micros": 75905
+      "micros": 73035
     },
     {
       "id": "grrb-sta-002",
@@ -208,7 +208,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 742
+      "micros": 735
     },
     {
       "id": "grrb-sta-003",
@@ -218,7 +218,7 @@
       "got_finding": true,
       "outcome": "tp",
       "deterministic": true,
-      "micros": 234
+      "micros": 233
     },
     {
       "id": "grrb-sta-004",
@@ -228,7 +228,7 @@
       "got_finding": false,
       "outcome": "fn",
       "deterministic": true,
-      "micros": 468
+      "micros": 493
     },
     {
       "id": "grrb-sta-005",
@@ -238,7 +238,7 @@
       "got_finding": true,
       "outcome": "tp",
       "deterministic": true,
-      "micros": 88
+      "micros": 98
     },
     {
       "id": "grrb-sta-006",
@@ -248,7 +248,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 469
+      "micros": 488
     },
     {
       "id": "grrb-sta-007",
@@ -258,7 +258,7 @@
       "got_finding": true,
       "outcome": "tp",
       "deterministic": true,
-      "micros": 227
+      "micros": 233
     },
     {
       "id": "grrb-sta-008",
@@ -308,7 +308,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 19491
+      "micros": 20146
     },
     {
       "id": "grrb-con-004",
@@ -318,7 +318,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 173
+      "micros": 174
     },
     {
       "id": "grrb-con-005",
@@ -328,7 +328,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 106
+      "micros": 109
     },
     {
       "id": "grrb-con-006",
@@ -338,7 +338,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 159
+      "micros": 183
     },
     {
       "id": "grrb-con-007",
@@ -368,7 +368,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 593
+      "micros": 588
     },
     {
       "id": "grrb-lit-002",
@@ -388,7 +388,7 @@
       "got_finding": false,
       "outcome": "fn",
       "deterministic": true,
-      "micros": 87
+      "micros": 86
     },
     {
       "id": "grrb-lit-004",
@@ -398,7 +398,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 320
+      "micros": 307
     },
     {
       "id": "grrb-lit-005",
@@ -408,7 +408,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 121
+      "micros": 119
     },
     {
       "id": "grrb-lit-006",
@@ -448,7 +448,7 @@
       "got_finding": true,
       "outcome": "tp",
       "deterministic": true,
-      "micros": 79
+      "micros": 67
     },
     {
       "id": "grrb-jrn-002",
@@ -458,7 +458,7 @@
       "got_finding": true,
       "outcome": "tp",
       "deterministic": true,
-      "micros": 48
+      "micros": 47
     },
     {
       "id": "grrb-jrn-003",
@@ -478,7 +478,7 @@
       "got_finding": true,
       "outcome": "tp",
       "deterministic": true,
-      "micros": 43
+      "micros": 41
     },
     {
       "id": "grrb-jrn-005",
@@ -488,7 +488,7 @@
       "got_finding": true,
       "outcome": "fp",
       "deterministic": true,
-      "micros": 49
+      "micros": 48
     },
     {
       "id": "grrb-jrn-006",
@@ -498,7 +498,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 63
+      "micros": 61
     },
     {
       "id": "grrb-jrn-007",
@@ -538,7 +538,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 41
+      "micros": 53
     },
     {
       "id": "grrb-adv-002",
@@ -548,7 +548,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 33
+      "micros": 35
     },
     {
       "id": "grrb-adv-003",
@@ -558,7 +558,7 @@
       "got_finding": true,
       "outcome": "tp",
       "deterministic": true,
-      "micros": 20
+      "micros": 21
     },
     {
       "id": "grrb-adv-004",
@@ -618,7 +618,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 17
+      "micros": 18
     },
     {
       "id": "grrb-adv-010",
@@ -658,7 +658,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 177
+      "micros": 182
     },
     {
       "id": "grrb-sci-001",
@@ -668,7 +668,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 59
+      "micros": 60
     },
     {
       "id": "grrb-sci-002",
@@ -678,7 +678,7 @@
       "got_finding": false,
       "outcome": "fn",
       "deterministic": true,
-      "micros": 37
+      "micros": 38
     },
     {
       "id": "grrb-sci-003",
@@ -688,7 +688,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 45
+      "micros": 48
     },
     {
       "id": "grrb-sci-004",
@@ -698,7 +698,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 43
+      "micros": 75
     },
     {
       "id": "grrb-sci-005",
@@ -708,7 +708,7 @@
       "got_finding": false,
       "outcome": "fn",
       "deterministic": true,
-      "micros": 38
+      "micros": 120
     },
     {
       "id": "grrb-sci-006",
@@ -718,7 +718,7 @@
       "got_finding": false,
       "outcome": "fn",
       "deterministic": true,
-      "micros": 59
+      "micros": 93
     },
     {
       "id": "grrb-sci-007",
@@ -728,7 +728,7 @@
       "got_finding": false,
       "outcome": "fn",
       "deterministic": true,
-      "micros": 25
+      "micros": 27
     },
     {
       "id": "grrb-sci-008",
@@ -738,7 +738,7 @@
       "got_finding": false,
       "outcome": "fn",
       "deterministic": true,
-      "micros": 35
+      "micros": 38
     },
     {
       "id": "grrb-sci-009",
@@ -748,7 +748,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 13
+      "micros": 16
     },
     {
       "id": "grrb-sci-010",
@@ -758,7 +758,7 @@
       "got_finding": false,
       "outcome": "fn",
       "deterministic": true,
-      "micros": 30
+      "micros": 33
     },
     {
       "id": "grrb-sci-011",
@@ -768,7 +768,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 33
+      "micros": 43
     },
     {
       "id": "grrb-sci-012",
@@ -778,7 +778,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 12
+      "micros": 13
     },
     {
       "id": "grrb-sci-013",
@@ -788,7 +788,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 7
+      "micros": 8
     },
     {
       "id": "grrb-sci-014",
@@ -808,7 +808,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 23
+      "micros": 25
     },
     {
       "id": "grrb-sci-016",
@@ -818,7 +818,7 @@
       "got_finding": false,
       "outcome": "fn",
       "deterministic": true,
-      "micros": 18
+      "micros": 21
     },
     {
       "id": "grrb-sci-017",
@@ -828,7 +828,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 3
+      "micros": 4
     },
     {
       "id": "grrb-sci-018",
@@ -838,7 +838,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 20
+      "micros": 21
     },
     {
       "id": "grrb-sci-019",
@@ -848,7 +848,7 @@
       "got_finding": false,
       "outcome": "fn",
       "deterministic": true,
-      "micros": 9
+      "micros": 10
     },
     {
       "id": "grrb-sci-020",
@@ -868,7 +868,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 57
+      "micros": 63
     },
     {
       "id": "grrb-sci-022",
@@ -878,7 +878,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 49
+      "micros": 52
     },
     {
       "id": "grrb-sci-023",
@@ -888,7 +888,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 42
+      "micros": 45
     },
     {
       "id": "grrb-sci-024",
@@ -898,7 +898,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 54
+      "micros": 60
     },
     {
       "id": "grrb-sci-025",
@@ -908,7 +908,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 8
+      "micros": 9
     },
     {
       "id": "grrb-sci-026",
@@ -918,7 +918,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 16
+      "micros": 17
     },
     {
       "id": "grrb-sci-027",
@@ -928,7 +928,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 17
+      "micros": 18
     },
     {
       "id": "grrb-sci-028",
@@ -938,7 +938,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 26
+      "micros": 27
     },
     {
       "id": "grrb-sci-029",
@@ -948,7 +948,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 5
+      "micros": 6
     },
     {
       "id": "grrb-sci-030",
@@ -958,7 +958,7 @@
       "got_finding": false,
       "outcome": "fn",
       "deterministic": true,
-      "micros": 81
+      "micros": 89
     },
     {
       "id": "grrb-sci-031",
@@ -968,7 +968,7 @@
       "got_finding": false,
       "outcome": "fn",
       "deterministic": true,
-      "micros": 13
+      "micros": 14
     },
     {
       "id": "grrb-sci-032",
@@ -978,7 +978,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 21
+      "micros": 22
     },
     {
       "id": "grrb-sci-033",
@@ -1008,7 +1008,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 10
+      "micros": 11
     },
     {
       "id": "grrb-sci-036",
@@ -1018,7 +1018,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 11
+      "micros": 14
     },
     {
       "id": "grrb-sci-037",
@@ -1028,7 +1028,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 17
+      "micros": 18
     },
     {
       "id": "grrb-sci-038",
@@ -1048,7 +1048,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 10
+      "micros": 11
     },
     {
       "id": "grrb-sci-040",
@@ -1058,7 +1058,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 44
+      "micros": 47
     },
     {
       "id": "grrb-sci-041",
@@ -1068,7 +1068,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 5
+      "micros": 6
     },
     {
       "id": "grrb-sci-042",
@@ -1098,7 +1098,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 16
+      "micros": 18
     },
     {
       "id": "grrb-sci-045",
@@ -1108,7 +1108,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 3
+      "micros": 4
     },
     {
       "id": "grrb-sci-046",
@@ -1158,7 +1158,7 @@
       "got_finding": true,
       "outcome": "tp",
       "deterministic": true,
-      "micros": 341552
+      "micros": 340523
     },
     {
       "id": "grrb-sci-051",
@@ -1168,7 +1168,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 21
+      "micros": 19
     },
     {
       "id": "grrb-sci-052",
@@ -1188,7 +1188,7 @@
       "got_finding": false,
       "outcome": "fn",
       "deterministic": true,
-      "micros": 19
+      "micros": 18
     },
     {
       "id": "grrb-sci-054",
@@ -1208,7 +1208,7 @@
       "got_finding": false,
       "outcome": "fn",
       "deterministic": true,
-      "micros": 52
+      "micros": 51
     },
     {
       "id": "grrb-sci-056",
@@ -1218,7 +1218,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 4
+      "micros": 5
     },
     {
       "id": "grrb-sci-057",
@@ -1228,7 +1228,7 @@
       "got_finding": false,
       "outcome": "fn",
       "deterministic": true,
-      "micros": 91
+      "micros": 89
     },
     {
       "id": "grrb-sci-058",
@@ -1238,7 +1238,7 @@
       "got_finding": false,
       "outcome": "fn",
       "deterministic": true,
-      "micros": 15
+      "micros": 14
     },
     {
       "id": "grrb-sci-059",
@@ -1248,7 +1248,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 19
+      "micros": 18
     },
     {
       "id": "grrb-sci-060",
@@ -1258,7 +1258,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 5
+      "micros": 4
     },
     {
       "id": "grrb-sci-061",
@@ -1288,7 +1288,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 43
+      "micros": 42
     },
     {
       "id": "grrb-sci-064",
@@ -1308,7 +1308,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 19
+      "micros": 18
     },
     {
       "id": "grrb-sci-066",
@@ -1318,7 +1318,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 150
+      "micros": 131
     },
     {
       "id": "grrb-sci-067",
@@ -1338,7 +1338,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 64
+      "micros": 61
     },
     {
       "id": "grrb-sci-069",
@@ -1348,7 +1348,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 6
+      "micros": 5
     },
     {
       "id": "grrb-sci-070",
@@ -1358,7 +1358,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 50
+      "micros": 26
     },
     {
       "id": "grrb-sci-071",
@@ -1368,7 +1368,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 107
+      "micros": 100
     },
     {
       "id": "grrb-sci-072",
@@ -1378,7 +1378,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 27
+      "micros": 25
     },
     {
       "id": "grrb-sci-073",
@@ -1388,7 +1388,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 31
+      "micros": 30
     },
     {
       "id": "grrb-sci-074",
@@ -1398,7 +1398,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 39
+      "micros": 38
     },
     {
       "id": "grrb-sci-075",
@@ -1408,7 +1408,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 28
+      "micros": 27
     },
     {
       "id": "grrb-sci-076",
@@ -1418,7 +1418,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 23
+      "micros": 21
     },
     {
       "id": "grrb-sci-077",
@@ -1438,7 +1438,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 33
+      "micros": 32
     },
     {
       "id": "grrb-sci-079",
@@ -1458,7 +1458,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 45
+      "micros": 44
     },
     {
       "id": "grrb-sci-081",
@@ -1468,7 +1468,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 115
+      "micros": 107
     },
     {
       "id": "grrb-sci-082",
@@ -1478,7 +1478,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 34
+      "micros": 33
     },
     {
       "id": "grrb-sci-083",
@@ -1488,17 +1488,17 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 66
+      "micros": 64
     },
     {
       "id": "grrb-sci-084",
       "family": "scientific_extraction",
       "stratum": "regex_flagged",
-      "expected_finding": true,
+      "expected_finding": false,
       "got_finding": false,
-      "outcome": "fn",
+      "outcome": "tn",
       "deterministic": true,
-      "micros": 206
+      "micros": 200
     },
     {
       "id": "grrb-sci-085",
@@ -1508,7 +1508,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 59
+      "micros": 58
     },
     {
       "id": "grrb-sci-086",
@@ -1518,7 +1518,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 34
+      "micros": 35
     },
     {
       "id": "grrb-sci-087",
@@ -1528,7 +1528,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 62
+      "micros": 63
     },
     {
       "id": "grrb-sci-088",
@@ -1558,7 +1558,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 46
+      "micros": 38
     },
     {
       "id": "grrb-sci-091",
@@ -1568,17 +1568,17 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 66
+      "micros": 65
     },
     {
       "id": "grrb-sci-092",
       "family": "scientific_extraction",
       "stratum": "regex_flagged",
-      "expected_finding": true,
+      "expected_finding": false,
       "got_finding": false,
-      "outcome": "fn",
+      "outcome": "tn",
       "deterministic": true,
-      "micros": 20
+      "micros": 19
     },
     {
       "id": "grrb-sci-093",
@@ -1638,7 +1638,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 46
+      "micros": 45
     },
     {
       "id": "grrb-sci-099",
@@ -1648,7 +1648,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 36
+      "micros": 37
     },
     {
       "id": "grrb-sci-100",
@@ -1668,7 +1668,7 @@
       "got_finding": false,
       "outcome": "fn",
       "deterministic": true,
-      "micros": 26
+      "micros": 27
     },
     {
       "id": "grrb-sci-102",
@@ -1688,7 +1688,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 32
+      "micros": 33
     },
     {
       "id": "grrb-sci-104",
@@ -1708,7 +1708,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 35
+      "micros": 36
     },
     {
       "id": "grrb-sci-106",
@@ -1718,7 +1718,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 30
+      "micros": 29
     },
     {
       "id": "grrb-sci-107",
@@ -1738,7 +1738,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 33
+      "micros": 32
     },
     {
       "id": "grrb-sci-109",
@@ -1748,7 +1748,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 35
+      "micros": 34
     },
     {
       "id": "grrb-sci-110",
@@ -1758,7 +1758,7 @@
       "got_finding": false,
       "outcome": "fn",
       "deterministic": true,
-      "micros": 32
+      "micros": 33
     },
     {
       "id": "grrb-sci-111",
@@ -1788,7 +1788,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 146
+      "micros": 148
     },
     {
       "id": "grrb-sci-114",
@@ -1808,7 +1808,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 117
+      "micros": 120
     },
     {
       "id": "grrb-sci-116",
@@ -1838,7 +1838,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 32
+      "micros": 31
     },
     {
       "id": "grrb-sci-119",
@@ -1868,7 +1868,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 25
+      "micros": 24
     },
     {
       "id": "grrb-sci-122",
@@ -1908,7 +1908,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 29
+      "micros": 30
     },
     {
       "id": "grrb-sci-126",
@@ -1938,7 +1938,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 34
+      "micros": 33
     },
     {
       "id": "grrb-sci-129",
@@ -1958,7 +1958,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 27
+      "micros": 26
     },
     {
       "id": "grrb-sci-131",
@@ -1968,7 +1968,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 10
+      "micros": 11
     },
     {
       "id": "grrb-sci-132",
@@ -1978,7 +1978,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 142
+      "micros": 141
     },
     {
       "id": "grrb-sci-133",
@@ -2008,7 +2008,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 24
+      "micros": 23
     },
     {
       "id": "grrb-sci-136",
@@ -2148,7 +2148,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 31
+      "micros": 30
     },
     {
       "id": "grrb-sci-150",
@@ -2158,7 +2158,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 143
+      "micros": 142
     },
     {
       "id": "grrb-sci-151",
@@ -2228,7 +2228,7 @@
       "got_finding": false,
       "outcome": "tn",
       "deterministic": true,
-      "micros": 220
+      "micros": 222
     },
     {
       "id": "grrb-sci-158",
