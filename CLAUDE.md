@@ -748,11 +748,21 @@ time injection.
   evidence is identical. That asymmetry is why this is worth a guard and a bare
   missing test is not.
 
-  `gaply-core/tests/decision_records.rs` already catches the same shape for
-  D-numbers — *"a citation that reads as provenance and leads nowhere is worse
-  than none"* — and caught two in one day. **Test names had the identical
-  failure mode and no guard**, so `gaply-core/tests/cited_tests_exist.rs` is its
-  sibling. Ten minutes; it found two live defects on its first run, of BOTH
+  **`src-tauri/tests/decision_records.rs` — the APP crate, not `gaply-core`**
+  already catches the same shape for D-numbers — *"a citation that reads as
+  provenance and leads nowhere is worse than none"* — and caught two in one day.
+  **Test names had the identical failure mode and no guard**, so
+  `gaply-core/tests/cited_tests_exist.rs` is its sibling.
+
+  **The two live in different crates, and that is not a detail — it decides which
+  of them CI runs.** This file said both were in `gaply-core` until 20 Sep 2026,
+  which is the stale-pointer defect this very entry is about, in the document
+  people read to find the guards. Measured by running each by name:
+  `cargo test -p gaply_core --test decision_records` answers *"no test target
+  named `decision_records` in `gaply_core`"*. Both CI workflows run
+  `-p gaply_core`, so **the D-number guard has never run remotely** — it gates
+  `cargo test --workspace` on a developer's machine and nothing else, while its
+  sibling, one directory away, runs on every push. Ten minutes; it found two live defects on its first run, of BOTH
   kinds:
 
   | site | cited | reality |

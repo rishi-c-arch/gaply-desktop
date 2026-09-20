@@ -14643,3 +14643,137 @@ every extraction **before** any rule is chosen. If `Lexicon`-tier rows are
 materially less reliable across both samples together, the rule follows from the
 measurement instead of preceding it. The instrument already reports the tier per
 row, so the second sample costs a run, not a build.
+
+### D194 — the em-dash guard covers the clean half of the codebase: 29 reader-facing violations, all of them outside it
+
+§11 D192 recorded that `audit_report::no_module_that_writes_to_the_reader_
+contains_an_em_dash` scans a hand-typed list of five `gaply-core` files by
+`include_str!` and cannot reach the app crate at all, and left the size of that
+gap unmeasured. This measures it. **Nothing is built here**, and the conclusion is
+that the obvious fix is wrong.
+
+#### The number I reported first was wrong, and the shape of the error is familiar
+
+D192 said **15 files, 57 lines**. The real figure is **131 lines across 34
+files** — more than double. The count came from `ls *.rs` in the crate root,
+which does not walk subdirectories, so everything under `src/ai/`, `src/bin/`,
+`src/models/` and `src/ai/tasks/` was invisible to it. It then went into a status
+report as though it were a measurement.
+
+That is the same defect as the `du -sh` figure in CLAUDE.md — *a tool's number is
+the tool's answer to its own question, not to yours* — and the same as §11 D166's
+carried-in figures: a number that was true of something narrower, re-aimed at a
+broader claim without the narrowing being stated. **`ls *.rs` answers "what is in
+this directory", and the question was "what is in this crate".** The tell was
+available and not taken: 34 files is most of the app crate's modules, and 15 is
+not a plausible count of "modules that write prose" in a crate that owns every
+Tauri command.
+
+#### 131 lines, classified by what the string can reach
+
+| | n |
+|---|---|
+| inside `#[cfg(test)]` | 48 |
+| log statements (`tracing::`, `println!`, `warn!`) | 13 |
+| candidates | **70** |
+
+And the 70, **each one read rather than pattern-matched**, because the
+classification a pattern produces here is exactly the thing in question:
+
+| | n | where |
+|---|---|---|
+| **reader-facing** | **29** | 12 files |
+| not reader-facing | 41 | dev CLIs 16 (`ai-eval`, `label-cn`, `label-cs`), release gate 8, test modules 8, **model prompt text 9** |
+
+The prompt-text group is worth naming: `ollama_verify.rs` and
+`ai/tasks/citation_support.rs` put em dashes in strings sent to a MODEL, not to a
+person. A scan keyed on "is this a string literal in a module that writes output"
+cannot tell those from a Tauri error, and would have reported nine false
+positives on its first run.
+
+The reader-facing 29: `commands.rs` 7 (Tauri command errors, which reach the
+frontend verbatim), `citation_resolver.rs` 4 (`reason:` fields rendered on the
+card), `journal_site_summary.rs` 3 and `journal_registry.rs` 3 (the disclaimers
+that say what Gaply did not check), `paper_corpus.rs` 2 (upload errors),
+`pipeline.rs` 2 (notes in the report), install/verify failures 5, and one each in
+`audit_export.rs`, `model_manager.rs`, `device.rs`, `evidence.rs`.
+
+**The five guarded modules contain zero.** So the guard is not weak — it is
+complete over the region it covers, and **every violation in the codebase is
+outside it.** A guard whose covered region is clean and whose uncovered region
+holds all the defects reports green forever while being true of nothing anyone
+cares about.
+
+#### Widening the scan is refuted, on two independent grounds
+
+Either one would be enough; both hold.
+
+1. **It would go red on 29 live violations the day it shipped.** Widening is not a
+   guard change, it is a prose-editing task with a guard change at the end of it,
+   and the 29 are in shipped user-facing text.
+2. **It stays blind to `\u{2014}` regardless.** That is §11 D190's finding, and
+   widening the file list does nothing about it — the same defect could be
+   reintroduced into any of the 12 files, in escaped form, under a green scan.
+
+And the exclusion list it would need is its own argument against it. `bin/`, the
+test modules, `release_gate.rs` and the prompt strings all have to be exempted by
+hand, and **a hand-typed list is what made the §11 D170 survey miss
+`journal_fingerprints`** — the fifth table, the one that mattered, the one nobody
+had thought of. An exclusion list inherits what its author already believes is
+there, and the failure direction is the quiet one: silently exempting too much.
+
+#### The prose guard is the better instrument, and this measurement says why
+
+`guidelines::tests::every_note_a_user_can_be_shown_is_clean_prose` drives all
+seven note branches through the real `ingest_with` and checks the sentence as
+RENDERED. **Both of the source scan's failure modes disappear at that layer, for
+structural reasons rather than by care:**
+
+* an escape has become a character by the time a string is rendered, so `\u{2014}`
+  and a typed em dash are the same thing to the assertion;
+* nothing aligns columns in a sentence, so the false positives that make a
+  crate-wide space-run scan unusable (59 lines, almost all `ai-eval.rs` `println!`
+  table padding) cannot arise.
+
+A source scan checks what someone typed. A rendered check reads what a user gets,
+which is the only thing the editorial rule was ever about. The scan's remaining
+value is that it is cheap and runs in CI; the rendered check is neither, today.
+
+#### Reopening condition
+
+Two costs, both named and neither paid:
+
+1. **29 em dashes out of live reader-facing prose**, file by file, before any
+   guard covering those files can be green.
+2. **An app-crate CI path — and it is worth more than this entry first said.**
+   Every rendered check lands in the app crate, and both workflows run
+   `-p gaply_core`, so such a test gates `cargo test --workspace` and nothing
+   else. Blocked on bundled models in CI, which is a packaging problem and not
+   this one.
+
+   **Checking that claim turned up a second guard in the same position.**
+   `decision_records.rs` — the D-number citation guard, the one that has caught
+   dangling citations repeatedly this week, including §11 D192's and this
+   sequence's own D193 — is in `src-tauri/tests/`, the APP crate. CLAUDE.md said
+   `gaply-core/tests/` until 20 Sep 2026, and `cargo test -p gaply_core --test
+   decision_records` answers *"no test target named `decision_records` in
+   `gaply_core`"*. **So it has never run remotely.** Its sibling
+   `cited_tests_exist.rs` is one directory away in `gaply_core` and runs on every
+   push, which is why the difference went unnoticed: the pair reads as covered.
+
+   That raises the value of the app-crate CI path from *"one prose guard"* to
+   **the two guards that catch DOCUMENTATION defects** — a decision record cited
+   and never written, and a sentence that reaches a user malformed. Both are the
+   class this log exists to prevent, and neither is enforced anywhere but a
+   developer's laptop.
+
+   It is also the entry's own lesson arriving from a third direction. D192
+   recorded the em-dash guard's reach wrongly. This entry corrected a file count
+   that had reached a status report. And the norms file asserted a guard's
+   location wrongly for a month — **the stale-pointer defect, in the document
+   people read to find the guards.**
+
+Until both are paid, the honest state is the one this entry replaces an admission
+with: **the guard covers five modules and they are clean; twelve other modules
+write to the reader and hold 29 violations; and the instrument that would catch
+them properly exists and is demonstrated, on one module, out of CI.**
