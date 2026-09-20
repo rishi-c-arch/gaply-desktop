@@ -15035,3 +15035,124 @@ that is what D165 declined on.
 Not this. A model that beats 50% precision on these 160 paragraphs, scored by
 `cargo run --bin grrb`. The inputs are fixed and committed, so the next candidate
 is a run rather than an argument — which is the whole of what Phase 2b was for.
+
+### D197 — a cloud model on the same fixed set: it discriminates, and it still loses to a one-line heuristic
+
+§11 D196 scored SLM1 on the 160-paragraph pool and it landed below the regex,
+below the 50% no-skill baseline, and below the base rate — on judgment, not
+format. The open question was whether scale fixes a judgment failure. **It fixes
+the judgment and not the score**, which is a different result from the small
+model's and a stronger form of D165's decline than either alone.
+
+**The model, named from the API's own echo rather than the config default:**
+`gpt-4o-mini-2024-07-18`, reached through `ProxyReqwestClient::verify_with_envelope`
+— the product's own path, App Check header and structured validator included.
+
+#### The table, all on the same 160 paragraphs
+
+| approach | precision | recall | separation |
+|---|---|---|---|
+| no-skill — first paragraph of each Methods section | **50.0%** | — | — |
+| gpt-4o-mini variant A | **38.8%** | 100% | **+66 pts** |
+| gpt-4o-mini variant B | **37.1%** | 100% | **+64 pts** |
+| always "yes" (base rate) | 17.5% | 100% | 0 |
+| SLM1 variant B | 17.7% | 100% | +2 |
+| the nine-regex extractor, in-document | 14.8% | — | — |
+| SLM1 variant A | 14.5% | 64% | **−16 pts** |
+
+*Separation* is the yes-rate on genuine paragraphs minus the yes-rate on the
+rest: how far apart the model holds the two classes, independent of where it puts
+its threshold.
+
+#### Calibration, not incapacity — and the raw counts say it before any rate does
+
+**Across 320 calls each: gpt-4o-mini answered "yes" 137 times; SLM1 answered
+"yes" 282 times.** That single contrast is the finding. SLM1 agreed with almost
+everything it was shown, and its variant A was *inverted* — 80% yes on
+non-genuine against 64% on genuine, −16 points. gpt-4o-mini caught **every**
+genuine paragraph in both variants (100% recall) and rejected two thirds of the
+rest, +66 and +64 points.
+
+So the classes are separable and this model separates them. What it does not have
+is an operating point: it over-predicts yes, and at 100% recall its precision sits
+at 38.8%. **A model with +66 separation and a threshold is a different object from
+one with −16**, and the remaining gap is calibration rather than capability.
+
+**The two variants agree closely — 38.8 vs 37.1, +66 vs +64.** SLM1's diverged
+wildly (14.5 vs 17.7, with opposite yes-rates). That agreement is evidence this
+measures the model rather than the prompt, which §11 D121 warns a single variant
+cannot distinguish.
+
+**The decline stands, and its reason has moved.** A one-line heuristic still beats
+both model tiers on the metric D165 declined on. It no longer beats them because
+they cannot tell the classes apart.
+
+#### Two predictions, both wrong, both in the same direction
+
+| | predicted | measured |
+|---|---|---|
+| frontier-tier precision (pinned before the tier was known) | 65–85% | untested |
+| gpt-4o-mini precision (revised once the tier was known) | 55–75% | **38.8%** |
+| unparseable | 0–2% | **0%** |
+
+Wrong twice, and over-estimating both times. **What was right was the mechanism**
+— scale does fix the yes-bias, exactly as predicted from SLM1's signature being
+constant output rather than incoherence. **What was wrong was where that lands
+you: separating the classes is not the same as being right about them.** A
+prediction can identify the correct mechanism and still miss the number, and the
+gap between those two is the part worth keeping.
+
+#### 148 of 160, and the 12 the proxy refused
+
+The validator rejects a string field over 2000 characters or over 8 sentences.
+Twelve paragraphs never reached a model:
+
+```
+grrb-sci-048  679 ch  >8 sentences     grrb-sci-085  1689 ch  >8 sentences
+grrb-sci-055 1578 ch  >8 sentences *   grrb-sci-086   897 ch  >8 sentences
+grrb-sci-068  462 ch  >8 sentences     grrb-sci-087  2045 ch  >2000 chars
+grrb-sci-079 1218 ch  >8 sentences     grrb-sci-091  2143 ch  >2000 chars
+grrb-sci-080 1363 ch  >8 sentences     grrb-sci-132  4634 ch  >2000 chars
+grrb-sci-083 2104 ch  >2000 chars      grrb-sci-084  1633 ch  >8 sentences *
+```
+`*` = adjudicated genuine. Ten of the twelve are from `final final L.pdf`.
+
+**Unbiased by label — 2 of 12 genuine, 17%, against 18% in the pool — so the
+comparison survives.** But they are systematically the LONGEST and most prose-like:
+median 1605 characters against the pool's 577. That is the half where the
+judgment is hardest, and it is the half this measurement does not cover. The
+headline would have to move by more than two points for the exclusions to change
+the conclusion, and they cannot.
+
+#### The boundary shaped the measurement three ways
+
+Not one constraint but three, each independently limiting:
+
+1. **What may be sent.** 12 of 160 refused outright by `validate_structured`.
+2. **In what format.** A bare-word answer cannot traverse `ProxyClient` at all —
+   `verify_with_envelope` parses `result.text` as JSON because the product's
+   replies are objects. The cloud variants ask for `{"answer":"yes"}` where the
+   SLM1 variants asked for a bare word. **The question is identical; the required
+   output format is not**, and the two rows of the table were therefore not asked
+   in byte-identical words.
+3. **How fast.** The proxy's token bucket is capacity 60, refill 1/s. Fired back
+   to back, **111 of 160 requests returned 429** from the 50th onward, which
+   invalidated variant B's first pass entirely; paced at 1.1s it returned zero
+   errors. One manuscript's 160 paragraphs is roughly three minutes of wall clock
+   against this path, by design.
+
+**So a capability result here would still not have been a product result.** Even
+had the model beaten 50%, what it would license is a path that refuses a twelfth
+of its input, requires structured replies, and costs minutes per manuscript.
+
+#### The tier limit, named
+
+**`gpt-4o-mini` is not the frontier.** 38.8% is that tier's number on this task,
+not the task's ceiling, and the 65–85% prediction pinned for a frontier model
+remains untested. This entry does not claim a frontier model fails.
+
+**Reopening condition: a frontier-tier run on the same 160 paragraphs.** One
+model, one day. `OPENAI_MODEL=gpt-4o` or a Claude key against the same local
+proxy, then `examples/methods_cloud_probe`. **The instrument exists, the pool is
+committed, and the comparison is a command rather than an argument** — which is
+what Phase 2b was built for, arriving at the first decline to use it.
