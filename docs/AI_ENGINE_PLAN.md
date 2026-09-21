@@ -15596,6 +15596,17 @@ declined on.
 the base model, one about the adapter, one about the prompt. The third would hold
 if both models were replaced tomorrow.
 
+> **WHOSE NUMBERS THESE ARE — read before any figure below.** Every accuracy
+> number in this entry is the stock **`Qwen3-4B-Thinking-2507`** base (Ollama tag
+> `slm2-base`): the 9/20, the per-class distributions, the independence result,
+> the human row. **SLM-2's ADAPTER IS STILL UNMEASURED ON ITS OWN TASK.** Its run
+> stopped at 10 of 30 items with 5 of those empty, so Finding 2 is a finding
+> about the adapter's COST — 9.2x slower, half the items returning nothing — and
+> NOT about its accuracy. No confusion matrix exists for the tuned model and none
+> is implied. The heading says "measured on its own task" because the TASK was
+> finally put to a model at all; the model that answered was the base. §11 D203
+> continues on the same footing.
+
 #### The set: ten topic-matched TRIPLES
 
 `evals/detector/aicheck30.json` — 30 paragraphs as `HUMAN` / `GENERATED` /
@@ -15926,3 +15937,146 @@ Artefacts: `evals/detector/aicheck30.json` (the set),
 `aicheck30_slm2_base.json` (30 rows), `aicheck30_slm2_tuned_partial.json`
 (10 rows, stopped by design and retained because a stopped run is evidence),
 `aicheck30_memorisation.json` (8 rows plus the metric's own controls).
+
+### D203 — the AI-Check three-way lane is UNEVALUABLE: its prompt tells the model the answer, and correcting the prompt makes it worse
+
+§11 D201 Finding 3 recorded that `ai_detect::CLASSIFY_INSTRUCTION` asserts the
+passage *"was flagged as carrying AI-associated statistical signals"* while
+`classify_output_schema` offers no `human` option — a prompt that states its
+conclusion as a premise and then provides no way to disagree. **9 of 10 genuine
+pre-2020 OpenAlex abstracts, each with a DOI, were assigned a machine category.**
+
+This entry measures the fix, and the fix fails.
+
+#### Whose numbers these are
+
+**Every number below is the stock `Qwen3-4B-Thinking-2507` Q4_K_M base**
+(Ollama tag `slm2-base`), on the 30 topic-matched items of
+`evals/detector/aicheck30.json`.
+
+**SLM-2's ADAPTER IS STILL UNMEASURED ON THIS TASK.** Its run stopped at 10 of
+30 items with 5 of those empty (§11 D201 Finding 2), which is a finding about
+COST — 9.2x slower than the base, half the items returning nothing — and not
+about accuracy. No confusion matrix exists for the tuned model and none is
+implied here. **This entry is about the base and the prompt.**
+
+#### The experiment: the prompt is the only difference, enforced by construction
+
+The neutral envelope DERIVES from the shipped `classify_payload` and overrides
+exactly two fields, so the claim is checked rather than asserted — verified
+before the run by diffing the two payloads: only `instruction` and
+`output_schema` differ, while `task`, `passage`, `required` and the `strength`
+enum are identical. The data-as-data rule and the verbatim-quote requirement
+carry over unchanged, so the injection defence is not quietly dropped in the
+name of neutrality.
+
+Same model, same 30 items, same system prompt, `think:false`, temperature 0,
+`num_ctx` 16384, `keep_alive:0`, same 3072-token cap.
+
+1. `instruction` no longer asserts the passage was flagged.
+2. `output_schema.category` gains `human`.
+
+#### The result
+
+| | shipped prompt | neutral + `human` |
+|---|---|---|
+| HUMAN called machine | **9/10** | **1/10** |
+| GENERATED called `human` | — | **8/10** |
+| PARAPHRASED called `human` | — | **7/10** |
+| generated-vs-paraphrased | 9/20 | **4/20** |
+| verdict vs truth class | independent | independent |
+| answered | 30/30 | 30/30 |
+
+The human row improves exactly as predicted. **But `human` lands at 9/10, 8/10
+and 7/10 across the three classes** — it is not tracking humanness, it is
+tracking availability. Eight of ten abstracts written from scratch by
+`gpt-4o-mini-2024-07-18` were cleared as human.
+
+**So the verdict tracks the PROMPT, not the text.** The shipped envelope pushes
+29 of 30 items into a machine category; the neutral one pulls 24 of 30 into
+`human`. One framing change, same model, same passages. And
+generated-vs-paraphrased did not improve — it fell from 9/20 to **4/20**,
+further below the 10/20 no-skill line.
+
+**Correcting the prompt reverses the bias rather than removing it.** The shipped
+version fails by accusing human authors; the corrected version fails by clearing
+machine text. For a research-integrity tool the second is the worse error,
+because a false accusation invites a look and a false clearance ends one.
+
+#### The prediction that carried the decision, and it was written first
+
+`P2` was recorded before the run as **the discriminator**: *"`human` will ALSO be
+assigned to the machine classes at >= 3/10 in at least one. IF SO, the human row
+improved because an OPTION was added, not because the prompt was hiding signal."*
+
+The falsifying branch was written down too — *"if `human` concentrates on HUMAN
+and gen-vs-para rises above chance, the prompt was the problem, the base has
+signal, and the honest outcome is to fix the prompt and keep the lane."* That
+branch was live. The numbers closed it: 8/10 and 7/10, and 4/20.
+
+Outcome against predictions: P1 confirmed (9 of 10), P2 confirmed emphatically,
+P3 confirmed (4/20, worse), P4 confirmed, P5 partly — 30/30 answered and 0
+off-schema as predicted, but **1 fabricated quote against the shipped run's 0,
+and median 62.3s against 35.8s.** Neither affects the comparison; both are
+reported rather than smoothed over.
+
+#### The decision: DECLINE the lane, do not ship a corrected prompt
+
+**A prompt swap was implemented and then reverted, and the reversal is the
+finding.** The first attempt shipped the neutral instruction, added `human` to
+`classify_output_schema` and added `PassageCategory::LeansHuman`. That is exactly
+what the measurement argues against: it places a classifier that clears 8 of 10
+machine-written abstracts into the product, where it **looks corrected**. A
+prompt measured to exonerate AI text is not a fix, and a plausible-looking fix is
+harder to reopen than an obvious defect — §11 D199's lesson about declines
+applies to repairs too.
+
+So, following `novelty.rs`: **the instrument is kept, the lane is declined.**
+
+* `CLASSIFY_INSTRUCTION` keeps its presupposition **verbatim**, under a
+  `# DECLINED — §11 D203` block carrying the table above. Deleting it would make
+  the measurement unrepeatable, which is the reason `novelty.rs` keeps its
+  scanner.
+* Nothing ships a verdict: `aicheck.rs` passes `None` to `classify_passages` at
+  every call site and the user gets `CLASSIFICATION_UNAVAILABLE_NOTE`. That was
+  already true as a Set-5 speed decision; it is now **confirmed correct on
+  evidence** rather than expedient.
+* **The reopening condition is not a better prompt.** It is evidence that some
+  model's verdict DEPENDS on the text — a per-class distribution differing from
+  the marginal — measured BEFORE any prompt is tuned. Both prompts measured here
+  are independent of the truth class, so both are answering from their framing.
+
+#### The guard pins the PREMISE, because the wording is the thing that got worse
+
+`gaply-core/tests/classifier_lane_is_declined.rs`. The obvious guard — "no
+instruction may presuppose" — would demand the rewrite that was just measured to
+be worse. CLAUDE.md's rule for a defect that is currently unreachable is to keep
+the guard and **pin the premise that makes it unreachable**, so the day the
+premise changes the test goes red. The premise is the decline itself.
+
+Two assertions: every shipped call site passes `None`, and the prompt is still
+the artefact these numbers describe. Re-enabling the lane fails BY DESIGN, and
+the failure names the evidence required first.
+
+Three deletion tests, each predicted before running, all `CARGO_EXIT=101`:
+
+| broken on purpose | predicted red | observed |
+|---|---|---|
+| one call site passes a classifier | `every_shipped_call_site_declines_the_classifier` | named the exact line |
+| `classify_passages` renamed so the scan matches nothing | the inert-guard assertion, NOT a silent pass | *"the guard is inert"* |
+| presupposition removed from the prompt | `the_declined_prompt_still_carries_the_defect_it_was_measured_for` | fired |
+
+The second matters most: a scan whose input can silently become empty passes
+forever, and that is the failure mode to test for second.
+
+#### What is NOT claimed
+
+* **Not that a fair prompt is impossible** — two were measured, both biased, and
+  the reopening condition is stated in terms of evidence rather than wording.
+* **Not an adapter result.** SLM-2's adapter is unmeasured on this task.
+* **20 machine items and 10 human items**, one generator, one vintage.
+* **The 1 fabricated quote** in the neutral run is a single row and is not
+  offered as a difference between the conditions.
+
+Artefacts: `evals/detector/aicheck30_neutral_prompt.json` (30 rows) beside
+`aicheck30_slm2_base.json` (the shipped-prompt 30), both on the same set.

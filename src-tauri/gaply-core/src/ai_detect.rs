@@ -1539,6 +1539,46 @@ pub enum PassageCategory {
 
 /// The instruction sent with every classification request — resemblance
 /// framing, data-not-instructions rule, and a mandatory verbatim quote.
+///
+/// # DECLINED — §11 D203. This prompt is the INSTRUMENT that measured the
+/// # decline, not a prompt any shipped path sends.
+///
+/// **It asserts its own answer.** It opens *"This passage from a document was
+/// flagged as carrying AI-associated statistical signals"* and
+/// [`classify_output_schema`] offers only machine categories, so a model
+/// certain the passage is human has no token for it. Measured on 10 genuine
+/// pre-2020 OpenAlex abstracts, each with a DOI: **9 of 10 were assigned a
+/// machine category.**
+///
+/// **The obvious fix was measured and is WORSE.** A neutral framing plus a
+/// `human` option, on the same model and the same 30 items with the prompt as
+/// the only difference:
+///
+/// | | this prompt | neutral + `human` |
+/// |---|---|---|
+/// | HUMAN called machine | 9/10 | 1/10 |
+/// | GENERATED called `human` | — | **8/10** |
+/// | PARAPHRASED called `human` | — | **7/10** |
+/// | generated-vs-paraphrased | 9/20 | **4/20** (no-skill 10/20) |
+///
+/// The verdict tracks the PROMPT, not the text, in BOTH versions — and it is
+/// statistically independent of the truth class in both. Correcting the wording
+/// converts a false-positive lane that accuses human authors into a
+/// false-negative lane that clears 8 of 10 machine-written abstracts, which for
+/// a research-integrity tool is the worse error.
+///
+/// **So the lane is UNEVALUABLE, and a prompt swap does not fix it.** Neither
+/// version is shipped: `aicheck.rs` passes `None` to [`classify_passages`] at
+/// every call site, users get [`CLASSIFICATION_UNAVAILABLE_NOTE`], and
+/// `tests/classifier_lane_is_declined.rs` fails the day that stops being true.
+/// The constant is kept for the reason `novelty.rs` keeps its scanner: deleting
+/// the instrument would make the measurement unrepeatable.
+///
+/// **Reopening condition.** Not a better prompt. Evidence that some model's
+/// verdict DEPENDS on the text — i.e. a per-class distribution that differs
+/// from the marginal — measured before any prompt is tuned. All numbers above
+/// are the stock `Qwen3-4B-Thinking-2507` base; SLM-2's adapter is unmeasured
+/// on this task (§11 D201 Finding 2 is about its cost, not its accuracy).
 const CLASSIFY_INSTRUCTION: &str = "This passage from a document was flagged as carrying \
 AI-associated statistical signals (unusually predictable relative to the document's own \
 baseline). Judge which pattern the passage's writing most RESEMBLES: 'ai_generated' (drafted \
