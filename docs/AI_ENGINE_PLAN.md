@@ -16101,3 +16101,156 @@ second.
 
 Artefacts: `evals/detector/aicheck30_neutral_prompt.json` (30 rows) beside
 `aicheck30_slm2_base.json` (the shipped-prompt 30), both on the same set.
+
+### D204 — a frontier model on the same fixed set: 33.3% and 38.5%, below the no-skill line and no better than the model a twentieth its size
+
+§11 D196 scored a stock 0.5B on this pool, §11 D197 a mid-tier cloud model, and
+both landed below a one-line heuristic. §11 D197 pinned a prediction for the tier
+above — **65–85% precision, "untested"** — and left the reopening condition
+explicit: clear 50% and the scientific layer reopens with an input for the
+specialists. `gpt-4o-2024-08-06` has now been measured on the same 160
+paragraphs. **It does not clear 50%, and it does not beat `gpt-4o-mini`.**
+
+#### The table, all on the same 160 paragraphs and the §11 D198 corrected labels
+
+| approach | precision | recall | separation |
+|---|---|---|---|
+| no-skill — first paragraph of each Methods section | **50.0%** | — | — |
+| **gpt-4o variant B** | **38.5%** | 100% | **+67 pts** |
+| gpt-4o-mini variant A | 37.3% | 100% | +66 |
+| gpt-4o-mini variant B | 35.7% | 100% | +64 |
+| **gpt-4o variant A** | **33.3%** | 100% | **+59 pts** |
+| stock 0.5B variant B | 16.5% | 100% | +2 |
+| always "yes" (base rate) | 16.3% | 100% | 0 |
+| the nine-regex extractor, in-document | 13.4% | — | — |
+| stock 0.5B variant A | 12.9% | 64% | −16 |
+
+148 answered, 12 excluded by the proxy's structured validator — **the identical
+12 in both variants and the same 12 as §11 D197**, which is the consistency check
+that the transport did not shift under the comparison. 0 errors, 0 unparseable.
+
+**The model name came from the API's own `result.model` echo**, not from config:
+the proxy was started with `OPENAI_MODEL=gpt-4o` and the echo resolved it to
+`gpt-4o-2024-08-06`. §11 D199 is why that is read rather than assumed.
+
+#### Scale buys nothing here, and the shape of every result says why
+
+gpt-4o's two variants straddle gpt-4o-mini's — 33.3 and 38.5 against 35.7 and
+37.3 — and the ordering FLIPS between variants. A model roughly twenty times
+larger produces no measurable improvement.
+
+**Every model that can answer at all has the same signature: 100% recall,
+positive separation, low precision.** gpt-4o-mini +66/+64, gpt-4o +59/+67. They
+catch every genuine paragraph and accept far too much else. The classes ARE
+separable and these models separate them; what none of them has is an operating
+point. §11 D197 wrote the diagnosis — *"separating the classes is not the same as
+being right about them"* — and a second tier has now confirmed it rather than
+moved it.
+
+**So the task is not answerable from the paragraph alone.** Whether a paragraph
+describes what THESE authors did is a fact about its place in a document, and the
+probe hands over a paragraph with its place removed. Scale cannot supply a
+missing input, which is why three tiers spanning four orders of magnitude of
+parameters land between 12.9% and 38.5% and all below a rule that just takes the
+first paragraph of each Methods section.
+
+#### THE PREDICTION FAILED A THIRD TIME, IN THE SAME DIRECTION
+
+| tier | predicted | measured |
+|---|---|---|
+| stock 0.5B | — | 12.9–16.5% |
+| gpt-4o-mini | 55–75% | 37.3% / 35.7% |
+| **gpt-4o** | **65–85%** (pinned in §11 D197 before the tier was known) | **33.3% / 38.5%** |
+
+**Three over-estimates, 30–50 points high at every tier, and the third is the
+worst.** Its variant A came in BELOW the smaller model on a task where the
+prediction's whole mechanism was that scale would help.
+
+**This is a finding about the predictor, not about gpt-4o.** The diagnosis was
+already in this log, written after the second failure, in the entry that pinned
+this third prediction — and it was re-broken with that sentence three entries
+above. Knowing the rule is not applying it (CLAUDE.md's own recurring lesson,
+here for the third time on one task). **Operationally: a prior that has missed by
+30–50 points at every tier of a task is not evidence about the next tier, and
+must not be used to justify reopening a declined layer.** The reopening condition
+was a measured number and stays a measured number.
+
+**And the agreement test weakens this result rather than strengthening it.** §11
+D197 read gpt-4o-mini's close variants (38.8 vs 37.1) as evidence the measurement
+was about the model rather than the prompt. gpt-4o's variants differ by 5.2 points
+and **agree on only 112 of 148 rows (75.7%)**, so that claim is weaker here. Said
+plainly because it cuts against the tidiness of the conclusion.
+
+#### The fence: a format failure that would have been reported as judgment
+
+The first run returned **38% errors**, all `proxy reply is not valid JSON`. That
+was not judgment. Read verbatim:
+
+```
+model: gpt-4o-2024-08-06   stop_reason: "length"
+result.text: "```json\n{\"answer\":\"yes\"}\n"
+```
+
+**gpt-4o wraps its reply in a markdown fence and `max_tokens: 8` truncates before
+the fence closes**, so `verify_with_envelope` cannot parse a correct, legible
+answer. gpt-4o-mini emitted bare JSON, which is why §11 D197 recorded 0
+unparseable and could say its result was about judgment.
+
+Measured, not assumed: **8 of 10 identical calls emitted the fence**, and the
+answer was "yes" in all ten. Format varies; judgment does not.
+
+**Scoring precision over the surviving 62% would have reported a format
+difference as a judgment difference** — in a comparison whose entire point is
+that distinction — and would have pushed the number in the direction this
+predictor has now been wrong in three times. It is the §11 D157 shape: an
+instrument reporting a property of itself.
+
+#### The transport deviation, stated with its reason
+
+gpt-4o's rows are **not** byte-identical in transport to §11 D197's. Same proxy,
+same App Check header, same `/verify` route, same structured validator, same
+instruction text, same 160 paragraphs — but `result.text` is read VERBATIM and
+parsed fence-tolerantly at `max_tokens: 24`, instead of being parsed by the typed
+client at 8.
+
+The deviation is behind `GRRB_VERBATIM=1` / `GRRB_MAX_TOKENS`, **off by default,
+so the path D197 measured is unchanged when the flags are absent.** The
+alternative was a precision figure computed on a self-selected 62% of the pool,
+and the exclusions were not random: they were the replies the model chose to
+decorate.
+
+#### OPEN — the proxy sets no temperature, so every cloud reply is sampled at 1.0
+
+`gaply-proxy/app/openai_client.py` builds `{model, max_tokens, messages}` and
+never sets `temperature`, so the OpenAI default of **1.0** applies. That is why
+the same payload produced a fence 8 times in 10 and bare JSON twice.
+
+**This is not confined to the probe.** `reviewer_agent.rs`, `verify_agent.rs`,
+`chat_agent.rs`, `gap_finder_agent.rs`, `stats_chat.rs`, `ai_detect.rs` and
+`swarm.rs` all reach the cloud through the same `ProxyClient`, so **the reviewer
+letter a user receives is sampled at temperature 1.0** and two runs on one
+manuscript can differ. Nothing here measures how much they differ.
+
+Recorded as OPEN, not fixed: setting a temperature is a one-line change with real
+consequences for output quality and for every number in §11 D197 and this entry,
+and it needs its own measurement rather than a quiet default. `claude_client.py`
+omits temperature too, but deliberately and with a comment — Sonnet 5's adaptive
+thinking — which is a different situation from an unremarked omission.
+
+**It also qualifies every cloud number in this log.** §11 D196, D197 and D204
+were all sampled at 1.0; none is a deterministic measurement, and a re-run would
+not reproduce them exactly.
+
+#### The decision
+
+**The scientific layer stays declined**, now against three tiers: a stock 0.5B, a
+mid-tier cloud model and a frontier cloud model, every one below a one-line
+no-skill rule on a two-author fixed set. The specialists get no input from it.
+§11 D165's decline is unchanged and its evidence is now three tiers deep.
+
+Reopening needs a different INPUT, not a larger model — the paragraph's place in
+its document, which the probe deliberately removes and which the regex extractor
+already has.
+
+Artefacts: `evals/reports/grrb-cloud-gpt4o-A-raw.tsv` and `-B-raw.tsv`, 160 rows
+each, beside `grrb-cloud-gpt4omini-raw.tsv` on the same set.

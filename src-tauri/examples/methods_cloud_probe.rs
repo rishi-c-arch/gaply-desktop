@@ -50,13 +50,65 @@ fn parse(raw: &str) -> Option<bool> {
     }
 }
 
+/// Fence-tolerant read of `result.text` (§11 D204). `verify_with_envelope`
+/// parses that field as JSON and reports only "proxy reply is not valid JSON"
+/// when it cannot — a fact about the PARSE, not about what the model said.
+/// gpt-4o wraps its reply in a ```json fence about 80% of the time (measured:
+/// 8 of 10 identical calls), and at `max_tokens: 8` the fence truncates before
+/// it closes, so a correct, legible "yes" is recorded as an error.
+///
+/// Enabled by `GRRB_VERBATIM=1`, OFF by default, so the path §11 D197 measured
+/// is byte-identical unless asked otherwise. `GRRB_MAX_TOKENS` raises the
+/// budget so a fenced reply can finish.
+fn extract_answer(text: &str) -> Option<bool> {
+    // the object inside any fence or prose
+    if let (Some(a), Some(b)) = (text.find('{'), text.rfind('}')) {
+        if b > a {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&text[a..=b]) {
+                if let Some(s) = v["answer"].as_str() {
+                    return parse(s);
+                }
+            }
+        }
+    }
+    parse(text)
+}
+
+fn raw_verify(
+    url: &str,
+    signer: &TokenSigner,
+    payload: &serde_json::Value,
+) -> Result<(String, String), String> {
+    let (hname, token) = gaply_core::app_check::proxy_auth_header(signer).map_err(|e| e.to_string())?;
+    let c = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let r = c
+        .post(format!("{url}/verify"))
+        .header(hname, token)
+        .json(payload)
+        .send()
+        .map_err(|e| e.to_string())?;
+    let status = r.status();
+    let body = r.text().unwrap_or_default();
+    if !status.is_success() {
+        return Err(format!("{status}: {}", body.chars().take(120).collect::<String>()));
+    }
+    let v: serde_json::Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+    let text = v["result"]["text"].as_str().unwrap_or_default().to_string();
+    let stop = v["result"]["stop_reason"].as_str().unwrap_or_default().to_string();
+    Ok((text, stop))
+}
+
 fn main() {
     let path = std::env::args().nth(1).expect("usage: methods_cloud_probe <cases.jsonl>");
     let key = std::env::var("GRRB_APP_CHECK_KEY")
         .expect("GRRB_APP_CHECK_KEY must match the proxy's APP_CHECK_SIGNING_KEY");
     let url = std::env::var("GAPLY_PROXY_URL").unwrap_or_else(|_| "http://127.0.0.1:8080".into());
 
-    let signer = TokenSigner::new(key.into_bytes(), DEFAULT_APP_ID);
+    let signer = TokenSigner::new(key.clone().into_bytes(), DEFAULT_APP_ID);
+    let signer2 = TokenSigner::new(key.into_bytes(), DEFAULT_APP_ID);
     let client = app_lib::models::proxy_client::ProxyReqwestClient::new(&url, signer)
         .expect("build ProxyClient");
     eprintln!("proxy: {url}   reachable: {}", client.reachable());
@@ -77,6 +129,11 @@ fn main() {
     // variant so a drained bucket from the first does not corrupt the second.
     let delay = std::env::var("GRRB_DELAY_MS").ok().and_then(|v| v.parse().ok()).unwrap_or(0u64);
     let only = std::env::var("GRRB_ONLY").ok();
+    let verbatim = std::env::var("GRRB_VERBATIM").is_ok();
+    let max_tokens: u32 = std::env::var("GRRB_MAX_TOKENS").ok()
+        .and_then(|v| v.parse().ok()).unwrap_or(8);
+    eprintln!("mode: {}  max_tokens: {max_tokens}",
+        if verbatim { "VERBATIM (fence-tolerant)" } else { "typed client (as §11 D197)" });
     for variant in ["A", "B"] {
         if only.as_deref().is_some_and(|o| o != variant) {
             continue;
@@ -87,12 +144,32 @@ fn main() {
             let payload = serde_json::json!({
                 "summary": text,
                 "instruction": instruction(variant),
-                "max_tokens": 8,
+                "max_tokens": max_tokens,
             });
             if delay > 0 {
                 std::thread::sleep(std::time::Duration::from_millis(delay));
             }
-            let (answer, detail) = match client.verify_with_envelope(&payload) {
+            let (answer, detail) = if verbatim {
+                match raw_verify(&url, &signer2, &payload) {
+                    Ok((text, stop)) => (
+                        match extract_answer(&text) {
+                            Some(true) => "yes",
+                            Some(false) => "no",
+                            None => "unparseable",
+                        },
+                        format!("stop={stop} {}", text.replace(['\n', '\t'], " ")
+                            .chars().take(48).collect::<String>()),
+                    ),
+                    Err(msg) => {
+                        let kind = if msg.contains("422") || msg.contains("validation") {
+                            "excluded"
+                        } else {
+                            "error"
+                        };
+                        (kind, msg.replace(['\n', '\t'], " ").chars().take(120).collect::<String>())
+                    }
+                }
+            } else { match client.verify_with_envelope(&payload) {
                 // `verify_with_envelope` parses `result.text` as JSON and
                 // returns the PARSED value — the product's replies are objects,
                 // which is why a bare "yes" fails here. The question put to the
@@ -122,7 +199,7 @@ fn main() {
                     };
                     (kind, msg.replace(['\n', '\t'], " ").chars().take(120).collect::<String>())
                 }
-            };
+            } };
             println!(
                 "{variant}\t{}\t{}\t{answer}\t{detail}",
                 c["id"].as_str().unwrap_or("?"),
