@@ -15863,9 +15863,9 @@ the tuned model might do better, and Finding 2 says it is worse.
 #### What is NOT claimed
 
 * **No accuracy figure for the adapter.** 10 partial rows, 5 of them empty.
-* **No memorisation check.** It matters more here than in D200 because the
-  PARAPHRASED class derives from the same ten abstracts, so recall of a source
-  would leak into two classes at once. Not run; not assumed either way.
+* **Memorisation: RUN, and clean — see the section below.** This bullet said
+  "not run" when D201 was first committed (4a426f1); it is corrected here rather
+  than left to be believed.
 * **The base's 9/20 is 20 items.** Enough to show the verdict does not track the
   class; not an accuracy.
 * **One generator, one vintage** for both machine classes.
@@ -15874,6 +15874,55 @@ the tuned model might do better, and Finding 2 says it is worse.
 * **Nothing is wired into the product.** The runtime still has no LoRA path;
   `slm2-tuned` exists only as an Ollama tag built for this probe.
 
+#### Memorisation on the human half: no verbatim recall
+
+A model that RECOGNISED a pre-2020 abstract from pretraining could call it human
+without detecting anything. **It matters more here than in §11 D200 because the
+PARAPHRASED class is derived from these same ten abstracts** — recall of a source
+would contaminate two of the three classes at once, letting a model match
+remembered text instead of judging the writing.
+
+D200's method: cut each item to its first sentence, ask the model to continue it
+exactly as published, score word-5-gram recall against the true continuation.
+
+```
+ac-h01 0.000   ac-h04 0.000   ac-h07 0.000   ac-h10 0.000
+ac-h02 0.000   ac-h06 0.000   ac-h08 0.000
+ac-h03 0.000
+```
+
+**8 of 10 scored, every one 0.000.** Replies were 126–309 words, with differing
+stop reasons and latencies, so the model produced fluent continuations
+throughout — they simply were not the published ones.
+
+**Eight identical values is the uniform-result tell, so the METRIC was controlled
+before the zeros were believed.** A scorer stuck at zero is indistinguishable
+from no memorisation:
+
+```
+identical text vs itself                  1.000   (must be 1.000)
+true continuation vs its own first half   0.476   (must be ~0.5)
+true continuation vs unrelated text       0.000   (must be ~0)
+```
+
+The metric answers correctly at both ends, so the zeros are a measurement.
+
+**Two items were skipped structurally, not as failures.** `ac-h05` is a
+single-sentence abstract, leaving no continuation to score; `ac-h09` is the
+front-matter fragment, whose 21-word remainder is below the 30-word floor. The
+denominator is 8, and it is 8 for a stated reason.
+
+**Two honest differences from the check this copies.** §11 D200 reported
+0.03–0.17 on SLM-1 and this reports exact zeros — a different base model, and
+5-gram recall falls cleanly to zero once wording diverges, so the two are not in
+conflict but they are not the same number either. And D200 ran both base and
+tuned; **this ran only the base**, on the reasoning that memorisation is a
+property of the pretrained weights and `slm2-tuned` is those same weights plus a
+rank-32 LoRA. That reasoning is sound and is not a measurement: a LoRA can in
+principle change what surfaces. It was not checked, because the adapter's 8–15
+minute items make ten of them unaffordable, and this is where that shows.
+
 Artefacts: `evals/detector/aicheck30.json` (the set),
 `aicheck30_slm2_base.json` (30 rows), `aicheck30_slm2_tuned_partial.json`
-(10 rows, stopped by design and retained because a stopped run is evidence).
+(10 rows, stopped by design and retained because a stopped run is evidence),
+`aicheck30_memorisation.json` (8 rows plus the metric's own controls).

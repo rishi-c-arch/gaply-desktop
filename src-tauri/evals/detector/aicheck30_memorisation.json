@@ -1,0 +1,112 @@
+{
+ "_comment": "Memorisation check on the HUMAN half of aicheck30.json (\u00a711 D201), the method of \u00a711 D200: each abstract cut to its first sentence, the model asked to continue it exactly as published, scored as word-5-gram recall against the TRUE continuation. Model: Ollama tag slm2-base = stock Qwen3-4B-Thinking-2507 Q4_K_M from rishibrucelee/gaply-slm-models. Direct /api/chat, NOT the product path, because the question is about the weights rather than about the classifier. 8 of 10 items scored: ac-h05 is a single-sentence abstract (no continuation to score) and ac-h09 is the journal front-matter fragment whose 21-word remainder is below the 30-word floor -- both skipped structurally, neither a failure. THE METRIC ITSELF WAS CONTROLLED before the zeros were believed: identical text scores 1.000, a true continuation against its own first half scores 0.476, unrelated text scores 0.000. Run on the BASE because memorisation is a property of the pretrained weights and slm2-tuned is those same weights plus a rank-32 LoRA; \u00a711 D200 ran both, and this did not, which is the one place this check is narrower than the one it copies.",
+ "rows": [
+  {
+   "model": "slm2-base",
+   "id": "ac-h01",
+   "provenance": "OpenAlex https://openalex.org/W4211010233 | DOI https://doi.org/10.1038/s41579-018-0040-1 | year 2018",
+   "first_sentence": "Cyanobacteria can form dense and sometimes toxic blooms in freshwater and marine environments, which threaten ecosystem functioning and degrade water quality for recreation, drinking water, fisheries and human health.",
+   "true_continuation_words": 109,
+   "reply_words": 291,
+   "overlap_5gram_recall": 0.0,
+   "done_reason": "stop",
+   "secs": 29.8,
+   "reply": "The aim of this study is to investigate the influence of nutrient availability on cyanobacterial growth and toxin production in a eutrophic lake. To achieve this, we conducted field sampling and laboratory experiments using water samples collected from different depths and locations within the lake. We also manipulated nutrient levels in controlled laboratory conditions to determine their effects on cyanobacterial growth and toxin production.\n\nOur results show that cyanobacteria are abundant in the lake, with high biomass and cell densities observed at various depths and locations. The highest"
+  },
+  {
+   "model": "slm2-base",
+   "id": "ac-h02",
+   "provenance": "OpenAlex https://openalex.org/W2118305000 | DOI https://doi.org/10.1186/1471-213x-6-1 | year 2006",
+   "first_sentence": "BACKGROUND: Zebrafish (D.",
+   "true_continuation_words": 128,
+   "reply_words": 165,
+   "overlap_5gram_recall": 0.0,
+   "done_reason": "stop",
+   "secs": 21.1,
+   "reply": "reproductive biology has been extensively studied in teleost fish, but little is known about the molecular mechanisms of zebrafish spermatogenesis and sperm function. The aim of this study was to identify genes involved in spermatogenesis and sperm function in zebrafish using a cDNA microarray approach. METHODS: We isolated 100 cDNAs from testis, epididymis, and spermatozoa of adult male zebrafish (Danio rerio) and analyzed their expression profiles by using a cDNA microarray containing 24,567 known genes. RESULTS: The results showed that 38% of the cDNAs were expressed in all three tissues, w"
+  },
+  {
+   "model": "slm2-base",
+   "id": "ac-h03",
+   "provenance": "OpenAlex https://openalex.org/W2337765335 | DOI https://doi.org/10.17221/2787-pse | year 2008",
+   "first_sentence": "Aquatic plants are known to accumulate heavy metals.",
+   "true_continuation_words": 125,
+   "reply_words": 304,
+   "overlap_5gram_recall": 0.0,
+   "done_reason": "length",
+   "secs": 26.0,
+   "reply": "This study aims to investigate the effect of different levels of cadmium (Cd) on growth and metal accumulation in aquatic plant species, specifically water hyacinth (Eichhornia crassipes), duckweed (Lemna minor), and cattail (Typha latifolia). The experiment was conducted using hydroponic culture systems with varying concentrations of CdCl2 solution: 0 ppm (control), 5 ppm, 10 ppm, 20 ppm, and 40 ppm. The plants were grown for a period of six weeks under controlled environmental conditions, including light intensity, temperature, and nutrient supply.\n\nGrowth parameters such as shoot length, le"
+  },
+  {
+   "model": "slm2-base",
+   "id": "ac-h04",
+   "provenance": "OpenAlex https://openalex.org/W1994153666 | DOI https://doi.org/10.1257/aer.103.7.2643 | year 2013",
+   "first_sentence": "This paper investigates consumer inertia in health insurance markets, where adverse selection is a potential concern.",
+   "true_continuation_words": 84,
+   "reply_words": 309,
+   "overlap_5gram_recall": 0.0,
+   "done_reason": "stop",
+   "secs": 89.3,
+   "reply": "We consider a model of sequential decision making with two types of consumers: healthy and sick. The healthy consumers have a low probability of becoming sick, while the sick consumers have a high probability of remaining sick. Consumers are risk-averse and have a constant relative risk aversion (CRRA) utility function. They can purchase health insurance from an insurer or go without it.\n\nThe insurer offers two types of policies: a basic policy that covers only hospitalization costs and an enhanced policy that also covers outpatient care expenses. The price of the basic policy is lower than th"
+  },
+  {
+   "model": "slm2-base",
+   "id": "ac-h06",
+   "provenance": "OpenAlex https://openalex.org/W2250966211 | DOI https://doi.org/10.18653/v1/d15-1167 | year 2015",
+   "first_sentence": "Document level sentiment classification remains a challenge: encoding the intrin-sic relations between sentences in the se-mantic meaning of a document.",
+   "true_continuation_words": 123,
+   "reply_words": 159,
+   "overlap_5gram_recall": 0.0,
+   "done_reason": "stop",
+   "secs": 27.7,
+   "reply": "The proposed model is trained using a combination of supervised and unsupervised learning techniques. In the supervised learning phase, we use labeled data to train the sentence-level sentiment classifier. In the unsupervised learning phase, we use document embeddings to learn a representation of the overall sentiment of a document. This allows us to capture the intrinsic relations between sentences in the semantic meaning of a document.\n\nTo evaluate our approach, we conduct experiments on three benchmark datasets: Amazon Reviews, Yelp and IMDb. We compare our results with state-of-the-art app"
+  },
+  {
+   "model": "slm2-base",
+   "id": "ac-h07",
+   "provenance": "OpenAlex https://openalex.org/W2108696783 | DOI https://doi.org/10.1186/1741-7015-8-18 | year 2010",
+   "first_sentence": "The CONSORT statement is used worldwide to improve the reporting of randomised controlled trials.",
+   "true_continuation_words": 66,
+   "reply_words": 158,
+   "overlap_5gram_recall": 0.0,
+   "done_reason": "stop",
+   "secs": 18.8,
+   "reply": "1. Read the instruction carefully: \"Continue this abstract exactly as it was published. Output only the continuation.\"\n2. Understand that the task requires continuing an abstract about the CONSORT statement and its use in improving the reporting of randomised controlled trials.\n3. Identify the key points from the given abstract: CONSORT statement, randomised controlled trials, improved reporting, 10 guidelines, 45 trials, 67% compliance, 28% non-compliance, 9 studies with missing data, 1 study with no data.\n4. Recall that the instruction asks to continue the abstract exactly as it was publishe"
+  },
+  {
+   "model": "slm2-base",
+   "id": "ac-h08",
+   "provenance": "OpenAlex https://openalex.org/W2020430837 | DOI https://doi.org/10.1104/pp.60.4.606 | year 1977",
+   "first_sentence": "A simple, rapid procedure is described for evaluating ozone injury to leaves of Phaseolus vulgaris L.",
+   "true_continuation_words": 124,
+   "reply_words": 126,
+   "overlap_5gram_recall": 0.0,
+   "done_reason": "stop",
+   "secs": 15.4,
+   "reply": "1. The instruction asks to continue an abstract that was already published.\n2. The abstract describes a simple and rapid method for assessing ozone-induced damage on Phaseolus vulgaris L. leaves.\n3. The continuation should maintain the same style, tone, and level of detail as the original abstract.\n4. The continuation should provide additional information about the procedure, its effectiveness, or its applications.\n5. The continuation should be written in a formal academic style, using precise scientific language.\n6. The continuation should not introduce new topics or change the focus of the o"
+  },
+  {
+   "model": "slm2-base",
+   "id": "ac-h10",
+   "provenance": "OpenAlex https://openalex.org/W1995326552 | DOI https://doi.org/10.1080/1573062x.2013.857421 | year 2013",
+   "first_sentence": "Flooding can cause major disruptions in cities, and lead to significant impacts on people, the economy and on the environment.",
+   "true_continuation_words": 118,
+   "reply_words": 205,
+   "overlap_5gram_recall": 0.0,
+   "done_reason": "stop",
+   "secs": 36.2,
+   "reply": "1. The instruction asks to continue an abstract that was already published.\n2. The abstract is about flooding in cities and its impacts.\n3. The first sentence of the abstract states: 'Flooding can cause major disruptions in cities, and lead to significant impacts on people, the economy and on the environment.'\n4. This sentence provides a general statement about the effects of flooding.\n5. To continue the abstract, I need to provide more specific information or examples related to the effects of flooding.\n6. The next sentence should logically follow from the first one.\n7. A logical continuation"
+  }
+ ],
+ "items_scored": 8,
+ "items_total": 10,
+ "skipped": {
+  "ac-h05": "single-sentence abstract, continuation 0 words",
+  "ac-h09": "front-matter fragment, continuation 21 words (<30 floor)"
+ },
+ "metric_controls": {
+  "identical": 1.0,
+  "true_continuation_vs_own_first_half": 0.476,
+  "unrelated": 0.0
+ }
+}
