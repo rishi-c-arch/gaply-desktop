@@ -15731,6 +15731,17 @@ the cap — and the recorded error string is identical for both. One bounded
 diagnostic capturing raw `content`/`thinking` separates them. It was not run, so
 nothing here says which it is.
 
+**IT REMAINS UNDETERMINED, DELIBERATELY, AND THIS IS THE RECORD OF THAT
+DECISION** — not an omission awaiting tidy-up. Either explanation would be a
+plausible sentence to write and neither is measured, so writing one would put a
+guess where the log's whole discipline is that a mechanism names the run that
+established it. The cost of resolving it is one bounded diagnostic of a few
+minutes; the cost of guessing wrong is a mechanism cited as fact by whoever
+reads this next. Anyone reopening the adapter should run that diagnostic FIRST,
+because which explanation holds decides whether the 8-15 minute rows are a
+template-handling problem (fixable at the seam) or the tune's own output format
+fighting a grammar (not fixable at the seam).
+
 **The partial accuracy, reported as partial.** Of 10 items, 5 answered; of those,
 4 were machine items and **2 of 4** matched their class. `ac-g04` carried the only
 fabricated quote seen in either run. **No capability figure is claimed from this
@@ -16058,16 +16069,26 @@ Two assertions: every shipped call site passes `None`, and the prompt is still
 the artefact these numbers describe. Re-enabling the lane fails BY DESIGN, and
 the failure names the evidence required first.
 
-Three deletion tests, each predicted before running, all `CARGO_EXIT=101`:
+Four deletion tests, each predicted before running, all `CARGO_EXIT=101`:
 
 | broken on purpose | predicted red | observed |
 |---|---|---|
 | one call site passes a classifier | `every_shipped_call_site_declines_the_classifier` | named the exact line |
 | `classify_passages` renamed so the scan matches nothing | the inert-guard assertion, NOT a silent pass | *"the guard is inert"* |
 | presupposition removed from the prompt | `the_declined_prompt_still_carries_the_defect_it_was_measured_for` | fired |
+| `human` added to the schema | red | leads with *"NOT AN OVERSIGHT BEING CORRECTED — see §11 D203"* |
 
-The second matters most: a scan whose input can silently become empty passes
-forever, and that is the failure mode to test for second.
+**This entry said THREE until the fourth was added, and the miscount is worth
+keeping visible.** The fourth test did not exist when D203 was written; it was
+created afterwards by strengthening the `human`-absence assertion, and the entry
+was not updated with it. A record that undercounts its own guards is the
+stale-pointer defect this log exists to prevent — and the uncounted one guarded
+the assertion a future reader is MOST likely to read as an oversight and "fix",
+which is precisely why its failure message now opens by saying it is not one.
+
+The second row matters most for a different reason: a scan whose input can
+silently become empty passes forever, and that is the failure mode to test for
+second.
 
 #### What is NOT claimed
 
