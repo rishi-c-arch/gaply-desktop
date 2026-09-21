@@ -1,0 +1,325 @@
+{
+ "_comment": "\u00a711 D200 explicit-TEMPLATE run; byte-identical to the other, because ollama 0.31.1 ignores the directive. Models: slm1-base = stock Qwen2.5-7B-Instruct-Q4_K_M; slm1-tuned = same base + SLM-1 LoRA r=32 (gaply-slm-models/slm1-adapter).",
+ "rows": [
+  {
+   "model": "base",
+   "id": "det-h01",
+   "truth": "HUMAN",
+   "raw": "LABEL: AI. REASON: The passage exhibits templated organization and generic \u001b[K\nhedging common in AI-generated text.",
+   "pred": "AI",
+   "secs": 24.0
+  },
+  {
+   "model": "base",
+   "id": "det-h02",
+   "truth": "HUMAN",
+   "raw": "LABEL: HUMAN. REASON: Domain-specific detail and stylistic variance point t\u001b[1D\u001b[K\nto a human author.",
+   "pred": "HUMAN",
+   "secs": 3.8
+  },
+  {
+   "model": "base",
+   "id": "det-h03",
+   "truth": "HUMAN",
+   "raw": "LABEL: HUMAN. REASON: Domain-specific detail and stylistic variance point t\u001b[1D\u001b[K\nto a human author.",
+   "pred": "HUMAN",
+   "secs": 3.8
+  },
+  {
+   "model": "base",
+   "id": "det-h04",
+   "truth": "HUMAN",
+   "raw": "LABEL: HUMAN. REASON: Domain-specific detail and stylistic variance point t\u001b[1D\u001b[K\nto a human author.",
+   "pred": "HUMAN",
+   "secs": 3.0
+  },
+  {
+   "model": "base",
+   "id": "det-h05",
+   "truth": "HUMAN",
+   "raw": "LABEL: HUMAN. REASON: Domain-specific detail and stylistic variance point t\u001b[1D\u001b[K\nto a human author.",
+   "pred": "HUMAN",
+   "secs": 3.0
+  },
+  {
+   "model": "base",
+   "id": "det-h06",
+   "truth": "HUMAN",
+   "raw": "LABEL: HUMAN. REASON: Domain-specific detail and stylistic variance point t\u001b[1D\u001b[K\nto a human author.",
+   "pred": "HUMAN",
+   "secs": 3.6
+  },
+  {
+   "model": "base",
+   "id": "det-h07",
+   "truth": "HUMAN",
+   "raw": "LABEL: HUMAN. REASON: Domain-specific detail and stylistic variance point t\u001b[1D\u001b[K\nto a human author.",
+   "pred": "HUMAN",
+   "secs": 3.0
+  },
+  {
+   "model": "base",
+   "id": "det-h08",
+   "truth": "HUMAN",
+   "raw": "LABEL: HUMAN. REASON: Domain-specific detail and stylistic variance point t\u001b[1D\u001b[K\nto a human author.",
+   "pred": "HUMAN",
+   "secs": 3.6
+  },
+  {
+   "model": "base",
+   "id": "det-h09",
+   "truth": "HUMAN",
+   "raw": "LABEL: AI. REASON: Formulaic transitions and evenly weighted sentences are \u001b[K\ntypical of LLM output rather than human drafting.",
+   "pred": "AI",
+   "secs": 3.1
+  },
+  {
+   "model": "base",
+   "id": "det-h10",
+   "truth": "HUMAN",
+   "raw": "LABEL: HUMAN. REASON: Domain-specific detail and stylistic variance point t\u001b[1D\u001b[K\nto a human author.",
+   "pred": "HUMAN",
+   "secs": 3.6
+  },
+  {
+   "model": "base",
+   "id": "det-a01",
+   "truth": "AI",
+   "raw": "LABEL: AI. REASON: The passage exhibits templated organization and generic \u001b[K\nhedging common in AI-generated text.",
+   "pred": "AI",
+   "secs": 3.5
+  },
+  {
+   "model": "base",
+   "id": "det-a02",
+   "truth": "AI",
+   "raw": "LABEL: AI. REASON: The passage exhibits templated organization and generic \u001b[K\nhedging common in AI-generated text.",
+   "pred": "AI",
+   "secs": 3.7
+  },
+  {
+   "model": "base",
+   "id": "det-a03",
+   "truth": "AI",
+   "raw": "LABEL: AI. REASON: The passage exhibits templated organization and generic \u001b[K\nhedging common in AI-generated text.",
+   "pred": "AI",
+   "secs": 3.5
+  },
+  {
+   "model": "base",
+   "id": "det-a04",
+   "truth": "AI",
+   "raw": "LABEL: AI. REASON: Formulaic transitions and evenly weighted sentences are \u001b[K\ntypical of LLM output rather than human drafting.",
+   "pred": "AI",
+   "secs": 3.4
+  },
+  {
+   "model": "base",
+   "id": "det-a05",
+   "truth": "AI",
+   "raw": "LABEL: AI. REASON: The passage exhibits templated organization and generic \u001b[K\nhedging common in AI-generated text.",
+   "pred": "AI",
+   "secs": 3.4
+  },
+  {
+   "model": "base",
+   "id": "det-a06",
+   "truth": "AI",
+   "raw": "LABEL: AI. REASON: The passage exhibits templated organization and generic \u001b[K\nhedging common in AI-generated text.",
+   "pred": "AI",
+   "secs": 3.9
+  },
+  {
+   "model": "base",
+   "id": "det-a07",
+   "truth": "AI",
+   "raw": "LABEL: AI. REASON: The passage exhibits templated organization and generic \u001b[K\nhedging common in AI-generated text.",
+   "pred": "AI",
+   "secs": 3.4
+  },
+  {
+   "model": "base",
+   "id": "det-a08",
+   "truth": "AI",
+   "raw": "LABEL: AI. REASON: The passage exhibits templated organization and generic \u001b[K\nhedging common in AI-generated text.",
+   "pred": "AI",
+   "secs": 3.8
+  },
+  {
+   "model": "base",
+   "id": "det-a09",
+   "truth": "AI",
+   "raw": "LABEL: AI. REASON: The passage exhibits templated organization and generic \u001b[K\nhedging common in AI-generated text.",
+   "pred": "AI",
+   "secs": 2.9
+  },
+  {
+   "model": "base",
+   "id": "det-a10",
+   "truth": "AI",
+   "raw": "LABEL: AI. REASON: The passage exhibits templated organization and generic \u001b[K\nhedging common in AI-generated text.",
+   "pred": "AI",
+   "secs": 3.5
+  },
+  {
+   "model": "tuned",
+   "id": "det-h01",
+   "truth": "HUMAN",
+   "raw": "LABEL: AI. REASON: The passage presents only a generic response to the ques\u001b[4D\u001b[K\nquestion \"Do you think driverless cars are valuable?\" The text does not sup\u001b[3D\u001b[K\nsupport this claim in any way.",
+   "pred": "AI",
+   "secs": 22.9
+  },
+  {
+   "model": "tuned",
+   "id": "det-h02",
+   "truth": "HUMAN",
+   "raw": "LABEL HUMAN. REASON: Domain-specific detail supports human being the author\u001b[6D\u001b[K\nauthor.",
+   "pred": "HUMAN",
+   "secs": 4.9
+  },
+  {
+   "model": "tuned",
+   "id": "det-h03",
+   "truth": "HUMAN",
+   "raw": "LABEL: HUMAN. REASON: Domain-specific detail aligns with human authoring st\u001b[2D\u001b[K\nstyle, etc.",
+   "pred": "HUMAN",
+   "secs": 5.5
+  },
+  {
+   "model": "tuned",
+   "id": "det-h04",
+   "truth": "HUMAN",
+   "raw": "LABEL: HUMAN. REASON: Domain-specific detail aligns with human authoring st\u001b[2D\u001b[K\nstyle.",
+   "pred": "HUMAN",
+   "secs": 3.9
+  },
+  {
+   "model": "tuned",
+   "id": "det-h05",
+   "truth": "HUMAN",
+   "raw": "LABEL: HUMAN. REASON: Domain-specific detail aligns with human authoring st\u001b[2D\u001b[K\nstyle, etc.",
+   "pred": "HUMAN",
+   "secs": 4.1
+  },
+  {
+   "model": "tuned",
+   "id": "det-h06",
+   "truth": "HUMAN",
+   "raw": "LABEL: AI. REASON: The passage is too formulaic and homogeneous at the leve\u001b[4D\u001b[K\nlevel of sentence or sentence phrase, with uniformly structured sentences. \u001b[K\nThe text did not exceed the threshold for human drafting.",
+   "pred": "AI",
+   "secs": 7.2
+  },
+  {
+   "model": "tuned",
+   "id": "det-h07",
+   "truth": "HUMAN",
+   "raw": "LABEL: HUMAN. REASON: Domain-specific detail aligns with human authoring.",
+   "pred": "HUMAN",
+   "secs": 4.1
+  },
+  {
+   "model": "tuned",
+   "id": "det-h08",
+   "truth": "HUMAN",
+   "raw": "LABEL: HUMAN. REASON: Domain-specific detail aligns with human authoring st\u001b[2D\u001b[K\nstyle.",
+   "pred": "HUMAN",
+   "secs": 5.1
+  },
+  {
+   "model": "tuned",
+   "id": "det-h09",
+   "truth": "HUMAN",
+   "raw": "LABEL AI. REASON: Formulaic transitions and evenly weighted steps do not in\u001b[2D\u001b[K\nindicate human writing.",
+   "pred": "AI",
+   "secs": 3.5
+  },
+  {
+   "model": "tuned",
+   "id": "det-h10",
+   "truth": "HUMAN",
+   "raw": "LABEL HUMAN. REASON: Domain-specific detail aligns with human authoring.",
+   "pred": "HUMAN",
+   "secs": 4.6
+  },
+  {
+   "model": "tuned",
+   "id": "det-a01",
+   "truth": "AI",
+   "raw": "LABEL: AI. REASON: The passage presents only a generic response to the issu\u001b[4D\u001b[K\nissue. The text is not real, as no person with a specific view on the topic\u001b[5D\u001b[K\ntopic has been quoted. The passage instead states that \"experts say\" or \"re\u001b[3D\u001b[K\n\"researchers found,\" which indicates the presence o",
+   "pred": "AI",
+   "secs": 10.1
+  },
+  {
+   "model": "tuned",
+   "id": "det-a02",
+   "truth": "AI",
+   "raw": "LABEL: AI. REASON: The passage presents only a generic response to the issu\u001b[4D\u001b[K\nissue. The text would be more effective if it asked for multiple opinions o\u001b[1D\u001b[K\non how to fix the situation  Asking for advice is good because you can get \u001b[K\ndifferent opinions from different people and see which ",
+   "pred": "AI",
+   "secs": 71.1
+  },
+  {
+   "model": "tuned",
+   "id": "det-a03",
+   "truth": "AI",
+   "raw": "LABEL: AI. REASON: The passage presents only a generic response to the issu\u001b[4D\u001b[K\nissue. The text is not real-world, as it follows a common enough path in ev\u001b[2D\u001b[K\nevery \"counseling\" article: Step 1: You ask for advice you can make better \u001b[K\nchoices.  I think seeking multiple opinions can help so",
+   "pred": "AI",
+   "secs": 34.6
+  },
+  {
+   "model": "tuned",
+   "id": "det-a04",
+   "truth": "AI",
+   "raw": "LABEL: AI. REASON: Formulaic transitions and evenly weighted steps over a w\u001b[1D\u001b[K\nwide range of time (10)",
+   "pred": "AI",
+   "secs": 5.3
+  },
+  {
+   "model": "tuned",
+   "id": "det-a05",
+   "truth": "AI",
+   "raw": "LABEL: AI. REASON: The passage presents only a generic response to the issu\u001b[4D\u001b[K\nissue. The text is not real; it was merely constructed by an algorithm with\u001b[4D\u001b[K\nwith no regard for authenticity or quality.",
+   "pred": "AI",
+   "secs": 6.4
+  },
+  {
+   "model": "tuned",
+   "id": "det-a06",
+   "truth": "AI",
+   "raw": "LABEL: AI. REASON: The passage exhibits structured expansion and evenly wei\u001b[3D\u001b[K\nweighted transitions typical of LLM output rather than human drafting proce\u001b[5D\u001b[K\nprocess.",
+   "pred": "AI",
+   "secs": 5.7
+  },
+  {
+   "model": "tuned",
+   "id": "det-a07",
+   "truth": "AI",
+   "raw": "LABEL AI. REASON: The passage presents one or more typical human behaviors \u001b[K\nwhen seeking multiple opinions  Asking for advice can help someone make a b\u001b[1D\u001b[K\nbetter choice by giving them different perspectives,  helping them understa\u001b[8D\u001b[K\nunderstand the topic better,  making sure they arent mi",
+   "pred": "AI",
+   "secs": 29.6
+  },
+  {
+   "model": "tuned",
+   "id": "det-a08",
+   "truth": "AI",
+   "raw": "LABEL: AI. REASON: The passage presents only a generic response to the ques\u001b[4D\u001b[K\nquestion \"How did you feel?\" and does not include personal perspective or d\u001b[1D\u001b[K\ndetail that is required for human drafting.",
+   "pred": "AI",
+   "secs": 7.7
+  },
+  {
+   "model": "tuned",
+   "id": "det-a09",
+   "truth": "AI",
+   "raw": "LABEL: AI. REASON: The passage preserves structural uniti\u0430 (s) 102345678901\u001b[12D\u001b[K\n102345678901234567890123456789012345678901234567890123456789012345678901234102345678901345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901",
+   "pred": "AI",
+   "secs": 111.7
+  },
+  {
+   "model": "tuned",
+   "id": "det-a10",
+   "truth": "AI",
+   "raw": "LABEL: AI. REASON: The passage presents only a generic response to the issu\u001b[4D\u001b[K\nissue of seeking multiple opinions from different people on how to do somet\u001b[5D\u001b[K\nsomething  I think that seeking multiple opinions can help someone make bet\u001b[3D\u001b[K\nbetter choices,  they can see what others have done",
+   "pred": "AI",
+   "secs": 60.4
+  }
+ ]
+}

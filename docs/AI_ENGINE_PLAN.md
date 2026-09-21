@@ -6048,7 +6048,32 @@ The 38% agreement is 3 of 8, and all three are cases whose gold is `weak`. **A
 constant `weak` predictor scores exactly 38% on this set.** Wilson 95% CI
 [14%, 69%]. The output distribution has zero entropy across fourteen verdicts.
 
-##### The guard
+##### The Set-4 decline of SLM-2 tested the stock base, not SLM-2
+
+`models/mod.rs:972` records the decline:
+
+> *"the Set-4 live probe showed qwen3:4b cannot make the generated-vs-paraphrased
+> distinction reliably at usable speed, so `run_aicheck_flow` passes `None`
+> unconditionally (the honest two-way collapse)."*
+
+**It names the model it tested: `qwen3:4b`.** That is the stock base pulled
+through Ollama, not SLM-2 — and it could not have been SLM-2, because no LoRA
+path exists in the runtime and the adapter had never been converted to a form
+Ollama accepts. So the entry that declined SLM-2's whole lane declined **the
+untuned base model of SLM-2**, under SLM-2's name.
+
+Whether the tuned adapter can make that distinction is unmeasured. It is a
+three-class problem — human, generated, paraphrased — and none of today's probes
+touch it: the Phase-B set is two-class. The decline may well survive a fair test;
+what is not defensible is the sentence as it stands, which reads as though the
+tuned model was the thing that failed.
+
+**This is the same shape as §11 D199's mislabel**, one layer further on. There the
+entry named the wrong model for a measurement; here a DECLINE names the wrong
+model for a failure, and a decline is harder to reopen than a number because
+nobody re-runs what is already recorded as settled.
+
+#### The guard
 
 `gaply-core/tests/run_artefacts_name_their_model.rs`. Every committed
 `evals/reports/*-raw.tsv` must carry a `# model:` and a `# run:` header, **and a
@@ -15265,16 +15290,20 @@ second reading. That is a property of one-author ground truth, not of the author
 
 #### What moved, and a prediction that was derived rather than asserted
 
+> **[LABEL CORRECTED — §11 D199/D200.]** The rows below read `SLM1` and measured the
+> bundled **stock** `Qwen2.5-0.5B-Instruct-Q4_K_M`. SLM-1 is a LoRA over
+> Qwen2.5-**7B**-Instruct and appears nowhere in this table.
+
 | | before | after |
 |---|---|---|
 | no-skill — paragraph 1 of each Methods section | 50.0% (6/12) | **50.0%** |
 | gpt-4o-mini variant A | 38.8% | **37.3%** |
 | gpt-4o-mini variant B | 37.1% | **35.7%** |
-| SLM1 variant B | 17.7% | **16.5%** |
+| stock 0.5B variant B | 17.7% | **16.5%** |
 | the nine-regex extractor, in-document | 14.8% (22/149) | **13.4%** (20/149) |
-| SLM1 variant A | 14.5% | **12.9%** |
+| stock 0.5B variant A | 14.5% | **12.9%** |
 
-Every predicted figure was hit exactly, including SLM1 variant A landing at the
+Every predicted figure was hit exactly, including the stock 0.5B's variant A landing at the
 bottom of its predicted 12.9–14.5% range — which resolved the one open branch:
 both flipped paragraphs were among the 18 it accepted, so it lost two true
 positives outright and its recall fell 64% to 61.5%. It had been *credited* for
@@ -15397,3 +15426,158 @@ Until then the honest statement is the one D196 and D197 now carry: **a stock 0.
 scores 12.9–16.5% on this task, a stock mid-tier cloud model 35.7–37.3%, and a
 one-line heuristic 50%.** Nothing measured so far involves a model trained for
 this product.
+
+### D200 — SLM-1 is an AI-text detector, and its adapter does not beat its own base
+
+§11 D199 established that SLM-1 exists, is a LoRA r=32 over Qwen2.5-7B-Instruct,
+and had never been measured. It has now been measured on the task the codebase
+says it is for. **The adapter does not improve on the model it was trained from.**
+
+#### The task was named in the code all along
+
+`models/candle_perplexity.rs:1` — *"SLM-1 (AI-detection) real runtime: a
+candle-backed `PerplexityModel`"* — and CLAUDE.md lists AI-Detection among the six
+agents. The adapter's job is to replace a perplexity/burstiness heuristic with a
+trained classifier. It emits `LABEL <HUMAN|AI>. REASON: <rationale>` unprompted:
+asked the capital of France it replied *"LABEL HUMAN. REASON: Domain-specific
+detail index."*
+
+**Six prompts were wasted before that was noticed.** The first probe scored both
+models on benchmark paragraphs, a statistics question, a journal extraction and a
+summarisation — four of six off-task for a detector — and read the resulting
+format-echoing as degradation. The models were given someone else's exam and
+marked down for not sitting it.
+
+#### The labelled set
+
+**HUMAN, n=10.** OpenAlex open-access abstracts, every one published **before
+2020**, each carrying its OpenAlex id, DOI and year, so no generative model could
+have authored them. 66-138 words.
+
+**AI, n=10.** Generated 21 Sep 2026 by **`gpt-4o-mini-2024-07-18`** — named from
+the API's own `result.model` echo, not from config — through gaply-proxy, one per
+topic at the matched word count. 68-131 words.
+
+Topic is held constant across the two classes and the length bands overlap, so
+neither can separate them.
+
+#### The result
+
+| | HUMAN→AI | HUMAN→HUMAN | AI→AI | AI→HUMAN | correct | median |
+|---|---|---|---|---|---|---|
+| base — stock Qwen2.5-7B-Instruct | 2 | 8 | 10 | 0 | **18/20** | 4 s |
+| tuned — + SLM-1 LoRA r=32 | 3 | 7 | 10 | 0 | **17/20** | 6 s |
+
+20/20 scorable for both, zero empty, zero unparsed. Both catch `gpt-4o-mini`
+prose perfectly and both misfile 2-3 genuine pre-2020 abstracts as AI.
+
+**Memorisation excluded.** A model that recognised text from pretraining could
+call it human without detecting anything, so three HUMAN abstracts were fed back
+first-sentence-only with "continue this abstract exactly as it was published".
+Overlap with the true continuation was **0.03-0.17** across both models — no
+verbatim recall. The HUMAN half is sound.
+
+**This is D165's shape for the fourth time.** A one-line heuristic beat the
+scientific extractor; a no-skill rule beat two model tiers on methods
+classification; here a model's own base, with a one-line prompt, beats the adapter
+trained on top of it.
+
+#### Three self-corrections, in sequence, because the sequence is the lesson
+
+Each step read a DISPLAY as evidence of what RUNS.
+
+1. **A confound claimed.** The adapter's `chat_template.jinja` was compared
+   against the repo Modelfile's `TEMPLATE` block, found different, and reported as
+   a serious confound invalidating the SLM-2 run.
+2. **Retracted, correctly.** The Modelfile played no part — Ollama used the
+   GGUF's EMBEDDED template, which is byte-identical to the adapter's
+   (sha256 `3802169b2a02b81e`, and `cd8e9439f0570856` for SLM-1). The right
+   comparison, and the right conclusion.
+3. **Re-retracted, wrongly.** `ollama show --modelfile` printed
+   `TEMPLATE {{ .Prompt }}`, which was read as proof that no chat template
+   reached inference — a "genuine confound this time" — and the whole detector
+   test was re-run with a template set explicitly.
+
+**The re-run produced 40 of 40 byte-identical outputs.** A canary settled it: a
+model built with `TEMPLATE` hardcoding *"reply with exactly the word BANANA"*
+answered **"Paris"**, while `ollama show --template` returned the GGUF's Jinja
+rather than the Go template supplied. **Ollama 0.31.1 stores the `TEMPLATE`
+directive and ignores it at inference.** The embedded template was applied in
+every run, step 2 was right, and step 3 was a retraction of a correct statement.
+
+CLAUDE.md opens with *"a static trace tells you what a mechanism DOES, not that it
+is the mechanism in play"*. Three variations on that in one session, and the third
+happened while writing up the second. **What broke the loop each time was an
+experiment, never a re-reading**: the byte comparison, the 40-of-40 diff, the
+canary. The entry's own rule — predict the failure, then break something on
+purpose — is the only thing that has worked here.
+
+#### A waiter that could never finish
+
+A background loop polled a task's output file for the string `chat_template.jinja`
+to know a download had completed. The download had been killed when the HF token
+was rotated, so that string would never appear, and the loop re-spawned `sleep 20`
+indefinitely. A second shell sat on a hung `hf_hub_download` against the dead
+token.
+
+This is CLAUDE.md's unmatchable-selector entry with the failure inverted. There, a
+`gh run list --commit <short sha>` could never match, so a positive-count wait was
+unsatisfiable from the first iteration. Here the selector was fine and **the
+producer died silently** — and the loop cannot tell "not finished yet" from "will
+never finish", because both are the absence of a string.
+
+**Waiting on a process whose failure mode is silence needs a liveness check, not
+just a success check.** A deadline, or a test that the producer is still alive,
+turns an indefinite hang into a bounded failure. `ps` was what found it; nothing
+in the loop could have.
+
+#### The guard, and what it caught before being committed
+
+`gaply-core/tests/model_claims_name_their_weights.rs`. Any §11 record naming
+SLM-1 or SLM-2 must also carry a concrete weights identifier — a parameter count,
+a base repo, an Ollama tag — **or say plainly that the thing is unmeasured**. It
+is deliberately satisfiable by honesty as well as by precision: *"SLM-2 is
+unmeasured"* passes, and should.
+
+It does not check that a claim is TRUE. It checks that the claim is ANSWERABLE:
+that a reader can tell which weights produced the number.
+
+**Its first run found §11 D198 still carrying the false label.** D199 relabelled
+D196 and D197; D198's before/after table had inherited the same `SLM1` rows and
+kept them three entries further on. Relabelled, with a correction banner.
+
+Three deletion tests, each predicted first: stripping D198's identifiers reddens
+naming `["D198"]`; breaking the heading parser fails vacuously rather than
+passing; renaming every SLM mention reddens with *"the scan is inert"*.
+
+#### The data is committed, so the numbers are re-derivable
+
+`src-tauri/evals/detector/` carries the labelled set and every raw result:
+`detector20.json` (20 cases, each with its OpenAlex id, DOI and year, or the named
+generator), `detector_results.json`, `detector_results_templated.json` — retained
+because the wrong-template run is not waste, it is the evidence that the directive
+is ignored — and `memorisation.json`.
+
+`run_artefacts_name_their_model.rs` was extended to cover them: each file must
+carry a `_comment` naming the models behind it, and a model name in the filename
+must appear inside the file. Deletion-tested by stripping one file's provenance,
+which reddens on that field. **An uncommitted probe is a number nobody can
+re-derive**, and these lived in `/tmp`.
+
+#### The limits, stated rather than implied
+
+* **20 paragraphs.** Enough to show the labels move with the class. **Not enough
+  for an accuracy figure, and none is quoted here.** "17 of 20 against one
+  generator" is the honest form.
+* **One generator, one vintage.** The AI half is entirely `gpt-4o-mini-2024-07-18`.
+  A miss would show the adapter does not generalise to that generator, not that it
+  cannot detect.
+* **One adjudication of truth**, though an unusually strong one: publication date
+  before 2020 is a fact about the world rather than a judgement.
+* **SLM-2 remains unmeasured on its own task.** `models/mod.rs:972` declines it on
+  a Set-4 probe that names `qwen3:4b` — the stock base — because no LoRA path
+  existed to test the tuned model with. Its task is the harder three-class one,
+  generated-versus-**paraphrased**, and today's two-class set cannot touch it.
+* **Nothing is wired into the product.** The runtime still has no LoRA path, so
+  none of this is reachable by a user, and §6 of the architecture document has been
+  corrected to say so.

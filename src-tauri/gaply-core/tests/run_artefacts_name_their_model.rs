@@ -27,6 +27,11 @@
 use std::path::Path;
 
 const DIR: &str = "../evals/reports";
+/// Detector-probe artefacts (§11 D200) live beside the reports and carry their
+/// provenance in a `_comment` field rather than a `#` header, because they are
+/// JSON. Same rule, different syntax: the file must name the models that produced
+/// it, and a model name in the FILENAME must appear in the file.
+const JSON_DIR: &str = "../evals/detector";
 
 /// Words in a filename that name a model family rather than describing the run.
 /// A filename token from this list must appear in the file's own `# model:` or
@@ -78,6 +83,37 @@ fn every_raw_run_artefact_names_the_model_that_produced_it() {
                      disagreeing.",
                     header.lines().take(2).collect::<Vec<_>>().join(" | ")
                 );
+            }
+        }
+    }
+
+    // The JSON detector artefacts, same rule.
+    if let Ok(entries) = std::fs::read_dir(Path::new(JSON_DIR)) {
+        for e in entries.flatten() {
+            let p = e.path();
+            let name = p.file_name().unwrap_or_default().to_string_lossy().to_lowercase();
+            if !name.ends_with(".json") {
+                continue;
+            }
+            checked += 1;
+            let src = std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("{name}: {e}"));
+            let low = src.to_lowercase();
+            assert!(
+                low.contains("_comment"),
+                "{name}: no `_comment` provenance field. A result file that does not name the \
+                 models behind it cannot be checked against the entry citing it."
+            );
+            assert!(
+                low.contains("qwen") || low.contains("gpt-") || low.contains("openalex"),
+                "{name}: its provenance names no model or source. §11 D199/D200 is what that costs."
+            );
+            for tok in MODEL_TOKENS {
+                if name.contains(tok) {
+                    assert!(
+                        low.contains(tok),
+                        "{name}: the FILENAME says {tok:?} and the file's provenance does not."
+                    );
+                }
             }
         }
     }

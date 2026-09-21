@@ -916,7 +916,28 @@ The 8 GB constraint is real. The harness owns it:
 
 ## 6. Models — which does what
 
-The teardown corrected the vocabulary: there are no bespoke models, no adapters, no training pipeline. "SLM-1" and "SLM-2" are stock Qwen with prompt engineering. Premium keeps that honest and uses each where it measured well.
+**[CORRECTED 21 Sep 2026 — see §11 D199 and the Phase-B probe.]** This paragraph
+read: *"The teardown corrected the vocabulary: there are no bespoke models, no
+adapters, no training pipeline. 'SLM-1' and 'SLM-2' are stock Qwen with prompt
+engineering."* **Every clause of that is false.** The adapters exist, in the
+private HuggingFace repo `rishibrucelee/gaply-slm-models`: SLM-1 is a LoRA
+r=32 over `unsloth/Qwen2.5-7B-Instruct-bnb-4bit` (323 MB, 392 tensors once
+converted), SLM-2 a LoRA r=32 over `unsloth/Qwen3-4B-Thinking-2507` (264 MB,
+504 tensors), both SFT'd with unsloth/TRL — so there was a training pipeline
+too. They load, and they change generation: a control over six prompts produced
+0 of 6 identical outputs against the same base, and SLM-1 volunteers
+`LABEL HUMAN. REASON: ...` verdicts unprompted, which stock Qwen does not do
+under the same template.
+
+A teardown that "corrects the vocabulary" into a falsehood is worse than the
+vagueness it replaced, because the correction reads as settled. What was true is
+narrower: **nothing in the shipped product loads an adapter** — the runtime has
+no LoRA path (no `lora`, `peft`, `adapter_model` or merge handling in
+`src/models/` or `src/ai/generative.rs`), the repo's own GGUFs are the stock
+bases, and each `Modelfile`'s `FROM` points at the base. So the app runs stock
+Qwen. That is a statement about the RUNTIME, not about whether the models exist.
+
+Premium uses each where it measured well.
 
 | Role | Model | Justification |
 |---|---|---|
