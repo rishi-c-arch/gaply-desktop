@@ -15581,3 +15581,299 @@ re-derive**, and these lived in `/tmp`.
 * **Nothing is wired into the product.** The runtime still has no LoRA path, so
   none of this is reachable by a user, and §6 of the architecture document has been
   corrected to say so.
+
+### D201 — SLM-2 measured on its own task: the base carries no signal, the adapter is unusable on the shipped path, and the prompt presupposes its verdict
+
+§11 D199 found SLM-2 is a LoRA r=32 over `Qwen3-4B-Thinking-2507` that nothing
+had ever run. §11 D200 left the gap explicit — *"SLM-2 remains unmeasured on its
+own task"* — because `models/mod.rs:972` declines AI-Check's classification lane
+on a Set-4 probe naming `qwen3:4b`, the STOCK base, **for want of a LoRA path to
+test the tuned model with.** Ollama's `ADAPTER` directive is that path for a
+probe, so the tuned model has now been asked the question the untuned one was
+declined on.
+
+**Three findings follow, and each stands without the other two.** One is about
+the base model, one about the adapter, one about the prompt. The third would hold
+if both models were replaced tomorrow.
+
+#### The set: ten topic-matched TRIPLES
+
+`evals/detector/aicheck30.json` — 30 paragraphs as `HUMAN` / `GENERATED` /
+`PARAPHRASED`, one of each per topic.
+
+* **HUMAN, n=10** — OpenAlex open-access abstracts published BEFORE 2020, each
+  carrying its OpenAlex id, DOI and year. §11 D200's ten, reused so the two
+  entries share a human half.
+* **GENERATED, n=10** — written fresh on the same topic at the matched length by
+  `gpt-4o-mini-2024-07-18` via gaply-proxy. §11 D200's AI half, unchanged.
+* **PARAPHRASED, n=10** — the SAME human abstract of that topic, reworded by the
+  SAME `gpt-4o-mini-2024-07-18`, 21 Sep 2026, every model name read from the
+  API's own `result.model` echo rather than from config.
+
+**Holding the generator constant across both machine classes is the design.** The
+only thing separating GENERATED from PARAPHRASED is write-fresh versus reword —
+not two vendors' prose. And since each paraphrase derives from the human item of
+its own topic, topic and length cannot separate any of the three.
+
+Measured, so that "paraphrase" is not merely a label: unigram overlap with source
+0.41–0.70, 5-gram overlap 0.00–0.28, longest verbatim run 4–24 words.
+
+**The baselines, stated before any model number:**
+
+```
+no-skill (always one class)               10/20 = 50%
+best single threshold, FITTED IN SAMPLE   16/20  — `we`/`our` absent => PARAPHRASED
+```
+
+The second is an **upper bound on what a one-liner could do on this set in
+hindsight**, not a held-out result, and it may be a property of the generation
+prompt rather than of machine text: asked to write an abstract `gpt-4o-mini` says
+"we", asked to reword a published one it keeps the source's impersonal register.
+Quoted as an accuracy it would be the denominator defect in another costume.
+
+---
+
+### FINDING 1 — the untuned base reads every passage and ignores what it read
+
+`slm2-base`, stock `Qwen3-4B-Thinking-2507` Q4_K_M, all 30 items, product path:
+30/30 answered, 0 empty, 0 off-schema, 0 fabricated quotes.
+
+| truth | ai_generated | ai_paraphrased | unclear | off_schema | no_answer | n |
+|---|---|---|---|---|---|---|
+| HUMAN | 6 | 3 | 1 | 0 | 0 | 10 |
+| GENERATED | 7 | 3 | 0 | 0 | 0 | 10 |
+| PARAPHRASED | 7 | 2 | 1 | 0 | 0 | 10 |
+| **total** | 20 | 8 | 2 | 0 | 0 | 30 |
+
+**generated-vs-paraphrased: 9/20** — below the 50% no-skill line, far below the
+16/20 one-liner. That is the lane's entire question, and the base is below chance
+on it.
+
+**But the score understates it.** Set the three rows against what independence
+would predict from the marginal (20/8/2 over 30):
+
+```
+HUMAN        observed 6 / 3 / 1     expected-if-independent 6.7 / 2.7 / 0.7
+GENERATED    observed 7 / 3 / 0     expected-if-independent 6.7 / 2.7 / 0.7
+PARAPHRASED  observed 7 / 2 / 1     expected-if-independent 6.7 / 2.7 / 0.7
+```
+
+**The verdict is statistically independent of the truth class.** The model is not
+erring in a pattern; it emits ~7/3/1 whatever it is shown.
+
+**That is the uniform-result tell, so the instrument was checked before the claim
+was made.** CLAUDE.md's rule is to suspect the column when rows that should
+differ do not — a constant column has repeatedly turned out to be a property of
+the instrument. It is not, here: **30 distinct quotes, all 30 verbatim substrings
+of their own passage, 30 distinct latencies.** The model demonstrably reads each
+passage and returns a different real excerpt from it. The uniformity is in the
+VERDICT, not in the output — and that is the one reading under which a flat
+distribution is a fact about the model rather than about the probe.
+
+Confidence runs the wrong way as well: `strong` on 8 wrong answers against 6
+correct, and `strong` on 20 of 30 rows overall.
+
+**So the honest statement is stronger than "it scores badly": it reads the
+passage and its answer does not depend on what it read.**
+
+---
+
+### FINDING 2 — the adapter is not usable on the shipped path
+
+Stopped after 10 of 30 items, deliberately, because the per-item cost had become
+the result. Same product path, same 3072-token cap, same machine as Finding 1.
+
+| | n | median | min | max | total | no_answer | fabricated quotes |
+|---|---|---|---|---|---|---|---|
+| base | 30 | **35.8 s** | 17.7 | 140.1 | 20.6 min | **0/30** | 0/30 |
+| tuned | 10 | **329.4 s** | 17.0 | 872.0 | 58.6 min | **5/10** | 1/5 answered |
+
+Extrapolated, the tuned half needed ~176 minutes against the base's 20.6 — from a
+model that SUPPRESSES the reasoning trace and should therefore be FASTER.
+
+**The cost is bimodal, and that is what identifies the mechanism.** Every row
+either answered quickly or burned the entire budget and returned nothing. There
+is no middle:
+
+```
+answered   17, 32, 103, 152, 171 s
+no_answer  488, 517, 549, 613, 872 s   <- all five hit the 3072-token cap
+```
+
+All five failures read `"ollama reply contains no JSON object"`: 3072 tokens
+generated under a schema grammar, and nothing parseable in the content.
+
+**The adapter has a native output format, and it is not JSON.** §11 D200 found
+SLM-1 emitting `LABEL <HUMAN|AI>. REASON: …` unprompted. SLM-2 does the same in a
+different shape: asked the capital of France with no framing, the base returned a
+full reasoning trace and empty content, while the tuned model returned **empty
+thinking** and six enumerated steps ending in the right answer — confabulating
+along the way (*"Paris … lies at the geographical center of Europe"*, *"1789 …
+the start of World War II"*). The tune changed the SHAPE of the output and
+suppressed the trace. Put behind a JSON grammar, that format has nowhere to go,
+and the 8–15 minute rows are what that looks like from outside.
+
+**THE PRECISE MECHANISM IS UNDETERMINED AND IS RECORDED AS UNDETERMINED.** Two
+candidates — the template's forced `<think>` prefix never closing, so
+`strip_thinking` returns `""`; or the enumeration running ahead of the JSON until
+the cap — and the recorded error string is identical for both. One bounded
+diagnostic capturing raw `content`/`thinking` separates them. It was not run, so
+nothing here says which it is.
+
+**The partial accuracy, reported as partial.** Of 10 items, 5 answered; of those,
+4 were machine items and **2 of 4** matched their class. `ac-g04` carried the only
+fabricated quote seen in either run. **No capability figure is claimed from this
+and none should be read into it** — 4 decided items cannot distinguish a model
+from a coin, and the 5 missing rows are not missing at random: all five fell on
+GENERATED (3) and HUMAN (2), while every PARAPHRASED item answered and answered
+fast. Whether that pattern is real or an artefact of 10 rows is exactly what the
+unrun 20 items would have told us.
+
+**What this does settle:** the adapter cannot be evaluated on the shipped path,
+and could not be shipped on it either. A classifier budgeted at one call per
+passage, capped at `DEFAULT_MAX_CLASSIFIED_PASSAGES = 8`, would spend over an
+hour per document and return nothing half the time.
+
+---
+
+### FINDING 3 — the shipped prompt presupposes its own verdict
+
+**This is a product defect and it is independent of either model.** It was found
+while measuring SLM-2, it reproduces on the stock base, and it would bias any
+model put behind the same envelope.
+
+`ai_detect::CLASSIFY_INSTRUCTION` opens:
+
+> *"This passage from a document **was flagged as carrying AI-associated
+> statistical signals** (unusually predictable relative to the document's own
+> baseline). Judge which pattern the passage's writing most RESEMBLES…"*
+
+and `classify_output_schema` permits exactly `ai_generated` | `ai_paraphrased` |
+`unclear`.
+
+So the prompt **states the conclusion as a premise in its first clause**, and the
+schema then **provides no way to disagree with it.** There is no `human`. The
+nearest thing to "this is not machine text" is `unclear`, which the instruction
+frames as low confidence — *"If you are not confident, you MUST return
+'unclear'"* — not as a finding that the text is human. A model CERTAIN the
+passage is human has no token for it.
+
+**What it costs, measured.** Ten genuine pre-2020 OpenAlex abstracts, every one
+with a DOI and a publication date years before any of these models existed,
+through the shipped envelope on the stock base:
+
+```
+HUMAN -> ai_generated     6
+HUMAN -> ai_paraphrased   3
+HUMAN -> unclear          1
+```
+
+**9 of 10 real human abstracts were assigned a machine category.** And the single
+`unclear` is `ac-h09`, a journal front-matter fragment — the least prose-like item
+in the set, not the most human-looking one. Nothing suggests the escape hatch
+tracks humanness.
+
+**Why it survived: the premise is TRUE where the envelope is built.**
+`classify_passages` only ever calls the model on `AnalysisDepth::DeepVerified`
+passages — ones the deterministic heuristic already flagged — so "was flagged" is
+accurate at the call site, and the downstream note is careful. **The defect is in
+the composition, not in the sentence**: an instruction true of its caller becomes
+a leading question the moment the caller's guarantee is what is in doubt, and a
+schema with no contrary option makes that question unanswerable. That is the
+CLAUDE.md pattern of artefacts each independently correct composing into
+something false.
+
+**Why it matters even though the heuristic gates it.** Any passage the
+deterministic stage flags WRONGLY arrives at the model with the flag restated as
+fact — the one stage that could overturn a false positive is told it already
+happened — and `ai_generated_chars` / `ai_paraphrased_chars` then feed a
+user-visible split that, on this evidence, divides human text into two machine
+categories at strength `strong`.
+
+**Not claimed:** that the classifier is miscalibrated in the shipped flow. These
+ten abstracts were NOT heuristic-flagged; they were sent directly, which is the
+point — it isolates the envelope from the gate. This measures what the prompt
+does when its premise is false, not how often the premise is false. No fix is
+made here; adding a `human` value or softening the assertion to "this passage is
+being checked" are one-line changes each with its own measurement to do.
+
+---
+
+#### The instrument work, recorded because it nearly wrote the answers
+
+**`think:false` is IGNORED by Thinking-2507.** Its template has no
+`enable_thinking` switch and ends the generation prompt with `<think>\n`. Asked a
+one-line question with `think:false`, the base still returned a full trace in
+`message.thinking` and EMPTY content. The adapter, by contrast, suppresses
+thinking entirely. The product sends `think:false` on this path and gets a
+thinking model anyway.
+
+**Budget starvation at 512, and why an equal budget is not an equal budget.** The
+first protocol gave both models a shared 512-token cap. Row one came back
+`no_answer` after 218.8 s. Because the base must think and the tuned model need
+not, the cap was not shared in any meaningful sense. Measured on the same passage
+with no grammar, the base stops of its own accord at **eval_count 669** — 3165
+characters of trace before 245 of answer — so **its trace alone exceeds 512.** The
+tuned model would have scored against a base scoring zero and the gap would have
+been the cap talking. Caught because row one was read before row two ran.
+
+**And the obvious fix installs the mirror image.** Dropping `format` removes the
+grammar cost and the base answers cleanly, with **no envelope echo** — contrary
+to what Set-4 recorded for `qwen3:4b` — so the grammar is not load-bearing for
+this model. But the adapter's native format is a numbered enumeration, so
+unconstrained it would lose on FORMATTING rather than judgement. Same defect,
+other model. The protocol removing both: full product path, grammar included, cap
+raised to 3072 (~4.5x the base's measured need), identical for both.
+
+**The grammar's cost, and a figure withdrawn.** Mid-run I put it at ~10x, from
+2.3 tok/s under the schema against ~11 tok/s unconstrained. **The 11 tok/s came
+from a different, one-line prompt.** Same prompt, same model, same machine:
+
+```
+format=schema   512 tok (capped)  / 218.8 s = 2.34 tok/s
+format=none     669 tok (stopped) / 159.1 s = 4.20 tok/s
+```
+
+**~1.8x, not 10x.** Two variables read as one, in a throwaway number rather than
+in a finding — which is exactly where it is least likely to be checked.
+
+**`GAPLY_OLLAMA_NUM_PREDICT` is the single deviation from the product path** and
+is ABSENT in the product. `the_shipped_body_carries_no_generation_cap` pins that
+the shipped `options` is exactly `temperature` + `num_ctx` and nothing else —
+deletion-tested by making the cap unconditional: `CARGO_EXIT=101`, that one test
+red, the other 13 green.
+
+#### The Set-4 decline was right, and now has a mechanism
+
+`models/mod.rs:972` declined the lane because `qwen3:4b` "cannot make the
+generated-vs-paraphrased distinction reliably at usable speed". Both halves now
+have causes rather than observations:
+
+* **not reliably** — Finding 1: the base's verdict is independent of the truth
+  class. Not unreliable, uninformative.
+* **not at usable speed** — the schema grammar costs ~1.8x on a 151k-vocab model,
+  `think:false` does not disable thinking so every call pays for a trace, and the
+  open schema (no `additionalProperties: false`, no string `maxLength`) with
+  Ollama's unlimited default `num_predict` lets a talkative model generate to
+  `num_ctx`. An uncapped 3-item run did not finish in 11 minutes.
+
+The decline stands. What changes is that it was made on the untested premise that
+the tuned model might do better, and Finding 2 says it is worse.
+
+#### What is NOT claimed
+
+* **No accuracy figure for the adapter.** 10 partial rows, 5 of them empty.
+* **No memorisation check.** It matters more here than in D200 because the
+  PARAPHRASED class derives from the same ten abstracts, so recall of a source
+  would leak into two classes at once. Not run; not assumed either way.
+* **The base's 9/20 is 20 items.** Enough to show the verdict does not track the
+  class; not an accuracy.
+* **One generator, one vintage** for both machine classes.
+* **`ac-h09` is a journal front-matter fragment**, not prose, inherited from
+  detector20.json.
+* **Nothing is wired into the product.** The runtime still has no LoRA path;
+  `slm2-tuned` exists only as an Ollama tag built for this probe.
+
+Artefacts: `evals/detector/aicheck30.json` (the set),
+`aicheck30_slm2_base.json` (30 rows), `aicheck30_slm2_tuned_partial.json`
+(10 rows, stopped by design and retained because a stopped run is evidence).

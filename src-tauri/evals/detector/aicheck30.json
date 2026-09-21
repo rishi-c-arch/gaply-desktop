@@ -1,0 +1,283 @@
+{
+ "_comment": "The SLM-2 three-class AI-Check set (§11 D201). 30 paragraphs in 10 TOPIC-MATCHED TRIPLES: for each topic one HUMAN, one GENERATED and one PARAPHRASED item, so topic and length cannot separate the classes. HUMAN: OpenAlex open-access abstracts published BEFORE 2020, each carrying its OpenAlex id, DOI and year — the same ten as §11 D200's detector20.json, reused so the two entries share a human half. GENERATED: written fresh on the same topic at the matched length by gpt-4o-mini-2024-07-18 via gaply-proxy (§11 D200's AI half, unchanged). PARAPHRASED: the SAME human abstract of that topic reworded by the SAME gpt-4o-mini-2024-07-18 through gaply-proxy on 21 Sep 2026, so the generator is held constant across the two machine classes and the only difference between them is write-fresh versus reword. Every item's model name was read from the API's own result.model echo, never from config. NOTE: ac-h09 is a journal front-matter fragment (a list of chapter titles) rather than prose, inherited from detector20.json; its paraphrase necessarily keeps a 24-word verbatim run, and per-item rows are reported so its effect is visible.",
+ "classes": [
+  "HUMAN",
+  "GENERATED",
+  "PARAPHRASED"
+ ],
+ "human_count": 10,
+ "generated_count": 10,
+ "paraphrased_count": 10,
+ "cases": [
+  {
+   "id": "ac-g01",
+   "truth": "GENERATED",
+   "topic": "lake eutrophication nutrient loading",
+   "words": 131,
+   "provenance": "generated 21 Sep 2026 by gpt-4o-mini-2024-07-18 via gaply-proxy (model read from result.model)",
+   "source_id": "det-a01",
+   "text": "Eutrophication of lakes primarily results from excessive nutrient loading, particularly nitrogen and phosphorus, due to agricultural runoff, wastewater discharge, and urban development. This research investigates the relationship between nutrient inputs and the resulting ecological effects in freshwater systems. We employed a combination of field studies and laboratory experiments to assess how varying nutrient concentrations influence algal bloom occurrences, aquatic biodiversity, and water quality parameters. Our findings demonstrate a clear correlation between increased nutrient loading and heightened frequencies of harmful algal blooms, posing significant risks to aquatic life and human health. Moreover, the results underscore the critical need for effective nutrient management strategies to mitigate eutrophication. These insights contribute to a deeper understanding of nutrient dynamics in lake ecosystems and provide a foundation for developing sustainable practices aimed at preserving freshwater resources."
+  },
+  {
+   "id": "ac-h01",
+   "truth": "HUMAN",
+   "topic": "lake eutrophication nutrient loading",
+   "words": 138,
+   "provenance": "OpenAlex https://openalex.org/W4211010233 | DOI https://doi.org/10.1038/s41579-018-0040-1 | year 2018",
+   "source_id": "det-h01",
+   "text": "Cyanobacteria can form dense and sometimes toxic blooms in freshwater and marine environments, which threaten ecosystem functioning and degrade water quality for recreation, drinking water, fisheries and human health. Here, we review evidence indicating that cyanobacterial blooms are increasing in frequency, magnitude and duration globally. We highlight species traits and environmental conditions that enable cyanobacteria to thrive and explain why eutrophication and climate change catalyse the global expansion of cyanobacterial blooms. Finally, we discuss management strategies, including nutrient load reductions, changes in hydrodynamics and chemical and biological controls, that can help to prevent or mitigate the proliferation of cyanobacterial blooms. Cyanobacteria can form large blooms that threaten the water quality of lakes and seas. In this Review, Huisman and colleagues discuss bloom formation, the impact of eutrophication and climate change, and measures to prevent and control cyanobacterial blooms."
+  },
+  {
+   "id": "ac-p01",
+   "truth": "PARAPHRASED",
+   "topic": "lake eutrophication nutrient loading",
+   "words": 138,
+   "provenance": "paraphrase of det-h01 (the HUMAN item of the same topic) produced 21 Sep 2026 by gpt-4o-mini-2024-07-18 via gaply-proxy, the model name read from the API's own result.model echo; stop_reason=stop; source was 138 words",
+   "source_id": "det-h01",
+   "text": "Cyanobacteria are capable of creating densely populated and often toxic blooms in both freshwater and marine ecosystems, posing significant risks to ecosystem health and impairing water quality, which adversely affects recreational activities, drinking water safety, fisheries, and human health. This review examines the rising frequency, size, and duration of cyanobacterial blooms on a global scale. It emphasizes the species characteristics and environmental factors that facilitate cyanobacterial proliferation, particularly highlighting how eutrophication and climate change drive their worldwide expansion. The authors also address management approaches aimed at preventing or reducing the occurrence of these blooms, which include minimizing nutrient loads, altering water dynamics, and employing both chemical and biological methods. Ultimately, this comprehensive review by Huisman and colleagues explores the mechanisms behind bloom development, the impacts of nutrient enrichment and climate change, as well as preventative and control strategies."
+  },
+  {
+   "id": "ac-g02",
+   "truth": "GENERATED",
+   "topic": "zebrafish embryo toxicity assay",
+   "words": 130,
+   "provenance": "generated 21 Sep 2026 by gpt-4o-mini-2024-07-18 via gaply-proxy (model read from result.model)",
+   "source_id": "det-a02",
+   "text": "Zebrafish embryos have emerged as a valuable model for assessing the toxicity of environmental chemicals and pharmaceuticals. This study investigates the utility of the zebrafish embryo assay (ZEA) in evaluating the toxicological effects of various compounds, leveraging the rapid development and transparency of zebrafish embryos. We exposed embryos to a range of concentrations of selected test substances and monitored for morphological abnormalities, survival rates, and behavioral changes. Our results demonstrate a dose-dependent relationship between exposure levels and toxic effects, highlighting the sensitivity of zebrafish embryos to chemical perturbations. Furthermore, the ZEA proved efficient in identifying both acute and developmental toxicities, affirming its potential as a high-throughput screening tool in early-stage toxicity assessments. This research underscores the relevance of zebrafish embryos in the field of toxicology, particularly in environmental risk assessments."
+  },
+  {
+   "id": "ac-h02",
+   "truth": "HUMAN",
+   "topic": "zebrafish embryo toxicity assay",
+   "words": 131,
+   "provenance": "OpenAlex https://openalex.org/W2118305000 | DOI https://doi.org/10.1186/1471-213x-6-1 | year 2006",
+   "source_id": "det-h02",
+   "text": "BACKGROUND: Zebrafish (D. rerio) has become a powerful and widely used model system for the analysis of vertebrate embryogenesis and organ development. While genetic methods are readily available in zebrafish, protocols for two dimensional (2D) gel electrophoresis and proteomics have yet to be developed. RESULTS: As a prerequisite to carry out proteomic experiments with early zebrafish embryos, we developed a method to efficiently remove the yolk from large batches of embryos. This method enabled high resolution 2D gel electrophoresis and improved Western blotting considerably. Here, we provide detailed protocols for proteomics in zebrafish from sample preparation to mass spectrometry (MS), including a comparison of databases for MS identification of zebrafish proteins. CONCLUSION: The provided protocols for proteomic analysis of early embryos enable research to be taken in novel directions in embryogenesis."
+  },
+  {
+   "id": "ac-p02",
+   "truth": "PARAPHRASED",
+   "topic": "zebrafish embryo toxicity assay",
+   "words": 116,
+   "provenance": "paraphrase of det-h02 (the HUMAN item of the same topic) produced 21 Sep 2026 by gpt-4o-mini-2024-07-18 via gaply-proxy, the model name read from the API's own result.model echo; stop_reason=stop; source was 131 words",
+   "source_id": "det-h02",
+   "text": "Zebrafish (Danio rerio) has emerged as a significant model organism for studying vertebrate embryogenesis and organ development. Although genetic techniques are abundant for use in zebrafish, there has been a lack of established protocols for two-dimensional (2D) gel electrophoresis and proteomics. To facilitate proteomic analyses of early zebrafish embryos, we formulated an effective technique for the removal of yolk from large quantities of embryos. This innovation substantially enhanced the quality of 2D gel electrophoresis and improved the efficacy of Western blotting. In this study, we outline comprehensive protocols for conducting proteomics in zebrafish, covering everything from sample preparation to mass spectrometry (MS), along with a comparison of databases for the identification of zebrafish proteins through MS."
+  },
+  {
+   "id": "ac-g03",
+   "truth": "GENERATED",
+   "topic": "duckweed Lemna growth inhibition",
+   "words": 120,
+   "provenance": "generated 21 Sep 2026 by gpt-4o-mini-2024-07-18 via gaply-proxy (model read from result.model)",
+   "source_id": "det-a03",
+   "text": "Duckweed (Lemna spp.) is a vital aquatic macrophyte known for its rapid growth and potential applications in wastewater treatment and biofuel production. However, understanding the factors that inhibit its growth is crucial for optimizing its utility in various ecosystems. This study investigates the effects of environmental stressors, such as nutrient deficiency, toxic pollutants, and light availability, on the growth of duckweed. Controlled experiments reveal that high concentrations of heavy metals significantly reduce biomass accumulation, while low nitrogen availability stunts growth but enhances reproductive strategies. Our findings suggest that managing these stressors can improve duckweed proliferation and application in ecological management. Overall, this work contributes to the development of sustainable practices involving Lemna spp. by elucidating key limitations affecting its growth."
+  },
+  {
+   "id": "ac-h03",
+   "truth": "HUMAN",
+   "topic": "duckweed Lemna growth inhibition",
+   "words": 129,
+   "provenance": "OpenAlex https://openalex.org/W2337765335 | DOI https://doi.org/10.17221/2787-pse | year 2008",
+   "source_id": "det-h03",
+   "text": "Aquatic plants are known to accumulate heavy metals. In this study, Duckweed plants (Lemna polyrrhiza L.) were exposed to different concentrations of Cd and Pb. Various physio-biochemical parameters (fresh weight, chlorophyll content, soluble protein, soluble sugars, proline content and metal absorption) were studied. At lower metal concentrations, an increase in proline, protein and sugar was observed but at higher concentrations (above 30 mg/l) their decrease was noticed. Uptake of the metals was concentration and time dependent. Treatment with 1, 10 and 20 mg/l of Cd and Pb showed synergistic relation while 30 and 40 mg/l treatments showed antagonistic relation during the metal uptake. The results suggest that the L. polyrrhiza can be effectively used as a phytoremediator for wastewater polluted with more than one heavy metal at moderate concentrations."
+  },
+  {
+   "id": "ac-p03",
+   "truth": "PARAPHRASED",
+   "topic": "duckweed Lemna growth inhibition",
+   "words": 141,
+   "provenance": "paraphrase of det-h03 (the HUMAN item of the same topic) produced 21 Sep 2026 by gpt-4o-mini-2024-07-18 via gaply-proxy, the model name read from the API's own result.model echo; stop_reason=stop; source was 129 words",
+   "source_id": "det-h03",
+   "text": "Aquatic plants are known for their ability to accumulate heavy metals, and this study focused on Duckweed (Lemna polyrrhiza L.), which was subjected to various concentrations of cadmium (Cd) and lead (Pb). The investigation measured several physio-biochemical parameters, including fresh weight, chlorophyll content, soluble protein, soluble sugars, proline content, and metal absorption. Results indicated that lower concentrations of metals led to an increase in proline, protein, and sugar levels, whereas higher concentrations (above 30 mg/l) resulted in their decline. Additionally, metal uptake was observed to be both concentration-dependent and time-dependent. Treatments with 1, 10, and 20 mg/l of Cd and Pb demonstrated a synergistic effect on metal uptake, in contrast to the antagonistic effect found at 30 and 40 mg/l. These findings suggest that L. polyrrhiza could be an effective phytoremediator for wastewater contaminated with multiple heavy metals at moderate concentrations."
+  },
+  {
+   "id": "ac-g04",
+   "truth": "GENERATED",
+   "topic": "health insurance provision small firms",
+   "words": 101,
+   "provenance": "generated 21 Sep 2026 by gpt-4o-mini-2024-07-18 via gaply-proxy (model read from result.model)",
+   "source_id": "det-a04",
+   "text": "This study investigates the provision of health insurance among small firms and its implications for employee well-being and organizational performance. Using a mixed-methods approach, we analyze survey data from over 500 small businesses alongside in-depth interviews with stakeholders. Our findings reveal significant disparities in health insurance offerings, influenced by factors such as firm size, industry type, and financial constraints. The research highlights the critical role of health insurance in attracting and retaining talent, as well as its potential impact on employee productivity and satisfaction. These insights underscore the need for policy interventions to support small firms in providing comprehensive health coverage."
+  },
+  {
+   "id": "ac-h04",
+   "truth": "HUMAN",
+   "topic": "health insurance provision small firms",
+   "words": 99,
+   "provenance": "OpenAlex https://openalex.org/W1994153666 | DOI https://doi.org/10.1257/aer.103.7.2643 | year 2013",
+   "source_id": "det-h04",
+   "text": "This paper investigates consumer inertia in health insurance markets, where adverse selection is a potential concern. We leverage a major change to insurance provision that occurred at a large firm to identify substantial inertia, and develop and estimate a choice model that also quantifies risk preferences and ex ante health risk. We use these estimates to study the impact of policies that nudge consumers toward better decisions by reducing inertia. When aggregated, these improved individual-level choices substantially exacerbate adverse selection in our setting, leading to an overall reduction in welfare that doubles the existing welfare loss from adverse selection."
+  },
+  {
+   "id": "ac-p04",
+   "truth": "PARAPHRASED",
+   "topic": "health insurance provision small firms",
+   "words": 99,
+   "provenance": "paraphrase of det-h04 (the HUMAN item of the same topic) produced 21 Sep 2026 by gpt-4o-mini-2024-07-18 via gaply-proxy, the model name read from the API's own result.model echo; stop_reason=stop; source was 99 words",
+   "source_id": "det-h04",
+   "text": "This study examines consumer inertia in health insurance markets, highlighting the issues of adverse selection. By utilizing a significant alteration in insurance offerings at a large corporation, we identify considerable inertia and propose a choice model that estimates both risk preferences and ex ante health risk. These estimates allow us to analyze the effects of policies aimed at nudging consumers towards more advantageous decisions by mitigating inertia. However, when these individual-level choices are aggregated, they significantly heighten adverse selection in this scenario, resulting in an overall welfare decrease that is twice the current welfare loss attributed to adverse selection."
+  },
+  {
+   "id": "ac-g05",
+   "truth": "GENERATED",
+   "topic": "sericulture silkworm rearing haemolymph",
+   "words": 77,
+   "provenance": "generated 21 Sep 2026 by gpt-4o-mini-2024-07-18 via gaply-proxy (model read from result.model)",
+   "source_id": "det-a05",
+   "text": "This study investigates the role of haemolymph in the rearing of silkworms (Bombyx mori) within sericulture. Haemolymph composition was analyzed for its nutritional and physiological significance, revealing critical components that influence growth rates and silk production. We employed various rearing conditions to assess the impact of haemolymph on larval development and metabolic efficiency. Our findings indicate a positive correlation between haemolymph quality and the overall health of silkworms, suggesting that optimized haemolymph management can enhance sericulture productivity."
+  },
+  {
+   "id": "ac-h05",
+   "truth": "HUMAN",
+   "topic": "sericulture silkworm rearing haemolymph",
+   "words": 81,
+   "provenance": "OpenAlex https://openalex.org/W2079587717 | DOI https://doi.org/10.1111/j.1440-169x.1973.00047.x | year 1973",
+   "source_id": "det-h05",
+   "text": "In non-diapausing eggs incubated in nitrogen or in carbon monoxide, a part of glycogen was converted into sorbitol, glycerol, and lactate.When the treated eggs were recovered from the incubation in nitrogen before not more than 24 hr, glycogen was resynthesized from these polyols and lactate.This interconversion between glycogen and polyols or lactate is considered to be essentially the same phenomenon as that observed in the diapausing eggs.The results are discussed in relation to carbohydrate metabolism and energy supply in the eggs."
+  },
+  {
+   "id": "ac-p05",
+   "truth": "PARAPHRASED",
+   "topic": "sericulture silkworm rearing haemolymph",
+   "words": 76,
+   "provenance": "paraphrase of det-h05 (the HUMAN item of the same topic) produced 21 Sep 2026 by gpt-4o-mini-2024-07-18 via gaply-proxy, the model name read from the API's own result.model echo; stop_reason=stop; source was 81 words",
+   "source_id": "det-h05",
+   "text": "In eggs that were not in diapause, incubated in nitrogen or carbon monoxide, some glycogen was transformed into sorbitol, glycerol, and lactate. If the eggs were recovered from nitrogen incubation within 24 hours, glycogen was regenerated from these polyols and lactate. This conversion process between glycogen and these metabolites is thought to be similar to what occurs in diapausing eggs. The findings are discussed concerning the metabolism of carbohydrates and the energy supply in the eggs."
+  },
+  {
+   "id": "ac-g06",
+   "truth": "GENERATED",
+   "topic": "sentiment classification recurrent network",
+   "words": 115,
+   "provenance": "generated 21 Sep 2026 by gpt-4o-mini-2024-07-18 via gaply-proxy (model read from result.model)",
+   "source_id": "det-a06",
+   "text": "This study investigates the efficacy of recurrent neural networks (RNNs) for sentiment classification tasks in natural language processing. We propose a novel RNN architecture integrated with attention mechanisms, enhancing its capability to capture contextual dependencies and nuances in sentiment expression. Our model is evaluated on several benchmark datasets, demonstrating superior performance compared to traditional methods and static embeddings. We also analyze the impact of varying hyperparameters, including the number of layers and hidden units, on classification accuracy. Results indicate that our proposed approach significantly improves sentiment prediction, showcasing a robust and scalable solution for understanding user sentiments in diverse textual contexts. Our findings contribute to the ongoing exploration of deep learning methods in sentiment analysis."
+  },
+  {
+   "id": "ac-h06",
+   "truth": "HUMAN",
+   "topic": "sentiment classification recurrent network",
+   "words": 121,
+   "provenance": "OpenAlex https://openalex.org/W2250966211 | DOI https://doi.org/10.18653/v1/d15-1167 | year 2015",
+   "source_id": "det-h06",
+   "text": "Document level sentiment classification remains a challenge: encoding the intrin-sic relations between sentences in the se-mantic meaning of a document. To ad-dress this, we introduce a neural network model to learn vector-based document rep-resentation in a unified, bottom-up fash-ion. The model first learns sentence rep-resentation with convolutional neural net-work or long short-term memory. After-wards, semantics of sentences and their relations are adaptively encoded in docu-ment representation with gated recurren-t neural network. We conduct documen-t level sentiment classification on four large-scale review datasets from IMDB and Yelp Dataset Challenge. Experimen-tal results show that: (1) our neural mod-el shows superior performances over sev-eral state-of-the-art algorithms; (2) gat-ed recurrent neural network dramatically outperforms standard recurrent neural net-work in document modeling for sentiment classification.1 1"
+  },
+  {
+   "id": "ac-p06",
+   "truth": "PARAPHRASED",
+   "topic": "sentiment classification recurrent network",
+   "words": 126,
+   "provenance": "paraphrase of det-h06 (the HUMAN item of the same topic) produced 21 Sep 2026 by gpt-4o-mini-2024-07-18 via gaply-proxy, the model name read from the API's own result.model echo; stop_reason=stop; source was 121 words",
+   "source_id": "det-h06",
+   "text": "Classifying sentiment at the document level poses significant difficulties, particularly in capturing the intrinsic relationships between sentences that shape the document's overall meaning. To tackle this issue, we present a neural network model designed to develop vector-based representations of documents in a cohesive, bottom-up manner. Initially, sentence representations are generated using either convolutional neural networks or long short-term memory approaches. Subsequently, the model utilizes a gated recurrent neural network to adaptively encode the semantics of sentences and their interrelations within the document representation. We evaluated our approach on four extensive review datasets from IMDB and the Yelp Dataset Challenge, finding that our neural model outperformed several leading algorithms, with the gated recurrent neural network significantly excelling over standard recurrent neural networks in sentiment classification of documents."
+  },
+  {
+   "id": "ac-g07",
+   "truth": "GENERATED",
+   "topic": "confidence interval reporting clinical trials",
+   "words": 78,
+   "provenance": "generated 21 Sep 2026 by gpt-4o-mini-2024-07-18 via gaply-proxy (model read from result.model)",
+   "source_id": "det-a07",
+   "text": "Background: Confidence intervals (CIs) provide essential information regarding the precision of treatment effects in clinical trials. Objective: This study examines the reporting practices of CIs in recent clinical trials across various disciplines. Methods: We analyzed 300 clinical trial publications from 2020 to 2022, assessing the consistency and clarity of CI reporting. Results: Findings revealed significant variability in CI presentation, often obscuring interpretation. Conclusions: Standardizing CI reporting is crucial for enhancing clarity in clinical decision-making and improving trial transparency."
+  },
+  {
+   "id": "ac-h07",
+   "truth": "HUMAN",
+   "topic": "confidence interval reporting clinical trials",
+   "words": 78,
+   "provenance": "OpenAlex https://openalex.org/W2108696783 | DOI https://doi.org/10.1186/1741-7015-8-18 | year 2010",
+   "source_id": "det-h07",
+   "text": "The CONSORT statement is used worldwide to improve the reporting of randomised controlled trials. Kenneth Schulz and colleagues describe the latest version, CONSORT 2010, which updates the reporting guideline based on new methodological evidence and accumulating experience.To encourage dissemination of the CONSORT 2010 Statement, this article is freely accessible on bmj.com and will also be published in the Lancet, Obstetrics and Gynecology, PLoS Medicine, Annals of Internal Medicine, Open Medicine, Journal of Clinical Epidemiology, BMC Medicine, and Trials."
+  },
+  {
+   "id": "ac-p07",
+   "truth": "PARAPHRASED",
+   "topic": "confidence interval reporting clinical trials",
+   "words": 91,
+   "provenance": "paraphrase of det-h07 (the HUMAN item of the same topic) produced 21 Sep 2026 by gpt-4o-mini-2024-07-18 via gaply-proxy, the model name read from the API's own result.model echo; stop_reason=stop; source was 78 words",
+   "source_id": "det-h07",
+   "text": "The CONSORT statement is globally recognized to enhance the transparency of randomized controlled trial reporting. In their article, Kenneth Schulz and his team present the updated version, CONSORT 2010, which reflects revisions to the reporting guidelines influenced by new methodological insights and gathered experience. To facilitate the wider distribution of the CONSORT 2010 Statement, the article is available for free on bmj.com and will also appear in several journals, including the Lancet, Obstetrics and Gynecology, PLoS Medicine, Annals of Internal Medicine, Open Medicine, Journal of Clinical Epidemiology, BMC Medicine, and Trials."
+  },
+  {
+   "id": "ac-g08",
+   "truth": "GENERATED",
+   "topic": "spectrophotometric chlorophyll determination",
+   "words": 126,
+   "provenance": "generated 21 Sep 2026 by gpt-4o-mini-2024-07-18 via gaply-proxy (model read from result.model)",
+   "source_id": "det-a08",
+   "text": "This study investigates the effectiveness of spectrophotometric methods for the quantification of chlorophyll in various aquatic and terrestrial samples. Utilizing a range of extraction solvents, including acetone, ethanol, and dimethyl sulfoxide, we evaluated the absorption spectra of chlorophyll a and b at their characteristic wavelengths. Our findings reveal that acetone-based extractions yield the highest chlorophyll concentrations, highlighting solvent choice as a critical factor. Additionally, we explored the impact of sample age and storage conditions on chlorophyll stability and absorbance values. The results suggest that spectrophotometric determination provides a reliable and efficient approach for assessing chlorophyll content, aligning with environmental monitoring and ecological research needs. Overall, this work contributes to standardizing methodologies in chlorophyll assessment, enhancing repeatability and accuracy in the field of phytoplankton and vegetation studies."
+  },
+  {
+   "id": "ac-h08",
+   "truth": "HUMAN",
+   "topic": "spectrophotometric chlorophyll determination",
+   "words": 136,
+   "provenance": "OpenAlex https://openalex.org/W2020430837 | DOI https://doi.org/10.1104/pp.60.4.606 | year 1977",
+   "source_id": "det-h08",
+   "text": "A simple, rapid procedure is described for evaluating ozone injury to leaves of Phaseolus vulgaris L. cv. Pinto. Leaf chlorophyll is extracted with ethanol and analyzed spectrophotometrically; the concentration is expressed on the basis of leaf dry weight.The per cent chlorophyll reduction of ozone-injured leaves was highly correlated with the per cent visible necrosis and chlorosis (r = 0.96). The variability in injury estimates with chlorophyll analysis was slightly less than with visual evaluation. An evaluation of chlorophyll a and b concentrations separately showed that the chlorophyll a/b ratio decreased with increasing amounts of injury. Chlorophyll determinations made for leaves harvested at intervals after an ozone treatment indicated that maximum chlorophyll reduction had occurred by 4 days.This procedure for measuring ozone injury should be useful in eliminating the human bias associated with visible estimates of injury."
+  },
+  {
+   "id": "ac-p08",
+   "truth": "PARAPHRASED",
+   "topic": "spectrophotometric chlorophyll determination",
+   "words": 133,
+   "provenance": "paraphrase of det-h08 (the HUMAN item of the same topic) produced 21 Sep 2026 by gpt-4o-mini-2024-07-18 via gaply-proxy, the model name read from the API's own result.model echo; stop_reason=stop; source was 136 words",
+   "source_id": "det-h08",
+   "text": "A rapid and straightforward method is outlined for assessing ozone damage to the leaves of Phaseolus vulgaris L., cv. Pinto. The extraction of leaf chlorophyll is carried out using ethanol, followed by a spectrophotometric analysis, with concentration results expressed relative to the dry weight of the leaf. The percentage reduction in chlorophyll from ozone-injured leaves showed a strong correlation with the percentage of visible necrosis and chlorosis (r = 0.96). Chlorophyll analysis exhibited slightly less variability in injury estimates than visual assessments. Notably, an evaluation of chlorophyll a and b concentrations revealed a decrease in the chlorophyll a/b ratio corresponding to greater injury levels. Measurements taken on leaves at intervals after ozone exposure indicated that maximum chlorophyll loss occurred by four days, demonstrating the method's potential to minimize human bias in injury assessments."
+  },
+  {
+   "id": "ac-g09",
+   "truth": "GENERATED",
+   "topic": "dissolved oxygen primary productivity lake",
+   "words": 68,
+   "provenance": "generated 21 Sep 2026 by gpt-4o-mini-2024-07-18 via gaply-proxy (model read from result.model)",
+   "source_id": "det-a09",
+   "text": "Dissolved oxygen (DO) is a critical factor influencing primary productivity in freshwater lakes. This study examines the interplay between DO levels and phytoplankton growth across various lakes with differing trophic statuses. We found that optimal DO concentrations positively correlate with primary productivity, revealing that lower DO levels can limit algal blooms. Our findings underscore the importance of managing DO levels to sustain aquatic ecosystems and enhance water quality."
+  },
+  {
+   "id": "ac-h09",
+   "truth": "HUMAN",
+   "topic": "dissolved oxygen primary productivity lake",
+   "words": 66,
+   "provenance": "OpenAlex https://openalex.org/W40925381 | DOI https://doi.org/10.3133/pp440g | year 1963",
+   "source_id": "det-h09",
+   "text": "by several scientists in the Geological Survey and in other institutions in the United States and abroad, each preparing a chapter on his special field.The current edition is being published in individual chapters, titles of which are listed below.Chapters already published are indicated by boldface.CHAPTER A. The chemical elements B. Cosmochemistry C. Internal structure and composition of the Earth D. Composition of the earth's crust E."
+  },
+  {
+   "id": "ac-p09",
+   "truth": "PARAPHRASED",
+   "topic": "dissolved oxygen primary productivity lake",
+   "words": 76,
+   "provenance": "paraphrase of det-h09 (the HUMAN item of the same topic) produced 21 Sep 2026 by gpt-4o-mini-2024-07-18 via gaply-proxy, the model name read from the API's own result.model echo; stop_reason=stop; source was 66 words",
+   "source_id": "det-h09",
+   "text": "Multiple scientists, including those from the Geological Survey along with others from various institutions in the U.S. and internationally, are each contributing a chapter focused on their specific areas of expertise. The current edition is being released in individual chapters, with titles listed below. Chapters that have already been published are highlighted in boldface: CHAPTER A. The chemical elements, B. Cosmochemistry, C. Internal structure and composition of the Earth, D. Composition of the Earth's crust, E."
+  },
+  {
+   "id": "ac-g10",
+   "truth": "GENERATED",
+   "topic": "coliform contamination urban water",
+   "words": 128,
+   "provenance": "generated 21 Sep 2026 by gpt-4o-mini-2024-07-18 via gaply-proxy (model read from result.model)",
+   "source_id": "det-a10",
+   "text": "Coliform bacteria serve as a key indicator of water quality, particularly in urban environments where infrastructural challenges and pollution risks are prevalent. This study investigates the prevalence and sources of coliform contamination in urban water systems across several metropolitan areas. Water samples were collected and analyzed for coliform presence, with results indicating significant levels of contamination linked to both runoff from urban surfaces and inadequately maintained distribution systems. The research identifies critical factors contributing to coliform proliferation, including socio-economic variables and infrastructure age. These findings underscore the urgent need for improved water management practices and targeted policy interventions to mitigate contamination risks. Ultimately, this study provides valuable insights for urban planners and public health officials working to enhance water quality and ensure safe drinking water for urban populations."
+  },
+  {
+   "id": "ac-h10",
+   "truth": "HUMAN",
+   "topic": "coliform contamination urban water",
+   "words": 133,
+   "provenance": "OpenAlex https://openalex.org/W1995326552 | DOI https://doi.org/10.1080/1573062x.2013.857421 | year 2013",
+   "source_id": "det-h10",
+   "text": "Flooding can cause major disruptions in cities, and lead to significant impacts on people, the economy and on the environment. These impacts may be exacerbated by climate and socio-economic changes. Resilience thinking has become an important way for city planners and decision makers to manage flood risks.Despite different definitions of resilience, a consistent theme is that flood resilient cities are impacted less by extreme flood events. Therefore, flood risk professionals and planners need to understand flood impacts to build flood resilient cities. This paper presents a state-of-the-art literature review on flood impact assessment in urban areas, detailing their application, and their limitations. It describes both techniques for dealing with individual categories of impacts, as well as methodologies for integrating them. The paper will also identify future avenues for progress in improving the techniques."
+  },
+  {
+   "id": "ac-p10",
+   "truth": "PARAPHRASED",
+   "topic": "coliform contamination urban water",
+   "words": 123,
+   "provenance": "paraphrase of det-h10 (the HUMAN item of the same topic) produced 21 Sep 2026 by gpt-4o-mini-2024-07-18 via gaply-proxy, the model name read from the API's own result.model echo; stop_reason=stop; source was 133 words",
+   "source_id": "det-h10",
+   "text": "Flooding can lead to significant disruptions in urban environments, detrimentally affecting individuals, economies, and ecosystems. These effects may be intensified by ongoing changes in climate and socio-economic conditions. Resilience thinking has emerged as a critical framework for urban planners and decision-makers to address flood risks. Although resilience is defined in various ways, a common aspect is that cities designed for flood resilience experience reduced impacts from severe flooding events. Consequently, it is essential for flood risk experts and city planners to comprehend the extent of flood-related impacts in order to cultivate resilient urban spaces. This paper offers a comprehensive literature review on the assessment of flood impacts in cities, highlighting existing methods, their applications, limitations, and suggesting future directions for enhancing assessment techniques."
+  }
+ ]
+}

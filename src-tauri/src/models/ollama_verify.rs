@@ -208,6 +208,15 @@ impl OllamaVerifyClient {
     /// decoding). The Set-4 live probe found qwen3:4b under plain `"json"` +
     /// think:false ECHOES the task envelope verbatim instead of answering;
     /// passing the schema as `format` makes that structurally impossible.
+    ///
+    /// `GAPLY_OLLAMA_NUM_PREDICT` adds a generation cap and is ABSENT in the
+    /// product: unset, this body is byte-identical to the one that shipped.
+    /// It exists because `classify_output_schema` sets no `additionalProperties:
+    /// false` and no string maxLength, so llama.cpp's grammar lets a model keep
+    /// appending well-formed keys after the required ones — and Ollama's default
+    /// `num_predict` is unlimited, so a talkative model generates to `num_ctx`.
+    /// A probe comparing two models needs the same bound on both or it measures
+    /// the grammar (§11 D201).
     fn build_chat_body(
         &self,
         system_prompt: &str,
@@ -215,16 +224,23 @@ impl OllamaVerifyClient {
         think: bool,
         format: &Value,
     ) -> Value {
+        let mut options = json!({
+            "temperature": 0.0,
+            "num_ctx": NUM_CTX,
+        });
+        if let Some(n) = std::env::var("GAPLY_OLLAMA_NUM_PREDICT")
+            .ok()
+            .and_then(|v| v.parse::<i64>().ok())
+        {
+            options["num_predict"] = json!(n);
+        }
         json!({
             "model": self.model,
             "stream": false,
             "think": think,
             "format": format,
             "keep_alive": 0,
-            "options": {
-                "temperature": 0.0,
-                "num_ctx": NUM_CTX,
-            },
+            "options": options,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": payload.to_string()},
@@ -310,6 +326,19 @@ impl ClassifyClient for OllamaVerifyClient {
     }
 }
 
+/// The exact `/api/chat` body [`ClassifyClient::classify`] would send, for
+/// probes that need to replay it (§11 D201). Building it any other way means
+/// re-typing `CLASSIFY_SYSTEM_PROMPT` into the probe, and a copied prompt is a
+/// baseline that drifts the moment the real one moves.
+pub fn classify_chat_body_for_probe(tag: &str, payload: &Value) -> Value {
+    let c = OllamaVerifyClient::with_endpoint(DEFAULT_BASE_URL, tag).expect("client");
+    let format = match &payload["output_schema"] {
+        Value::Object(_) => payload["output_schema"].clone(),
+        _ => json!("json"),
+    };
+    c.build_chat_body(CLASSIFY_SYSTEM_PROMPT, payload, false, &format)
+}
+
 /// Remove an inlined Qwen3 `<think>…</think>` block, if present. Keeps only
 /// what follows the LAST closing tag; an opened-but-unclosed block means the
 /// generation is all reasoning trace, so nothing usable remains.
@@ -390,6 +419,37 @@ mod tests {
         assert_eq!(body["keep_alive"], serde_json::json!(0));
         assert_eq!(body["model"], "qwen3:4b");
         assert_eq!(body["stream"], serde_json::json!(false));
+    }
+
+    #[test]
+    fn the_shipped_body_carries_no_generation_cap() {
+        // `GAPLY_OLLAMA_NUM_PREDICT` is a PROBE knob (§11 D201). The product
+        // must be unaffected by its existence, so the assertion is that an
+        // unset var leaves `options` exactly as it shipped: temperature and
+        // num_ctx, and no third key.
+        //
+        // Asserted on the two keys AND on the key count, because an options
+        // object that merely CONTAINS the right values would also pass with a
+        // cap silently added beside them.
+        assert!(
+            std::env::var("GAPLY_OLLAMA_NUM_PREDICT").is_err(),
+            "this test describes the unset default; the var is set in this process"
+        );
+        let c = OllamaVerifyClient::with_endpoint("http://127.0.0.1:11434", "qwen3:4b").unwrap();
+        let body = c.build_chat_body(
+            CLASSIFY_SYSTEM_PROMPT,
+            &serde_json::json!({}),
+            false,
+            &serde_json::json!("json"),
+        );
+        let options = body["options"].as_object().expect("options object");
+        assert_eq!(options["temperature"], serde_json::json!(0.0));
+        assert_eq!(options["num_ctx"], serde_json::json!(NUM_CTX));
+        assert_eq!(
+            options.len(),
+            2,
+            "the shipped body has exactly temperature and num_ctx; got {options:?}"
+        );
     }
 
     #[test]

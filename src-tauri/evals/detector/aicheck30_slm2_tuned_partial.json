@@ -1,0 +1,103 @@
+{
+ "_comment": "PARTIAL BY DESIGN -- 10 of 30 items (\u00a711 D201). Ollama tag \"slm2-tuned\": the same Qwen3-4B-Thinking-2507 Q4_K_M base blob as slm2-base PLUS the slm2-adapter LoRA r=32 from rishibrucelee/gaply-slm-models, applied through Ollama's ADAPTER directive. Identical product path and identical 3072-token cap as the base file beside it. THE RUN WAS STOPPED AFTER 10 ITEMS: median 329.4s/item against the base's 35.8s (9.2x), with 5 of 10 items burning the whole 3072-token budget (488-872s) to return no parseable JSON. The per-item cost IS the result; the remaining 20 items were not run because they would have cost ~2 more hours to restate it. Retained rather than deleted because a stopped run is evidence and its rows are re-derivable.",
+ "model_tag": "slm2-tuned",
+ "stopped_after": 10,
+ "of": 30,
+ "rows": [
+  {
+   "category": "",
+   "error": "ollama reply contains no JSON object",
+   "id": "ac-g01",
+   "outcome": "no_answer",
+   "secs": 872.0,
+   "truth": "GENERATED"
+  },
+  {
+   "category": "",
+   "error": "ollama reply contains no JSON object",
+   "id": "ac-h01",
+   "outcome": "no_answer",
+   "secs": 613.4,
+   "truth": "HUMAN"
+  },
+  {
+   "category": "ai_generated",
+   "id": "ac-p01",
+   "outcome": "classified",
+   "quote": "Cyanobacteria are capable of creating densely populated and often toxic blooms in both freshwater and marine ecosystems, posing significant risks to ecosystem h",
+   "quote_verbatim": true,
+   "rationale": "",
+   "secs": 17.0,
+   "strength": "weak",
+   "truth": "PARAPHRASED"
+  },
+  {
+   "category": "",
+   "error": "ollama reply contains no JSON object",
+   "id": "ac-g02",
+   "outcome": "no_answer",
+   "secs": 549.0,
+   "truth": "GENERATED"
+  },
+  {
+   "category": "",
+   "error": "ollama reply contains no JSON object",
+   "id": "ac-h02",
+   "outcome": "no_answer",
+   "secs": 516.7,
+   "truth": "HUMAN"
+  },
+  {
+   "category": "ai_generated",
+   "id": "ac-p02",
+   "outcome": "classified",
+   "quote": "Zebrafish (Danio rerio) has emerged as a significant model organism for studying vertebrate embryogenesis and organ development. Although genetic techniques are",
+   "quote_verbatim": true,
+   "rationale": "",
+   "secs": 31.8,
+   "strength": "strong",
+   "truth": "PARAPHRASED"
+  },
+  {
+   "category": "",
+   "error": "ollama reply contains no JSON object",
+   "id": "ac-g03",
+   "outcome": "no_answer",
+   "secs": 488.1,
+   "truth": "GENERATED"
+  },
+  {
+   "category": "ai_generated",
+   "id": "ac-h03",
+   "outcome": "classified",
+   "quote": "Uptake of the metals was concentration and time dependent. Treatment with 1, 10 and 20 mg/l of Cd and Pb showed synergistic relation while 30 and 40 mg/l treatm",
+   "quote_verbatim": true,
+   "rationale": "",
+   "secs": 102.7,
+   "strength": "strong",
+   "truth": "HUMAN"
+  },
+  {
+   "category": "ai_paraphrased",
+   "id": "ac-p03",
+   "outcome": "classified",
+   "quote": "Treatments with 1, 10, and 20 mg/l of Cd and Pb demonstrated a synergistic effect on metal uptake, in contrast to the antagonistic effect found at 30 and 40 mg/",
+   "quote_verbatim": true,
+   "rationale": "The passage discusses the effects of cadmium (Cd) and lead (Pb) on the uptake by Lemna polyrrhiza, a type of aquatic plant. The text presents information about the physio-biochemical parameters measured in the study, such as fresh weight, chlorophyll content, soluble protein, soluble sugars, proline content, and metal absorption. It also provides details on how these parameters are affected by var",
+   "secs": 170.7,
+   "strength": "moderate",
+   "truth": "PARAPHRASED"
+  },
+  {
+   "category": "ai_generated",
+   "id": "ac-g04",
+   "outcome": "classified",
+   "quote": "This study investigates the provision of health insurance among small firms and its implications for employee well-being and organizational performance. Using a",
+   "quote_verbatim": false,
+   "rationale": "This passage is mainly about the provision of health insurance among small firms and its implications for employee well-being and organizational performance. The passage uses a mixed-methods approach, analyzing survey data from over 500 small businesses alongside in-depth interviews with stakeholders. The findings reveal significant disparities in health insurance offerings, influenced by factors ",
+   "secs": 152.5,
+   "strength": "weak",
+   "truth": "GENERATED"
+  }
+ ]
+}
