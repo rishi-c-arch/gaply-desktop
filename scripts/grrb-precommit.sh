@@ -35,13 +35,17 @@ printf '  %s\n' $HITS
 
 if [ ! -f "$BASELINE" ]; then
   echo "  no committed baseline at ${BASELINE#"$REPO"/} — nothing to compare against."
-  echo "  Generate one with: (cd src-tauri && cargo run --bin grrb -- evals/reports/grrb-baseline.json)"
+  echo "  Generate one with: (cd src-tauri && cargo run --features devtools --bin grrb -- evals/reports/grrb-baseline.json)"
   exit 1
 fi
 
 cd "$REPO/src-tauri" || exit 1
 BUILD_LOG="$(mktemp)"
-if ! cargo build --quiet --bin grrb --bin grrb-gate > "$BUILD_LOG" 2>&1; then
+# The benchmark binaries are DEV-ONLY (`required-features = ["devtools"]`), so
+# they are not built into a production bundle. Development is unchanged; the
+# feature flag is the only difference, and what the benchmark measures is not
+# touched. See the [[bin]] block in src-tauri/Cargo.toml.
+if ! cargo build --quiet --features devtools --bin grrb --bin grrb-gate > "$BUILD_LOG" 2>&1; then
   echo "  the benchmark does not build — the gate cannot judge a tree that fails to compile:"
   sed 's/^/    /' "$BUILD_LOG" | head -20
   exit 1
@@ -65,7 +69,7 @@ if [ "$VERDICT" -ne 0 ]; then
   echo
   echo "  Commit blocked. Either fix the regression, or — if the change is"
   echo "  deliberate and the new numbers are the new truth — re-baseline with"
-  echo "  (cd src-tauri && cargo run --bin grrb -- evals/reports/grrb-baseline.json)"
+  echo "  (cd src-tauri && cargo run --features devtools --bin grrb -- evals/reports/grrb-baseline.json)"
   echo "  and say so in the commit message. GRRB_SKIP=1 skips this gate."
 fi
 exit "$VERDICT"

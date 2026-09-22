@@ -18,6 +18,52 @@ default-run = "app"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+# **DEV-ONLY BINARIES — excluded from a production bundle by construction.**
+#
+# `gaply.app/Contents/MacOS/` shipped `grrb` beside `app` (measured 22 Sep 2026,
+# docs/PROBLEM_DOSSIER.md), and `src/bin/grrb.rs` calls
+# `std::process::Command::new("git")` — an external process inside the shipped
+# app. None of these five is named in tauri.conf.json; they were auto-discovered
+# bin targets, so the bundler saw them.
+#
+# `required-features` is the cargo-level fix: without `--features devtools`
+# these targets are not built at all, so a production build has nothing to
+# bundle. Development is unchanged — `cargo run --bin grrb --features devtools`
+# — and what the benchmark measures is untouched.
+#
+# OBSERVED, NOT EXPLAINED: of the five, only `grrb` was ever copied into the
+# bundle, and it is the only one whose name contains no hyphen. That is a
+# correlation across five cases, not a cause; tauri-cli ships as a prebuilt
+# binary so the selection logic cannot be read here. The fix does not depend on
+# knowing why.
+[features]
+devtools = []
+
+[[bin]]
+name = "grrb"
+path = "src/bin/grrb.rs"
+required-features = ["devtools"]
+
+[[bin]]
+name = "grrb-gate"
+path = "src/bin/grrb-gate.rs"
+required-features = ["devtools"]
+
+[[bin]]
+name = "ai-eval"
+path = "src/bin/ai-eval.rs"
+required-features = ["devtools"]
+
+[[bin]]
+name = "label-cn"
+path = "src/bin/label-cn.rs"
+required-features = ["devtools"]
+
+[[bin]]
+name = "label-cs"
+path = "src/bin/label-cs.rs"
+required-features = ["devtools"]
+
 [lib]
 name = "app_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
