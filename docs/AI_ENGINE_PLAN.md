@@ -16611,7 +16611,8 @@ input. It reaches no screen and no export — audited 22 Sep 2026 across
 every other React component (none reads it), and all seven report renderers
 (zero occurrences of "probability").
 
-**That audit had one hole and this baseline closes it.** `body` is model prose
+**That audit had one hole and this baseline CLOSES it — recorded as closed, with
+its boundary.** `body` is model prose
 and the panel renders it verbatim at `pr-body`, so a percentage could have
 reached a reader through the prose no matter what the field did. The first
 baseline could not answer that — the probe hashed the body and threw the text
@@ -16619,6 +16620,25 @@ away, which is the truncated-span defect in a new place: a value retained and
 its evidence discarded. With body capture added, **`pct_in_body` and
 `prob_word_in_body` are false in all five runs.** The suppression holds in the
 prose as well as in the field.
+
+**CLOSED. What it shows:** in five real reviewer letters produced by the shipped
+path, the model wrote **no percentage character and no probability or likelihood
+wording** into the prose a user reads. Every surface that could carry the number
+has now been checked by the instrument that would see it, rather than by reading
+code — the field by the audit, the prose by the run.
+
+**What it does NOT show:** five letters, ONE manuscript, ONE model, one journal
+target. It is not a bound on how often `gpt-4o` would narrate a probability, and
+it says nothing about a different manuscript, a different finding mix, or a
+provider the proxy might select tomorrow. A model free to write prose can write
+a percentage at any time; what is established is that it did not in these five,
+and that the check now runs on every future baseline rather than being argued
+from the code.
+
+**And the reason it was open at all is worth keeping.** The first baseline could
+not answer it because the probe hashed the body and discarded the text — a value
+retained and its evidence thrown away, which is the truncated-span defect in a
+new place. The question was not hard; the instrument simply could not see it.
 
 #### TEMPERATURE IS NOT THE DEFECT HERE, AND THE INSTRUCTION TO MEASURE FIRST IS WHY THAT IS KNOWN
 
