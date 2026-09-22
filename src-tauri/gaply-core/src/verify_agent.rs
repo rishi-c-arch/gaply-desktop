@@ -663,6 +663,56 @@ pub fn reconsider_citations(
     Ok(report)
 }
 
+/// **Lives HERE, in `gaply_core`, and not in the app crate's `proxy_client`,
+/// for a CI reason worth stating where the code is.**
+///
+/// It was written in `src/models/proxy_client.rs` beside the client that calls
+/// it. **Both CI workflows run `cargo test -p gaply_core`** — measured 22 Sep
+/// 2026 — so nothing in the app crate is executed remotely, and a fix that
+/// stops users losing a paid-for letter had zero coverage on either platform.
+/// The stripper is a pure string function with no transport dependency, so the
+/// crate boundary was the only thing keeping it out of CI.
+///
+/// **Strip ONE markdown code fence from a model reply, and nothing looser.**
+///
+/// Models decorate. §11 D204 measured `gpt-4o` wrapping a correct reply in a
+/// ```` ```json ```` fence in **8 of 10 identical calls**, and 1 of 5 reviewer
+/// letters was discarded for it on the shipped path — the user was told the
+/// reviewer was unavailable after paying for a full analysis, because of three
+/// backticks.
+///
+/// # Why this is not a lenient parser
+///
+/// It strips exactly one opening fence — ```` ``` ```` optionally followed by
+/// the single language tag `json` — and one closing ```` ``` ````. **A reply
+/// that does not START with a fence is returned untouched**, so prose,
+/// apologies, explanations and half-formed answers still fail to parse exactly
+/// as they do today. That boundary is deliberate: the failure this repairs is a
+/// DECORATION around valid JSON, and widening it to "find the object anywhere in
+/// the text" would start accepting replies whose JSON is a fragment of an answer
+/// the model did not commit to.
+///
+/// An UNCLOSED fence is also stripped, because `max_tokens` truncates the
+/// closing fence before the content (§11 D204 saw exactly that:
+/// `"```json\n{\"answer\":\"yes\"}\n"` at `max_tokens: 8`).
+pub fn strip_one_json_fence(text: &str) -> &str {
+    let trimmed = text.trim();
+    let Some(after_open) = trimmed.strip_prefix("```") else {
+        return text;
+    };
+    // At most ONE language tag, and it must be `json`. Any other tag means this
+    // is not the shape we are repairing, so hand back the original.
+    let body = if let Some(rest) = after_open.strip_prefix('\n').or_else(|| after_open.strip_prefix("\r\n")) {
+        rest
+    } else if after_open.len() >= 4 && after_open[..4].eq_ignore_ascii_case("json") {
+        &after_open[4..]
+    } else {
+        return text;
+    };
+    let body = body.trim();
+    body.strip_suffix("```").unwrap_or(body).trim()
+}
+
 #[cfg(test)]
 mod tests;
 

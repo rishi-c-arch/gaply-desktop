@@ -276,3 +276,44 @@ fn evidence_refs_in_payload_match_gate_keys() {
     assert!(wire.contains("ev-c1-0"), "existence evidence key present");
     assert!(wire.contains("ev-c1-1"), "retraction evidence key present");
 }
+
+/// **The fence stripper's BOUNDARY, asserted from both sides.**
+///
+/// The repair is for a decoration around valid JSON. The negative cases are
+/// the point of this test: a reply that does not START with a fence is
+/// returned untouched, so prose still fails to parse exactly as it does
+/// today. Widening this to "find the object anywhere in the text" is what
+/// the assertions below forbid.
+#[test]
+fn the_fence_stripper_strips_one_fence_and_refuses_everything_looser() {
+    // STRIPPED — the shapes a model actually produces.
+    for (input, want) in [
+        ("```json\n{\"a\":1}\n```", "{\"a\":1}"),
+        ("```JSON\n{\"a\":1}\n```", "{\"a\":1}"),
+        ("```\n{\"a\":1}\n```", "{\"a\":1}"),
+        // §11 D204: `max_tokens` truncated the CLOSING fence, not the answer.
+        ("```json\n{\"answer\":\"yes\"}\n", "{\"answer\":\"yes\"}"),
+        ("  ```json\n{\"a\":1}\n```  ", "{\"a\":1}"),
+    ] {
+        assert_eq!(strip_one_json_fence(input), want, "should have stripped: {input:?}");
+    }
+
+    // UNTOUCHED — everything else, returned byte-identical so it fails to
+    // parse exactly as it did before this repair existed.
+    for input in [
+        r#"{"a":1}"#,                                  // already bare
+        r#"Here is my answer: {"a":1}"#,               // PROSE around JSON
+        r#"I could not complete this. {"a":1} maybe"#, // prose + a fragment
+        "```python\nprint(1)\n```",                    // a different tag
+        "```yaml\na: 1\n```",
+        "no json at all",
+        "",
+    ] {
+        assert_eq!(
+            strip_one_json_fence(input),
+            input,
+            "must be returned untouched — widening the stripper to reach inside prose is \
+             what this assertion exists to prevent: {input:?}"
+        );
+    }
+}
