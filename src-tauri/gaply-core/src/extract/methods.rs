@@ -484,14 +484,32 @@ fn associated_claims(
     out
 }
 
+/// **`max_len` is a BYTE bound, so it must be walked back to a char boundary.**
+///
+/// `text[..max_len]` panics when the index lands inside a multi-byte character.
+/// Measured 22 Sep 2026 while widening heading detection: `final final L.pdf`
+/// aborted the whole extraction with
+///
+/// ```text
+/// end byte index 400 is not a char boundary; it is inside '¹' (bytes 399..401)
+/// ```
+///
+/// The bug is older than that change, which only altered which paragraph
+/// reached this function — a superscript in a manuscript is ordinary, so the
+/// crash was always reachable and nothing had reached it. A panic here takes
+/// down the extraction, so the user loses the entire analysis, not one field.
 fn truncate(text: &str, max_len: usize) -> String {
     if text.len() <= max_len {
-        text.to_string()
-    } else {
-        match text[..max_len].rfind(|c: char| c.is_whitespace()) {
-            Some(i) if i > 0 => text[..i].to_string(),
-            _ => text[..max_len].to_string(),
-        }
+        return text.to_string();
+    }
+    let mut end = max_len;
+    while end > 0 && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    let head = &text[..end];
+    match head.rfind(|c: char| c.is_whitespace()) {
+        Some(i) if i > 0 => text[..i].to_string(),
+        _ => head.to_string(),
     }
 }
 

@@ -23,6 +23,17 @@ pub struct Section {
     pub kind: SectionKind,
     pub heading: String,
     pub paragraphs: Vec<String>,
+    /// **The OTHER sections this heading also names — the "mixed" label.**
+    ///
+    /// `"Results and Discussion"` is one section in the document and two in the
+    /// IMRaD vocabulary. `kind` carries the one that governs it; this carries
+    /// the rest, so a consumer asking "does this manuscript have a Discussion"
+    /// is not told no because the author combined two headings.
+    ///
+    /// Empty for an ordinary heading. Additive and `serde(default)`, so every
+    /// report cached before this field existed still parses.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub also_covers: Vec<SectionKind>,
 }
 
 /// Map a cleaned, lowercased heading phrase to a section kind.
@@ -45,20 +56,88 @@ fn classify_heading(phrase: &str) -> Option<SectionKind> {
     Some(kind)
 }
 
+/// **Every IMRaD section a heading names, in the order it names them.**
+///
+/// The lexicon is EXACT-MATCH by design: a sentence merely starting "Methods…"
+/// is not a heading. That is right, and it meant a heading which names a
+/// section alongside anything else named none at all.
+///
+/// Measured 22 Sep 2026 (docs/PROBLEM_DOSSIER.md A2): R PAPER's
+/// `"IV. EXPERIMENTAL SETUP AND RESULTS"` is 4 words, so it passes the shape
+/// gate, and `"experimental setup and results"` is not a lexicon phrase, so it
+/// was not a heading. Its 126 paragraphs — the paper's entire results, tables
+/// and figures — were absorbed into the preceding Methods section, and the
+/// checklist reported **"Results section missing"** on a paper that has one.
+/// **Three of the six corpus manuscripts had no detected Results section.**
+///
+/// # Why splitting is safe here when it was not for run-in headings
+///
+/// This splits on CONJUNCTIONS only, and asks the SAME exact-match lexicon
+/// about each part. A part that is not a section name contributes nothing, so
+/// the rule cannot invent a section from arbitrary prose — the five-word shape
+/// gate still fires first, and `"Related Work and Results of Prior Studies"` is
+/// rejected twice over: seven words, and `"results of prior studies"` is not a
+/// lexicon phrase.
+fn classify_heading_parts(phrase: &str) -> Vec<SectionKind> {
+    if let Some(k) = classify_heading(phrase) {
+        return vec![k];
+    }
+    // A TABLE-OF-CONTENTS LINE IS NOT A HEADING, and splitting makes one look
+    // like one. Measured 22 Sep 2026 on `final final L.pdf`: the contents line
+    //
+    //     "RESULTS AND DISCUSSION ....................................... 260"
+    //
+    // is five whitespace-separated tokens, so it passes the shape gate, and
+    // splitting on " and " isolates a clean "results" from the dotted leader —
+    // inventing a Results section 200 pages before the real one. §11 D182 is
+    // the same hazard: the earliest mention of a topic in a thesis is its table
+    // of contents.
+    //
+    // A real heading names sections and nothing else, so a dot leader or a page
+    // number disqualifies the whole line from the compound path. The exact-match
+    // path above is untouched and still admits "Results and Discussion".
+    if phrase.contains("..") || phrase.chars().any(|c| c.is_ascii_digit()) {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    for part in phrase.split(" and ").flat_map(|p| p.split(" & ")).flat_map(|p| p.split('/')) {
+        if let Some(k) = classify_heading(part.trim()) {
+            if !out.contains(&k) {
+                out.push(k);
+            }
+        }
+    }
+    out
+}
+
 /// Return `(kind, original_heading)` if `line` is a section heading.
 ///
 /// A heading is a short line that — after stripping leading numbering
 /// ("1.", "2)", "IV.") and a trailing colon — matches a known phrase
 /// exactly. The exact-match requirement prevents sentences that merely start
 /// with "Methods…" from being treated as headings.
-pub(crate) fn detect_heading(line: &str) -> Option<(SectionKind, String)> {
+pub(crate) fn detect_heading(line: &str) -> Option<(SectionKind, String, Vec<SectionKind>)> {
     let trimmed = line.trim();
     if trimmed.is_empty() || trimmed.split_whitespace().count() > 5 {
         return None;
     }
     let stripped = regexes().heading_number.replace(trimmed, "");
     let phrase = stripped.trim().trim_end_matches(':').trim().to_lowercase();
-    classify_heading(&phrase).map(|kind| (kind, trimmed.to_string()))
+    let mut kinds = classify_heading_parts(&phrase);
+    if kinds.is_empty() {
+        return None;
+    }
+    // The FIRST named section governs, matching the lexicon this rule extends:
+    // "results and discussion" is already an entry and already resolves to
+    // Results. Taking the last instead made "Results & Discussion" a Discussion
+    // section while "Results and Discussion" stayed Results — the same heading
+    // classified two ways by which conjunction the author typed.
+    //
+    // For a heading whose other half names no section at all — "Experimental
+    // Setup and Results" — there is only one candidate and the choice does not
+    // arise.
+    let kind = kinds.remove(0);
+    Some((kind, trimmed.to_string(), kinds))
 }
 
 /// **A RUN-IN heading: the heading and the body share one line. §11 D189.**
@@ -99,7 +178,7 @@ pub(crate) fn detect_runin_heading(line: &str) -> Option<(SectionKind, String, S
         // trailing colon, which `detect_heading` already handles.
         return None;
     }
-    let (kind, heading) = detect_heading(prefix)?;
+    let (kind, heading, _also) = detect_heading(prefix)?;
     Some((kind, heading, rest.to_string()))
 }
 
@@ -111,7 +190,7 @@ pub(crate) fn detect_runin_heading(line: &str) -> Option<(SectionKind, String, S
 /// measuring its own copy of the rule against the corpus, and would agree with
 /// the classifier by construction.
 pub fn detect_heading_for_probe(line: &str) -> Option<(SectionKind, String)> {
-    detect_heading(line)
+    detect_heading(line).map(|(k, h, _)| (k, h))
 }
 
 /// [`detect_runin_heading`], for the same reason as above.
@@ -148,22 +227,25 @@ pub fn split_document(text: &str) -> (Option<String>, Vec<Section>) {
     // The fourth element is a RUN-IN remainder: body text that shared the
     // heading's line and must open the section (§11 D189). `None` for every
     // ordinary heading, which is all of them after the first.
-    let mut heads: Vec<(usize, SectionKind, String, Option<String>)> = Vec::new();
+    // The fifth element is the MIXED label: the other IMRaD sections a compound
+    // heading also names ("Results and Discussion" is one section and two names).
+    let mut heads: Vec<(usize, SectionKind, String, Option<String>, Vec<SectionKind>)> =
+        Vec::new();
     for (i, l) in lines.iter().enumerate() {
-        if let Some((k, h)) = detect_heading(l) {
-            heads.push((i, k, h, None));
+        if let Some((k, h, also)) = detect_heading(l) {
+            heads.push((i, k, h, None, also));
             continue;
         }
         // PREAMBLE ONLY. See `detect_runin_heading`: unrestricted this admits 37
         // lines across the corpus, 18 of them one parameter table.
         if heads.is_empty() {
             if let Some((k, h, rest)) = detect_runin_heading(l) {
-                heads.push((i, k, h, Some(rest)));
+                heads.push((i, k, h, Some(rest), Vec::new()));
             }
         }
     }
 
-    let first_head = heads.first().map(|(i, _, _, _)| *i).unwrap_or(lines.len());
+    let first_head = heads.first().map(|(i, _, _, _, _)| *i).unwrap_or(lines.len());
 
     // Preamble: everything before the first heading. First non-empty line is
     // the title; the rest (authors, affiliations) becomes an `Other` section.
@@ -186,15 +268,16 @@ pub fn split_document(text: &str) -> (Option<String>, Vec<Section>) {
                     kind: SectionKind::Other,
                     heading: String::new(),
                     paragraphs: rest,
+                    also_covers: Vec::new(),
                 });
             }
         }
     }
 
     // Each heading owns the lines up to the next heading.
-    for (idx, (line_i, kind, heading, runin)) in heads.iter().enumerate() {
+    for (idx, (line_i, kind, heading, runin, also)) in heads.iter().enumerate() {
         let body_start = line_i + 1;
-        let body_end = heads.get(idx + 1).map(|(n, _, _, _)| *n).unwrap_or(lines.len());
+        let body_end = heads.get(idx + 1).map(|(n, _, _, _, _)| *n).unwrap_or(lines.len());
         let body = &lines[body_start..body_end];
         // Reference lists are one entry per line — don't merge wrapped lines,
         // or adjacent references would collapse into a single paragraph.
@@ -210,7 +293,12 @@ pub fn split_document(text: &str) -> (Option<String>, Vec<Section>) {
             Some(rest) => std::iter::once(rest.clone()).chain(paragraphs).collect(),
             None => paragraphs,
         };
-        sections.push(Section { kind: *kind, heading: heading.clone(), paragraphs });
+        sections.push(Section {
+            kind: *kind,
+            heading: heading.clone(),
+            paragraphs,
+            also_covers: also.clone(),
+        });
     }
 
     (title, sections)
@@ -218,6 +306,105 @@ pub fn split_document(text: &str) -> (Option<String>, Vec<Section>) {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    /// **A heading that names Results alongside something else IS a Results
+    /// heading.** docs/PROBLEM_DOSSIER.md A2: R PAPER's
+    /// "IV. EXPERIMENTAL SETUP AND RESULTS" named none, so its 126 paragraphs
+    /// of results and tables were absorbed into the preceding Methods section
+    /// and the checklist reported "Results section missing" on a paper that has
+    /// one. Three of the six corpus manuscripts had no detected Results section.
+    #[test]
+    fn a_compound_heading_names_the_section_it_contains() {
+        for line in [
+            "EXPERIMENTAL SETUP AND RESULTS",
+            "IV. EXPERIMENTAL SETUP AND RESULTS",
+            "Experimental Setup and Results",
+            "Results & Discussion",
+        ] {
+            let got = detect_heading(line);
+            assert!(got.is_some(), "not recognised as a heading at all: {line:?}");
+            assert_eq!(
+                got.as_ref().map(|(k, _, _)| *k),
+                Some(SectionKind::Results),
+                "compound heading did not resolve to Results: {line:?} -> {got:?}"
+            );
+        }
+    }
+
+    /// **The MIXED label: the other sections the heading also names.**
+    /// "Results and Discussion" is one section in the document and two in the
+    /// IMRaD vocabulary; `kind` carries the governing one and `also_covers`
+    /// carries the rest, so asking "does this paper have a Discussion" is not
+    /// answered no because the author combined two headings.
+    #[test]
+    fn a_compound_heading_records_the_other_sections_it_names() {
+        // NOT "Results and Discussion": that is an EXACT lexicon entry, so it
+        // never reaches the compound path and carries no mixed label. A
+        // deletion test proved the point — disabling the compound path left an
+        // earlier version of this assertion GREEN, because it accepted both an
+        // empty label and a populated one. An assertion that cannot fail is not
+        // a test.
+        let (kind, _, also) = detect_heading("Results & Discussion").expect("a heading");
+        assert_eq!(kind, SectionKind::Results, "the first named section governs");
+        assert_eq!(
+            also,
+            vec![SectionKind::Discussion],
+            "the other section the heading names must be recorded"
+        );
+        // An ordinary heading is not mixed.
+        let (_, _, plain) = detect_heading("Methods").expect("a heading");
+        assert!(plain.is_empty(), "an ordinary heading must carry no mixed label: {plain:?}");
+    }
+
+    /// **NEGATIVE CONTROL: a heading about OTHER people's results is not this
+    /// manuscript's Results section.**
+    ///
+    /// Rejected twice over, and both reasons are load-bearing: seven words
+    /// exceeds the five-word shape gate, and "results of prior studies" is not
+    /// a lexicon phrase, so the compound path finds nothing either.
+    #[test]
+    fn a_heading_about_other_work_does_not_become_this_papers_results() {
+        for line in [
+            "Related Work and Results of Prior Studies",
+            "Comparison with Results Reported Elsewhere",
+            "Discussion of Results in the Literature",
+        ] {
+            assert_ne!(
+                detect_heading(line).map(|(k, _, _)| k),
+                Some(SectionKind::Results),
+                "invented a Results section from a heading about other work: {line:?}"
+            );
+        }
+    }
+
+    /// **NEGATIVE CONTROL: a table-of-contents line is not a heading.**
+    ///
+    /// This one is a REGRESSION THE CORPUS CAUGHT. The first version of the
+    /// compound rule admitted `final final L.pdf`'s contents line — five
+    /// whitespace tokens, so it passed the shape gate — and split a clean
+    /// "results" out of the dotted leader, inventing a Results section 200 pages
+    /// before the real one. §11 D182 is the same hazard.
+    #[test]
+    fn a_table_of_contents_line_is_not_a_compound_heading() {
+        for line in [
+            "RESULTS AND DISCUSSION .................................................. 260",
+            "Materials and Methods ........ 41",
+            "Results and Discussion 260",
+        ] {
+            assert_eq!(
+                detect_heading(line).map(|(k, _, _)| k),
+                None,
+                "a contents line became a heading: {line:?}"
+            );
+        }
+        // …while the real heading, with no leader and no page number, still is.
+        assert_eq!(
+            detect_heading("RESULTS AND DISCUSSION").map(|(k, _, _)| k),
+            Some(SectionKind::Results)
+        );
+    }
+
     use super::*;
 
     #[test]

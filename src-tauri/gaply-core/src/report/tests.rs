@@ -2710,9 +2710,20 @@ fn a_heading_the_classifier_does_not_know_is_not_a_missing_section() {
     use crate::journal_standards::Standard;
     use crate::report::ItemStatus;
 
+    // "IV. EXPERIMENTS AND RESULTS" USED TO BE IN THIS LIST and is now handled
+    // by the classifier itself (§11 A2, 22 Sep 2026): a heading naming Results
+    // alongside something else is now a Results heading, so the precondition
+    // below — that the classifier misses it — is no longer true of it. It moved
+    // to `a_compound_heading_is_now_found_by_the_classifier_not_the_fallback`,
+    // which asserts the section exists rather than that the fallback rescued it.
+    //
+    // This fallback is NOT obsolete: "4.8 INTERPRETATION OF RESULTS" names one
+    // section and a preposition, so no conjunction split reaches it and the
+    // classifier still misses it. The 20-manuscript measurement in this doc
+    // comment is what the fallback is for, and it still is.
     for (heading, body) in [
-        ("IV. EXPERIMENTS AND RESULTS", "Accuracy reached 96.42% on the combined set."),
         ("4.8 INTERPRETATION OF RESULTS", "Provision rose with firm size."),
+        ("5 DISCUSSION OF THE RESULTS", "The trend held across both cohorts."),
     ] {
         let text = format!("A Title\n\n1. Background\n\nSome prose.\n\n{heading}\n{body}\n");
         let ex = crate::extract::extract_from_text(&text);
@@ -2734,6 +2745,36 @@ fn a_heading_the_classifier_does_not_know_is_not_a_missing_section() {
             v.detail
         );
     }
+}
+
+/// **A compound heading is now found by the CLASSIFIER, not by the fallback.**
+///
+/// `"IV. EXPERIMENTS AND RESULTS"` used to reach PRISMA 16a through
+/// `report`'s heading-shaped fallback scan, whose detail says the absence is
+/// "a fact about the extractor". After §11 A2 the extractor finds it, so the
+/// row is Met because the manuscript HAS a Results section — a stronger and
+/// more honest basis for the same verdict.
+///
+/// Both halves are asserted, because the point is which mechanism answered.
+#[test]
+fn a_compound_heading_is_now_found_by_the_classifier_not_the_fallback() {
+    use crate::journal_standards::Standard;
+    use crate::report::ItemStatus;
+    let text = "A Title\n\n1. Background\n\nSome prose.\n\nIV. EXPERIMENTS AND RESULTS\n\
+                Accuracy reached 96.42% on the combined set.\n";
+    let ex = crate::extract::extract_from_text(text);
+    assert!(
+        ex.sections.iter().any(|s| s.kind == crate::extract::SectionKind::Results),
+        "the classifier must now find a compound Results heading"
+    );
+    let e = crate::report::evaluate(Standard::Prisma, &ex, text);
+    let v = e.verdicts.iter().find(|v| v.item == "16a").expect("PRISMA 16a");
+    assert_eq!(v.status, ItemStatus::Met, "{}", v.detail);
+    assert!(
+        !v.detail.contains("fact about the extractor"),
+        "answered by the fallback, not the classifier — the fix did not take: {}",
+        v.detail
+    );
 }
 
 /// The other direction: a manuscript with genuinely no Results section is still

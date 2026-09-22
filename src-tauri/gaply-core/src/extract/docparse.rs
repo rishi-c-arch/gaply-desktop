@@ -307,7 +307,7 @@ pub(crate) fn reflow_pdf_lines(lines: &[(Option<u32>, &str)]) -> Vec<(Option<u32
     // whole line stream is in hand before any block decision is made.
     let ref_convention = lines_view
         .iter()
-        .position(|l| matches!(sections::detect_heading(l), Some((sections::SectionKind::References, _))))
+        .position(|l| matches!(sections::detect_heading(l), Some((sections::SectionKind::References, _, _))))
         .map(|i| classify_references(&lines_view[i + 1..], &furniture))
         .unwrap_or(RefConvention::Unclassified);
     let mut in_references = false;
@@ -364,7 +364,7 @@ pub(crate) fn reflow_pdf_lines(lines: &[(Option<u32>, &str)]) -> Vec<(Option<u32
             }
             continue;
         }
-        if let Some((kind, _)) = sections::detect_heading(line) {
+        if let Some((kind, _, _)) = sections::detect_heading(line) {
             flush(&mut cur, &mut cur_page, &mut blocks);
             in_references = kind == sections::SectionKind::References;
             blocks.push((*page, t.to_string()));
@@ -1634,7 +1634,7 @@ mod reference_convention_tests {
         let furn = page_furniture(&lines);
         let i = lines
             .iter()
-            .position(|l| matches!(crate::extract::sections::detect_heading(l), Some((SectionKind::References, _))))
+            .position(|l| matches!(crate::extract::sections::detect_heading(l), Some((SectionKind::References, _, _))))
             .expect("fixture has a References heading");
         classify_references(&lines[i + 1..], &furn)
     }
@@ -1677,7 +1677,7 @@ mod reference_convention_tests {
         let furn = no_furniture();
         let i = lines
             .iter()
-            .position(|l| matches!(crate::extract::sections::detect_heading(l), Some((SectionKind::References, _))))
+            .position(|l| matches!(crate::extract::sections::detect_heading(l), Some((SectionKind::References, _, _))))
             .unwrap();
         let body = &lines[i + 1..];
         // the `any` form WOULD flip — assert the fixture really exercises it

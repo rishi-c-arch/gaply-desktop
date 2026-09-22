@@ -706,6 +706,7 @@ mod tests {
         let section = Section {
             kind: SectionKind::References,
             heading: "References".into(),
+            also_covers: Vec::new(),
             paragraphs: vec![
                 "Smith, J., & Clark, T. (2023). Sleep and memory in adults. Journal of Sleep, 12(3), 45-67. https://doi.org/10.1234/jsleep.2023.045".into(),
             ],
@@ -724,6 +725,7 @@ mod tests {
         let section = Section {
             kind: SectionKind::References,
             heading: "References".into(),
+            also_covers: Vec::new(),
             paragraphs: vec!["Jones, P. (2019). Memory under deprivation. Cognitive Science, 5(1), 10-20.".into()],
         };
         let r = &parse_reference_list(&section)[0];

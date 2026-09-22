@@ -134,7 +134,7 @@ pub fn chunk_paged(blocks: &[PagedBlock], chunk_tokens: usize, overlap: usize) -
 
         // A heading defines the section for everything after it and is not
         // itself chunked as evidence.
-        if let Some((kind, heading)) = sections::detect_heading(&block.text) {
+        if let Some((kind, heading, _also)) = sections::detect_heading(&block.text) {
             section = Some(section_label(kind, &heading));
             continue;
         }
