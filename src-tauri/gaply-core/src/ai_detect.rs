@@ -260,6 +260,54 @@ pub struct SectionAiScore {
     pub uncertainty: String,
 }
 
+/// **Why a region of the manuscript was left out of the AI-writing signal.**
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProseExclusionReason {
+    /// A bibliography. Author names, titles and years in a fixed citation
+    /// template are the most predictable text in a manuscript and the author
+    /// did not write them as prose.
+    ReferenceList,
+    /// A paragraph the extractor identified as a table.
+    Table,
+}
+
+impl ProseExclusionReason {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::ReferenceList => "reference list (not authored prose)",
+            Self::Table => "table (not authored prose)",
+        }
+    }
+}
+
+/// One excluded region, named so a reader can see what was left out.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProseExclusion {
+    pub reason: ProseExclusionReason,
+    pub section: SectionKind,
+    pub heading: String,
+    pub paragraphs: usize,
+    pub chars: usize,
+}
+
+/// **What the signal was computed over, and what it was not.**
+///
+/// NOTHING EXCLUDED IS HIDDEN: every excluded region is listed with its reason,
+/// and `not_excluded` names non-prose kinds this pass does NOT identify, so a
+/// reader is not left to assume the selection is complete.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ProseSelection {
+    pub analysed_chars: usize,
+    pub analysed_paragraphs: usize,
+    pub excluded_chars: usize,
+    pub excluded: Vec<ProseExclusion>,
+    /// Non-prose the extractor does not locate in this path, stated rather than
+    /// silently included. Equations are the known case: the equation layer
+    /// carries a paragraph ordinal but no section, and is not run here.
+    pub not_excluded: Vec<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AiDetectionReport {
     pub model: String,
@@ -271,6 +319,9 @@ pub struct AiDetectionReport {
     pub confidence: String,
     /// Mandatory disclaimer. Never empty.
     pub disclaimer: String,
+    /// **What the signal was computed over.** See [`ProseSelection`].
+    #[serde(default)]
+    pub prose: ProseSelection,
     /// **Which deep tier actually scored this text.**
     ///
     /// `model` is the model's own display NAME, which is prose: it answers
@@ -448,6 +499,7 @@ fn build_report(
     deep_kind: DeepKind,
     sections: Vec<SectionAiScore>,
     all_ppls: Vec<f64>,
+    prose: ProseSelection,
 ) -> AiDetectionReport {
     let overall_mean = mean(&all_ppls);
     let overall_burst = std_dev(&all_ppls);
@@ -460,6 +512,7 @@ fn build_report(
         confidence: "low".to_string(),
         disclaimer: AI_DISCLAIMER.to_string(),
         deep_kind: Some(deep_kind),
+        prose,
     }
 }
 
@@ -479,7 +532,20 @@ pub fn detect_text(
         uncertainty: SECTION_UNCERTAINTY.to_string(),
     };
     let ppls = scores.iter().map(|s| s.perplexity).collect();
-    build_report(model, deep_kind, vec![section], ppls)
+    // A single block has no section structure, so there is nothing to select
+    // over and nothing is excluded. Stated in the record rather than left to a
+    // reader to infer from an empty list.
+    let prose = ProseSelection {
+        analysed_chars: text.chars().count(),
+        analysed_paragraphs: 1,
+        not_excluded: vec![
+            "this is the unstructured single-block path: no reference list or \
+             table can be identified, so nothing was excluded"
+                .to_string(),
+        ],
+        ..Default::default()
+    };
+    build_report(model, deep_kind, vec![section], ppls, prose)
 }
 
 /// Detect per Extraction-Agent section, with an aggregated overall score.
@@ -491,11 +557,90 @@ pub fn detect_extraction(
 ) -> AiDetectionReport {
     let mut sections = Vec::new();
     let mut all_ppls = Vec::new();
-    for sec in &result.sections {
-        let text = sec.paragraphs.join(" ");
+    // **PROSE ONLY.** Measured 22 Sep 2026 (docs/PROBLEM_DOSSIER.md A6): scoring
+    // the whole manuscript made the verdict a property of the BIBLIOGRAPHY.
+    // R PAPER's References scored perplexity 5.5 and its table-heavy section
+    // 7.5, against 12.5-13.8 for its prose — the same band as the ten
+    // known-human abstracts in `evals/detector` (12.6-19.9, 0 of 10 flagged).
+    // The document mean landed at 7.9 and the paper was reported "concern".
+    // A citation template is the most predictable text in a manuscript and the
+    // author did not write it as prose.
+    let mut prose = ProseSelection {
+        not_excluded: vec![
+            "equations: the equation layer records a paragraph ordinal but no \
+             section and is not run in this path, so equation blocks are still \
+             scored as prose"
+                .to_string(),
+            // MEASURED 22 Sep 2026 and named rather than silently included.
+            // `detect_table` matches a table CAPTION ("Table 2 presents…"), not
+            // a table BODY. On R PAPER the body is 126 paragraphs of one cell
+            // each — median FIVE characters, "71.3", "KNN [4]" — filed under a
+            // Methods heading, scoring perplexity 7.5, and it is what still
+            // drags the document verdict down after the reference list is
+            // removed. Identifying it is extractor work with its own
+            // before/after measurement (§11 D168-C), not a length threshold
+            // fitted here.
+            "table bodies: the extractor locates table CAPTIONS, not the cell \
+             paragraphs beneath them, so a table body is still scored as prose"
+                .to_string(),
+        ],
+        ..Default::default()
+    };
+    for (si, sec) in result.sections.iter().enumerate() {
+        if sec.kind == SectionKind::References {
+            let chars = sec.paragraphs.iter().map(|p| p.chars().count()).sum();
+            prose.excluded_chars += chars;
+            prose.excluded.push(ProseExclusion {
+                reason: ProseExclusionReason::ReferenceList,
+                section: sec.kind,
+                heading: sec.heading.clone(),
+                paragraphs: sec.paragraphs.len(),
+                chars,
+            });
+            continue;
+        }
+        // Paragraphs the extractor already identified as tables, matched on
+        // section + paragraph (a `Location` may carry `section_index: None`,
+        // and full equality would then never match — the §11 A4 trap).
+        let table_paras: std::collections::BTreeSet<usize> = result
+            .tables
+            .iter()
+            .filter(|t| {
+                t.location.section == sec.kind
+                    && t.location.section_index.map(|i| i == si).unwrap_or(true)
+            })
+            .map(|t| t.location.paragraph)
+            .collect();
+        let kept: Vec<&String> = sec
+            .paragraphs
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| !table_paras.contains(i))
+            .map(|(_, p)| p)
+            .collect();
+        if !table_paras.is_empty() {
+            let chars: usize = sec
+                .paragraphs
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| table_paras.contains(i))
+                .map(|(_, p)| p.chars().count())
+                .sum();
+            prose.excluded_chars += chars;
+            prose.excluded.push(ProseExclusion {
+                reason: ProseExclusionReason::Table,
+                section: sec.kind,
+                heading: sec.heading.clone(),
+                paragraphs: table_paras.len(),
+                chars,
+            });
+        }
+        let text = kept.iter().map(|p| p.as_str()).collect::<Vec<_>>().join(" ");
         if text.trim().is_empty() {
             continue;
         }
+        prose.analysed_chars += text.chars().count();
+        prose.analysed_paragraphs += kept.len();
         let (mean_ppl, burst, scores) = score_block(model, &text);
         if scores.is_empty() {
             continue;
@@ -510,7 +655,7 @@ pub fn detect_extraction(
             uncertainty: SECTION_UNCERTAINTY.to_string(),
         });
     }
-    build_report(model, deep_kind, sections, all_ppls)
+    build_report(model, deep_kind, sections, all_ppls, prose)
 }
 
 // ---------------------------------------------------------------------------
@@ -2193,6 +2338,65 @@ mod tests {
     }
 
     // ---- perplexity directionality: AI sample lower than human sample ----
+
+    /// **The signal is computed over PROSE, and the bibliography is named as
+    /// excluded rather than silently dropped.**
+    ///
+    /// Measured 22 Sep 2026 (docs/PROBLEM_DOSSIER.md A6): R PAPER's References
+    /// scored perplexity 5.5 against 12.5-13.8 for its prose — the same band as
+    /// the ten known-human abstracts in `evals/detector` — and dragged the
+    /// document mean to 7.9, reporting the paper as "concern". A citation
+    /// template is the most predictable text in a manuscript and the author did
+    /// not write it as prose.
+    #[test]
+    fn the_reference_list_is_excluded_from_the_signal_and_said_so() {
+        let text = "A Title\n\nIntroduction\n\nThe present study examines how \
+                    sediment chemistry responds to seasonal inflow across four \
+                    lakes, and why the earlier surveys disagreed.\n\n\
+                    References\n\nSmith J, Jones A. Limnology of shallow lakes. \
+                    J Lim. 2011;4:11-19.\n\nBrown K. Sediment transport. \
+                    Water Res. 2014;7:88-94.\n";
+        let ex = crate::extract::extract_from_text(text);
+        let rep = detect_extraction(&HeuristicModel::gpt2_like(), DeepKind::Absent, &ex);
+
+        let refs: Vec<_> = rep
+            .prose
+            .excluded
+            .iter()
+            .filter(|e| e.reason == ProseExclusionReason::ReferenceList)
+            .collect();
+        assert_eq!(refs.len(), 1, "the reference list must be excluded: {:?}", rep.prose);
+        assert!(refs[0].chars > 0 && refs[0].paragraphs > 0, "{:?}", refs[0]);
+        assert!(rep.prose.analysed_chars > 0, "prose must still be analysed");
+
+        // No scored section is the bibliography.
+        assert!(
+            !rep.sections.iter().any(|s| s.section == SectionKind::References),
+            "the bibliography was scored anyway: {:?}",
+            rep.sections
+        );
+        // NOTHING EXCLUDED IS HIDDEN, and neither is what was NOT excluded.
+        assert!(
+            rep.prose.not_excluded.iter().any(|n| n.contains("table bodies")),
+            "the report must name the non-prose it does NOT identify: {:?}",
+            rep.prose.not_excluded
+        );
+    }
+
+    /// **NEGATIVE CONTROL: a manuscript with no bibliography has nothing
+    /// excluded, and its signal is untouched.** If this moves, the change is
+    /// not excluding non-prose, it is altering the signal generally.
+    #[test]
+    fn a_manuscript_with_no_reference_list_has_nothing_excluded() {
+        let text = "A Title\n\nIntroduction\n\nThe present study examines how \
+                    sediment chemistry responds to seasonal inflow across four \
+                    lakes, and why the earlier surveys disagreed.\n";
+        let ex = crate::extract::extract_from_text(text);
+        let rep = detect_extraction(&HeuristicModel::gpt2_like(), DeepKind::Absent, &ex);
+        assert!(rep.prose.excluded.is_empty(), "nothing to exclude: {:?}", rep.prose.excluded);
+        assert_eq!(rep.prose.excluded_chars, 0);
+        assert!(rep.prose.analysed_chars > 0);
+    }
 
     #[test]
     fn ai_sample_scores_lower_perplexity_than_human() {
