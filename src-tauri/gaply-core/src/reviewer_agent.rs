@@ -1609,6 +1609,69 @@ mod tests {
         }
     }
 
+    /// **The proxy forwards ONLY `summary` and `instruction` to the model.
+    /// Anything a top-level sibling carries is dropped silently, and the
+    /// VALIDATOR never notices — it walks every string leaf, so an oversized
+    /// sibling is refused while a well-formed one sails through and is then
+    /// discarded one layer later.**
+    ///
+    /// Measured 22 Sep 2026 by injecting sentinels through `OpenAIClient` with
+    /// a mock transport: the user message is
+    /// `{"summary": ..., "instruction": ...}` and nothing else.
+    /// `claude_client.py:54` builds the identical projection, so this is a
+    /// property of the proxy, not of one provider.
+    ///
+    /// §11 D205 was invalidated by exactly this: a probe put document context in
+    /// top-level siblings, the validator accepted the payload, the forwarder
+    /// dropped the fields, and the run was read as evidence about context when
+    /// the model had never seen any. `build_review_payload` gets this right —
+    /// its own comment says so — and this test is what stops a future field from
+    /// getting it wrong.
+    #[test]
+    fn everything_the_model_must_read_survives_the_proxys_summary_instruction_projection() {
+        let (payload, _sent) =
+            build_review_payload(&report_with_sentinel(), &journal(), &[], "run-test");
+
+        // The top-level key set IS the contract. `task` and `run_id` are
+        // server-side only (metering dedups by run_id) and are MEANT not to
+        // reach the model; every other key would be silently discarded.
+        let top: Vec<&str> = payload.as_object().unwrap().keys().map(String::as_str).collect();
+        assert_eq!(
+            top,
+            vec!["instruction", "run_id", "summary", "task"],
+            "a new top-level key was added to the reviewer payload. The proxy forwards ONLY \
+             `summary` and `instruction` (openai_client.py / claude_client.py), so anything \
+             else is dropped before the model sees it. If the model must read it, nest it \
+             under `summary`; if it is server-side only, add it here with a comment saying so."
+        );
+
+        // Now apply the forwarder's projection and check the reviewer still has
+        // everything it is instructed to reason over.
+        let forwarded = serde_json::json!({
+            "summary": payload["summary"],
+            "instruction": payload["instruction"],
+        });
+        let wire = serde_json::to_string(&forwarded).unwrap();
+        for needle in [
+            "overall_verdict", // the anchor the recommendation leans on
+            "findings",
+            "\"f1\"", // a finding id the reply must cite
+            "checklist",
+            "\"chk1\"",
+            "journal",
+            "quartile",
+        ] {
+            assert!(
+                wire.contains(needle),
+                "{needle:?} does not survive the proxy's projection — the model is being \
+                 asked to ground its reply in something it cannot see"
+            );
+        }
+        // And the projection must still be the whole per-run input: `summary`
+        // is an OBJECT, so json.dumps carries the nested tree intact.
+        assert!(payload["summary"].is_object(), "summary must be the nested per-run input");
+    }
+
     #[test]
     fn payload_excludes_manuscript_and_is_validator_compliant() {
         let (payload, sent) = build_review_payload(&report_with_sentinel(), &journal(), &[], "run-test");

@@ -16257,6 +16257,105 @@ each, beside `grrb-cloud-gpt4omini-raw.tsv` on the same set.
 
 ### D205 — HOLD: position was the missing input, and restoring it ties the no-skill line rather than clearing it
 
+> ## ⚠ WITHDRAWN 22 Sep 2026 — THE CONTEXT NEVER REACHED THE MODEL
+>
+> **The proxy forwards only `summary` and `instruction` to the provider. This
+> entry's context travelled as TOP-LEVEL SIBLINGS of `summary`, so the section
+> heading and both neighbouring paragraphs were discarded before the request
+> left the proxy.** `gpt-4o` answered the same paragraph this entry claims it
+> answered with context, and never saw a heading or a neighbour.
+>
+> Measured, not read — sentinels injected through `OpenAIClient` with a mock
+> transport, which is the only way to see what leaves the proxy:
+>
+> ```
+> user message sent to the provider:
+>   {"summary": "SUMMARY-SENTINEL-BBB", "instruction": "INSTRUCTION-SENTINEL-DDD"}
+>   PREV-SENTINEL-AAA        NO
+>   NEXT-SENTINEL-CCC        NO
+>   MATERIALS AND METHODS    NO
+> ```
+>
+> `claude_client.py:54` builds the identical projection, so this is a property
+> of the proxy rather than of one provider.
+>
+> **What this entry actually measured is a PROMPT EDIT**: §11 D204's payload
+> with a 315-character prefix added to the instruction — a prefix describing
+> three fields the model could not see. That is not an inference needing a
+> control run: the request that left the proxy was provably
+> `{summary: paragraph, instruction: FRAMING + question}`.
+>
+> ### What is withdrawn
+>
+> * **"+7.5 and +11.2 points from document context"** — the deltas are real
+>   changes in behaviour and they are **not** attributable to position.
+> * **"Every point of the gain is position, and it is visible in the rows"** —
+>   the outside-Methods collapse from 53% to 34%. Non-Methods paragraphs are the
+>   marginal ones, so a uniformly more conservative model sheds its weakest
+>   `yes` answers there first. The correlation is a consequence, not a mechanism.
+> * **The claim that §11 D204's diagnosis was confirmed.** It is untested.
+> * **The framing deviation recorded below as minor.** It was the entire
+>   independent variable.
+>
+> ### What survives
+>
+> * **The three-run spread and the decision to HOLD.** Variant B's 49.0–52.1%
+>   against a 50.0% no-skill line is a measurement of *some* payload, and the
+>   single-run-decides-nothing rule stands on its own. Neither is evidence about
+>   context.
+> * **The 65.0% / 60.9% combined-rule figure**, which is now the ONLY position
+>   result in the entry. That filter is applied offline against the ground-truth
+>   heading and never depended on the model seeing anything. Still a hypothesis
+>   designed and measured on the same set.
+> * **The reopening condition**, unchanged — and its premise is now untested
+>   rather than supported.
+> * **The validator pool (144/160, a strict superset of D204's 12).** The
+>   validator walks every string leaf, so it genuinely saw all four fields.
+>   Nesting the context under `summary` changes nothing: re-measured, the nested
+>   shape passes the same **144/160**, so the corrected re-run is a clean swap
+>   and remains comparable to both D204 and this run.
+>
+> ### Why nothing failed
+>
+> Every instrument agreed, and each was answering a different question:
+>
+> | instrument | said | was answering |
+> |---|---|---|
+> | the validator | 16 of 160 refused, a superset of D204's 12 | "are these fields small enough" |
+> | the provider | 200, `gpt-4o-2024-08-06` | "did a request succeed" |
+> | the scores | 42.2% / 50.3%, up from 34.7% / 39.1% | "did the answers change" |
+> | the row-level check | outside-Methods yes-rate collapsed | "did they change where I expected" |
+>
+> **The last one is the dangerous one.** It was a prediction, written down
+> before the run, that came true — and agreement is what removes the prompt to
+> check. This is the fourth entry in this log to end that way.
+>
+> **The rule that was broken was already written down in this repository**, in
+> `reviewer_agent.rs:596`: *"Everything the model must see lives under `summary`
+> (the proxy forwards only `summary` + `instruction` to the model)."* The
+> production payload builder gets it right. A probe written four files away got
+> it wrong, and nothing connected the two — CLAUDE.md's jurisdiction rule, met
+> from the far side: a comment true of the file it sits in, describing a
+> constraint that binds the whole crate.
+>
+> ### The guards this produced
+>
+> * `gaply-core/tests/proxy_forwards_only_summary_and_instruction.rs` — scans
+>   both provider clients and pins that each forwards exactly those two keys.
+>   Reddens if a key is added OR removed, and fails loudly rather than vacuously
+>   if the scan stops matching how the proxy is written.
+> * `reviewer_agent::tests::everything_the_model_must_read_survives_the_proxys_summary_instruction_projection`
+>   — pins the reviewer payload's top-level key set and applies the forwarder's
+>   projection to a real payload, asserting the findings, checklist, journal and
+>   `overall_verdict` all survive it.
+>
+> Both deletion-tested in both directions: add a forwarded key, add a top-level
+> key, and break the scan's own matcher — three predictions, three reds.
+>
+> **A corrected re-run, with the context nested under `summary`, has not been
+> done. Until it is, nothing in this log says whether document context helps.**
+
+
 §11 D204 declined the scientific layer against three model tiers and wrote the
 reopening condition as an INPUT rather than a model: *"whether a paragraph
 describes what THESE authors did is a fact about its place in a document, and the
