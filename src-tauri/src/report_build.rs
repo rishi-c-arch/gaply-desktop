@@ -73,10 +73,9 @@ pub fn reported_statistics(extraction: &ExtractionResult) -> Vec<ReportedStatist
             ReportedStatistic {
                 kind,
                 reported,
-                location: format!(
-                    "{}, paragraph {}",
+                location: gaply_core::report_model::reported_statistic_location(
                     section_name(s.location.section),
-                    s.location.paragraph + 1
+                    &s.location,
                 ),
                 // THE SAME QUESTION THE RULE ASKS, through the same function
                 // (§49). Before shape 3 the rule scanned TEXT while this joined

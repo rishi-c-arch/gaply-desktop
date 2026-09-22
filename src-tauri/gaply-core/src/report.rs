@@ -653,7 +653,7 @@ pub fn compile_report(
                 confidence: 1.0,
                 provenance: vec![
                     format!("rule:{:?} ({})", flag.rule, flag.rule.severity().as_str()),
-                    format!("location:{:?} paragraph {}", flag.location.section, flag.location.paragraph),
+                    crate::report_model::provenance_location(&flag.location),
                     "agent:validation_maths (deterministic)".into(),
                 ],
             },

@@ -146,7 +146,10 @@ export function validationToReport(r: StatsValidityReport): PublishReadyReport {
     confidence: 1.0,
     provenance: [
       `rule:${f.rule} (${f.severity})`,
-      `location:${f.location.section} paragraph ${f.location.paragraph}`,
+      // 1-BASED, matching every other surface a reader sees (gaply_core's
+      // `report_model::human_paragraph`). This mirror showed "paragraph 0"
+      // while the exported PDF showed "paragraph 1" for the same finding.
+      `location:${f.location.section} paragraph ${f.location.paragraph + 1}`,
       'agent:validation_maths (deterministic)',
     ],
     section: f.location.section,
