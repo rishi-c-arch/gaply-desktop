@@ -1,0 +1,332 @@
+# model: gpt-4o-2024-08-06, read from the API's own result.model echo on every row, not from config
+# weights: OpenAI hosted; proxy started with OPENAI_MODEL=gpt-4o, which resolved to gpt-4o-2024-08-06
+# run: methods_ctx_probe, run 2 of 3, 22 Sep 2026, 160 paragraphs of evals/grrb/scientific_extraction_ctx.jsonl
+# run: variants A and B, 160 rows each; ground truth is the two-author corrected set (§11 D198), 26 genuine / 134 not
+# run: the §11 D204 payload PLUS the paragraph's place in its document — section_heading,
+# run: preceding_paragraph, following_paragraph — as four separate fields. 144 of 160 pass the
+# run: proxy's structured validator; the 16 excluded are a strict superset of §11 D204's 12.
+# run: GRRB_DELAY_MS=300, max_tokens 24, result.text read verbatim and parsed fence-tolerantly.
+# run: THREE RUNS because the proxy sets no temperature (§11 D204 OPEN) — every reply is sampled
+# run: at 1.0, and variant B's spread (49.0-52.1%) straddles the 50% decision line. §11 D205.
+# columns: variant, id, label (1=genuine methods statement), answer, section kind, detail
+variant	id	label	answer	kind	detail
+A	grrb-sci-000	0	no	Results	stop=stop {"answer":"no"}
+A	grrb-sci-001	0	no	Results	stop=stop {"answer":"no"}
+A	grrb-sci-002	1	yes	Methods	stop=stop {"answer":"yes"}
+A	grrb-sci-003	0	no	Introduction	stop=stop {"answer":"no"}
+A	grrb-sci-004	0	yes	Introduction	stop=stop ```json {"answer":"yes"} ```
+A	grrb-sci-005	1	yes	Introduction	stop=stop ```json {"answer":"yes"} ```
+A	grrb-sci-006	1	yes	Introduction	stop=stop ```json {"answer":"yes"} ```
+A	grrb-sci-007	1	yes	Methods	stop=stop ```json {"answer":"yes"} ```
+A	grrb-sci-008	1	yes	Methods	stop=stop ```json {"answer":"yes"} ```
+A	grrb-sci-009	0	no	Methods	stop=stop ```json {"answer":"no"} ```
+A	grrb-sci-010	1	yes	Methods	stop=stop ```json {"answer":"yes"} ```
+A	grrb-sci-011	0	no	Methods	stop=stop {"answer":"no"}
+A	grrb-sci-012	0	no	Methods	stop=stop ```json {"answer":"no"} ```
+A	grrb-sci-013	0	no	Methods	stop=stop ```json {"answer":"no"} ```
+A	grrb-sci-014	0	no	Methods	stop=stop ```json {"answer":"no"} ```
+A	grrb-sci-015	0	yes	Methods	stop=stop {"answer":"yes"}
+A	grrb-sci-016	1	yes	Methods	stop=stop ```json {"answer":"yes"} ```
+A	grrb-sci-017	0	yes	Methods	stop=stop {"answer":"yes"}
+A	grrb-sci-018	0	no	Methods	stop=stop {"answer":"no"}
+A	grrb-sci-019	1	yes	Methods	stop=stop {"answer":"yes"}
+A	grrb-sci-020	1	yes	Methods	stop=stop {"answer":"yes"}
+A	grrb-sci-021	0	yes	Other	stop=stop {"answer":"yes"}
+A	grrb-sci-022	0	yes	Abstract	stop=stop ```json {"answer":"yes"} ```
+A	grrb-sci-023	0	no	Abstract	stop=stop {"answer":"no"}
+A	grrb-sci-024	0	no	Introduction	stop=stop {"answer":"no"}
+A	grrb-sci-025	0	yes	Introduction	stop=stop ```json {"answer":"yes"} ```
+A	grrb-sci-026	0	yes	Introduction	stop=stop ```json {"answer":"yes"} ```
+A	grrb-sci-027	0	no	Introduction	stop=stop {"answer":"no"}
+A	grrb-sci-028	0	no	Introduction	stop=stop ```json {"answer":"no"} ```
+A	grrb-sci-029	0	yes	Methods	stop=stop {"answer":"yes"}
+A	grrb-sci-030	1	yes	Methods	stop=stop ```json {"answer":"yes"} ```
+A	grrb-sci-031	1	yes	Methods	stop=stop ```json {"answer":"yes"} ```
+A	grrb-sci-032	0	no	Methods	stop=stop ```json {"answer":"no"} ```
+A	grrb-sci-033	0	no	Methods	stop=stop {"answer":"no"}
+A	grrb-sci-034	0	no	Methods	stop=stop {"answer":"no"}
+A	grrb-sci-035	0	no	Methods	stop=stop {"answer":"no"}
+A	grrb-sci-036	0	no	Methods	stop=stop ```json {"answer":"no"} ```
+A	grrb-sci-037	0	no	Methods	stop=stop {"answer":"no"}
+A	grrb-sci-038	0	no	Methods	stop=stop {"answer":"no"}
+A	grrb-sci-039	0	no	Methods	stop=stop {"answer":"no"}
+A	grrb-sci-040	0	no	Methods	stop=stop {"answer":"no"}
+A	grrb-sci-041	0	no	Methods	stop=stop ```json {"answer":"no"} ```
+A	grrb-sci-042	0	no	Methods	stop=stop ```json {"answer":"no"} ```
+A	grrb-sci-043	0	no	Methods	stop=stop ```json {"answer":"no"} ```
+A	grrb-sci-044	0	no	Methods	stop=stop {"answer":"no"}
+A	grrb-sci-045	0	no	Methods	stop=stop {"answer":"no"}
+A	grrb-sci-046	0	no	Methods	stop=stop ```json {"answer":"no"} ```
+A	grrb-sci-047	0	no	Discussion	stop=stop ```json {"answer":"no"} ```
+A	grrb-sci-048	0	excluded	Conclusion	422 Unprocessable Entity: {"detail":{"error":"validation_failed","reason":"a field with 10 sentences reads like raw prose, not a structured summary po
+A	grrb-sci-049	0	yes	Methods	stop=stop {"answer":"yes"}
+A	grrb-sci-050	1	yes	Abstract	stop=stop ```json {"answer":"yes"} ```
+A	grrb-sci-051	0	no	Introduction	stop=stop {"answer":"no"}
+A	grrb-sci-052	1	yes	Methods	stop=stop ```json {"answer":"yes"} ```
+A	grrb-sci-053	1	yes	Methods	stop=stop ```json {"answer":"yes"} ```
+A	grrb-sci-054	0	no	Methods	stop=stop {"answer":"no"}
+A	grrb-sci-055	1	excluded	Methods	422 Unprocessable Entity: {"detail":{"error":"validation_failed","reason":"a field with 15 sentences reads like raw prose, not a structured summary po
+A	grrb-sci-056	0	yes	Methods	stop=stop {"answer":"yes"}
+A	grrb-sci-057	1	yes	Methods	stop=stop {"answer":"yes"}
+A	grrb-sci-058	1	yes	Methods	stop=stop {"answer":"yes"}
+A	grrb-sci-059	0	yes	Results	stop=stop {"answer":"yes"}
+A	grrb-sci-060	0	no	Results	stop=stop {"answer":"no"}
+A	grrb-sci-061	0	no	Results	stop=stop ```json {"answer":"no"} ```
+A	grrb-sci-062	0	no	Results	stop=stop {"answer":"no"}
+A	grrb-sci-063	0	yes	Results	stop=stop {"answer":"yes"}
+A	grrb-sci-064	0	no	Results	stop=stop ```json {"answer":"no"} ```
+A	grrb-sci-065	0	yes	Results	stop=stop {"answer":"yes"}
+A	grrb-sci-066	0	yes	Results	stop=stop {"answer":"yes"}
+A	grrb-sci-067	0	no	Results	stop=stop {"answer":"no"}
+A	grrb-sci-068	0	excluded	Results	422 Unprocessable Entity: {"detail":{"error":"validation_failed","reason":"a field with 11 sentences reads like raw prose, not a structured summary po
+A	grrb-sci-069	0	no	Results	stop=stop ```json {"answer":"no"} ```
+A	grrb-sci-070	0	no	Results	stop=stop {"answer":"no"}
+A	grrb-sci-071	0	yes	Discussion	stop=stop ```json {"answer":"yes"} ```
+A	grrb-sci-072	0	no	Discussion	stop=stop ```json {"answer":"no"} ```
+A	grrb-sci-073	0	yes	Discussion	stop=stop {"answer":"yes"}
+A	grrb-sci-074	0	yes	Discussion	stop=stop ```json {"answer":"yes"} ```
+A	grrb-sci-075	0	no	Conclusion	stop=stop {"answer":"no"}
+A	grrb-sci-076	0	no	Conclusion	stop=stop {"answer":"no"}
+A	grrb-sci-077	0	no	Methods	stop=stop ```json {"answer":"no"} ```
+A	grrb-sci-078	0	no	Introduction	stop=stop ```json {"answer":"no"} ```
+A	grrb-sci-079	0	excluded	Introduction	422 Unprocessable Entity: {"detail":{"error":"validation_failed","reason":"a field with 10 sentences reads like raw prose, not a structured summary po
+A	grrb-sci-080	0	excluded	Introduction	422 Unprocessable Entity: {"detail":{"error":"validation_failed","reason":"a field with 10 sentences reads like raw prose, not a structured summary po
+A	grrb-sci-081	0	yes	Introduction	stop=stop {"answer":"yes"}
+A	grrb-sci-082	0	no	Introduction	stop=stop ```json {"answer":"no"} ```
+A	grrb-sci-083	0	excluded	Introduction	422 Unprocessable Entity: {"detail":{"error":"validation_failed","reason":"a field with 11 sentences reads like raw prose, not a structured summary po
+A	grrb-sci-084	0	excluded	Introduction	422 Unprocessable Entity: {"detail":{"error":"validation_failed","reason":"a field with 12 sentences reads like raw prose, not a structured summary po
+A	grrb-sci-085	0	excluded	Introduction	422 Unprocessable Entity: {"detail":{"error":"validation_failed","reason":"a field with 11 sentences reads like raw prose, not a structured summary po
+A	grrb-sci-086	0	excluded	Introduction	422 Unprocessable Entity: {"detail":{"error":"validation_failed","reason":"a field with 9 sentences reads like raw prose, not a structured summary poi
+A	grrb-sci-087	0	excluded	Introduction	422 Unprocessable Entity: {"detail":{"error":"validation_failed","reason":"a field of 2045 chars looks like raw prose; structured summaries use short 
+A	grrb-sci-088	0	no	Introduction	stop=stop ```json {"answer":"no"} ```
+A	grrb-sci-089	0	no	Introduction	stop=stop {"answer":"no"}
+A	grrb-sci-090	0	excluded	Introduction	422 Unprocessable Entity: {"detail":{"error":"validation_failed","reason":"a field with 14 sentences reads like raw prose, not a structured summary po
+A	grrb-sci-091	0	excluded	Introduction	422 Unprocessable Entity: {"detail":{"error":"validation_failed","reason":"a field of 2278 chars looks like raw prose; structured summaries use short 
+A	grrb-sci-092	0	no	Introduction	stop=stop {"answer":"no"}
+A	grrb-sci-093	0	yes	Methods	stop=stop {"answer":"yes"}
+A	grrb-sci-094	0	yes	Methods	stop=stop ```json {"answer":"yes"} ```
+A	grrb-sci-095	0	no	Methods	stop=stop ```json {"answer":"no"} ```
+A	grrb-sci-096	1	yes	Methods	stop=stop ```json {"answer":"yes"} ```
+A	grrb-sci-097	1	yes	Methods	stop=stop ```json {"answer":"yes"} ```
+A	grrb-sci-098	0	yes	Methods	stop=stop ```json {"answer":"yes"} ```
+A	grrb-sci-099	0	yes	Methods	stop=stop ```json {"answer":"yes"} ```
+A	grrb-sci-100	0	yes	Methods	stop=stop ```json {"answer":"yes"} ```
+A	grrb-sci-101	1	yes	Abstract	stop=stop {"answer":"yes"}
+A	grrb-sci-102	0	excluded	Abstract	422 Unprocessable Entity: {"detail":{"error":"validation_failed","reason":"a field of 2972 chars looks like raw prose; structured summaries use short 
+A	grrb-sci-103	0	no	Abstract	stop=stop {"answer":"no"}
+A	grrb-sci-104	0	no	Abstract	stop=stop {"answer":"no"}
+A	grrb-sci-105	0	no	Abstract	stop=stop {"answer":"no"}
+A	grrb-sci-106	0	no	Abstract	stop=stop ```json {"answer":"no"} ```
+A	grrb-sci-107	0	no	Abstract	stop=stop ```json {"answer":"no"} ```
+A	grrb-sci-108	0	no	Abstract	stop=stop ```json {"answer":"no"} ```
+A	grrb-sci-109	0	yes	Abstract	stop=stop {"answer":"yes"}
+A	grrb-sci-110	1	yes	Abstract	stop=stop ```json {"answer":"yes"} ```
+A	grrb-sci-111	0	no	Abstract	stop=stop ```json {"answer":"no"} ```
+A	grrb-sci-112	0	no	Abstract	stop=stop ```json {"answer":"no"} ```
+A	grrb-sci-113	0	no	Discussion	stop=stop {"answer":"no"}
+A	grrb-sci-114	0	no	Discussion	stop=stop {"answer":"no"}
+A	grrb-sci-115	0	no	Discussion	stop=stop {"answer":"no"}
+A	grrb-sci-116	0	yes	Discussion	stop=stop ```json {"answer":"yes"} ```
+A	grrb-sci-117	0	no	Discussion	stop=stop ```json {"answer":"no"} ```
+A	grrb-sci-118	0	no	Discussion	stop=stop ```json {"answer":"no"} ```
+A	grrb-sci-119	0	no	Discussion	stop=stop ```json {"answer":"no"} ```
+A	grrb-sci-120	0	no	Discussion	stop=stop ```json {"answer":"no"} ```
+A	grrb-sci-121	0	no	Discussion	stop=stop ```json {"answer":"no"} ```
+A	grrb-sci-122	0	no	Discussion	stop=stop ```json {"answer":"no"} ```
+A	grrb-sci-123	0	no	Discussion	stop=stop ```json {"answer":"no"} ```
+A	grrb-sci-124	0	no	Discussion	stop=stop ```json {"answer":"no"} ```
+A	grrb-sci-125	0	no	Discussion	stop=stop {"answer":"no"}
+A	grrb-sci-126	0	yes	Discussion	stop=stop {"answer":"yes"}
+A	grrb-sci-127	0	no	Discussion	stop=stop {"answer":"no"}
+A	grrb-sci-128	0	no	Discussion	stop=stop ```json {"answer":"no"} ```
+A	grrb-sci-129	0	no	Discussion	stop=stop ```json {"answer":"no"} ```
+A	grrb-sci-130	0	no	Discussion	stop=stop ```json {"answer":"no"} ```
+A	grrb-sci-131	0	no	Discussion	stop=stop {"answer":"no"}
+A	grrb-sci-132	0	excluded	Discussion	422 Unprocessable Entity: {"detail":{"error":"validation_failed","reason":"a field of 4634 chars looks like raw prose; structured summaries use short 
+A	grrb-sci-133	0	excluded	Discussion	422 Unprocessable Entity: {"detail":{"error":"validation_failed","reason":"a field of 4634 chars looks like raw prose; structured summaries use short 
+A	grrb-sci-134	0	yes	Discussion	stop=stop {"answer":"yes"}
+A	grrb-sci-135	0	no	Discussion	stop=stop {"answer":"no"}
+A	grrb-sci-136	1	yes	Results	stop=stop {"answer":"yes"}
+A	grrb-sci-137	0	excluded	Results	422 Unprocessable Entity: {"detail":{"error":"validation_failed","reason":"a field of 2854 chars looks like raw prose; structured summaries use short 
+A	grrb-sci-138	0	yes	Results	stop=stop {"answer":"yes"}
+A	grrb-sci-139	0	yes	Results	stop=stop {"answer":"yes"}
+A	grrb-sci-140	0	no	Results	stop=stop ```json {"answer":"no"} ```
+A	grrb-sci-141	0	no	Results	stop=stop ```json {"answer":"no"} ```
+A	grrb-sci-142	0	no	Results	stop=stop ```json {"answer":"no"} ```
+A	grrb-sci-143	0	no	Results	stop=stop ```json {"answer":"no"} ```
+A	grrb-sci-144	0	no	Results	stop=stop {"answer":"no"}
+A	grrb-sci-145	0	no	Results	stop=stop ```json {"answer":"no"} ```
+A	grrb-sci-146	0	no	Results	stop=stop ```json {"answer":"no"} ```
+A	grrb-sci-147	0	yes	Results	stop=stop {"answer":"yes"}
+A	grrb-sci-148	1	yes	Results	stop=stop {"answer":"yes"}
+A	grrb-sci-149	0	no	Results	stop=stop ```json {"answer":"no"} ```
+A	grrb-sci-150	0	yes	Results	stop=stop {"answer":"yes"}
+A	grrb-sci-151	0	yes	Results	stop=stop {"answer":"yes"}
+A	grrb-sci-152	0	no	Results	stop=stop {"answer":"no"}
+A	grrb-sci-153	0	yes	Introduction	stop=stop {"answer":"yes"}
+A	grrb-sci-154	0	yes	Introduction	stop=stop ```json {"answer":"yes"} ```
+A	grrb-sci-155	0	no	Introduction	stop=stop ```json {"answer":"no"} ```
+A	grrb-sci-156	1	yes	Methods	stop=stop ```json {"answer":"yes"} ```
+A	grrb-sci-157	0	yes	Methods	stop=stop ```json {"answer":"yes"} ```
+A	grrb-sci-158	1	yes	Methods	stop=stop {"answer":"yes"}
+A	grrb-sci-159	1	yes	Methods	stop=stop {"answer":"yes"}
+B	grrb-sci-000	0	no	Results	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-001	0	no	Results	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-002	1	yes	Methods	stop=stop {"answer":"yes"}
+B	grrb-sci-003	0	no	Introduction	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-004	0	yes	Introduction	stop=stop {"answer":"yes"}
+B	grrb-sci-005	1	yes	Introduction	stop=stop ```json {"answer":"yes"} ```
+B	grrb-sci-006	1	yes	Introduction	stop=stop {"answer":"yes"}
+B	grrb-sci-007	1	yes	Methods	stop=stop ```json {"answer":"yes"} ```
+B	grrb-sci-008	1	yes	Methods	stop=stop ```json {"answer":"yes"} ```
+B	grrb-sci-009	0	no	Methods	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-010	1	yes	Methods	stop=stop ```json {"answer":"yes"} ```
+B	grrb-sci-011	0	yes	Methods	stop=stop {"answer":"yes"}
+B	grrb-sci-012	0	no	Methods	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-013	0	yes	Methods	stop=stop ```json {"answer":"yes"} ```
+B	grrb-sci-014	0	no	Methods	stop=stop {"answer":"no"}
+B	grrb-sci-015	0	yes	Methods	stop=stop ```json {"answer":"yes"} ```
+B	grrb-sci-016	1	yes	Methods	stop=stop {"answer":"yes"}
+B	grrb-sci-017	0	yes	Methods	stop=stop {"answer":"yes"}
+B	grrb-sci-018	0	no	Methods	stop=stop {"answer":"no"}
+B	grrb-sci-019	1	yes	Methods	stop=stop ```json {"answer":"yes"} ```
+B	grrb-sci-020	1	yes	Methods	stop=stop ```json {"answer":"yes"} ```
+B	grrb-sci-021	0	no	Other	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-022	0	yes	Abstract	stop=stop ```json {"answer":"yes"} ```
+B	grrb-sci-023	0	no	Abstract	stop=stop {"answer":"no"}
+B	grrb-sci-024	0	no	Introduction	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-025	0	yes	Introduction	stop=stop ```json {"answer":"yes"} ```
+B	grrb-sci-026	0	yes	Introduction	stop=stop ```json {"answer":"yes"} ```
+B	grrb-sci-027	0	no	Introduction	stop=stop {"answer":"no"}
+B	grrb-sci-028	0	no	Introduction	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-029	0	no	Methods	stop=stop {"answer":"no"}
+B	grrb-sci-030	1	yes	Methods	stop=stop ```json {"answer":"yes"} ```
+B	grrb-sci-031	1	yes	Methods	stop=stop ```json {"answer":"yes"} ```
+B	grrb-sci-032	0	no	Methods	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-033	0	no	Methods	stop=stop {"answer":"no"}
+B	grrb-sci-034	0	no	Methods	stop=stop {"answer":"no"}
+B	grrb-sci-035	0	no	Methods	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-036	0	no	Methods	stop=stop {"answer":"no"}
+B	grrb-sci-037	0	no	Methods	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-038	0	no	Methods	stop=stop {"answer":"no"}
+B	grrb-sci-039	0	no	Methods	stop=stop {"answer":"no"}
+B	grrb-sci-040	0	no	Methods	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-041	0	no	Methods	stop=stop {"answer":"no"}
+B	grrb-sci-042	0	no	Methods	stop=stop {"answer":"no"}
+B	grrb-sci-043	0	no	Methods	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-044	0	no	Methods	stop=stop {"answer":"no"}
+B	grrb-sci-045	0	no	Methods	stop=stop {"answer":"no"}
+B	grrb-sci-046	0	no	Methods	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-047	0	no	Discussion	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-048	0	excluded	Conclusion	422 Unprocessable Entity: {"detail":{"error":"validation_failed","reason":"a field with 10 sentences reads like raw prose, not a structured summary po
+B	grrb-sci-049	0	no	Methods	stop=stop {"answer":"no"}
+B	grrb-sci-050	1	yes	Abstract	stop=stop ```json {"answer":"yes"} ```
+B	grrb-sci-051	0	no	Introduction	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-052	1	yes	Methods	stop=stop ```json {"answer":"yes"} ```
+B	grrb-sci-053	1	yes	Methods	stop=stop ```json {"answer":"yes"} ```
+B	grrb-sci-054	0	no	Methods	stop=stop {"answer":"no"}
+B	grrb-sci-055	1	excluded	Methods	422 Unprocessable Entity: {"detail":{"error":"validation_failed","reason":"a field with 15 sentences reads like raw prose, not a structured summary po
+B	grrb-sci-056	0	no	Methods	stop=stop {"answer":"no"}
+B	grrb-sci-057	1	yes	Methods	stop=stop ```json {"answer":"yes"} ```
+B	grrb-sci-058	1	yes	Methods	stop=stop ```json {"answer":"yes"} ```
+B	grrb-sci-059	0	no	Results	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-060	0	no	Results	stop=stop {"answer":"no"}
+B	grrb-sci-061	0	no	Results	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-062	0	no	Results	stop=stop {"answer":"no"}
+B	grrb-sci-063	0	no	Results	stop=stop {"answer":"no"}
+B	grrb-sci-064	0	yes	Results	stop=stop ```json {"answer":"yes"} ```
+B	grrb-sci-065	0	no	Results	stop=stop {"answer":"no"}
+B	grrb-sci-066	0	no	Results	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-067	0	no	Results	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-068	0	excluded	Results	422 Unprocessable Entity: {"detail":{"error":"validation_failed","reason":"a field with 11 sentences reads like raw prose, not a structured summary po
+B	grrb-sci-069	0	no	Results	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-070	0	no	Results	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-071	0	no	Discussion	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-072	0	no	Discussion	stop=stop {"answer":"no"}
+B	grrb-sci-073	0	no	Discussion	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-074	0	no	Discussion	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-075	0	no	Conclusion	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-076	0	no	Conclusion	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-077	0	yes	Methods	stop=stop {"answer":"yes"}
+B	grrb-sci-078	0	no	Introduction	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-079	0	excluded	Introduction	422 Unprocessable Entity: {"detail":{"error":"validation_failed","reason":"a field with 10 sentences reads like raw prose, not a structured summary po
+B	grrb-sci-080	0	excluded	Introduction	422 Unprocessable Entity: {"detail":{"error":"validation_failed","reason":"a field with 10 sentences reads like raw prose, not a structured summary po
+B	grrb-sci-081	0	yes	Introduction	stop=stop {"answer":"yes"}
+B	grrb-sci-082	0	no	Introduction	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-083	0	excluded	Introduction	422 Unprocessable Entity: {"detail":{"error":"validation_failed","reason":"a field with 11 sentences reads like raw prose, not a structured summary po
+B	grrb-sci-084	0	excluded	Introduction	422 Unprocessable Entity: {"detail":{"error":"validation_failed","reason":"a field with 12 sentences reads like raw prose, not a structured summary po
+B	grrb-sci-085	0	excluded	Introduction	422 Unprocessable Entity: {"detail":{"error":"validation_failed","reason":"a field with 11 sentences reads like raw prose, not a structured summary po
+B	grrb-sci-086	0	excluded	Introduction	422 Unprocessable Entity: {"detail":{"error":"validation_failed","reason":"a field with 9 sentences reads like raw prose, not a structured summary poi
+B	grrb-sci-087	0	excluded	Introduction	422 Unprocessable Entity: {"detail":{"error":"validation_failed","reason":"a field of 2045 chars looks like raw prose; structured summaries use short 
+B	grrb-sci-088	0	no	Introduction	stop=stop {"answer":"no"}
+B	grrb-sci-089	0	no	Introduction	stop=stop {"answer":"no"}
+B	grrb-sci-090	0	excluded	Introduction	422 Unprocessable Entity: {"detail":{"error":"validation_failed","reason":"a field with 14 sentences reads like raw prose, not a structured summary po
+B	grrb-sci-091	0	excluded	Introduction	422 Unprocessable Entity: {"detail":{"error":"validation_failed","reason":"a field of 2278 chars looks like raw prose; structured summaries use short 
+B	grrb-sci-092	0	no	Introduction	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-093	0	yes	Methods	stop=stop ```json {"answer":"yes"} ```
+B	grrb-sci-094	0	yes	Methods	stop=stop ```json {"answer":"yes"} ```
+B	grrb-sci-095	0	no	Methods	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-096	1	yes	Methods	stop=stop {"answer":"yes"}
+B	grrb-sci-097	1	yes	Methods	stop=stop ```json {"answer":"yes"} ```
+B	grrb-sci-098	0	yes	Methods	stop=stop ```json {"answer":"yes"} ```
+B	grrb-sci-099	0	yes	Methods	stop=stop ```json {"answer":"yes"} ```
+B	grrb-sci-100	0	yes	Methods	stop=stop ```json {"answer":"yes"} ```
+B	grrb-sci-101	1	yes	Abstract	stop=stop {"answer":"yes"}
+B	grrb-sci-102	0	excluded	Abstract	422 Unprocessable Entity: {"detail":{"error":"validation_failed","reason":"a field of 2972 chars looks like raw prose; structured summaries use short 
+B	grrb-sci-103	0	no	Abstract	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-104	0	no	Abstract	stop=stop {"answer":"no"}
+B	grrb-sci-105	0	no	Abstract	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-106	0	no	Abstract	stop=stop {"answer":"no"}
+B	grrb-sci-107	0	no	Abstract	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-108	0	no	Abstract	stop=stop {"answer":"no"}
+B	grrb-sci-109	0	yes	Abstract	stop=stop {"answer":"yes"}
+B	grrb-sci-110	1	yes	Abstract	stop=stop {"answer":"yes"}
+B	grrb-sci-111	0	no	Abstract	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-112	0	no	Abstract	stop=stop {"answer":"no"}
+B	grrb-sci-113	0	no	Discussion	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-114	0	no	Discussion	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-115	0	no	Discussion	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-116	0	yes	Discussion	stop=stop {"answer":"yes"}
+B	grrb-sci-117	0	no	Discussion	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-118	0	no	Discussion	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-119	0	no	Discussion	stop=stop {"answer":"no"}
+B	grrb-sci-120	0	no	Discussion	stop=stop {"answer":"no"}
+B	grrb-sci-121	0	no	Discussion	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-122	0	no	Discussion	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-123	0	no	Discussion	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-124	0	no	Discussion	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-125	0	no	Discussion	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-126	0	yes	Discussion	stop=stop ```json {"answer":"yes"} ```
+B	grrb-sci-127	0	no	Discussion	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-128	0	no	Discussion	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-129	0	no	Discussion	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-130	0	no	Discussion	stop=stop {"answer":"no"}
+B	grrb-sci-131	0	no	Discussion	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-132	0	excluded	Discussion	422 Unprocessable Entity: {"detail":{"error":"validation_failed","reason":"a field of 4634 chars looks like raw prose; structured summaries use short 
+B	grrb-sci-133	0	excluded	Discussion	422 Unprocessable Entity: {"detail":{"error":"validation_failed","reason":"a field of 4634 chars looks like raw prose; structured summaries use short 
+B	grrb-sci-134	0	no	Discussion	stop=stop {"answer":"no"}
+B	grrb-sci-135	0	no	Discussion	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-136	1	yes	Results	stop=stop {"answer":"yes"}
+B	grrb-sci-137	0	excluded	Results	422 Unprocessable Entity: {"detail":{"error":"validation_failed","reason":"a field of 2854 chars looks like raw prose; structured summaries use short 
+B	grrb-sci-138	0	no	Results	stop=stop {"answer":"no"}
+B	grrb-sci-139	0	no	Results	stop=stop {"answer":"no"}
+B	grrb-sci-140	0	no	Results	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-141	0	no	Results	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-142	0	no	Results	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-143	0	no	Results	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-144	0	no	Results	stop=stop {"answer":"no"}
+B	grrb-sci-145	0	no	Results	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-146	0	no	Results	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-147	0	yes	Results	stop=stop ```json {"answer":"yes"} ```
+B	grrb-sci-148	1	yes	Results	stop=stop ```json {"answer":"yes"} ```
+B	grrb-sci-149	0	no	Results	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-150	0	no	Results	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-151	0	no	Results	stop=stop {"answer":"no"}
+B	grrb-sci-152	0	no	Results	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-153	0	yes	Introduction	stop=stop {"answer":"yes"}
+B	grrb-sci-154	0	yes	Introduction	stop=stop {"answer":"yes"}
+B	grrb-sci-155	0	no	Introduction	stop=stop ```json {"answer":"no"} ```
+B	grrb-sci-156	1	yes	Methods	stop=stop ```json {"answer":"yes"} ```
+B	grrb-sci-157	0	yes	Methods	stop=stop ```json {"answer":"yes"} ```
+B	grrb-sci-158	1	yes	Methods	stop=stop ```json {"answer":"yes"} ```
+B	grrb-sci-159	1	yes	Methods	stop=stop ```json {"answer":"yes"} ```

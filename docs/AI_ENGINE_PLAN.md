@@ -16254,3 +16254,224 @@ already has.
 
 Artefacts: `evals/reports/grrb-cloud-gpt4o-A-raw.tsv` and `-B-raw.tsv`, 160 rows
 each, beside `grrb-cloud-gpt4omini-raw.tsv` on the same set.
+
+### D205 — HOLD: position was the missing input, and restoring it ties the no-skill line rather than clearing it
+
+§11 D204 declined the scientific layer against three model tiers and wrote the
+reopening condition as an INPUT rather than a model: *"whether a paragraph
+describes what THESE authors did is a fact about its place in a document, and the
+probe hands over a paragraph with its place removed."* That has now been tested.
+The same 160 paragraphs, the same §11 D198 corrected labels, the same
+`gpt-4o-2024-08-06`, the same proxy and validator — with the section heading that
+governs each paragraph and the paragraphs immediately before and after it added
+to the payload.
+
+**The diagnosis was right. The decision does not follow from it.**
+
+#### The decision is HOLD — neither declined nor reopened
+
+The decline condition was stated in advance as *"if precision still stays below
+50%"*. **Variant B does not stay below 50%, and a tie is not a reason to build.**
+Recorded as HOLD so that neither half is overstated later: §11 D165's decline is
+not re-affirmed, and nothing may be built on this layer on the strength of this
+entry.
+
+#### The measurement, three runs of each variant, 144 common rows
+
+| variant | run 1 | run 2 | run 3 | pooled | §11 D204, same rows | delta |
+|---|---|---|---|---|---|---|
+| **A** | 42.9% | 41.7% | 42.1% | **42.2%** | 34.7% | **+7.5** |
+| **B** | 49.0% | 52.1% | 50.0% | **50.3%** (mean 50.4%) | 39.1% | **+11.2** |
+
+| the bar, on the same 144-row pool | precision | recall |
+|---|---|---|
+| no-skill — Methods ∧ first paragraph of section | **50.0%** (6 of 12) | **24.0%** |
+| **B with context** | **50.3%** | **100%** (25 of 25) |
+
+The no-skill figure is unchanged by the restriction from 160 rows to 144 — it is
+50.0% on both pools, so the bar did not move under the comparison.
+
+**B ties the line on precision and quadruples it on recall.** That is a real
+difference on the axis the no-skill rule is worst at, and it is why this is not a
+decline. It is also only a tie, bought with a network round trip, the privacy
+boundary and a non-deterministic sample, which is why it is not a reopening.
+
+#### Every point of the gain is position, and it is visible in the rows
+
+| | in Methods sections | outside Methods |
+|---|---|---|
+| A — §11 D204 | 47% yes | **53% yes** |
+| A — with context, pooled | 51% yes | **34% yes** |
+| B — §11 D204 | 57% yes | **37% yes** |
+| B — with context, pooled | 55% yes | **22% yes** |
+
+**The in-Methods yes-rate barely moves and the outside-Methods rate collapses.**
+The model was not made better at judging paragraphs; it was given the one fact it
+did not have, and it stopped accepting Discussion and Introduction prose. §11
+D204's mechanism is confirmed at row level, not merely at the summary figure.
+
+In run 1 the in-Methods COUNT was identical to §11 D204's in both variants —
+25/53 and 30/53 — which looked like a payload that had not reached the model.
+Checked rather than assumed: the SETS differ (2 rows changed in A, 4 in B), so it
+is net-zero churn inside Methods and a coincidence of totals. Row-level agreement
+with §11 D204 is 84.7% (A) and 86.8% (B).
+
+#### THE FIRST PREDICTION ON THIS TASK THAT HELD
+
+| | predicted before the run | measured |
+|---|---|---|
+| stock 0.5B (§11 D196) | — | 12.9–16.5% |
+| gpt-4o-mini (§11 D197) | 55–75% | 37.3% / 35.7% |
+| gpt-4o (§11 D204) | 65–85% | 33.3% / 38.5% |
+| **gpt-4o + context (here)** | **40–55%, centre ~45%** | **42.2% / 50.4%** |
+| the sub-prediction | outside-Methods yes-rate 53% → 30–40% | **52% → 34%** (A) |
+
+**What changed was not care, it was the basis.** The three failed predictions
+reasoned from assumed capability. This one was derived from a measured
+conditional: gpt-4o's OWN §11 D204 answers, filtered by ground-truth section
+membership, give 72.0% (A) and 60.0% (B). That said the headroom existed and was
+large, and the band was then anchored at the bottom of it precisely because this
+predictor had been 30–50 points high three times for the same reason — the gap
+between information being present and a model using it.
+
+**The anchoring was right and the gap was real**: the ceiling was 72.0%/60.0% and
+the delivery was 42.2%/50.3%. A derived prior is better than an asserted one and
+is still not a measurement.
+
+#### A SINGLE CLOUD RUN COULD NOT HAVE DECIDED THIS, AND ALMOST DID
+
+The first run returned **49.0%** for variant B and was reported as such. It is the
+**lowest of the three**, and 49.0% is 25/51 — *one false positive* from the line
+that was to decide whether the layer is declined for good.
+
+| variant | spread across 3 runs | runs at or above 50% |
+|---|---|---|
+| A | 41.7–42.9%, **1.2 pts** | 0 of 3 |
+| B | 49.0–52.1%, **3.1 pts** | **2 of 3** |
+
+**A permanent decline would have been recorded on a sampling low.** §11 D204's
+OPEN item is the cause and it is now load-bearing rather than incidental:
+`gaply-proxy/app/openai_client.py` sets no temperature, so every reply is sampled
+at the OpenAI default of 1.0. B's variance spans the decision threshold.
+
+**The operational rule, until a temperature is set: no cloud number in this log
+decides anything on one run.** Where a threshold is in play, run it three times
+and quote the spread beside the mean. Variant A's 1.2-point spread shows the cost
+is small and the protection is not uniform — the same protocol on A would have
+been redundant, and there is no way to know which case you are in without running
+it.
+
+This is the batch-known-good rule one step on. That rule asks whether the
+instrument worked. This asks whether the instrument is *stable enough for the
+question being put to it*, and a threshold decision demands more stability than a
+ranking does.
+
+#### A HYPOTHESIS, LABELLED AS ONE: the heading as a filter rather than as a field
+
+Applying the heading OUTSIDE the model — accept a paragraph only if the model
+said yes AND its section heading names Methods — pooled over the three runs:
+
+| | precision | recall |
+|---|---|---|
+| A, model alone | 42.2% | 97.3% |
+| **A, model AND heading says Methods** | **65.0%** | 69.3% |
+| **B, model AND heading says Methods** | **60.9%** | 71.6% |
+
+Both clear 50% decisively, and both land on the ceiling computed BEFORE the run
+(72.0% / 60.0%).
+
+**This is not a result and must not be cited as one.** The ceiling was derived
+from these 160 rows and the filter was then measured on these 160 rows. That is
+selection on the test set, and the set has now been used five times — §11 D196,
+D197, D198, D204 and here. A rule designed on a set and scored on the same set has
+no held-out evidence behind it, however mechanical the rule and however well it
+was predicted.
+
+#### THE REOPENING CONDITION, FIXED IN ADVANCE
+
+The combined rule — **model says yes AND the section heading names Methods** —
+fixed in advance, with no tuning after the data is seen, measured on
+**manuscripts never used by §11 D196–D205**, with **two-author labels** on every
+paragraph.
+
+* **Clears 50% precision there → the scientific layer reopens.**
+* **Does not → declined for good.**
+
+Nothing short of that reopens it. In particular, a better number on the existing
+160 is not evidence, because that is the set the rule was designed on.
+
+#### The payload, and the privacy boundary that was NOT moved
+
+Measured against `gaply-proxy/app/validation.py` directly, before the run:
+
+| payload | passes | excluded |
+|---|---|---|
+| §11 D204 (`summary` + `instruction`) | 148/160 | 12 |
+| with context (four fields) | **144/160** | 16 |
+
+The 16 is a **strict superset** of the 12, so the two runs are comparable on 144
+common rows with nothing relaxed. The four extra exclusions are each a long
+NEIGHBOUR breaching the 2000-char or 8-sentence per-field limit, never the total
+(max observed 5734 of an 8000 limit):
+
+```
+grrb-sci-090  following_paragraph  1955 chars, 14 sentences
+grrb-sci-102  preceding_paragraph  2972 chars
+grrb-sci-133  preceding_paragraph  4634 chars
+grrb-sci-137  preceding_paragraph  2854 chars
+```
+
+Keeping all 148 would need `MAX_FIELD_CHARS` 2000 → 4634 and
+`MAX_SENTENCES_PER_FIELD` 8 → 14. **The validator was not touched.** The boundary
+was reported first and the run was scoped to what it already permits, because
+where that boundary sits is not a probe's decision.
+
+**The context travels as four separate fields**, not one concatenated blob: the
+joined text runs to 5734 chars and a single field is capped at 2000, so a
+concatenated payload would be refused on most of the set. The four-field shape is
+the strictest one that passes.
+
+#### The deviations, stated because a comparison is only as honest as its deviations
+
+* **The prompt is not byte-identical to §11 D204.** One framing sentence is
+  PREPENDED naming the three new fields and saying the question is about
+  `summary` alone; the question itself is reproduced character for character.
+  There is no way to supply context without saying what it is. The deviation is
+  isolated in a `FRAMING` const so it can be read and argued with.
+* **Three of the 160 paragraphs occur twice in their document**
+  (`grrb-sci-034`, `-047`, `-112`); the first occurrence is taken. Their position
+  is defensible but not unique.
+* **The position comes from the heuristic section splitter**, which places 2 of
+  the 26 positives in Introduction and 3 in Abstract. The heading is not ground
+  truth about the document; it is the extractor's reading of it.
+* **141 of the 160 labels still have one author.** §11 D198 added a second reader
+  to the 19 disputed paragraphs only. This is the same remaining limit that entry
+  recorded, and it is why the reopening condition demands two-author labels.
+* **Run 3 answered 143 (A) and 142 (B)**, not 144: one reply came back as
+  `{\"answer\":\"yes\"}` with escaped quotes and was recorded `unparseable`, and
+  two rows hit a transport error. Neither is judgment, and §11 D204's rule —
+  a format failure is never scored as a wrong answer — is what keeps them out.
+
+#### The guard
+
+`gaply-core/tests/grrb_context_pool_is_the_fixed_set.rs` pins that
+`scientific_extraction_ctx.jsonl` is the SAME 160 paragraphs and the SAME labels
+as `scientific_extraction.jsonl`, and that the with-context payload passes on
+exactly 144 rows with the 16 a superset of the 12. Without it, an edit to either
+file silently makes this entry's numbers describe a different pool than §11 D196,
+D197 and D204's — the comparison would still print, and it would be between two
+different sets.
+
+It reads `MAX_FIELD_CHARS` and `MAX_SENTENCES_PER_FIELD` out of
+`gaply-proxy/app/validation.py` rather than copying them, so relaxing the
+privacy boundary reddens this test. **Nothing in CI runs the proxy's own Python
+tests** — checked: none of the five workflows invokes `pytest` — so this Rust
+test is the only automatic thing that notices a change to those limits.
+
+Artefacts: `evals/reports/grrb-cloud-gpt4o-ctx-run{1,2,3}-raw.tsv`, 320 rows each,
+beside `grrb-cloud-gpt4o-{A,B}-raw.tsv` on the same set;
+`evals/grrb/scientific_extraction_ctx.jsonl` (160 rows, all 160 joined to their
+document position by exact paragraph text); `evals/grrb/score_ctx.py`, which
+reproduces §11 D204's published 33.3% and 38.5% as a self-test;
+`gaply-core/examples/scientific_context_export.rs` and
+`examples/methods_ctx_probe.rs`.
