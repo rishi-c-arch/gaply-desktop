@@ -743,13 +743,86 @@ fn push(
         value,
         article_type: article_type.clone(),
         source_heading: block.heading.clone(),
-        source_span: span.chars().take(400).collect(),
+        // WHOLE. `sentences()` above already yields one complete sentence, so
+        // there is nothing here to bound — and a bound here was not a display
+        // choice, it was DATA LOSS: the source text is not retained
+        // (`journal_guidelines` holds the fetched page only while a crawl is in
+        // flight), so a clipped span could never be repaired afterwards.
+        //
+        // Measured 22 Sep 2026 on the shipped Nature Medicine profile: two
+        // checklist rows stored EXACTLY 400 characters and ended mid-word at
+        // "…a completed copy of the Nature Research Por". A researcher reading
+        // that cannot check the requirement against the journal's words, which
+        // is the only thing a span is for. `report_compose.rs:600` already says
+        // the composer prints spans "WHOLE, never clipped"; it was telling the
+        // truth about itself and inheriting a truncated input.
+        source_span: span.to_string(),
     });
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **A stored span is the journal's complete sentence, or it is not evidence.**
+    ///
+    /// The extractor used to store `span.chars().take(400)`. Measured 22 Sep
+    /// 2026 on the shipped Nature Medicine profile, two checklist rows were
+    /// EXACTLY 400 characters and ended mid-word:
+    ///
+    /// ```text
+    /// "…all fast track submissions must include … a completed copy of the Nature Research Por"
+    /// ```
+    ///
+    /// The cut was unrecoverable: the fetched page is not retained, so nothing
+    /// downstream could restore the sentence. This pins the whole sentence AND
+    /// the property a reader actually depends on — that the span does not stop
+    /// mid-word — because a future cap at a different number would pass a
+    /// length-only assertion.
+    #[test]
+    fn a_stored_span_is_a_whole_sentence_and_never_stops_mid_word() {
+        // A real guideline sentence shape, deliberately longer than the old cap.
+        let long = "All fast track submissions must include a cover letter explaining the \
+                    urgency of the work, a completed reporting summary, a data availability \
+                    statement, a code availability statement where custom code was used, a \
+                    competing interests declaration covering every listed author, and a \
+                    completed copy of the Nature Research Portfolio reporting summary, which \
+                    the editors use to check that the study has been described in enough \
+                    detail for an independent group to repeat it without contacting the \
+                    authors for further information.";
+        assert!(long.chars().count() > 400, "fixture must exceed the removed cap");
+        let blocks = vec![b("Fast track", long)];
+        let reqs = extract_requirements(&blocks);
+        assert!(!reqs.is_empty(), "the fixture must produce at least one requirement");
+
+        for r in &reqs {
+            let span = r.source_span.trim_end();
+            assert!(!span.is_empty(), "a span-less row cannot be refuted: {r:?}");
+            // 1. No artificial truncation marker.
+            for marker in ["\u{2026}", "...", "[truncated]"] {
+                assert!(
+                    !span.ends_with(marker),
+                    "span carries a truncation marker: {span:?}"
+                );
+            }
+            // 2. Never stops mid-word. A complete sentence ends in terminal
+            //    punctuation; the old 400-char cut ended on a letter.
+            let last = span.chars().last().unwrap();
+            assert!(
+                !last.is_alphanumeric(),
+                "span stops mid-word, which is what the 400-char cap did: …{:?}",
+                span.chars().rev().take(40).collect::<String>().chars().rev().collect::<String>()
+            );
+            // 3. The cap is gone, not merely raised.
+            assert_ne!(span.chars().count(), 400, "a 400-char span is the old cap: {span:?}");
+        }
+        // 4. The sentence survived WHOLE — the tail the cap used to remove.
+        assert!(
+            reqs.iter().any(|r| r.source_span.contains("Nature Research Portfolio")),
+            "the text beyond the old cap is missing: {:?}",
+            reqs.iter().map(|r| r.source_span.chars().count()).collect::<Vec<_>>()
+        );
+    }
 
     fn b(heading: &str, text: &str) -> GuidelineBlock {
         GuidelineBlock { heading: heading.into(), text: text.into() }
