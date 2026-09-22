@@ -17003,3 +17003,115 @@ the C1 task does not.
 
 Artefacts: `docs/PROBLEM_DOSSIER.md` A4; the counts are reproducible from the six
 manuscripts named in §11 D165.
+
+---
+
+### D209 — D4 is PASS with an intermittent environmental failure CHARACTERIZED, not fixed
+
+**`docs/PROBLEM_DOSSIER.md` D4** recorded `npm run tauri build` failing at
+`bundle_dmg.sh` with the cause **unknown**, and tauri discarding the script's
+output so there was nothing to read. The DMG now builds and every acceptance
+check passes on the artefact. **That is not the same as the defect being fixed,
+and this entry exists so the difference stays visible.**
+
+#### The failing step, named `[ran]`
+
+`hdiutil_detach_retry` — unmounting the staged read-write image, immediately
+before compression. Its patience is **~6 seconds total**: 3 attempts with 2s and
+4s sleeps, then `exit 16` (EBUSY) under `set -e`.
+
+**The evidence is the failed run's own volume, which `set -e` left mounted:**
+
+| on the abandoned volume | what it means |
+|---|---|
+| `Applications` symlink, `.VolumeIcon.icns`, Finder-written `.DS_Store` | every aesthetic step completed |
+| `.fseventsd` **absent** | the step directly before the detach had run |
+| **still mounted**, 20 minutes later | the detach never succeeded |
+
+Reading the script between the AppleScript and the compression, every other
+command there either cannot fail (`chmod … || true`, `rm -rf … || true`), is
+skipped (`bless`, "Skipping blessing on sandbox"), or is `SetFile`, which the
+five later successes prove is present. **`hdiutil_detach_retry` is the only step
+in that region that can abort, and its give-up path is the only one that leaves
+the volume mounted** — which is exactly the state found.
+
+The mechanism was reproduced directly rather than inferred: holding one file open
+on that volume and detaching gives
+`hdiutil: couldn't unmount "disk4" - Resource busy`, **exit 16**; releasing it and
+retrying gives 0.
+
+#### The trigger: UNKNOWN
+
+**Not "no trigger found" — no instrument could see it.** The unified log has
+**zero entries** for the 22:43–22:45 window. Coverage was checked rather than
+assumed: a total line count for the window, not just a filtered one, so an empty
+result was not read as "no denials". This is the negative-grep family — a count
+of the thing you fear, over input that may be empty for unrelated reasons.
+
+It has **not reproduced in five unmodified builds** (one under the shim, one with
+it removed, three consecutive repeats), against **one** failure this session.
+
+First-appearance scanning of a freshly written 130 MB binary would fit the shape,
+since later builds produce a byte-identical binary. **It is a hypothesis only and
+was not tested.** It is recorded so nobody re-derives it as a finding.
+
+#### The instrument, which is the transferable part
+
+`bundle_dmg.sh` starts `#!/usr/bin/env bash`, so a **PATH shim named `bash`**
+is resolved first. It logs argv, the full environment and the script's own
+stdout/stderr to a file, then runs the real bash and passes the exit code
+through. That is what turned tauri's bare `error running bundle_dmg.sh` into the
+script's complete output, and it is the thing to reach for the next time this
+fails.
+
+It also killed the one hypothesis that could be killed outright: this machine has
+only `/bin/bash` 3.2, so `env bash` resolves identically with or without the shim.
+Tauri's invocation was captured, not guessed — cwd `bundle/macos`, positional
+args `gaply_0.1.0_aarch64.dmg gaply.app`, with `--volname`, `--icon`,
+`--app-drop-link`, `--window-size`, `--hide-extension`, `--volicon`. Nothing
+anomalous.
+
+#### DO NOT MODIFY `bundle_dmg.sh`
+
+One failure and five successes is not a baseline a fix can be measured against.
+A change now — widening the retry budget is the obvious one — would **destroy the
+evidence of whether it mattered**, because the next hundred green builds are what
+the unmodified script already produces. This is the negative-control rule: a fix
+whose first run is green proves nothing unless the failure could be predicted
+first.
+
+#### The verified artefact `[ran]`
+
+```
+path    src-tauri/target/release/bundle/dmg/gaply_0.1.0_aarch64.dmg
+size    492,946,199 bytes
+sha256  b1f025dc9f43471ffc3b53a476c701013506617bef3d4ead93afe1337a20a85d
+```
+
+Read from the artefact, not the repo: mounts and unmounts cleanly
+(`ATTACH_EXIT=0`, `DETACH_EXIT=0`); `Contents/MacOS` holds only `app`;
+`codesign --verify --deep --strict` exits 0; the `Contents/MacOS/app` inside the
+DMG is byte-identical to the verified production build
+(`80a10058e12ae57c369055ded83cc45d450aa011c194c8c0fe192a82d99e7fb6`); the seed
+compiled into that binary carries **521 spans, 0 at exactly 400 characters**, and
+the nature-medicine sentence runs its full 921 characters to
+*"…pre-specified endpoints."*, the journal's own "availabiity" typo intact
+(§11 D186, and the cap removed in `59f792c`).
+
+**The seed was read out of the binary in the mounted DMG**, not from
+`gaply-core/data/`. The checker was negative-controlled against the pre-fix seed
+at `e7ce226`, which returns **19 spans at exactly 400** and a nature-medicine span
+truncated at *"…Nature Research Por"*. Both seeds contain "abiity", so the typo
+alone does not distinguish them — what does is whether the sentence reaches its
+end.
+
+#### Not claimed
+
+* **Not that D4 is fixed.** The failing step is evidenced; the trigger is not.
+* **Not that the shim fixed anything.** It is a logger; removing it, the build
+  still passed.
+* **Not that anything about first-appearance binary scanning was measured.**
+* **Not that five successes predict the sixth.** They bound the rate, nothing more.
+
+Separate open item, deliberately NOT part of this record:
+`docs/PROBLEM_DOSSIER.md` **D6**, the DMG wrapper not being byte-reproducible.

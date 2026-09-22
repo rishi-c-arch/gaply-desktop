@@ -50,8 +50,9 @@ cannot be reached while it stands.
 | **D3** | User-facing behaviour guarded only locally | measurement/instrument | 2 | measured | no |
 | **D2** | commands.rs error wiring untested | measurement/instrument | 2 | measured | no |
 | **B4** | Temperature unset; probability wanders 40–60 | configuration | 1 | measured | no |
-| **D4** | `tauri build` fails at bundle_dmg.sh | configuration | 2 | **unknown** | no (blocks shipping) |
+| **D4** | `tauri build` fails at bundle_dmg.sh | environment (transient) | 2 | **characterized** — step known, trigger unknown (§11 D209) | no |
 | **D5** | DMG ad-hoc signed, not notarized | configuration | 2 | measured | no (blocks shipping) |
+| **D6** | DMG wrapper not byte-reproducible | reproducible build | 1 | measured | no |
 | **D1** | 8000-char boundary vs whole-paper review | privacy boundary | **5** | measured | **yes — central** |
 
 **Four problems are load-bearing for the stated goal and are research-level, not
@@ -981,6 +982,12 @@ runs on every push on Linux and Windows; its **wiring** remains app-crate.
 
 ### D4 — `npm run tauri build` fails at `bundle_dmg.sh`; cause **unknown**
 
+> **STATUS, superseding the heading: the failing STEP is now known and the
+> TRIGGER is not — see §11 D209 of `docs/AI_ENGINE_PLAN.md`.** The step is
+> `hdiutil_detach_retry` (exit 16, EBUSY, ~6s of patience); the DMG builds and
+> passes every acceptance check; it failed once and has since succeeded five
+> times unmodified. Everything below is the original record, kept as written.
+
 **Measured `[ran]`.** Three consecutive builds, `BUILD_EXIT=1`, identical:
 
 ```
@@ -1030,6 +1037,38 @@ build log: "skipping app notarization, no APPLE_ID & APPLE_PASSWORD & APPLE_TEAM
 **Acceptance test.** `spctl -a -t open` accepts the DMG on a machine that has
 never seen the source tree. **Negative control:** an unsigned build must still be
 *refused* — a fix that disables Gatekeeper locally proves nothing.
+
+### D6 — the DMG wrapper is not byte-reproducible; the app inside it is
+
+**Measured `[ran]`** across three consecutive unmodified `npm run tauri build`
+runs at `bf583eb`:
+
+```
+DMG                      492,946,212  /  492,946,204  /  492,946,199 bytes
+Contents/MacOS/app       80a10058e12ae57c369055ded83cc45d450aa011c194c8c0fe192a82d99e7fb6
+                         identical in all three
+```
+
+**The product is reproducible and its packaging is not.** The variation is in the
+image wrapper — HFS+ timestamps, allocation and compression layout — not in
+anything a user runs. So a sha256 of the DMG identifies a BUILD, and only the
+inner binary's hash identifies the SOFTWARE. Quoting a DMG hash as though it
+pinned the product is the mistake this entry exists to prevent.
+
+**Why it is recorded separately from §11 D209** and not folded into it: D209 is
+an intermittent failure whose trigger is unknown, and this is a deterministic
+property measured three times out of three. Mixing a characterized-but-unexplained
+failure with a fully-measured one would let the weaker evidence borrow the
+stronger entry's confidence.
+
+**Root cause class.** Reproducible build (not investigated).
+
+**Acceptance test.** Two builds from the same commit, on the same machine, with
+no source change, produce byte-identical DMGs. **Negative control:** a build with
+a one-character source change must still differ — a "fix" that makes every DMG
+identical regardless of input proves nothing.
+
+---
 
 ---
 
