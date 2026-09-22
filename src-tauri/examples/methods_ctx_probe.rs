@@ -1,4 +1,26 @@
-//! **The same 160 paragraphs, with their place in the document restored.**
+//! **The same 160 paragraphs, with their place in the document restored —
+//! NESTED UNDER `summary`, which is the correction §11 D205 needed.**
+//!
+//! # v1 of this probe produced a withdrawn result
+//!
+//! It sent the context as TOP-LEVEL SIBLINGS of `summary`. Both proxy provider
+//! clients build the user message as
+//! `json.dumps({"summary": ..., "instruction": ...})` and discard every other
+//! key, so the heading and both neighbours were dropped before the request left
+//! the proxy. The validator saw all four fields and refused 16 of 160 — a real,
+//! correct, reassuring number — and the model never saw a heading. §11 D205 is
+//! withdrawn for exactly that. `git show 63a706a` for the version that did it.
+//!
+//! `reviewer_agent.rs:596` had the rule written down the whole time:
+//! *"Everything the model must see lives under `summary`."*
+//!
+//! # This probe REFUSES to produce numbers it has not first earned
+//!
+//! Before any case is scored it sends a sentinel payload through the real
+//! client and requires the model to echo the heading and both neighbours back.
+//! If the sentinels do not return, it ABORTS. A run that cannot prove the
+//! context arrived cannot be evidence about context — which is the single
+//! lesson of §11 D205, enforced here rather than remembered.
 //!
 //! §11 D204 declined the scientific layer against three model tiers and wrote
 //! the reopening condition as an INPUT rather than a model: *"whether a
@@ -53,10 +75,11 @@ fn question(variant: &str) -> &'static str {
 }
 
 /// The only deviation from §11 D204's prompt, isolated so it can be read.
-const FRAMING: &str = "The summary is one paragraph of a manuscript, given with its place in \
-    that manuscript: section_heading is the heading of the section it sits in, and \
-    preceding_paragraph and following_paragraph are the paragraphs immediately before and \
-    after it. Those three fields are context only - judge the summary field itself. ";
+const FRAMING: &str = "summary.paragraph is one paragraph of a manuscript, given with its \
+    place in that manuscript: summary.section_heading is the heading of the section it sits \
+    in, and summary.preceding_paragraph and summary.following_paragraph are the paragraphs \
+    immediately before and after it. Those three fields are context only - judge \
+    summary.paragraph itself. ";
 
 fn parse(raw: &str) -> Option<bool> {
     let head: String = raw.trim().to_lowercase().chars().take(24).collect();
@@ -117,12 +140,71 @@ fn raw_verify(
     ))
 }
 
+/// **Prove, through the REAL client, that the nested context reaches the
+/// provider — by making the model read it back.**
+///
+/// A mock transport can show what the proxy's Python would forward; it cannot
+/// show what this binary, this proxy and this provider actually do together.
+/// So the instrument is the model: it is asked to echo three sentinels that
+/// exist only inside `summary`, and if they come back they were transmitted.
+///
+/// Returns the sentinels that did NOT return. Empty means proven.
+fn prove_context_reaches_the_model(
+    client: &app_lib::models::proxy_client::ProxyReqwestClient,
+) -> Result<Vec<&'static str>, String> {
+    const HEADING: &str = "HEADINGSENTINEL7Q4";
+    const PREV: &str = "PREVSENTINEL8R5";
+    const NEXT: &str = "NEXTSENTINEL9S6";
+    // `GRRB_PROVE_SIBLING=1` sends §11 D205's ORIGINAL shape — the three fields
+    // as top-level siblings of `summary`. It is the gate's own negative control:
+    // a gate whose first run is green proves nothing about whether it gates, so
+    // the failing case is available on demand rather than argued about.
+    let sibling = std::env::var("GRRB_PROVE_SIBLING").is_ok();
+    let summary = if sibling {
+        serde_json::json!("The paragraph under test.")
+    } else {
+        serde_json::json!({
+            "section_heading": HEADING,
+            "preceding_paragraph": PREV,
+            "paragraph": "The paragraph under test.",
+            "following_paragraph": NEXT,
+        })
+    };
+    let mut payload = serde_json::json!({
+        "summary": summary,
+        "instruction": "Echo three values from summary back, verbatim. Reply with ONLY a JSON \
+                        object: {\"heading\":\"<summary.section_heading>\",\
+                        \"prev\":\"<summary.preceding_paragraph>\",\
+                        \"next\":\"<summary.following_paragraph>\"}.",
+        "max_tokens": 120,
+    });
+    if sibling {
+        let o = payload.as_object_mut().unwrap();
+        o.insert("section_heading".into(), serde_json::json!(HEADING));
+        o.insert("preceding_paragraph".into(), serde_json::json!(PREV));
+        o.insert("following_paragraph".into(), serde_json::json!(NEXT));
+        eprintln!("  (NEGATIVE CONTROL: sending §11 D205's sibling shape — these must NOT return)");
+    }
+    let (reply, env) = client.verify_with_envelope(&payload).map_err(|e| e.to_string())?;
+    let wire = reply.to_string();
+    eprintln!("  receipt reply ({}): {wire}", env.model.as_deref().unwrap_or("UNREPORTED"));
+    Ok([HEADING, PREV, NEXT].into_iter().filter(|s| !wire.contains(s)).collect())
+}
+
 fn main() {
     let path = std::env::args().nth(1).expect("usage: methods_ctx_probe <cases_ctx.jsonl>");
     let key = std::env::var("GRRB_APP_CHECK_KEY")
         .expect("GRRB_APP_CHECK_KEY must match the proxy's APP_CHECK_SIGNING_KEY");
     let url = std::env::var("GAPLY_PROXY_URL").unwrap_or_else(|_| "http://127.0.0.1:8080".into());
-    let signer = TokenSigner::new(key.into_bytes(), DEFAULT_APP_ID);
+    // TWO signers from the same key: the raw path keeps §11 D204's verbatim,
+    // fence-tolerant read of `result.text`, and the receipt check goes through
+    // the SHIPPED client, so what it proves is what the product would send.
+    let signer = TokenSigner::new(key.clone().into_bytes(), DEFAULT_APP_ID);
+    let client = app_lib::models::proxy_client::ProxyReqwestClient::new(
+        &url,
+        TokenSigner::new(key.into_bytes(), DEFAULT_APP_ID),
+    )
+    .expect("build ProxyClient");
 
     let cases: Vec<serde_json::Value> = std::fs::read_to_string(&path)
         .expect("cases")
@@ -136,6 +218,25 @@ fn main() {
     );
     eprintln!("cases: {}  proxy: {url}", cases.len());
 
+    // THE GATE. Nothing below runs until the context is proven to arrive.
+    eprintln!("proving the nested context reaches the provider ...");
+    match prove_context_reaches_the_model(&client) {
+        Ok(missing) if missing.is_empty() => {
+            eprintln!("  PROVEN: heading and both neighbours echoed back by the model\n");
+        }
+        Ok(missing) => {
+            eprintln!(
+                "  ABORT: the model did not echo {missing:?}. The context is not reaching it, \
+                 and any numbers from this run would repeat §11 D205's error."
+            );
+            std::process::exit(2);
+        }
+        Err(e) => {
+            eprintln!("  ABORT: the receipt check itself failed ({e}). Not a result about context.");
+            std::process::exit(2);
+        }
+    }
+
     let delay: u64 =
         std::env::var("GRRB_DELAY_MS").ok().and_then(|v| v.parse().ok()).unwrap_or(1200);
     let only = std::env::var("GRRB_ONLY").ok();
@@ -144,7 +245,10 @@ fn main() {
 
     println!("variant\tid\tlabel\tanswer\tkind\tdetail");
     let mut models: std::collections::BTreeSet<String> = Default::default();
-    for variant in ["A", "B"] {
+    let repeats: usize =
+        std::env::var("GRRB_REPEATS").ok().and_then(|v| v.parse().ok()).unwrap_or(3);
+    eprintln!("variants A and B, {repeats} runs each (§11 D205: no cloud number decides on one run)");
+    for (variant, rep) in ["A", "B"].iter().flat_map(|v| (1..=repeats).map(move |r| (*v, r))) {
         if only.as_deref().is_some_and(|o| o != variant) {
             continue;
         }
@@ -152,11 +256,16 @@ fn main() {
         let t0 = std::time::Instant::now();
         for (i, c) in cases.iter().enumerate() {
             let ctx = &c["context"];
+            // NESTED. `summary` is an object, so json.dumps carries the whole
+            // tree to the model — the shape `build_review_payload` uses and the
+            // shape v1 of this probe did not.
             let payload = serde_json::json!({
-                "section_heading": ctx["heading"],
-                "preceding_paragraph": ctx["prev"],
-                "summary": c["input"]["text"],
-                "following_paragraph": ctx["next"],
+                "summary": {
+                    "section_heading": ctx["heading"],
+                    "preceding_paragraph": ctx["prev"],
+                    "paragraph": c["input"]["text"],
+                    "following_paragraph": ctx["next"],
+                },
                 "instruction": instruction,
                 "max_tokens": max_tokens,
             });
@@ -190,16 +299,16 @@ fn main() {
                 }
             };
             println!(
-                "{variant}\t{}\t{}\t{answer}\t{}\t{detail}",
+                "{variant}{rep}\t{}\t{}\t{answer}\t{}\t{detail}",
                 c["id"].as_str().unwrap_or("?"),
                 if c["expected"]["finding"].as_bool().unwrap_or(false) { 1 } else { 0 },
                 ctx["kind"].as_str().unwrap_or("?"),
             );
             if i % 25 == 0 {
-                eprintln!("  {variant}: {i}/{}  {:?}", cases.len(), t0.elapsed());
+                eprintln!("  {variant}{rep}: {i}/{}  {:?}", cases.len(), t0.elapsed());
             }
         }
-        eprintln!("variant {variant} done in {:?}", t0.elapsed());
+        eprintln!("variant {variant} run {rep} done in {:?}", t0.elapsed());
     }
     eprintln!("models echoed by the API: {models:?}");
 }

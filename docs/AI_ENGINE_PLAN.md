@@ -16740,3 +16740,147 @@ because the thing that breaks it is an ordinary edit.
 Artefact: `src-tauri/examples/reviewer_variance_probe.rs` (`6853bbd`), which
 holds the payload fixed and prints its SHA-256 so `build_review_payload`'s
 documented determinism is checked rather than trusted.
+
+### D207 — document context REACHES the model and changes nothing: the whole of §11 D205's gain was the prompt sentence
+
+§11 D205 claimed document context was worth +7.5 and +11.2 points and was
+withdrawn when the context proved never to have reached the model. §11 D204's
+diagnosis — *"whether a paragraph describes what THESE authors did is a fact
+about its place in a document, and the probe hands over a paragraph with its
+place removed"* — was therefore untested. It has now been tested.
+
+**The answer is no. The model can see the heading and both neighbours, and its
+answers do not move.**
+
+#### Three conditions, identical rows, identical model
+
+`gpt-4o-2024-08-06` from the API's own `result.model` echo on every call.
+
+| variant A — 143 common rows | precision | vs previous |
+|---|---|---|
+| 1. §11 D204 — no framing, no context | 34.7% | — |
+| 2. §11 D205 — framing, context DROPPED by the proxy | 42.7% | **+8.0** |
+| 3. this run — framing + context ARRIVES | **42.9%** | **+0.3** |
+
+| variant B — 141 common rows | precision | vs previous |
+|---|---|---|
+| 1. §11 D204 — no framing, no context | 38.1% | — |
+| 2. §11 D205 — framing, context DROPPED | 49.7% | **+11.6** |
+| 3. this run — framing + context ARRIVES | **48.0%** | **−1.7** |
+
+**The prompt sentence explains the entire gain. The document context explains
+none of it** — +0.3 on one variant and −1.7 on the other, both inside the
+run-to-run spread (A 41.0–45.3, B 48.1–50.0).
+
+**§11 D205's defect accidentally produced the perfect control.** A condition
+with the framing and without the context is exactly what is needed to separate
+the two, and it exists only because the proxy silently dropped the fields. The
+withdrawn entry is worth more as a control than it ever was as a result.
+
+#### The context demonstrably arrived — this is not §11 D205 again
+
+The corrected probe refuses to score a single case until the model echoes three
+sentinels that exist only inside `summary`:
+
+```
+receipt reply (gpt-4o-2024-08-06):
+  {"heading":"HEADINGSENTINEL7Q4","next":"NEXTSENTINEL9S6","prev":"PREVSENTINEL8R5"}
+PROVEN: heading and both neighbours echoed back by the model
+```
+
+and its negative control (`GRRB_PROVE_SIBLING=1`, §11 D206) exits 2 on the old
+shape. So the finding is **not** "the context is missing"; it is **"the context
+is present and the model does not use it."**
+
+The row-level evidence says the same. The outside-Methods yes-rate — the number
+§11 D205 read as proof that position was doing the work — is **33% with the
+context present against 34% with it absent** (variant A), and **21% against 22%**
+(variant B). Unchanged to within a point. Whatever produced that behaviour, it
+was never the heading.
+
+#### The ceiling is still there and still unreached
+
+Filtering gpt-4o's own answers by ground-truth Methods membership gives 72.0%
+(A) and 60.0% (B). The model now HAS that membership in its payload, verbatim,
+and delivers 42.9% and 48.0%. **The information being present and the model
+acting on it are different things, and this is the cleanest measurement of that
+gap in this log** — three tiers of model and two payload shapes, and the only
+thing that ever moved the number was an instruction telling the model what to
+judge.
+
+#### THE PREDICTION FAILED A FOURTH TIME, IN THE SAME DIRECTION
+
+| | predicted | measured |
+|---|---|---|
+| variant A | 45–57%, centre ~50% | **42.9%** |
+| variant B | 52–64%, centre ~57% | **48.0%** |
+| at least one variant clears 50% on all runs | ~70% likely | **none did** |
+| outside-Methods yes-rate, A | falls 34% → 15–28% | **33%** |
+| outside-Methods yes-rate, B | falls 22% → 10–20% | **21%** |
+| in-Methods yes-rate flat or slightly up | — | held (A 52%, B 61%) |
+| spread across runs, 2–5 pts | — | held (A 4.3, B 1.9) |
+
+**Four over-estimates on this task, every one in the same direction**, and this
+one was made *after* writing the entry that says a prior which has missed by
+30–50 points at every tier is not evidence about the next measurement. The
+prediction was anchored low on purpose and was still too high.
+
+The pattern across all four is one error, not four: **each assumed the model
+would exploit information that was available to it.** Scale would help (it did
+not), a bigger tier would help (it did not), and now the actual missing input
+would help (it did not). The measurable thing has been the prompt, every time.
+
+#### The instrument failed mid-run, and the loss was NOT random
+
+Run B3 returned **39 × `500 Internal Server Error`**, contiguous from row 110 to
+159 of 160 — a sustained failure at the tail of a 960-call session, not a rate
+limit (that is a 429 with `Retry-After`) and not the validator (422).
+
+**All 39 lost rows are from ONE manuscript**, `final final L.pdf`, because the
+case file is ordered by source document and the outage hit the end of it. A
+pooled three-run figure for B would therefore have been computed on a subset
+missing half of one paper — a denominator changed for a reason correlated with
+the data. **Variant B is reported on its two clean runs**, and that is why its
+row count (141) differs from A's (143).
+
+The body was FastAPI's default `Internal Server Error`, not the proxy's own JSON
+error shape, so this was an unhandled exception inside the proxy rather than a
+deliberate status — most plausibly the upstream call raising through
+`raise_for_status`. **The proxy discards the upstream detail**, so neither the
+probe nor a user can tell an OpenAI outage from a bug in the proxy; a user would
+see "reviewer unavailable" with no diagnosis. Not investigated further here, and
+not confirmed from the proxy's log, which goes to a terminal and is not
+retained.
+
+#### Deviations and limits
+
+* **The framing sentence is not byte-identical to §11 D205's.** It now names the
+  nested fields (`summary.section_heading` rather than `section_heading`), so
+  conditions 2 and 3 differ in two ways — the nesting AND the qualified field
+  names — not one. Both describe the same three fields to the same model, and
+  the difference is judged not to carry an 8-point effect, but it is a
+  confound and is recorded as one rather than smoothed over.
+* Variant B has **two** clean runs, not three.
+* One B1 reply was `{\"answer\":\"no\"}` with escaped quotes — recorded
+  `unparseable`, never scored as judgment, per §11 D204's rule.
+* Position comes from the heuristic section splitter, which puts 2 of the 26
+  positives in Introduction and 3 in Abstract.
+* 141 of the 160 labels still have one author.
+
+#### THIS DOES NOT REOPEN THE LAYER, AND IS NOT OFFERED AS EVIDENCE TOWARD IT
+
+§11 D205's reopening condition is unchanged and untouched: **the combined rule
+— model says yes AND the section heading names Methods — fixed in advance, on
+manuscripts never used by §11 D196–D207, with two-author labels.** This run is
+on the set that has now been used SIX times, so it cannot bear on that condition
+in either direction.
+
+What it settles is narrower and was the open question: **does document context
+help?** On this set, with this model, at this operating point — no. §11 D204's
+diagnosis is now tested and not supported, and §11 D165's decline stands with
+one fewer live hypothesis behind it.
+
+Artefacts: `evals/reports/grrb-cloud-gpt4o-nested-raw.tsv` (960 rows, six runs)
+beside the §11 D204 and withdrawn §11 D205 artefacts on the same set;
+`examples/methods_ctx_probe.rs`, whose receipt gate refuses to produce numbers
+it has not first earned.
