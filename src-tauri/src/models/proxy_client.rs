@@ -330,7 +330,7 @@ impl ProxyReqwestClient {
         let text = result["text"].as_str().ok_or_else(|| {
             GaplyError::Validation("proxy response missing result.text".into())
         })?;
-        let reply = serde_json::from_str(text)
+        let reply = serde_json::from_str(strip_one_json_fence(text))
             .map_err(|e| GaplyError::Validation(format!("proxy reply is not valid JSON: {e}")))?;
         let meta = ProxyEnvelope {
             model: result["model"].as_str().map(str::to_string),
@@ -354,6 +354,46 @@ impl ProxyClient for ProxyReqwestClient {
         // metadata is dropped here (callers that need it use verify_with_envelope).
         self.verify_with_envelope(payload).map(|(reply, _)| reply)
     }
+}
+
+/// **Strip ONE markdown code fence from a model reply, and nothing looser.**
+///
+/// Models decorate. §11 D204 measured `gpt-4o` wrapping a correct reply in a
+/// ```` ```json ```` fence in **8 of 10 identical calls**, and 1 of 5 reviewer
+/// letters was discarded for it on the shipped path — the user was told the
+/// reviewer was unavailable after paying for a full analysis, because of three
+/// backticks.
+///
+/// # Why this is not a lenient parser
+///
+/// It strips exactly one opening fence — ```` ``` ```` optionally followed by
+/// the single language tag `json` — and one closing ```` ``` ````. **A reply
+/// that does not START with a fence is returned untouched**, so prose,
+/// apologies, explanations and half-formed answers still fail to parse exactly
+/// as they do today. That boundary is deliberate: the failure this repairs is a
+/// DECORATION around valid JSON, and widening it to "find the object anywhere in
+/// the text" would start accepting replies whose JSON is a fragment of an answer
+/// the model did not commit to.
+///
+/// An UNCLOSED fence is also stripped, because `max_tokens` truncates the
+/// closing fence before the content (§11 D204 saw exactly that:
+/// `"```json\n{\"answer\":\"yes\"}\n"` at `max_tokens: 8`).
+fn strip_one_json_fence(text: &str) -> &str {
+    let trimmed = text.trim();
+    let Some(after_open) = trimmed.strip_prefix("```") else {
+        return text;
+    };
+    // At most ONE language tag, and it must be `json`. Any other tag means this
+    // is not the shape we are repairing, so hand back the original.
+    let body = if let Some(rest) = after_open.strip_prefix('\n').or_else(|| after_open.strip_prefix("\r\n")) {
+        rest
+    } else if after_open.len() >= 4 && after_open[..4].eq_ignore_ascii_case("json") {
+        &after_open[4..]
+    } else {
+        return text;
+    };
+    let body = body.trim();
+    body.strip_suffix("```").unwrap_or(body).trim()
 }
 
 /// Map a non-2xx proxy response to an honest, distinct [`GaplyError`]. Reads
@@ -484,6 +524,9 @@ mod tests {
         Unprocessable,
         RateLimited,
         Unavailable,
+        /// 200 with a CORRECT reply the model wrapped in a markdown fence.
+        /// §11 D204 measured `gpt-4o` doing this in 8 of 10 identical calls.
+        FencedReply,
     }
 
     /// Minimal HTTP/1.1 mock of the gaply-proxy: serves GET /health (200) and
@@ -621,6 +664,13 @@ mod tests {
             Mode::Unavailable => {
                 send(&mut stream, 503, "Service Unavailable", "", r#"{"error":"claude_not_configured"}"#)
             }
+            Mode::FencedReply => send(
+                &mut stream,
+                200,
+                "OK",
+                "",
+                r#"{"result":{"model":"stub","stop_reason":"stop","text":"```json\n{\"verdicts\":[]}\n```"}}"#,
+            ),
         }
     }
 
@@ -722,6 +772,72 @@ mod tests {
         // envelope is unwrapped and result.text parsed into JSON.
         let out = client_for(&proxy).verify(&serde_json::json!({"summary": {}})).unwrap();
         assert_eq!(out, serde_json::json!({"verdicts": []}));
+    }
+
+    /// **The fence stripper's BOUNDARY, asserted from both sides.**
+    ///
+    /// The repair is for a decoration around valid JSON. The negative cases are
+    /// the point of this test: a reply that does not START with a fence is
+    /// returned untouched, so prose still fails to parse exactly as it does
+    /// today. Widening this to "find the object anywhere in the text" is what
+    /// the assertions below forbid.
+    #[test]
+    fn the_fence_stripper_strips_one_fence_and_refuses_everything_looser() {
+        // STRIPPED — the shapes a model actually produces.
+        for (input, want) in [
+            ("```json\n{\"a\":1}\n```", "{\"a\":1}"),
+            ("```JSON\n{\"a\":1}\n```", "{\"a\":1}"),
+            ("```\n{\"a\":1}\n```", "{\"a\":1}"),
+            // §11 D204: `max_tokens` truncated the CLOSING fence, not the answer.
+            ("```json\n{\"answer\":\"yes\"}\n", "{\"answer\":\"yes\"}"),
+            ("  ```json\n{\"a\":1}\n```  ", "{\"a\":1}"),
+        ] {
+            assert_eq!(strip_one_json_fence(input), want, "should have stripped: {input:?}");
+        }
+
+        // UNTOUCHED — everything else, returned byte-identical so it fails to
+        // parse exactly as it did before this repair existed.
+        for input in [
+            r#"{"a":1}"#,                                  // already bare
+            r#"Here is my answer: {"a":1}"#,               // PROSE around JSON
+            r#"I could not complete this. {"a":1} maybe"#, // prose + a fragment
+            "```python\nprint(1)\n```",                    // a different tag
+            "```yaml\na: 1\n```",
+            "no json at all",
+            "",
+        ] {
+            assert_eq!(
+                strip_one_json_fence(input),
+                input,
+                "must be returned untouched — widening the stripper to reach inside prose is \
+                 what this assertion exists to prevent: {input:?}"
+            );
+        }
+    }
+
+    /// **A correct letter must not be thrown away because the model wrapped it
+    /// in three backticks.**
+    ///
+    /// Measured 22 Sep 2026 on the shipped reviewer path: 1 of 5 identical runs
+    /// came back `proxy reply is not valid JSON: expected value at line 1
+    /// column 1` — the first character was not JSON. §11 D204 had already
+    /// measured `gpt-4o` fencing 8 of 10 identical replies and worked around it
+    /// in a PROBE; the shipped client had no such tolerance, so
+    /// `gate_reviewer_response` never ran and `commands.rs` substituted
+    /// `ReviewerEvaluation::unavailable_offline()`. **A user who had paid for a
+    /// full analysis was told the reviewer was unavailable, because of three
+    /// backticks.**
+    #[test]
+    fn a_reply_wrapped_in_a_markdown_fence_is_still_read() {
+        let proxy = MockProxy::start(Mode::FencedReply);
+        let (reply, meta) =
+            client_for(&proxy).verify_with_envelope(&serde_json::json!({"summary": {}})).unwrap();
+        assert_eq!(
+            reply,
+            serde_json::json!({"verdicts": []}),
+            "the fenced reply is valid JSON inside one markdown fence and must parse"
+        );
+        assert_eq!(meta.stop_reason.as_deref(), Some("stop"));
     }
 
     #[test]
