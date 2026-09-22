@@ -16574,3 +16574,169 @@ document position by exact paragraph text); `evals/grrb/score_ctx.py`, which
 reproduces §11 D204's published 33.3% and 38.5% as a self-test;
 `gaply-core/examples/scientific_context_export.rs` and
 `examples/methods_ctx_probe.rs`.
+
+### D206 — the reviewer letter's post-fix baseline: the content is stable, the one number that moves is shown to nobody, and 5 of 5 completed
+
+§11 D204's OPEN item recorded that `gaply-proxy/app/openai_client.py` sets no
+temperature, so every cloud reply is sampled at the provider default of 1.0, and
+that **nothing measured how much two reviewer letters differ**. §11 D205 then
+showed a sampled spread straddling a decision threshold. This measures the
+letter itself, on the shipped path, before and after two fixes.
+
+#### The two baselines, same manuscript, same fixed payload
+
+`R PAPER .docx`, `gpt-4o-2024-08-06` read from the API's own `result.model`
+echo. The pipeline runs ONCE and `build_review_payload` is called ONCE; the same
+bytes are sent N times, so anything that differs is the model's sampling.
+
+| | pre-fix (22 Sep, 5 runs) | post-fix (22 Sep, 5 runs) |
+|---|---|---|
+| completed | **4 of 5** | **5 of 5** |
+| recommendation | MajorRevision 4/4 | **MajorRevision 5/5** |
+| concern set | `f1`–`f5`, identical 4/4 | **`f1`–`f5`, identical 5/5** |
+| concern ORDER | varied in 1 of 4 | **varied in 2 of 5** |
+| publication_probability | 40, 40, 40, 60 | **40, 40, 50, 50, 40** |
+| `pct_in_body` | not captured | **false 5/5** |
+| `prob_word_in_body` | not captured | **false 5/5** |
+
+**What a user receives is stable.** The recommendation and the set of concerns —
+the two things a researcher acts on — are identical across every successful run
+of both baselines. What moves is the ORDER of the concerns and one number.
+
+#### THE NUMBER THAT MOVES IS RENDERED NOWHERE, AND NOW THE PROSE IS CHECKED TOO
+
+`publication_probability` swings 40–60 pre-fix and 40–50 post-fix on identical
+input. It reaches no screen and no export — audited 22 Sep 2026 across
+`ReviewerLetterPanel` (explicit NO GAUGE, ONTOLOGY §4.20 PRESENTATION class),
+every other React component (none reads it), and all seven report renderers
+(zero occurrences of "probability").
+
+**That audit had one hole and this baseline closes it.** `body` is model prose
+and the panel renders it verbatim at `pr-body`, so a percentage could have
+reached a reader through the prose no matter what the field did. The first
+baseline could not answer that — the probe hashed the body and threw the text
+away, which is the truncated-span defect in a new place: a value retained and
+its evidence discarded. With body capture added, **`pct_in_body` and
+`prob_word_in_body` are false in all five runs.** The suppression holds in the
+prose as well as in the field.
+
+#### TEMPERATURE IS NOT THE DEFECT HERE, AND THE INSTRUCTION TO MEASURE FIRST IS WHY THAT IS KNOWN
+
+The obvious reading of §11 D204's OPEN item was that sampling at 1.0 must be
+destabilising the letter, and the obvious response was to set a temperature. The
+instruction was to measure before fixing, explicitly so the evidence of what
+users had been getting was not erased by the fix.
+
+**It was the right call and the measurement overturned the expectation.** The
+letter's content does not wobble. Setting a temperature would have been a change
+with real consequences for output quality, made against a defect that was not
+there — and the two things that WERE costing users a letter would have been left
+in place, because both were invisible from the temperature question.
+
+`publication_probability` is also the anchor's own evidence: the payload carries
+`summary.overall_verdict`, so the model is handed the deterministic verdict.
+Stability of the recommendation is evidence that the anchor works, NOT that the
+model is stable. The free-form number beside it is what the model does when
+nothing anchors it, and it moves by 10–20 points.
+
+#### WHAT THIS RUN CANNOT SHOW — the fix is not demonstrated by it
+
+The pre-fix run lost 1 of 5 letters to `proxy reply is not valid JSON: expected
+value at line 1 column 1`, and the fence stripper (`f48514c`, moved to
+`gaply_core::verify_agent` in `f114830`) now repairs exactly that. The post-fix
+run completed 5 of 5.
+
+**That is NOT evidence that the fence fix was exercised.** The probe records a
+letter, not the bytes that produced it, so a run in which the model emitted bare
+JSON and a run in which it emitted a fence that was stripped are indistinguishable
+in this output. **5 of 5 is consistent with "the fix worked" and equally
+consistent with "no fence occurred".** With 1 in 5 pre-fix, the chance of zero
+fences in five draws is not small.
+
+Said plainly because the opposite claim is the tempting one and would be the
+§11 D205 error again: a result that agrees with what was expected, reported as
+confirmation of the mechanism expected to produce it. What the fix rests on is
+its own tests — a fenced fixture that reproduced the production error string
+verbatim before the fix existed, and a deletion test in both scopes — not on
+this baseline.
+
+To make a run demonstrate it, the probe would have to record whether
+`strip_one_json_fence` changed the bytes. It does not, and that is the
+measurement this entry leaves undone.
+
+#### THE MODEL DID NOT REPORT MISSING FIELDS. IT CONFABULATED THEM.
+
+Measured 22 Sep 2026 while building the corrected §11 D205 probe, as the
+negative control for its receipt gate. Two payloads, same sentinels, same live
+proxy, same `gpt-4o-2024-08-06`, same instruction: *echo `section_heading`,
+`preceding_paragraph` and `following_paragraph` back verbatim*.
+
+**Nested under `summary` — the correct shape:**
+
+```
+{"heading":"HEADINGSENTINEL7Q4","next":"NEXTSENTINEL9S6","prev":"PREVSENTINEL8R5"}
+```
+
+**As top-level siblings — §11 D205's shape, which the proxy discards:**
+
+```
+{"heading":"The paragraph under test.",
+ "next":"Reply with ONLY a JSON object: {\"heading\":\"<summary.section_heading>\"...",
+ "prev":"Echo three values from summary back, verbatim."}
+```
+
+**Asked for a heading it could not see, the model returned the paragraph text.
+Asked for the neighbours, it returned fragments of its own instruction.** It did
+not say the fields were absent, did not error, did not leave them empty. It
+filled all three from the only strings in its context, in the requested shape,
+with the requested keys.
+
+**This is why §11 D205 read as a coherent result.** Nothing in that run
+signalled absence, because nothing anywhere in the stack was capable of
+signalling it: the validator saw four fields and applied its limits, the proxy
+returned 200, and the model answered every question put to it — using whatever
+it had. A silent truncation between two layers, and a model that fills gaps
+rather than reporting them, compose into a result that looks exactly like a
+measurement.
+
+**It is also why the receipt check is a GATE INSIDE the probe rather than a
+check performed once.** A one-off verification proves the payload shape was
+right on the day someone looked. The failure it guards against is silent, is
+introduced by editing a payload, and produces numbers that look fine — so the
+check has to run every time numbers are produced, and refuse to produce them
+otherwise. The corrected probe sends the sentinels before any case is scored and
+exits without sending one if they do not come back.
+
+**And the negative control is kept, not just described** — in
+`examples/methods_ctx_probe.rs`, which lands in the commit AFTER this entry,
+together with the corrected run it gates (noted so a reader who greps the
+committed tree for the flag today and finds nothing knows which case they are
+in). `GRRB_PROVE_SIBLING=1`
+sends the broken shape on demand, so the gate can be shown to GATE rather than
+merely to pass — CLAUDE.md's rule that a gate whose first run is green proves
+nothing about whether it gates. Its first run under that flag exits 2, naming
+the three sentinels that did not return.
+
+The general form, which is not about this probe: **a silently-dropped field and
+a model that confabulates are individually survivable and jointly invisible.**
+Where a payload crosses a boundary that can drop parts of it, the only honest
+check is to make the far side prove receipt — and to re-prove it on every run,
+because the thing that breaks it is an ordinary edit.
+
+#### Limits
+
+* **One manuscript, one journal target** (`PLOS ONE`, Q1), 8 findings sent,
+  `report.verdict = "concern"`. Nothing here says how a letter varies on a
+  manuscript with a different finding mix, and a payload whose findings sat
+  nearer a verdict boundary could plausibly move the recommendation.
+* **Five runs.** Enough to see that the content does not move; not enough to
+  bound how often it would.
+* The pipeline ran with `NetworkConsent::Denied`, so the payload is built from a
+  fully local report. That fixes ONE payload; it is not a claim about what a
+  consent-granted report would contain.
+* Temperature remains **unset** — §11 D204's OPEN item stays open, now with a
+  measurement beside it rather than an assumption.
+
+Artefact: `src-tauri/examples/reviewer_variance_probe.rs` (`6853bbd`), which
+holds the payload fixed and prints its SHA-256 so `build_review_payload`'s
+documented determinism is checked rather than trusted.
