@@ -73,6 +73,9 @@ candle-core = "0.11"
 candle-nn = "0.11"
 candle-transformers = "0.11"
 tokenizers = { version = "0.23", default-features = false, features = ["onig"] }
+matfile = "=0.5.0"
+ambers = "=0.4.4"
+arrow = { version = "=57.3.1", default-features = false }
 
 # On Windows/Linux the OS launches a NEW process for the gaply:// deep link;
 # single-instance (with the deep-link feature) forwards the URL to the already
