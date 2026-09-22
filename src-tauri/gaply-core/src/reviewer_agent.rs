@@ -613,18 +613,31 @@ pub fn build_review_payload(
     (payload, SentIds { findings: sent_ids, checklist: checklist_ids, supplementary: supp_ids })
 }
 
-/// Strict, bounded parse of a 0..=100 score. Missing or out-of-range fails the
-/// whole response (same posture as verify's confidence check).
-fn parse_score(response: &Value, key: &str) -> Result<f64, GaplyError> {
-    let v = response[key]
-        .as_f64()
-        .ok_or_else(|| GaplyError::Validation(format!("reviewer schema: missing numeric {key}")))?;
-    if !(0.0..=100.0).contains(&v) {
-        return Err(GaplyError::Validation(format!(
-            "reviewer schema: {key} {v} outside 0..=100"
-        )));
-    }
-    Ok(v)
+/// **Bounded, OPTIONAL parse of a 0..=100 score. A missing or out-of-range value
+/// yields `None` and never discards the letter.**
+///
+/// It used to be strict, and that was a defect with a user-visible cost.
+/// `publication_probability` reaches NO screen and NO export — `ReviewerLetterPanel`
+/// removed its gauge as an ONTOLOGY §4.20 PRESENTATION-class violation (it is a
+/// four-value lookup from the recommendation, not a calibrated probability), no
+/// frontend component reads the field, and every report renderer contains zero
+/// occurrences of it (audited 22 Sep 2026). **A number nobody displays was a hard
+/// schema requirement**, so one omitted or out-of-range value made
+/// `gate_reviewer_response` return `Err`, and `commands.rs` substituted
+/// `ReviewerEvaluation::unavailable_offline()`: a user who had paid for a full
+/// analysis was told the reviewer was unavailable, over a field they would never
+/// have seen.
+///
+/// Measured on the shipped path the same day: across four successful runs of one
+/// manuscript the value came back 40, 40, 40, 60 — a 20-point swing on identical
+/// input, invisible to the user. An uncalibrated number that varies and is never
+/// rendered has no claim on the letter's survival.
+///
+/// The recommendation, the issues and their grounding are STILL strict; only this
+/// one unread field is optional.
+fn parse_score_optional(response: &Value, key: &str) -> Option<f64> {
+    let v = response[key].as_f64()?;
+    (0.0..=100.0).contains(&v).then_some(v)
 }
 
 /// Harness-gate a reviewer reply against the ids we sent. Mirrors
@@ -646,7 +659,7 @@ pub fn gate_reviewer_response(
     // check them, so they were an unsupported guess rendered as a number (see
     // `ReviewerEvaluation`). Anything the model still emits under those keys is
     // simply not read.
-    let publication_probability = parse_score(response, "publication_probability")?;
+    let publication_probability = parse_score_optional(response, "publication_probability");
     let body = response["body"].as_str().unwrap_or("").to_string();
 
     // GATE 1 (issues): every issue must cite a FINDING id we sent. Anything
@@ -693,7 +706,7 @@ pub fn gate_reviewer_response(
 
     Ok(ReviewerEvaluation {
         recommendation,
-        publication_probability: Some(publication_probability),
+        publication_probability,
         novelty_assessment,
         journal_fit_note,
         body,
@@ -1773,14 +1786,65 @@ mod tests {
         let mut r = good_response();
         r.as_object_mut().unwrap().remove("recommendation");
         assert!(gate_reviewer_response(&r, &sent(&["f1"], &[])).is_err());
-        // out-of-range score (publication_probability is the only score left)
+        // NOT a schema violation any more: `publication_probability` is optional.
+        // It reaches no screen and no export, so an out-of-range value must be
+        // DROPPED, never allowed to discard a letter the user paid for. Pinned
+        // here, in the test that used to assert the opposite, so the change is
+        // visible to anyone reading the schema rules.
         let mut r2 = good_response();
         r2["publication_probability"] = json!(160);
-        assert!(gate_reviewer_response(&r2, &sent(&["f1"], &[])).is_err());
+        let out2 = gate_reviewer_response(&r2, &sent(&["f1"], &[]))
+            .expect("an out-of-range probability must not discard the letter");
+        assert_eq!(out2.publication_probability, None, "out-of-range is dropped, not clamped");
+        assert_eq!(out2.recommendation, Recommendation::MajorRevision, "the letter survives intact");
         // unknown recommendation value
         let mut r3 = good_response();
         r3["recommendation"] = json!("burn_it");
         assert!(gate_reviewer_response(&r3, &sent(&["f1"], &[])).is_err());
+    }
+
+    /// **A letter must survive a missing `publication_probability`, and the UI
+    /// payload must still carry no probability.**
+    ///
+    /// The field reaches no screen and no export (audited 22 Sep 2026:
+    /// `ReviewerLetterPanel` removed its gauge as a PRESENTATION-class
+    /// violation, no component reads it, and all seven report renderers contain
+    /// zero occurrences of "probability"). Before this, omitting it returned
+    /// `Err` from the gate and `commands.rs` substituted
+    /// `unavailable_offline()` — **"reviewer unavailable" after a paid
+    /// analysis, because of an unused number.**
+    ///
+    /// The second half is the one that matters for §8: making the field
+    /// optional must not become an excuse to start SHOWING it.
+    /// `skip_serializing_if = "Option::is_none"` keeps the key off the wire, so
+    /// no consumer can read a number for a run where none was computed.
+    #[test]
+    fn a_letter_without_a_publication_probability_survives_and_shows_no_probability() {
+        let mut r = good_response();
+        r.as_object_mut().unwrap().remove("publication_probability");
+        let out = gate_reviewer_response(&r, &sent(&["f1"], &[]))
+            .expect("a missing probability must not discard the letter");
+
+        // 1. The letter is intact — everything a user actually reads.
+        assert_eq!(out.recommendation, Recommendation::MajorRevision);
+        assert!(!out.issues.is_empty(), "the grounded issues survive");
+        assert!(out.available, "the letter is available, not degraded to offline");
+        assert_eq!(out.publication_probability, None);
+
+        // 2. The UI payload carries NO probability — the key is absent from the
+        //    wire, not present as a zero or a null.
+        let ui = serde_json::to_value(&out).unwrap();
+        assert!(
+            ui.get("publication_probability").is_none(),
+            "the probability key must be ABSENT from the UI payload, got {ui}"
+        );
+        // And nothing else smuggles a percentage in: the body is model prose and
+        // is rendered verbatim, so a number reaching the reader would arrive
+        // through it. This asserts the SHAPE Gaply controls, not the model's words.
+        assert!(
+            !ui["body"].as_str().unwrap_or("").contains("publication probability"),
+            "the fixture body must not itself narrate a probability"
+        );
     }
 
     /// The ungrounded scores are GONE, both ways round: a reply that omits them
