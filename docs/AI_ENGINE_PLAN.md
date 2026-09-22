@@ -16904,3 +16904,102 @@ Artefacts: `evals/reports/grrb-cloud-gpt4o-nested-raw.tsv` (960 rows, six runs)
 beside the §11 D204 and withdrawn §11 D205 artefacts on the same set;
 `examples/methods_ctx_probe.rs`, whose receipt gate refuses to produce numbers
 it has not first earned.
+
+### D208 — the significance-criterion lexicon has unmeasured recall, and the operator cannot stand in for it
+
+§11 D165's Tier-0 statistical rules must not fire on a DECLARED significance
+threshold: *"we set significance at p < 0.05"* is a decision rule, not a result,
+and demanding an effect size beside it is a false finding. `extract/stats.rs`
+handles this with `is_significance_criterion`, which lowercases the sentence and
+tests it against 11 `THRESHOLD_MARKERS`.
+
+**Measured 22 Sep 2026 on R PAPER (`docs/PROBLEM_DOSSIER.md` A4): it misses.**
+The abstract reads
+
+> *"We conducted ablation studies, statistical significance (p < 0.05), and an
+> analysis of the interpretability of the attention weights."*
+
+and no marker matches, so a declared threshold is reported as a study result
+with a MAJOR severity and a `mathematically_certain` tier.
+
+#### The module predicted this in its own words
+
+> *"Three phrasings from three papers is a sample, not a vocabulary. **Recall is
+> unmeasured.**"*
+
+This entry converts that sentence into a number.
+
+#### THE OPERATOR IS THE OBVIOUS FIX AND THE CORPUS REFUTES IT
+
+The natural deterministic rule is the operator: `p < 0.05` is a threshold,
+`p = 0.031` is an observed value. Measured across all six corpus manuscripts:
+
+| | count |
+|---|---|
+| already caught by the 11 markers | 3 |
+| `p<` **and** a significance word, unmarked | **19** — an operator rule reclassifies these |
+| `p=` **and** a significance word, unmarked | 46 — an operator rule leaves these alone |
+
+The first six of the 19, read rather than counted:
+
+```
+* ablation studies, statistical significance (p < 0.05)                         CRITERION
+* showed confidence for statistical significance of all gains … (p < 0.0…)      result
+* chi-square test was statistically significant with a large effect size
+  (χ² = 72.88, df = 3, p < 0.001; Cramér's V = 0.573)                           result
+* Between-lake differences are significant (Kruskal–Wallis p < 0.001)           result
+* statistically significant difference among the lakes (H = 28.862, p < 0.001)  result
+```
+
+**One criterion, five results.** An operator rule would silently suppress
+genuine findings — including two that report an effect size, which is the very
+thing the rule exists to demand. `stats.rs:81` names this as the harmful
+direction: *"A marker that over-fires classifies a REPORTED result as a
+criterion, and the rules then drop a real finding silently — an absence with no
+attribution (§4.14)."*
+
+**So the lexicon was NOT widened and `is_significance_criterion` is unchanged.**
+Under-firing leaves today's behaviour; over-firing destroys findings. The
+asymmetry that made the list one-sided when it was written still holds.
+
+#### What WAS fixed instead: the evidence is now checkable
+
+A reader could not see the defect, because the quotation shown beside the
+finding did not contain the p-value. The flagged value sat at **offset 1250 of a
+1333-character abstract** while the composer head-anchors at
+`NEARBY_TEXT_CHARS = 350`. `report_build::quoted_evidence_in` now quotes the
+SENTENCE holding the finding's statistic, so the row is self-refuting: a reader
+sees *"missing effect size"* beside *"statistical significance (p < 0.05)"* and
+can judge it in one glance.
+
+**This is presentation, and it is deliberately all that changed.** It does not
+make the finding correct; it makes it checkable, which is the property §11 D163's
+span rule exists to protect.
+
+#### What this contributes to C1
+
+The distinguishing feature between the one criterion and the five results is not
+a phrase and not an operator. It is whether the p-value attaches to a **finding
+verb** — *was significant*, *showed*, *are significant*, *produced* — or to a
+bare noun phrase in a list of things the authors did. That is a **discourse
+role**, and it is the same question §11 D204–D207 could not answer for *"what did
+these authors do"*: not a property of the text in the sentence, but of the
+sentence's function in the argument.
+
+`docs/PROBLEM_DOSSIER.md`'s C1 asks *"what evidence distinguishes 'what these
+authors did' from 'what is done in this field'"*. **This is a second, smaller
+instance of the same open question, and it has the advantage of a
+64-sentence labelled-by-hand corpus already available** (the 19 + 46 above), which
+the C1 task does not.
+
+#### Not claimed
+
+* **Not that the 19 are all results.** Six were read; the other 13 were counted.
+  Hand-labelling all 64 is the experiment that would turn this into a
+  measurement.
+* **Not that a finding-verb rule would work.** It separates the six examples
+  correctly and is untested beyond them.
+* **No numeric threshold, weight or coefficient was introduced anywhere.**
+
+Artefacts: `docs/PROBLEM_DOSSIER.md` A4; the counts are reproducible from the six
+manuscripts named in §11 D165.

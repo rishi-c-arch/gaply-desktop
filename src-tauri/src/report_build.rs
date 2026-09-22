@@ -20,6 +20,56 @@ use gaply_core::report_model::{
 use crate::pipeline::PipelineResult;
 
 /// Human-readable section name for a `Location`.
+/// **The quoted evidence for a located finding: the SENTENCE holding the
+/// statistic, falling back to the whole paragraph.**
+///
+/// # The defect
+///
+/// `nearby_text`'s own doc says *"the manuscript SENTENCE this finding is
+/// about"*, and it was populated with the whole paragraph. The composer then
+/// head-anchors at `NEARBY_TEXT_CHARS = 350` (`report_compose::shorten`), which
+/// is correct for a paragraph — its opening is the string an author can search
+/// for — and which means a statistic past character 350 CANNOT appear in the
+/// quotation.
+///
+/// Measured 22 Sep 2026 on R PAPER (docs/PROBLEM_DOSSIER.md A4): the flagged
+/// p-value sits at **offset 1250 of a 1333-character abstract**, so the reader
+/// saw "missing effect size" beside 350 characters of prose containing no
+/// p-value at all. A finding a reader cannot check against its own evidence is
+/// the truncated-span defect in the findings path.
+///
+/// # Why this is not a re-derivation
+///
+/// `paragraph_at` still resolves the paragraph — the same resolver the rule
+/// used, over the same text. The narrowing is located by finding the
+/// statistic's OWN verbatim text (`Stat::raw`) inside that paragraph, so the
+/// quotation remains a substring of what the rule evaluated. When no statistic
+/// of this finding's location occurs in the paragraph — every non-statistical
+/// finding — the paragraph is returned unchanged, which is the previous
+/// behaviour.
+fn quoted_evidence_in(
+    extraction: &ExtractionResult,
+    loc: &gaply_core::extract::Location,
+) -> Option<String> {
+    let paragraph = paragraph_at(extraction, loc)?;
+    // Matched on SECTION + PARAGRAPH, deliberately not on the whole `Location`.
+    // A finding's location may carry `section_index: None` (pre-§11 D169 data,
+    // and several in-tree producers) while every extracted claim carries
+    // `Some`, and full equality then never matches — the narrowing would fall
+    // back to the paragraph SILENTLY and this fix would do nothing. The
+    // paragraph text is the real disambiguator: a claim from a different
+    // paragraph simply will not be found inside this one.
+    let at = extraction
+        .statistics
+        .iter()
+        .filter(|s| s.location.section == loc.section && s.location.paragraph == loc.paragraph)
+        .find_map(|s| paragraph.find(s.stat.raw()));
+    Some(match at {
+        Some(i) => gaply_core::extract::sentence::sentence_containing(paragraph, i).to_string(),
+        None => paragraph.to_string(),
+    })
+}
+
 fn section_name(kind: SectionKind) -> &'static str {
     match kind {
         SectionKind::Abstract => "Abstract",
@@ -167,8 +217,7 @@ impl PipelineResult {
                 nearby_text: f
                     .location
                     .as_ref()
-                    .and_then(|loc| paragraph_at(&self.extraction, loc))
-                    .map(str::to_string),
+                    .and_then(|loc| quoted_evidence_in(&self.extraction, loc)),
                 // Resolved through the SAME `paragraph_at`, so a grouped row's
                 // other occurrences are quoted exactly as its first is. A
                 // location that does not resolve is SKIPPED rather than quoted
@@ -177,9 +226,8 @@ impl PipelineResult {
                 also_nearby: f
                     .also_at
                     .iter()
-                    .filter_map(|loc| paragraph_at(&self.extraction, loc))
+                    .filter_map(|loc| quoted_evidence_in(&self.extraction, loc))
                     .filter(|p| !p.trim().is_empty())
-                    .map(str::to_string)
                     .collect(),
             })
             .collect();
@@ -241,6 +289,21 @@ mod tests {
         measured (p = 0.04).\n\nResults\nThe ALPHAMARKER improved recall \
         (p = 0.01).\n\nThe BETAMARKER reduced errors (p = 0.02).\n";
 
+    /// A Results paragraph whose statistic sits PAST the composer's 350-char
+    /// display window — the shape measured on R PAPER, where the flagged
+    /// p-value was at offset 1250 of a 1333-character abstract.
+    const STAT_PAST_THE_WINDOW: &str = "Located\n\nResults\nWe evaluated the \
+        proposed architecture against eight published baselines across four \
+        public corpora. Every configuration was repeated with five random \
+        seeds and we report the mean of the held-out folds. The preprocessing, \
+        the tokenisation, the embedding initialisation and the optimiser \
+        schedule are described in the order they were applied so that an \
+        independent group can repeat the work. We further conducted ablation \
+        studies over each component in turn to isolate its contribution. The \
+        headline comparison against the strongest baseline was ZETAMARKER \
+        (p = 0.03).\n";
+
+
     fn located(location: Option<gaply_core::extract::Location>) -> Finding {
         Finding {
             also_at: Vec::new(),
@@ -262,6 +325,10 @@ mod tests {
     /// CARRIES. The doc comment on `reported_statistics` records why: a mutation
     /// once survived because a test asserted on the helper instead.
     fn pipeline_with(findings: Vec<Finding>) -> PipelineResult {
+        pipeline_from(TWO_PARAGRAPHS, findings)
+    }
+
+    fn pipeline_from(text: &str, findings: Vec<Finding>) -> PipelineResult {
         PipelineResult {
             report_id: "r1".into(),
             // Additive field; this fixture exercises the report join, not the
@@ -296,7 +363,7 @@ mod tests {
                 ai_detection_examined: false,
                 extraction_examined: true,
             },
-            extraction: gaply_core::extract::extract_from_text(TWO_PARAGRAPHS),
+            extraction: gaply_core::extract::extract_from_text(text),
             plagiarism: PlagiarismReport {
                 chunk_count: 0,
                 corpus_chunks_available: 0,
@@ -305,7 +372,7 @@ mod tests {
                 self_matches: vec![],
                 note: "n".into(),
             },
-            text: TWO_PARAGRAPHS.into(),
+            text: text.into(),
         }
     }
 
@@ -321,6 +388,65 @@ mod tests {
     /// (section ignored). Each produces a real, plausible sentence from the
     /// wrong place — which is the failure `nearby_text` exists to prevent.
     #[test]
+    /// **A finding must quote the sentence holding the statistic it is about.**
+    ///
+    /// Measured 22 Sep 2026 on R PAPER (docs/PROBLEM_DOSSIER.md A4): the flagged
+    /// p-value sat at offset 1250 of a 1333-character abstract while the
+    /// composer head-anchors at `NEARBY_TEXT_CHARS = 350`, so the reader was
+    /// shown "missing effect size" beside 350 characters containing no p-value.
+    /// The quotation could not be checked against the claim it supported.
+    ///
+    /// Note what is NOT changed: `is_significance_criterion` and the rule
+    /// itself. This makes the evidence visible; whether the rule should have
+    /// fired at all is the separate, measured lexicon gap (§11).
+    #[test]
+    fn a_located_finding_quotes_the_sentence_holding_its_statistic() {
+        let model = pipeline_from(STAT_PAST_THE_WINDOW, vec![located(loc(SectionKind::Results, 0))])
+            .into_report_model(None, None, None);
+        let near = model.findings[0].nearby_text.as_deref().expect("a quotation");
+
+        // 1. ACCEPTANCE: the flagged value is IN the quoted evidence.
+        assert!(
+            near.contains("p = 0.03"),
+            "the quotation does not contain the statistic the finding is about: {near:?}"
+        );
+        // 2. It is the sentence, not the paragraph: the paragraph's opening
+        //    prose is no longer dragged along.
+        assert!(
+            !near.contains("eight published baselines"),
+            "the whole paragraph is still being quoted: {near:?}"
+        );
+        // 3. And it survives the composer's 350-char window, which is the whole
+        //    point — a sentence the renderer clips has not been fixed.
+        assert!(
+            near.chars().count() <= 350,
+            "the quoted sentence is {} chars and will be clipped by the renderer: {near:?}",
+            near.chars().count()
+        );
+    }
+
+    /// **NEGATIVE CONTROL: a finding whose statistic already sits inside the
+    /// quoted window renders unchanged.** If this moves, the change is not
+    /// narrowing evidence, it is rewriting quotations generally.
+    #[test]
+    fn a_finding_whose_statistic_is_already_in_view_renders_unchanged() {
+        let model = pipeline_with(vec![
+            located(loc(SectionKind::Results, 0)),
+            located(loc(SectionKind::Methods, 0)),
+        ])
+        .into_report_model(None, None, None);
+        let near: Vec<&str> = model
+            .findings
+            .iter()
+            .map(|f| f.nearby_text.as_deref().unwrap_or("<none>"))
+            .collect();
+        assert!(near[0].contains("ALPHAMARKER") && near[0].contains("p = 0.01"), "{near:?}");
+        assert!(near[1].contains("gamma marker") && near[1].contains("p = 0.04"), "{near:?}");
+        // Still each paragraph's own text — the section/index filter is intact.
+        assert!(!near[0].contains("BETAMARKER"), "{near:?}");
+        assert!(!near[1].contains("ALPHAMARKER"), "{near:?}");
+    }
+
     fn each_located_finding_quotes_its_own_paragraph() {
         let model = pipeline_with(vec![
             located(loc(SectionKind::Results, 0)),
@@ -363,11 +489,22 @@ mod tests {
         }
     }
 
-    /// The quotation is the paragraph VERBATIM — the engine carries the fact,
-    /// the composer cuts it. A model that pre-truncated would put a presentation
-    /// decision in the engine and make the fact unrecoverable downstream.
+    /// The quotation is VERBATIM — the engine carries the fact, the composer
+    /// cuts it. A model that pre-truncated would put a presentation decision in
+    /// the engine and make the fact unrecoverable downstream.
+    ///
+    /// **Narrowed 22 Sep 2026, and this fixture is why it still reads as
+    /// "whole":** the quotation is now the SENTENCE holding the finding's
+    /// statistic (`quoted_evidence_in`), because a statistic past the
+    /// composer's 350-char window could not appear in the quotation at all
+    /// (docs/PROBLEM_DOSSIER.md A4). `TWO_PARAGRAPHS`' Results ¶0 is a single
+    /// sentence, so sentence and paragraph coincide here and the assertion is
+    /// unchanged — which is exactly the negative control
+    /// `a_finding_whose_statistic_is_already_in_view_renders_unchanged` states
+    /// deliberately. What is still verbatim is that nothing is TRUNCATED: the
+    /// engine emits a complete sentence, never an ellipsis.
     #[test]
-    fn the_model_carries_the_paragraph_whole() {
+    fn the_model_carries_the_quotation_untruncated() {
         let ex = gaply_core::extract::extract_from_text(TWO_PARAGRAPHS);
         let expected = gaply_core::extract::paragraph_at(
             &ex,
