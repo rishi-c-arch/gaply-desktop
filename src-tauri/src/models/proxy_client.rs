@@ -368,7 +368,23 @@ fn map_error_status(
         .and_then(|v| v.to_str().ok())
         .map(str::to_string);
     let body = resp.text().unwrap_or_default();
-    let detail = body.chars().take(300).collect::<String>();
+    // The proxy answers failures in its own JSON shape,
+    // `{"detail":{"error":<category>,"reason":<short safe text>}}`. Surface the
+    // CATEGORY as a leading token so a caller can act on it without parsing
+    // prose: `gaply_core::reviewer_agent::unavailable_reason_for` keys on it.
+    //
+    // Before the proxy categorised these (22 Sep 2026), an OpenAI outage, an
+    // OpenAI rate limit, a bad API key, a connect timeout and a bug in the proxy
+    // all arrived as `500 text/plain "Internal Server Error"`, and the desktop
+    // told the user "cloud proxy not reachable" — false, the proxy had answered.
+    let categorised = serde_json::from_str::<Value>(&body).ok().and_then(|v| {
+        let d = v.get("detail")?;
+        Some((d.get("error")?.as_str()?.to_string(), d.get("reason")?.as_str()?.to_string()))
+    });
+    let detail = match &categorised {
+        Some((category, reason)) => format!("{category}: {reason}"),
+        None => body.chars().take(300).collect::<String>(),
+    };
     match status.as_u16() {
         // 401 has TWO causes and the message must not presume one: App Check
         // (wrong/absent app credential) or the user token (absent/expired
@@ -383,6 +399,10 @@ fn map_error_status(
             GaplyError::Conflict(format!("proxy rate_limited (429){ra}: {detail}"))
         }
         503 => GaplyError::Config(format!("proxy unavailable (503): {detail}")),
+        // 502 is the proxy saying the UPSTREAM refused: a provider rate limit,
+        // a bad API key, a malformed request. Distinct from 429, which is THIS
+        // proxy's own limiter, and from 503, which is a transient outage.
+        502 => GaplyError::Config(format!("proxy upstream rejected (502): {detail}")),
         other => GaplyError::Internal(format!("proxy returned {other}: {detail}")),
     }
 }

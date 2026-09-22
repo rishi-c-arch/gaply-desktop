@@ -74,6 +74,49 @@ def _enforce_public_exposure_guards(
         )
 
 
+def _classify_provider_failure(exc: BaseException) -> tuple[str, int, str]:
+    """Map a provider exception to ``(category, http_status, reason)``.
+
+    Three categories, because three different people need to act on them:
+
+    ``upstream_unavailable`` (503)
+        The model provider is down, timing out, or unreachable. TRANSIENT — the
+        user should try again shortly and nothing is misconfigured.
+    ``upstream_rejected`` (502)
+        The provider answered and refused: a rate limit, a bad API key, a
+        malformed request. The OPERATOR usually has to act.
+    ``proxy_error`` (500)
+        This proxy failed to handle the call. A bug here, not out there.
+
+    **The reason is built from the exception TYPE and the upstream STATUS CODE
+    only — never ``str(exc)``.** An httpx error message carries the request URL,
+    and an SDK's can carry request detail; neither is something to hand a
+    desktop client. `tests/test_provider_failures.py` plants an API key inside
+    the exception message and asserts it never appears in a response.
+
+    Classification is duck-typed rather than keyed on `httpx` types, so it works
+    for the Anthropic SDK's errors too (both expose ``.response.status_code``)
+    and so importing this module still pulls in no HTTP client.
+    """
+    status_code = getattr(getattr(exc, "response", None), "status_code", None)
+    name = type(exc).__name__
+    if isinstance(status_code, int):
+        if status_code >= 500:
+            return (
+                "upstream_unavailable",
+                503,
+                f"the model provider returned {status_code}",
+            )
+        return (
+            "upstream_rejected",
+            502,
+            f"the model provider rejected the request ({status_code})",
+        )
+    if any(word in name for word in ("Timeout", "Connect", "Transport", "Network")):
+        return "upstream_unavailable", 503, f"the model provider is unreachable ({name})"
+    return "proxy_error", 500, f"the proxy could not complete the call ({name})"
+
+
 def create_app(
     settings: Settings | None = None,
     claude_client: LlmProvider | None = None,
@@ -260,7 +303,24 @@ def create_app(
             )
         # Forward to the selected provider (Claude or OpenAI, server-chosen);
         # nothing is persisted. The desktop never knows which one handled it.
-        result = await provider.complete(payload)
+        #
+        # A FAILURE HERE USED TO BE INDISTINGUISHABLE FROM ANY OTHER. Measured
+        # 22 Sep 2026: an OpenAI outage, an OpenAI rate limit, a bad API key, a
+        # connect timeout and a bug in this proxy all produced the identical
+        # `500 text/plain "Internal Server Error"`, because this call was not
+        # wrapped and every exception reached FastAPI's default handler. The
+        # desktop turned that into "reviewer unavailable: cloud proxy not
+        # reachable" — false, since the proxy had answered — and a user would go
+        # looking at their network while the cause was upstream.
+        try:
+            result = await provider.complete(payload)
+        except HTTPException:
+            raise
+        except Exception as exc:  # noqa: BLE001 - every failure must be categorised
+            category, status, reason = _classify_provider_failure(exc)
+            raise HTTPException(
+                status_code=status, detail={"error": category, "reason": reason}
+            ) from exc
         # Consume a use ONLY after the paid work succeeded — server-side,
         # never a client-side number.
         if entitled_user is not None:

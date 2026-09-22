@@ -91,6 +91,33 @@ claims you cannot ground, and OMIT any optional field you cannot ground. A `reje
 justified by at least one cited finding, and if the evidence is insufficient, prefer \
 major_revision.";
 
+/// **Map a proxy failure to ONE sentence a researcher can act on.**
+///
+/// Keys on the category token the proxy emits and
+/// `ProxyReqwestClient::map_error_status` puts at the front of the message
+/// (`upstream_unavailable`, `upstream_rejected`, `proxy_error`). Three
+/// categories because three different people have to act: the user waits, the
+/// operator fixes a key or a quota, or it is a bug here.
+///
+/// **Unknown input returns the generic sentence rather than echoing anything.**
+/// Raw error text must never reach the letter body: it is rendered verbatim at
+/// `pr-unavailable`, and the whole point of the proxy building its reason from
+/// type names and status codes is lost if this layer passes a message through.
+pub fn unavailable_reason_for(err: &str) -> &'static str {
+    if err.contains("upstream_unavailable") {
+        "The analysis service is temporarily unavailable. Your report is complete; \
+         try the reviewer letter again shortly."
+    } else if err.contains("upstream_rejected") {
+        "The analysis service refused the request. This usually needs an \
+         administrator to check the service configuration rather than a retry."
+    } else if err.contains("proxy_error") {
+        "The analysis service hit an internal error. Your report is complete; \
+         the reviewer letter could not be produced."
+    } else {
+        "The reviewer letter could not be produced. Your report is complete."
+    }
+}
+
 /// Target journal for the review.
 #[derive(Debug, Clone)]
 pub struct TargetJournal {
@@ -232,6 +259,23 @@ impl ReviewerEvaluation {
     /// The honest "cloud unavailable" reviewer state. The rest of the report
     /// (findings, checklist, verdict — all local) is returned by the caller;
     /// only this reviewer-letter portion is marked unavailable.
+    /// **A short, honest reason in place of "unavailable".**
+    ///
+    /// `unavailable_offline` says *"reviewer unavailable: cloud proxy not
+    /// reachable"* for every failure, and for most of them that sentence is
+    /// FALSE. Measured 22 Sep 2026: an upstream outage, an upstream rate limit,
+    /// a bad API key, a connect timeout and a bug in the proxy all reached this
+    /// point identically, and the proxy had ANSWERED in every one of them. A
+    /// user was sent to check their network for a problem at OpenAI.
+    ///
+    /// `reason` is one sentence a researcher can act on. It comes from
+    /// [`unavailable_reason_for`] and is never raw error text: the proxy's own
+    /// reason is already curated (type names and status codes only, never
+    /// `str(exc)`), and this layer narrows it further to a fixed set.
+    pub fn unavailable(reason: &str) -> Self {
+        Self { body: reason.to_string(), ..Self::unavailable_offline() }
+    }
+
     pub fn unavailable_offline() -> Self {
         Self {
             recommendation: Recommendation::Unknown,
@@ -1801,6 +1845,72 @@ mod tests {
         let mut r3 = good_response();
         r3["recommendation"] = json!("burn_it");
         assert!(gate_reviewer_response(&r3, &sent(&["f1"], &[])).is_err());
+    }
+
+    /// **Every proxy failure category gets its own sentence, and an unknown one
+    /// never echoes the error.**
+    ///
+    /// Before 22 Sep 2026 all of them produced *"reviewer unavailable: cloud
+    /// proxy not reachable"* — false for every case in which the proxy answered,
+    /// which measurement showed was all of them: an upstream outage, an upstream
+    /// rate limit, a bad API key, a connect timeout and a bug in the proxy were
+    /// indistinguishable at `500 text/plain "Internal Server Error"`.
+    #[test]
+    fn each_proxy_failure_category_gets_its_own_honest_sentence() {
+        // DISTINCTNESS IS NOT ENOUGH, and a deletion test proved it: disabling
+        // the `upstream_unavailable` branch left three distinct sentences (that
+        // category simply fell through to the generic one) and the assertion
+        // stayed green, while a user with a transient outage was being told
+        // nothing actionable. So each category is pinned to a WORD only its own
+        // sentence carries.
+        let cases = [
+            ("proxy unavailable (503): upstream_unavailable: the model provider returned 503",
+             "shortly"),
+            ("proxy upstream rejected (502): upstream_rejected: the model provider rejected the request (401)",
+             "administrator"),
+            ("proxy returned 500: proxy_error: the proxy could not complete the call (KeyError)",
+             "internal error"),
+        ];
+        let sentences: Vec<&str> = cases.iter().map(|(e, _)| unavailable_reason_for(e)).collect();
+        for (err, must_say) in cases {
+            let got = unavailable_reason_for(err);
+            assert!(
+                got.contains(must_say),
+                "{err:?} must map to the sentence mentioning {must_say:?}, got {got:?}"
+            );
+        }
+        assert_eq!(
+            sentences.iter().collect::<std::collections::BTreeSet<_>>().len(),
+            3,
+            "the three categories must be distinguishable to a reader: {sentences:?}"
+        );
+        for s in &sentences {
+            assert!(s.ends_with('.'), "a reader-facing sentence ends in a full stop: {s:?}");
+            assert!(!s.contains("  "), "whitespace run in reader prose: {s:?}");
+            assert!(!s.contains('\u{2014}'), "em dash in reader prose: {s:?}");
+        }
+        // The generic fallback must NOT echo the input. A raw error string is
+        // rendered verbatim at `pr-unavailable`, and the proxy's care in
+        // building its reason from type names is wasted if this layer leaks.
+        let leaky = "proxy returned 500: sk-proj-SECRET and MANUSCRIPT-SENTINEL";
+        let generic = unavailable_reason_for(leaky);
+        assert!(!generic.contains("sk-proj"), "a credential reached the letter body");
+        assert!(!generic.contains("MANUSCRIPT-SENTINEL"), "manuscript text reached the letter body");
+        assert_eq!(generic, unavailable_reason_for("something else entirely"));
+    }
+
+    /// `unavailable(reason)` replaces only the body; everything that makes the
+    /// letter honestly degraded stays put.
+    #[test]
+    fn an_unavailable_letter_carries_the_reason_and_stays_degraded() {
+        let ev = ReviewerEvaluation::unavailable("The analysis service is temporarily unavailable.");
+        assert_eq!(ev.body, "The analysis service is temporarily unavailable.");
+        assert!(!ev.available, "still an unavailable letter");
+        assert_eq!(ev.recommendation, Recommendation::Unknown);
+        assert!(ev.issues.is_empty(), "no issues may be invented for a failed run");
+        assert_eq!(ev.publication_probability, None);
+        let ui = serde_json::to_value(&ev).unwrap();
+        assert!(ui.get("publication_probability").is_none());
     }
 
     /// **A letter must survive a missing `publication_probability`, and the UI

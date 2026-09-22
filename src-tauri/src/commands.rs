@@ -1015,15 +1015,27 @@ pub fn run_publishready_measured(
                     Ok(ev) => ev,
                     Err(e) => {
                         tracing::warn!(error = %e, "reviewer gate failed; marking unavailable");
-                        ReviewerEvaluation::unavailable_offline()
+                        ReviewerEvaluation::unavailable(
+                            "The reviewer's reply could not be verified against this report's \
+                             findings, so it was discarded. Your report is complete.",
+                        )
                     }
                 }
             }
             Err(e) => {
+                // THE REASON REACHES THE USER. It used to be logged here and
+                // discarded, and the screen said "cloud proxy not reachable" for
+                // every failure — false whenever the proxy had answered, which
+                // is most of them. `unavailable_reason_for` keys on the category
+                // the proxy now sends and never echoes raw error text.
                 tracing::warn!(error = %e, "reviewer cloud call failed; marking unavailable");
-                ReviewerEvaluation::unavailable_offline()
+                ReviewerEvaluation::unavailable(reviewer_agent::unavailable_reason_for(
+                    &e.to_string(),
+                ))
             }
         },
+        // The ONLY branch where "not reachable" is the truth: no client could be
+        // built, or /health did not answer.
         _ => ReviewerEvaluation::unavailable_offline(),
     };
     let wholesale_elapsed = wholesale_started.elapsed();
