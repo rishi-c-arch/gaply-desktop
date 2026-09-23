@@ -17115,3 +17115,92 @@ end.
 
 Separate open item, deliberately NOT part of this record:
 `docs/PROBLEM_DOSSIER.md` **D6**, the DMG wrapper not being byte-reproducible.
+
+---
+
+### D210 — three things found while measuring A3, recorded and NOT fixed
+
+Each is real, each was found by doing something else, and none is repaired
+here. They are written down so the next person meets them as records rather
+than as discoveries.
+
+#### 1. `ai_eval_cli` has failed at HEAD since `e7ce226`, and the suite says so every run
+
+```
+$ cargo test --workspace --no-fail-fast
+targets=26  passed=1905  failed_blocks=1
+error: 1 target failed:  `-p app --test ai_eval_cli`      # 3 passed; 8 failed
+```
+
+**Cause, measured.** `e7ce226` put `required-features = ["devtools"]` on the
+`ai-eval` bin (`src-tauri/Cargo.toml`). Cargo then skips BUILDING the binary
+while still COMPILING the integration test that references it through
+`env!("CARGO_BIN_EXE_ai-eval")`, so all 8 cases that spawn it die on
+`Os { code: 2, kind: NotFound }`. With the feature on, the target passes
+**11/11**.
+
+**The A/B that proved it pre-exists had to be run twice, and the first run was
+worthless.** Checking `--features devtools` BUILT `target/debug/ai-eval`; the
+next run without the feature then found that binary on disk and exited 0,
+which read exactly like "the failure is caused by your change". Redone with
+the binary deleted before each arm, both arms give the identical
+**3 passed / 8 failed** — at HEAD and with the change. **The instrument had
+created the artefact it was testing for**, which is this file's
+calibration-reference entry with the contamination one step closer.
+
+**The choice is open and is not made here.** Either gate the test behind the
+same feature (`#![cfg(feature = "devtools")]`), so a default `cargo test` is
+honest about what it covered; or drop `required-features` so the bin builds by
+default, which reverses part of `e7ce226` and puts a dev binary back in reach
+of the bundle that commit removed it from. The first is smaller; the second is
+what the test's existence implies it wants. **Neither is free, and the
+packaging commit's reasoning has to be read before choosing.**
+
+#### 2. Two mis-scoped rows are live in the bundled seed, and the checklist consumes them
+
+| row | stored as | what the span actually says |
+|---|---|---|
+| `plos-one` / PRISMA | a journal requirement | *"A PRISMA 2020-guided search was conducted in ScienceDirect, Web of Science, SpringerLink and IEEE Xplore, with the final search completed on 15th September 2025."* — **a MANUSCRIPT's sentence**, crawled in as guidance |
+| `statistics-in-medicine` / `word_limit = 250` | a submission limit | *"Authors may re-use figures, tables, data sets, artwork, and selected text **up to 250 words from their contributions without seeking permission**"* — **a re-use licence quota** |
+
+The second is the §11 D163 class exactly — a number whose unit is not the unit
+the field means — still shipping after D163 recorded it on a different row. The
+first is a boundary drawn too wide, §11 D160's class.
+
+Neither is a checklist bug: the checklist faithfully reports what the seed
+says. **The seed is the artefact to fix**, and a fix belongs with a re-crawl,
+not with a hand-edit of generated data.
+
+#### 3. The A3 dossier's row list was wrong, and so was my own count
+
+`docs/PROBLEM_DOSSIER.md` A3 named **rows 8, 10, 11 and 13** as the
+human-subjects rows wrongly reported as failures. Measured against the stored
+run and the journal's own spans:
+
+* **Row 11 (competing interests) is a CORRECT failure.** Its span is
+  mis-attached — the fast-track sentence, which is scoped — but Nature Medicine
+  requires a competing-interests statement of everyone, unconditionally, on two
+  other pages. The defect there is the EVIDENCE, not the verdict.
+* **Row 12 (code availability) is a CORRECT failure**, and is the acceptance
+  test's negative control: the condition is custom code and R PAPER used it.
+* **Row 6 (abstract limit) was missing from the list** and is wrong for exactly
+  the reason row 13 is — a limit scoped to an article type nobody established.
+
+So the set is **{6, 8, 10, 13}**, not {8, 10, 11, 13}: same size, two members
+different. D209's fix addresses 6 and 13; 8 and 10 need a population condition
+and are out of scope, because the evidence for them does not exist (the A3
+measurement, part 8).
+
+**And `docs/A3_APPLICABILITY_MEASUREMENT.md` said "10 of 13 FAIL" twice. It is
+9.** Stored run 30 passes rows 1, 2, 4 and 5 — four of thirteen. The number was
+carried from a reading rather than recomputed, went into a committed report and
+a commit message, and was caught only by counting the rows again while
+capturing the before/after. Corrected in that file in this commit; the entry
+stays here because a silently corrected number teaches nobody.
+
+**A separate discrepancy, not an error in either.** Stored run 30 fails
+`required section: Results`; today's probe over the bundled seed passes it. The
+stored run is from 22 Sep 08:20 and the probe re-parses the manuscript now, so
+the two disagree about A2, not about applicability. The before/after in D209's
+commit is probe-versus-probe for that reason — **comparing a stored run against
+a live one would have credited this change with fixing A2.**

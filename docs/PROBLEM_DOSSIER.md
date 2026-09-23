@@ -182,6 +182,15 @@ text. There are no human participants, no donors and no recipients.
 **2. Reproduction `[ran]`.** The 13-row checklist in run 30; four rows are
 human-subjects requirements.
 
+> **CORRECTION (§11 D210): the row list above is wrong in two places.** Row 11
+> (competing interests) is a CORRECT failure — its span is mis-attached, but the
+> requirement is unconditional on two other Nature Medicine pages — and row 12
+> (code availability) is correct too, since R PAPER used custom code. **Row 6
+> (abstract limit, scoped to Brief Communication) is wrong and was missing from
+> the list.** The set is {6, 8, 10, 13}. Rows 6 and 13 are fixed by §11 D209;
+> 8 and 10 are not, and `docs/A3_APPLICABILITY_MEASUREMENT.md` part 8 measures
+> why the evidence for them does not exist.
+
 **3. Mechanism `[read]`.** The checklist is a **substring search over the whole
 manuscript for a phrasing list**, per its own `detail` strings ("none of N
 phrasings (…) was found anywhere in the manuscript"). The requirement rows come

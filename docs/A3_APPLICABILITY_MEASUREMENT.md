@@ -228,7 +228,8 @@ It can only move rows from a false NOT MET to UNKNOWN.
 ### 9. R PAPER: which rows are wrong, read from the stored run
 
 Run 30 (`report:v2:e3:30`, 22 Sep 08:20, the run the dossier quotes): 13 rows,
-**10 FAIL**, and **not one row carries `unevaluable`** — the flag is absent from
+**9 FAIL** (rows 1, 2, 4 and 5 pass; corrected from "10" — §11 D210), and **not one
+row carries `unevaluable`** — the flag is absent from
 every row, which is D188's latent third state.
 
 | row | verdict now | journal's own condition | should be |
