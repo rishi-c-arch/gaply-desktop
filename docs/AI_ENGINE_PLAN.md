@@ -17766,3 +17766,127 @@ rule's evidence entails the proposition its finding states, the one with
 corpus firings was wrong on 4 of 5, and the other has never fired on the
 corpus. "Mathematically certain" is accurate for the DETECTION of each rule and
 for neither rule's CLAIM.
+
+### D216 — every firing, what the code DETECTED versus what the manuscript ENTAILS
+
+**Measurement only; no code, label or test changed.** D215 traced the two rules
+from source and counted their firings. This goes one level down: for each
+firing, the `Stat` objects consumed, the paragraph the rule read, the exact
+condition, and — the question the label rests on — whether the manuscript
+evidence ENTAILS what the finding states, as distinct from the code having
+deterministically detected something.
+
+**Provenance.** HEAD `2ea2529` (no `src-tauri` change since `c045c24`, checked
+with `git diff`). Manuscripts: the six sha256s in D215, re-verified identical.
+`[probe]` = a live run of a throwaway example (not committed; sha256
+`a8ac2ee749068ab2…`): `pipeline::run_pipeline_measured` (the real pipeline),
+`validate::validate` on that run's own extraction, `extract::paragraph_at` for
+the paragraph, and the product's `extract::sentence::sentence_containing` for
+sentence boundaries (emitted with byte offsets). The app crate has no `regex`,
+so the matched word was located afterwards with the rule's pattern copied
+verbatim; **for every firing the located word equals the word the rule itself
+wrote into its explanation**, so the copy and the rule agree. `[src]` = source
+inspection of `validate.rs`.
+
+#### `test_group_mismatch` — zero firings
+
+`[probe]` **0 firings on 6 manuscripts. Its label has never been exercised on
+real manuscript text.** The corpus contains exactly one input the rule can
+consume — one `Stat::Test`:
+
+```
+{"kind":"test","name":"t-test","raw":"paired t-tests","location":{"section":"methods","paragraph":125,"section_index":5}}
+```
+
+in R PAPER: *"Cross-validation with a 10-fold showed confidence for statistical
+significance of all performance gains by paired t-tests (p < 0.05). The lowest
+t-statistics (t = 4.82 vis-a-vis the King-BiLSTM) exceed the standard value at
+α = 0.01 with 9 degrees of freedom, which implies that improvements were not
+merely due to luck."* No `N groups/arms/cohorts/conditions` phrase, so no count,
+so no firing.
+
+**Its empirical validity is unestablished.** No test case was constructed to
+produce a firing: a manufactured positive would measure the fixture, not the
+rule. What the source establishes `[src]`: the claim it would make is a
+**heuristic proxy** (co-occurrence of a t-test mention and a group count in one
+paragraph) standing in for an asserted analysis error; its definitional part
+("a t-test compares two groups") is **logical**; its remedy ("use ANOVA") is
+**methodological convention**. No journal or standard is needed for the
+principle; the rule lacks the two facts the claim needs (which groups the test
+spanned; whether a correction was applied).
+
+#### `p_value_overclaim` — five firings
+
+**The exact condition `[src]`:** at least one `Stat::PValue` at the location —
+its value and operator are NOT read — and the first match of
+`proves?|proven|proved|confirms?|confirmed|conclusively|definitively` anywhere
+in the paragraph. Nothing links the word to the p-value.
+
+**The measured link `[probe]`: in 4 of 5 firings the matched word shares no
+sentence with any p-value.**
+
+| # | location (0-based) | p-values consumed (`Stat::PValue`) | matched word, and its sentence | a p-value in that sentence? |
+|---|---|---|---|---|
+| F1 | Health Economics, results ¶81 | `p = 0.45` (op `=`, 0.45), `p = 0.34` (op `=`, 0.34) | "confirmed" — *"The Box–Tidwell test confirmed linearity in the logit for the capacity predictor (p = 0.34)."* | **yes**, `p = 0.34` |
+| F2 | Health Economics, results ¶82 | `p < 0.001` ×2 (op `<`, 0.001), `p = 0.011` | "confirmed" — *"The Firth penalized logistic regression sensitivity analysis confirmed that all size-category associations were consistent in direction with the main model, …"* | **no** |
+| F3 | Health Economics, discussion ¶3 | `p = 0.011`, `p = 0.45` | "confirmed" — *"The Firth sensitivity analysis confirmed that all main-model associations were consistent in direction, …"* | **no** |
+| F4 | final final L, "abstract" ¶26 (section misfiled, D215) | `p < 0.001` ×2, `p = 0.88` | "proved" — *"Notably, Herohalli the least mineralised lake proved to be the most organically and microbially degraded (Sections 4.1.3, 4.1.6), …"* | **no** |
+| F5 | final final L, results ¶38 | the same three | the same sentence (the passage appears twice) | **no** |
+
+Other `Stat`s present at these locations (CIs, `R² = 0.589`, `n = 26/21/108`,
+test names) are listed by the probe and **not consumed** by this rule.
+Paragraphs in full are in D215.
+
+**Detected versus entailed, per firing.** The first column is true of all five;
+the label rests on the second.
+
+| # | the code deterministically detected | the manuscript evidence entails the finding ("an overclaim: a p-value was said to prove/confirm")? | classification |
+|---|---|---|---|
+| F1 | a `PValue` and "confirmed" in one paragraph | **Partly.** The word IS predicated of the test that produced `p = 0.34`, and "a non-significant result cannot confirm the null" is a **logical consequence** of what a p-value is. Whether this conventional diagnostic phrasing is a reportable overclaim is **methodological convention / expert judgment** — nothing in the text settles it. | the closest of the five; still not entailed as stated |
+| F2 | the same | **No.** The subject of "confirmed" is a sensitivity analysis, and what it confirmed is agreement of direction; no p-value is in the sentence. | **heuristic proxy**, contradicted by the text |
+| F3 | the same | **No**, as F2. | **heuristic proxy**, contradicted |
+| F4 | the same | **No.** "Proved to be" = "turned out to be"; no p-value in the sentence. | **heuristic proxy**, contradicted |
+| F5 | the same | **No**, as F4. | **heuristic proxy**, contradicted |
+
+What IS entailed in every firing is only the rule's first sentence — "X
+appears alongside a p-value" — a **direct observation**, if "alongside" means
+"in the same paragraph". The rule's second sentence (a p-value cannot prove a
+hypothesis) is **definitional** and true in general; it is false as a
+description of F2-F5, which make no claim about a p-value.
+
+**Journal or reporting standard needed?** For none of the five. The principle
+is statistical. Professional guidance against "prove" language exists, but it
+is not in the seed (D214) and is not needed for the principle to be true — it
+would only turn a judgement into a stated convention.
+
+**Who judged.** Claude, reading each sentence in full. No statistician, author
+or editor has reviewed these calls.
+
+#### The A4 interaction
+
+* **On these five firings, the criterion exclusion is not implicated.** Every
+  consumed p-value, read in its sentence, is a REPORTED result (a goodness-of-
+  fit test, a Box–Tidwell test, odds-ratio tests, Kruskal–Wallis/Dunn). No
+  declared threshold was read as a result in any firing.
+* **Corpus-wide, it worked three times and missed once `[probe]`.** Classified
+  `SignificanceThreshold`: IJAS's *"…compared by the critical difference at p ≤
+  0.05"* and twice *"NS, not significant at p ≤ 0.05"*. Classified `PValue`
+  although declared as a criterion: R PAPER abstract ¶0, *"We conducted ablation
+  studies, statistical significance (p < 0.05), and an analysis of the
+  interpretability of the weights of the attention"* — A4, still live. Six other
+  `PValue`s sit in sentences containing "significance" and are genuine results
+  (R PAPER methods ¶125; final final L's Kruskal–Wallis and Holm-adjusted
+  values).
+* **Where the A4 miss lands:** not on this rule — that paragraph has no word
+  from its lexicon — but on `missing_effect_size` and
+  `missing_confidence_interval`, which fire on any `PValue`.
+
+#### Conclusion — for the label decision, not a decision
+
+* `test_group_mismatch`: **never exercised on real text**; empirical validity
+  unestablished; its claim is a heuristic proxy by construction.
+* `p_value_overclaim`: in 5 of 5 firings the code detected exactly what it
+  looks for, and in 0 of 5 does the evidence entail the finding as stated;
+  one (F1) comes close, four are contradicted by the sentence the word is in.
+  **The determinism is real and belongs to the detection. The certainty the
+  label asserts belongs to a claim neither rule establishes.**
