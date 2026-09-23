@@ -1804,6 +1804,56 @@ pub fn build_checklist(
     Ok(items)
 }
 
+/// **The journal scoped this requirement to an article type, and nothing here
+/// knows the manuscript's. THE FIRST PRODUCER OF `unevaluable` (§11 D188).**
+///
+/// `Some(caveat)` means the row cannot be decided. The two `None` arms are the
+/// negative controls and are the reason this is a function rather than a
+/// constant:
+///
+/// * `required_for == None` — the journal stated the requirement for every
+///   article type, so there is nothing to scope and the row decides normally.
+/// * `manuscript_type == Some(_)` — somebody established the type, so the row
+///   decides normally. **Nothing does today**, which is why the only call site
+///   passes `None`; when something does, it is passed here and this arm starts
+///   carrying traffic. Note what this arm deliberately does NOT do: it does not
+///   compare the two types and conclude NOT_APPLICABLE. Deciding that a
+///   requirement does not apply needs evidence this function does not have
+///   (`docs/A3_APPLICABILITY_MEASUREMENT.md`, part 8: the subject lexicon
+///   missed "Participant consent obtained prior to interview", so absence of
+///   evidence is not evidence of absence).
+fn undecidable_for_article_type(
+    required_for: Option<&str>,
+    manuscript_type: Option<&str>,
+) -> Option<String> {
+    match (required_for, manuscript_type) {
+        (Some(t), None) => Some(format!(
+            "the journal states this for {t} articles; whether it applies depends on the \
+             article type you are submitting, which this analysis does not know"
+        )),
+        _ => None,
+    }
+}
+
+/// Apply [`undecidable_for_article_type`] to a freshly built row.
+///
+/// `passed` is set to `false` alongside `unevaluable`, matching the three other
+/// producers in this file. That is the safe direction for a consumer that has
+/// not been taught the third state: it reads "not met", which is what the row
+/// said before this change — never a pass.
+fn scoped(mut item: ChecklistItem, manuscript_type: Option<&str>) -> ChecklistItem {
+    if item.unevaluable {
+        return item;
+    }
+    if let Some(caveat) = undecidable_for_article_type(item.article_type.as_deref(), manuscript_type)
+    {
+        item.detail = format!("{} — {caveat}.", item.detail);
+        item.passed = false;
+        item.unevaluable = true;
+    }
+    item
+}
+
 /// One stored requirement as a carried source. Kept beside the two grouping
 /// sites so both produce the same shape.
 fn source_of(r: &crate::journal_store::StoredRequirement) -> ChecklistSource {
@@ -1980,6 +2030,12 @@ pub fn checklist_from_requirements(
 ) -> Vec<ChecklistItem> {
     use crate::journal_extract::RequirementKind;
     let mut items = Vec::new();
+    // **Nothing in the pipeline classifies the manuscript's article type.** Not
+    // the extractor, not a user declaration, not the journal profile — measured
+    // in `docs/A3_APPLICABILITY_MEASUREMENT.md` part 6. It is a local rather
+    // than a literal at the four call sites so that the day something does
+    // establish it, there is exactly one line to change.
+    let manuscript_article_type: Option<&str> = None;
 
     // --- word limit ------------------------------------------------------
     let word_limits: Vec<&crate::journal_store::StoredRequirement> =
@@ -1990,7 +2046,7 @@ pub fn checklist_from_requirements(
             let r = word_limits[0];
             if let Ok(limit) = r.value.parse::<usize>() {
                 let passed = manuscript_words <= limit;
-                items.push(ChecklistItem {
+                items.push(scoped(ChecklistItem {
                     // One source: this row is not derived from journal_requirements.
                     also_from: Vec::new(),
                     requirement: format!("word limit: {limit}"),
@@ -2003,7 +2059,7 @@ pub fn checklist_from_requirements(
                     article_type: r.article_type.clone(),
                     checked_field: Some("manuscript word count".into()),
                     unevaluable: false,
-                });
+                }, manuscript_article_type));
             }
         }
         _ => {
@@ -2050,7 +2106,7 @@ pub fn checklist_from_requirements(
             // An abstract the extractor did not find is not an abstract over
             // the limit. Absence is UNEVALUABLE, not a failure.
             if abstract_words > 0 {
-                items.push(ChecklistItem {
+                items.push(scoped(ChecklistItem {
                     // One source: this row is not derived from journal_requirements.
                     also_from: Vec::new(),
                     requirement: format!("abstract limit: {limit} words"),
@@ -2061,7 +2117,7 @@ pub fn checklist_from_requirements(
                     article_type: r.article_type.clone(),
                     checked_field: Some("extraction.sections[Abstract]".into()),
                     unevaluable: false,
-                });
+                }, manuscript_article_type));
             }
         }
     }
@@ -2083,7 +2139,7 @@ pub fn checklist_from_requirements(
         requirements.iter().filter(|r| r.kind == RequirementKind::DataPolicy).collect();
     if let Some((first, rest)) = data_rows.split_first() {
         let found = statement_in_text(&lower_text, manuscript_text, DATA_AVAILABILITY_NAMES);
-        items.push(ChecklistItem {
+        items.push(scoped(ChecklistItem {
             requirement: "data availability statement".into(),
             passed: found.is_some(),
             detail: match &found {
@@ -2099,7 +2155,7 @@ pub fn checklist_from_requirements(
             checked_field: Some("manuscript full text".into()),
             unevaluable: false,
             also_from: rest.iter().map(|r| source_of(r)).collect(),
-        });
+        }, manuscript_article_type));
     }
 
     // --- other required statements (§11 D163) -----------------------------
@@ -2136,7 +2192,7 @@ pub fn checklist_from_requirements(
         let (first, rest) = rows.split_first().expect("a group exists only when a row made it");
         let names = synonyms_for(needle);
         let found = statement_in_text(&lower_text, manuscript_text, &names);
-        items.push(ChecklistItem {
+        items.push(scoped(ChecklistItem {
             requirement: first.value.clone(),
             passed: found.is_some(),
             detail: match &found {
@@ -2153,7 +2209,7 @@ pub fn checklist_from_requirements(
             checked_field: Some("manuscript full text".into()),
             unevaluable: false,
             also_from: rest.iter().map(|r| source_of(r)).collect(),
-        });
+        }, manuscript_article_type));
     }
 
     // --- reporting standards ----------------------------------------------

@@ -2852,3 +2852,146 @@ fn a_line_shorter_than_the_floor_is_not_anchored() {
     assert!(crate::extract::locate_line(&ex, "n = 5").is_none());
     assert!(crate::extract::locate_line(&ex, "   ").is_none());
 }
+
+// ---------------------------------------------------------------------------
+// Article-type scoping: the first producer of `unevaluable` (§11 D188).
+// Measurement: `docs/A3_APPLICABILITY_MEASUREMENT.md`.
+// ---------------------------------------------------------------------------
+
+/// A statement requirement the journal scoped to one article type.
+fn stmt_req_for(value: &str, article_type: &str) -> crate::journal_store::StoredRequirement {
+    crate::journal_store::StoredRequirement { article_type: Some(article_type.into()), ..stmt_req(value) }
+}
+
+/// **The row R PAPER got wrong: `author contributions statement`, harvested
+/// from Nature Medicine's Matters Arising page, judged against a paper that is
+/// not a Matters Arising piece.**
+///
+/// The manuscript genuinely has no such statement, so `passed: false` is a true
+/// statement about the text. It is still the wrong row to show, because nobody
+/// established that the requirement applies.
+#[test]
+fn a_requirement_scoped_to_an_article_type_is_not_decided() {
+    let ex = crate::extract::extract_from_text("Title\n\nAbstract\nShort.\n\nMethods\nWe did work.\n");
+    let items = checklist_from_requirements(
+        &ex,
+        "Title Abstract Short. Methods We did work.",
+        7,
+        &[stmt_req_for("author contributions statement", "Matters Arising")],
+        &[],
+    );
+    let it = items
+        .iter()
+        .find(|i| i.requirement == "author contributions statement")
+        .expect("the row is still emitted — scoping it does not drop the journal's requirement");
+    assert!(it.unevaluable, "scoped to an article type nobody established: {it:?}");
+    assert!(!it.passed, "and never a pass");
+    assert!(
+        it.detail.contains("which this analysis does not know"),
+        "it must say WHY, in the wording the word-limit row already uses: {}",
+        it.detail
+    );
+    assert!(
+        it.detail.contains("Matters Arising"),
+        "and name the type the journal scoped it to: {}",
+        it.detail
+    );
+}
+
+/// NEGATIVE CONTROL 1 — the journal stated it for everyone, so there is nothing
+/// to scope and the row must still decide.
+#[test]
+fn a_requirement_with_no_article_type_is_still_decided() {
+    let ex = crate::extract::extract_from_text("Title\n\nAbstract\nShort.\n\nMethods\nWe did work.\n");
+    let items = checklist_from_requirements(
+        &ex,
+        "Title Abstract Short. Methods We did work.",
+        7,
+        &[stmt_req("competing interests statement")],
+        &[],
+    );
+    let it = items
+        .iter()
+        .find(|i| i.requirement == "competing interests statement")
+        .expect("raised");
+    assert!(!it.unevaluable, "unscoped: nothing stops this being decided: {it:?}");
+    assert!(!it.passed, "and the manuscript really does not declare one");
+}
+
+/// NEGATIVE CONTROL 2 — once the type IS known, a genuinely unmet requirement
+/// must still fail.
+///
+/// Nothing establishes the manuscript's type today, so this exercises the rule
+/// directly rather than inventing a detector to satisfy a test. The third case
+/// is the one to watch: a known type that does NOT match the journal's scope
+/// still returns `None`, because concluding NOT_APPLICABLE needs evidence this
+/// rule does not have.
+#[test]
+fn a_known_article_type_decides_the_row_and_never_says_not_applicable() {
+    assert_eq!(undecidable_for_article_type(None, None), None, "nothing to scope");
+    assert_eq!(
+        undecidable_for_article_type(Some("Article"), Some("Article")),
+        None,
+        "type known and matching: decide it"
+    );
+    assert_eq!(
+        undecidable_for_article_type(Some("Brief Communication"), Some("Article")),
+        None,
+        "type known and DIFFERENT: still decided here — this rule never concludes \
+         that a requirement does not apply"
+    );
+    assert!(
+        undecidable_for_article_type(Some("Matters Arising"), None).is_some(),
+        "scoped, and the manuscript's type is unknown: the only undecidable case"
+    );
+}
+
+/// The abstract limit, which is R PAPER's other wrong row: 150 words is Nature
+/// Medicine's Brief Communication format, and nobody said this is one.
+#[test]
+fn an_abstract_limit_scoped_to_an_article_type_is_not_decided() {
+    let text = format!("Title\n\nAbstract\n{}\n\nMethods\nWe did work.\n", "word ".repeat(202));
+    let ex = crate::extract::extract_from_text(&text);
+    let req = crate::journal_store::StoredRequirement {
+        kind: crate::journal_extract::RequirementKind::AbstractLimit,
+        value: "150".into(),
+        article_type: Some("Brief Communication".into()),
+        status: "VERIFIED".into(),
+        source_url: "https://example.test/content".into(),
+        source_heading: "Format".into(),
+        source_span: "Format Abstract – up to 150 words, unreferenced.".into(),
+        conflict_id: None,
+    };
+    let items = checklist_from_requirements(&ex, &text, 210, &[req], &[]);
+    let it = items.iter().find(|i| i.requirement.starts_with("abstract limit")).expect("raised");
+    assert!(it.unevaluable, "{it:?}");
+    assert!(
+        it.detail.contains("202 words") && it.detail.contains("Brief Communication"),
+        "the observation is kept beside the caveat, so the author still learns what was counted: {}",
+        it.detail
+    );
+}
+
+/// **Both renderers, on a row that until now no production path could produce.**
+///
+/// The third state must read as undecided in each — never as a pass, and never
+/// as "not applicable", which would claim the requirement was ruled out.
+#[test]
+fn an_undecided_row_renders_as_undecided_in_the_shared_renderer() {
+    let ex = crate::extract::extract_from_text("Title\n\nAbstract\nShort.\n\nMethods\nWe did work.\n");
+    let items = checklist_from_requirements(
+        &ex,
+        "Title Abstract Short. Methods We did work.",
+        7,
+        &[stmt_req_for("author contributions statement", "Matters Arising")],
+        &[],
+    );
+    let lines = crate::report_compose::checklist_lines(&items[0]);
+    let first = &lines[0];
+    assert!(first.contains("not decided"), "the shared renderer's third state: {first}");
+    assert!(!first.contains("[met]"), "never a pass: {first}");
+    assert!(
+        !first.to_lowercase().contains("not applicable"),
+        "undecided is not a ruling that the requirement does not apply: {first}"
+    );
+}
