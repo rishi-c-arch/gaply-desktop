@@ -8,7 +8,24 @@ import {
   ReviewerLetter,
   DeclinedLane,
 } from './publishReadyTypes';
+import vocab from '../../generated/vocabulary.json';
 import './publishready.css';
+
+// **§11 D221. What these paragraphs say deterministic findings are, from Rust.**
+// Both said "Deterministic (mathematically certain) findings require correction
+// regardless of…" after D220 had withdrawn exactly that claim from the report
+// disclaimer: each surface kept its own literal. The clause is now
+// `vocabulary::deterministic_findings_statement`, via the generated mirror; only
+// what is specific to this panel — the letter or recommendation does not change
+// those findings — is written here. Exported so each wording test reads the
+// constant the panel renders, not a copy.
+export const LETTER_UNAVAILABLE_DISCLAIMER =
+  `Model-assisted assessment — non-definitive. Separately, ${vocab.deterministic_findings}; ` +
+  'the reviewer letter does not change them.';
+export const LETTER_DISCLAIMER =
+  `Model-assisted assessment — non-definitive. Separately, ${vocab.deterministic_findings}; ` +
+  'the recommendation does not change them. See the Checklist tab for guideline items (each ' +
+  'links to the offending section).';
 
 /** One declined lane, rendered where its output would have been.
  *
@@ -80,9 +97,8 @@ export const ReviewerLetterPanel: React.FC<{
               : 'The full local report — findings, checklist, and verdict — is available in the tabs above.'}
           </p>
         </Card>
-        <p className="gds-pr__disclaimer">
-          Model-assisted assessment — non-definitive. Deterministic (mathematically certain) findings
-          require correction regardless of the reviewer letter.
+        <p className="gds-pr__disclaimer" data-testid="pr-disclaimer">
+          {LETTER_UNAVAILABLE_DISCLAIMER}
         </p>
       </div>
     );
@@ -258,10 +274,8 @@ export const ReviewerLetterPanel: React.FC<{
         </p>
       )}
 
-      <p className="gds-pr__disclaimer">
-        Model-assisted assessment — non-definitive. Deterministic (mathematically certain) findings
-        require correction regardless of the recommendation. See the Checklist tab for guideline
-        items (each links to the offending section).
+      <p className="gds-pr__disclaimer" data-testid="pr-disclaimer">
+        {LETTER_DISCLAIMER}
       </p>
     </div>
   );

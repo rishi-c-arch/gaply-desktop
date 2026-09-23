@@ -400,10 +400,14 @@ pub struct PublishReadyReport {
 /// measured one rule wrong on 4 of 5 real firings, so "require correction" was
 /// false. The clause now says what those findings state. It does not name the
 /// tier: the disclaimer explains the labels a reader sees (see `disclaimer_for`).
-const DISCLAIMER_BASE: &str = "Certainty tiers: findings from deterministic checks state \
-what an automated check did or did not find in the text, not that the manuscript is wrong; \
-'AI-assessed, moderate confidence' findings are statistical or model-derived signals — \
-indicators for human review, never definitive proof";
+///
+/// **§11 D221: the deterministic clause is `vocabulary::deterministic_findings_statement`**,
+/// not a literal here, because the Reviewer Letter panel states the same thing
+/// and a second copy is what left three "require correction" strings behind
+/// after D220. Built in `disclaimer_for`; the output is byte-identical (the
+/// app golden pins it).
+const DISCLAIMER_AI_CLAUSE: &str = "'AI-assessed, moderate confidence' findings are \
+statistical or model-derived signals — indicators for human review, never definitive proof";
 
 /// The third clause — appended ONLY when an agent actually revised.
 const DISCLAIMER_REVISED: &str = "; 'reconsidered after peer review' findings were revised \
@@ -431,8 +435,16 @@ by the verification agent after seeing other agents' evidence and remain non-def
 /// directions are pinned:
 /// `the_disclaimer_omits_the_revision_tier_when_nothing_was_revised` and
 /// `the_disclaimer_restores_the_revision_tier_when_an_agent_revises`.
-fn disclaimer_for(revised: bool) -> String {
-    let mut s = String::from(DISCLAIMER_BASE);
+///
+/// `pub(crate)` so the vocabulary mirror can export both forms to TypeScript,
+/// whose report viewer needs a fallback and whose sample report needs a value
+/// (§11 D221) — each now reads this rather than keeping a copy.
+pub(crate) fn disclaimer_for(revised: bool) -> String {
+    let mut s = format!(
+        "Certainty tiers: {}; {}",
+        crate::vocabulary::deterministic_findings_statement(),
+        DISCLAIMER_AI_CLAUSE
+    );
     if revised {
         s.push_str(DISCLAIMER_REVISED);
     }

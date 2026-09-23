@@ -18162,3 +18162,57 @@ cannot reach vitest.
 **A correction to D219.** Its note that `ai_eval_cli` fails at `e8b98b9`
 without `--features devtools` was presented as a finding; D210 §1 had already
 recorded it. The note is accurate and the citation was missing.
+
+### D221 — the three remaining "require correction" copies now read Rust
+
+D220 fixed the report disclaimer and found three more copies of the same claim
+outside it. Each, with what it said and who sees it:
+
+| copy | said | surface | reaches a user |
+|---|---|---|---|
+| `ReviewerLetterPanel.tsx`, letter unavailable | "Model-assisted assessment — non-definitive. Deterministic (mathematically certain) findings require correction regardless of the reviewer letter." | PublishReady → Reviewer Letter tab, offline or recommendation withheld | **yes** |
+| `ReviewerLetterPanel.tsx`, letter available | "… require correction regardless of the recommendation. See the Checklist tab …" | same tab, with a letter | **yes** |
+| `ReportViewerPage.tsx` `REPORT_DISCLAIMER_FALLBACK` | the pre-D220 disclaimer, with the revision clause on every report | report viewer, ONLY when `report.disclaimer` is empty | only on a wire regression — every caller passes a report whose disclaimer Rust or an adapter sets |
+| `sampleReport.ts` `SAMPLE_REPORT.disclaimer` | the same pre-D220 text | `ReportViewerPage`'s default prop, which no production caller uses (`/app/report` loads the real report); Copilot's teaser context uses the sample but `buildChatPayload` sends findings, not the disclaimer | **no** — tests only |
+
+**One source now.** `vocabulary::deterministic_findings_statement` is the
+clause; `report::disclaimer_for` builds the disclaimer from it (byte-identical —
+the app golden and the wording test both pass unchanged). The mirror exports the
+clause and both disclaimer forms (`report_disclaimer.no_revision` /
+`.with_revision`).
+
+* The fallback picks the form Rust would have produced, by the test
+  `disclaimer_for` uses (`revised_agents` non-empty). The old copy included the
+  revision clause unconditionally — the defect `disclaimer_for` was written to
+  remove.
+* The sample reads `with_revision`: its debate has a revision.
+* The panel's two paragraphs are their own sentences — no full-sentence source
+  exists — so they reuse the clause and add only what is theirs: *"Model-assisted
+  assessment — non-definitive. Separately, {clause}; the reviewer letter / the
+  recommendation does not change them."* "Regardless of" becomes "does not
+  change them"; "require correction" is gone.
+
+**Still open, recorded in D220:** a report cached before D220 keeps the
+disclaimer it was compiled with, and `/app/report` renders it verbatim.
+
+**Tests — one guard per claim.** Wording at each source: the clause in Rust
+(`deterministic_findings_statement_says_what_the_check_did`), the full
+disclaimer in Rust (D220's test), and each panel constant in vitest. Wiring:
+each panel paragraph renders its constant; the fallback picks by revision and
+renders on an empty wire; the sample carries `with_revision`.
+
+**Deletion tests — predictions written before each run, 6 of 6 as predicted.**
+Baselines: vitest 964 (957 + 7), Rust 1948 over 31 targets (1947 + 1).
+
+| # | break | predicted red | red |
+|---|---|---|---|
+| 1 | unavailable-letter `<p>` back to its literal | its wiring test | that only |
+| 2 | available-letter `<p>` back to its literal | its wiring test | that only |
+| 3 | `LETTER_DISCLAIMER` reworded to "require correction" | its wording test | that only |
+| 4 | fallback returns the old literal | fallback-selection + empty-wire render | exactly those 2 |
+| 5 | sample disclaimer back to its literal | the sample test | that only |
+| 6 | Rust clause reworded to "rule verdicts and require correction", mirror regenerated | Rust: clause, disclaimer wording, omits-revision-tier, sample golden, app golden; vitest: both panel wording tests | exactly those 5 + 2 |
+
+Break 6 is the point of single-sourcing: one Rust edit reaches the PDF, the
+viewer and both panel paragraphs, and every pin that states the wording goes
+red while every wiring pin stays green.

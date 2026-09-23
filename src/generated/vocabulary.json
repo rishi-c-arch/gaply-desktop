@@ -5,12 +5,17 @@
     "manuscript_defect": null,
     "process_state": "Technical check"
   },
+  "deterministic_findings": "findings from deterministic checks state what an automated check did or did not find in the text, not that the manuscript is wrong",
   "recommendation": {
     "accept": "Accept",
     "major_revision": "Major revision",
     "minor_revision": "Minor revision",
     "reject": "Reject",
     "unknown": "Not determined"
+  },
+  "report_disclaimer": {
+    "no_revision": "Certainty tiers: findings from deterministic checks state what an automated check did or did not find in the text, not that the manuscript is wrong; 'AI-assessed, moderate confidence' findings are statistical or model-derived signals — indicators for human review, never definitive proof.",
+    "with_revision": "Certainty tiers: findings from deterministic checks state what an automated check did or did not find in the text, not that the manuscript is wrong; 'AI-assessed, moderate confidence' findings are statistical or model-derived signals — indicators for human review, never definitive proof; 'reconsidered after peer review' findings were revised by the verification agent after seeing other agents' evidence and remain non-definitive."
   },
   "rule_certainty": {
     "missing_confidence_interval": "not detected by an automated check",

@@ -7,7 +7,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import ReviewerLetterPanel from './ReviewerLetterPanel';
+import ReviewerLetterPanel, { LETTER_DISCLAIMER, LETTER_UNAVAILABLE_DISCLAIMER } from './ReviewerLetterPanel';
 import { adaptOutcome } from './publishReadyBridge';
 import { ReviewerLetter } from './publishReadyTypes';
 
@@ -237,5 +237,39 @@ describe('adaptOutcome — backend fields -> frontend letter (Set 4e)', () => {
     expect(res.reviewerLetter.novelty.assessment).toBe('');
     expect(res.reviewerLetter.journalFit.note).toBe('');
     expect(res.reviewerLetter.alternatives).toEqual([]);
+  });
+});
+
+// **§11 D221 — one guard per claim.** Both paragraphs said deterministic
+// findings "require correction", after D220 withdrew that from the report.
+// WORDING is pinned at each exported constant; WIRING checks the panel renders
+// that constant. The shared clause itself is pinned in Rust
+// (`vocabulary::deterministic_findings_statement`).
+describe('ReviewerLetterPanel — the disclaimers (§11 D221)', () => {
+  it('the unavailable-letter disclaimer says what deterministic findings state', () => {
+    expect(LETTER_UNAVAILABLE_DISCLAIMER).toBe(
+      'Model-assisted assessment — non-definitive. Separately, findings from deterministic checks ' +
+        'state what an automated check did or did not find in the text, not that the manuscript is ' +
+        'wrong; the reviewer letter does not change them.'
+    );
+  });
+
+  it('the letter disclaimer says what deterministic findings state', () => {
+    expect(LETTER_DISCLAIMER).toBe(
+      'Model-assisted assessment — non-definitive. Separately, findings from deterministic checks ' +
+        'state what an automated check did or did not find in the text, not that the manuscript is ' +
+        'wrong; the recommendation does not change them. See the Checklist tab for guideline items ' +
+        '(each links to the offending section).'
+    );
+  });
+
+  it('an unavailable letter renders its constant', () => {
+    renderPanel(unavailable);
+    expect(screen.getByTestId('pr-disclaimer').textContent).toBe(LETTER_UNAVAILABLE_DISCLAIMER);
+  });
+
+  it('an available letter renders its constant', () => {
+    renderPanel(available);
+    expect(screen.getByTestId('pr-disclaimer').textContent).toBe(LETTER_DISCLAIMER);
   });
 });

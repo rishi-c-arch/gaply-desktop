@@ -30,21 +30,26 @@ import {
 } from './reportTypes';
 import { SAMPLE_MANUSCRIPT_SECTIONS, SAMPLE_REPORT } from './sampleReport';
 import { downloadReportPdf } from './exportPdf';
+import vocab from '../../generated/vocabulary.json';
 import '../auth/auth.css';
 import './report.css';
 
 /** Empty-guard backstop for the mandatory certainty-tier disclaimer. The wire
- *  normally carries `report.disclaimer` VERBATIM from the Rust core's `DISCLAIMER`
- *  (report.rs); this hardcoded copy renders ONLY if that field ever regresses to
- *  empty, so the "indicators for human review, never definitive proof" framing
- *  can never silently vanish. */
-const REPORT_DISCLAIMER_FALLBACK =
-  "Certainty tiers: 'mathematically certain' findings are deterministic rule " +
-  "verdicts and require correction; 'AI-assessed, moderate confidence' findings " +
-  'are statistical or model-derived signals — indicators for human review, never ' +
-  "definitive proof; 'reconsidered after peer review' findings were revised by " +
-  "the verification agent after seeing other agents' evidence and remain " +
-  'non-definitive.';
+ *  normally carries `report.disclaimer` VERBATIM from the Rust core's
+ *  `disclaimer_for` (report.rs); this renders ONLY if that field ever regresses
+ *  to empty, so the "indicators for human review, never definitive proof"
+ *  framing can never silently vanish.
+ *
+ *  **§11 D221: it reads Rust, not a copy.** It was a hardcoded copy of the
+ *  pre-D220 text — "require correction", and the revision clause on every
+ *  report, which Rust stopped doing when nothing revised. It now picks the form
+ *  Rust would have produced, by the same test `disclaimer_for` uses
+ *  (`!revised_agents.is_empty()`), from the generated mirror. */
+export function reportDisclaimerFallback(report: PublishReadyReport): string {
+  return (report.debate?.revised_agents?.length ?? 0) > 0
+    ? vocab.report_disclaimer.with_revision
+    : vocab.report_disclaimer.no_revision;
+}
 
 export interface ReportViewerPageProps {
   /** The compiled report. Defaults to the golden sample until a
@@ -236,7 +241,7 @@ const ReportInner: React.FC<ReportViewerPageProps> = ({
               <p className="gds-report__disclaimer" data-testid="report-disclaimer" style={{ marginTop: 16 }}>
                 {report.disclaimer && report.disclaimer.trim()
                   ? report.disclaimer
-                  : REPORT_DISCLAIMER_FALLBACK}
+                  : reportDisclaimerFallback(report)}
               </p>
             </Panel>
           </ThreePanelWorkspace>

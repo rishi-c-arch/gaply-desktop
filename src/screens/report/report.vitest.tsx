@@ -6,7 +6,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { GaplySessionProvider } from '../session/SessionProvider';
 import type { AuthService } from '../../services/supabase';
-import ReportViewerPage from './ReportViewerPage';
+import ReportViewerPage, { reportDisclaimerFallback } from './ReportViewerPage';
+import vocab from '../../generated/vocabulary.json';
 import { SAMPLE_REPORT } from './sampleReport';
 import { sortFindings, tierStatus, Finding, PublishReadyReport } from './reportTypes';
 import { reportPdfBlob } from './exportPdf';
@@ -325,5 +326,29 @@ describe('§11 D192 · the checklist sentence for a URL that yielded nothing', (
     // The claim this surface cannot make. A stored report does not record
     // whether the fetch landed, so the sentence must not decide that it did.
     expect(el.textContent).not.toMatch(/fetched successfully/i);
+  });
+});
+
+// **§11 D221.** The fallback and the sample were hardcoded copies of the
+// pre-D220 disclaimer. Both now read Rust's `disclaimer_for` through the mirror;
+// its wording is pinned in Rust (`the_disclaimer_says_what_deterministic_findings_state`).
+describe('report disclaimer copies read Rust (§11 D221)', () => {
+  it('the fallback picks the form Rust would produce, by whether anything revised', () => {
+    const none = { ...SAMPLE_REPORT, debate: { ...SAMPLE_REPORT.debate, revised_agents: [] } };
+    expect(reportDisclaimerFallback(none)).toBe(vocab.report_disclaimer.no_revision);
+    expect(SAMPLE_REPORT.debate.revised_agents.length).toBeGreaterThan(0); // precondition
+    expect(reportDisclaimerFallback(SAMPLE_REPORT)).toBe(vocab.report_disclaimer.with_revision);
+  });
+
+  it('an empty wire disclaimer renders the fallback', async () => {
+    const none = { ...SAMPLE_REPORT, disclaimer: '', debate: { ...SAMPLE_REPORT.debate, revised_agents: [] } };
+    renderReport(none);
+    await screen.findByTestId('report-viewer');
+    expect(screen.getByTestId('report-disclaimer').textContent).toBe(vocab.report_disclaimer.no_revision);
+  });
+
+  it('the sample report carries what Rust produces for a run with a revision', () => {
+    expect(SAMPLE_REPORT.debate.revised_agents.length).toBeGreaterThan(0); // precondition
+    expect(SAMPLE_REPORT.disclaimer).toBe(vocab.report_disclaimer.with_revision);
   });
 });

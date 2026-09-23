@@ -134,6 +134,18 @@ pub fn rule_certainty_label(rule: crate::validate::RuleId) -> &'static str {
     }
 }
 
+/// **What a finding from a deterministic check states. §11 D220, D221.**
+///
+/// ONE source for a claim three surfaces make: the report disclaimer (and so
+/// the PDF and the report viewer), and both Reviewer Letter panel paragraphs
+/// (through the mirror). Those panels said such findings "require correction"
+/// after D220 had withdrawn it from the disclaimer, because each surface kept
+/// its own literal. Mid-sentence form: callers supply the capital and the stop.
+pub fn deterministic_findings_statement() -> &'static str {
+    "findings from deterministic checks state what an automated check did or did not \
+     find in the text, not that the manuscript is wrong"
+}
+
 /// The checked-in mirror artifact, relative to the `gaply_core` crate root.
 ///
 /// TypeScript cannot call the functions above, and two surfaces genuinely need a
@@ -227,6 +239,19 @@ mod tests {
         );
     }
 
+    /// **The clause three surfaces share — §11 D221.** The report disclaimer
+    /// (so the PDF and the viewer) and both Reviewer Letter paragraphs render
+    /// it; each used to keep its own copy, and three still said "require
+    /// correction" after D220.
+    #[test]
+    fn deterministic_findings_statement_says_what_the_check_did() {
+        assert_eq!(
+            deterministic_findings_statement(),
+            "findings from deterministic checks state what an automated check did or did not \
+             find in the text, not that the manuscript is wrong"
+        );
+    }
+
     #[test]
     fn p_value_overclaim_label_says_what_matched_and_what_was_not_assessed() {
         assert_eq!(
@@ -289,6 +314,15 @@ mod tests {
             // `f.rule` — derived from serde, never typed, so the key cannot
             // drift from the value TypeScript looks up.
             "rule_certainty": rule_certainty,
+            // §11 D221. The report disclaimer in both forms Rust produces, so
+            // the viewer's empty-wire fallback and the sample report read Rust
+            // instead of keeping copies; and the clause the Reviewer Letter
+            // panel reuses.
+            "deterministic_findings": deterministic_findings_statement(),
+            "report_disclaimer": {
+                "no_revision": crate::report::disclaimer_for(false),
+                "with_revision": crate::report::disclaimer_for(true),
+            },
             "tier": {
                 "mathematically_certain": tier_label(CertaintyTier::MathematicallyCertain),
                 "ai_assessed_moderate": tier_label(CertaintyTier::AiAssessedModerate),

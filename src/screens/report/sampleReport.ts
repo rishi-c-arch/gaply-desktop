@@ -1,8 +1,10 @@
 // Gaply — a golden sample PublishReadyReport matching compile_report()'s output
-// shape. Used by the /app/report demo until a `compile_report` Tauri command is
-// wired, and as the golden fixture in tests. Deliberately mixes all three
-// certainty tiers, a reconsidered verdict, and an over-limit checklist item.
+// shape. A test fixture, and `ReportViewerPage`'s default prop, which no
+// production caller relies on: /app/report now loads the real report
+// (LiveReportPage). Deliberately mixes all three certainty tiers, a reconsidered
+// verdict, and an over-limit checklist item.
 import { PublishReadyReport } from './reportTypes';
+import vocab from '../../generated/vocabulary.json';
 
 export const SAMPLE_REPORT: PublishReadyReport = {
   verdict: 'concern',
@@ -97,8 +99,10 @@ export const SAMPLE_REPORT: PublishReadyReport = {
     rejected_agents: [],
     revised_agents: ['verification'],
   },
-  disclaimer:
-    'Certainty tiers: ‘mathematically certain’ findings are deterministic rule verdicts and require correction; ‘AI-assessed, moderate confidence’ findings are statistical or model-derived signals — indicators for human review, never definitive proof; ‘reconsidered after peer review’ findings were revised by the verification agent after seeing other agents’ evidence and remain non-definitive.',
+  // §11 D221: what Rust's `disclaimer_for(true)` produces for a run with a
+  // revision — this sample has one — read from the mirror, not a copy (it was
+  // the pre-D220 "require correction" text).
+  disclaimer: vocab.report_disclaimer.with_revision,
 };
 
 /** The sample manuscript body, keyed by section — for the center panel's
