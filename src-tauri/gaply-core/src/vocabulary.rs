@@ -96,6 +96,34 @@ pub fn tier_label(t: CertaintyTier) -> &'static str {
     }
 }
 
+/// **What a deterministic statistical rule's finding may claim. Fix C, §11 D214.**
+///
+/// A rule's DETECTION is deterministic; that does not make its finding a
+/// certain defect. Two rules report an ABSENCE — no effect size, no confidence
+/// interval, found near a p-value — and "mathematically certain" read as
+/// "this is required and missing". No seeded journal states either as a
+/// requirement (0 requirement rows, 0 expectation rows, checked 23 Sep 2026),
+/// and the seed's own conventions show most published abstracts report
+/// neither p-values nor intervals (Nature Medicine: 57 of 77). Where a real
+/// obligation exists — CONSORT item 17a for a trial at a journal that binds
+/// CONSORT — the CHECKLIST reports it, with its source. So these two say
+/// what was established: an automated search did not find one.
+///
+/// The other rules keep the tier's own label, unchanged. Whether they belong
+/// in the same position is an open question recorded in §11 D214, not decided
+/// here. TOTAL, no wildcard: a new rule must choose.
+pub fn rule_certainty_label(rule: crate::validate::RuleId) -> &'static str {
+    use crate::validate::RuleId;
+    match rule {
+        RuleId::MissingEffectSize | RuleId::MissingConfidenceInterval => {
+            "not detected by an automated check"
+        }
+        RuleId::TestGroupMismatch | RuleId::PValueOverclaim | RuleId::SmallSampleCausalClaim => {
+            tier_label(CertaintyTier::MathematicallyCertain)
+        }
+    }
+}
+
 /// The checked-in mirror artifact, relative to the `gaply_core` crate root.
 ///
 /// TypeScript cannot call the functions above, and two surfaces genuinely need a
@@ -172,6 +200,25 @@ mod tests {
     #[test]
     fn the_mirror_artifact_matches_the_vocabulary() {
         use serde_json::json;
+        // Keyed by the rule's WIRE name (what `adapters.ts` receives as `f.rule`),
+        // derived from serde and never typed, so the key cannot drift from the
+        // value TypeScript looks up.
+        let rule_certainty: serde_json::Map<String, serde_json::Value> = {
+            use crate::validate::RuleId;
+            [
+                RuleId::TestGroupMismatch,
+                RuleId::PValueOverclaim,
+                RuleId::MissingEffectSize,
+                RuleId::MissingConfidenceInterval,
+                RuleId::SmallSampleCausalClaim,
+            ]
+            .into_iter()
+            .map(|r| {
+                let key = serde_json::to_value(r).unwrap().as_str().unwrap().to_string();
+                (key, serde_json::Value::from(rule_certainty_label(r)))
+            })
+            .collect()
+        };
         let expected = json!({
             "_comment": "GENERATED from gaply-core/src/vocabulary.rs. Do not hand-edit.",
             "severity": {
@@ -192,6 +239,10 @@ mod tests {
                 "reject": recommendation_label(Recommendation::Reject),
                 "unknown": recommendation_label(Recommendation::Unknown),
             },
+            // Keyed by the rule's WIRE name — what `adapters.ts` receives as
+            // `f.rule` — derived from serde, never typed, so the key cannot
+            // drift from the value TypeScript looks up.
+            "rule_certainty": rule_certainty,
             "tier": {
                 "mathematically_certain": tier_label(CertaintyTier::MathematicallyCertain),
                 "ai_assessed_moderate": tier_label(CertaintyTier::AiAssessedModerate),

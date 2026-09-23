@@ -1,6 +1,7 @@
 // Gaply — convert each local agent's raw report into a PublishReadyReport so
 // the F6 viewer renders it scoped to that one agent. Certainty tiers are honest:
-//   Validation/Maths  -> mathematically_certain (🟢, deterministic)
+//   Validation/Maths  -> mathematically_certain (🟢, deterministic); the LABEL is
+//                        per rule, from the generated vocabulary (Fix C)
 //   AI Detection      -> ai_assessed_moderate   (🟡, statistical signal only)
 //   Plagiarism        -> ai_assessed_moderate   (🟡, embedding similarity)
 import {
@@ -12,8 +13,19 @@ import {
   AiDetectionReport,
   MatchSpan,
   PlagiarismReport,
+  RuleId,
   StatsValidityReport,
 } from './agentTypes';
+import vocab from '../../generated/vocabulary.json';
+
+// **What each rule's finding may claim — Rust's words, not a copy. Fix C.**
+// Generated from `vocabulary::rule_certainty_label`, which the Rust report
+// uses for the same flags; typed as a total Record so a rule missing from the
+// artifact fails `tsc` rather than rendering `undefined`. Two rules report an
+// ABSENCE ("not detected by an automated check"); they are not a stated
+// journal requirement, and this screen used to call them mathematically
+// certain with a literal of its own.
+const RULE_CERTAINTY: Record<RuleId, string> = vocab.rule_certainty;
 
 const EMPTY_DEBATE = {
   rounds_run: 0,
@@ -139,7 +151,7 @@ export function validationToReport(r: StatsValidityReport): PublishReadyReport {
   const findings: Finding[] = r.flags.map((f) => ({
     severity: f.severity === 'CRITICAL' ? 'critical' : 'major',
     tier: 'mathematically_certain',
-    certainty_label: 'mathematically certain',
+    certainty_label: RULE_CERTAINTY[f.rule],
     agent: 'validation_maths',
     title: `rule failed: ${f.rule.replace(/_/g, ' ')}`,
     detail: f.explanation,
@@ -158,7 +170,7 @@ export function validationToReport(r: StatsValidityReport): PublishReadyReport {
     findings.push({
       severity: 'info',
       tier: 'mathematically_certain',
-      certainty_label: 'mathematically certain',
+      certainty_label: vocab.tier.mathematically_certain,
       agent: 'validation_maths',
       title: 'All deterministic statistical rules passed',
       detail: `${r.checks.length} rules evaluated; none fired.`,

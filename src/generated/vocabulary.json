@@ -12,6 +12,13 @@
     "reject": "Reject",
     "unknown": "Not determined"
   },
+  "rule_certainty": {
+    "missing_confidence_interval": "not detected by an automated check",
+    "missing_effect_size": "not detected by an automated check",
+    "p_value_overclaim": "mathematically certain",
+    "small_sample_causal_claim": "mathematically certain",
+    "test_group_mismatch": "mathematically certain"
+  },
   "severity": {
     "critical": "Unsupported conclusion",
     "info": "Additional note",

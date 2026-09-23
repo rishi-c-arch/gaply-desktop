@@ -17542,3 +17542,84 @@ the defect as a requirement.
   PDFs.
 * **Not that the caption-shape rule is general.** It separates the three `.docx`
   with sightings cleanly and is unmeasured beyond them.
+
+**Correction (Fix C session): the "1933 passed" figure for `964687e` was not a
+clean build.** Its 11 `ai_eval_cli` tests passed only because a stale
+`--features devtools` binary sat in `target/debug`; on a clean build that target
+fails, for the pre-existing D210 reason.
+
+### D214 — an absence is "not detected", not "mathematically certain"
+
+**Measured before changing anything.** "mathematically certain" reached a user
+through a literal in the report's flags loop (`report.rs`, `CertaintyTier::
+MathematicallyCertain.label()` for EVERY validation flag, whatever the rule) and
+again through two literals of its own in `adapters.ts` (the Stats Check
+screen). Neither consulted a rule or any journal evidence.
+
+#### Every rule that rendered "mathematically certain", and whether the seed obliges it
+
+Searched `gaply-core/data/journal-seed.json` — 10 journals: 213 requirement
+rows, 50 bindings, 50 conventions and 258 expectation rows — by keyword, with
+every hit printed with its span and read.
+
+| rule (flags loop + Stats Check) | a matching obligation in the seed? |
+|---|---|
+| `missing_effect_size` | **No requirement, no expectation.** Indirect only: CONSORT is bound to a trial design at 14 journal/design pairs across 7 journals, and CONSORT 17a asks for "the estimated effect size and its precision". Gaply already checks 17a — on the CHECKLIST, with its source (`journal_standards.rs`, `EffectSizeReported`). The flags loop fires on every manuscript regardless. |
+| `missing_confidence_interval` | **No requirement, no expectation.** The keyword hits were an OpenAlex note containing "95%". The `stats_style` conventions DESCRIBE practice — Nature Medicine: of 77 recent abstracts, 57 report neither p-values nor intervals — and oblige nothing. The same CONSORT 17a route ("its precision") applies to trials. |
+| `test_group_mismatch` | **No.** No seed row names a test choice. |
+| `p_value_overclaim` | **No.** The hits were "significance" in appeal and reviewer-guidance prose. |
+| `small_sample_causal_claim` | Declined (D178); emits nothing. |
+
+**Other producers of the tier, not rules, not changed:** `equation_report.rs`
+(Tier-0 arithmetic and dimension findings) and `stats_verdict::VerifiedResult`
+(recomputations) are recomputations with a determinate answer; the Stats Check
+"all rules passed" finding; and prose that uses the phrase (the disclaimer,
+`StatsCheckPage`'s subtitle, `ReviewerLetterPanel`, `synthesize.ts`).
+**Checklist items — a stated word limit, a required section — carry no tier at
+all**, so "keep the tier honest for deterministic obligations" has nothing to
+keep today: those obligations are reported by the checklist, not labelled
+certain.
+
+#### What changed — the two absence rules only
+
+`vocabulary::rule_certainty_label(RuleId)`, total with no wildcard: the two
+absence rules say **"not detected by an automated check"**; the others return
+the tier's label, unchanged. The wording makes no claim either way about a
+requirement, because for a trial at a CONSORT journal one exists.
+
+**One source, two renderers.** The flags loop reads it. The Stats Check screen
+reads the SAME value through the generated mirror (`vocab.rule_certainty`,
+keyed by the rule's serde wire name so the key cannot drift from `f.rule`),
+typed as a total `Record<RuleId, string>` so a rule missing from the artifact
+fails `tsc`. Its second literal ("all rules passed") now reads
+`vocab.tier.mathematically_certain` too.
+
+**Not changed, deliberately:** the `tier` stays `mathematically_certain` (sort
+order, colour, `hard_constraint`, routing); the title still says "rule failed";
+the explanation still says "Report a CI". Each is a separate claim with its own
+consumers.
+
+The app golden `report.golden.json` changed in exactly one field — that
+finding's `certainty_label` — checked by parsing both versions.
+
+#### Deletion-tested — 4 breaks, predicted red first, 4 of 4 as predicted
+
+| broken | red |
+|---|---|
+| flags loop back to the tier's label | `an_absence_rule_says_not_detected_and_an_error_rule_keeps_its_tier`, the app golden |
+| Rust wording restores the claim, artifact not regenerated | that test, `the_mirror_artifact_matches_the_vocabulary` |
+| `adapters.ts` back to its own literal | vitest "shows an absence rule as not detected…" (asserted per finding ROW — the inspector repeats the selected label, so a screen-wide count measured the layout) |
+| the artifact hand-edited to restore the claim | that vitest, and the Rust mirror test |
+
+A test found in passing: `vocabulary.vitest.ts`'s "adapters.ts certainty_label
+strings match the Rust tier labels" never opens `adapters.ts` — it pins the
+artifact's values only. Its comment now says so.
+
+#### Open — asked, not decided
+
+**`test_group_mismatch` and `p_value_overclaim` are in the same position by the
+seed test** — no journal states either — and still render "mathematically
+certain". They differ in kind: they assert an ERROR in what the manuscript
+says, not the absence of something. Whether their detection (a group count
+read from text; an overclaim phrase list) earns "mathematically certain" is a
+separate question, left for a decision.

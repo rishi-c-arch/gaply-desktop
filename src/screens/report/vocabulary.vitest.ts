@@ -28,9 +28,13 @@ describe('vocabulary mirror — TypeScript agrees with Rust', () => {
     expect(vocab.tier).toBeTruthy();
   });
 
-  // The five hardcoded certainty_label strings in adapters.ts are a genuine
-  // second copy — they cannot read the wire, because the reports they build
-  // never crossed one. So they are pinned rather than removed.
+  // adapters.ts builds reports client-side, so it cannot read these off a wire.
+  // Its two VALIDATION labels now read this artifact directly (Fix C:
+  // `vocab.rule_certainty`, `vocab.tier`); its three AI-assessed labels are
+  // still literal copies. NOTE what this test does and does not do: it pins the
+  // ARTIFACT's values. It does not open adapters.ts, so it cannot see a literal
+  // there. The screen-level guard for the validation labels is
+  // checks.vitest.tsx, "shows an absence rule as not detected…".
   it('adapters.ts certainty_label strings match the Rust tier labels', () => {
     expect(vocab.tier.ai_assessed_moderate).toBe('AI-assessed, moderate confidence');
     expect(vocab.tier.mathematically_certain).toBe('mathematically certain');

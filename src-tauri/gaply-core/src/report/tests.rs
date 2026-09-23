@@ -1304,6 +1304,63 @@ fn match_type_label_wording_is_supported_by_the_algorithm() {
 }
 
 // ===========================================================================
+// Fix C — what a deterministic rule's finding may claim
+// ===========================================================================
+
+/// **An ABSENCE is "not detected", not "mathematically certain". Fix C.**
+///
+/// One flag per live rule, each in its own paragraph so no two group. The two
+/// absence rules must carry `vocabulary::rule_certainty_label`, and that label
+/// must NOT be the tier's — otherwise a vocabulary edit could quietly restore
+/// the old claim and this would still pass. The two rules that assert an
+/// error keep "mathematically certain", unchanged (their position is an open
+/// question in §11 D214, not decided by this fix).
+#[test]
+fn an_absence_rule_says_not_detected_and_an_error_rule_keeps_its_tier() {
+    use crate::validate::{Flag, RuleId, Severity, StatsValidityReport};
+    let rules = [
+        RuleId::TestGroupMismatch,
+        RuleId::PValueOverclaim,
+        RuleId::MissingEffectSize,
+        RuleId::MissingConfidenceInterval,
+    ];
+    let validation = StatsValidityReport {
+        passed: false,
+        checks: vec![],
+        flags: rules
+            .iter()
+            .enumerate()
+            .map(|(i, r)| Flag {
+                rule: *r,
+                severity: Severity::Major,
+                location: Location::in_section(SectionKind::Results, 0, i),
+                explanation: format!("e{i}"),
+            })
+            .collect(),
+    };
+    let report =
+        compile_report(&minimal_outcome(), &validation, None, None, None, TEST_YEAR, vec![], &[], &[]);
+    let label_of = |r: RuleId| {
+        let tag = format!("rule:{r:?} ");
+        report
+            .findings
+            .iter()
+            .find(|f| f.provenance.iter().any(|p| p.starts_with(&tag)))
+            .unwrap_or_else(|| panic!("no finding for {r:?}"))
+            .certainty_label
+            .clone()
+    };
+    let certain = CertaintyTier::MathematicallyCertain.label();
+    for r in [RuleId::MissingEffectSize, RuleId::MissingConfidenceInterval] {
+        assert_eq!(label_of(r), crate::vocabulary::rule_certainty_label(r), "{r:?}");
+        assert_ne!(label_of(r), certain, "{r:?} must not claim mathematical certainty");
+    }
+    for r in [RuleId::TestGroupMismatch, RuleId::PValueOverclaim] {
+        assert_eq!(label_of(r), certain, "{r:?} keeps its tier's label");
+    }
+}
+
+// ===========================================================================
 // Step 3 — the finding's location, and the quotation it resolves to
 // ===========================================================================
 

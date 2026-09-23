@@ -646,7 +646,12 @@ pub fn compile_report(
                     crate::validate::Severity::Major => FindingSeverity::Major,
                 },
                 tier: CertaintyTier::MathematicallyCertain,
-                certainty_label: CertaintyTier::MathematicallyCertain.label().into(),
+                // **Per RULE, not per tier — Fix C.** The detection is
+                // deterministic; an absence is not a certain defect, and no
+                // seeded journal states these as requirements. One source,
+                // `vocabulary::rule_certainty_label`; `adapters.ts` reads the
+                // same value through the generated mirror.
+                certainty_label: crate::vocabulary::rule_certainty_label(flag.rule).into(),
                 agent: AgentKind::ValidationMaths,
                 title: format!("statistical rule failed: {}", flag.rule.label()),
                 detail: flag.explanation.clone(),

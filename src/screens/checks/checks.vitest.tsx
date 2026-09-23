@@ -25,6 +25,7 @@ import {
 } from './agentTypes';
 import { AICHECK_FIXTURE } from './aicheckFixture';
 import { readVerifyCitations, setVerifyCitations, setCloudConsent } from '../settings/settingsStore';
+import vocab from '../../generated/vocabulary.json';
 
 // Exercise the RUNNABLE plagiarism path: mock the free-check flags ON (Set 1
 // ships them OFF — see featureGates.vitest.tsx for the coming-soon/OFF behavior).
@@ -366,6 +367,28 @@ describe('Statistical Analysis Check', () => {
     expect(screen.getAllByText('mathematically certain').length).toBeGreaterThanOrEqual(1);
     // critical rule sorts first
     expect(screen.getByTestId('finding-0').getAttribute('data-tier')).toBe('mathematically_certain');
+  });
+
+  // **Fix C: an ABSENCE is "not detected", read from Rust's words.** STATS_FAIL
+  // carries one absence rule (missing_effect_size) and one error rule
+  // (test_group_mismatch). The screen must show Rust's label for each — the
+  // generated mirror of `vocabulary::rule_certainty_label` — so reverting the
+  // adapter to its own 'mathematically certain' literal turns the absence into
+  // a second "certain" finding and this goes red.
+  it('shows an absence rule as not detected, and keeps the error rule certain', async () => {
+    const absence = vocab.rule_certainty.missing_effect_size;
+    expect(absence).not.toBe('mathematically certain'); // the mirror itself must not restore the claim
+    const bridge = makeMockCheckBridge({ validation: STATS_FAIL });
+    renderScreen(<StatsCheckPage bridge={bridge} />);
+    await runFile();
+    // Per finding ROW, not the whole screen: the selected finding's label is
+    // repeated in the inspector, so a screen-wide count measures the layout.
+    // The critical error rule sorts first; the absence rule second.
+    const errorRow = screen.getByTestId('finding-0');
+    const absenceRow = screen.getByTestId('finding-1');
+    expect(within(errorRow).getByText(vocab.rule_certainty.test_group_mismatch)).toBeTruthy();
+    expect(within(absenceRow).getByText(absence)).toBeTruthy();
+    expect(within(absenceRow).queryByText('mathematically certain')).toBeNull();
   });
 });
 
