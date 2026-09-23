@@ -332,6 +332,47 @@ fn never_follow(url: &str) -> bool {
 /// a low guideline count with candidates left unvisited; too wide shows up as
 /// other journals' URLs in the page list. The lexicon's failure showed up as
 /// nothing at all, which is why that one had to go and this one can stay.
+/// **Which profiled journal does this URL belong to?**
+///
+/// The ONLY way a fetched page may acquire a `journal_key`. Before this, a
+/// pasted URL inherited whatever journal the picker was showing, so
+/// `link.springer.com/journal/11418/submission-guidelines` (Journal of Natural
+/// Medicines) stored a requirement under `nature-medicine` — measured live in
+/// `docs/RUN31_MEASUREMENT.md` §A.3, with the row printed back through the
+/// product's own reader.
+///
+/// **Host equality is not sufficient and is not the rule here.**
+/// `www.nature.com` serves both Nature Medicine and Nature Communications, and
+/// `journals.plos.org` serves every PLOS journal, so the leading path segments
+/// decide — the same per-publisher knowledge [`journal_scope`] already encodes,
+/// read from the same config rather than a second copy of it.
+///
+/// Returns `None` for any URL no profiled journal claims, which includes every
+/// publisher-wide author-services page. That is the intended answer, not a
+/// failure: it means nothing may be stored against a journal.
+pub fn key_for_url(url: &str, budget: &CrawlBudget) -> Option<String> {
+    let target = Url::parse(url).ok()?;
+    let target_host = target.host_str()?.to_ascii_lowercase();
+    for j in &budget.profiled_journals {
+        let Ok(entry) = Url::parse(&j.entry) else { continue };
+        let Some(entry_host) = entry.host_str() else { continue };
+        if entry_host.to_ascii_lowercase() != target_host {
+            continue;
+        }
+        // No sub-scoping configured for this host: it serves one journal, so
+        // the host settles it.
+        match journal_scope(&entry, budget) {
+            None => return Some(j.key.clone()),
+            Some(want) => {
+                if journal_scope(&target, budget).as_ref() == Some(&want) {
+                    return Some(j.key.clone());
+                }
+            }
+        }
+    }
+    None
+}
+
 fn journal_scope(entry: &Url, budget: &CrawlBudget) -> Option<Vec<String>> {
     let host = entry.host_str()?;
     let n = *budget.journal_path_segments.get(host)?;

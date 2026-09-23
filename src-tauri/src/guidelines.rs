@@ -325,6 +325,20 @@ impl GuidelinesIngestor {
 
 /// Core ingestion over an injected fetcher + limiter (so tests can drive it
 /// with a `MockHttpFetcher` and a tight rate limiter).
+/// The ten profiled journals, compiled in. Parsed once: the file is a
+/// build-time constant, so re-parsing it per ingest would be work with no
+/// question attached to it.
+fn profiled() -> &'static crate::journal_crawl::CrawlBudget {
+    static BUDGET: std::sync::OnceLock<crate::journal_crawl::CrawlBudget> =
+        std::sync::OnceLock::new();
+    BUDGET.get_or_init(|| {
+        crate::journal_crawl::CrawlBudget::from_json(include_str!(
+            "../config/journal-crawl.json"
+        ))
+        .expect("the bundled crawl config is compiled in and parses")
+    })
+}
+
 pub fn ingest_with(
     fetcher: &dyn HttpFetcher,
     limiter: &RateLimiter,
@@ -346,24 +360,52 @@ pub fn ingest_with(
         journal_url.map(|u| (u, "Journal page")),
     ];
 
-    let key = journal.resolve();
+    // **THE KEY COMES FROM THE URL, NEVER FROM THE PICKER. §11 D211.**
+    //
+    // `journal` is still read — but only to TELL the user when the page they
+    // pasted belongs to a different journal than the one they picked. It no
+    // longer decides where anything is stored, which is the whole defect:
+    // measured live, a Journal of Natural Medicines guidelines page stored a
+    // requirement under `nature-medicine` because that was the name in the
+    // picker (`docs/RUN31_MEASUREMENT.md` §A.3).
+    let picked = journal.name.map(str::to_string);
+    let mut identified: Option<String> = None;
+    let mut stored_under: Option<String> = None;
     let mut results = Vec::new();
     let (mut stored, mut duplicate) = (0usize, 0usize);
     for (url, title) in targets.into_iter().flatten() {
+        // Per URL, not per job: two pasted URLs can belong to two journals, and
+        // each page's requirements belong to the journal that page is from.
+        let url_key = crate::journal_crawl::key_for_url(url, profiled());
+        if identified.is_none() {
+            identified = url_key.clone();
+        }
         // The extraction happens INSIDE the fetch, where the page body is still
         // in scope: `GuidelineIngest::Ingested` carries a chunk count, not HTML.
         let (one, s1, d1) =
-            fetch_and_ingest_one(fetcher, limiter, db, embedder, url, title, key.as_deref());
+            fetch_and_ingest_one(fetcher, limiter, db, embedder, url, title, url_key.as_deref());
+        if s1 > 0 {
+            stored_under = url_key.clone();
+        }
         stored += s1;
         duplicate += d1;
         results.push(one);
     }
+    let key = identified.clone();
 
     // **`origin: crawled` — the value that already means "this machine fetched
     // it".** D186 gave seeded rows `bundled` and `store_fingerprint_provenance`
     // writes `crawled`; the picker renders anything non-bundled as "fetched on
     // this device". Inventing a third value would split one distinction in two.
-    if let Some(k) = &key {
+    // **A row whose host does not match the journal's own sourced hosts is no
+    // longer written at all**, so there is no cross-host row left for `crawled`
+    // to mislabel and NO NEW PROVENANCE STATE IS INTRODUCED here. `stored_under`
+    // is `Some` only when `key_for_url` claimed the page, so by construction the
+    // host is that journal's own. (The eight publisher-host rows already in the
+    // shipped seed — Elsevier's for The Lancet, Wiley's for Statistics in
+    // Medicine — came from the offline crawler's author-services allowlist, not
+    // from this path; they keep `bundled` and are untouched by this change.)
+    if let Some(k) = &stored_under {
         if stored > 0 {
             let now = gaply_core::now_epoch();
             let prov = gaply_core::journal_fingerprint::FingerprintProvenance {
@@ -430,16 +472,23 @@ pub fn ingest_with(
              alone."
         )
     } else if any_ingested && key.is_none() {
-        // **The extractor never ran, so nothing may be said about the page.**
-        // This branch used to share the sentence below — "no requirement Gaply
-        // can extract was stated on them" — which is a claim about the page's
-        // CONTENT arrived at without reading it: with no journal named there is
-        // nowhere to key requirements, so extraction is skipped entirely. Caught
-        // in the D192 before/after, where BMC Medicine's BEFORE row said it about
-        // a page the AFTER row got two requirements out of.
+        // **§11 D211: the page was read and no journal claimed it.** The URL is
+        // the only thing that may establish identity, so an unrecognised one
+        // means nothing can be stored — say that, rather than the older "no
+        // journal was named", which was true of a different situation (the
+        // caller naming nothing) and would now read as a lie to a user who
+        // picked a journal and pasted a URL.
+        let picked_note = match &picked {
+            Some(p) => format!(
+                " You selected a journal ({p}), but requirements are only stored under the \
+                 journal the URL itself identifies, so nothing was stored against it."
+            ),
+            None => String::new(),
+        };
         format!(
-            "{ingested_count} guideline source(s) read into the corpus. No journal was named, so \
-             nothing could be stored against one, and the checklist shows the structural checks."
+            "{ingested_count} guideline source(s) read into the corpus. That URL does not belong \
+             to a journal Gaply has a profile for, so the journal was not identified and no \
+             requirement was stored.{picked_note} The checklist shows the structural checks."
         )
     } else if any_ingested {
         // Fetched, readable, extractor RAN, and found nothing it can state.
@@ -811,6 +860,114 @@ mod tests {
         RateLimiter::new(100.0, 100.0)
     }
 
+    // --- §11 D211: identity comes from the URL -----------------------------
+
+    /// The Journal of Natural Medicines page that reproduced the defect live.
+    const SPRINGER_URL: &str = "https://link.springer.com/journal/11418/submission-guidelines";
+    /// A real Nature Medicine guidelines path.
+    const NM_URL: &str = "https://www.nature.com/nm/for-authors";
+
+    /// **ACCEPTANCE: the pasted Springer URL stores nothing under the picked
+    /// journal.** The defect, in one test: picker says Nature Medicine, URL is
+    /// a different journal on a different publisher's host.
+    #[test]
+    fn a_url_from_another_journal_stores_nothing_under_the_picked_one() {
+        let db = db();
+        let out = ingest_with(
+            &MockHttpFetcher::new().route("submission-guidelines", 200, GUIDELINE_HTML),
+            &roomy(),
+            &db,
+            &embedder(),
+            None,
+            Some(SPRINGER_URL),
+            JournalIdentity { key: Some("nature-medicine"), name: Some("Nature Medicine") },
+        );
+        assert_eq!(out.journal_key, None, "no profiled journal claims that URL: {out:?}");
+        assert_eq!(out.requirements_stored, 0, "{out:?}");
+        let rows = gaply_core::journal_store::requirements_for(&db, "nature-medicine")
+            .expect("read");
+        assert!(rows.is_empty(), "nothing may be written under the picked journal: {rows:?}");
+        assert!(
+            out.note.contains("was not identified"),
+            "the user has to be told why nothing was stored: {}",
+            out.note
+        );
+    }
+
+    /// **NEGATIVE CONTROL: a genuine Nature Medicine URL still stores.** A fix
+    /// that simply refused every pasted URL would pass the test above.
+    #[test]
+    fn a_genuine_journal_url_still_stores_under_that_journal() {
+        let db = db();
+        let out = ingest_with(
+            &MockHttpFetcher::new().route("for-authors", 200, GUIDELINE_HTML),
+            &roomy(),
+            &db,
+            &embedder(),
+            None,
+            Some(NM_URL),
+            JournalIdentity { key: Some("nature-medicine"), name: Some("Nature Medicine") },
+        );
+        assert_eq!(out.journal_key.as_deref(), Some("nature-medicine"), "{out:?}");
+        assert!(out.requirements_stored > 0, "{out:?}");
+        let rows = gaply_core::journal_store::requirements_for(&db, "nature-medicine")
+            .expect("read");
+        assert!(!rows.is_empty(), "the journal's own page must still populate it");
+    }
+
+    /// The identity is the URL's, even when the picker says otherwise: the same
+    /// genuine Nature Medicine URL with a DIFFERENT journal picked still stores
+    /// under `nature-medicine`. Picking cannot move a page to another journal.
+    #[test]
+    fn the_picker_cannot_redirect_a_page_to_another_journal() {
+        let db = db();
+        let out = ingest_with(
+            &MockHttpFetcher::new().route("for-authors", 200, GUIDELINE_HTML),
+            &roomy(),
+            &db,
+            &embedder(),
+            None,
+            Some(NM_URL),
+            JournalIdentity { key: Some("plos-one"), name: Some("PLOS ONE") },
+        );
+        assert_eq!(out.journal_key.as_deref(), Some("nature-medicine"), "{out:?}");
+        assert!(
+            gaply_core::journal_store::requirements_for(&db, "plos-one").expect("read").is_empty(),
+            "the picked journal must receive nothing from another journal's page"
+        );
+    }
+
+    /// `key_for_url` itself, including the two same-host pairs that make host
+    /// equality insufficient.
+    #[test]
+    fn a_url_resolves_to_the_journal_whose_scope_it_falls_in() {
+        let b = profiled();
+        let k = |u: &str| crate::journal_crawl::key_for_url(u, b);
+        // Same host, two journals: the path segment decides.
+        assert_eq!(k("https://www.nature.com/nm/for-authors").as_deref(), Some("nature-medicine"));
+        assert_eq!(
+            k("https://www.nature.com/ncomms/submission-guidelines").as_deref(),
+            Some("nature-communications")
+        );
+        assert_eq!(
+            k("https://journals.plos.org/plosone/s/submission-guidelines").as_deref(),
+            Some("plos-one")
+        );
+        assert_eq!(
+            k("https://journals.plos.org/plosmedicine/s/submission-guidelines").as_deref(),
+            Some("plos-medicine")
+        );
+        // Single-journal host: the host settles it.
+        assert_eq!(k("https://www.bmj.com/about-bmj/resources-authors").as_deref(), Some("bmj"));
+        // Unclaimed: another publisher, an unprofiled journal on a host that IS
+        // in the scope table, and a publisher-wide author-services page.
+        assert_eq!(k(SPRINGER_URL), None);
+        assert_eq!(k("https://www.nature.com/nbt/for-authors"), None, "Nature Biotech is not profiled");
+        assert_eq!(k("https://authorservices.wiley.com/ethics-guidelines/index.html"), None);
+        assert_eq!(k("https://example.com/anything"), None);
+        assert_eq!(k("not a url"), None);
+    }
+
     const GUIDELINE_HTML: &str = "<html><head><style>.x{}</style></head><body>\
         <nav>Home About</nav><h1>Author Guidelines</h1>\
         <p>Manuscripts must not exceed 3000 words. A structured abstract is required. \
@@ -1077,25 +1234,30 @@ mod tests {
     fn a_named_journal_turns_a_pasted_page_into_requirements_with_their_spans() {
         let db = db();
         let emb = embedder();
-        let fetcher = MockHttpFetcher::new().route("guidelines", 200, GUIDELINE_HTML);
+        let fetcher = MockHttpFetcher::new().route("for-authors", 200, GUIDELINE_HTML);
         let out = ingest_with(
             &fetcher,
             &roomy(),
             &db,
             &emb,
             None,
-            Some("http://journal.test/guidelines"),
+            // §11 D211: its subject is spans and provenance; a NAME no longer keys anything, so it uses a URL a profiled journal claims
+            Some("https://www.nature.com/nm/for-authors"),
             JournalIdentity { key: None, name: Some("Journal of Test Medicine") },
         );
-        assert_eq!(out.journal_key.as_deref(), Some("journal-of-test-medicine"));
+        assert_eq!(
+            out.journal_key.as_deref(),
+            Some("nature-medicine"),
+            "the URL decides; the name is ignored even when it disagrees"
+        );
         assert!(out.requirements_stored > 0, "nothing stored: {:?}", out);
 
         // Read back the way the checklist does, not out of the report.
-        let fp = gaply_core::journal_fingerprint::fingerprint_for(&db, "journal-of-test-medicine")
+        let fp = gaply_core::journal_fingerprint::fingerprint_for(&db, "nature-medicine")
             .expect("fingerprint");
         assert!(!fp.requirements.is_empty(), "stored but unreadable: {fp:?}");
         for r in &fp.requirements {
-            assert_eq!(r.source_url, "http://journal.test/guidelines", "{r:?}");
+            assert_eq!(r.source_url, "https://www.nature.com/nm/for-authors", "{r:?}");
             assert!(!r.source_span.trim().is_empty(), "a span-less row cannot be refuted: {r:?}");
             assert!(
                 GUIDELINE_HTML.contains(r.source_span.trim()),
@@ -1135,9 +1297,14 @@ mod tests {
         // And the note must not describe a page nothing read. The extractor is
         // skipped when there is no key, so "no requirement was stated on them"
         // would be a claim about content arrived at without looking at it.
+        // **§11 D211 changed what this can assert.** It pinned "the reason is
+        // the CALLER, not the page" — true when a name minted a key. Identity
+        // now comes from the URL alone, so the reason is that no profiled
+        // journal claims `journal.test`. Outcome unchanged (nothing keyed);
+        // reason changed, and the sentence says which.
         assert!(
-            out.note.contains("No journal was named"),
-            "the reason nothing was stored is the caller, not the page: {:?}",
+            out.note.contains("was not identified"),
+            "the user must be told the journal could not be identified: {:?}",
             out.note
         );
         assert!(
@@ -1222,7 +1389,8 @@ mod tests {
         // the count is asserted against the arms that exist.
         let mut notes: Vec<(&str, String)> = Vec::new();
         let named = |n| JournalIdentity { key: None, name: Some(n) };
-        let url = "http://journal.test/guidelines";
+        // §11 D211: the extracted branch needs a URL a profiled journal claims.
+        let url = "https://www.nature.com/nm/for-authors";
 
         // 1. nothing asked for
         notes.push((
@@ -1242,7 +1410,7 @@ mod tests {
         notes.push((
             "extracted",
             ingest_with(
-                &MockHttpFetcher::new().route("guidelines", 200, guideline),
+                &MockHttpFetcher::new().route("for-authors", 200, guideline),
                 &roomy(),
                 &db(),
                 &embedder(),
@@ -1261,7 +1429,7 @@ mod tests {
                 &db(),
                 &embedder(),
                 None,
-                Some(url),
+                Some("http://journal.test/guidelines"),
                 Default::default(),
             )
             .note,
@@ -1270,7 +1438,7 @@ mod tests {
         notes.push((
             "nothing statable",
             ingest_with(
-                &MockHttpFetcher::new().route("guidelines", 200, statable_nothing),
+                &MockHttpFetcher::new().route("for-authors", 200, statable_nothing),
                 &roomy(),
                 &db(),
                 &embedder(),
@@ -1284,7 +1452,7 @@ mod tests {
         notes.push((
             "quarantined",
             ingest_with(
-                &MockHttpFetcher::new().route("guidelines", 200, injected),
+                &MockHttpFetcher::new().route("for-authors", 200, injected),
                 &roomy(),
                 &db(),
                 &embedder(),
@@ -1298,7 +1466,7 @@ mod tests {
         notes.push((
             "navigation",
             ingest_with(
-                &MockHttpFetcher::new().route("guidelines", 200, navigation),
+                &MockHttpFetcher::new().route("for-authors", 200, navigation),
                 &roomy(),
                 &db(),
                 &embedder(),
@@ -1333,7 +1501,7 @@ mod tests {
         let expected: [(&str, &str); 7] = [
             ("no urls", "No journal or guidelines URL was given"),
             ("extracted", "requirement(s) extracted from this journal"),
-            ("unkeyed", "No journal was named"),
+            ("unkeyed", "was not identified"),
             ("nothing statable", "no requirement Gaply can extract was stated"),
             ("quarantined", "Gaply fetched that page and then refused it"),
             ("navigation", "That page was reached, and no author guidance"),
@@ -1444,12 +1612,13 @@ mod tests {
             Requests which do not comply with the instructions outlined in the form will not be \
             considered. A structured abstract is required.</p></body></html>";
         let out = ingest_with(
-            &MockHttpFetcher::new().route("guidelines", 200, page),
+            &MockHttpFetcher::new().route("for-authors", 200, page),
             &roomy(),
             &db,
             &emb,
             None,
-            Some("http://journal.test/guidelines"),
+            // §11 D211: a claimed URL, so this reaches the quarantine branch it is about
+            Some("https://www.nature.com/nm/for-authors"),
             JournalIdentity { key: None, name: Some("Journal of Test") },
         );
         assert!(

@@ -17204,3 +17204,99 @@ stored run is from 22 Sep 08:20 and the probe re-parses the manuscript now, so
 the two disagree about A2, not about applicability. The before/after in D209's
 commit is probe-versus-probe for that reason — **comparing a stored run against
 a live one would have credited this change with fixing A2.**
+
+---
+
+### D211 — a fetched page's journal is decided by its URL, and by nothing else
+
+**The defect, measured live before the fix** (`docs/RUN31_MEASUREMENT.md` §A.3):
+pasting `link.springer.com/journal/11418/submission-guidelines` — the **Journal
+of Natural Medicines** — while the picker showed Nature Medicine stored a
+requirement under `journal_key = "nature-medicine"`, `origin = "crawled"`,
+readable back through the product's own reader.
+
+**The cause was not bad matching. It was no matching.** `JournalIdentity::resolve`
+returned the picker's curated key, or a slug of the display name, and the URL was
+never consulted for anything but a rate-limit bucket. Any URL bound to whatever
+name the picker happened to be showing.
+
+#### What was measured before changing anything
+
+| question | answer | how |
+|---|---|---|
+| rows already mis-bound in the LIVE database | **8 of 213** | audit of every `journal_requirements` row against its journal's host+path signature |
+| shipped SEED rows from a URL that does not belong to their `journal_key` | **8 of 213**, the same rows | same audit over `journal-seed.json` |
+
+Those 8 are publisher-wide pages: `www.elsevier.com` publishing-ethics stored
+under `lancet` (2 rows), and `authorservices.wiley.com` stored under
+`statistics-in-medicine` (6 rows). They came from the **offline crawler's
+author-services allowlist**, not from the pasted-URL path, and one of them is
+already recorded as false — the `word_limit = 250` re-use licence quota (§11
+D210, the D163 class). **They are data and this change does not touch them.**
+
+#### The rule
+
+`journal_crawl::key_for_url` is now the only way a fetched page acquires a key.
+A URL matches a profiled journal when the **host** matches and, where the host
+serves more than one journal, the **leading path segments** match — the same
+per-publisher knowledge `journal_scope` already reads from the same config,
+rather than a second copy of it. Host equality alone is not sufficient and is
+not the rule: `www.nature.com` serves both Nature Medicine and Nature
+Communications, and `journals.plos.org` serves every PLOS journal.
+
+`None` — for a publisher-wide page, an unprofiled journal, or an unparseable
+string — means **nothing is stored against any journal**, and the note tells the
+user the journal was not identified, naming the journal they picked so the
+silence is not mistaken for agreement.
+
+**The name is now ignored entirely for storage**, including when it agrees.
+
+#### On provenance, since the question was asked directly
+
+**No new state was introduced, and none is needed.** A row whose host does not
+match the journal's own sourced hosts is no longer *written*, so there is no
+cross-host row left for `crawled` to mislabel: `stored_under` is `Some` only
+when `key_for_url` claimed the page, which makes the host that journal's own by
+construction. `bundled` and `crawled` keep their meanings. If the publisher-host
+lane is ever reopened on the write path, a third value would be needed then and
+should be argued then; inventing one now would split a distinction nothing is
+making.
+
+#### Acceptance, all run
+
+| case | result |
+|---|---|
+| Springer URL + Nature Medicine picked | `journal_key = None`, 0 stored, `nature-medicine` untouched |
+| genuine `nature.com/nm` URL + Nature Medicine picked | stores under `nature-medicine` |
+| genuine `nature.com/nm` URL + **PLOS ONE** picked | stores under `nature-medicine`; `plos-one` receives nothing |
+| R PAPER's 13 checklist rows, bundled seed | **byte-identical** before and after |
+
+**DELETION-TESTED, and the first attempt was a bad instrument.** Replacing the
+resolver with a hardcoded `"nature-medicine"` left
+`the_picker_cannot_redirect_a_page_to_another_journal` GREEN — because the
+constant happened to equal the key that test expects. Redone as the real
+pre-fix behaviour (`journal.resolve()`), the prediction held exactly: both
+acceptance tests red, the resolver's unit test and the genuine-URL control
+green. **A deletion that cannot fail the test is not a deletion test**, and the
+green was a fact about my instrument, not about the guard.
+
+#### Four existing tests changed, and why that is not tests-changed-to-pass
+
+Three were fixtures whose subject is something else — spans, provenance,
+quarantine, note prose — resting on the premise that *a name is enough to key a
+page*. They now use a URL a profiled journal claims; every assertion they make
+about their own subject is unchanged.
+
+The fourth, `without_a_named_journal_nothing_is_keyed`, pinned a contract this
+change deliberately replaces: *"the reason nothing was stored is the CALLER, not
+the page"*. Identity now comes from the URL, so the reason is that no profiled
+journal claims that URL. **Its outcome is unchanged — nothing is keyed — and
+only its reason moved**, which the assertion now states.
+
+#### Not claimed
+
+* **Not that the 8 seed rows are fixed.** They are measured and left alone.
+* **Not that the crawler's author-services allowlist is addressed.** It is a
+  different path, and it is where those 8 came from.
+* **Not that every unprofiled journal is now handled.** A journal outside the
+  ten stores nothing; that is the honest answer and also a limitation.
