@@ -390,10 +390,20 @@ pub struct PublishReadyReport {
 }
 
 /// The two tiers every report can carry.
-const DISCLAIMER_BASE: &str = "Certainty tiers: 'mathematically certain' findings are \
-deterministic rule verdicts and require correction; 'AI-assessed, moderate confidence' \
-findings are statistical or model-derived signals — indicators for human review, never \
-definitive proof";
+///
+/// **§11 D220: the first clause described a label no finding carries, and a
+/// claim none supports.** It read *"'mathematically certain' findings are
+/// deterministic rule verdicts and require correction"*. Since D214/D217/D219
+/// no finding in this report is LABELLED "mathematically certain" — the only
+/// producer of that tier is the validation lane, whose labels come from
+/// `vocabulary::rule_certainty_label` and say what a check found — and D216
+/// measured one rule wrong on 4 of 5 real firings, so "require correction" was
+/// false. The clause now says what those findings state. It does not name the
+/// tier: the disclaimer explains the labels a reader sees (see `disclaimer_for`).
+const DISCLAIMER_BASE: &str = "Certainty tiers: findings from deterministic checks state \
+what an automated check did or did not find in the text, not that the manuscript is wrong; \
+'AI-assessed, moderate confidence' findings are statistical or model-derived signals — \
+indicators for human review, never definitive proof";
 
 /// The third clause — appended ONLY when an agent actually revised.
 const DISCLAIMER_REVISED: &str = "; 'reconsidered after peer review' findings were revised \

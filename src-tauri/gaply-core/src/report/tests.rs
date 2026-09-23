@@ -129,7 +129,9 @@ fn golden_report_for_sample_manuscript() {
     assert!(report.combined_confidence > 0.0 && report.combined_confidence <= 1.0);
     assert!(!report.debate.overridden_by_constraint);
     assert!(report.debate.converged);
-    assert!(report.disclaimer.contains("mathematically certain"));
+    // §11 D220: the deterministic clause says what those findings state, and no
+    // longer names a label no finding carries.
+    assert!(report.disclaimer.contains("did or did not find"), "{:?}", report.disclaimer);
     assert!(report.disclaimer.contains("never"), "must disclaim definitive proof");
 
     // A clean manuscript: no CRITICAL findings; the supported citation is Info.
@@ -1901,7 +1903,11 @@ fn the_disclaimer_omits_the_revision_tier_when_nothing_was_revised() {
     );
     // The two tiers that ARE reachable must still be explained — the fix is to
     // drop a clause, never to drop the disclaimer.
-    assert!(report.disclaimer.contains("mathematically certain"), "{:?}", report.disclaimer);
+    // (§11 D220: the deterministic clause no longer names "mathematically
+    // certain" — no finding carries that label — so its presence is checked by
+    // what it says. Its exact wording is pinned by
+    // `the_disclaimer_says_what_deterministic_findings_state`.)
+    assert!(report.disclaimer.contains("did or did not find"), "{:?}", report.disclaimer);
     assert!(report.disclaimer.contains("AI-assessed"), "{:?}", report.disclaimer);
     assert!(!report.disclaimer.is_empty());
 
@@ -1967,6 +1973,25 @@ fn the_disclaimer_restores_the_revision_tier_when_an_agent_revises() {
         report.disclaimer.contains("reconsidered after peer review"),
         "a revised run must explain the tier its findings carry: {:?}",
         report.disclaimer
+    );
+}
+
+/// **WORDING, at its source — what the disclaimer says deterministic findings
+/// are. §11 D220.**
+///
+/// It said they "require correction". D216 measured one rule wrong on 4 of 5
+/// real firings, and since D217/D219 no finding is labelled "mathematically
+/// certain", so the clause explained a label nobody sees and made a claim the
+/// findings do not support. This is the text the PDF, the report viewer and the
+/// cached report all print.
+#[test]
+fn the_disclaimer_says_what_deterministic_findings_state() {
+    assert_eq!(
+        disclaimer_for(false),
+        "Certainty tiers: findings from deterministic checks state what an automated check \
+         did or did not find in the text, not that the manuscript is wrong; 'AI-assessed, \
+         moderate confidence' findings are statistical or model-derived signals — indicators \
+         for human review, never definitive proof."
     );
 }
 

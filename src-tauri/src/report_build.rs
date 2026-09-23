@@ -192,6 +192,9 @@ impl PipelineResult {
                 id: format!("f{}", i + 1),
                 severity: f.severity,
                 tier: f.tier,
+                // The report's own label, carried — not `tier.label()`, which
+                // is the claim D214 withdrew. §11 D220.
+                certainty_label: f.certainty_label.clone(),
                 claim: f.claim,
                 agent: f.agent,
                 title: f.title.clone(),
@@ -395,6 +398,25 @@ mod tests {
         );
         assert_eq!(p.extraction.table_mentions.len(), 4, "precondition: four sightings");
         assert_eq!(p.report_model(None, None, None).manuscript.table_count, 2);
+    }
+
+    /// **The model carries each finding's OWN certainty label. §11 D220.**
+    ///
+    /// The PDF's "Certainty:" line reads `LocalFinding::certainty_label`, and
+    /// this is the only place it is filled. The fixture's tier is the certain
+    /// one and its label is the rule's, so filling it from `tier.label()` — what
+    /// the PDF effectively did until D220 — fails the equality.
+    #[test]
+    fn the_model_carries_each_findings_own_certainty_label() {
+        let mut f = located(None);
+        f.certainty_label = gaply_core::vocabulary::rule_certainty_label(
+            gaply_core::validate::RuleId::MissingEffectSize,
+        )
+        .into();
+        assert_ne!(f.certainty_label, f.tier.label(), "precondition: label and tier must differ");
+        let model = pipeline_with(vec![f.clone()]).report_model(None, None, None);
+        assert_eq!(model.findings.len(), 1);
+        assert_eq!(model.findings[0].certainty_label, f.certainty_label);
     }
 
     fn loc(section: SectionKind, paragraph: usize) -> Option<Location> {

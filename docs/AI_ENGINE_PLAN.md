@@ -18085,3 +18085,80 @@ without `--features devtools` is red at `e8b98b9` — `tests/ai_eval_cli.rs`
 spawns `ai-eval`, which `e7ce226` gated behind `required-features =
 ["devtools"]` without gating the test. 8 of its 11 tests fail with
 `NotFound`. CI runs `-p gaply_core`, so nothing remote sees it.
+
+### D220 — the PDF prints each finding's own certainty label, and the disclaimer stops saying "require correction"
+
+**This discrepancy was CREATED by D214.** Before D214, the report, the Stats
+Check screen and the exported PDF all said "mathematically certain" for every
+validation finding — consistently wrong. D214 changed the first two and not the
+PDF, because `report_compose` printed `"Certainty: {tier_label(f.tier)}"` and
+`LocalFinding` carried no label to print. From D214 on, a reader comparing the
+screen with the PDF saw two different claims about the same finding; D217
+widened it to two more rules. D214 and D217 both said the renderers agreed.
+They did not (corrected in D219).
+
+**What changed**
+
+* `LocalFinding` gains `certainty_label`, filled in `report_build` from
+  `Finding::certainty_label` — the one authoritative value — and the composer
+  prints it. The tier is still carried and still drives ordering and grouping.
+* The report disclaimer (`report.rs` `DISCLAIMER_BASE`) — which is the PDF's
+  disclaimer, and the report viewer's — said *"'mathematically certain'
+  findings are deterministic rule verdicts and require correction"*. Since
+  D217/D219 no finding in the Rust report is labelled "mathematically
+  certain" (the validation lane is that tier's only producer, and its labels
+  come from `rule_certainty_label`; the one rule still labelled that way is
+  declined and emits nothing), and D216 measured "require correction" false on
+  4 of 5 real firings. It now reads:
+
+  > Certainty tiers: findings from deterministic checks state what an automated
+  > check did or did not find in the text, not that the manuscript is wrong;
+  > 'AI-assessed, moderate confidence' findings are statistical or
+  > model-derived signals — indicators for human review, never definitive
+  > proof.
+
+  The conditional "reconsidered after peer review" clause is unchanged.
+
+**Not changed:** tier, severity, ordering, detection, consensus, clean-pass
+semantics. A CACHED report keeps the disclaimer it was compiled with; only new
+runs carry the new text.
+
+**Found, not changed (outside this commit's authority):** three more copies of
+the "require correction" claim, none of them the PDF —
+`ReviewerLetterPanel.tsx` (two paragraphs: *"Deterministic (mathematically
+certain) findings require correction regardless of…"*),
+`ReportViewerPage.tsx`'s `REPORT_DISCLAIMER_FALLBACK` (shown only when a
+report has no disclaimer), and `sampleReport.ts`.
+
+**Goldens.** `tests/fixtures/report.golden.json` was edited, not recaptured:
+the one `disclaimer` value rewritten in place, the file re-serialising
+byte-identically otherwise, so the byte-identity test passing proves the
+disclaimer is the only change to the report. Two tests asserted the disclaimer
+contains "mathematically certain" — the claim being withdrawn — and now assert
+the clause that replaces it; the exact wording is pinned once, at its source,
+by `the_disclaimer_says_what_deterministic_findings_state`.
+
+**Tests.** `a_finding_prints_its_own_certainty_label_not_its_tiers`
+(composer) asserts the "Certainty:" bullets EQUAL the label, on a fixture whose
+tier label differs — so a revert to `tier_label` prints a different line and
+fails, rather than a substring quietly going missing.
+`the_model_carries_each_findings_own_certainty_label` (app crate) pins the
+carry in `report_build`.
+
+**Deletion tests — predictions written before each run, 3 of 3 as predicted.**
+`cargo test --workspace --features app/devtools --no-fail-fast`, baseline 1947
+passed over 31 targets (D219's 1944 + the 3 added here).
+
+| # | break | predicted red | red |
+|---|---|---|---|
+| 1 | composer back to `tier_label(f.tier)` | the composer label test only | `a_finding_prints_its_own_certainty_label_not_its_tiers` only |
+| 2 | `report_build` fills the label from `f.tier.label()` | the carry test only | `the_model_carries_each_findings_own_certainty_label` only |
+| 3 | `DISCLAIMER_BASE` back to "…require correction" | 4: wording, omits-revision-tier, sample golden, app golden | exactly those 4 |
+
+Run 1's vitest pass reported EXIT=1 at 956/956: `Failed to start forks worker`
+for one file, the same worker-startup noise D219 recorded; a Rust-only break
+cannot reach vitest.
+
+**A correction to D219.** Its note that `ai_eval_cli` fails at `e8b98b9`
+without `--features devtools` was presented as a finding; D210 §1 had already
+recorded it. The note is accurate and the citation was missing.

@@ -24,7 +24,7 @@
 
 use crate::report::FindingSeverity;
 use crate::report_model::LocalReportModel;
-use crate::vocabulary::{claim_label, severity_label, tier_label};
+use crate::vocabulary::{claim_label, severity_label};
 
 /// One unit of composed output. Deliberately close to "a line of text with a
 /// role" — see the module docs for why it is not richer.
@@ -454,8 +454,12 @@ fn findings(model: &LocalReportModel, out: &mut Vec<Block>) {
             if let Some(c) = claim_label(f.claim) {
                 out.push(Block::Bullet { text: format!("Type: {c}"), indent: 0 });
             }
+            // THE FINDING'S LABEL, NOT ITS TIER'S. §11 D220: this read
+            // `tier_label(f.tier)` and so said "mathematically certain" on every
+            // validation finding after D214 had withdrawn that claim from the
+            // report and the Stats Check screen — a discrepancy D214 created.
             out.push(Block::Bullet {
-                text: format!("Certainty: {}", tier_label(f.tier)),
+                text: format!("Certainty: {}", f.certainty_label),
                 indent: 0,
             });
             // `if let Some` and no `else`: a finding with no location emits NO
@@ -943,6 +947,7 @@ mod tests {
             id: "f1".into(),
             severity: FindingSeverity::Major,
             tier: crate::report::CertaintyTier::MathematicallyCertain,
+            certainty_label: "not detected by an automated check".into(),
             claim: crate::evidence::ClaimKind::ManuscriptDefect,
             agent: crate::swarm::AgentKind::ValidationMaths,
             title: "statistical rule failed: missing effect size".into(),
@@ -987,6 +992,30 @@ mod tests {
             bullets(&blocks).iter().any(|b| b.starts_with("Certainty:")),
             "the finding must still render its other bullets"
         );
+    }
+
+    /// **The PDF prints the FINDING'S certainty label, not its tier's. §11 D220.**
+    ///
+    /// Until D220 this bullet read `tier_label(f.tier)`, so after D214 every
+    /// validation finding's PDF said "Certainty: mathematically certain" while
+    /// the report and the Stats Check screen said "not detected by an automated
+    /// check" — a discrepancy D214 created. The fixture's tier is the certain
+    /// one and its label is not, so reverting the composer to the tier's label
+    /// prints a DIFFERENT bullet and this equality fails; it is not a check that
+    /// a substring is absent.
+    #[test]
+    fn a_finding_prints_its_own_certainty_label_not_its_tiers() {
+        let f = finding_with(None);
+        assert_ne!(
+            f.certainty_label,
+            crate::vocabulary::tier_label(f.tier),
+            "precondition: label and tier must differ, or this cannot tell them apart"
+        );
+        let mut model = model_with(vec![]);
+        model.findings = vec![f];
+        let certainty: Vec<String> =
+            bullets(&compose(&model)).into_iter().filter(|b| b.starts_with("Certainty:")).collect();
+        assert_eq!(certainty, vec!["Certainty: not detected by an automated check".to_string()]);
     }
 
     /// The bullet the report gains, nested under the finding it illustrates.

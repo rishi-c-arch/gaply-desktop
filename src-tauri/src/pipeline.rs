@@ -1374,6 +1374,13 @@ Diekelmann S and Born J. 2010. The memory function of sleep. Nature Reviews Neur
     /// The fields are `Option` + `serde(default)` so `CACHED_REPORT_V2` still
     /// deserializes, exactly as `Finding::location` is, and
     /// `CACHED_REPORT_SCHEMA_VERSION` is NOT bumped — a compatible addition.
+    ///
+    /// **[EDITED, NOT RECAPTURED, 23 Sep 2026 — §11 D220.]** The disclaimer's
+    /// first clause said deterministic findings "require correction"; it now
+    /// says what they state. The fixture was changed by rewriting the ONE
+    /// `disclaimer` value in place (the file re-serialises byte-identically, so
+    /// no other byte moved). This test then passing is the proof that the
+    /// disclaimer is the only thing in the report that changed.
     #[test]
     fn the_report_is_byte_identical_to_the_pre_research_state_capture() {
         use std::cell::RefCell;

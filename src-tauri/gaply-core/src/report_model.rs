@@ -130,6 +130,14 @@ pub struct LocalFinding {
     pub id: String,
     pub severity: FindingSeverity,
     pub tier: CertaintyTier,
+    /// **What this finding may claim — copied from `Finding::certainty_label`,
+    /// never derived from `tier`. §11 D220.** The tier orders and colours; the
+    /// label is the claim. They differ for every validation finding since D214
+    /// (`vocabulary::rule_certainty_label`), and the PDF printed the tier's
+    /// label here until D220 — "mathematically certain" beside a finding the
+    /// report and the Stats Check screen both called "not detected by an
+    /// automated check".
+    pub certainty_label: String,
     pub claim: ClaimKind,
     pub agent: AgentKind,
     pub title: String,
