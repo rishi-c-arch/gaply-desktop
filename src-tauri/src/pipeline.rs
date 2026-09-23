@@ -440,11 +440,20 @@ fn run_pipeline_inner(
         // decision cannot be made before extraction runs, and re-running with
         // the flag set would pay the base cost twice. The four passes take an
         // already-built `ExtractionResult`, so they compose after the fact.
-        let extraction = if graph.requires_scientific_extraction() {
+        let mut extraction = if graph.requires_scientific_extraction() {
             extract::extract_from_text_with(&text, extract::ExtractOptions::with_scientific())
         } else {
             extract::extract_from_text(&text)
         };
+        // **The structural tables, read from the bytes. §11 D212.**
+        //
+        // Attached here because `extract_from_text` only has the flattened
+        // text and a `<w:tbl>` does not survive flattening. A parse failure
+        // leaves the vector empty, which is the same state a PDF produces and
+        // means the same thing: no structure was READ, not that none exists.
+        extraction.doc_tables =
+            extract::docparse::parse_path_tables(std::path::Path::new(&path)).unwrap_or_default();
+        let extraction = extraction;
         let manuscript_title = title
             .clone()
             .or_else(|| extraction.title.clone())

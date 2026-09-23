@@ -318,6 +318,15 @@ pub struct ExtractionResult {
     pub citations: Vec<Citation>,
     pub references: Vec<Reference>,
     pub tables: Vec<TableRef>,
+    /// **The tables the FILE declares, as structures. §11 D212.**
+    ///
+    /// Distinct from `tables`, which is caption sightings in prose. Populated
+    /// from the document bytes, so it is filled by the caller that has the
+    /// path (`extract_from_text` cannot see them) and is empty for a format
+    /// with no table objects — a PDF — where empty means "this format carries
+    /// no structure", never "this document has no tables".
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub doc_tables: Vec<docparse::DocTable>,
     /// Optional scientific-understanding layer. Always constructed locally;
     /// cloud stages only receive bounded summaries derived from it.
     #[serde(default, skip_serializing_if = "Option::is_none")]

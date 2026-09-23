@@ -971,6 +971,155 @@ fn walk_docx_body(
 ///
 /// Equations become [`EQUATION_PLACEHOLDER`] unless flattening them is lossless
 /// — see the module section above.
+/// **A table as the FILE declares it — `<w:tbl>` — not as a caption mentions it.**
+///
+/// The distinction is the whole point of this type. `TableRef` is a sentence
+/// beginning "Table 3" and says nothing about whether a table exists; a
+/// `DocTable` is the grid Word stored, and exists whether or not anybody
+/// captioned it. Measured on `R PAPER .docx`: 5 `<w:tbl>` objects, 0 captions
+/// the old regex could see (`docs/RUN31_MEASUREMENT.md` §B).
+///
+/// **A PDF cannot produce one of these**, and that is not an omission: a PDF
+/// has no table object to read, only positioned text. `parse_path_tables`
+/// returns an empty vector there rather than guessing, so an empty result means
+/// "this format carries no table structure", which the caller must not read as
+/// "this document has no tables".
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct DocTable {
+    /// Row-major cell text, one `String` per `<w:tc>`, empty cells included.
+    /// Empty cells are KEPT — dropping them is what made the flattened stream
+    /// impossible to re-grid, because a row with a blank cell silently became
+    /// a shorter row.
+    pub rows: Vec<Vec<String>>,
+}
+
+impl DocTable {
+    /// Cells in the widest row. Word allows ragged rows (merges), so this is a
+    /// maximum rather than a guarantee about every row.
+    pub fn columns(&self) -> usize {
+        self.rows.iter().map(Vec::len).max().unwrap_or(0)
+    }
+    /// Total cells, empty ones included.
+    pub fn cells(&self) -> usize {
+        self.rows.iter().map(Vec::len).sum()
+    }
+}
+
+/// Every `<w:tbl>` in a `.docx`, as a structure.
+///
+/// Separate from [`walk_docx_body`] on purpose: the text walk feeds every
+/// downstream check in the program and its output must not move. A table's
+/// cells therefore still appear in the flattened text exactly as before, and
+/// this is a SECOND reading of the same bytes rather than a change to the
+/// first.
+///
+/// Nested tables are returned as separate `DocTable`s, outermost first; a
+/// nested table's cells are not also counted in its parent's row.
+pub fn parse_docx_tables(bytes: &[u8]) -> Result<Vec<DocTable>, GaplyError> {
+    let xml = docx_document_xml(bytes)?;
+    let mut reader = quick_xml::NsReader::from_str(&xml);
+    let cfg = reader.config_mut();
+    cfg.trim_text(false);
+    cfg.check_end_names = false;
+
+    // One entry per open `<w:tbl>`: the table being built.
+    let mut stack: Vec<DocTable> = Vec::new();
+    let mut done: Vec<(usize, DocTable)> = Vec::new();
+    let mut row: Vec<String> = Vec::new();
+    let mut cell = String::new();
+    let mut in_cell = 0usize;
+    let mut in_wt = false;
+    let mut props = 0usize;
+
+    loop {
+        match reader.read_resolved_event() {
+            Ok((rs, Event::Start(e))) => {
+                let ns = ns_uri(&rs);
+                let local = e.local_name();
+                let local = local.as_ref();
+                if props > 0 {
+                    if is_properties_element(local) {
+                        props += 1;
+                    }
+                    continue;
+                }
+                if is_properties_element(local) {
+                    props = 1;
+                    continue;
+                }
+                match (ns, local) {
+                    (Some(NS_W), b"tbl") => {
+                        stack.push(DocTable::default());
+                    }
+                    (Some(NS_W), b"tr") => row.clear(),
+                    (Some(NS_W), b"tc") => {
+                        in_cell += 1;
+                        cell.clear();
+                    }
+                    (Some(NS_W), b"t") if in_cell > 0 => in_wt = true,
+                    // A paragraph break inside a cell is a space, not a new
+                    // cell: a cell may hold several paragraphs.
+                    (Some(NS_W), b"p") if in_cell > 0 && !cell.is_empty() => cell.push(' '),
+                    _ => {}
+                }
+            }
+            Ok((_, Event::Text(t))) if in_wt => {
+                if let Ok(s) = t.unescape() {
+                    cell.push_str(&s);
+                }
+            }
+            Ok((rs, Event::End(e))) => {
+                let ns = ns_uri(&rs);
+                let local = e.local_name();
+                let local = local.as_ref();
+                if props > 0 {
+                    if is_properties_element(local) {
+                        props -= 1;
+                    }
+                    continue;
+                }
+                match (ns, local) {
+                    (Some(NS_W), b"t") => in_wt = false,
+                    (Some(NS_W), b"tc") => {
+                        if in_cell > 0 {
+                            in_cell -= 1;
+                            row.push(cell.split_whitespace().collect::<Vec<_>>().join(" "));
+                            cell.clear();
+                        }
+                    }
+                    (Some(NS_W), b"tr") => {
+                        if let Some(t) = stack.last_mut() {
+                            t.rows.push(std::mem::take(&mut row));
+                        }
+                    }
+                    (Some(NS_W), b"tbl") => {
+                        if let Some(t) = stack.pop() {
+                            done.push((done.len(), t));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            Ok((_, Event::Eof)) => break,
+            Ok(_) => {}
+            // Lenient for the same reason the text walk is: a malformed end tag
+            // must not cost the caller every table in the file.
+            Err(_) => break,
+        }
+    }
+    done.sort_by_key(|(i, _)| *i);
+    Ok(done.into_iter().map(|(_, t)| t).collect())
+}
+
+/// [`parse_docx_tables`] for a path. **Empty for every non-`.docx` format**,
+/// which means "no table structure in this format", never "no tables here".
+pub fn parse_path_tables(path: &Path) -> Result<Vec<DocTable>, GaplyError> {
+    match path.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase()).as_deref() {
+        Some("docx") => parse_docx_tables(&std::fs::read(path)?),
+        _ => Ok(Vec::new()),
+    }
+}
+
 pub fn parse_docx(bytes: &[u8]) -> Result<String, GaplyError> {
     let xml = docx_document_xml(bytes)?;
     let mut out = String::new();
@@ -1260,6 +1409,89 @@ mod tests {
 
     /// Build a .docx around a raw `<w:body>` payload, so a test can place OMML,
     /// properties and alternative namespace prefixes exactly where Word does.
+    /// One `<w:tbl>` with a header row and a body row, one of whose cells is
+    /// EMPTY — the case that used to desynchronise the flattened stream.
+    const TABLE_XML: &str = "<w:tbl><w:tr>\
+        <w:tc><w:p><w:r><w:t>Method</w:t></w:r></w:p></w:tc>\
+        <w:tc><w:p><w:r><w:t>Accuracy</w:t></w:r></w:p></w:tc></w:tr>\
+        <w:tr><w:tc><w:p><w:r><w:t>BiLSTM</w:t></w:r></w:p></w:tc>\
+        <w:tc><w:p></w:p></w:tc></w:tr></w:tbl>";
+
+    /// **§11 D212: the grid Word stored, read as a grid.**
+    #[test]
+    fn a_word_table_is_parsed_as_rows_and_cells() {
+        let bytes = make_docx_body(TABLE_XML, "");
+        let tables = parse_docx_tables(&bytes).expect("parse");
+        assert_eq!(tables.len(), 1, "{tables:?}");
+        assert_eq!(tables[0].rows.len(), 2);
+        assert_eq!(tables[0].columns(), 2);
+        assert_eq!(tables[0].rows[0], vec!["Method", "Accuracy"]);
+        assert_eq!(
+            tables[0].rows[1],
+            vec!["BiLSTM", ""],
+            "an EMPTY cell is kept: dropping it is what made a row silently shorter"
+        );
+        assert_eq!(tables[0].cells(), 4);
+    }
+
+    /// NEGATIVE CONTROL 1 — a document with no table reports none, and does not
+    /// manufacture one out of ordinary paragraphs.
+    #[test]
+    fn a_document_with_no_table_reports_none() {
+        let bytes = make_docx(&["Introduction", "We measured things. Table 1 is discussed here."]);
+        assert!(parse_docx_tables(&bytes).expect("parse").is_empty());
+    }
+
+    /// NEGATIVE CONTROL 2 — **the text walk did not move.** Cell text still
+    /// appears in the flattened stream exactly as before, and the paragraph
+    /// count of non-table text is unchanged, because this is a second reading
+    /// of the same bytes rather than a change to the first.
+    #[test]
+    fn parsing_tables_does_not_change_the_flattened_text() {
+        let body = format!(
+            "<w:p><w:r><w:t>Before the table.</w:t></w:r></w:p>{TABLE_XML}\
+             <w:p><w:r><w:t>After the table.</w:t></w:r></w:p>"
+        );
+        let bytes = make_docx_body(&body, "");
+        let text = parse_docx(&bytes).expect("text");
+        assert!(text.contains("Before the table."), "{text:?}");
+        assert!(text.contains("After the table."), "{text:?}");
+        assert!(text.contains("Method"), "cell text still reaches the text path: {text:?}");
+        assert!(text.contains("BiLSTM"), "{text:?}");
+        let non_table: Vec<&str> = text
+            .split("\n\n")
+            .map(str::trim)
+            .filter(|p| !p.is_empty() && (p.contains("the table")))
+            .collect();
+        assert_eq!(non_table.len(), 2, "prose paragraphs are untouched: {non_table:?}");
+    }
+
+    /// Nested tables are separate structures, and the inner one's cells are not
+    /// also counted as a row of the outer.
+    #[test]
+    fn a_nested_table_is_its_own_structure() {
+        let inner = "<w:tbl><w:tr><w:tc><w:p><w:r><w:t>inner</w:t></w:r></w:p></w:tc></w:tr></w:tbl>";
+        let body = format!(
+            "<w:tbl><w:tr><w:tc><w:p><w:r><w:t>outer</w:t></w:r></w:p>{inner}</w:tc></w:tr></w:tbl>"
+        );
+        let tables = parse_docx_tables(&make_docx_body(&body, "")).expect("parse");
+        assert_eq!(tables.len(), 2, "{tables:?}");
+        assert!(tables.iter().any(|t| t.rows == vec![vec!["inner".to_string()]]), "{tables:?}");
+    }
+
+    /// A format with no table objects yields none, and that is a statement
+    /// about the FORMAT. Asserted so nobody reads the empty vector as "this
+    /// PDF has no tables".
+    #[test]
+    fn a_non_docx_path_yields_no_structures() {
+        let dir = std::env::temp_dir().join(format!("gaply-tbl-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let p = dir.join("note.txt");
+        std::fs::write(&p, "Table 1 Outcomes by arm\n").expect("write");
+        assert!(parse_path_tables(&p).expect("parse").is_empty());
+        let _ = std::fs::remove_file(&p);
+    }
+
     fn make_docx_body(body: &str, extra_ns: &str) -> Vec<u8> {
         let doc = format!(
             "<?xml version=\"1.0\"?><w:document \

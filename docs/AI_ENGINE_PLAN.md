@@ -17300,3 +17300,60 @@ only its reason moved**, which the assertion now states.
   different path, and it is where those 8 came from.
 * **Not that every unprofiled journal is now handled.** A journal outside the
   ten stores nothing; that is the honest answer and also a limitation.
+
+---
+
+### D212 — a Word table is read as a grid, because it always was one
+
+**Measured before the change** (`docs/RUN31_MEASUREMENT.md` §B): `<w:tbl>`,
+`<w:tr>` and `<w:tc>` were matched **nowhere in the codebase** — one grep hit in
+all of `gaply-core/src` and `src-tauri/src`, a doc comment. The text walk
+handles `w:t`, `w:tab`, `w:br`, `w:cr` and drops everything else to `_ => {}`,
+so a table arrived as one paragraph per cell with no grid, and an EMPTY cell
+deleted itself from the stream, making the row silently shorter than its header.
+
+#### What changed
+
+`docparse::parse_docx_tables` reads every `<w:tbl>` as a `DocTable { rows }`,
+row-major, **empty cells kept**. `ExtractionResult::doc_tables` carries them and
+the pipeline attaches them from the path, because `extract_from_text` sees only
+the flattened text and a grid does not survive flattening.
+
+**It is a SECOND reading of the same bytes, not a change to the first.** The
+text walk is untouched, so every downstream check that reads the flattened text
+sees exactly what it saw before — including the cell text, which still appears
+there. That is what the negative control pins.
+
+#### Measured, all six corpus manuscripts
+
+| manuscript | hand-counted `<w:tbl>` | before | after | caption sightings |
+|---|---:|---:|---:|---:|
+| R PAPER .docx | 5 | 0 | **5** | 0 |
+| chapter3 .docx | 8 | 0 | **8** | 8 |
+| Lake Chapter 1.docx | 0 | 0 | **0** | 0 |
+| Revised Health Economics .docx | 5 | 0 | **5** | 6 |
+| IJAS … haemolymph.pdf | — | 0 | 0 | 3 |
+| final final L.pdf | — | 0 | 0 | 33 |
+
+Exact against hand-counted ground truth on all four `.docx`, with the headers
+matching the ones read out of the zip by hand (`Dataset / Source / Samples /
+Emotions / Avg. Length`, and so on).
+
+**A PDF returns 0 structures and that is a statement about the FORMAT**, not
+about the document: a PDF carries no table object, only positioned text. The
+type's doc comment says so and a test pins it, because an empty vector read as
+"this paper has no tables" is exactly the confusion this record exists to end.
+
+#### Not claimed
+
+* **Not that the caption count is fixed.** `ExtractionResult::tables` is still
+  caption sightings and still misses `TABLE II.`; that is D213.
+* **Not that any consumer changed behaviour.** This record adds the structures
+  and wires them as far as `ExtractionResult`; nothing reads them yet, which is
+  deliberate and is the next commit's subject.
+* **Not that PDF tables are recoverable.** They are not, by this route.
+
+Deletion-tested twice, prediction written first both times: dropping empty
+cells reddens the grid test alone; returning no tables at all reddens the grid
+and nested tests while leaving both negative controls and the non-docx test
+green — which is what makes them controls rather than duplicates.
