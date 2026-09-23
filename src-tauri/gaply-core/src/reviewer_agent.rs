@@ -1148,9 +1148,10 @@ pub struct LaneExamination {
     pub plagiarism_examined: bool,
     /// Text below the stylometry gates, so no eligible finding was possible.
     pub ai_detection_examined: bool,
-    /// No references — the input to reference recency, its only live eligible
-    /// output. Tables stopped counting when the table finding was withdrawn
-    /// (§11 D167, D213).
+    /// No tables and no dated references — its eligible outputs.
+    ///
+    /// §11 D213 records that the table half is stale (the table finding is
+    /// withdrawn, D167) and what this should mean instead. Not changed there.
     pub extraction_examined: bool,
 }
 
@@ -1170,7 +1171,7 @@ impl LaneExamination {
             (self.validation_examined, "Statistical validation", "no statistical claims were extracted"),
             (self.plagiarism_examined, "Text overlap", "there was no corpus to compare against"),
             (self.ai_detection_examined, "Writing signals", "the text was too short to measure"),
-            (self.extraction_examined, "Structure checks", "no references were found, and tables are not currently checked"),
+            (self.extraction_examined, "Structure checks", "no tables or dated references were found"),
         ]
     }
     /// TRUE only when EVERY lane in the denominator examined nothing — a single

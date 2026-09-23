@@ -788,14 +788,16 @@ fn run_pipeline_inner(
         plagiarism_examined: plag.corpus_chunks_available > 0,
         // Below the stylometry gates no eligible finding is possible.
         ai_detection_examined: text.split_whitespace().count() >= MIN_STYLOMETRY_WORDS,
-        // **Reference recency is its ONLY live eligible output. §11 D213.**
-        // It also used to produce the table-caption finding, and tables fed this
-        // flag; that finding was withdrawn (§11 D167, `report::table_findings`
-        // returns early), so a table is no longer an input to anything this
-        // lane can say. Counting one here would mark "Structure checks" as
-        // examined on a manuscript where nothing was checked — and this flag
-        // decides whether that lane is listed under "What was not examined".
-        extraction_examined: extraction_examined(&extraction),
+        // Its eligible outputs are table-caption and reference-recency findings.
+        //
+        // **§11 D213 — recorded, NOT changed here.** The table-caption finding
+        // is withdrawn (D167: `report::table_findings` returns early), so the
+        // table half of this disjunction feeds nothing this lane can report.
+        // What the flag SHOULD mean is "table extraction was attempted and
+        // understood the format"; what it means today is "a caption pattern
+        // matched a paragraph opening, or a reference parsed". Changing that
+        // is its own decision with its own measurement (D213).
+        extraction_examined: !extraction.table_mentions.is_empty() || !extraction.references.is_empty(),
     };
 
     // The two sources §31.2 found unreachable now leave the function instead of
@@ -827,36 +829,9 @@ fn run_pipeline_inner(
     })
 }
 
-/// Whether the extraction lane examined anything. See the call site in
-/// `run_pipeline_inner`: tables are deliberately NOT an input (§11 D167, D213).
-fn extraction_examined(extraction: &ExtractionResult) -> bool {
-    !extraction.references.is_empty()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// **§11 D213: a manuscript with tables and no references examined
-    /// nothing in this lane.** The table finding is withdrawn, so neither a
-    /// caption sighting nor a structure the file declares is an input to an
-    /// eligible claim; counting either would drop "Structure checks" from the
-    /// report's "What was not examined" list for a check that never ran.
-    #[test]
-    fn tables_alone_do_not_make_the_extraction_lane_examined() {
-        let mut ex = gaply_core::extract::extract_from_text(
-            "Methods\n\nTABLE II. COMPARATIVE PERFORMANCE\n\nTable 1 Outcomes by arm\n",
-        );
-        assert_eq!(ex.table_mentions.len(), 2, "precondition: sightings exist");
-        ex.doc_tables = vec![Default::default()];
-        assert!(!extraction_examined(&ex), "tables are not an input to this lane");
-
-        let with_refs = gaply_core::extract::extract_from_text(
-            "Introduction\n\nText (Smith, 2020).\n\nReferences\n\nSmith, J. (2020). A study. Journal, 1(1), 1-2.\n",
-        );
-        assert!(!with_refs.references.is_empty(), "precondition: a reference parses");
-        assert!(extraction_examined(&with_refs), "references are its input");
-    }
 
     /// The cache key must change when the evidence schema does, so a report
     /// written by an older binary MISSES rather than deserializing to an empty

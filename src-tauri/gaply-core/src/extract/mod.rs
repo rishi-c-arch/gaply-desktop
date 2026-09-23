@@ -327,10 +327,12 @@ pub struct ExtractionResult {
     /// A thesis contents page yields one per line (§11 D167). **Counting these
     /// is not counting tables**; `doc_tables` is.
     ///
-    /// `alias = "tables"`: JSON written before the rename still reads.
-    /// `validation_golden` met exactly that — a stored extraction failing with
-    /// "missing field `table_mentions`".
-    #[serde(alias = "tables")]
+    /// **No `serde(alias = "tables")`, deliberately.** Every run stores this
+    /// struct as JSON in `extractions.content`, so rows written before the
+    /// rename carry `tables` — but NOTHING reads `content` back: the only SQL
+    /// on that table is an INSERT and two test `COUNT(*)`s (checked 23 Sep
+    /// 2026, §11 D213). The first reader to be written will meet those rows,
+    /// and needs an alias or a migration then.
     pub table_mentions: Vec<TableRef>,
     /// **The tables the FILE declares, as structures. §11 D212.**
     ///
@@ -654,20 +656,6 @@ Jones, P. (2019). Memory under deprivation. Cognitive Science, 5(1), 10-20.
         let r = extract_from_text(SAMPLE);
         assert!(r.table_mentions.iter().any(|t| t.label == "Table 1"));
     }
-    /// **§11 D213: JSON written under the old key still reads.** Deserialised
-    /// from a payload whose key is `tables` — the shape on disk before the
-    /// rename — not from one constructed with the new name.
-    #[test]
-    fn an_extraction_stored_under_the_old_key_still_reads() {
-        let ex = extract_from_text("Results\n\nTable 1 Outcomes by arm\n");
-        let mut v = serde_json::to_value(&ex).unwrap();
-        let obj = v.as_object_mut().unwrap();
-        let mentions = obj.remove("table_mentions").expect("serialised under the new key");
-        obj.insert("tables".into(), mentions);
-        let back: ExtractionResult = serde_json::from_value(v).expect("legacy key reads");
-        assert_eq!(back.table_mentions.len(), 1);
-    }
-
     /// **§11 D213: `table_count` counts TABLES.** A contents row, a caption
     /// and a sentence all naming Table 1 are one table; structures, when the
     /// format carries them, win outright.
@@ -696,6 +684,10 @@ Jones, P. (2019). Memory under deprivation. Cognitive Science, 5(1), 10-20.
                 .collect::<Vec<_>>()
         };
         assert_eq!(seen("Methods\n\nTABLE II. COMPARATIVE PERFORMANCE\n"), vec!["Table II"]);
+        // The WORD is case-insensitive; the numeral is uppercase-only.
+        assert_eq!(seen("Methods\n\nTABLE I. DATASET STATISTICS\n"), vec!["Table I"]);
+        assert_eq!(seen("Methods\n\nTable IV. Ablation study\n"), vec!["Table IV"]);
+        assert_eq!(seen("Methods\n\ntable I. Dataset statistics\n"), vec!["Table I"]);
         assert_eq!(seen("Methods\n\nTable IV ABLATION STUDY\n"), vec!["Table IV"]);
         assert_eq!(seen("Methods\n\nTable S1: Supplementary results\n"), vec!["Table S1"]);
         assert_eq!(seen("Methods\n\nTable A Organisational index\n"), vec!["Table A"]);
@@ -713,7 +705,10 @@ Jones, P. (2019). Memory under deprivation. Cognitive Science, 5(1), 10-20.
     fn a_lowercase_word_made_of_numeral_letters_is_not_a_label() {
         for text in [
             "Methods\n\nTable did not converge under the default solver.\n",
+            "Methods\n\nTable mid rows are shaded for readability.\n",
             "Methods\n\nTable mix of cohorts is described below.\n",
+            "Methods\n\nTable div elements carry the rendered cells.\n",
+            "Methods\n\nTable civic participation rates follow.\n",
         ] {
             assert!(
                 extract_from_text(text).table_mentions.is_empty(),

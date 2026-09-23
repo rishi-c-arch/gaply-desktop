@@ -213,8 +213,8 @@ pub struct ResearchState {
     pub structure: Vec<SectionSummary>,
     /// Analyses and results: every statistic extraction found, with its span.
     pub statistics: Vec<StatClaim>,
-    /// Table SIGHTINGS, not tables (§11 D213). `alias`: pre-rename JSON reads.
-    #[serde(alias = "tables")]
+    /// Table SIGHTINGS, not tables (§11 D213). Never stored or read back —
+    /// `PipelineResult` has no Serialize derive — so the rename needs no alias.
     pub table_mentions: Vec<TableRef>,
     /// Always empty — no extractor produces figures. See the module header.
     pub figures: Vec<Figure>,

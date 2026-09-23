@@ -708,8 +708,7 @@ fn limitations(model: &LocalReportModel, out: &mut Vec<Block>) {
              either; the exact-match check covers that.",
         ),
         (!l.ai_detection_examined, "AI writing signals: the manuscript was too short to score."),
-        (!l.extraction_examined, "Reference and table checks: no references were found, and tables are not \
-             currently checked."),
+        (!l.extraction_examined, "Table and reference checks: neither was found."),
     ]
     .iter()
     .filter(|(unex, _)| *unex)
@@ -880,28 +879,6 @@ mod tests {
             },
             disclaimer: "d".into(),
         }
-    }
-
-    /// **§11 D213: the extraction lane's limitation is a sentence a user can
-    /// read, and it does not say tables were absent.** Rendered, not read from
-    /// source: the literal uses a `\` continuation, which a heredoc edit can
-    /// turn into a run of spaces that still compiles (CLAUDE.md).
-    #[test]
-    fn the_unexamined_extraction_lane_renders_as_clean_prose() {
-        let mut m = model_with(vec![]);
-        m.lanes.extraction_examined = false;
-        let line = compose(&m)
-            .into_iter()
-            .find_map(|b| match b {
-                Block::Bullet { text, .. } if text.starts_with("Reference and table checks") => Some(text),
-                _ => None,
-            })
-            .expect("the unexamined lane is listed");
-        assert_eq!(
-            line,
-            "Reference and table checks: no references were found, and tables are not currently checked."
-        );
-        assert!(!line.contains("  ") && !line.contains('\u{2014}'), "{line:?}");
     }
 
     fn stat(kind: &str, reported: &str, effect: bool) -> ReportedStatistic {
