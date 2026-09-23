@@ -17623,3 +17623,146 @@ certain". They differ in kind: they assert an ERROR in what the manuscript
 says, not the absence of something. Whether their detection (a group count
 read from text; an overclaim phrase list) earns "mathematically certain" is a
 separate question, left for a decision.
+
+### D215 — does the evidence entail "mathematically certain"? Two rules traced, measured, NOT changed
+
+**Measurement only. No code, label or test changed.** D214 left
+`test_group_mismatch` and `p_value_overclaim` rendering "mathematically
+certain" and established that no seeded journal obliges either. That does not
+settle the label: an absence and an asserted error are different claims. This
+traces what each rule's evidence actually entails.
+
+**Provenance.** HEAD `c045c24`. `[src]` = source inspection of
+`gaply-core/src/validate.rs` and `extract/stats.rs` at that commit; `[probe]` =
+a live run. The probe (not committed, by instruction; sha256 `9a0154b6486efe5b…`)
+called `pipeline::run_pipeline_measured` — the real pipeline — then
+`validate::validate` on that run's own `extraction` (what `pipeline.rs` computes
+for the validation lane), and resolved each flag's paragraph with
+`extract::paragraph_at`, the resolver the rule uses. Heuristic model,
+consent denied. Manuscripts (sha256):
+
+| manuscript | sha256 |
+|---|---|
+| chapter3 .docx | `134956ff25efb8d3116fd597ff58b9fbf7d0fb98bb8d7f1c916e12617acae137` |
+| final final L.pdf | `77e91296924b74f76ea522baa2f1c54422e0309a63db08cf7f6424d12dcccb18` |
+| IJAS … haemolymph (1).pdf | `859880647c4579c34bc63b82c2280ab08bceac917a9547e0c839a821bc5bafd7` |
+| Lake Chapter 1.docx | `af1f36ff2c811d614d30d7863411df54aad4ec3ea0e41da62836c22d73f6c311` |
+| R PAPER .docx | `effbb86c24958610e83b60546114ac7cd9f6cc7f5e24988f9dac19337feda87f` |
+| Revised Health Economics … (1).docx | `de1e322a95f13e331a97e386a315ea64cbfca62fbb13474fb59a8faa419396a0` |
+
+#### `test_group_mismatch` `[src]`
+
+* **Evidence consumed.** A `Stat::Test { name: "t-test" }` at a location — the
+  regex `(independent|paired|two-sample|one-sample|student's)? t-tests?`
+  matched in a paragraph — and that SAME paragraph's text.
+* **Transformation.** `max_group_count`: the largest number (digits, or
+  two…ten) immediately followed by `group(s)|arm(s)|cohort(s)|condition(s)`,
+  anywhere in the paragraph.
+* **Trigger.** A t-test mention and a group count ≥ 3 in one paragraph.
+* **Proposition to a reader.** *"A t-test compares exactly two groups, but the
+  surrounding text refers to N groups. Comparing 3+ groups with pairwise
+  t-tests inflates the false-positive rate; use ANOVA."* Read as: **the authors
+  analysed three or more groups with t-tests — an analysis error.** Severity
+  Critical.
+* **Entailment.** Three parts, three different kinds:
+  - "a t-test compares two groups" — **definitional**, true;
+  - "pairwise tests across 3+ groups inflate the family-wise error rate" — a
+    **logical consequence**, but only when the tests are UNCORRECTED;
+  - "these authors did that" — **not entailed**. The evidence is co-occurrence
+    in a paragraph. Nothing links the t-test to the groups counted. Correct
+    practice produces the same evidence: ANOVA then post-hoc pairwise t-tests
+    with Bonferroni/Holm correction, a t-test comparing two of three arms, a
+    paired pre/post t-test within each of three conditions.
+  - "use ANOVA" — **methodological convention**; corrected pairwise t-tests are
+    also accepted.
+* **Requirement needed to make it true?** No journal requirement. It needs two
+  facts the rule does not have: that the test spanned the groups, and that no
+  correction was applied.
+* **Existing controls.** Three unit tests (`validate.rs`): one positive (three
+  groups + t-test), two negatives (two groups; three groups with ANOVA and no
+  t-test). `validation_golden` asserts the rule passes on its fixture. **No
+  control for** post-hoc t-tests after an omnibus test, a correction clause, the
+  t-test and the group count in different sentences, or within-group tests.
+  Nothing detects a correction.
+* **Corpus `[probe]`.** **0 firings on 6 manuscripts.** The corpus holds ONE
+  t-test mention (R PAPER), in a paragraph with no group count: *"Cross-
+  validation with a 10-fold showed confidence for statistical significance of
+  all performance gains by paired t-tests (p < 0.05)…"* — paired comparisons
+  of the model against each baseline. Silence there is defensible; it is also
+  the only case the corpus offers, so **the rule's precision on real
+  manuscripts is unmeasured.** There is no firing to judge.
+* **Verdict: "mathematically certain" is NOT justified.** The detection is
+  deterministic, the principle is sound, and the proposition that the
+  manuscript committed the error is an inference from co-occurrence.
+
+#### `p_value_overclaim` `[src]`
+
+* **Evidence consumed.** A `Stat::PValue` at a location (a p-value NOT
+  classified `SignificanceThreshold`) and that paragraph's text.
+* **Transformation.** The FIRST match of `proves?|proven|proved|confirms?|
+  confirmed|conclusively|definitively` anywhere in the paragraph.
+* **Trigger.** A reported p-value and one of those words in one paragraph.
+* **Proposition to a reader.** *"Overclaiming language ("X") appears alongside
+  a p-value. A p-value … cannot prove, confirm, or conclusively establish a
+  hypothesis."* Read as: **the authors overclaimed what their p-value shows.**
+  Severity Major.
+* **Entailment.** Again three parts:
+  - "X appears alongside a p-value" — an **observation**, entailed by
+    construction (with "alongside" meaning the same paragraph);
+  - "a p-value cannot prove a hypothesis" — a **logical/definitional**
+    statement, true;
+  - "this is an overclaim" — **not entailed**. That needs the word to be
+    predicated of the p-value's hypothesis. The rule has no syntax, no subject,
+    no negation ("does not prove") and no idiom handling ("proved to be" =
+    "turned out to be"). Whether a given phrasing overclaims is **expert
+    statistical and editorial judgment**.
+* **Requirement needed?** None. The principle is statistical, not a journal's.
+* **The A4 shape reaches this rule.** Its only defence against a declared
+  criterion is `THRESHOLD_MARKERS` upstream. `[probe]` R PAPER: 2 `PValue`,
+  **0** `SignificanceThreshold` — A4's *"statistical significance (p < 0.05)"*
+  is still read as a reported result. A criterion paragraph containing
+  "confirmed" would fire this rule. (It does not on this corpus.)
+* **Existing controls.** Two unit tests: one positive ("This proves the
+  treatment works"), one negative ("suggests"). `validation_golden` asserts it
+  passes. **No control for** negation, idiom, the word's subject, a criterion,
+  or the word and the p-value in different sentences. **False negatives are
+  unmeasured**: the lexicon is seven stems; "demonstrates", "establishes",
+  "clearly shows" are outside it.
+* **Corpus `[probe]` — every firing, paragraphs read whole.** 5 firings, all
+  reaching the report (5 report locations). Judged by Claude from the text; no
+  domain expert or author has reviewed these.
+  Paragraph numbers are the rule's 0-based `Location.paragraph`; the report
+  shows readers the same paragraph 1-based (¶81 here is "paragraph 82" there).
+
+| # | manuscript, location | trigger | judgement |
+|---|---|---|---|
+| F1 | Health Economics, Results ¶81 | *"The Box–Tidwell test **confirmed** linearity in the logit for the capacity predictor (p = 0.34)."* | **Arguable.** Strictly, a non-significant test cannot confirm the null, so the rule's principle applies; in practice it is standard diagnostic phrasing. A reviewer might mention it; it is not a certain error. |
+| F2 | Health Economics, Results ¶82 | *"The Firth penalized logistic regression sensitivity analysis **confirmed** that all size-category associations were consistent in direction with the main model"* | **Wrong.** A robustness check reporting agreement of direction; the p-values in the paragraph are the odds ratios', and nothing is claimed as proven by them. |
+| F3 | Health Economics, Discussion ¶3 | *"The Firth sensitivity analysis **confirmed** that all main-model associations were consistent in direction"* | **Wrong**, for the same reason. |
+| F4 | final final L, ¶26 of a section classified **Abstract** | *"Notably, Herohalli the least mineralised lake **proved** to be the most organically and microbially degraded"* | **Wrong.** "Proved to be" is "turned out to be"; no p-value is claimed to prove anything. |
+| F5 | final final L, Results ¶38 | the same sentence (the passage appears twice in the thesis) | **Wrong**, same idiom. |
+
+  **0 of 5 clearly correct, 1 arguable, 4 wrong.** Precision on this corpus is
+  at best 1 in 5.
+* **Verdict: "mathematically certain" is NOT justified.** Only the observation
+  half is certain. The finding's claim — an overclaim — is judgement the rule
+  does not make, and on real text it was wrong four times in five.
+
+#### Reference case, and two things seen in passing
+
+* **A4 is live `[probe]`.** R PAPER's criterion is classified `PValue`; the
+  exclusion logic exists and does not recognise this phrasing. Recorded, not
+  fixed.
+* **F4 exposes a section misclassification.** A thesis results subsection
+  ("4.1.2.3 Electrical conductivity …") is filed under `Abstract`
+  (section_index 11), so a finding there says "Abstract". Not investigated.
+* **`THRESHOLD_MARKERS` reach is unmeasured**, and it is the only criterion
+  defence either p-value rule has.
+
+#### What this record decides
+
+Nothing. Both labels are unchanged. The measured basis for a decision: neither
+rule's evidence entails the proposition its finding states, the one with
+corpus firings was wrong on 4 of 5, and the other has never fired on the
+corpus. "Mathematically certain" is accurate for the DETECTION of each rule and
+for neither rule's CLAIM.
