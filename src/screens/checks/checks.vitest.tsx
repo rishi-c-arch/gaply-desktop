@@ -15,6 +15,7 @@ import {
   plagiarismToReport,
   aiToReport,
   validationToReport,
+  STATS_DISCLAIMER,
 } from './adapters';
 import {
   AiCheckMemoryStatus,
@@ -359,50 +360,54 @@ describe('AI Check — citation verification opt-in (C2b)', () => {
 });
 
 describe('Statistical Analysis Check', () => {
-  // **D217: the TIER stays (ordering, colour); the CLAIM is gone.** This test
-  // used to assert the screen said "mathematically certain" — the very claim
-  // D216 measured as unsupported. It now pins what is kept and what is not.
-  it('keeps the certain tier for ordering, and never says "mathematically"', async () => {
+  // **One guard per claim — §11 D219.** Each test below pins ONE thing, so
+  // reverting one source reddens only its own test. Rule WORDING is pinned in
+  // Rust at its source (`vocabulary.rs`); these check the screen's own strings
+  // and its wiring to that source.
+
+  // (A) The subtitle — its only render point is the pick-a-file card, which a
+  // report replaces, so this asserts BEFORE the run. (D217 found a post-run
+  // check could not see it.)
+  it('the subtitle describes pattern checks, not certainty', () => {
     const bridge = makeMockCheckBridge({ validation: STATS_FAIL });
     renderScreen(<StatsCheckPage bridge={bridge} />);
-    // BEFORE the run too: the subtitle renders only on the pick-a-file card,
-    // which the report replaces. A post-run check alone could not see it — the
-    // deletion test restoring the old subtitle stayed green until this line.
-    expect(document.body.textContent ?? '').not.toMatch(/mathematically/i);
-    await runFile();
-    // critical rule sorts first, on the unchanged tier
-    expect(screen.getByTestId('finding-0').getAttribute('data-tier')).toBe('mathematically_certain');
-    // the whole rendered screen — subtitle, rows, inspector, disclaimer
-    expect(document.body.textContent ?? '').not.toMatch(/mathematically/i);
+    const body = document.body.textContent ?? '';
+    expect(body).toContain('Deterministic pattern checks of statistical reporting — runs on device');
+    expect(body).not.toMatch(/mathematically/i);
   });
 
-  // **Each row shows Rust's label for its rule (D214, D217).** STATS_FAIL has
-  // one absence rule (missing_effect_size) and one pattern rule
-  // (test_group_mismatch). Labels come from the generated mirror of
-  // `vocabulary::rule_certainty_label`; reverting the adapter to a literal of
-  // its own turns a row back into "mathematically certain" and this goes red.
-  it('shows each rule with the label Rust gives it', async () => {
-    const absence = vocab.rule_certainty.missing_effect_size;
-    const pattern = vocab.rule_certainty.test_group_mismatch;
-    for (const l of [absence, pattern]) expect(l).not.toMatch(/certain/i); // the mirror itself must not restore the claim
+  // (B) WIRING: each row reads Rust's label for its rule from the generated
+  // mirror, and the tier's ordering is kept (the critical rule sorts first).
+  // Says nothing about the words — reverting a wording in Rust and
+  // regenerating the mirror leaves this green; reverting the adapter to a
+  // literal of its own turns it red.
+  it('each row reads its label from the generated vocabulary', async () => {
     const bridge = makeMockCheckBridge({ validation: STATS_FAIL });
     renderScreen(<StatsCheckPage bridge={bridge} />);
     await runFile();
-    // Per ROW: the selected finding's label is repeated in the inspector.
-    const errorRow = screen.getByTestId('finding-0');
+    const errorRow = screen.getByTestId('finding-0'); // per ROW: the inspector repeats the selected label
     const absenceRow = screen.getByTestId('finding-1');
-    expect(within(errorRow).getByText(pattern)).toBeTruthy();
-    expect(within(absenceRow).getByText(absence)).toBeTruthy();
+    expect(errorRow.getAttribute('data-tier')).toBe('mathematically_certain');
+    expect(within(errorRow).getByText(vocab.rule_certainty.test_group_mismatch)).toBeTruthy();
+    expect(within(absenceRow).getByText(vocab.rule_certainty.missing_effect_size)).toBeTruthy();
+  });
+});
+
+describe('Statistical Analysis Check — the disclaimer', () => {
+  // (C) WORDING, at its source: what the Stats Check tells a reader its findings
+  // are. Describes what the checks did — found a pattern or found none — and
+  // not that the manuscript is wrong (D219: D217's "a pattern was found" was
+  // false for the absence rules).
+  it('says what the checks did, not that the manuscript is wrong', () => {
+    expect(STATS_DISCLAIMER).toBe(
+      'These are deterministic pattern checks of statistical reporting — not probabilistic estimates. ' +
+        'Each finding reports what an automated check did or did not find in the text, not that the manuscript is wrong.'
+    );
   });
 
-  // **A clean run claims only that no pattern was found (D217).**
-  it('labels a run where no rule fired without claiming certainty', async () => {
-    const bridge = makeMockCheckBridge({ validation: { passed: true, checks: [], flags: [] } });
-    renderScreen(<StatsCheckPage bridge={bridge} />);
-    await runFile();
-    expect(vocab.rule_certainty_none_fired).not.toMatch(/certain/i);
-    expect(within(screen.getByTestId('finding-0')).getByText(vocab.rule_certainty_none_fired)).toBeTruthy();
-    expect(document.body.textContent ?? '').not.toMatch(/mathematically/i);
+  // (D) WIRING: the report the screen renders carries that constant.
+  it('the Stats Check report carries it', () => {
+    expect(validationToReport(STATS_FAIL).disclaimer).toBe(STATS_DISCLAIMER);
   });
 });
 

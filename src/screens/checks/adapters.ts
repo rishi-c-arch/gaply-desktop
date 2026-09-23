@@ -28,6 +28,13 @@ import vocab from '../../generated/vocabulary.json';
 // literals of its own.
 const RULE_CERTAINTY: Record<RuleId, string> = vocab.rule_certainty;
 
+/** What the Stats Check tells a reader its findings are. Describes what the
+ *  checks DID — found a pattern, or found none — never what the manuscript is.
+ *  Exported so its wording test reads this constant, not a copy (D219). */
+export const STATS_DISCLAIMER =
+  'These are deterministic pattern checks of statistical reporting — not probabilistic estimates. ' +
+  'Each finding reports what an automated check did or did not find in the text, not that the manuscript is wrong.';
+
 const EMPTY_DEBATE = {
   rounds_run: 0,
   converged: true,
@@ -171,7 +178,7 @@ export function validationToReport(r: StatsValidityReport): PublishReadyReport {
     findings.push({
       severity: 'info',
       tier: 'mathematically_certain',
-      certainty_label: vocab.rule_certainty_none_fired,
+      certainty_label: vocab.tier.mathematically_certain,
       agent: 'validation_maths',
       title: 'All deterministic statistical rules passed',
       detail: `${r.checks.length} rules evaluated; none fired.`,
@@ -186,9 +193,12 @@ export function validationToReport(r: StatsValidityReport): PublishReadyReport {
     checklist: [],
     debate: { ...EMPTY_DEBATE, overridden_by_constraint: !r.passed },
     disclaimer:
-      // D217: this used to call every finding "mathematically-certain" and say
-      // each "requires correction". The rules detect PATTERNS deterministically;
-      // on real manuscripts one was wrong on 4 of 5 firings (D216).
-      'These are deterministic pattern checks of statistical reporting — not probabilistic estimates. Each finding says a pattern was found in the text, not that the manuscript is wrong: read the quoted paragraph before acting on it.',
+      // D217/D219: this used to call every finding "mathematically-certain" and
+      // say each "requires correction". The rules detect patterns — or their
+      // absence — deterministically; on real manuscripts one was wrong on 4 of
+      // 5 firings (D216). D219 corrected D217's wording, which said "a pattern
+      // was found": false for the two absence rules, which report finding none.
+      // Pinned at this source by `STATS_DISCLAIMER` in checks.vitest.tsx.
+      STATS_DISCLAIMER,
   };
 }

@@ -17594,6 +17594,17 @@ typed as a total `Record<RuleId, string>` so a rule missing from the artifact
 fails `tsc`. Its second literal ("all rules passed") now reads
 `vocab.tier.mathematically_certain` too.
 
+> **Correction (D219): there were THREE renderers, not two, and D214 CREATED a
+> discrepancy.** The exported PublishReady PDF renders `report_compose`'s
+> `"Certainty: {tier_label(f.tier)}"` — from the TIER, because `LocalFinding`
+> carries no `certainty_label`. Before D214 all three surfaces said
+> "mathematically certain" for every validation finding: consistently wrong.
+> D214 changed the report and the Stats Check screen and left the PDF saying
+> it, so **from D214 on the PDF disagreed with the other two — a discrepancy
+> this record created.** Measured on R PAPER's exported PDF at `e8b98b9`: both
+> absence findings read "Certainty: mathematically certain". Fixed in D220,
+> the commit after D219.
+
 **Not changed, deliberately:** the `tier` stays `mathematically_certain` (sort
 order, colour, `hard_constraint`, routing); the title still says "rule failed";
 the explanation still says "Report a CI". Each is a separate claim with its own
@@ -17929,6 +17940,15 @@ whether that co-occurrence ever indicates the error remains unmeasured.
   and the Stats Check screen read `vocabulary::rule_certainty_label` — the
   screen through the generated mirror, typed as a total `Record<RuleId,
   string>`.
+
+> **Correction (D219): "both renderers" was false — there are three.** The
+> exported PDF renders the tier, not the label (see the correction in D214), so
+> after D217 it still said "mathematically certain" on every validation finding
+> — measured on R PAPER's PDF at `e8b98b9`. The discrepancy dates from D214;
+> D217 extended it to two more rules. Fixed in D220, the commit after D219. D219 also reverts two
+> things D217 did without authority: the "no rule fired" label (D218) and the
+> declined rule's label, which no reader sees.
+
 * **Two more user-visible claims on the Stats Check screen changed with it**,
   because they asserted certainty about these same rules and would have
   contradicted the new labels on the same page: the subtitle ("… — mathematically
@@ -17979,3 +17999,89 @@ the run, so neither could see it. The keep-the-tier test now also asserts the
 screen BEFORE the run, and the restored subtitle reddens it. The prediction's
 second test (the clean-run one) stays green on that break — it checks only
 after the run, and one guard on the pre-run screen is enough.
+
+### D218 — what a clean statistical pass claims (RESERVED — not started)
+
+**Held, not measured.** The Stats Check row shown when no rule fires is titled
+*"All deterministic statistical rules passed"* and labelled *"mathematically
+certain"* (its pre-D217 label; D219 reverted D217's unauthorised change). What
+that claims — and what D216 does and does not say about it (D216 measured
+false positives only; how often a clean pass is wrong is unmeasured) — is the
+next separate measurement. Nothing about the clean-pass title, label or
+semantics is changed until it is done.
+
+### D219 — the two pattern labels say what the check did; D217's overreach reverted
+
+**Authorised review of D217, applied as its own commit.** Every changed
+string below describes what the CHECK did, never what the manuscript is. No
+detection logic, rule condition, tier, severity, ordering, consensus behaviour
+or clean-pass semantics changed.
+
+#### Every user-visible string this commit changes
+
+Categories: **DETECTION** = what the check did or found; **EVIDENCE** = what
+the manuscript establishes; **CONCLUSION** = a judgement about the manuscript.
+
+| string | reaches | before (`e8b98b9`) | after | D216 evidence | describes |
+|---|---|---|---|---|---|
+| `p_value_overclaim` label | Rust report (viewer row, inspector, cached report); Stats Check row. **Not the PDF** until D220 | "a word that can signal overclaiming, near a p-value" (pre-D217: "mathematically certain") | **"a listed word appears in the same paragraph as a p-value; its meaning was not assessed"** | the match is the first list word anywhere in the paragraph; in **4 of 5** real firings it shared no sentence with a p-value, so "near" overstated it; the word's meaning is never assessed (F2-F5: a robustness check, an idiom) | DETECTION |
+| `test_group_mismatch` label | same surfaces | "a t-test and 3+ groups mentioned in one paragraph" (pre-D217: "mathematically certain") | **"a t-test and a count of 3+ groups appear in one paragraph; whether the test spanned those groups was not checked"** | **0 firings on 6 manuscripts**; its condition is co-occurrence in a paragraph, and nothing links the test to the groups counted | DETECTION, naming the link it did not check |
+| "all rules passed" row label | Stats Check, clean run | "none of the automated patterns was found" (added by D217, unauthorised) | **reverted: "mathematically certain"** — its pre-D217 value, via `vocab.tier` | none — reverted, not re-decided; the claim is D218's | CONCLUSION, as before D217 |
+| Stats Check disclaimer | Stats Check report, after a run | "…Each finding says a pattern was found in the text, not that the manuscript is wrong: read the quoted paragraph before acting on it." | **"These are deterministic pattern checks of statistical reporting — not probabilistic estimates. Each finding reports what an automated check did or did not find in the text, not that the manuscript is wrong."** | F2-F5 were not defects, so "requires correction" (pre-D217) was wrong; D217's "a pattern was found" was false for the absence rules, which report finding none | DETECTION |
+
+Unchanged by D219 and still describing DETECTION: the two absence labels ("not
+detected by an automated check", D214) and the Stats Check subtitle (D217).
+
+#### Strings not shown to any reader
+
+* **Reverted:** `small_sample_causal_claim`'s label, back to its pre-D217 value.
+  The rule is declined (D178) and emits nothing, so the label is rendered
+  nowhere; D217 should not have touched it.
+* **Not touched:** `swarm.rs`'s Validation opinion text and `orchestrator.rs`'s
+  routing reason. Measured before this commit (throwaway probe, not committed;
+  sha256 `5db093c86e897414…`) on Health Economics (14 flags) and R PAPER
+  through the real pipeline: the opinion text appears **0 times** in the
+  serialised report and 0 times in the composed report blocks —
+  `report.rs` drops `hard_constraint` opinions.
+
+#### Tests — one guard per claim
+
+* **Wording, at its source:** four `vocabulary.rs` tests, one per live rule,
+  each pinning that rule's exact words. D217's cross-cutting
+  `no_validation_rule_claims_mathematical_certainty` is gone: it reddened on
+  every rule's revert.
+* **Wiring only:** the report test (`validation_findings_read_their_label_from_the_vocabulary`)
+  checks that each finding reads `rule_certainty_label` and keeps its tier —
+  nothing about the words. The Stats Check screen has four tests: the subtitle
+  (on the pre-run card, its only render point), the rows reading the mirror,
+  the disclaimer's wording at its source constant `STATS_DISCLAIMER`, and the
+  report carrying that constant.
+* **A "revert" of a Rust wording includes regenerating the mirror**, so the
+  mirror test does not also redden.
+
+#### Deletion tests — predictions written before each run, 7 of 7 as predicted
+
+Rust run as `cargo test --workspace --features app/devtools --no-fail-fast`
+(baseline 1944 passed, 31 targets); vitest as the full suite (baseline 957).
+Each break was applied with the pattern asserted present and restored from a
+copy, since the tree was dirty.
+
+| # | break | predicted red | red |
+|---|---|---|---|
+| 1 | `PValueOverclaim` back to D217's wording, mirror regenerated | its wording test only | `p_value_overclaim_label_says_what_matched_and_what_was_not_assessed` only; vitest 957 green |
+| 2 | `TestGroupMismatch` likewise | its wording test only | `test_group_mismatch_label_says_what_matched_and_what_was_not_checked` only; vitest green |
+| 3 | `report.rs` flags loop back to the tier's label | the report wiring test, plus any golden holding a validation finding | `validation_findings_read_their_label_from_the_vocabulary` and the app crate's `the_report_is_byte_identical_to_the_pre_research_state_capture` |
+| 4 | Stats Check rows back to `vocab.tier.mathematically_certain` | row-wiring test | that test only (1 of 957) |
+| 5 | `STATS_DISCLAIMER` back to D217's text | disclaimer wording test | that test only (1 of 957) |
+| 6 | report disclaimer back to a literal | disclaimer wiring test | that test only (1 of 957) |
+| 7 | subtitle back to the pre-D217 "mathematically certain" text | subtitle test | that test only (1 of 957) |
+
+The first vitest runs of 5 and 7 also showed five ~28 s timeouts and a
+922-test total; the log shows `Failed to start forks worker` — worker startup
+under load, not the break. Both re-run clean at 1 of 957, 75 of 75 files.
+
+**Found while running them, not fixed here:** `cargo test --workspace`
+without `--features devtools` is red at `e8b98b9` — `tests/ai_eval_cli.rs`
+spawns `ai-eval`, which `e7ce226` gated behind `required-features =
+["devtools"]` without gating the test. 8 of its 11 tests fail with
+`NotFound`. CI runs `-p gaply_core`, so nothing remote sees it.

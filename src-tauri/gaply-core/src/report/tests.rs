@@ -1307,16 +1307,15 @@ fn match_type_label_wording_is_supported_by_the_algorithm() {
 // Fix C — what a deterministic rule's finding may claim
 // ===========================================================================
 
-/// **No validation finding is labelled "mathematically certain" — and every
-/// one keeps the tier. §11 D217.**
+/// **WIRING ONLY — each validation finding reads its label from
+/// `vocabulary::rule_certainty_label`, and keeps its tier. §11 D217, D219.**
 ///
-/// One flag per live rule, each in its own paragraph so no two group. Every
-/// finding must carry `vocabulary::rule_certainty_label` for its rule, that
-/// label must NOT be the tier's, and the TIER must still be
-/// `MathematicallyCertain` — it drives ordering, colour and the consensus
-/// override, and D217 moved only the claim.
+/// This test says nothing about the WORDS; each rule's wording is pinned at its
+/// source, in `vocabulary.rs`. Reverting a wording there (and regenerating the
+/// mirror) must not redden this test; reverting the flags loop to the tier's
+/// label must. The tier assertion pins that D217 moved only the claim.
 #[test]
-fn no_validation_finding_is_labelled_mathematically_certain() {
+fn validation_findings_read_their_label_from_the_vocabulary() {
     use crate::validate::{Flag, RuleId, Severity, StatsValidityReport};
     let rules = [
         RuleId::TestGroupMismatch,
@@ -1340,7 +1339,6 @@ fn no_validation_finding_is_labelled_mathematically_certain() {
     };
     let report =
         compile_report(&minimal_outcome(), &validation, None, None, None, TEST_YEAR, vec![], &[], &[]);
-    let certain = CertaintyTier::MathematicallyCertain.label();
     for r in rules {
         let tag = format!("rule:{r:?} ");
         let f = report
@@ -1349,7 +1347,6 @@ fn no_validation_finding_is_labelled_mathematically_certain() {
             .find(|f| f.provenance.iter().any(|p| p.starts_with(&tag)))
             .unwrap_or_else(|| panic!("no finding for {r:?}"));
         assert_eq!(f.certainty_label, crate::vocabulary::rule_certainty_label(r), "{r:?}");
-        assert_ne!(f.certainty_label, certain, "{r:?} must not claim mathematical certainty");
         assert_eq!(f.tier, CertaintyTier::MathematicallyCertain, "{r:?}: the tier is unchanged");
     }
 }

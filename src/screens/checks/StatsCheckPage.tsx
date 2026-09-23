@@ -1,8 +1,9 @@
 // Gaply — Statistical Analysis Check (F7). 100% local, deterministic: t-test
 // misuse for 3+ groups, p-value overclaiming, missing effect size / CI, small-n
 // causal claims, data-vs-paper consistency. The DETECTION is deterministic and
-// keeps the 🟢 tier for ordering; each finding's label says only what its
-// pattern establishes — none is "mathematically certain" (§11 D217).
+// keeps the 🟢 tier for ordering; each RULE's label says only what its check
+// did (§11 D217, D219). The "all rules passed" row still says "mathematically
+// certain": what a clean pass claims is a separate question (D218, not started).
 import React, { useMemo } from 'react';
 import CheckScreen from './CheckScreen';
 import { CheckBridge, TauriCheckBridge } from './checkBridge';
