@@ -359,36 +359,50 @@ describe('AI Check — citation verification opt-in (C2b)', () => {
 });
 
 describe('Statistical Analysis Check', () => {
-  it('labels findings as mathematically certain (green)', async () => {
+  // **D217: the TIER stays (ordering, colour); the CLAIM is gone.** This test
+  // used to assert the screen said "mathematically certain" — the very claim
+  // D216 measured as unsupported. It now pins what is kept and what is not.
+  it('keeps the certain tier for ordering, and never says "mathematically"', async () => {
     const bridge = makeMockCheckBridge({ validation: STATS_FAIL });
     renderScreen(<StatsCheckPage bridge={bridge} />);
+    // BEFORE the run too: the subtitle renders only on the pick-a-file card,
+    // which the report replaces. A post-run check alone could not see it — the
+    // deletion test restoring the old subtitle stayed green until this line.
+    expect(document.body.textContent ?? '').not.toMatch(/mathematically/i);
     await runFile();
-    // certainty label present on the findings
-    expect(screen.getAllByText('mathematically certain').length).toBeGreaterThanOrEqual(1);
-    // critical rule sorts first
+    // critical rule sorts first, on the unchanged tier
     expect(screen.getByTestId('finding-0').getAttribute('data-tier')).toBe('mathematically_certain');
+    // the whole rendered screen — subtitle, rows, inspector, disclaimer
+    expect(document.body.textContent ?? '').not.toMatch(/mathematically/i);
   });
 
-  // **Fix C: an ABSENCE is "not detected", read from Rust's words.** STATS_FAIL
-  // carries one absence rule (missing_effect_size) and one error rule
-  // (test_group_mismatch). The screen must show Rust's label for each — the
-  // generated mirror of `vocabulary::rule_certainty_label` — so reverting the
-  // adapter to its own 'mathematically certain' literal turns the absence into
-  // a second "certain" finding and this goes red.
-  it('shows an absence rule as not detected, and keeps the error rule certain', async () => {
+  // **Each row shows Rust's label for its rule (D214, D217).** STATS_FAIL has
+  // one absence rule (missing_effect_size) and one pattern rule
+  // (test_group_mismatch). Labels come from the generated mirror of
+  // `vocabulary::rule_certainty_label`; reverting the adapter to a literal of
+  // its own turns a row back into "mathematically certain" and this goes red.
+  it('shows each rule with the label Rust gives it', async () => {
     const absence = vocab.rule_certainty.missing_effect_size;
-    expect(absence).not.toBe('mathematically certain'); // the mirror itself must not restore the claim
+    const pattern = vocab.rule_certainty.test_group_mismatch;
+    for (const l of [absence, pattern]) expect(l).not.toMatch(/certain/i); // the mirror itself must not restore the claim
     const bridge = makeMockCheckBridge({ validation: STATS_FAIL });
     renderScreen(<StatsCheckPage bridge={bridge} />);
     await runFile();
-    // Per finding ROW, not the whole screen: the selected finding's label is
-    // repeated in the inspector, so a screen-wide count measures the layout.
-    // The critical error rule sorts first; the absence rule second.
+    // Per ROW: the selected finding's label is repeated in the inspector.
     const errorRow = screen.getByTestId('finding-0');
     const absenceRow = screen.getByTestId('finding-1');
-    expect(within(errorRow).getByText(vocab.rule_certainty.test_group_mismatch)).toBeTruthy();
+    expect(within(errorRow).getByText(pattern)).toBeTruthy();
     expect(within(absenceRow).getByText(absence)).toBeTruthy();
-    expect(within(absenceRow).queryByText('mathematically certain')).toBeNull();
+  });
+
+  // **A clean run claims only that no pattern was found (D217).**
+  it('labels a run where no rule fired without claiming certainty', async () => {
+    const bridge = makeMockCheckBridge({ validation: { passed: true, checks: [], flags: [] } });
+    renderScreen(<StatsCheckPage bridge={bridge} />);
+    await runFile();
+    expect(vocab.rule_certainty_none_fired).not.toMatch(/certain/i);
+    expect(within(screen.getByTestId('finding-0')).getByText(vocab.rule_certainty_none_fired)).toBeTruthy();
+    expect(document.body.textContent ?? '').not.toMatch(/mathematically/i);
   });
 });
 

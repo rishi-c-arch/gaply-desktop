@@ -96,32 +96,47 @@ pub fn tier_label(t: CertaintyTier) -> &'static str {
     }
 }
 
-/// **What a deterministic statistical rule's finding may claim. Fix C, §11 D214.**
+/// **What a deterministic statistical rule's finding may claim. §11 D214, D217.**
 ///
-/// A rule's DETECTION is deterministic; that does not make its finding a
-/// certain defect. Two rules report an ABSENCE — no effect size, no confidence
-/// interval, found near a p-value — and "mathematically certain" read as
-/// "this is required and missing". No seeded journal states either as a
-/// requirement (0 requirement rows, 0 expectation rows, checked 23 Sep 2026),
-/// and the seed's own conventions show most published abstracts report
-/// neither p-values nor intervals (Nature Medicine: 57 of 77). Where a real
-/// obligation exists — CONSORT item 17a for a trial at a journal that binds
-/// CONSORT — the CHECKLIST reports it, with its source. So these two say
-/// what was established: an automated search did not find one.
+/// A rule's DETECTION is deterministic; that does not make its finding
+/// certain. Each label states only what the detection establishes, and **no
+/// `validate.rs` rule may return the tier's "mathematically certain"** — that
+/// phrase is reserved for recomputation with a determinate answer
+/// (`equation_report`, `stats_verdict`). Pinned by
+/// `no_validation_rule_claims_mathematical_certainty`.
 ///
-/// The other rules keep the tier's own label, unchanged. Whether they belong
-/// in the same position is an open question recorded in §11 D214, not decided
-/// here. TOTAL, no wildcard: a new rule must choose.
+/// * The two ABSENCE rules (D214): an automated search did not find an effect
+///   size / interval. No seeded journal requires either; CONSORT 17a, where it
+///   binds, is reported by the CHECKLIST with its source.
+/// * `PValueOverclaim` (D216): a word from a fixed list sits in the same
+///   paragraph as a reported p-value. On real text it was wrong on 4 of 5
+///   firings — the word shared no sentence with any p-value — so the label
+///   says the word can signal overclaiming, not that the manuscript did.
+/// * `TestGroupMismatch` (D216): a t-test mention and a count of 3+ groups in
+///   one paragraph. **It has never fired on a real manuscript** (0 of 6), so
+///   its label rests on no real-text evidence and claims only the co-occurrence.
+/// * `SmallSampleCausalClaim`: declined (D178), emits nothing; labelled by the
+///   same rule so the match stays total.
+///
+/// TOTAL, no wildcard: a new rule must choose.
 pub fn rule_certainty_label(rule: crate::validate::RuleId) -> &'static str {
     use crate::validate::RuleId;
     match rule {
         RuleId::MissingEffectSize | RuleId::MissingConfidenceInterval => {
             "not detected by an automated check"
         }
-        RuleId::TestGroupMismatch | RuleId::PValueOverclaim | RuleId::SmallSampleCausalClaim => {
-            tier_label(CertaintyTier::MathematicallyCertain)
-        }
+        RuleId::PValueOverclaim => "a word that can signal overclaiming, near a p-value",
+        RuleId::TestGroupMismatch => "a t-test and 3+ groups mentioned in one paragraph",
+        RuleId::SmallSampleCausalClaim => "a small sample and causal wording in one paragraph",
     }
+}
+
+/// The label for a statistical check where NO rule fired (the Stats Check
+/// screen's "all rules passed" row). It states what was established — none of
+/// the patterns was found — and not that the reporting is certainly sound.
+/// §11 D217.
+pub fn no_rule_fired_label() -> &'static str {
+    "none of the automated patterns was found"
 }
 
 /// The checked-in mirror artifact, relative to the `gaply_core` crate root.
@@ -197,6 +212,27 @@ mod tests {
     /// vitest side then tells the TS table it is stale.
     ///
     /// Regenerate with: `UPDATE_VOCABULARY=1 cargo test -p gaply_core mirror`
+    /// **"mathematically certain" is reserved for recomputation. §11 D217.**
+    /// Every `RuleId` — the declined one included, so a revived rule cannot
+    /// inherit the claim — and the no-rule-fired label must say something
+    /// else. `validate.rs` detects patterns; it does not recompute an answer.
+    #[test]
+    fn no_validation_rule_claims_mathematical_certainty() {
+        use crate::validate::RuleId;
+        let certain = tier_label(CertaintyTier::MathematicallyCertain);
+        for r in [
+            RuleId::TestGroupMismatch,
+            RuleId::PValueOverclaim,
+            RuleId::MissingEffectSize,
+            RuleId::MissingConfidenceInterval,
+            RuleId::SmallSampleCausalClaim,
+        ] {
+            assert_ne!(rule_certainty_label(r), certain, "{r:?}");
+            assert!(!rule_certainty_label(r).contains("certain"), "{r:?}: {}", rule_certainty_label(r));
+        }
+        assert_ne!(no_rule_fired_label(), certain);
+    }
+
     #[test]
     fn the_mirror_artifact_matches_the_vocabulary() {
         use serde_json::json;
@@ -243,6 +279,7 @@ mod tests {
             // `f.rule` — derived from serde, never typed, so the key cannot
             // drift from the value TypeScript looks up.
             "rule_certainty": rule_certainty,
+            "rule_certainty_none_fired": no_rule_fired_label(),
             "tier": {
                 "mathematically_certain": tier_label(CertaintyTier::MathematicallyCertain),
                 "ai_assessed_moderate": tier_label(CertaintyTier::AiAssessedModerate),

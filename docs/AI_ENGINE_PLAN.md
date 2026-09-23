@@ -17890,3 +17890,92 @@ or editor has reviewed these calls.
   one (F1) comes close, four are contradicted by the sentence the word is in.
   **The determinism is real and belongs to the detection. The certainty the
   label asserts belongs to a claim neither rule establishes.**
+
+### D217 — no `validate.rs` rule is labelled "mathematically certain"
+
+**Decided on D216's firing-level evidence.** The code detects exactly what it
+looks for, every time; that is not what the finding claimed. "Mathematically
+certain" is now reserved for recomputation with a determinate answer —
+`equation_report` and `stats_verdict::VerifiedResult` — and **nothing in
+`validate.rs` keeps it.**
+
+#### The labels, all five rules
+
+| rule | before D214 (`04d3d5b`) | before D217 (`27cc5bb`) | after D217 | evidence |
+|---|---|---|---|---|
+| `missing_effect_size` | mathematically certain | not detected by an automated check | not detected by an automated check | D214: no seeded obligation |
+| `missing_confidence_interval` | mathematically certain | not detected by an automated check | not detected by an automated check | D214 |
+| `p_value_overclaim` | mathematically certain | mathematically certain | **a word that can signal overclaiming, near a p-value** | D216: 5 real firings, evidence entails the finding in 0; in 4 the word shares no sentence with any p-value |
+| `test_group_mismatch` | mathematically certain | mathematically certain | **a t-test and 3+ groups mentioned in one paragraph** | D216: **0 firings on 6 manuscripts** |
+| `small_sample_causal_claim` | mathematically certain | mathematically certain | a small sample and causal wording in one paragraph | declined (D178), emits nothing; labelled so the match stays total and a revived rule cannot inherit the claim |
+
+Values are read from the generated artifact at each commit, not retyped. A
+Stats Check run where no rule fires used to say "mathematically certain" too;
+it now says **"none of the automated patterns was found"**, from the same Rust
+source (`vocabulary::no_rule_fired_label`).
+
+**`test_group_mismatch`'s label rests on no real-manuscript evidence.** It has
+never fired on real text (D216: one t-test input across six manuscripts, no
+group count). Its new label claims only the co-occurrence the code detects;
+whether that co-occurrence ever indicates the error remains unmeasured.
+
+#### What moved and what did not
+
+* **The claim moved; the tier did not.** Every validation finding keeps
+  `tier: mathematically_certain`, which still drives ordering, colour and the
+  consensus override (`hard_constraint`). Pinned: the report test asserts the
+  tier alongside the label.
+* **One source, both renderers**, as D214 established: the report's flags loop
+  and the Stats Check screen read `vocabulary::rule_certainty_label` — the
+  screen through the generated mirror, typed as a total `Record<RuleId,
+  string>`.
+* **Two more user-visible claims on the Stats Check screen changed with it**,
+  because they asserted certainty about these same rules and would have
+  contradicted the new labels on the same page: the subtitle ("… — mathematically
+  certain, runs on device" → "Deterministic pattern checks of statistical
+  reporting — runs on device") and the report disclaimer ("deterministic,
+  mathematically-certain checks … Each finding requires correction" → each
+  finding "says a pattern was found in the text, not that the manuscript is
+  wrong").
+* **Left, and why.** `swarm.rs`'s Validation opinion text ("… flag(s):
+  mathematically certain") never reaches a reader: `report.rs` skips
+  `hard_constraint` opinions when building findings. `orchestrator.rs`'s routing
+  reason stays inside the escalation layer; no frontend code references routing.
+  The report-wide disclaimer still names the tier generally, and the findings
+  that keep the label (equation, recomputation) are the ones it describes.
+
+#### Confirmed on real manuscripts — only the label moves `[probe]`
+
+The report's findings, in order, through `pipeline::run_pipeline_measured`,
+built at `27cc5bb` and on this change (throwaway probe, not committed; sha256
+`f436ec4af17aafa8…`; manuscript hashes as D215):
+
+* **R PAPER: 8 findings before, 8 after; verdict `concern` both; 0 fields
+  changed.** Its order is unchanged: MissingEffectSize (major), MissingCI
+  (major), three minor signals, three info opinions. It has no overclaim or
+  group firing, so no label of its own moves.
+* Where a label DOES move — the two manuscripts with overclaim firings — the
+  finding keeps its position (#0), severity (major) and tier:
+  Health Economics 10 → 10 findings, final final L 9 → 9, verdicts unchanged.
+* **Across all 27 findings, 0 changes to any field but `certainty_label`.**
+
+#### Deletion-tested — 9 breaks, predictions written first
+
+| broken | predicted red | got |
+|---|---|---|
+| vocab: overclaim → tier label | rule test, report test, mirror | as predicted |
+| vocab: test-group → tier label | the same three | as predicted |
+| vocab: declined rule → tier label | rule test, mirror | as predicted |
+| flags loop → tier label | report test, app golden | as predicted |
+| TS flags → own literal | two screen tests | as predicted |
+| TS no-rule-fired → tier label | the clean-run screen test | as predicted |
+| TS subtitle restored | two screen tests | **green — see below** |
+| TS disclaimer restored | two screen tests | as predicted |
+| artifact hand-edited | two screen tests, mirror | as predicted |
+
+**The green one was a finding about the test.** The subtitle renders only on the
+pick-a-file card, which the report replaces; both screen tests asserted after
+the run, so neither could see it. The keep-the-tier test now also asserts the
+screen BEFORE the run, and the restored subtitle reddens it. The prediction's
+second test (the clean-run one) stays green on that break — it checks only
+after the run, and one guard on the pre-run screen is enough.

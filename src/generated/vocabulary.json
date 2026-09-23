@@ -15,10 +15,11 @@
   "rule_certainty": {
     "missing_confidence_interval": "not detected by an automated check",
     "missing_effect_size": "not detected by an automated check",
-    "p_value_overclaim": "mathematically certain",
-    "small_sample_causal_claim": "mathematically certain",
-    "test_group_mismatch": "mathematically certain"
+    "p_value_overclaim": "a word that can signal overclaiming, near a p-value",
+    "small_sample_causal_claim": "a small sample and causal wording in one paragraph",
+    "test_group_mismatch": "a t-test and 3+ groups mentioned in one paragraph"
   },
+  "rule_certainty_none_fired": "none of the automated patterns was found",
   "severity": {
     "critical": "Unsupported conclusion",
     "info": "Additional note",

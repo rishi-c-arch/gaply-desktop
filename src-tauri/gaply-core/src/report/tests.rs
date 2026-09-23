@@ -1307,16 +1307,16 @@ fn match_type_label_wording_is_supported_by_the_algorithm() {
 // Fix C — what a deterministic rule's finding may claim
 // ===========================================================================
 
-/// **An ABSENCE is "not detected", not "mathematically certain". Fix C.**
+/// **No validation finding is labelled "mathematically certain" — and every
+/// one keeps the tier. §11 D217.**
 ///
-/// One flag per live rule, each in its own paragraph so no two group. The two
-/// absence rules must carry `vocabulary::rule_certainty_label`, and that label
-/// must NOT be the tier's — otherwise a vocabulary edit could quietly restore
-/// the old claim and this would still pass. The two rules that assert an
-/// error keep "mathematically certain", unchanged (their position is an open
-/// question in §11 D214, not decided by this fix).
+/// One flag per live rule, each in its own paragraph so no two group. Every
+/// finding must carry `vocabulary::rule_certainty_label` for its rule, that
+/// label must NOT be the tier's, and the TIER must still be
+/// `MathematicallyCertain` — it drives ordering, colour and the consensus
+/// override, and D217 moved only the claim.
 #[test]
-fn an_absence_rule_says_not_detected_and_an_error_rule_keeps_its_tier() {
+fn no_validation_finding_is_labelled_mathematically_certain() {
     use crate::validate::{Flag, RuleId, Severity, StatsValidityReport};
     let rules = [
         RuleId::TestGroupMismatch,
@@ -1340,23 +1340,17 @@ fn an_absence_rule_says_not_detected_and_an_error_rule_keeps_its_tier() {
     };
     let report =
         compile_report(&minimal_outcome(), &validation, None, None, None, TEST_YEAR, vec![], &[], &[]);
-    let label_of = |r: RuleId| {
+    let certain = CertaintyTier::MathematicallyCertain.label();
+    for r in rules {
         let tag = format!("rule:{r:?} ");
-        report
+        let f = report
             .findings
             .iter()
             .find(|f| f.provenance.iter().any(|p| p.starts_with(&tag)))
-            .unwrap_or_else(|| panic!("no finding for {r:?}"))
-            .certainty_label
-            .clone()
-    };
-    let certain = CertaintyTier::MathematicallyCertain.label();
-    for r in [RuleId::MissingEffectSize, RuleId::MissingConfidenceInterval] {
-        assert_eq!(label_of(r), crate::vocabulary::rule_certainty_label(r), "{r:?}");
-        assert_ne!(label_of(r), certain, "{r:?} must not claim mathematical certainty");
-    }
-    for r in [RuleId::TestGroupMismatch, RuleId::PValueOverclaim] {
-        assert_eq!(label_of(r), certain, "{r:?} keeps its tier's label");
+            .unwrap_or_else(|| panic!("no finding for {r:?}"));
+        assert_eq!(f.certainty_label, crate::vocabulary::rule_certainty_label(r), "{r:?}");
+        assert_ne!(f.certainty_label, certain, "{r:?} must not claim mathematical certainty");
+        assert_eq!(f.tier, CertaintyTier::MathematicallyCertain, "{r:?}: the tier is unchanged");
     }
 }
 
