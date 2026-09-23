@@ -238,7 +238,13 @@ impl PipelineResult {
                 title: self.extraction.title.clone(),
                 word_count,
                 section_count: self.extraction.sections.len(),
-                table_count: self.extraction.tables.len(),
+                // **§11 D213: count TABLES, not sightings.** This is the one
+                // number a user reads ("This manuscript has N tables"), and it
+                // was the sighting count — 0 for R PAPER, whose five tables are
+                // captioned "TABLE II.", and 6 for a paper with 5. The rule
+                // lives in `ExtractionResult::table_count` so the corpus probe
+                // measures the function this line calls, not a copy of it.
+                table_count: self.extraction.table_count(),
                 reference_count: self.extraction.references.len(),
                 statistics,
             },
@@ -374,6 +380,21 @@ mod tests {
             },
             text: text.into(),
         }
+    }
+
+    /// **§11 D213: "This manuscript has N tables" counts tables.** Four
+    /// sightings naming two tables — a contents row, a caption and a sentence
+    /// for Table 1, a roman caption for Table II — are two. This line showed
+    /// the sighting count until D213: 4 here, 0 for R PAPER's five tables.
+    #[test]
+    fn the_table_count_a_reader_sees_is_tables_not_sightings() {
+        let p = pipeline_from(
+            "Contents\n\nTable 1 Outcomes by arm 12\n\nResults\n\nTable 1 Outcomes by arm\n\n\
+             Table 1 shows the outcomes.\n\nTABLE II. COMPARATIVE PERFORMANCE\n",
+            vec![],
+        );
+        assert_eq!(p.extraction.table_mentions.len(), 4, "precondition: four sightings");
+        assert_eq!(p.report_model(None, None, None).manuscript.table_count, 2);
     }
 
     fn loc(section: SectionKind, paragraph: usize) -> Option<Location> {

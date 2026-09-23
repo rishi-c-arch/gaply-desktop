@@ -27,7 +27,7 @@ fn main() {
             "{:<46} {:>9} {:>9} {:>8} {:>7}",
             name,
             tables.len(),
-            ex.tables.len(),
+            ex.table_mentions.len(),
             cells,
             cols.join(",")
         );

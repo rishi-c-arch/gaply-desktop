@@ -297,8 +297,13 @@ pub fn delete_secret(name: String) -> Result<(), GaplyError> {
 #[tauri::command]
 #[tracing::instrument]
 pub fn detect_ai(path: String) -> Result<AiDetectionReport, GaplyError> {
-    let text = docparse::parse_path(std::path::Path::new(&path))?;
-    let extraction = extract::extract_from_text(&text);
+    // **§11 D213: `extract_path`, not `extract_from_text`** — it attaches the
+    // table structures the pipeline attaches. `detect_extraction` excludes only
+    // caption-SHAPED sightings when the format carried tables, and every
+    // sighting when it did not; without them a `.docx` checked here would take
+    // the PDF rule, and "Table II shows…" (the author's prose) would be scored
+    // by the pipeline and dropped by this command.
+    let extraction = extract::extract_path(std::path::Path::new(&path))?;
     // THIS COMMAND IS ALWAYS HEURISTIC and now says so. It hardcodes
     // `HeuristicModel::gpt2_like()` — it does not consult `select_deep_model`,
     // so no deep tier is ever loaded here regardless of what the machine could

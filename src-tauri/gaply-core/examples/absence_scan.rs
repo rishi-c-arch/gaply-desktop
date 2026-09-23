@@ -89,7 +89,7 @@ fn main() {
             ex.statistics.len(),
             ex.references.len(),
             ex.citations.len(),
-            ex.tables.len(),
+            ex.table_mentions.len(),
             present.join(" ")
         );
         match &ex.title {

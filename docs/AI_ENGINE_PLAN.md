@@ -17357,3 +17357,87 @@ Deletion-tested twice, prediction written first both times: dropping empty
 cells reddens the grid test alone; returning no tables at all reddens the grid
 and nested tests while leaving both negative controls and the non-docx test
 green — which is what makes them controls rather than duplicates.
+
+### D213 — a table sighting is not a table, and the count a reader sees now counts tables
+
+**The field was the lie.** `ExtractionResult.tables` never held tables: it held
+every paragraph that BEGINS with a table label — a caption, a contents-page row,
+or a sentence such as *"Table II shows comparative performance…"*. It is
+**renamed `table_mentions`** (not redefined), because the name was what let
+three consumers treat it as a count. `ResearchState`'s field and provenance row
+are renamed with it. Neither struct is read back from storage or by the
+frontend (the report cache stores the `Report`; no TypeScript reads
+`tables`), so the JSON key change breaks nothing.
+
+#### The label pattern
+
+`^table\s+(\d+)` missed all five of R PAPER's tables (`TABLE II.`). It now takes
+arabic (with a sub-letter, `1a`, and thesis numbering, `3.2`), **roman**, and a
+**letter** label (`A`, `S1`), with `\b` after the label. Two traps, both
+pinned: without `\b`, `[IVXLCDM]+` eats the first letter of "Introduction" (the
+§11 D189 trap again); and under the outer `(?i)` the numeral branch read
+*"Table did not converge"* as table DID, so the roman and letter branches are
+case-sensitive.
+
+#### Measured before/after — six manuscripts, both directions
+
+Before = `04d3d5b`, after = this commit, same probe
+(`examples/table_sightings_before_after.rs`, built at both). The "after" side
+calls `ExtractionResult::table_count` and `ai_detect::is_caption_shaped`
+directly rather than copies of them.
+
+| manuscript | real tables | provenance of the truth | count shown, before → after | sightings | AI: table paragraphs excluded | author prose wrongly excluded | extraction lane examined |
+|---|---:|---|---:|---:|---:|---:|---|
+| R PAPER .docx | 5 | 5 `<w:tbl>` read from the zip; 5 captions read by hand (I, II, II, III, IV: the paper numbers two tables II) | **0 → 5** | 0 → 7 | 0 → 5 | 0 → 0 (2 sentences now sighted and kept) | yes → yes |
+| Revised Health Economics .docx | 5 | 5 `<w:tbl>`; captions A, 1, 2, 3, 4 read by hand | **6 → 5** | 6 → 8 | 6 → 5 | **2 → 0** | yes → yes |
+| chapter3 .docx | 8 | 8 `<w:tbl>`; captions 1-8 read by hand | 8 → 8 | 8 → 8 | 8 → 8 | 0 → 0 | **yes → no** (0 references) |
+| Lake Chapter 1.docx | 0 | no `<w:tbl>`, the string "Table" absent | 0 → 0 | 0 → 0 | 0 → 0 | 0 → 0 | no → no |
+| IJAS … haemolymph.pdf | 3 | `pdftotext`: captions 1-3, each followed by its body | 3 → 3 | 3 → 3 | 3 → 3 | 0 → 0 | yes → yes |
+| final final L.pdf | 106 | the thesis's own List of Tables, 1-106 contiguous (92 entries at line start, 14 after a wrapped page number, each located); NOT counted in the 400-page body | **33 → 33** | 33 → 33 | 33 → 33 | 0 → 0 | yes → yes |
+
+Both directions are present: exclusions ADDED (R PAPER's five captions, now
+seen, leave the stylometry corpus) and exclusions REMOVED (Health Economics'
+*"Table 2 presents…"* and *"Table 3 presents…"* return to it). No sighting was
+lost on any paper.
+
+**The PDF count is wrong before and after, and this change does not fix it.**
+33 against 106. The fallback (distinct sighting labels) misses every table no
+paragraph opens by naming. `table_count`'s doc says so with this figure, so
+nobody reads the PDF number as a measurement. That is the next defect in this
+line, and it is not claimed here.
+
+#### The seven consumers
+
+| consumer | changes behaviour? |
+|---|---|
+| `ai_detect::detect_extraction` — prose exclusion | **Yes.** Where the file carried table structures, only caption-SHAPED sightings are excluded (residue has no full stop, ≤ 120 chars). Where it did not (a PDF), every sighting still is: the IJAS captions carry their glued-on bodies (1,239-2,123 chars) and would read as prose, which would return three table bodies to the corpus. |
+| `commands::detect_ai` — the AI Check screen | **Yes, and it would have diverged.** It built its extraction without `doc_tables`, so a `.docx` checked there took the PDF rule while the pipeline took the other one. It now calls the new `extract::extract_path`. |
+| `report_build` — *"This manuscript has N tables"* | **Yes.** Was the sighting count. Now `ExtractionResult::table_count`: structures when the format has them, otherwise distinct labels. |
+| `pipeline.rs` — `extraction_examined` | **Yes, and the previous draft of this change was wrong.** It added `doc_tables` to the flag. But the table finding has been withdrawn since D167 (`table_findings` returns early), so no table is an input to anything this lane can say, and under `LaneExamination`'s own criterion (b) it was never an examination. The flag is now `!references.is_empty()`. chapter3 flips to not examined, which is true: nothing was checked. The reason text had also told a paper with eight tables that "no tables … were found"; it now says tables are not currently checked. |
+| `report::table_findings` | No. Withdrawn (D167); the body is unreachable. |
+| `research_state` — carries the list, provenance row | Renamed only; carries more sightings on roman/letter papers. |
+| `research_state::build_graph` — statistic→table edges | Yes on roman/letter papers: more sightings, so more same-paragraph edges. No consumer ranks on them today. |
+
+#### Deletion-tested — 15 guards, prediction written before each break
+
+`--no-fail-fast`, one log per run, files restored from a byte copy with the
+sha256 checked. **All 15 went red on the predicted test.** One reddened a
+second test as well: removing the roman branch also broke
+`table_count_is_tables_not_sightings`, whose fixture carries `TABLE II.`,
+so that fixture is a second guard on the pattern. The runs used `--lib`, so
+the red counts are a floor on how many guards exist, not a census.
+
+Guards: roman branch · `\b` · case-sensitive numerals · sub-letter · dotted
+numbering · caption-shape filter · the PDF escape · the length limit · the
+full-stop test · structures win in `table_count` · distinct labels ·
+`extract_path` attaches structures · the lane ignores tables ·
+`report_build` calls `table_count` · the limitation sentence renders clean.
+
+#### Not claimed
+
+* **Not that the PDF table count is right.** 33 of 106, above.
+* **Not that the table finding is back.** D167's restoration condition was the
+  count matching a hand count across the corpus; the `.docx` rows now do and
+  the PDF rows do not.
+* **Not that the caption-shape rule is general.** It separates the three
+  `.docx` with sightings cleanly (5+2, 5+3, 8+0) and is unmeasured beyond them.

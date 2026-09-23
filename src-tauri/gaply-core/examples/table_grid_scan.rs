@@ -98,7 +98,7 @@ fn main() {
         let name = std::path::Path::new(p).file_name().unwrap().to_string_lossy().to_string();
         let Ok(text) = docparse::parse_path(std::path::Path::new(p)) else { continue };
         let ex = extract::extract_from_text(&text);
-        for tb in &ex.tables {
+        for tb in &ex.table_mentions {
             detected += 1;
             // §11 D169: resolve by the PRODUCER'S index. `find(kind)` returned
             // the first section of the kind, which is what made D168's 414 /

@@ -10,11 +10,11 @@ fn main() {
         let name = std::path::Path::new(p).file_name().unwrap().to_string_lossy().to_string();
         let Ok(text) = docparse::parse_path(std::path::Path::new(p)) else { continue };
         let ex = extract::extract_from_text(&text);
-        if ex.tables.is_empty() {
+        if ex.table_mentions.is_empty() {
             continue;
         }
-        println!("\n######## {name}  ({} detected) ########", ex.tables.len());
-        for tb in ex.tables.iter().take(show) {
+        println!("\n######## {name}  ({} detected) ########", ex.table_mentions.len());
+        for tb in ex.table_mentions.iter().take(show) {
             // §11 D169: resolve by the PRODUCER'S index. `find(kind)` returned
             // the first section of the kind, which is what made D168's 414 /
             // 237 / 177 split a measurement through a broken instrument.

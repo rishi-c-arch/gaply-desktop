@@ -1402,12 +1402,12 @@ fn table_findings(ex: &ExtractionResult) -> Vec<ReportFinding> {
     }
 
     #[allow(unreachable_code)]
-    let total = ex.tables.len();
+    let total = ex.table_mentions.len();
     if total == 0 {
         // A paper with no tables is not a finding.
         return Vec::new();
     }
-    let captioned = ex.tables.iter().filter(|t| t.caption.is_some()).count();
+    let captioned = ex.table_mentions.iter().filter(|t| t.caption.is_some()).count();
     let complete = captioned == total;
     paired(
         Finding {

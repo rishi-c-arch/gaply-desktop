@@ -1417,6 +1417,19 @@ mod tests {
         <w:tr><w:tc><w:p><w:r><w:t>BiLSTM</w:t></w:r></w:p></w:tc>\
         <w:tc><w:p></w:p></w:tc></w:tr></w:tbl>";
 
+    /// **§11 D213: extracting from a PATH carries the file's tables.** Without
+    /// them `detect_extraction` takes the PDF rule for a `.docx`.
+    #[test]
+    fn extracting_a_docx_from_its_path_attaches_its_tables() {
+        let dir = std::env::temp_dir().join(format!("gaply-d213-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("one-table.docx");
+        std::fs::write(&path, make_docx_body(TABLE_XML, "")).unwrap();
+        let ex = crate::extract::extract_path(&path).expect("extract");
+        std::fs::remove_dir_all(&dir).ok();
+        assert_eq!(ex.doc_tables.len(), 1, "the file's table is attached");
+    }
+
     /// **§11 D212: the grid Word stored, read as a grid.**
     #[test]
     fn a_word_table_is_parsed_as_rows_and_cells() {

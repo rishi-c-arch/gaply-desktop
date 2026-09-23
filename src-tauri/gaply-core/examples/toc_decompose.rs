@@ -27,7 +27,7 @@ fn main() {
     for p in &paths {
         let Ok(text) = docparse::parse_path(std::path::Path::new(p)) else { continue };
         let ex = extract::extract_from_text(&text);
-        for tb in &ex.tables {
+        for tb in &ex.table_mentions {
             total += 1;
             if ends_with_page_number(tb.caption.as_deref()) {
                 page_num_caption += 1;

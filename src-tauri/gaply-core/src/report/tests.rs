@@ -587,7 +587,7 @@ fn the_table_finding_is_withdrawn_and_the_extraction_is_not() {
         "T\n\nAbstract\nA.\n\nResults\nTable 1 Outcomes by arm\n\nTable 2\n",
     );
     // (2) precondition AND the containment: extraction is untouched.
-    assert_eq!(ex.tables.len(), 2, "the extractor still finds both tables");
+    assert_eq!(ex.table_mentions.len(), 2, "the extractor still finds both tables");
 
     let validation = crate::validate::validate(&ex);
     let report =

@@ -19,14 +19,14 @@ fn main() {
             *kinds.entry(format!("{:?}", s.kind)).or_default() += 1;
         }
         let repeated: Vec<_> = kinds.iter().filter(|(_, n)| **n > 1).collect();
-        total_tables += ex.tables.len();
+        total_tables += ex.table_mentions.len();
         if repeated.is_empty() {
             continue;
         }
         docs_repeated += 1;
         // How many tables sit in a kind that occurs more than once?
         let affected = ex
-            .tables
+            .table_mentions
             .iter()
             .filter(|t| kinds.get(&format!("{:?}", t.location.section)).copied().unwrap_or(0) > 1)
             .count();
@@ -34,7 +34,7 @@ fn main() {
         if affected > 0 {
             println!("{name}");
             println!("  repeated section kinds: {repeated:?}");
-            println!("  tables whose kind is repeated: {affected} of {}", ex.tables.len());
+            println!("  tables whose kind is repeated: {affected} of {}", ex.table_mentions.len());
         }
     }
     println!("\ndocuments with repeated section kinds   {docs_repeated}");

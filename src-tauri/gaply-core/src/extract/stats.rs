@@ -253,7 +253,22 @@ pub fn regexes() -> &'static Regexes {
             // headings keep taking the path above. §11 D189.
             runin_heading: Regex::new(r"^\s*([A-Za-z][A-Za-z &]{0,28}?)\s*[-\u{2013}\u{2014}:.]\s*(\S.*)$")
                 .unwrap(),
-            table_caption: Regex::new(r"(?i)^table\s+(\d+)[.:]?\s*(.*)$").unwrap(),
+            // **§11 D213: arabic, ROMAN, or a letter-prefixed label.** `TABLE II.` was
+            // invisible to `(\d+)` — 5 of R PAPER's 5 tables are captioned that way.
+            // The `\b` is load-bearing: without it `[IVXLCDM]+` eats the leading
+            // letter of an ordinary word and "Table Introduction" reads as table I
+            // (the §11 D189 trap, met again here).
+            //
+            // The roman and letter branches are CASE-SENSITIVE (`(?-i:…)`): under
+            // the outer `(?i)`, "Table did not converge" read as table DID — every
+            // letter of "did", "mid", "mix", "civil" is a numeral. The arabic
+            // branch takes a sub-letter ("Table 1a") and thesis numbering
+            // ("Table 3.2"): the `\b` would otherwise drop the first, and the
+            // second collapsed every table of a chapter onto one label.
+            table_caption: Regex::new(
+                r"(?i)^table\s+([0-9]+(?:\.[0-9]+)*[a-z]?|(?-i:[IVXLCDM]+)|(?-i:[A-Z][0-9]*))\b[.:)]?\s*(.*)$",
+            )
+            .unwrap(),
             doi: Regex::new(r"(?i)\b(10\.\d{4,9}/[^\s]+)").unwrap(),
             year_paren: Regex::new(r"\((19|20)\d{2}[a-z]?\)").unwrap(),
             year_bare: Regex::new(r"\b((?:19|20)\d{2})\b").unwrap(),

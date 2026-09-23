@@ -213,7 +213,9 @@ pub struct ResearchState {
     pub structure: Vec<SectionSummary>,
     /// Analyses and results: every statistic extraction found, with its span.
     pub statistics: Vec<StatClaim>,
-    pub tables: Vec<TableRef>,
+    /// Table SIGHTINGS, not tables (§11 D213). `alias`: pre-rename JSON reads.
+    #[serde(alias = "tables")]
+    pub table_mentions: Vec<TableRef>,
     /// Always empty — no extractor produces figures. See the module header.
     pub figures: Vec<Figure>,
     pub citations: Vec<Citation>,
@@ -235,7 +237,7 @@ impl ResearchState {
         let provenance = vec![
             prov("structure", "extract::sections", structure.len()),
             prov("statistics", "extract::stats", ex.statistics.len()),
-            prov("tables", "extract::detect_table", ex.tables.len()),
+            prov("table_mentions", "extract::detect_table (sightings, not tables)", ex.table_mentions.len()),
             prov("citations", "extract::citations::extract_in_text", ex.citations.len()),
             prov("references", "extract::citations::parse_reference_list", ex.references.len()),
             // Recorded at zero rather than omitted: "no extractor runs for this"
@@ -256,7 +258,7 @@ impl ResearchState {
             title: ex.title.clone(),
             structure,
             statistics: ex.statistics.clone(),
-            tables: ex.tables.clone(),
+            table_mentions: ex.table_mentions.clone(),
             figures: Vec::new(),
             citations: ex.citations.clone(),
             references: ex.references.clone(),
@@ -348,7 +350,7 @@ fn build_graph(s: &ResearchState) -> EvidenceGraph {
 
     // statistic -> table, same paragraph.
     for (si, st) in s.statistics.iter().enumerate() {
-        for (ti, t) in s.tables.iter().enumerate() {
+        for (ti, t) in s.table_mentions.iter().enumerate() {
             if same_paragraph(&st.location, &t.location) {
                 edges.push(Edge {
                     from: NodeRef::Statistic { index: si },
@@ -530,7 +532,7 @@ Diekelmann S and Born J. 2010. The memory function of sleep. Nature Reviews Neur
                 panic!("wrong node kinds: {e:?}")
             };
             assert_eq!(
-                s.statistics[*si].location, s.tables[*ti].location,
+                s.statistics[*si].location, s.table_mentions[*ti].location,
                 "an edge claiming co-location must actually be co-located"
             );
         }

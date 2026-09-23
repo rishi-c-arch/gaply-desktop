@@ -61,7 +61,7 @@ fn main() {
         let ex = extract::extract_from_text(&text);
         let (mut t, mut r, mut tot) = (0usize, 0usize, 0usize);
 
-        for tb in &ex.tables {
+        for tb in &ex.table_mentions {
             t += 1;
             // §11 D169: resolve by the PRODUCER'S index. `find(kind)` returned
             // the first section of the kind, which is what made D168's 414 /

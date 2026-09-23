@@ -42,7 +42,7 @@ fn main() {
             }
             "RT4" => {
                 let (ex, reports, _) = run_pipeline(BAD_TOTALS, None);
-                println!("  tables extracted          : {}", ex.tables.len());
+                println!("  tables extracted          : {}", ex.table_mentions.len());
                 println!("  findings produced         : {:?}", codes(&reports));
                 println!("  arithmetic check fired    : {}",
                     codes(&reports).iter().any(|c| c.to_lowercase().contains("arith") || c.to_lowercase().contains("total")));

@@ -511,12 +511,12 @@ mod tests {
     /// unbuilt check.
     ///
     /// Deletion-test note: the silence assertion below is not vacuous only
-    /// because the table IS extracted (`ex.tables.len() == 1`). Without that
+    /// because the table IS extracted (`ex.table_mentions.len() == 1`). Without that
     /// precondition this would pass on a manuscript containing no table.
     #[test]
     fn rt4_the_table_total_lane_is_declined_and_says_so() {
         let (ex, reports, _) = run_pipeline(BAD_TOTALS, None);
-        assert_eq!(ex.tables.len(), 1, "precondition: a table IS extracted");
+        assert_eq!(ex.table_mentions.len(), 1, "precondition: a table IS extracted");
         let found = codes(&reports);
         assert!(
             !found.iter().any(|c| {

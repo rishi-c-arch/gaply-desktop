@@ -548,6 +548,20 @@ pub fn detect_text(
     build_report(model, deep_kind, vec![section], ppls, prose)
 }
 
+/// **Is this table sighting a CAPTION rather than a sentence about a table?
+/// §11 D213.**
+///
+/// A caption's residue does not end a sentence and is short: "COMPARATIVE
+/// PERFORMANCE ON SEMEVAL-2018 TEST SET" against "shows comparative performance
+/// across the five baselines." Valid ONLY where the format kept the table body
+/// out of the caption paragraph (a `.docx`): a PDF glues the body on, and every
+/// real caption there reads as prose. `detect_extraction` applies it on that
+/// condition, and the corpus probe calls this function rather than a copy.
+pub fn is_caption_shaped(t: &crate::extract::TableRef) -> bool {
+    let c = t.caption.as_deref().unwrap_or("");
+    !c.trim_end().ends_with('.') && c.chars().count() <= 120
+}
+
 /// Detect per Extraction-Agent section, with an aggregated overall score.
 #[tracing::instrument(skip(model, result), fields(sections = result.sections.len()))]
 pub fn detect_extraction(
@@ -602,9 +616,27 @@ pub fn detect_extraction(
         // Paragraphs the extractor already identified as tables, matched on
         // section + paragraph (a `Location` may carry `section_index: None`,
         // and full equality would then never match — the §11 A4 trap).
+        // **§11 D213: exclude table CAPTIONS, not sentences about tables.**
+        //
+        // Widening the label pattern to roman numerals added real captions
+        // (good: a caption is not authored prose) and also in-text sentences
+        // like "Table II shows comparative performance…" (bad: that IS the
+        // author's prose, and excluding it shrinks the stylometry corpus with
+        // the very sentences being judged). On R PAPER: 5 captions, 2 such
+        // sentences.
+        //
+        // The discriminator is the residue's shape, and it is applied ONLY when
+        // the format carried table structures. Measured reason: on the four
+        // corpus `.docx` it separates cleanly (5+2, 5+3, 8+0, 0+0), and on the
+        // IJAS PDF it calls all three genuine captions prose — a PDF glues the
+        // table body onto the caption, so the residue is 1,239-2,123 characters.
+        // Applying it there would put three table bodies back into the prose
+        // corpus, trading one error for another.
+        let structured = !result.doc_tables.is_empty();
         let table_paras: std::collections::BTreeSet<usize> = result
-            .tables
+            .table_mentions
             .iter()
+            .filter(|t| !structured || is_caption_shaped(t))
             .filter(|t| {
                 t.location.section == sec.kind
                     && t.location.section_index.map(|i| i == si).unwrap_or(true)
@@ -2381,6 +2413,51 @@ mod tests {
             "the report must name the non-prose it does NOT identify: {:?}",
             rep.prose.not_excluded
         );
+    }
+
+    /// **§11 D213: a caption is excluded; a sentence ABOUT a table is not —
+    /// where the format kept the two apart.** Both halves of the rule, pinned by
+    /// the number of paragraphs excluded as `Table`:
+    /// * with table structures (a `.docx`), only the caption: 1;
+    /// * without (a PDF, where a real caption carries its glued-on body and
+    ///   reads as prose), every sighting: 2.
+    /// Removing `is_caption_shaped` reddens the first; removing the
+    /// `!structured` escape reddens the second.
+    #[test]
+    fn only_a_caption_shaped_sighting_is_excluded_when_the_format_has_tables() {
+        let text = "A Title\n\nResults\n\nTABLE II. COMPARATIVE PERFORMANCE ON THE TEST SET\n\n\
+                    Table II shows that the proposed model outperforms every baseline \
+                    on all five metrics we report.\n\n\
+                    The remaining analysis considers each metric separately and in turn.\n";
+        let table_paras = |ex: &crate::extract::ExtractionResult| -> usize {
+            detect_extraction(&HeuristicModel::gpt2_like(), DeepKind::Absent, ex)
+                .prose
+                .excluded
+                .iter()
+                .filter(|e| e.reason == ProseExclusionReason::Table)
+                .map(|e| e.paragraphs)
+                .sum()
+        };
+        let mut ex = crate::extract::extract_from_text(text);
+        assert_eq!(ex.table_mentions.len(), 2, "precondition: caption AND sentence are sighted");
+        assert_eq!(table_paras(&ex), 2, "no structures: every sighting is excluded");
+        ex.doc_tables = vec![Default::default()];
+        assert_eq!(table_paras(&ex), 1, "with structures: the caption only");
+    }
+
+    /// The length half of the shape rule: a residue with no full stop is still
+    /// prose when it runs past a caption's length — a PDF caption with its body
+    /// glued on measured 1,239-2,123 characters on the IJAS paper.
+    #[test]
+    fn a_long_residue_without_a_full_stop_is_not_caption_shaped() {
+        let t = |c: &str| crate::extract::TableRef {
+            label: "Table 1".into(),
+            caption: Some(c.into()),
+            location: crate::extract::Location::by_kind(SectionKind::Results, 0),
+        };
+        assert!(is_caption_shaped(&t("COMPARATIVE PERFORMANCE ON THE TEST SET")));
+        assert!(!is_caption_shaped(&t("shows the model outperforms every baseline.")));
+        assert!(!is_caption_shaped(&t(&"Mean yield 12 14 16 ".repeat(8))));
     }
 
     /// **NEGATIVE CONTROL: a manuscript with no bibliography has nothing

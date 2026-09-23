@@ -772,7 +772,7 @@ fn main() {
         println!("{:<28} {:>10} {:>14}", "sample sizes", a.2, b.2);
         println!("{:<28} {:>10} {:>14}", "statistical test names", a.3, b.3);
         println!("{:<28} {:>10} {:>14}", "TOTAL", ex.statistics.len(), ex2.statistics.len());
-        println!("{:<28} {:>10} {:>14}", "tables", ex.tables.len(), ex2.tables.len());
+        println!("{:<28} {:>10} {:>14}", "tables", ex.table_mentions.len(), ex2.table_mentions.len());
         println!("\n--- raw statistics, as-parsed ---");
         for s in &ex.statistics { println!("  {:?} @ {:?}/{}", s.stat, s.location.section, s.location.paragraph); }
         println!("--- raw statistics, reconstructed ---");

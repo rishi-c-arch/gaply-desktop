@@ -7,7 +7,7 @@ fn main() {
         let name = std::path::Path::new(&p).file_name().unwrap().to_string_lossy().to_string();
         let Ok(text) = docparse::parse_path(std::path::Path::new(&p)) else { continue };
         let ex = extract::extract_from_text(&text);
-        println!("\n######## {name} — {} table(s) detected now", ex.tables.len());
+        println!("\n######## {name} — {} table(s) detected now", ex.table_mentions.len());
         // Find raw "Table N" paragraphs regardless of whether they were admitted.
         let mut shown = 0;
         for sec in &ex.sections {

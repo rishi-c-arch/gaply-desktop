@@ -52,7 +52,7 @@ fn main() {
             let want = raw_of(&c.stat);
             if !got.contains(want.as_str()) && elsewhere(&c.location, &want) { claims_wrong += 1; }
         }
-        for t in &ex.tables {
+        for t in &ex.table_mentions {
             tables += 1;
             if !ambiguous(&t.location) { continue; }
             tables_amb += 1;

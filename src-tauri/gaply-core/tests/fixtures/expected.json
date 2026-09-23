@@ -533,7 +533,7 @@
       "raw": "95% CI: 2.1 to 4.8"
     }
   ],
-  "tables": [
+  "table_mentions": [
     {
       "caption": "reports the primary outcomes. The extended-sleep group scored higher on the n-back task (p < 0.001, 95% CI: 2.1 to 4.8). A secondary analysis showed a dose effect (p = 0.02). These findings replicate Okafor et al. (2019).",
       "label": "Table 1",

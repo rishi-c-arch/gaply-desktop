@@ -317,10 +317,24 @@ pub struct ExtractionResult {
     pub statistics: Vec<StatClaim>,
     pub citations: Vec<Citation>,
     pub references: Vec<Reference>,
-    pub tables: Vec<TableRef>,
+    /// **Paragraphs that BEGIN with a table label — sightings, not tables.
+    /// §11 D213.**
+    ///
+    /// Renamed from `tables`, which was the lie: this never held tables. A
+    /// sighting is a caption ("Table II. COMPARATIVE PERFORMANCE…") OR a
+    /// sentence about a table ("Table II shows comparative performance…"), and
+    /// on R PAPER the widened pattern finds 5 of the first and 2 of the second.
+    /// A thesis contents page yields one per line (§11 D167). **Counting these
+    /// is not counting tables**; `doc_tables` is.
+    ///
+    /// `alias = "tables"`: JSON written before the rename still reads.
+    /// `validation_golden` met exactly that — a stored extraction failing with
+    /// "missing field `table_mentions`".
+    #[serde(alias = "tables")]
+    pub table_mentions: Vec<TableRef>,
     /// **The tables the FILE declares, as structures. §11 D212.**
     ///
-    /// Distinct from `tables`, which is caption sightings in prose. Populated
+    /// Distinct from `table_mentions`, which is caption sightings in prose. Populated
     /// from the document bytes, so it is filled by the caller that has the
     /// path (`extract_from_text` cannot see them) and is empty for a format
     /// with no table objects — a PDF — where empty means "this format carries
@@ -331,6 +345,52 @@ pub struct ExtractionResult {
     /// cloud stages only receive bounded summaries derived from it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scientific: Option<Arc<ScientificExtraction>>,
+}
+
+/// **Parse a file and extract it, WITH the table structures the file declares.
+/// §11 D213.**
+///
+/// `extract_from_text` sees only flattened text, so `doc_tables` must be
+/// attached by whoever holds the path, and `ai_detect::detect_extraction`
+/// behaves differently with and without them. The pipeline attaches them
+/// itself (it needs the text and its own options); every other caller that
+/// starts from a path uses this, so no path can silently take the PDF rule
+/// for a `.docx`. A table parse failure leaves the vector empty, which is the
+/// PDF state: no structure was read, not that none exists.
+pub fn extract_path(path: &std::path::Path) -> Result<ExtractionResult, crate::error::GaplyError> {
+    let text = docparse::parse_path(path)?;
+    let mut ex = extract_from_text(&text);
+    ex.doc_tables = docparse::parse_path_tables(path).unwrap_or_default();
+    Ok(ex)
+}
+
+impl ExtractionResult {
+    /// **How many tables the manuscript has — the number a reader is shown.
+    /// §11 D213.**
+    ///
+    /// The file's own table structures when the format carries them; otherwise
+    /// the number of DISTINCT sighting labels, which is the best a PDF admits.
+    /// Never `table_mentions.len()`: that counts a table once for its
+    /// contents-page row, once for its caption and once for every paragraph
+    /// that opens by naming it.
+    ///
+    /// **The fallback is not a count, and on a long PDF it is badly low.**
+    /// A table no paragraph opens by naming is missed, and a contents row
+    /// naming a table absent from the body is counted. Measured 23 Sep 2026 on
+    /// `final final L.pdf`, whose own List of Tables runs 1-106: **33**. That
+    /// figure was 33 before §11 D213 too; the rule did not cause it and does
+    /// not fix it. Recorded here so the next reader does not take the PDF
+    /// number for a measurement.
+    pub fn table_count(&self) -> usize {
+        if !self.doc_tables.is_empty() {
+            return self.doc_tables.len();
+        }
+        self.table_mentions
+            .iter()
+            .map(|t| t.label.as_str())
+            .collect::<std::collections::BTreeSet<_>>()
+            .len()
+    }
 }
 
 /// What an extraction run should compute beyond the base structure.
@@ -401,7 +461,7 @@ pub fn extract_from_text_with(text: &str, opts: ExtractOptions) -> ExtractionRes
         statistics,
         citations,
         references,
-        tables,
+        table_mentions: tables,
         ..Default::default()
     };
 
@@ -592,6 +652,90 @@ Jones, P. (2019). Memory under deprivation. Cognitive Science, 5(1), 10-20.
     #[test]
     fn detects_table_reference() {
         let r = extract_from_text(SAMPLE);
-        assert!(r.tables.iter().any(|t| t.label == "Table 1"));
+        assert!(r.table_mentions.iter().any(|t| t.label == "Table 1"));
+    }
+    /// **§11 D213: JSON written under the old key still reads.** Deserialised
+    /// from a payload whose key is `tables` — the shape on disk before the
+    /// rename — not from one constructed with the new name.
+    #[test]
+    fn an_extraction_stored_under_the_old_key_still_reads() {
+        let ex = extract_from_text("Results\n\nTable 1 Outcomes by arm\n");
+        let mut v = serde_json::to_value(&ex).unwrap();
+        let obj = v.as_object_mut().unwrap();
+        let mentions = obj.remove("table_mentions").expect("serialised under the new key");
+        obj.insert("tables".into(), mentions);
+        let back: ExtractionResult = serde_json::from_value(v).expect("legacy key reads");
+        assert_eq!(back.table_mentions.len(), 1);
+    }
+
+    /// **§11 D213: `table_count` counts TABLES.** A contents row, a caption
+    /// and a sentence all naming Table 1 are one table; structures, when the
+    /// format carries them, win outright.
+    #[test]
+    fn table_count_is_tables_not_sightings() {
+        let mut ex = extract_from_text(
+            "Contents\n\nTable 1 Outcomes by arm 12\n\nResults\n\nTable 1 Outcomes by arm\n\n\
+             Table 1 shows the outcomes.\n\nTABLE II. COMPARATIVE PERFORMANCE\n",
+        );
+        assert_eq!(ex.table_mentions.len(), 4, "precondition: four sightings");
+        assert_eq!(ex.table_count(), 2, "two distinct tables named");
+        ex.doc_tables = vec![Default::default(); 5];
+        assert_eq!(ex.table_count(), 5, "the file's own structures win");
+    }
+
+    /// **§11 D213: roman numerals and letter labels are sightings too.**
+    /// `TABLE II.` was invisible to `(\d+)`, and it is how all five of
+    /// R PAPER's tables are captioned.
+    #[test]
+    fn a_roman_or_letter_table_label_is_seen() {
+        let seen = |text: &str| {
+            extract_from_text(text)
+                .table_mentions
+                .iter()
+                .map(|t| t.label.clone())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(seen("Methods\n\nTABLE II. COMPARATIVE PERFORMANCE\n"), vec!["Table II"]);
+        assert_eq!(seen("Methods\n\nTable IV ABLATION STUDY\n"), vec!["Table IV"]);
+        assert_eq!(seen("Methods\n\nTable S1: Supplementary results\n"), vec!["Table S1"]);
+        assert_eq!(seen("Methods\n\nTable A Organisational index\n"), vec!["Table A"]);
+        assert_eq!(seen("Methods\n\nTable 3 Outcomes\n"), vec!["Table 3"]);
+        // A sub-letter and thesis numbering keep their whole label: the `\b`
+        // dropped the first, and the second put a chapter's tables on one label.
+        assert_eq!(seen("Methods\n\nTable 1a Baseline\n"), vec!["Table 1a"]);
+        assert_eq!(seen("Methods\n\nTable 3.2 Yield by plot\n"), vec!["Table 3.2"]);
+    }
+
+    /// The roman branch is case-sensitive: under the outer `(?i)` every letter
+    /// of "did" is a numeral, so a sentence opening "Table did not" read as a
+    /// table labelled DID.
+    #[test]
+    fn a_lowercase_word_made_of_numeral_letters_is_not_a_label() {
+        for text in [
+            "Methods\n\nTable did not converge under the default solver.\n",
+            "Methods\n\nTable mix of cohorts is described below.\n",
+        ] {
+            assert!(
+                extract_from_text(text).table_mentions.is_empty(),
+                "a word is not a numeral: {text:?}"
+            );
+        }
+    }
+
+    /// The `\b` in the pattern, deletion-tested by hand: without it
+    /// `[IVXLCDM]+` eats the leading letter of an ordinary word and a heading
+    /// reads as a table. §11 D189 met the same trap in `detect_heading`.
+    #[test]
+    fn a_word_beginning_with_a_numeral_letter_is_not_a_table_label() {
+        for text in [
+            "Methods\n\nTable Introduction to the dataset\n",
+            "Methods\n\nTable Views of the participants\n",
+            "Methods\n\nTable Development of the model\n",
+        ] {
+            assert!(
+                extract_from_text(text).table_mentions.is_empty(),
+                "a word is not a numeral: {text:?}"
+            );
+        }
     }
 }
