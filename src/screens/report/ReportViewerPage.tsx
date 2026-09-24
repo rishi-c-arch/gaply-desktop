@@ -28,7 +28,7 @@ import {
   sortFindings,
   tierStatus,
 } from './reportTypes';
-import { SAMPLE_MANUSCRIPT_SECTIONS, SAMPLE_REPORT } from './sampleReport';
+import { SAMPLE_REPORT } from './sampleReport';
 import { downloadReportPdf } from './exportPdf';
 import vocab from '../../generated/vocabulary.json';
 import '../auth/auth.css';
@@ -50,6 +50,12 @@ export function reportDisclaimerFallback(report: PublishReadyReport): string {
     ? vocab.report_disclaimer.with_revision
     : vocab.report_disclaimer.no_revision;
 }
+
+/** What the Manuscript card says when no body was passed — which is every
+ *  production caller, because the report carries no manuscript prose (§4.22).
+ *  §11 D223. */
+export const MANUSCRIPT_NOT_IN_REPORT =
+  'The manuscript text is not part of this report.';
 
 export interface ReportViewerPageProps {
   /** The compiled report. Defaults to the golden sample until a
@@ -88,7 +94,13 @@ function statusForSection(findings: Finding[], section: string): BadgeStatus | '
 
 const ReportInner: React.FC<ReportViewerPageProps> = ({
   report = SAMPLE_REPORT,
-  manuscriptSections = SAMPLE_MANUSCRIPT_SECTIONS,
+  // §11 D223: NO default. It defaulted to SAMPLE_MANUSCRIPT_SECTIONS — a
+  // sleep-and-memory paper — and no caller passes it, so every real report
+  // showed another document's text in the Manuscript card and its section
+  // names in the Outline (D222). The body cannot reach this component (the
+  // wire carries no prose; LocalReportModel is not Serialize, §4.22), so the
+  // honest empty state is a line saying so, and no Outline.
+  manuscriptSections = [],
   isPaid = false,
   tabs: tabsProp,
   title = 'Integrity report',
@@ -147,6 +159,7 @@ const ReportInner: React.FC<ReportViewerPageProps> = ({
 
           <ThreePanelWorkspace
             outline={
+              manuscriptSections.length === 0 ? undefined : (
               <Panel title="Outline">
                 <div className="gds-outline" data-testid="outline">
                   {manuscriptSections.map((s) => (
@@ -166,6 +179,7 @@ const ReportInner: React.FC<ReportViewerPageProps> = ({
                   ))}
                 </div>
               </Panel>
+              )
             }
             inspector={
               <Panel title="Inspector">
@@ -314,6 +328,11 @@ const OverviewView: React.FC<{
     {/* center manuscript with inline tier highlights */}
     <Card title="Manuscript">
       <div className="gds-manuscript" data-testid="manuscript">
+        {sections.length === 0 && (
+          <p className="gds-finding__detail" data-testid="manuscript-not-in-report">
+            {MANUSCRIPT_NOT_IN_REPORT}
+          </p>
+        )}
         {sections.map((s) => {
           const f = ordered.find((x) => x.section === s.section);
           return (

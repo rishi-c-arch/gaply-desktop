@@ -18300,3 +18300,35 @@ fields only; it is the component, not the `.app`.
   tab; no test switches tab and reads the Inspector.
 
 Nothing was changed. Both are recorded for a decision.
+
+### D223 — the report viewer stops showing another document (D222 §1, fixed)
+
+**Decision: keep the Manuscript card with a one-line empty state, and render
+the Outline only when a body is passed.** Removing the card and Outline would
+delete the feature the negative control requires to survive (an explicitly
+passed `manuscriptSections` renders). An empty card with no sentence would read
+as "your text was lost"; an outline of nothing has nothing to navigate.
+
+* `manuscriptSections` has no default. It defaulted to
+  `SAMPLE_MANUSCRIPT_SECTIONS`, which no production caller overrode.
+* With none passed (every production caller), the card reads *"The manuscript
+  text is not part of this report."* (`MANUSCRIPT_NOT_IN_REPORT`) and the
+  Outline column is omitted. The body cannot reach this component — the wire
+  carries no prose, `LocalReportModel` is not `Serialize` (§4.22) — so the fix
+  is to stop showing someone else's, not to plumb the user's through.
+* `SAMPLE_MANUSCRIPT_SECTIONS` stays in `sampleReport.ts` for tests; the golden
+  render now passes it explicitly.
+
+**Tests** (`report.vitest.tsx`), on a fixture shaped like run 32 (synthetic
+titles: the real report quotes the user's manuscript and is not committed):
+acceptance — no sample sentence, no sample section name and no outline on ANY
+of the seven PublishReady tabs, clicking each; negative control — an
+explicitly passed section renders in the card and the outline.
+
+**Deletion tests — predictions first, 3 of 3 as predicted.**
+
+| # | break | predicted red | red |
+|---|---|---|---|
+| 1 | default back to the sample sections | acceptance | acceptance; on the first run ALSO copilot's "why was X flagged" (text not found) — that test does not render the viewer, passed 3 of 3 alone on the clean tree, and the re-run of this break reddened acceptance only. Load flake, recorded rather than dropped |
+| 2 | Outline never rendered | negative control + golden render | exactly those |
+| 3 | empty-state line never rendered | acceptance | acceptance only |

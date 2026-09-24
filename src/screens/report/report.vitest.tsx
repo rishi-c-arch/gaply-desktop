@@ -6,10 +6,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { GaplySessionProvider } from '../session/SessionProvider';
 import type { AuthService } from '../../services/supabase';
-import ReportViewerPage, { reportDisclaimerFallback } from './ReportViewerPage';
+import ReportViewerPage, { MANUSCRIPT_NOT_IN_REPORT, reportDisclaimerFallback } from './ReportViewerPage';
 import vocab from '../../generated/vocabulary.json';
-import { SAMPLE_REPORT } from './sampleReport';
-import { sortFindings, tierStatus, Finding, PublishReadyReport } from './reportTypes';
+import { SAMPLE_MANUSCRIPT_SECTIONS, SAMPLE_REPORT } from './sampleReport';
+import { sortFindings, tierStatus, Finding, PublishReadyReport, ReportTab } from './reportTypes';
 import { reportPdfBlob } from './exportPdf';
 
 vi.mock('../../design-system/GaplyGlobe', () => ({
@@ -44,7 +44,9 @@ function renderReport(report?: PublishReadyReport, isPaid = false, extra: any = 
 
 describe('golden render against a sample compile_report() output', () => {
   it('renders the three-panel viewer with tabs, outline, manuscript, inspector', async () => {
-    renderReport();
+    // Sections passed EXPLICITLY: since §11 D223 there is no sample default, and
+    // the outline renders only when a body was given.
+    renderReport(undefined, false, { manuscriptSections: SAMPLE_MANUSCRIPT_SECTIONS });
     await screen.findByTestId('report-viewer');
     // top tabs (free = 6, no Reviewer Letter)
     for (const t of ['Overview', 'Statistics', 'Citations', 'AI Risk', 'Plagiarism', 'Checklist']) {
@@ -350,5 +352,67 @@ describe('report disclaimer copies read Rust (§11 D221)', () => {
   it('the sample report carries what Rust produces for a run with a revision', () => {
     expect(SAMPLE_REPORT.debate.revised_agents.length).toBeGreaterThan(0); // precondition
     expect(SAMPLE_REPORT.disclaimer).toBe(vocab.report_disclaimer.with_revision);
+  });
+});
+
+/* --------------------- §11 D222/D223: no other document ---------------------- */
+
+// Shaped like run 32's cached report (9 findings: 2 validation, 1 verification,
+// 3 ai_detection, extraction + rag, NO plagiarism), with synthetic titles — the
+// real one quotes the user's manuscript and is not committed. No title names a
+// manuscript section, so a section name on screen can only come from the viewer.
+function run32Shaped(): PublishReadyReport {
+  const f = (agent: any, severity: any, tier: any, title: string): Finding => ({
+    agent, severity, tier, title, detail: `${title} detail`, confidence: 0.5,
+    certainty_label: tier === 'mathematically_certain' ? 'not detected by an automated check' : 'AI-assessed, moderate confidence',
+    provenance: ['rule:x'],
+  } as Finding);
+  return {
+    ...SAMPLE_REPORT,
+    checklist: [],
+    findings: [
+      f('validation_maths', 'major', 'mathematically_certain', 'stat rule one'),
+      f('validation_maths', 'major', 'mathematically_certain', 'stat rule two'),
+      f('ai_detection', 'minor', 'ai_assessed_moderate', 'ai signal one'),
+      f('ai_detection', 'minor', 'ai_assessed_moderate', 'ai signal two'),
+      f('extraction', 'minor', 'ai_assessed_moderate', 'extraction note'),
+      f('verification', 'minor', 'ai_assessed_moderate', 'citations could not be checked'),
+      f('extraction', 'info', 'ai_assessed_moderate', 'extraction pass'),
+      f('ai_detection', 'info', 'ai_assessed_moderate', 'ai concern'),
+      f('rag', 'info', 'ai_assessed_moderate', 'rag pass'),
+    ],
+    debate: { ...SAMPLE_REPORT.debate, revised_agents: [] },
+  };
+}
+const PR_TABS = ['Overview', 'Statistics', 'Citations', 'AI Risk', 'Plagiarism', 'Checklist', 'Reviewer Letter'] as ReportTab[];
+
+describe('the viewer shows no other document (§11 D223)', () => {
+  // ACCEPTANCE: with no manuscriptSections — every production caller — no sample
+  // sentence and no sample section name appears on ANY tab, and there is no
+  // outline. The card says why it is empty.
+  it('with no body passed, no sample sentence or section name appears on any tab', async () => {
+    renderReport(run32Shaped(), false, { tabs: PR_TABS });
+    await screen.findByTestId('report-viewer');
+    expect(screen.getByTestId('manuscript-not-in-report').textContent).toBe(MANUSCRIPT_NOT_IN_REPORT);
+    for (const t of PR_TABS) {
+      fireEvent.click(screen.getByTestId(`tab-${t}`));
+      const body = document.body.textContent ?? '';
+      for (const s of SAMPLE_MANUSCRIPT_SECTIONS) {
+        expect(body, `${t}: sample sentence`).not.toContain(s.text);
+        expect(body, `${t}: sample section name`).not.toContain(s.section);
+      }
+      expect(screen.queryByTestId('outline'), `${t}: outline`).toBeNull();
+    }
+  });
+
+  // NEGATIVE CONTROL: the feature is not deleted — a body passed explicitly
+  // still renders in the card and the outline, and the empty-state line does not.
+  it('an explicitly passed body still renders', async () => {
+    const sections = [{ section: 'Methods', text: 'A caller-supplied sentence.' }];
+    renderReport(run32Shaped(), false, { manuscriptSections: sections });
+    await screen.findByTestId('report-viewer');
+    expect(screen.getByTestId('manuscript').textContent).toContain('A caller-supplied sentence.');
+    expect(screen.getByTestId('outline-Methods')).toBeTruthy();
+    expect(screen.queryByTestId('manuscript-not-in-report')).toBeNull();
   });
 });
