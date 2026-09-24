@@ -18216,3 +18216,87 @@ Baselines: vitest 964 (957 + 7), Rust 1948 over 31 targets (1947 + 1).
 Break 6 is the point of single-sourcing: one Rust edit reaches the PDF, the
 viewer and both panel paragraphs, and every pin that states the wording goes
 red while every wiring pin stays green.
+
+### D222 — two report-viewer observations from run 32, MEASURED, NOT FIXED
+
+**Provenance.** HEAD `ca6f747`. **Run 32** = PublishReady `run_id "32"`,
+recorded 2026-09-24 03:34:54 in `box4_comparisons.jsonl`; its
+`manuscript_sha256` `effbb86c24958610…` equals `~/Desktop/R PAPER .docx`, whose
+text contains "HEFCSO" 26 times, 9 of them as "HEFCSO-BiLSTM" and 1 as "HEFCSO-BILSTM" `[ran]`. Its report is the cache row
+`report:v2:e3:32` (9 findings), read from a copy of `gaply.db` + WAL `[ran]`.
+Tags: `[probe]` = run 32's cached report rendered through the real
+`ReportViewerPage` with PublishReady's props (`PR_TABS`, `bare`, no
+`manuscriptSections`) in jsdom, then tabs clicked — a throwaway vitest file,
+deleted, sha256 `a14be06fdd22d31a…`; `[source]` = read from code at `ca6f747`.
+The probe fed the cached JSON without `enrich_report_labels`, which adds label
+fields only; it is the component, not the `.app`.
+
+#### 1. The MANUSCRIPT column shows a sample paper about sleep
+
+* **Component** `[source]`: `OverviewView` in `ReportViewerPage.tsx`, the
+  "Manuscript" card (`data-testid="manuscript"`). It renders the
+  `manuscriptSections` prop; the **Outline** panel renders the same prop.
+* **Where the text comes from** `[source]`: the prop defaults to
+  `SAMPLE_MANUSCRIPT_SECTIONS` (`sampleReport.ts`), six sentences about a
+  sleep-and-memory trial. **No caller passes `manuscriptSections`**:
+  PublishReadyPage, LiveReportPage (`/app/report`), CheckScreen (Stats Check)
+  and PlagiarismCheckPage all omit it. The default has been in place since the
+  viewer's first commit, `e87f0c7` (7 Jul).
+* **Does the real body ever reach it?** No, by construction `[source]` + `[ran]`.
+  The report on the wire carries no manuscript prose — the cached run-32 report
+  contains "HEFCSO" 0 times, "BiLSTM" 0 — and `LocalReportModel`, which does
+  carry prose, is deliberately not `Serialize` (§4.22). There is no path for the
+  body to reach this component.
+* **What a user sees, run 32** `[probe]`: the column reads *"A randomized trial
+  (n = 96) found improved recall after extended sleep. … Doe, J. (2022). Sleep
+  and memory. Journal of Rest…"* beside the findings for R PAPER; **0
+  highlights**.
+* **In which states** `[source]`: the Manuscript card renders whenever the
+  **Overview** tab is active, which is the DEFAULT tab of PublishReady,
+  `/app/report`, Stats Check and Plagiarism Check. The **Outline** panel lists
+  the sample's six section names (Abstract … References) on **every** tab.
+* **Is the sample ever presented as evidence for a real finding?** No
+  `[source]` + `[probe]`. A section is highlighted only when a finding's
+  `section` equals the sample heading. Rust reports carry `location`, not
+  `section` (run 32: 0 of 9 findings have one); the adapters set `section` to
+  snake_case (`'results'`, `'introduction'`) or `"chunk N"`, never `"Results"`.
+  So the sample text is always shown plain and the outline dots stay neutral.
+  **The text is another document's, shown as though it were the user's; it is
+  not attached to any of their findings.**
+* **Tests** `[source]`: `report.vitest.tsx` asserts the `manuscript` element
+  EXISTS (`getByTestId('manuscript')`) on the sample report; nothing asserts
+  what it contains, and no test renders a real report and checks the column.
+
+#### 2. The Inspector keeps showing the missing-effect-size finding on other tabs
+
+* **What it does today** `[source]`: selection is ONE index into the whole
+  sorted list (`selectedId`, initial `0`), shared by every tab. Changing tab
+  does not reset or filter it; the Inspector renders `ordered[selectedId]`
+  whatever the tab lists. Initial `0` is the first finding in sort order.
+* **Run 32** `[probe]`:
+
+  | tab | rows listed | Inspector shows |
+  |---|---|---|
+  | Statistics | 2 (missing effect size, missing CI) | missing effect size |
+  | Citations | 1 ("25 of 25 citation(s) could not be checked") | missing effect size |
+  | AI Risk | 3 | missing effect size |
+  | Plagiarism | 0 — "No findings in this category" | missing effect size |
+  | Overview | 9 | missing effect size |
+
+  After selecting the Citations row and opening Plagiarism, the Inspector shows
+  the citations finding: it follows the last click, not the tab.
+* **A correction to the observation as reported:** Citations and AI Risk are
+  NOT empty for run 32 (1 and 3 rows). The empty state reproduces only on
+  Plagiarism. What reproduces on all four is the Inspector showing a finding
+  that the tab does not list.
+* **Deliberate or not?** No evidence either way `[source]`. `e87f0c7`
+  introduced the single index with the viewer; no comment, doc or decision
+  record says the Inspector is global, and none says it is per-tab.
+* **What a reader would infer:** the Inspector sits beside the tab's list, so
+  under "Plagiarism — No findings in this category" a statistics finding reads
+  as belonging to Plagiarism, or as contradicting the empty state.
+* **Tests** `[source]`: none pins either behaviour. The two Inspector tests in
+  `report.vitest.tsx` click a row and read the Inspector, both on the Overview
+  tab; no test switches tab and reads the Inspector.
+
+Nothing was changed. Both are recorded for a decision.
