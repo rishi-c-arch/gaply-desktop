@@ -57,6 +57,14 @@ export function reportDisclaimerFallback(report: PublishReadyReport): string {
 export const MANUSCRIPT_NOT_IN_REPORT =
   'The manuscript text is not part of this report.';
 
+/** **The findings a tab LISTS — the only ones its Inspector may show. §11 D224.**
+ *  Checklist and Reviewer Letter list none; `findingsForTab`'s default branch
+ *  returns every finding for them, which is right for Overview and wrong here. */
+export function findingsListedBy(ordered: Finding[], tab: ReportTab): Finding[] {
+  if (tab === 'Checklist' || (tab as string) === 'Reviewer Letter') return [];
+  return findingsForTab(ordered, tab);
+}
+
 export interface ReportViewerPageProps {
   /** The compiled report. Defaults to the golden sample until a
    *  `compile_report` Tauri command feeds a live one. */
@@ -114,7 +122,19 @@ const ReportInner: React.FC<ReportViewerPageProps> = ({
   const ordered = useMemo(() => sortFindings(report.findings), [report.findings]);
   const tabs = tabsProp ?? (isPaid ? [...REPORT_TABS, 'Reviewer Letter' as ReportTab] : REPORT_TABS);
   const [tab, setTab] = useState<ReportTab>(tabs[0] ?? 'Overview');
-  const [selectedId, setSelectedId] = useState<number>(0); // index into `ordered`
+  // §11 D224: the Inspector shows only a finding the CURRENT tab lists. It was
+  // one index shared by every tab and never reset, so run 32 showed "missing
+  // effect size" beside "Plagiarism — No findings in this category" (D222 §2).
+  // On a tab change the selection becomes that tab's FIRST finding, or none.
+  const firstIndexFor = (t: ReportTab): number => {
+    const first = findingsListedBy(ordered, t)[0];
+    return first ? ordered.indexOf(first) : -1;
+  };
+  const [selectedId, setSelectedId] = useState<number>(() => firstIndexFor(tabs[0] ?? 'Overview')); // index into `ordered`; -1 = none
+  const openTab = (t: ReportTab) => {
+    setTab(t);
+    setSelectedId(firstIndexFor(t));
+  };
   const [activeSection, setActiveSection] = useState<string>(manuscriptSections[0]?.section ?? '');
 
   const selected = ordered[selectedId];
@@ -150,7 +170,7 @@ const ReportInner: React.FC<ReportViewerPageProps> = ({
                 aria-selected={t === tab}
                 className="gds-report__tab"
                 data-testid={`tab-${t}`}
-                onClick={() => setTab(t)}
+                onClick={() => openTab(t)}
               >
                 {t}
               </button>

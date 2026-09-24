@@ -18332,3 +18332,38 @@ explicitly passed section renders in the card and the outline.
 | 1 | default back to the sample sections | acceptance | acceptance; on the first run ALSO copilot's "why was X flagged" (text not found) — that test does not render the viewer, passed 3 of 3 alone on the clean tree, and the re-run of this break reddened acceptance only. Load flake, recorded rather than dropped |
 | 2 | Outline never rendered | negative control + golden render | exactly those |
 | 3 | empty-state line never rendered | acceptance | acceptance only |
+
+### D224 — the Inspector shows only a finding the current tab lists (D222 §2, fixed)
+
+**Decision: on a tab change, select that tab's FIRST listed finding, or none.**
+Clearing the selection was the alternative; it fails the acceptance (opening
+Citations must show a Citations finding) and would leave the Inspector blank
+on every non-empty tab until a click. The same rule sets the initial
+selection, so a screen that opens on a tab other than Overview starts right.
+
+* `findingsListedBy(ordered, tab)` is what a tab lists: `findingsForTab` for
+  the finding tabs, and **none** for Checklist and Reviewer Letter, where
+  `findingsForTab`'s default branch returned every finding.
+* Selection is still one index into `ordered`; clicking a row or highlight
+  still sets it. Only a tab change moves it.
+
+**Acceptance on run 32's real cached report** `[probe]` (throwaway vitest
+render, PublishReady props, deleted, sha256 `fe75af0c55607c34…`; HEAD
+`3b3979d` + this change): Plagiarism — "No findings in this category", Inspector
+none; Citations — Inspector "25 of 25 citation(s) could not be checked";
+AI Risk — its first; Checklist and Reviewer Letter — none; on Statistics,
+clicking the second finding selects "missing confidence interval". Every tab:
+0 sample sentences, no outline (D223).
+
+**Tests** (`report.vitest.tsx`, the first to switch tabs and read the
+Inspector): Plagiarism shows none; Citations shows its finding; every tab in
+turn shows its first listed finding or none; negative control — a click on a
+listed finding selects it.
+
+**Deletion tests — predictions first, 3 of 3 as predicted.**
+
+| # | break | predicted red | red |
+|---|---|---|---|
+| 1 | tab change no longer resets the selection | Plagiarism, Citations, every-tab | exactly those 3 |
+| 2 | Checklist/Reviewer Letter list every finding again | every-tab | that only |
+| 3 | a click no longer selects | negative control + the existing reconsidered-verdict test (it clicks a non-first row) | exactly those 2 |

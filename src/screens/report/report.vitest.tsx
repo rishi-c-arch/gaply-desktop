@@ -416,3 +416,63 @@ describe('the viewer shows no other document (§11 D223)', () => {
     expect(screen.queryByTestId('manuscript-not-in-report')).toBeNull();
   });
 });
+
+/* ------------- §11 D222/D224: the Inspector follows the tab ---------------- */
+
+// The Inspector's finding, or null. Its title has no testid; the tier badge
+// renders only when a finding is shown.
+function inspectorFinding(): string | null {
+  const insp = screen.getByTestId('inspector');
+  return within(insp).queryByTestId('inspector-tier') ? (insp.textContent ?? '') : null;
+}
+
+describe('the Inspector shows only a finding the current tab lists (§11 D224)', () => {
+  // ACCEPTANCE (run 32's shape): Plagiarism lists nothing, so nothing is shown
+  // beside "No findings in this category".
+  it('opening Plagiarism shows no Inspector finding', async () => {
+    renderReport(run32Shaped(), false, { tabs: PR_TABS });
+    await screen.findByTestId('report-viewer');
+    fireEvent.click(screen.getByTestId('tab-Plagiarism'));
+    expect(screen.getByTestId('findings').textContent).toContain('No findings in this category');
+    expect(inspectorFinding()).toBeNull();
+  });
+
+  // ACCEPTANCE: Citations lists one finding, and the Inspector shows it.
+  it('opening Citations shows a Citations finding', async () => {
+    renderReport(run32Shaped(), false, { tabs: PR_TABS });
+    await screen.findByTestId('report-viewer');
+    fireEvent.click(screen.getByTestId('tab-Citations'));
+    expect(inspectorFinding()).toContain('citations could not be checked');
+  });
+
+  // Every tab, in order: whatever the Inspector shows is a row that tab lists,
+  // and a tab listing nothing (Plagiarism, Checklist, Reviewer Letter) shows none.
+  it('on every tab the Inspector shows that tab\'s first listed finding, or none', async () => {
+    renderReport(run32Shaped(), false, { tabs: PR_TABS });
+    await screen.findByTestId('report-viewer');
+    const expected: Record<string, string | null> = {
+      Statistics: 'stat rule one',
+      Citations: 'citations could not be checked',
+      'AI Risk': 'ai signal one',
+      Plagiarism: null,
+      Checklist: null,
+      'Reviewer Letter': null,
+      Overview: 'stat rule one',
+    };
+    for (const [t, first] of Object.entries(expected)) {
+      fireEvent.click(screen.getByTestId(`tab-${t}`));
+      if (first === null) expect(inspectorFinding(), t).toBeNull();
+      else expect(inspectorFinding(), t).toContain(first);
+    }
+  });
+
+  // NEGATIVE CONTROL: selection still works — clicking a finding a tab lists
+  // selects it, and it is not overridden by the tab's first finding.
+  it('clicking a finding on a tab that lists it still selects it', async () => {
+    renderReport(run32Shaped(), false, { tabs: PR_TABS });
+    await screen.findByTestId('report-viewer');
+    fireEvent.click(screen.getByTestId('tab-Statistics'));
+    fireEvent.click(screen.getByTestId('finding-1'));
+    expect(inspectorFinding()).toContain('stat rule two');
+  });
+});
