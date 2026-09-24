@@ -17113,6 +17113,37 @@ end.
 * **Not that anything about first-appearance binary scanning was measured.**
 * **Not that five successes predict the sixth.** They bound the rate, nothing more.
 
+#### Second observation, 25 Sep 2026 — recorded as an OBSERVATION, not a diagnosis
+
+The 25 Sep build's DMG step failed once, and succeeded on retry. State at the
+failure, as reported by the session that ran the build (not re-measured here):
+
+| | at the failure |
+|---|---|
+| free disk | **1.2 GiB** |
+| mounted | **two stale volumes**: `/Volumes/gaply` and a `dmg.*` staging image |
+| action | both detached, build retried |
+| result | **DMG built** |
+
+The retry used the unmodified `bundle_dmg.sh`, so this is the second
+observation of the mechanism above: a DMG volume that did not detach. **It says
+nothing about the trigger.** Low disk space and a leftover mounted volume from
+an earlier run were both present, and one retry that changed both cannot tell
+them apart, or tell either from chance. Neither is a finding. The failed run's
+own output was not captured through the `bash` shim, so the step that failed is
+not evidenced for this run the way it was for the first.
+
+The artefact of the successful retry `[ran]`:
+
+```
+path    src-tauri/target/release/bundle/dmg/gaply_0.1.0_aarch64.dmg
+size    492,980,286 bytes (mtime 25 Sep 00:20)
+sha256  69b84921c1692bf2a7e9639ba10bc74dfc12ec4412c24620748380329c4b75bd
+```
+
+Read back afterwards: `hdiutil info` lists no attached images and `/Volumes`
+holds only `Macintosh HD`, so the retry left nothing mounted.
+
 Separate open item, deliberately NOT part of this record:
 `docs/PROBLEM_DOSSIER.md` **D6**, the DMG wrapper not being byte-reproducible.
 
