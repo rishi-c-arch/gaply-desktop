@@ -466,6 +466,70 @@ pub fn count_by_extractor(
     Ok(n as usize)
 }
 
+/// Rows [`remove_unowned_rows`] deleted, per table.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct UnownedRemoval {
+    pub requirements: usize,
+    pub bindings: usize,
+    pub expectations: usize,
+}
+
+/// **Delete every stored row whose page the journal does not own. §11 D225.**
+///
+/// `owns(journal_key, source_url)` is the caller's rule, and in the app it is
+/// `journal_crawl::key_for_url` — the rule §11 D211 made the ONLY way a fetched
+/// page acquires a `journal_key`. This crate cannot call it (the crawl config
+/// lives in the app), so it is passed in rather than copied: a second copy of
+/// the rule is the thing that drifts.
+///
+/// **Why delete rather than relabel.** A publisher-wide page is not the
+/// journal's requirement. The bundled seed carried eight such rows — two for
+/// The Lancet from `www.elsevier.com`, six for Statistics in Medicine from
+/// `authorservices.wiley.com`, one of them a re-use-licence quota read as a
+/// 250-word limit — and a relabelled row would still sit on that journal's
+/// checklist as something it requires.
+///
+/// **Why at startup and not only in the seed.** The seed loads only into a
+/// database with no fingerprint for the journal, so a machine seeded before the
+/// rows were removed from `journal-seed.json` keeps them forever otherwise.
+/// Every table that carries a `source_url` is covered: the rule is about the
+/// page, not the table.
+///
+/// Idempotent and one transaction: a failure leaves the rows as they were.
+pub fn remove_unowned_rows(
+    db: &Database,
+    owns: impl Fn(&str, &str) -> bool,
+) -> Result<UnownedRemoval, GaplyError> {
+    let mut conn = db.conn()?;
+    let tx = conn.transaction()?;
+    let mut counts = [0usize; 3];
+    for (i, table) in ["journal_requirements", "journal_standard_bindings", "journal_expectations"]
+        .iter()
+        .enumerate()
+    {
+        let doomed: Vec<i64> = {
+            let mut stmt = tx.prepare(&format!("SELECT id, journal_key, source_url FROM {table}"))?;
+            let rows = stmt.query_map([], |r| {
+                Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?))
+            })?;
+            let mut v = Vec::new();
+            for row in rows {
+                let (id, key, url) = row?;
+                if !owns(&key, &url) {
+                    v.push(id);
+                }
+            }
+            v
+        };
+        for id in &doomed {
+            tx.execute(&format!("DELETE FROM {table} WHERE id = ?1"), params![id])?;
+        }
+        counts[i] = doomed.len();
+    }
+    tx.commit()?;
+    Ok(UnownedRemoval { requirements: counts[0], bindings: counts[1], expectations: counts[2] })
+}
+
 fn kind_from_str(s: &str) -> RequirementKind {
     match s {
         "word_limit" => RequirementKind::WordLimit,
@@ -487,6 +551,69 @@ mod tests {
 
     fn db() -> Database {
         Database::in_memory().unwrap()
+    }
+
+    /// §11 D225. One owned and one unowned row in EACH table that carries a
+    /// `source_url`; the unowned three go, the owned three stay and read back
+    /// through the product's reader, and a second pass deletes nothing.
+    #[test]
+    fn rows_from_a_page_the_journal_does_not_own_are_removed_and_owned_rows_stay() {
+        let db = db();
+        {
+            let conn = db.conn().unwrap();
+            for (i, url) in [
+                "https://www.elsevier.com/about/policies-and-standards/publishing-ethics",
+                "https://www.thelancet.com/lancet/information-for-authors",
+            ]
+            .iter()
+            .enumerate()
+            {
+                conn.execute(
+                    "INSERT INTO journal_requirements (journal_key, kind, value, status,
+                       source_url, source_heading, source_span, extracted_by, fetched_at)
+                     VALUES ('lancet', 'word_limit', '250', 'verified', ?1, 'h', 's', 'pattern', 1)",
+                    params![url],
+                )
+                .unwrap();
+                conn.execute(
+                    "INSERT INTO journal_standard_bindings
+                       (journal_key, design, standard, source_url, source_span, fetched_at)
+                     VALUES ('lancet', ?1, 'CONSORT', ?2, 's', 1)",
+                    params![format!("design {i}"), url],
+                )
+                .unwrap();
+                conn.execute(
+                    "INSERT INTO journal_expectations
+                       (journal_key, claim, status, source_url, source_span, fetched_at)
+                     VALUES ('lancet', 'c', 'inferred', ?1, 's', 1)",
+                    params![url],
+                )
+                .unwrap();
+            }
+        }
+        let owns = |key: &str, url: &str| key == "lancet" && url.contains("www.thelancet.com");
+
+        let removed = remove_unowned_rows(&db, owns).unwrap();
+        assert_eq!(removed, UnownedRemoval { requirements: 1, bindings: 1, expectations: 1 });
+
+        let left = requirements_for(&db, "lancet").unwrap();
+        assert_eq!(left.len(), 1, "the OWNED row must survive: {left:?}");
+        assert!(left[0].source_url.contains("www.thelancet.com"), "{left:?}");
+        let conn = db.conn().unwrap();
+        for table in ["journal_standard_bindings", "journal_expectations"] {
+            let urls: Vec<String> = conn
+                .prepare(&format!("SELECT source_url FROM {table}"))
+                .unwrap()
+                .query_map([], |r| r.get(0))
+                .unwrap()
+                .collect::<Result<_, _>>()
+                .unwrap();
+            assert_eq!(urls.len(), 1, "{table}: {urls:?}");
+            assert!(urls[0].contains("www.thelancet.com"), "{table}: {urls:?}");
+        }
+        drop(conn);
+
+        assert_eq!(remove_unowned_rows(&db, owns).unwrap(), UnownedRemoval::default());
     }
 
     fn req(
@@ -1121,7 +1248,8 @@ mod seed_tests {
 
         assert_eq!(r.seeded.len(), 10, "ten profiled journals: {:?}", r.seeded);
         assert!(r.skipped_already_present.is_empty());
-        assert_eq!(r.requirements, 213, "the crawl's row count, not a round number");
+        // 213 crawled, minus the 8 from pages the journal does not own (§11 D225).
+        assert_eq!(r.requirements, 205, "the crawl's row count, not a round number");
 
         // The rows are READABLE through the real reader, not just present.
         let reqs = requirements_for(&db, "nature-medicine").unwrap();
@@ -1189,7 +1317,7 @@ mod seed_tests {
         let db = Database::in_memory().unwrap();
         let first = load_bundled_seed(&db).unwrap();
         let second = load_bundled_seed(&db).unwrap();
-        assert_eq!(first.requirements, 213);
+        assert_eq!(first.requirements, 205);
         assert_eq!(second.requirements, 0, "nothing left to seed");
         assert_eq!(second.skipped_already_present.len(), 10);
         assert_eq!(requirements_for(&db, "nature-medicine").unwrap().len(), 39);

@@ -18367,3 +18367,78 @@ listed finding selects it.
 | 1 | tab change no longer resets the selection | Plagiarism, Citations, every-tab | exactly those 3 |
 | 2 | Checklist/Reviewer Letter list every finding again | every-tab | that only |
 | 3 | a click no longer selects | negative control + the existing reconsidered-verdict test (it clicks a non-first row) | exactly those 2 |
+
+### D225 — a publisher-wide page is not the journal's requirement: 8 bundled rows removed, and the rule that removed them now runs at startup
+
+**Measured first** `[probe]` (`examples/journal_ownership_probe.rs`, the
+product's own `journal_crawl::key_for_url` over every seed row, HEAD `f931560`;
+known-good: all ten crawl entries resolve to their own journal):
+
+| table | rows | own journal's page | host-only (own path, read by eye) | another's / publisher-wide |
+|---|---|---|---|---|
+| requirements | 213 | 178 | 27 | **8** |
+| bindings | 50 | 34 | 13 | **3** |
+| expectations | 258 | 171 | 7 | **80** |
+
+The 8 requirement rows are exactly §11 D211's: The Lancet 2 of 2 (from
+`www.elsevier.com/about/policies-and-standards/publishing-ethics`, one under the
+heading *"Competing interests for editors who are employees of Elsevier"*),
+Statistics in Medicine 6 of 7 (from `authorservices.wiley.com`, one a re-use
+licence quota read as `word_limit 250`). The other eight journals: 0. Every
+foreign row is on an `author_services_hosts` host. The 27 host-only rows were
+each checked by path: all are on the journal's own path (`/author-instructions/JHP`,
+`/page/journal/10970258/`, and the single-journal BMJ and BMC hosts), so closing
+the host-only fallback (the next change) removes none of them. The user's live `gaply.db` held the same 8 requirement rows
+`[probe, read-only]`.
+
+**Decision: remove, not relabel, in every table that carries a `source_url`.**
+A relabelled row still sits on the journal's checklist as something it
+requires; a publisher's ethics page, or a licence FAQ, is not that. The rule is
+the one §11 D211 made the only way a page acquires a `journal_key` —
+`key_for_url` — so the seed, the paste path and stored rows now obey one rule
+rather than two.
+
+* `journal-seed.json`: 213 → **205** requirements, 50 → 47 bindings, 258 → 178
+  expectations. Filtered, not regenerated; the result is checked to equal the
+  original minus exactly those rows, and nothing else changed.
+* `journal_store::remove_unowned_rows(db, owns)` deletes, in one transaction,
+  every row whose page the journal does not own. `owns` is passed in: this
+  crate cannot see the crawl config, and a copy of the rule is what drifts.
+* **Startup runs it after the seed loads** (`lib.rs`), via
+  `guidelines::remove_rows_journals_do_not_own`. Needed because the seed loads
+  only into a database without the journal, so an existing install keeps the
+  rows otherwise. Idempotent: a clean database loses nothing.
+
+**What a user sees.** The Lancet has no requirement from its own site, so it
+leaves the profiled picker (`requirement_count > 0`) and gets the structural
+checklist — the honest answer to "has Gaply read this journal's guidelines".
+Statistics in Medicine keeps 1 row, its abstract limit, from its own page; the
+`[NOT MET] word limit: 250` is gone.
+
+**Guards.**
+* `guidelines::tests::every_bundled_row_comes_from_a_page_its_journal_owns`: all
+  three seed tables, positive count (> 400 rows read).
+* `guidelines::tests::a_database_seeded_before_d225_loses_only_the_unowned_rows`:
+  real seed load, the old Lancet and Wiley rows written back through
+  `store_requirements`, the reconcile removes exactly 3, and owned journals are
+  unchanged.
+* `guidelines::tests::startup_runs_the_ownership_reconcile_after_the_seed_loads`:
+  app setup has no harness, so the call is pinned by source, and AFTER the seed.
+* `journal_store::tests::rows_from_a_page_the_journal_does_not_own_are_removed_and_owned_rows_stay`.
+* Seed counts updated (205).
+
+The first three are app-crate tests, which CI does not run yet (the third change
+of this series adds the app crate to CI).
+
+**Deletion tests — predictions first.**
+
+| # | break | predicted red | red |
+|---|---|---|---|
+| 1a | the pre-D225 seed (213 rows) put back | every-row guard, both seed-count tests, the reconcile test (11 removed, not 3) | exactly those 4 |
+| 1b | `lib.rs` no longer calls the reconcile | the startup source pin | exactly that 1 |
+| 1c | `remove_unowned_rows` deletes nothing | the core unit test, the reconcile test | exactly those 2 |
+
+The first attempt at all three reported `passed=0` with exit 0: zsh does not
+split an unquoted `$F`, so the five filters reached cargo as one string that
+named no test. The positive count is what showed it — `failed=0` alone would
+have read as three green deletion tests, the same thing as "no guard".

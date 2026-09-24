@@ -118,6 +118,20 @@ pub fn run() {
                 ),
                 Err(e) => tracing::warn!(error = %e, "bundled journal snapshot did not load"),
             }
+            // §11 D225: a publisher-wide page is not the journal's requirement.
+            // Rows an earlier seed put here from pages the journal does not own
+            // are removed; on a clean database this deletes nothing. Not fatal,
+            // for the same reason as the seed above.
+            match crate::guidelines::remove_rows_journals_do_not_own(&db) {
+                Ok(r) if r != Default::default() => tracing::info!(
+                    requirements = r.requirements,
+                    bindings = r.bindings,
+                    expectations = r.expectations,
+                    "removed journal rows from pages the journal does not own"
+                ),
+                Ok(_) => {}
+                Err(e) => tracing::warn!(error = %e, "journal ownership reconcile did not run"),
+            }
 
             let embedder = Arc::new(gaply_core::embed::HashEmbedder);
             app.manage(AppState::new(config, db.clone(), db, embedder, data_dir.clone()));

@@ -339,6 +339,26 @@ fn profiled() -> &'static crate::journal_crawl::CrawlBudget {
     })
 }
 
+/// Does `url` belong to `journal_key`? The ONE ownership rule (§11 D211),
+/// shared by the paste path above and the startup reconcile below.
+pub fn journal_owns(journal_key: &str, url: &str) -> bool {
+    crate::journal_crawl::key_for_url(url, profiled()).as_deref() == Some(journal_key)
+}
+
+/// **Remove stored journal rows that came from a page the journal does not
+/// own. §11 D225.** Run at startup, after the bundled seed loads.
+///
+/// The seed no longer carries such rows, but it loads only into a database
+/// that has no fingerprint for the journal, so a machine seeded earlier keeps
+/// The Lancet's two Elsevier-wide rows and Statistics in Medicine's six
+/// Wiley-wide ones (including the 250-word re-use-licence quota) until this
+/// removes them. It is idempotent: on a clean database it deletes nothing.
+pub fn remove_rows_journals_do_not_own(
+    db: &Database,
+) -> Result<gaply_core::journal_store::UnownedRemoval, GaplyError> {
+    gaply_core::journal_store::remove_unowned_rows(db, journal_owns)
+}
+
 pub fn ingest_with(
     fetcher: &dyn HttpFetcher,
     limiter: &RateLimiter,
@@ -401,10 +421,11 @@ pub fn ingest_with(
     // longer written at all**, so there is no cross-host row left for `crawled`
     // to mislabel and NO NEW PROVENANCE STATE IS INTRODUCED here. `stored_under`
     // is `Some` only when `key_for_url` claimed the page, so by construction the
-    // host is that journal's own. (The eight publisher-host rows already in the
-    // shipped seed — Elsevier's for The Lancet, Wiley's for Statistics in
+    // host is that journal's own. (The eight publisher-host rows the shipped
+    // seed once carried — Elsevier's for The Lancet, Wiley's for Statistics in
     // Medicine — came from the offline crawler's author-services allowlist, not
-    // from this path; they keep `bundled` and are untouched by this change.)
+    // from this path. §11 D225 removed them from the seed and, at startup, from
+    // any database seeded before, by this same `key_for_url` rule.)
     if let Some(k) = &stored_under {
         if stored > 0 {
             let now = gaply_core::now_epoch();
@@ -858,6 +879,96 @@ mod tests {
     /// A limiter with plenty of headroom for multi-URL tests.
     fn roomy() -> RateLimiter {
         RateLimiter::new(100.0, 100.0)
+    }
+
+    // --- §11 D225: a publisher-wide page is not the journal's requirement ---
+
+    const SEED: &str = include_str!("../gaply-core/data/journal-seed.json");
+
+    /// **Every bundled row comes from a page its own journal owns**, by the
+    /// product's own rule. Before D225 this held for 205 of 213 requirement
+    /// rows, 47 of 50 bindings and 178 of 258 expectations, and
+    /// `journal_keys_match_the_seed.rs` passed throughout because it compares
+    /// journal KEYS, not where any row came from.
+    #[test]
+    fn every_bundled_row_comes_from_a_page_its_journal_owns() {
+        let seed: serde_json::Value = serde_json::from_str(SEED).unwrap();
+        let mut checked = 0usize;
+        let mut unowned = Vec::new();
+        for table in ["requirements", "bindings", "expectations"] {
+            for r in seed[table].as_array().expect(table) {
+                let key = r["journal_key"].as_str().unwrap();
+                let url = r["source_url"].as_str().unwrap();
+                checked += 1;
+                if !journal_owns(key, url) {
+                    unowned.push(format!("{table}: {key} <- {url}"));
+                }
+            }
+        }
+        assert!(checked > 400, "only {checked} seed rows read — the scan has lost the seed");
+        assert!(unowned.is_empty(), "rows from a page the journal does not own:\n  {}", unowned.join("\n  "));
+    }
+
+    /// **A machine seeded before D225 is cleaned at startup.** The seed never
+    /// re-loads into a database that already has the journal, so the two
+    /// Elsevier-wide Lancet rows and the Wiley licence quota are put back the
+    /// way an old seed wrote them, and the startup reconcile must remove exactly
+    /// those — leaving every owned row, read back through the checklist reader.
+    #[test]
+    fn a_database_seeded_before_d225_loses_only_the_unowned_rows() {
+        let db = db();
+        gaply_core::journal_store::load_bundled_seed(&db).unwrap();
+        let nm_before = gaply_core::journal_store::requirements_for(&db, "nature-medicine").unwrap().len();
+        let sim_before = gaply_core::journal_store::requirements_for(&db, "statistics-in-medicine").unwrap().len();
+        assert!(nm_before > 0 && sim_before > 0, "the seed must have loaded: {nm_before} {sim_before}");
+
+        use gaply_core::journal_extract::{ExtractedRequirement, RequirementKind};
+        let row = |kind, value: &str| ExtractedRequirement {
+            kind,
+            value: value.into(),
+            article_type: None,
+            source_heading: "h".into(),
+            source_span: "a publisher-wide sentence".into(),
+        };
+        let elsevier = "https://www.elsevier.com/about/policies-and-standards/publishing-ethics";
+        let wiley = "https://authorservices.wiley.com/author-resources/Journal-Authors/licensing/licensing-info-faqs.html";
+        let store = gaply_core::journal_store::store_requirements;
+        store(&db, "lancet", elsevier, &[row(RequirementKind::SectionRequired, "competing interests statement"),
+                                         row(RequirementKind::ReportingStandard, "CONSORT")], 1).unwrap();
+        store(&db, "statistics-in-medicine", wiley, &[row(RequirementKind::WordLimit, "250")], 1).unwrap();
+
+        let removed = remove_rows_journals_do_not_own(&db).unwrap();
+        assert_eq!(removed.requirements, 3, "{removed:?}");
+        assert_eq!(removed.bindings + removed.expectations, 0, "the seed itself is clean: {removed:?}");
+
+        let rq = |k: &str| gaply_core::journal_store::requirements_for(&db, k).unwrap();
+        assert!(rq("lancet").is_empty(), "the Lancet had no row of its own: {:?}", rq("lancet"));
+        assert_eq!(rq("nature-medicine").len(), nm_before, "an owned journal is untouched");
+        let sim = rq("statistics-in-medicine");
+        assert_eq!(sim.len(), sim_before);
+        assert!(sim.iter().all(|r| r.source_url.contains("onlinelibrary.wiley.com/page/journal/10970258/")), "{sim:?}");
+        assert!(!sim.iter().any(|r| r.value == "250" && r.source_url.contains("licensing")), "{sim:?}");
+
+        assert_eq!(remove_rows_journals_do_not_own(&db).unwrap(), Default::default(), "idempotent");
+    }
+
+    /// **The reconcile is only a fix if startup runs it.** App setup has no test
+    /// harness, so this pins the call in `lib.rs` by source: present outside
+    /// comments, and AFTER the seed loads (before it, a fresh install would load
+    /// the seed's rows after the reconcile had already run).
+    #[test]
+    fn startup_runs_the_ownership_reconcile_after_the_seed_loads() {
+        let lib = include_str!("lib.rs");
+        let code: String = lib
+            .lines()
+            .filter(|l| !l.trim_start().starts_with("//"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let seed = code.find("load_bundled_seed(").expect("lib.rs no longer loads the seed");
+        let reconcile = code
+            .find("remove_rows_journals_do_not_own(")
+            .expect("lib.rs no longer runs the §11 D225 ownership reconcile at startup");
+        assert!(reconcile > seed, "the reconcile runs before the seed loads, so a fresh install keeps the seed's rows");
     }
 
     // --- §11 D211: identity comes from the URL -----------------------------
