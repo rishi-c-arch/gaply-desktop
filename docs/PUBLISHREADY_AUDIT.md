@@ -34,7 +34,7 @@ D206–D213, D214–D224, the dossier plus reachability, the ledger plus seed ro
 plus test coverage), each constrained to never write to the live tree; probes and
 deletion tests ran in detached worktrees at HEAD that were removed afterwards.
 Two cross-pass disagreements were resolved by re-reading source (noted where
-they occur). Deletion tests actually run: 8 (listed in §7). Two further attempts
+they occur). Deletion tests actually run: 6 (listed in §7). Two further attempts
 were refused by the permission classifier before anything was applied; those
 guards are judged by source argument and say so.
 

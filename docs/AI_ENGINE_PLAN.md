@@ -18514,3 +18514,77 @@ expectations).
 2c is the one that reintroduces the defect as it shipped. 2b is the failure the
 fail-closed rule is designed to produce: forget a host, and that journal stops
 resolving loudly instead of claiming its neighbours quietly.
+
+### D227 — CI runs the frontend suite and the app crate, and "production caller" means the runtime path
+
+**What CI ran before** `[src]`: `-p gaply_core` (clean-checkout,
+windows-build-check), eslint and `npm run build` (frontend-build). **No vitest
+test and no app-crate test ran in any workflow.** The only app-crate step, on
+Windows, is a `continue-on-error` diagnostic with stderr discarded. So the 970
+vitest tests and the app crate's 486 (lib 467, `ai_eval_cli` 11,
+`commands_test` 7, `decision_records` 1) were local-only. That includes the
+D-number guard and every §11 D225/D226 guard.
+
+**Added.**
+* `frontend-build.yml` gains **Test (vitest)**:
+  `npx vitest run --config vitest.config.ts`. Negative controls, predicted
+  first `[probe]`: a deliberately failing test file gives exit 1; a filter that
+  matches no file gives exit 1 ("No test files found"), so an include pattern
+  that stops matching cannot pass quietly; the real suite gives exit 0,
+  75 files and 970 tests.
+* New **`app-tests.yml`**: `cargo test -p app --features devtools
+  --no-fail-fast` on ubuntu, with Tauri's Linux prerequisites and a session bus
+  with an unlocked keyring (the same reason as clean-checkout). It passes only
+  if at least 4 targets and 400 tests ran, because a zero-test run exits 0.
+  * **The bundled models are replaced by empty placeholders.** `tauri-build`
+    checks that resource paths exist and does not read them. Measured on a
+    clean worktree at `2f8c219`: without placeholders `cargo check -p app`
+    exits 101 on the missing `tokenizer.json`; with them it exits 0, with no
+    `build/` directory. Tests never read the models, which the app resolves from
+    Tauri's resource directory at runtime.
+  * **`--features devtools`** builds `ai-eval` from the checkout, so
+    `ai_eval_cli` runs against a binary this run produced. A stale binary cannot
+    pass it here (§11 D210). Locally the D210 trap still stands: without the
+    feature the target is 3 passed / 8 failed.
+
+**`journal_producers_have_callers.rs` counted a benchmark as production.**
+The PublishReady audit's DT-A2-2 replaced the real pasted-URL call to
+`extract_requirements` with an empty `Vec`, and the guard stayed GREEN:
+`src/bin/grrb.rs` (a devtools benchmark added the day after the guard) calls it.
+Its DT-A2-1 removed `load_bundled_seed`'s only caller and it also stayed green:
+the guard read each module only up to its first `#[cfg(test)]`, and that
+function sits below a mid-file test module.
+
+**Definition, now in the guard:** a production caller is the application
+runtime path only. Not tests, benchmarks, devtools binaries, examples or
+migration utilities. Derived rather than typed:
+* `NOT_RUNTIME_DIRS = ["../src/bin/"]`: every `[[bin]]` there is
+  `required-features = ["devtools"]`.
+* Files that exist only as `#[cfg(test)] mod x;` (`wire_contract_tests.rs` and
+  four under `ai/`) are found from the declarations and excluded. A name rule
+  (`tests.rs`) could not see them.
+* `#[cfg(test)]` ITEMS are stripped, instead of truncating the file at the first
+  one. **Self-check:** no `#[test]` may survive stripping. It fired on its first
+  run. A raw-string JSON fixture in `ai/tasks/citation_need.rs` puts `}"#;` at
+  column 0, and the stripper had taken that for the module's end. The closing
+  line must now be exactly `}` at the attribute's indentation.
+* Positive counts on each exclusion, plus `load_bundled_seed` must be
+  enumerated. An exclusion that silently stops matching would put benchmarks
+  back in quietly, which is the direction to design against.
+
+**Deletion tests — predictions first, 3 of 3 as predicted** (guard target only,
+so the prediction is exact):
+
+| # | break | predicted | got |
+|---|---|---|---|
+| 3a | DT-A2-2: production `extract_requirements` call → empty `Vec` | red, naming `extract_requirements` | **red**, exactly that |
+| 3b | DT-A2-1: `lib.rs` no longer calls `load_bundled_seed` | red, naming `load_bundled_seed` | **red**, exactly that |
+| 3c | 3a, with `src/bin/` counted as production again | green: the bin exclusion is what makes 3a red | **green** |
+
+**Not demonstrated remotely.** The new CI steps' negative controls ran
+locally, with the exact commands the workflows run. A deliberately red push was
+not made. The first remote runs of both are this commit's own, and a first
+green on a new gate proves nothing about whether it gates (CLAUDE.md), so the
+local negative controls are the evidence.
+
+Also: the audit's Method line said 8 deletion tests; its §7 lists 6. Corrected.

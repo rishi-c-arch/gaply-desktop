@@ -85,6 +85,15 @@ jobs:
           --ignore-pattern '**/*.test.*'
           --ignore-pattern 'src/setupTests.ts'
 
+      # THE FRONTEND SUITE, which ran in no workflow until §11 D227: 970 vitest
+      # tests (75 files, measured 24 Sep 2026) were local-only, so every
+      # frontend guard — the report viewer's tab tests, the checklist mirror,
+      # the gating pair — could go red on a push and nothing remote would say
+      # so. vitest exits non-zero on a failure AND when it finds no test files,
+      # so an include pattern that stops matching fails here too.
+      - name: Test (vitest)
+        run: npx vitest run --config vitest.config.ts
+
       - name: Build
         # CI is already true on Actions; set explicitly so this reproduces
         # locally. Note it changes nothing about linting — cra-build.js deletes

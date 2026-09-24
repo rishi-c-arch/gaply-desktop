@@ -1,0 +1,93 @@
+# Does the APP crate's test suite pass on the committed tree? §11 D227.
+#
+# Until this workflow, no CI job ran a single app-crate test. clean-checkout and
+# windows-build-check run `-p gaply_core`; the Windows job's one app-crate step
+# is a `continue-on-error` diagnostic with stderr discarded. So every guard in
+# `src-tauri/src` and `src-tauri/tests` — the D-number guard
+# (`tests/decision_records.rs`), the journal-ownership guards (§11 D225/D226),
+# the pasted-URL extraction tests, the equation-label pipeline test — was
+# local-only, and a red one could be pushed without anything remote noticing.
+#
+# WHY IT CAN BUILD HERE when clean-checkout says the app crate cannot:
+# `tauri-build` checks that each `bundle.resources` path in tauri.conf.json
+# EXISTS, and the two model files are gitignored (~400 MB). It does not read
+# them. Empty placeholders satisfy the check — measured on a clean worktree at
+# 2f8c219: without them `cargo check -p app` exits 101 on
+# "resource path `bundled-models/tokenizer.json` doesn't exist", with them it
+# exits 0. No test reads them: the app resolves models from Tauri's resource
+# directory at RUNTIME (`models::set_bundled_models_dir`, set in app setup),
+# which tests never run.
+#
+# `--features devtools` is deliberate. `tests/ai_eval_cli.rs` spawns the
+# `ai-eval` binary, which is gated on that feature, and without it 8 of its 11
+# tests fail with NotFound (§11 D210, still open locally). Here the binary is
+# built from this checkout by this run, so a pass cannot come from a stale
+# binary left on disk — the contamination D210 records. It also means the
+# devtools binaries (grrb, grrb-gate, ai-eval, label-cn, label-cs) are compiled
+# by CI for the first time.
+name: App crate tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: app-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  app:
+    name: cargo test -p app
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Tauri 2's Linux build prerequisites (webkit2gtk-4.1 and friends), plus
+      # the D-Bus/Secret Service pair clean-checkout needs for the same reason:
+      # the keyring is exercised for real, not stubbed.
+      - name: Install Linux prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
+            librsvg2-dev libxdo-dev libssl-dev build-essential pkg-config \
+            libdbus-1-dev gnome-keyring dbus-x11
+
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      # Placeholders for the two gitignored bundle resources — see the header.
+      # Fails if either already exists, so this can never overwrite a real model.
+      - name: Placeholder bundle resources
+        working-directory: src-tauri/bundled-models
+        run: |
+          for f in Qwen2.5-0.5B-Instruct-Q4_K_M.gguf tokenizer.json; do
+            test ! -e "$f" || { echo "::error::$f already exists"; exit 1; }
+            : > "$f"
+          done
+
+      # A zero-test run exits 0, so the count is checked, not only the status:
+      # "no failures" means nothing until tests have actually run (CLAUDE.md).
+      - name: cargo test -p app --features devtools
+        working-directory: src-tauri
+        run: |
+          set -o pipefail
+          dbus-run-session -- bash -c '
+            echo "" | gnome-keyring-daemon --unlock --components=secrets >/dev/null 2>&1 || true
+            cargo test -p app --features devtools --no-fail-fast
+          ' 2>&1 | tee app-tests.log
+          T=$(grep -cE '^     Running ' app-tests.log)
+          P=$(grep -E '^test result: ok' app-tests.log | awk '{p+=$4} END {print p+0}')
+          echo "targets=$T passed=$P"
+          if [ "$T" -lt 4 ] || [ "$P" -lt 400 ]; then
+            echo "::error::the app suite ran $T targets and $P tests; it did not really run"
+            exit 1
+          fi
