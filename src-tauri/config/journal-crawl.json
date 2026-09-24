@@ -70,6 +70,15 @@
     "  host and shows up as off-journal pages in the crawl list — visible,",
     "  which is the property that makes this rule acceptable at all.",
     "",
+    "identity_path_segments: which journal OWNS a URL, where that differs from",
+    "  how far its crawl may go. Read by key_for_url before",
+    "  journal_path_segments, never by the crawl. 0 = the host is one journal.",
+    "  A host in NEITHER map claims nothing (§11 D226): an absent host used to",
+    "  mean the host is the journal, which bound every Wiley and SAGE journal's",
+    "  guidelines page to Statistics in Medicine or J Health Psychology. Wiley",
+    "  3 is page/journal/<id>, the entry's form; a /journal/<id>/ URL does not",
+    "  match it and claims nothing, which is the safe way to be incomplete.",
+    "",
     "corpus_bounds: the comparable corpus's size. Below `minimum` a convention",
     "  is UNAVAILABLE however good the data looks — an inference from six",
     "  papers is not an inference. `target` is what a build aims for and",
@@ -101,6 +110,12 @@
     "www.frontiersin.org": 2,
     "www.thelancet.com": 1,
     "link.springer.com": 2
+  },
+  "identity_path_segments": {
+    "onlinelibrary.wiley.com": 3,
+    "journals.sagepub.com": 2,
+    "www.bmj.com": 0,
+    "bmcpublichealth.biomedcentral.com": 0
   },
   "author_services_hosts": [
     "authorservices.wiley.com",

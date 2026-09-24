@@ -18442,3 +18442,75 @@ The first attempt at all three reported `passed=0` with exit 0: zsh does not
 split an unquoted `$F`, so the five filters reached cargo as one string that
 named no test. The positive count is what showed it — `failed=0` alone would
 have read as three green deletion tests, the same thing as "no guard".
+
+### D226 — a shared publisher host no longer settles which journal owns a page
+
+**Reproduced live first** `[probe]` (`examples/pasted_url_probe`, the real
+`guidelines::ingest_with` and `ReqwestFetcher`, HEAD `64f9319`):
+
+| pasted URL | journal it is | stored under | rows |
+|---|---|---|---|
+| `onlinelibrary.wiley.com/page/journal/10970258/…/forauthors.html` (known-good) | Statistics in Medicine | `statistics-in-medicine` | 1 |
+| `onlinelibrary.wiley.com/page/journal/13652648/…/forauthors.html` | Journal of Advanced Nursing | **`statistics-in-medicine`** | **4** (PRISMA, CONSORT, data availability, competing interests) |
+| `journals.sagepub.com/author-instructions/QHR` | Qualitative Health Research | **`j-health-psychology`** | **1** |
+
+`key_for_url` fell back to host equality for any host without a path scope.
+That is right for `www.bmj.com` and wrong for Wiley and SAGE, whose hosts serve
+hundreds of journals. §11 D211's "host equality … is not the rule" was false
+for these two.
+
+**Why not add them to `journal_path_segments`.** That map is also the crawl's
+scope, and its own comment records that Wiley and SAGE were left out of it on
+purpose. Wiley puts the journal id at varying path positions, so a prefix would
+narrow the offline crawl and drop pages. Crawl scope and ownership are
+different questions, so they now have separate answers:
+
+* **`identity_path_segments`** (config): read by `key_for_url` first, never by
+  the crawl. `onlinelibrary.wiley.com: 3` (`page/journal/<id>`),
+  `journals.sagepub.com: 2` (`author-instructions/<code>`), and `0` for the two
+  single-journal hosts, `www.bmj.com` and `bmcpublichealth.biomedcentral.com`.
+* **Fail closed.** A host in neither map claims nothing. "Absent = whole host"
+  stays the crawl's default and is no longer the ownership default. A Wiley
+  `/journal/<id>/` URL for Statistics in Medicine now claims nothing either.
+  That is incomplete, and it is the safe direction to be incomplete in.
+
+**After, live** `[probe]`, same probe on this change: the Journal of Advanced
+Nursing and QHR pages give `journal_key=None` with 0 stored. Statistics in
+Medicine's page stores 1 row and J Health Psychology's stores 6, both under
+their own keys.
+
+**A correction to §11 D225, found by this change's own guard.** Tightening the
+rule failed `every_bundled_row_comes_from_a_page_its_journal_owns` on two
+EXPECTATION rows that the host fallback had been hiding:
+* J Health Psychology ← `journals.sagepub.com/action/showPreferences?menuTab=AccountInfo`,
+  an account-settings page. Its "expectation" is society-access UI text.
+* Statistics in Medicine ← `onlinelibrary.wiley.com/publishing-policies`, a
+  Wiley-wide editorial policy.
+
+D225 checked its 27 host-only REQUIREMENT rows by path. It did not check the
+7 host-only expectation rows, and its table's "read by eye" column overstated
+that. Both rows are removed from the seed (expectations 178 → 176). The startup
+reconcile removes them from existing databases with no further code, because it
+runs the same rule. Neither was user-visible (§ audit list C: no screen mounts
+expectations).
+
+**Tests.**
+* `journal_crawl::tests::an_undeclared_host_claims_nothing_and_a_declared_one_claims_its_own_path`:
+  synthetic hosts for all three states, and the crawl's scope is unchanged by identity.
+* `guidelines::tests::a_shared_publisher_host_binds_only_its_own_journals_path`:
+  the live reproduction's URLs refused, and each host's own journal still claimed.
+* `guidelines::tests::every_profiled_journal_still_resolves_its_entry_and_its_seeded_pages`:
+  the negative control. All ten entries resolve to themselves, as does every
+  seeded requirement page (8 journals carry requirement rows).
+
+**Deletion tests — predictions first.**
+
+| # | break | predicted red | red |
+|---|---|---|---|
+| 2a | code: an undeclared host settles ownership again (config intact) | the undeclared-host unit test | exactly that 1 |
+| 2b | config: the Wiley and SAGE identity entries removed (code intact) | shared-host test, negative control, every-row guard, D225 reconcile test | exactly those 4 |
+| 2c | both, i.e. the pre-D226 world | shared-host test, undeclared-host unit test | exactly those 2 |
+
+2c is the one that reintroduces the defect as it shipped. 2b is the failure the
+fail-closed rule is designed to produce: forget a host, and that journal stops
+resolving loudly instead of claiming its neighbours quietly.

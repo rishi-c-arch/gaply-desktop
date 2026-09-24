@@ -67,6 +67,15 @@ pub struct CrawlBudget {
     /// identify one. Absent host = the host is the journal.
     #[serde(default)]
     pub journal_path_segments: std::collections::BTreeMap<String, usize>,
+    /// **Which journal OWNS a URL, where that differs from crawl scope. §11
+    /// D226.** Read by [`key_for_url`] before `journal_path_segments`; never by
+    /// the crawl. `0` = the host is one journal. A host in NEITHER map claims
+    /// nothing: identity fails closed, because "absent = whole host" is a fine
+    /// default for how far a crawl may wander and a wrong one for whose
+    /// requirement a page is — it bound every Wiley and SAGE journal's page to
+    /// the one profiled journal on that host.
+    #[serde(default)]
+    pub identity_path_segments: std::collections::BTreeMap<String, usize>,
     /// Half-second ticks the crawl waits for a rate-limit token before
     /// recording that it could not proceed. In config because it is a cost
     /// bound like the others.
@@ -350,6 +359,15 @@ fn never_follow(url: &str) -> bool {
 /// Returns `None` for any URL no profiled journal claims, which includes every
 /// publisher-wide author-services page. That is the intended answer, not a
 /// failure: it means nothing may be stored against a journal.
+///
+/// **A host must be DECLARED before it can settle ownership. §11 D226.** Until
+/// then a host with no path scope fell back to host equality, which is right
+/// for `www.bmj.com` and wrong for `onlinelibrary.wiley.com` and
+/// `journals.sagepub.com`: measured live, a Journal of Advanced Nursing page
+/// stored four requirements under `statistics-in-medicine`, and a Qualitative
+/// Health Research page one under `j-health-psychology`. Now the scope comes
+/// from `identity_path_segments`, then `journal_path_segments`, and a host in
+/// neither claims nothing.
 pub fn key_for_url(url: &str, budget: &CrawlBudget) -> Option<String> {
     let target = Url::parse(url).ok()?;
     let target_host = target.host_str()?.to_ascii_lowercase();
@@ -359,18 +377,46 @@ pub fn key_for_url(url: &str, budget: &CrawlBudget) -> Option<String> {
         if entry_host.to_ascii_lowercase() != target_host {
             continue;
         }
-        // No sub-scoping configured for this host: it serves one journal, so
-        // the host settles it.
-        match journal_scope(&entry, budget) {
-            None => return Some(j.key.clone()),
-            Some(want) => {
-                if journal_scope(&target, budget).as_ref() == Some(&want) {
-                    return Some(j.key.clone());
-                }
+        match (identity(&entry, budget), identity(&target, budget)) {
+            (Identity::WholeHost, _) => return Some(j.key.clone()),
+            (Identity::Prefix(want), Identity::Prefix(got)) if want == got => {
+                return Some(j.key.clone())
             }
+            _ => {}
         }
     }
     None
+}
+
+/// How a URL's host identifies a journal, for [`key_for_url`] only.
+#[derive(Debug, PartialEq, Eq)]
+enum Identity {
+    /// The host is in neither scope map: it identifies nothing.
+    Undeclared,
+    /// Declared `0`: the host is one journal.
+    WholeHost,
+    /// Declared `n`: the first `n` path segments name the journal.
+    Prefix(Vec<String>),
+}
+
+fn identity(u: &Url, budget: &CrawlBudget) -> Identity {
+    let Some(host) = u.host_str().map(str::to_ascii_lowercase) else {
+        return Identity::Undeclared;
+    };
+    let n = match budget
+        .identity_path_segments
+        .get(&host)
+        .or_else(|| budget.journal_path_segments.get(&host))
+    {
+        None => return Identity::Undeclared,
+        Some(&0) => return Identity::WholeHost,
+        Some(&n) => n,
+    };
+    let segs: Vec<String> = u
+        .path_segments()
+        .map(|s| s.filter(|s| !s.is_empty()).take(n).map(str::to_string).collect())
+        .unwrap_or_default();
+    Identity::Prefix(segs)
 }
 
 fn journal_scope(entry: &Url, budget: &CrawlBudget) -> Option<Vec<String>> {
@@ -944,6 +990,7 @@ mod tests {
             max_depth,
             author_services_hosts: vec![],
             journal_path_segments: Default::default(),
+            identity_path_segments: Default::default(),
             max_rate_wait_ticks: 0,
             // The crawl does not read this; it is the picker's list. Empty here
             // so a test cannot accidentally depend on the shipped ten.
@@ -1111,6 +1158,41 @@ mod tests {
     /// **A shared host is not a journal.** `journals.plos.org` serves every
     /// PLOS journal; a crawl of PLOS ONE that wanders into PLOS Genetics is
     /// spending one journal's budget on six. Measured before this rule existed.
+    /// **§11 D226: a host must be DECLARED before it settles ownership.** One
+    /// profiled journal on each of three hosts: undeclared, declared `0`, and
+    /// declared with a two-segment identity scope. Only the declared ones claim,
+    /// and the scoped one claims only its own path.
+    #[test]
+    fn an_undeclared_host_claims_nothing_and_a_declared_one_claims_its_own_path() {
+        let mut b = budget(10, 2);
+        let pj = |key: &str, entry: &str| ProfiledJournal {
+            key: key.into(),
+            name: key.into(),
+            entry: entry.into(),
+        };
+        b.profiled_journals = vec![
+            pj("undeclared", "https://shared.test/journal/A/guidelines"),
+            pj("whole-host", "https://single.test/authors"),
+            pj("scoped", "https://pub.test/instructions/SCP"),
+        ];
+        b.identity_path_segments.insert("single.test".into(), 0);
+        b.identity_path_segments.insert("pub.test".into(), 2);
+
+        // The pre-D226 behaviour, which bound every page on the host:
+        assert_eq!(key_for_url("https://shared.test/journal/A/guidelines", &b), None);
+        assert_eq!(key_for_url("https://shared.test/journal/B/guidelines", &b), None);
+        // Declared 0: the host settles it.
+        assert_eq!(key_for_url("https://single.test/anything", &b).as_deref(), Some("whole-host"));
+        // Declared 2: only its own prefix.
+        assert_eq!(key_for_url("https://pub.test/instructions/SCP", &b).as_deref(), Some("scoped"));
+        assert_eq!(key_for_url("https://pub.test/instructions/SCP/more", &b).as_deref(), Some("scoped"));
+        assert_eq!(key_for_url("https://pub.test/instructions/OTHER", &b), None);
+        assert_eq!(key_for_url("https://pub.test/instructions", &b), None, "too short to name a journal");
+        // The crawl's own scope map is untouched by identity: a crawl of the
+        // scoped journal still sees the whole host (journal_path_segments unset).
+        assert_eq!(journal_scope(&Url::parse("https://pub.test/instructions/SCP").unwrap(), &b), None);
+    }
+
     #[test]
     fn a_crawl_stays_inside_the_journals_own_path_segment() {
         let entry = nav_body(

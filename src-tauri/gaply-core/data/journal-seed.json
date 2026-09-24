@@ -7,7 +7,8 @@
   "came from. `run_started_at` is the SNAPSHOT time: the crawl began then and",
   "ran for an hour, so it answers 'how old is this' and is not a per-page",
   "fetch time (§11 D185).",
-  "Rows from a page the journal does not own (a publisher-wide author-services page) were removed: §11 D225."
+  "Rows from a page the journal does not own (a publisher-wide author-services page) were removed: §11 D225.",
+  "Two expectation rows from a page the journal does not own, hidden by the host-only fallback, were removed: §11 D226."
  ],
  "run_started_at": 1789728313,
  "fingerprints": [
@@ -3911,16 +3912,6 @@
    "fetched_at": 1789728313
   },
   {
-   "journal_key": "j-health-psychology",
-   "claim": "Show details Hide details If the society you are a member of is not included in the list above, but you believe you should have access via that society, you may need to:",
-   "frequency_k": null,
-   "frequency_n": null,
-   "status": "inferred",
-   "source_url": "https://journals.sagepub.com/action/showPreferences?menuTab=AccountInfo",
-   "source_span": "Show details Hide details If the society you are a member of is not included in the list above, but you believe you should have access via that society, you may need to:",
-   "fetched_at": 1789728313
-  },
-  {
    "journal_key": "nature-medicine",
    "claim": "A high-quality reviewer report should be constructive and contain a thoughtful evaluation of the work, with comments supported by sound scientific reasoning.",
    "frequency_k": null,
@@ -5508,16 +5499,6 @@
    "status": "inferred",
    "source_url": "https://onlinelibrary.wiley.com/page/journal/10970258/homepage/fundedaccess.html",
    "source_span": "If you have a VAT, GST, or other sales tax identification number, you should provide this when requested.",
-   "fetched_at": 1789728313
-  },
-  {
-   "journal_key": "statistics-in-medicine",
-   "claim": "In their editorial decision-making, Editors should consider feedback from peer reviewers, editorial board members, and their editorial teams to facilitate the free exchange of ideas and to provide a forum for divergent perspectives and acad",
-   "frequency_k": null,
-   "frequency_n": null,
-   "status": "inferred",
-   "source_url": "https://onlinelibrary.wiley.com/publishing-policies",
-   "source_span": "In their editorial decision-making, Editors should consider feedback from peer reviewers, editorial board members, and their editorial teams to facilitate the free exchange of ideas and to provide a forum for divergent perspectives and academic debate.",
    "fetched_at": 1789728313
   }
  ]

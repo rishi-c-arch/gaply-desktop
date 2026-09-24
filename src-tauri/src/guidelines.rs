@@ -1079,6 +1079,51 @@ mod tests {
         assert_eq!(k("not a url"), None);
     }
 
+    /// **§11 D226, the live reproduction's own URLs.** Before, host equality
+    /// alone bound a Journal of Advanced Nursing page to Statistics in Medicine
+    /// (4 requirements stored) and a Qualitative Health Research page to J
+    /// Health Psychology (1 stored). Each shared host must refuse the other
+    /// journal AND still claim its own — both halves, or the test passes on a
+    /// rule that refuses everything.
+    #[test]
+    fn a_shared_publisher_host_binds_only_its_own_journals_path() {
+        let k = |u: &str| crate::journal_crawl::key_for_url(u, profiled());
+        assert_eq!(k("https://onlinelibrary.wiley.com/page/journal/13652648/homepage/forauthors.html"), None);
+        assert_eq!(k("https://journals.sagepub.com/author-instructions/QHR"), None);
+        assert_eq!(
+            k("https://onlinelibrary.wiley.com/page/journal/10970258/homepage/forauthors.html").as_deref(),
+            Some("statistics-in-medicine")
+        );
+        assert_eq!(k("https://journals.sagepub.com/author-instructions/JHP").as_deref(), Some("j-health-psychology"));
+    }
+
+    /// **Negative control for D226: the other eight journals still resolve**,
+    /// from their crawl entries and from every page of theirs in the seed. A
+    /// fail-closed rule that forgot a host would drop that journal here.
+    #[test]
+    fn every_profiled_journal_still_resolves_its_entry_and_its_seeded_pages() {
+        let b = profiled();
+        assert_eq!(b.profiled_journals.len(), 10);
+        for j in &b.profiled_journals {
+            assert_eq!(
+                crate::journal_crawl::key_for_url(&j.entry, b).as_deref(),
+                Some(j.key.as_str()),
+                "{}'s own entry no longer resolves to it",
+                j.key
+            );
+        }
+        let seed: serde_json::Value = serde_json::from_str(SEED).unwrap();
+        let mut per: std::collections::BTreeMap<String, usize> = Default::default();
+        for r in seed["requirements"].as_array().unwrap() {
+            let key = r["journal_key"].as_str().unwrap();
+            assert!(journal_owns(key, r["source_url"].as_str().unwrap()), "{r}");
+            *per.entry(key.to_string()).or_default() += 1;
+        }
+        // Eight journals carry seeded requirements: Nature Communications never
+        // had one, and The Lancet has none of its own since §11 D225.
+        assert_eq!(per.len(), 8, "{per:?}");
+    }
+
     const GUIDELINE_HTML: &str = "<html><head><style>.x{}</style></head><body>\
         <nav>Home About</nav><h1>Author Guidelines</h1>\
         <p>Manuscripts must not exceed 3000 words. A structured abstract is required. \
