@@ -1134,6 +1134,17 @@ describe('Thesis audit', () => {
     await waitFor(() => expect(emit).toBeTruthy());
     emit!({ jobId: 7, completed: 1, total: 1, currentCategory: 'citation_support', latestItemSummary: '' });
     await waitFor(() => expect(screen.getByTestId('audit-health')).toBeTruthy());
+    // §11 D229. The staged sources arrive by a SEPARATE call, after the health
+    // card. Returning at the health card let every caller race it: under CI load
+    // `getByTestId('audit-staged-fetch-button')` ran before the rows had loaded
+    // (reproduced by delaying this mock 50 ms: 3 tests red), and the two absence
+    // tests ("says NOTHING…", "offers nothing…") could pass on rows that had not
+    // arrived yet. Wait for the call to resolve, inside act, so every test starts
+    // from the loaded state.
+    await waitFor(() => expect(jobStagedSources).toHaveBeenCalled());
+    await act(async () => {
+      await jobStagedSources.mock.results[0].value;
+    });
     return { fetchOpenAccess, jobStagedSources };
   }
 

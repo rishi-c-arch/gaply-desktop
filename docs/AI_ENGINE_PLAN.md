@@ -18658,3 +18658,37 @@ carried a platform or machine assumption:
    * **Fix:** an explicit `--model` is validated first, then the refusal, then
      the bundled model is resolved. 11 of 11 with no model and 11 of 11 with
      one `[probe]`.
+
+### D229 — the new gates' third run: a vitest race CI load exposed, and a count check that could not read colour
+
+Run on `81dd56f`: App crate tests failed with **every test green** (lib 465,
+`ai_eval_cli` 11, `commands_test` 7, `decision_records` 1). Frontend build
+failed on one vitest test that had passed on the same step one commit earlier.
+
+**1. The app job's count check could not read the runner's output.** Cargo
+on the runner writes ANSI colour codes, so `^     Running ` matched nothing.
+`grep -c` exited 1, and `bash -e` ended the step before it could print the
+count. Measured locally `[probe]`: `CARGO_TERM_COLOR=always` gives 0 matches,
+`never` gives 1. The step now sets `CARGO_TERM_COLOR: never`, and the count
+cannot abort the step before the explicit check reports it. The check failed
+safe, not green. It still failed on its own blind spot, and its first real
+run is what showed it.
+
+**2. `aiScreens.vitest.tsx` > "reports PER-SOURCE outcomes, never just a
+count" raced its own fixture.** `renderWithStaged` returned once the health
+card rendered, but staged sources arrive by a separate async call, and the
+test fetched the button synchronously. The CI DOM dump shows the moment:
+health card present, no staged section. The race dates from 11 Sep and
+surfaced the first time vitest ran on a loaded machine.
+* **Reproduced deterministically** `[probe]` by delaying the mock 50 ms:
+  **3** tests red. That is CI's one plus two siblings with the same race.
+* **The quieter half of the same defect:** two ABSENCE tests ("says NOTHING
+  when there is genuinely nothing to fetch", "offers nothing when no staged
+  source has a DOI") asserted right after the health card. They could pass
+  before the rows existed. Shown `[probe]`: break the component so it offers
+  DOI-less rows, keep the delay, and under the OLD helper the DOI test stays
+  **green**.
+* **Fix, in the helper:** wait for `jobStagedSources` to be called and its
+  promise to resolve inside `act`. With the delay: 72 of 72. With the delay
+  and the component broken: exactly the DOI absence test red. Without the
+  delay: 970 of 970.

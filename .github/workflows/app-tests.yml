@@ -76,15 +76,24 @@ jobs:
 
       # A zero-test run exits 0, so the count is checked, not only the status:
       # "no failures" means nothing until tests have actually run (CLAUDE.md).
+      #
+      # §11 D229: colour OFF. The first run with every test green failed here:
+      # the runner's cargo writes ANSI codes, `^     Running ` matched none of
+      # them, `grep -c` exited 1 and `bash -e` ended the step before it said
+      # why. Measured locally: CARGO_TERM_COLOR=always gives 0 matches, never
+      # gives 1. The `|| true` is inside the substitution only, so a zero count
+      # reaches the explicit check below rather than killing the step silently.
       - name: cargo test -p app --features devtools
         working-directory: src-tauri
+        env:
+          CARGO_TERM_COLOR: never
         run: |
           set -o pipefail
           dbus-run-session -- bash -c '
             echo "" | gnome-keyring-daemon --unlock --components=secrets >/dev/null 2>&1 || true
             cargo test -p app --features devtools --no-fail-fast
           ' 2>&1 | tee app-tests.log
-          T=$(grep -cE '^     Running ' app-tests.log)
+          T=$(grep -cE '^     Running ' app-tests.log || true)
           P=$(grep -E '^test result: ok' app-tests.log | awk '{p+=$4} END {print p+0}')
           echo "targets=$T passed=$P"
           if [ "$T" -lt 4 ] || [ "$P" -lt 400 ]; then
