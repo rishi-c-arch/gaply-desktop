@@ -18588,3 +18588,42 @@ green on a new gate proves nothing about whether it gates (CLAUDE.md), so the
 local negative controls are the evidence.
 
 Also: the audit's Method line said 8 deletion tests; its §7 lists 6. Corrected.
+
+### D228 — the app crate had not compiled on Linux since 4 Sep, and the first CI job to build it there said so
+
+§11 D227's new `app-tests.yml` failed on its first remote run (run
+`36022693701`, commit `e3a1de7`) before any test ran:
+
+```
+error: `objc2` only works on Apple platforms. Pass `--target aarch64-apple-darwin` …
+error: could not compile `objc2` (lib) due to 1 previous error
+```
+
+**Cause, found in the manifest.** `69a5ad1` (4 Sep, §11 D71's `label-cn`)
+changed `[target.'cfg(target_os = "macos")'.dependencies]` to
+`[target.'cfg(unix)'.dependencies]` so the labelling CLI could have `libc` on
+Linux. The Metal-enabled candle crates and `objc2` sat under the same header,
+so they became `unix` dependencies. The comment directly above them still
+said *"macOS only … a Linux/Windows build is byte-for-byte unchanged"*, which
+was false for Linux from then on. Windows is not `unix`, which is why
+windows-build-check never saw it. It builds `-p gaply_core` in any case.
+
+**Fix:** the macOS header is restored above the Metal block, and `libc` stays
+under `cfg(unix)`. Measured with `cargo tree -p app --features devtools
+--target <t> -i objc2` `[probe]`:
+
+| target | before | after |
+|---|---|---|
+| x86_64-unknown-linux-gnu | 28 lines, 2 metal-kernel entries | **0, 0** |
+| x86_64-pc-windows-msvc | 0, 0 | 0, 0 |
+| aarch64-apple-darwin | 93, 2 | 93, 2 (unchanged) |
+
+Every `objc2` and `new_metal` use in `src/ai/device.rs` is already under
+`cfg(target_os = "macos")`, and candle provides a dummy Metal backend when the
+feature is off, so no source change is needed. The confirmation is the Linux
+job itself; no local instrument can build webkit2gtk for Linux on this machine.
+
+**This is the case for the gate, stated plainly.** A comment asserting a
+platform property, three weeks of green local suites, and a green CI, all over
+a crate that could not compile on one of the three platforms Tauri targets.
+Nothing had ever built the app crate on Linux.

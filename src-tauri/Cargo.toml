@@ -138,6 +138,11 @@ tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 # termios, so `label-cn` can read a single keypress (§11 D71).
 libc = "0.2"
 
+# §11 D228: this header was replaced by `cfg(unix)` in 69a5ad1 (4 Sep) to give
+# `label-cn` libc on Linux, which also moved Metal and objc2 under unix: the app
+# crate did not compile on Linux (`objc2` only works on Apple platforms) until
+# the first CI job that built it there. libc stays under `cfg(unix)` above.
+[target.'cfg(target_os = "macos")'.dependencies]
 # Phase 7 gate (§11 D36). macOS only, and cargo unifies these with the base
 # candle dependencies so a Linux/Windows build is byte-for-byte unchanged.
 #
