@@ -702,12 +702,24 @@ mod ram_courtesy_tests {
 
     #[test]
     fn free_memory_is_plausible_and_gate_is_directional() {
-        // 0 resident always fits; an impossible ask never does.
+        // 0 resident always fits.
         assert!(enough_free_memory(0), "zero working set always fits");
-        assert!(!enough_free_memory(u64::MAX / 2), "an impossible ask is refused");
+
+        // §11 D228. The live gate can only refuse where free memory is READ,
+        // which is macOS alone: elsewhere `free_memory_bytes` is `None` and
+        // `fits_free_memory(None, _)` ALLOWS, by documented design. This test
+        // asserted refusal unconditionally and failed the first time it ran on
+        // Linux. Both halves are pinned, so the platform difference stays
+        // visible instead of being skipped.
+        #[cfg(not(target_os = "macos"))]
+        assert!(
+            enough_free_memory(u64::MAX / 2),
+            "off macOS no free memory is read, and the gate allows by design"
+        );
 
         #[cfg(target_os = "macos")]
         {
+            assert!(!enough_free_memory(u64::MAX / 2), "an impossible ask is refused");
             let free = free_memory_bytes().expect("macOS reports free memory");
             assert!(free > 0, "free memory is non-zero");
             if let Some(total) = total_physical_ram_bytes() {

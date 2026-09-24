@@ -557,13 +557,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // model is a registry change plus a download, never a code change). Absent,
     // it stays on the bundled 0.5B so every existing invocation behaves as it
     // did.
-    let (loader, model_id): (Arc<dyn BackendLoader>, String) = match arg("--model") {
-        None => {
-            let l = BundledGenerativeLoader::resolve()
-                .ok_or("no generative model resolves — set GAPLY_TEST_GEN_MODEL")?;
-            let id = l.model_id();
-            (Arc::new(l), id)
-        }
+    //
+    // §11 D228: an EXPLICIT --model is validated here, but the bundled model is
+    // resolved only AFTER the D107 refusal below. Resolving it first meant that
+    // on any machine where none resolves (CI, a fresh clone) the run failed with
+    // "no generative model resolves" and the refusal was never reached. The
+    // order that matters is kept: a wrong --model is still reported before
+    // anything missing.
+    let explicit: Option<(Arc<dyn BackendLoader>, String)> = match arg("--model") {
+        None => None,
         Some(id) => {
             // An unknown id must fail HERE, naming what exists. Falling back to
             // the bundled model would silently report 0.5B numbers under
@@ -591,7 +593,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 dir.join(c.gguf.local_name()),
                 dir.join(c.tokenizer.local_name()),
             )?;
-            (Arc::new(l), id)
+            Some((Arc::new(l), id))
         }
     };
 
@@ -624,6 +626,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             std::process::exit(2);
         }
     }
+
+    let (loader, model_id): (Arc<dyn BackendLoader>, String) = match explicit {
+        Some(x) => x,
+        None => {
+            let l = BundledGenerativeLoader::resolve()
+                .ok_or("no generative model resolves — set GAPLY_TEST_GEN_MODEL")?;
+            let id = l.model_id();
+            (Arc::new(l), id)
+        }
+    };
 
     let manager = ModelManager::new(loader);
     let ram = manager.ram_estimate().ok();

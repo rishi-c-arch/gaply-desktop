@@ -18627,3 +18627,34 @@ job itself; no local instrument can build webkit2gtk for Linux on this machine.
 platform property, three weeks of green local suites, and a green CI, all over
 a crate that could not compile on one of the three platforms Tauri targets.
 Nothing had ever built the app crate on Linux.
+
+#### Once it compiled, the first Linux run found two tests that assumed the developer's Mac
+
+Run `36023667692` (commit `ab8410e`): the lib passed 464 of 465, `commands_test`
+7 of 7, `decision_records` 1 of 1. Two tests failed, and in each the TEST
+carried a platform or machine assumption:
+
+1. **`models::ram_courtesy_tests::free_memory_is_plausible_and_gate_is_directional`**
+   asserted `!enough_free_memory(u64::MAX / 2)` on every platform. Free
+   memory is read on macOS alone. Elsewhere `free_memory_bytes()` is `None`,
+   and `fits_free_memory(None, _)` allows, **by documented design**. So off macOS,
+   and on Windows, which ships, the RAM courtesy gate never refuses. That
+   was already true and already written down. The test had asserted the
+   opposite on a platform it had never run on. Now the refusal is asserted
+   on macOS and the documented allow is asserted elsewhere. Both halves are
+   pinned, so the difference stays visible instead of being skipped.
+2. **`ai_eval_cli::citation_support_refuses_to_run_against_the_mock_by_default`**
+   got `no generative model resolves — set GAPLY_TEST_GEN_MODEL`. `ai-eval`
+   resolved the bundled model BEFORE the §11 D107 refusal, although the
+   refusal reads only arguments and its comment says it is "checked BEFORE
+   the model loads". On any machine without a model (CI, a fresh clone) the
+   refusal was unreachable. Reproduced locally first `[probe]` by pointing
+   `HOME` at an empty directory: 10 passed, 1 failed, the same message, as
+   predicted.
+   * **First attempt, wrong:** moving the refusal to the very top turned 4
+     other tests red, among them
+     `a_wrong_argument_is_reported_before_the_missing_ones`. That ordering is
+     deliberate: a bad `--model` must be named before a missing flag. Reverted.
+   * **Fix:** an explicit `--model` is validated first, then the refusal, then
+     the bundled model is resolved. 11 of 11 with no model and 11 of 11 with
+     one `[probe]`.
