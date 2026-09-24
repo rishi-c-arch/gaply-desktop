@@ -210,9 +210,19 @@ time injection.
 
 - **Standing verification commands (from `src-tauri/`, measured — ARCHITECTURE_TRACE §37):**
   - inner loop — `cargo check --workspace --all-targets` (~7s after a core edit, 0.3s warm)
-  - before a commit — `cargo test --workspace` (~18s warm, 1302 tests,
-    9 ignored — re-measured 9 Sep 2026; the previous figure said 93s/752
-    and had drifted by 550 tests, §11 D124)
+  - before a commit — `cargo test --workspace`: **1949 tests, 26 targets, 9
+    ignored** (macOS, no features; re-measured 24 Sep 2026 at `81dd56f`, §11
+    D228). The figure here said 1302 until then, and 752 before that (§11 D124).
+    It drifts by hundreds between re-measurements, so quote a fresh run, never
+    this line.
+  - the frontend — `npx vitest run --config vitest.config.ts`: **970 tests, 75
+    files** (24 Sep 2026). CI runs it in `frontend-build` since §11 D227.
+  - the app crate on Linux, as CI runs it — `cargo test -p app --features
+    devtools`: **490 tests, 10 targets** (run `36028096375`, `2ea46c6`). Locally,
+    WITHOUT `--features devtools`, `ai_eval_cli` fails 8 of 11 unless a stale
+    `target/debug/ai-eval` happens to exist, and then it passes on that stale
+    binary (§11 D210, still open). Neither local result says anything about
+    `ai-eval`.
 
   **`--workspace` is load-bearing.** Without it, cargo checks the app package's
   targets and `gaply_core` only as a lib dependency, so a broken or failing
@@ -253,6 +263,12 @@ time injection.
   2026 while capturing a golden fixture from `e5eb963`, a commit whose CI was
   fully green.
 
+  **To COMPILE and TEST, empty placeholders are enough** (§11 D227, measured on a
+  clean worktree: `cargo check -p app` exits 101 without them, 0 with them).
+  `tauri-build` checks that the paths exist and never reads them, and no test
+  loads the bundled models. That is how `app-tests.yml` builds the app crate.
+  A capture that RUNS a model still needs the real files, as below.
+
   **So any capture-from-an-earlier-commit must supply the models.** Symlinks are
   enough and avoid a second 400 MB copy:
 
@@ -283,6 +299,12 @@ time injection.
   the workflows run on `desktop`, which has no deploy job, and `origin` is NOT
   gone (see "Remotes"). It stays off every-push because it is heavy (npm ci, a
   full Tauri Windows build); the cheap workflow carries the per-push guard.
+
+  **The app crate is in CI since §11 D227**: `app-tests.yml` runs `cargo test -p
+  app --features devtools` on ubuntu on every push and PR, with placeholder
+  models and a positive-count check. Before it, no app-crate test ran remotely.
+  Its first three runs found the app crate had not compiled on Linux since
+  4 Sep, two tests that assumed a Mac, and a vitest race (§11 D228, D229).
 - **Nothing in CI parses `tauri.conf.json`. Checked 12 Sep 2026 — and it is a
   DIFFERENT situation from the lint gate, which is the part worth recording.**
 
@@ -759,10 +781,12 @@ time injection.
   which is the stale-pointer defect this very entry is about, in the document
   people read to find the guards. Measured by running each by name:
   `cargo test -p gaply_core --test decision_records` answers *"no test target
-  named `decision_records` in `gaply_core`"*. Both CI workflows run
-  `-p gaply_core`, so **the D-number guard has never run remotely** — it gates
-  `cargo test --workspace` on a developer's machine and nothing else, while its
-  sibling, one directory away, runs on every push. Ten minutes; it found two live defects on its first run, of BOTH
+  named `decision_records` in `gaply_core`"*. Until 24 Sep 2026 both CI
+  workflows ran only `-p gaply_core`, so **the D-number guard never ran
+  remotely**. It gated `cargo test --workspace` on a developer's machine and
+  nothing else, while its sibling, one directory away, ran on every push.
+  **§11 D227 changed that:** `app-tests.yml` runs the app crate, and this guard
+  with it, on every push (1 of 1 in run `36028096375`). Ten minutes; it found two live defects on its first run, of BOTH
   kinds:
 
   | site | cited | reality |
@@ -1248,6 +1272,41 @@ time injection.
 
   Quote `passed` and `targets` together, always. A green claim needs a number
   that can only be produced by work actually happening.
+
+  **AN UNQUOTED SHELL VARIABLE CAN RUN ZERO TESTS, AND EXIT 0.** 24 Sep 2026,
+  §11 D225's deletion tests:
+
+  ```bash
+  F="rows_from_a_page every_bundled_row a_database_seeded_before"
+  cargo test --workspace --no-fail-fast -- $F      # zsh: ONE argument
+  # CARGO_EXIT=0  targets=26  passed=0
+  ```
+
+  zsh does not word-split an unquoted `$F` (bash does), so cargo received ONE
+  filter, the whole string, which names no test. Three deletion tests "ran",
+  exited 0, and reported no failures, which is exactly what a deletion test
+  that found NO guard looks like. Only `passed=0` said otherwise. Pass filters as
+  separate words (`set -- a b c; … -- "$@"`), and **assert the positive count
+  on every run, deletion tests included.** A deletion test that runs nothing
+  cannot go red, so its green means nothing.
+
+  **CARGO'S COLOUR DEFEATS A PLAIN GREP IN CI. Force colour off before
+  counting.** 24 Sep 2026, §11 D229: `app-tests.yml` failed with every test
+  green. The runner's cargo writes ANSI codes, so `^     Running ` matched
+  nothing, `grep -c` exited 1, and `bash -e` ended the step before it printed
+  why. Measured: `CARGO_TERM_COLOR=always` gives 0 matches, `never` gives 1. A
+  local terminal and a CI log are different instruments, so a count that works
+  in one is not evidence about the other.
+
+  ```bash
+  # RIGHT — colour off where the count is taken; a zero count reaches the check
+  CARGO_TERM_COLOR=never cargo test … 2>&1 | tee run.log
+  T=$(grep -cE '^     Running ' run.log || true)
+  [ "$T" -gt 0 ] || { echo "SUITE DID NOT RUN"; exit 1; }
+  ```
+
+  Keep `|| true` INSIDE the substitution only. Its job is to let a zero reach
+  the explicit check, not to hide it (compare the `|| true` batch entry above).
 
   **A GREEN RUN ON THE WRONG PLATFORM IS THE SAME ERROR ONE DIMENSION OVER, and
   these two belong together.** 15 Sep 2026, the `Location` ambiguity guard
