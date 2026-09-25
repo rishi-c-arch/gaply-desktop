@@ -1332,6 +1332,14 @@ time injection.
   General practice, not drawn from the three above: paths in this corpus
   contain spaces (`R PAPER .docx`), so quote them.
 
+  **Provenance has the same gap.** `decision_records.rs` verifies that a cited
+  D-number exists, not that it is the right record. A citation can point at a
+  real record and still be wrong, and that class of error has no guard. (Its
+  reach is also narrower than the plan: it scans `.rs` files only, so a
+  D-number cited in this file is not checked even for existence.) It was caught
+  on 25 Sep 2026 only by reading D219 and D225 and finding the evidence was in
+  the other one.
+
   **A GREEN RUN ON THE WRONG PLATFORM IS THE SAME ERROR ONE DIMENSION OVER, and
   these two belong together.** 15 Sep 2026, the `Location` ambiguity guard
   (`gaply-core/tests/location_is_unambiguous.rs`). It scans source files and
