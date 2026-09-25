@@ -683,7 +683,9 @@ fn check_reference_list(out: &mut ConsistencyReport, report: &PrepassReport) {
         for m in &p.markers {
             for n in &m.numbers {
                 if bad_numbers.contains(n) {
-                    hits.entry(*n).or_default().push(snippet(&p.sentence, 60));
+                    // Whole: the marker this finding is about can sit anywhere
+                    // in the sentence, and a cut hid it (`whole`'s doc).
+                    hits.entry(*n).or_default().push(whole(&p.sentence));
                 }
             }
         }
@@ -1051,6 +1053,30 @@ mod tests {
         let m = message(&r, "marker-resolves-to-malformed-entry");
         assert!(m.contains("[6]"), "{m}");
         assert!(m.contains("cites"), "singular verb: {m}");
+    }
+
+    /// **THE QUOTE MUST SHOW THE MARKER IT IS ABOUT.** The citing sentence is
+    /// verbatim from `R PAPER .docx`; the entries are this file's fixture lines.
+    ///
+    /// The test above cannot see truncation: `m.contains("[6]")` is satisfied by
+    /// the lead-in ("1 sentence cites [6]") whatever the quote holds. The quote
+    /// WAS cut at 60 characters, and `[6]` sits at character 75, so the reader
+    /// saw "Classical lexical-based approaches [5] or superficial …": only `[5]`,
+    /// under a finding about `[6]`. This asserts on the quote itself.
+    #[test]
+    fn a_marker_on_a_malformed_entry_quotes_its_sentence_whole() {
+        const SENTENCE: &str = "Classical lexical-based approaches [5] or superficial learning classifiers [6] suffer from a lack of good reasoning and understanding about out-of-vocabulary words and domain shift.";
+        let r = run(&[
+            SENTENCE,
+            "References",
+            "[5] S. Mohammad and P. Turney, \"Crowdsourcing a word-emotion association lexicon,\" 2013.",
+            "[6] pp. 436-465, 2013.",
+            "[7] C. Cortes and V. Vapnik, \"Support-vector networks,\" Mach. Learn., vol. 20, 1995.",
+        ]);
+        let m = message(&r, "marker-resolves-to-malformed-entry");
+        let q = quotes(&m);
+        assert_eq!(q, vec![SENTENCE], "the quote must be the citing sentence, whole: {m}");
+        assert!(q[0].contains("[6]"), "the quote must show the marker the finding is about: {m}");
     }
 
     #[test]
