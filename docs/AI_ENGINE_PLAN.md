@@ -18723,3 +18723,111 @@ surfaced the first time vitest ran on a loaded machine.
   promise to resolve inside `act`. With the delay: 72 of 72. With the delay
   and the component broken: exactly the DOI absence test red. Without the
   delay: 970 of 970.
+
+### D230 — a row-label rule for table-vs-prose numbers, measured and NOT built
+
+**Declined: THIS rule, on THIS corpus.** It is not a finding about
+table-vs-prose checking in general. The rule measured here is one deterministic
+way of pairing a prose number with a table cell, and it pairs the wrong ones.
+A different association rule is a different measurement.
+
+#### Why it was measured
+
+`consistency.rs`'s metric check (§11 D97) compares prose with prose. It needs
+a metric name and its value in one sentence, so no table value ever enters it:
+in `R PAPER .docx` the table's `0.945` is a block of its own (`TableParagraph`),
+and in the PDF the whole table is one flattened block. It catches the MCC pair
+(abstract 0.945, conclusion 0.545) because two PROSE sentences disagree.
+
+A hand-read of every prose sentence restating a table value found contradictions
+that check cannot see, because each prose value appears once and its only
+second value is the table:
+
+| manuscript | contradictions (prose vs `doc_tables` grid) |
+|---|---|
+| R PAPER .docx | **5**: MCC 0.545 (conclusion) vs Table IV 0.945; F1 "joy (97.0%)" vs Table III 94.92, "trust (96.0%)" vs 95.24, "Disgust (93.1%)" vs 96.84, "fear (93.5%)" vs 95.96 |
+| Revised Health Economics .docx | 0, across ~30 restatements (rates, CIs, n, AORs, paths, α, barriers) |
+| chapter3 .docx | 0 (three coordinates, all match) |
+| final final L.pdf, IJAS … haemolymph.pdf | **not measured**: a PDF yields no `doc_tables` grid (§11 D212), so no grid rule can run on them, and their tables were not hand-read |
+| Lake Chapter 1.docx | no tables |
+
+**The ground truth is one reader's.** I (Claude) hand-read it. No second reader
+checked it, and no deterministic rule produced it. Every precision and recall
+figure below inherits that.
+
+#### The rule, fixed before the run
+
+Over each `doc_tables` grid: row 0 is the header; a data row's first cell is its
+label, keyed with any trailing parenthetical dropped ("Micro (1–10 employees)"
+-> "Micro"), skipped under 3 characters or with no letter. A numeric cell parses
+to one number after removing `%`, spaces and thousands commas; ranges,
+`< .001` and `OR = 3.90 (…)` are not compared. A column key is the header,
+lowercased, with `(%)`, `%` and parentheses removed. Prose is every sentence of
+the pipeline's sections, minus any sentence that is itself a table cell.
+
+A sentence mentions a row when it contains the label as a whole word; the
+label's value is the first number within 30 characters after it, unless another
+row's label intervenes. A prose value with d decimals agrees with a cell when
+the cell rounded to d places equals it.
+
+* **R1 (strict):** the sentence also names a numeric column's key; fire when the
+  value disagrees with that column.
+* **R2 (row only):** fire when the value matches no numeric cell in the row.
+
+Measured with a scratch probe over the real extraction (`extract_path`: the
+grids and section sentences the PublishReady pipeline builds) and a prototype of
+the rule; neither is committed.
+
+#### Result
+
+| | fired | true | false | of the 5 contradictions |
+|---|---:|---:|---:|---|
+| **R1** | 16 | 2 (joy, trust) | 14, all Health Economics | 2 |
+| **R2** | 57 | 4 (joy, trust, disgust, fear) | 53: Health Economics 49, chapter3 2, R PAPER 2 | 4 |
+
+**R1 2/16, R2 4/57.** Both miss MCC, as predicted: the conclusion says
+"HEFCSO-BiLSTM", the ablation row says "Full HEFCSO-BiLSTM", and the one row
+labelled "HEFCSO-BiLSTM" (Table II) has no MCC column. R1 misses disgust and fear,
+as predicted: their sentence names no column.
+
+#### The four failure modes, from reading every firing
+
+1. **The nearest number belongs to another label.** "ranging from 10.8% among
+   micro-enterprises to 81.0% among large firms" gives micro 81.0. Prose that
+   puts a number BEFORE its label hands the rule the next label's number.
+2. **One label, two tables.** Small, Medium and Large are rows of both the
+   provision table and the AOR table, so "small 50.0%" is compared with an AOR
+   row.
+3. **The label beside a different quantity.** Size thresholds "small (11–50)",
+   a national share "micro 78%", "large firms (Cramér’s V = 0.573", a Likert
+   range "(range: 0–1)", a formula "Control Growth … × 100".
+4. **Numbers that are not values.** Citation markers ("The ISEAR dataset [22]",
+   "King-BiLSTM [10]") and a reference entry ("Small Business Economics,
+   58(4)").
+
+None of these is a threshold to tune. They say "the first number after the
+label" does not identify the number that belongs to the label.
+
+#### A defect in the prototype, not in the rule
+
+The 30-character window can cut a number at its edge: "(n = 26" was read as
+`2`, and "oversampling was 21.9%" as `2`. Three firings came from that. Each is
+still false with the whole number (26 is the medium stratum's n, not the large
+one's), so no figure above changes, but those rows printed the wrong value.
+
+#### Spared by chance, not by the rule
+
+R PAPER's "In the combined data set, the results achieved 96.42% …" was
+predicted to fire against the `Combined` row of Table I. It did not, because
+96.42 sits 32 characters after "combined", two past the window. The rule has no
+reason to leave it alone; the window happened to be short. That prediction was
+wrong, and it is not evidence in the rule's favour.
+
+#### Not claimed
+
+* **Not that table-vs-prose checking cannot work.** A rule that associates by
+  structure rather than proximity has not been measured.
+* **Not anything about the two PDFs.** They were outside the measurement.
+* **Not that the ground truth is complete or correct.** One reader, unreviewed.
+* **Not that the five contradictions are all R PAPER can hold.** They are what
+  one reading of its restated table values found.
