@@ -1308,6 +1308,30 @@ time injection.
   Keep `|| true` INSIDE the substitution only. Its job is to let a zero reach
   the explicit check, not to hide it (compare the `|| true` batch entry above).
 
+  **VERIFICATION MUST BE INDEPENDENT OF THE OPERATION IT VERIFIES.** A step
+  that reports a match proves nothing unless it establishes, by a reference the
+  operation cannot influence, that the intended artifact was the one tested.
+
+  Three instances, all of which reported success while measuring the wrong
+  thing:
+
+  - a list of test-name filters in an unquoted variable reached cargo as one
+    string under zsh, so cargo ran zero tests and exited 0 (§11 D225)
+  - cargo's ANSI colour defeated a plain grep, so a count read zero and the step
+    died before saying why (§11 D229)
+  - a variable held both a file path and a passed-test count, so after the first
+    run the restore wrote to a file named after the count and the hash check
+    read that same path, reporting a match for two runs while the real file kept
+    an earlier mutation (§11 D231)
+
+  Rules: never reuse a variable that names a file. Pass a list as separate
+  words (`"$@"`); never rely on the shell to split an unquoted variable. Strip
+  terminal formatting before parsing counts. A restore and its verification
+  must not share the variable that decides the path.
+
+  General practice, not drawn from the three above: paths in this corpus
+  contain spaces (`R PAPER .docx`), so quote them.
+
   **A GREEN RUN ON THE WRONG PLATFORM IS THE SAME ERROR ONE DIMENSION OVER, and
   these two belong together.** 15 Sep 2026, the `Location` ambiguity guard
   (`gaply-core/tests/location_is_unambiguous.rs`). It scans source files and
