@@ -1079,6 +1079,59 @@ mod tests {
         assert!(q[0].contains("[6]"), "the quote must show the marker the finding is about: {m}");
     }
 
+    /// **IJAS, THE CASE THIS EXISTS FOR.** Its reference list prints years bare
+    /// (`Surname I. YYYY.`), and the parser read every entry as unparseable and
+    /// every marker as citing a missing work: 48 structural findings, all false.
+    /// Citing sentences and entries verbatim from the manuscript; the second
+    /// sentence runs on past "in B." (as in *B. mori*) and is cut there.
+    ///
+    /// Asserts the parse POSITIVELY, twice, so an empty list cannot pass by
+    /// producing no findings: the pre-pass holds four entries, and the check
+    /// reports exactly one thing, that the fourth (Slama 1966, verbatim, cited
+    /// nowhere in this fixture) is never cited. Only a PARSED bare-year entry
+    /// can produce that finding; with no entries the check is silent.
+    #[test]
+    fn unbracketed_year_citations_resolve_against_their_entries() {
+        let texts = ["Total protein was estimated by the Coomassie brilliant blue dye-binding method with bovine serum albumin as standard at 595 nm (Bradford 1976).", "The analogues thus behave as growth stimulants only within a narrow window, an interpretation consistent with the dose dependence reported by Kamimura and Kiuchi (1998), who found that fenoxycarb prolonged the fifth stadium and progressively prevented cocoon formation and pupation as the dose was raised, and by Göncü and Parlak (2011), who showed that fenoxycarb disturbs midgut remodelling in B.", "References", "Göncü E and Parlak O. 2011. The influence of juvenile hormone analogue, fenoxycarb on the midgut remodeling in Bombyx mori (L., 1758) (Lepidoptera: Bombycidae) during larval– pupal metamorphosis. Turkish Journal of Entomology 35(2): 179–94.", "Kamimura M and Kiuchi M. 1998. Effects of a juvenile hormone analogue, fenoxycarb, on 5th stadium larvae of the silkworm, Bombyx mori (Lepidoptera: Bombycidae). Applied Entomology and Zoology 33(2): 333–38. https://doi.org/10.1303/aez.33.333", "Bradford M M. 1976. A rapid and sensitive method for the quantitation of microgram quantities of protein utilizing the principle of protein–dye binding. Analytical Biochemistry 72: 248– 54.", "Slama K and Williams C M. 1966. Juvenile hormone V. The sensitivity of the bug, Pyrrhocoris apterus, to a hormonally active factor in American paper-pulp. Biological Bulletin 130: 235–46."];
+        let b = blocks(&texts);
+        let pre = prepass_blocks(&b);
+        assert_eq!(pre.author_year_bibliography.len(), 4, "{:?}", pre.author_year_unreadable);
+        let r = check_consistency(&b, &pre);
+        let got: Vec<(&str, &str)> = r.findings.iter().map(|f| (f.kind.as_str(), f.message.as_str())).collect();
+        assert_eq!(got.len(), 1, "{got:?}");
+        assert_eq!(got[0].0, "reference-never-cited", "{got:?}");
+        assert!(got[0].1.contains("Slama"), "{got:?}");
+    }
+
+    /// NEGATIVE CONTROL: a numbered list still skips the author-year check, even
+    /// when an entry in it prints a bare year (R PAPER's shape; its list is
+    /// numbered). The numbered parse is asserted positively.
+    #[test]
+    fn a_numbered_list_skips_the_author_year_check_even_with_a_bare_year_entry() {
+        let texts = [
+            "Total protein was estimated by the dye-binding method at 595 nm [1].",
+            "References",
+            "[1] Bradford M M. 1976. A rapid and sensitive method for the quantitation of microgram quantities of protein utilizing the principle of protein–dye binding. Analytical Biochemistry 72: 248– 54.",
+        ];
+        let b = blocks(&texts);
+        let pre = prepass_blocks(&b);
+        assert_eq!(pre.bibliography.len(), 1, "the numbered list was not parsed");
+        assert!(pre.author_year_bibliography.is_empty());
+        let r = check_consistency(&b, &pre);
+        let author_year_kinds = [
+            "reference-entry-unparseable",
+            "orphan-author-year-marker",
+            "reference-never-cited",
+            "uncertain-reference-match",
+            "marker-year-mismatch",
+        ];
+        assert!(
+            !kinds(&r).iter().any(|k| author_year_kinds.contains(&k.as_str())),
+            "the author-year check ran on a numbered list: {:?}",
+            kinds(&r)
+        );
+    }
+
     #[test]
     fn an_orphan_marker_names_the_range_the_list_covers() {
         let r = run(&[

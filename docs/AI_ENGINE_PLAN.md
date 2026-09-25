@@ -18831,3 +18831,152 @@ wrong, and it is not evidence in the rule's favour.
 * **Not that the ground truth is complete or correct.** One reader, unreviewed.
 * **Not that the five contradictions are all R PAPER can hold.** They are what
   one reading of its restated table values found.
+
+### D231 — an unbracketed year is a year: 48 false structural findings on IJAS, and an audit that could not stage its sources
+
+**The defect.** `audit_prepass::ay_entry_re` read an author-year reference
+entry only when its year was in brackets, `(2011)`. IJAS prints the year bare,
+after the author list: *"Göncü E and Parlak O. 2011. The influence of…"*. All 26
+of its entries were rejected. Every citation of them then became a citation of a
+work the list "does not contain". **48 structural findings, all false**: 26
+`reference-entry-unparseable` and 22 `orphan-author-year-marker`. A user had to
+acknowledge all of them before the audit would start. The ground truth is one
+reader's (Claude's) hand-read of all 26 entries, with no second reader: each has
+a leading surname and a four-digit year; two are incomplete references (#5
+Dandin 2005, a book cited as "p. 284"; #15 Miller 1959, no venue), which is not
+what the finding claimed.
+
+#### The year forms, measured before the change
+
+| form | accepted before | where in the corpus |
+|---|---|---|
+| `(YYYY)`, `(YYYYa)` | yes | Health Economics: all 35 entries |
+| `Surname I[, …] and Surname I. YYYY. Title` | **no** | IJAS: all 26 entries |
+| `Surname, Given[, …] and Surname, Given. YYYY. Title` | **no** | final-L thesis: 83 reference lines (the parser does not run there; below) |
+
+Also rejected before and still rejected: `(2011, May)`, `(n.d.)`, `(in press)`,
+and any parenthesis before the year (`Smith (Ed.). (2011)`). None was found in
+the corpus, so none was added. final-L's other 13 reference-shaped lines are one
+entry split across two blocks with the year at the end of the first; that is an
+extraction artefact, not a style, and no end-of-block form was added for it.
+
+#### The rule
+
+One alternative beside `(YYYY)`, with the same proximity rule (the surname
+first, then up to 300 characters with no parentheses): **`. YYYY. `** (the
+author list's closing full stop and a space, the year, a full stop and a space).
+Year range unchanged, 1600–2099. The full stops on both sides are what keep a
+sample size (*"a survey of 2000 households"*) or a page range (*"1885–1914."*)
+from reading as a year. **Known limit:** a sentence-shaped `. 2000. ` that is
+not a year would read as one; no such line is in the corpus.
+
+#### Acceptance, measured on the six manuscripts `[ran]`
+
+| | before | after |
+|---|---|---|
+| IJAS entries parsed | 0 of 26 | **26 of 26**, every surname and year correct |
+| IJAS `reference-entry-unparseable` | 26 | **0** |
+| IJAS `orphan-author-year-marker` | 22 | **0** |
+| Health Economics entries | 35 | 35, surname, year, DOI, title and raw **identical** |
+| Health Economics findings | 13 | 13, **identical** |
+| R PAPER (.docx and .pdf), chapter3, final-L, Lake | — | findings **byte-identical** |
+| IJAS sources staged by `plan_thesis_audit` | 0 | **26**, of which 10 fetchable by DOI |
+
+**One new IJAS finding, and it is false.** *"Listed but never cited: Miranda J
+E … 2002"*. Miranda is cited once, in *"(Trivedy et al. 1993, Kamimura and
+Kiuchi 1998, Miranda et al. 2002, Mamatha et al. 2006)"*. `marker_works`
+(`consistency.rs`) splits a co-citation only on `;`, so a comma-separated one
+credits its first work alone. Kamimura and Mamatha are cited elsewhere and do
+not show; Miranda is cited only here. A limitation that already existed, made
+visible because the entries now parse; **not fixed here**. Net on IJAS: 48 false
+structural findings become 1 false cosmetic one.
+
+#### Downstream: recorded, NOT fixed
+
+The parsed author-year list is not only the consistency checks' input. It is
+what `plan_audit` stages for the fetch path (`thesis_audit.rs`, guarded by
+`!author_year_bibliography.is_empty()`), what `Bibliography::doi_for` reads to
+match a citation to a fetched source (`audit_prepass.rs`, the `Staged`
+resolution route), and, through the staged rows, what a re-check after a fetch
+reads back (`commands.rs`, `ai_job_recheck_items`). **Measured on
+IJAS before this fix: 0 staged, 0 fetchable, so none of its 22 citations could
+ever become checkable through a fetched source**, though 10 of its entries print
+a DOI. This fix repairs IJAS because the same list now parses. What it does not
+repair is the dependency: **an entry the parser cannot read disappears from
+staging, fetching and matching, and the only signal is the unparseable
+finding.** Not changed here.
+
+#### Tests, and the deletion tests
+
+Five tests, each prediction written before its first run. Against the old
+parser `an_unbracketed_year_entry_is_readable` (IJAS's Göncü and Kamimura, and
+final-L's Drost, verbatim) and `unbracketed_year_citations_resolve_against_their_entries`
+(IJAS citing sentences and entries verbatim) were red; the three negative
+controls were green: `an_entry_with_a_surname_and_no_year_is_still_unreadable`,
+`a_sample_size_or_page_range_is_not_read_as_a_year`, and
+`a_numbered_list_skips_the_author_year_check_even_with_a_bare_year_entry`.
+
+The IJAS test was first written to assert silence, and predicting the deletion
+of the check's own parser call showed it could not tell "parsed and silent"
+from "never ran". It now carries a fifth, uncited verbatim entry (Slama 1966)
+and expects exactly one finding, that Slama is never cited, which only a parsed
+bare-year entry can produce.
+
+Deletion tests, `--workspace --no-fail-fast`, each file state hash-checked
+before, during and after the run:
+
+| | deletion | predicted red | actual |
+|---|---|---|---|
+| D1 | bare-year alternative removed | the two positive tests | as predicted |
+| D2 | any bare year after a surname accepted | the sample-size control only | as predicted |
+| D3 | the consistency check's parser call returns nothing | the IJAS test and six existing author-year tests | as predicted, 7 |
+| D4 | the pre-pass's parser call returns nothing | the IJAS test, `planning_stages_the_author_year_reference_list_and_never_the_library` | as predicted |
+| D5 | the numbered-list guard in `check_author_year` removed | the numbered control, `the_author_year_checks_are_silent_on_a_numbered_paper` | the numbered control and `a_consistent_manuscript_produces_no_findings`; **the second prediction stayed green** |
+
+**D5's green is a finding about an existing test, not changed here.**
+`the_author_year_checks_are_silent_on_a_numbered_paper` lists three kinds it must
+not see. Without the guard the leak arrives as `reference-entry-unparseable`
+(`[5] S. Mohammad…` starts with a bracket), which is not in its list, so it
+cannot see the guard go. The guard stays covered by the new control and by
+`a_consistent_manuscript_produces_no_findings`.
+
+`cargo test --workspace`: 26 targets, 1957 passed (1952 + 5), 9 ignored.
+vitest: 75 files, 970 passed.
+
+#### Observation: a source file reverted during a deletion run
+
+Recorded as an observation; the cause was not found.
+
+The first deletion run mutated `audit_prepass.rs` for D1, ran, restored it with
+`cp` from a saved copy, and checked the hash: it matched, after D1 and again
+after D2. D3 mutates only `consistency.rs`. Yet under D2 and D3 the parser's
+positive tests went red, and at 20:45 `audit_prepass.rs` held **D1's mutated
+content, with D1's own write time (18:42:17)**. D2's and D3's results from that
+run are void; D1's stands. The same run stalled for about 80 minutes after
+D3's compile (2m 32s), with no test binary running; the power log shows an
+audio sleep-prevention assertion held for exactly that window (19:22:42 to
+20:44:30).
+
+Not reproduced: the same Python-write-then-`cp` sequence on scratch files kept
+the restored content. No process held either file open, and no editor or file
+watcher was running. The re-run restored by rewriting bytes and hash-checked
+each file before, immediately after, and 10 seconds after every test run; all
+four deletions ran in 3.5 to 4 minutes each with no change detected.
+
+**The rule it argues for:** a deletion harness should verify the file it
+measured, at the moment it measured it. A hash checked right after a restore
+said nothing about the state the next compile read.
+
+#### Not claimed
+
+* **Not that every unbracketed style now parses.** Only `. YYYY. ` was added,
+  because it is the one form the corpus shows.
+* **Not anything about final-L's reference list in the product.** Its pre-pass
+  finds 5 numbered entries, so the author-year check never runs on it; its
+  parser counts moved (56 -> 302 accepted) with no effect on any finding.
+  Why 5 numbered entries are found in an author-year thesis is not
+  investigated.
+* **Not that the ground truth was checked by anyone but its one reader.**
+
+Also noticed, not changed: `an_author_year_entry_yields_its_surname_year_doi_and_title`
+carries two `#[test]` attributes and is listed twice in a run.

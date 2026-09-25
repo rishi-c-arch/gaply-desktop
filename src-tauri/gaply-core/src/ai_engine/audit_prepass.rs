@@ -189,7 +189,7 @@ pub fn parse_author_year_entries(
         match ay_entry_re().captures(t) {
             Some(c) => ok.push(AuthorYearEntry {
                 surname: c["surname"].to_lowercase(),
-                year: c["year"].parse().ok(),
+                year: c.name("year").or_else(|| c.name("bare")).and_then(|m| m.as_str().parse().ok()),
                 // SHARED with the numbered parser — one definition of what a
                 // DOI looks like.
                 doi: doi_in_re()
@@ -225,8 +225,18 @@ fn title_after_year(entry: &str, year_end: usize) -> Option<String> {
     (t.split_whitespace().count() >= 2).then(|| t.to_string())
 }
 
-/// "Alkenbrack, S., Hanson, K., & Lindelow, M. (2015). Title…", and the
-/// organisational form "P4H Network. (2024).".
+/// "Alkenbrack, S., Hanson, K., & Lindelow, M. (2015). Title…", the
+/// organisational form "P4H Network. (2024).", and the UNBRACKETED year
+/// "Göncü E and Parlak O. 2011. Title…".
+///
+/// The unbracketed form is `. YYYY. `: the author list's closing full stop,
+/// the year, and a full stop. Two styles in the corpus print it (IJAS's
+/// `Surname I. 2011.` and the final-L thesis's `Surname, Given. 2007.`).
+/// Requiring `(YYYY)` read all 26 IJAS entries as unparseable. Same proximity
+/// rule as the bracketed year. The full stops on both sides are what keep a
+/// sample size ("of 2000 households") or a page range ("1885–1914.") from
+/// reading as a year; a sentence-shaped ". 2000. " that is not one would still
+/// be read as one, and no such line was found in the corpus.
 ///
 /// Requiring the comma reported both organisational entries in a real paper as
 /// unreadable, which is the check calling correct APA wrong. Digits belong in a
@@ -236,7 +246,7 @@ fn ay_entry_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
         Regex::new(
-            r"^\s*(?P<surname>[A-Z][\p{L}\p{N}'’\-]*)[^()]{0,300}?\((?P<year>(?:1[6-9]|20)\d{2})[a-z]?\)",
+            r"^\s*(?P<surname>[A-Z][\p{L}\p{N}'’\-]*)[^()]{0,300}?(?:\((?P<year>(?:1[6-9]|20)\d{2})[a-z]?\)|\.\s(?P<bare>(?:1[6-9]|20)\d{2})[a-z]?\.\s)",
         )
         .expect("author-year entry regex")
     })
@@ -2002,6 +2012,52 @@ mod tests {
         ]);
         assert!(ok.is_empty());
         assert_eq!(bad.len(), 1, "the unreadable entry vanished");
+    }
+
+    /// **AN UNBRACKETED YEAR IS A YEAR.** Two reference styles in the corpus
+    /// print the year bare after the author list, `Authors. YYYY. Title`: IJAS
+    /// (`Surname I and Surname I. 2011.`) and the final-L thesis (`Surname,
+    /// Given and Surname, Given. 2007.`). Entries verbatim from both. Requiring
+    /// `(YYYY)` read all 26 of IJAS's entries as unparseable, and every marker
+    /// citing them as a work the list does not contain.
+    #[test]
+    fn an_unbracketed_year_entry_is_readable() {
+        let (ok, bad) = parse_author_year_entries(&[
+            blk_ay("References"),
+            blk_ay("Göncü E and Parlak O. 2011. The influence of juvenile hormone analogue, fenoxycarb on the midgut remodeling in Bombyx mori (L., 1758) (Lepidoptera: Bombycidae) during larval– pupal metamorphosis. Turkish Journal of Entomology 35(2): 179–94."),
+            blk_ay("Kamimura M and Kiuchi M. 1998. Effects of a juvenile hormone analogue, fenoxycarb, on 5th stadium larvae of the silkworm, Bombyx mori (Lepidoptera: Bombycidae). Applied Entomology and Zoology 33(2): 333–38. https://doi.org/10.1303/aez.33.333"),
+            blk_ay("Drost, Wiebke, Matzke, Marianne and Backhaus, Thomas. 2007. `Heavy metal toxicity to Lemna minor: studies on the time dependence of growth inhibition and the recovery after exposure`, Chemosphere. 67:1: 36-43. DOI 10.1016/j.chemosphere.2006.10.018."),
+        ]);
+        assert!(bad.is_empty(), "{bad:?}");
+        let got: Vec<(&str, Option<i32>)> = ok.iter().map(|e| (e.surname.as_str(), e.year)).collect();
+        assert_eq!(got, vec![("göncü", Some(2011)), ("kamimura", Some(1998)), ("drost", Some(2007))]);
+        assert_eq!(ok[1].doi.as_deref(), Some("10.1303/aez.33.333"));
+        assert_eq!(ok[2].doi.as_deref(), Some("10.1016/j.chemosphere.2006.10.018"));
+    }
+
+    /// NEGATIVE CONTROL: a surname is not enough. An entry with no year in any
+    /// form is still reported.
+    #[test]
+    fn an_entry_with_a_surname_and_no_year_is_still_unreadable() {
+        let (ok, bad) = parse_author_year_entries(&[
+            blk_ay("References"),
+            blk_ay("Smith J and Jones K. A title that carries no year anywhere. Journal of Things 12: 1–5."),
+        ]);
+        assert!(ok.is_empty(), "{ok:?}");
+        assert_eq!(bad.len(), 1);
+    }
+
+    /// NEGATIVE CONTROL: a four-digit number that is not a year. A sample size
+    /// and a page range both sit in the year range (1600–2099); neither is
+    /// `(YYYY)` or `. YYYY. `, so neither makes the entry parse.
+    #[test]
+    fn a_sample_size_or_page_range_is_not_read_as_a_year() {
+        let (ok, bad) = parse_author_year_entries(&[
+            blk_ay("References"),
+            blk_ay("Smith J. A survey of 2000 households in two districts. Small Business Economics 58(4): 1885–1914."),
+        ]);
+        assert!(ok.is_empty(), "{ok:?}");
+        assert_eq!(bad.len(), 1);
     }
 
     /// ONE LIST, ONE STYLE. Parsing both and keeping the larger would invent a
