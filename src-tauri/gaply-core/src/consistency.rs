@@ -124,6 +124,19 @@ fn snippet(s: &str, n: usize) -> String {
     crate::report_compose::trim_at_word(&t, n)
 }
 
+/// A sentence quoted WHOLE: whitespace runs collapsed (PDF text carries
+/// doubled spaces), nothing dropped.
+///
+/// For a quote whose job is to carry the evidence. `snippet(s, 70)` cut the
+/// two sentences of a metric contradiction before either number (on `R PAPER`,
+/// 0.945 sits at character 95 and 0.545 at 321), so the reader could not check
+/// the claim without opening the manuscript. A stored finding is never
+/// shortened; a surface that needs a bound cuts at a sentence boundary when it
+/// renders.
+fn whole(s: &str) -> String {
+    s.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 /// The leading surname of one work inside a co-citation.
 fn co_cite_lead_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
@@ -582,8 +595,8 @@ fn check_metric_agreement(out: &mut ConsistencyReport, blocks: &[PagedBlock]) {
                         a.value,
                         b.value,
                         shared.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", "),
-                        snippet(&a.sentence, 70),
-                        snippet(&b.sentence, 70)
+                        whole(&a.sentence),
+                        whole(&b.sentence)
                     ),
                     Some("One of them is wrong. Check which, and correct it everywhere.".to_string()),
                 );
@@ -1510,6 +1523,46 @@ mod tests {
         assert!(m.contains("0.945") && m.contains("0.545"), "{m}");
         assert!(m.contains("semeval2018"), "must name the shared subject: {m}");
         assert!(r.blocks_audit(), "a contradiction must gate the audit");
+    }
+
+    /// The quoted text between each “…” pair, in order.
+    fn quotes(m: &str) -> Vec<&str> {
+        m.split('“').skip(1).filter_map(|q| q.split('”').next()).collect()
+    }
+
+    /// **A QUOTE MUST CARRY THE EVIDENCE IT QUOTES.** Both sentences verbatim
+    /// from `R PAPER .docx`, unshortened.
+    ///
+    /// The test above cannot see truncation: its sentences are shortened, and
+    /// `m.contains("0.945")` is satisfied by the message's lead-in ("reported as
+    /// 0.945 and as 0.545") whatever the quotes say. The quotes WERE cut at 70
+    /// characters, before either number (0.945 sits at character 95, 0.545 at
+    /// 321), so a reader could not check the claim without opening the
+    /// manuscript. This asserts on the quotes themselves.
+    #[test]
+    fn a_metric_contradiction_quotes_both_sentences_whole() {
+        const ABSTRACT: &str = "In the combined data set, the results achieved 96.42% accuracy, 95.00% F1-score, and an MCC of 0.945 for SemEval 2018, with 10 percentage points better than the best baseline in accuracy.";
+        const CONCLUSION: &str = "The paper discussed the development of HEFCSO-BiLSTM, a new model capable of recognizing emotions from social media text, combining a hybrid-nature inspired metaheuristic hyperparameter optimization by using BiLSTM with an attention mechanism, achieving state-of-the-art results in terms of 96.42% accuracy and an MCC of 0.545 on SemEval2018, with complete relative gains across all datasets.";
+        let r = run(&[ABSTRACT, CONCLUSION]);
+        let m = message(&r, "metric-contradiction");
+        let q = quotes(&m);
+        assert_eq!(q, vec![ABSTRACT, CONCLUSION], "each quote must be its sentence, whole: {m}");
+        assert!(q[0].contains("0.945") && q[1].contains("0.545"), "{m}");
+    }
+
+    /// The same conclusion sentence as `R PAPER .pdf` extracts it, with the
+    /// doubled spaces of PDF text. The quote collapses whitespace runs (as the
+    /// old `snippet` did) and drops nothing else.
+    #[test]
+    fn a_whole_quote_collapses_pdf_whitespace_and_nothing_else() {
+        const ABSTRACT: &str = "In the combined data set, the results achieved 96.42% accuracy, 95.00% F1-score, and an MCC of 0.945 for SemEval 2018, with 10 percentage points better than the best baseline in accuracy.";
+        const CONCLUSION_PDF: &str = "The paper discussed the development of HEFCSO-BiLSTM, a new model  capable  of  recognizing  emotions  from  social  media  text, combining  a  hybrid-nature  inspired  metaheuristic  hyperparameter optimization  by  using  BiLSTM  with  an  attention  mechanism, achieving state-of-the-art results in terms of 96.42% accuracy and an MCC of 0.545 on SemEval2018, with complete relative gains across all  datasets.";
+        let r = run(&[ABSTRACT, CONCLUSION_PDF]);
+        let m = message(&r, "metric-contradiction");
+        let q = quotes(&m);
+        let collapsed = CONCLUSION_PDF.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert_eq!(q.get(1).copied(), Some(collapsed.as_str()), "{m}");
+        assert!(!m.contains("  "), "a doubled space reached the message: {m}");
     }
 
     /// THE PRIME IS LOAD-BEARING. `Path C` is the total effect and `Path C′` the
