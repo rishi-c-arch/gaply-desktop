@@ -18922,8 +18922,9 @@ from "never ran". It now carries a fifth, uncited verbatim entry (Slama 1966)
 and expects exactly one finding, that Slama is never cited, which only a parsed
 bare-year entry can produce.
 
-Deletion tests, `--workspace --no-fail-fast`, each file state hash-checked
-before, during and after the run:
+Deletion tests, `--workspace --no-fail-fast`. D1 is from the first deletion run;
+D2 to D5 were re-run with each file state hash-checked before, immediately after
+and 10 seconds after each test run (why, below):
 
 | | deletion | predicted red | actual |
 |---|---|---|---|
@@ -18943,29 +18944,50 @@ cannot see the guard go. The guard stays covered by the new control and by
 `cargo test --workspace`: 26 targets, 1957 passed (1952 + 5), 9 ignored.
 vitest: 75 files, 970 passed.
 
-#### Observation: a source file reverted during a deletion run
+#### Observation: a deletion harness that restored and checked the wrong file
 
-Recorded as an observation; the cause was not found.
+**Cause found; first recorded here as "not found", and corrected.** The first
+deletion script (a scratch `deletion3.sh`) used one variable for two things:
+`P=gaply-core/src/ai_engine/audit_prepass.rs`, the file to mutate and restore,
+and, inside its per-run function, `P=$(… awk '{p+=$4} …')`, the passed-test
+count. After D1's tests, `P` held `1955`. From then on:
 
-The first deletion run mutated `audit_prepass.rs` for D1, ran, restored it with
-`cp` from a saved copy, and checked the hash: it matched, after D1 and again
-after D2. D3 mutates only `consistency.rs`. Yet under D2 and D3 the parser's
-positive tests went red, and at 20:45 `audit_prepass.rs` held **D1's mutated
-content, with D1's own write time (18:42:17)**. D2's and D3's results from that
-run are void; D1's stands. The same run stalled for about 80 minutes after
-D3's compile (2m 32s), with no test binary running; the power log shows an
-audio sleep-prevention assertion held for exactly that window (19:22:42 to
-20:44:30).
+* **every restore addressed a file named after the count.** `cp p.fixed.rs "$P"`
+  created `src-tauri/1955` and never touched `audit_prepass.rs`, which kept D1's
+  mutation;
+* **the hash check passed by verifying the copy it had just made**, so it printed
+  "both sha match" after D1 and again after D2;
+* **D2's mutation was applied to `1955`**, so D2 tested the D1-state parser and
+  failed exactly D1's tests; D3 (which mutates only `consistency.rs`) ran on the
+  same parser, which is why a test living entirely in the parser file failed;
+* after D3, `P` held `1949`; D4's mutation went into `src-tauri/1949` before the
+  run was stopped.
 
-Not reproduced: the same Python-write-then-`cp` sequence on scratch files kept
-the restored content. No process held either file open, and no editor or file
-watcher was running. The re-run restored by rewriting bytes and hash-checked
-each file before, immediately after, and 10 seconds after every test run; all
-four deletions ran in 3.5 to 4 minutes each with no change detected.
+**The evidence.** `audit_prepass.rs` still carried D1's write time, **18:42:17**,
+because nothing rewrote it after D1. The stray files were created at **18:53:05**
+(`1955`, just after D1) and **20:46:42** (`1949`, just after D3). **`1955`'s
+sha256 matched the saved fixed copy** (`5d7c52f8…`); `1949` held the parser with
+D4's mutation. A replay of the write-then-`cp` sequence could not reproduce the
+"reversion" because the replay had no variable collision. D1's result stands:
+`P` still named the file while D1 was mutated and tested. D2 and D3 from that
+run are void; D2 to D5 were re-run with the count in its own variable, and those
+are the results above. Both stray files were deleted.
 
-**The rule it argues for:** a deletion harness should verify the file it
-measured, at the moment it measured it. A hash checked right after a restore
-said nothing about the state the next compile read.
+**Still unexplained:** the same run stalled for about 80 minutes after D3's
+compile (2m 32s), with no test binary running; the power log shows an audio
+sleep-prevention assertion held for exactly that window (19:22:42 to 20:44:30).
+The variable collision does not account for it.
+
+**The lessons, both mechanical:**
+
+1. **Never reuse a variable that names a file.** A path variable overwritten by
+   a number turns every later write into a write somewhere else, silently.
+2. **A hash check that reads the same variable the restore wrote is not an
+   independent check.** It verifies that the restore did what the restore did,
+   wherever that was. That is why it reported a match for two runs while the
+   tests ran against the wrong state. A check has to name its target
+   independently of the step it checks: here, a literal path, or better, the
+   hash of the file the compile will read, taken after the run.
 
 #### Not claimed
 
