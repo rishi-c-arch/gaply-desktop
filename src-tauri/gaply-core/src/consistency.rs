@@ -202,26 +202,56 @@ fn within_one_edit(a: &str, b: &str) -> bool {
     (long.len() - i) + (short.len() - j) <= slack
 }
 
+/// A work boundary inside a co-citation: any `;`, or a `,` that follows a year.
+///
+/// A comma alone is not one: `(Smith, Jones, and Lee, 2019)` is one work.
+/// Measured on the six-manuscript corpus (§11 D232), every single-work citation
+/// has one year, so a comma after a year is where one work ends.
+fn work_separator_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"(?:1[6-9]|20)\d{2}[a-z]?\s*,|;").expect("work separator regex"))
+}
+
 /// Every (surname, year) an in-text marker refers to.
 ///
 /// `markers_in` keeps only the FIRST work of `(A et al., 2015; B & C, 2024)`,
-/// so the co-cited work would read as never cited. The raw text is split on
-/// `;` to recover it.
+/// so the co-cited work would read as never cited. The raw text is split to
+/// recover it: on `;`, and on a comma after a year (§11 D232).
+///
+/// In the comma form the marker's own year is the LAST work's: IJAS's
+/// `(Trivedy et al. 1993, …, Mamatha et al. 2006)` is Trivedy with 2006. So the
+/// lead takes the year printed in its own segment, and the marker's year only
+/// when that segment prints none.
 fn marker_works(raw: &str, lead: Option<&str>, year: Option<i32>) -> Vec<(String, Option<i32>)> {
+    let first_year = |part: &str| year_re().find(part).and_then(|m| m.as_str().parse::<i32>().ok());
+    let inner = raw.trim_start_matches('(').trim_end_matches(')');
+    // (segment, whether a comma rather than a `;` opened it)
+    let mut parts: Vec<(&str, bool)> = Vec::new();
+    let (mut from, mut by_comma) = (0usize, false);
+    for m in work_separator_re().find_iter(inner) {
+        let cut = m.end() - 1; // the separator itself, `;` or `,`, one byte
+        parts.push((&inner[from..cut], by_comma));
+        by_comma = &inner[cut..m.end()] == ",";
+        from = m.end();
+    }
+    parts.push((&inner[from..], by_comma));
+
     let mut out = Vec::new();
     if let Some(l) = lead {
-        out.push((l.to_string(), year));
+        let own = if parts.len() > 1 { first_year(parts[0].0) } else { None };
+        out.push((l.to_string(), own.or(year)));
     }
-    if !raw.contains(';') {
-        return out;
-    }
-    let inner = raw.trim_start_matches('(').trim_end_matches(')');
-    for part in inner.split(';').skip(1) {
+    for (part, by_comma) in parts.into_iter().skip(1) {
         let part = part.trim();
         let Some(c) = co_cite_lead_re().captures(part) else {
             continue;
         };
-        let y = year_re().find(part).and_then(|m| m.as_str().parse::<i32>().ok());
+        let y = first_year(part);
+        // After a comma, a segment is a work only if it prints a year: that is
+        // what keeps `(Smith, 2019, Table 2)` from citing "Table".
+        if by_comma && y.is_none() {
+            continue;
+        }
         out.push((c[1].to_lowercase(), y));
     }
     out
@@ -1553,6 +1583,87 @@ mod tests {
             !never.iter().any(|m| m.contains("Mathauer")),
             "the co-cited work was reported as never cited: {never:?}"
         );
+    }
+
+    /// Every (surname, year) the check credits for one sentence, driven from
+    /// `markers_in` so the lead and year are what the parser really supplies.
+    fn works_of(sentence: &str) -> Vec<(String, Option<i32>)> {
+        crate::ai_engine::audit_prepass::markers_in(sentence)
+            .iter()
+            .flat_map(|m| marker_works(&m.raw, m.lead_author.as_deref(), m.year))
+            .collect()
+    }
+    fn w(s: &str, y: i32) -> (String, Option<i32>) {
+        (s.to_string(), Some(y))
+    }
+
+    /// §11 D232. IJAS's co-citation, verbatim with the PDF's doubled spaces.
+    /// The parser's marker is Trivedy with Mamatha's 2006; each work must be
+    /// credited under its own author and year.
+    #[test]
+    fn a_comma_co_citation_credits_each_work_its_own_year() {
+        let s = "sub-lethal doses improve cocoon and post-cocoon traits (Trivedy  et al.  1993, \
+                 Kamimura and Kiuchi 1998, Miranda  et al.  2002, Mamatha et al. 2006).";
+        assert_eq!(
+            works_of(s),
+            vec![w("trivedy", 1993), w("kamimura", 1998), w("miranda", 2002), w("mamatha", 2006)]
+        );
+    }
+
+    /// §11 D232. The comma form with two works, the shape in its simplest case.
+    #[test]
+    fn a_comma_co_citation_of_two_works_credits_both() {
+        assert_eq!(works_of("as shown (Smith 2019, Jones 2020)."), vec![w("smith", 2019), w("jones", 2020)]);
+    }
+
+    /// NEGATIVE CONTROL (§11 D232): commas between authors of ONE work are not
+    /// work separators. Only a comma after a year is.
+    #[test]
+    fn a_single_work_with_comma_separated_authors_is_one_work() {
+        assert_eq!(works_of("as shown (Smith, Jones, and Lee, 2019)."), vec![w("smith", 2019)]);
+    }
+
+    /// NEGATIVE CONTROL (§11 D232): the IJAS single-work form, no comma at all.
+    #[test]
+    fn the_single_work_ijas_form_is_one_work() {
+        assert_eq!(works_of("as shown (Kamimura and Kiuchi 1998)."), vec![w("kamimura", 1998)]);
+    }
+
+    /// NEGATIVE CONTROL (§11 D232): a page locator follows a year-comma and is
+    /// not a work. The parser makes no marker of this form today (the premise,
+    /// pinned), so `marker_works` is also called on it directly.
+    #[test]
+    fn a_page_locator_is_not_a_second_work() {
+        assert!(works_of("as shown (Smith, 2019, p. 12).").is_empty());
+        for raw in ["(Smith, 2019, p. 12)", "(Smith, 2019, Table 2)"] {
+            assert_eq!(marker_works(raw, Some("smith"), Some(2019)), vec![w("smith", 2019)], "{raw}");
+        }
+    }
+
+    /// NEGATIVE CONTROL (§11 D232): the semicolon form, which already worked.
+    #[test]
+    fn a_semicolon_co_citation_still_credits_each_work() {
+        assert_eq!(works_of("as shown (Smith, 2019; Jones, 2020)."), vec![w("smith", 2019), w("jones", 2020)]);
+    }
+
+    /// §11 D232, end to end: IJAS's sentence and the four entries it cites,
+    /// verbatim. Miranda 2002 is cited only here and was reported never cited.
+    #[test]
+    fn every_work_of_the_ijas_co_citation_counts_as_cited() {
+        let texts = [
+            "In Bombyx mori L., sub- lethal doses applied during the last instar prolong the feeding period and improve cocoon and post-cocoon traits (Trivedy  et al.  1993, Kamimura and Kiuchi 1998, Miranda  et al.  2002, Mamatha et al. 2006).",
+            "References",
+            "Kamimura M and Kiuchi M. 1998. Effects of a juvenile hormone analogue, fenoxycarb, on 5th stadium larvae of the silkworm, Bombyx mori (Lepidoptera: Bombycidae). Applied Entomology and Zoology 33(2): 333–38. https://doi.org/10.1303/aez.33.333",
+            "Mamatha D M, Cohly H P P, Raju A H H and Rao M R. 2006. Studies on the quantitative and qualitative characters of cocoons and silk from methoprene and fenoxycarb treated Bombyx mori (L) larvae. African Journal of Biotechnology 5(15): 1422–26.",
+            "Miranda J E, De Bortoli S A and Takahashi R. 2002. Development and silk production by silkworm larvae after topical application of methoprene. Scientia Agricola 59(3): 585–88. https://doi.org/10.1590/S0103-90162002000300026",
+            "Trivedy K, Remadevi O K, Magadum S B and Datta R K. 1993. Effect of juvenile hormone analogue, Labomin, on the growth and economic characters of the silkworm, Bombyx mori L. Indian Journal of Sericulture 32(2): 162–68.",
+        ];
+        let b = blocks(&texts);
+        let pre = prepass_blocks(&b);
+        assert_eq!(pre.author_year_bibliography.len(), 4, "{:?}", pre.author_year_unreadable);
+        let r = check_consistency(&b, &pre);
+        let got: Vec<(&str, &str)> = r.findings.iter().map(|f| (f.kind.as_str(), f.message.as_str())).collect();
+        assert!(got.is_empty(), "{got:?}");
     }
 
     #[test]

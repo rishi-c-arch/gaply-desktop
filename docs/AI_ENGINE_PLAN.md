@@ -19002,3 +19002,190 @@ The variable collision does not account for it.
 
 Also noticed, not changed: `an_author_year_entry_yields_its_surname_year_doi_and_title`
 carries two `#[test]` attributes and is listed twice in a run.
+
+### D232 — a multi-work citation is parsed as one work: 3 false "never cited" findings in two manuscripts, from two mechanisms
+
+**Fix 1 (the comma form) is built; see "Fix 1, implemented". Fix 2 (the
+narrative form) is not.** D231 recorded one false IJAS finding and put the loss in
+`marker_works` (`consistency.rs`), which splits a co-citation only on `;`. That
+is where the matcher gives up; the information is already gone one step earlier.
+
+**The parser carries one work, and for the comma form it is a chimera.**
+`audit_prepass::Marker` has one `lead_author` and one `year`. The rest of the
+citation survives only as `raw` text. Run through the real pre-pass
+(`parse_path_paged` then `prepass_blocks`, the path `preview_thesis_audit`
+takes), the IJAS co-citation is:
+
+```
+raw  = "(Trivedy  et al.  1993, Kamimura and Kiuchi 1998, Miranda  et al.  2002, Mamatha et al. 2006)"
+lead = "trivedy"   year = 2006        // Trivedy's entry is 1993; 2006 is Mamatha's
+```
+
+`author_year_re` takes the lead from the first work and the year from the last,
+because its year group must sit just before `)` or a `;`. The semicolon form
+pairs the lead with its own year (`(Smith, 2019; Jones, 2020)` gives smith 2019).
+
+#### Every affected citation in the six manuscripts `[ran]`
+
+The probe listed every AuthorYear marker whose raw text holds 2+ years. As an
+independent check it also scanned every body block for a parenthetical with
+2+ years, whether or not the parser made a marker of it. The manuscripts were
+re-hashed for this run (sha256 prefixes): IJAS `859880647c45`, Health Economics
+`de1e322a95f1`, chapter3 `134956ff25ef`, final-L `77e91296924b`, Lake
+`af1f36ff2c81`, R PAPER .docx `effbb86c2495`.
+
+| manuscript | citation, verbatim | works it names | parser | finding |
+|---|---|---|---|---|
+| IJAS | *(Trivedy et al. 1993, Kamimura and Kiuchi 1998, Miranda et al. 2002, Mamatha et al. 2006)* | 4 | 1 marker: trivedy + 2006 | Miranda 2002 "never cited": **false**. Kamimura and Mamatha have other citations, so they do not show |
+| Health Economics | *Preacher and Hayes (2004, 2008)* | 2 | **no marker at all** | Preacher 2004 and Preacher 2008 "never cited": **both false** |
+| Health Economics | *(Dubai 2013, Abu Dhabi 2006)* | 2 policy years, not references | 1 marker: dubai + 2006 | the existing orphan "dubai" finding; no entry exists for either name |
+
+Every other multi-year parenthetical in the corpus is `;`-separated and handled,
+or is not a citation (chapter3's *(July 2022 – June 2023)*). chapter3 and Lake
+parse no author-year entries, so no never-cited finding can fire on them. R PAPER
+has no multi-year parentheticals. final-L plans one sentence with no markers
+(D231, "Not claimed"), so **it measures nothing here**.
+
+**Total: 3 false findings, all `reference-never-cited`, all cosmetic.** 1 on IJAS
+(the known one), **2 on Health Economics that were not recorded**. Those two
+predate D231 (Health Economics's 13 findings were identical before and after it).
+
+**A second mechanism, at parsing.** `narrative_re` accepts one year inside the
+brackets, so `Author (2004, 2008)` matches nothing and neither work is cited. The
+Health Economics sentence still counts as cited because it also carries
+*(Schuler et al., 2025; …)*. A sentence citing only a multi-year narrative would
+be counted uncited. None was found in the corpus.
+
+**One more thing the credited work hides.** The never-cited check matches on
+surname alone. IJAS's Mamatha 2006 is cited only in the co-citation above, and
+is reported as cited because Mamatha 2008 is cited elsewhere. The report is
+right, by coincidence.
+
+**Ground truth** is one reader's (Claude's) hand-read of IJAS lines 126-127 and
+the Health Economics methods paragraph, plus a full-text search of both for
+every other mention of Trivedy, Kamimura, Miranda, Mamatha and Preacher. There
+is no second reader.
+
+#### Negative controls, through `markers_in` `[ran]`
+
+| input | lead, year | reading |
+|---|---|---|
+| `(Smith, Jones, and Lee, 2019)` | smith, 2019 | one work, correct |
+| `(Göncü, E., and Parlak, O., 2011)` | göncü, 2011 | one work, correct |
+| `(Kamimura and Kiuchi 1998)` | kamimura, 1998 | one work, correct |
+| `(Applied Entomology and Zoology, vol. 33, 1998)` | applied, 1998 | bibliographic text read as a citation (an existing limit, unchanged) |
+| `(Smith 2019, Jones 2020)` | smith, **2020** | two works, lead + last year |
+| `(Smith, 2019, Jones, 2020)` | smith, **2020** | two works, lead + last year |
+| `(Smith, 2019; Jones, 2020)` | smith, 2019 | two works; `marker_works` recovers Jones |
+| `(Smith 2019, 2020)` | smith, 2020 | one author, two works; 2019 dropped |
+
+Every single-work control has exactly one year. **A comma alone never separates
+works in these controls; a comma after a year does.** That is the boundary a
+fix would use. `(Smith, 2019, p. 12)` produces no marker at all, an existing
+limit not examined here.
+
+#### Downstream, measured
+
+* **Year check:** silent on the chimera. `check_author_year` compares a year
+  only when the raw text holds exactly one (the existing guard for *(Dubai 2013,
+  Abu Dhabi 2006)*).
+* **DOI route:** `Bibliography::doi_for` looks up (trivedy, 2006), finds no
+  entry, and returns `None`. Trivedy 1993 prints no DOI, so the correct pair
+  would also return `None`. **No measured change.** A comma co-citation whose
+  lead has a DOI would lose that route; there is no such case in the corpus.
+
+#### The smallest fix boundaries
+
+1. **The comma form (BUILT, below):** `marker_works`. Split on any `;`, and on a
+   `,` that follows a year, and take each segment's own year, the lead's
+   included. That clears the IJAS finding and leaves `Marker` and `doi_for`
+   alone. **Predicted cost:** *(Dubai 2013, Abu Dhabi 2006)* would add an orphan
+   for "Abu", true because no entry has that name. The prediction held, but it
+   called that orphan "noise". **It is `structural`**, so it gates the audit, as
+   the "dubai" orphan from the same parenthetical already did.
+2. **The narrative form (NOT built):** `narrative_re` plus whatever emits one
+   work for each year. This is a parse-level change to `audit_prepass.rs`,
+   larger than (1), and what clears the two Health Economics findings. (1) does
+   not reach it.
+
+The two are independent. Neither fix moves the chimera out of `Marker.year`.
+Doing that means `Marker` carrying a list of works, which is a wire-type change,
+and the measured evidence does not justify it.
+
+#### Fix 1, implemented `[ran]`
+
+**The change.** `consistency.rs` only. `marker_works` now cuts the raw text at
+`work_separator_re` (`(?:1[6-9]|20)\d{2}[a-z]?\s*,|;`), so it splits on any `;`,
+as before, and on a comma directly after a year. Two rules come with it:
+
+* **The lead takes its own segment's year.** It falls back to the marker's year
+  when that segment prints none, which keeps `(RBV; Barney, 1991)` unchanged.
+* **A segment opened by a comma counts as a work only if it prints a year.** Without
+  that, `(Smith, 2019, Table 2)` would cite "Table".
+
+`Marker`, `markers_in`, `author_year_re`, `narrative_re` and `doi_for` are
+unchanged.
+
+**Tests, in `consistency::tests`, each driven through `markers_in`.** Predicted
+before the first run; the baseline is the unmodified `marker_works`:
+
+| test | baseline predicted | baseline actual | after fix |
+|---|---|---|---|
+| `a_comma_co_citation_credits_each_work_its_own_year` (IJAS, verbatim with the PDF's doubled spaces: Trivedy 1993, Kamimura 1998, Miranda 2002, Mamatha 2006) | red | red: `[trivedy 2006]` | green |
+| `a_comma_co_citation_of_two_works_credits_both` | red | red: `[smith 2020]` | green |
+| `every_work_of_the_ijas_co_citation_counts_as_cited` (end to end: IJAS's sentence and four entries, verbatim) | red, 1 finding | red, **3 findings** | green, 0 findings |
+| `a_single_work_with_comma_separated_authors_is_one_work` | green | green | green |
+| `the_single_work_ijas_form_is_one_work` | green | green | green |
+| `a_page_locator_is_not_a_second_work` (also pins that `markers_in` makes no marker of it) | green | green | green |
+| `a_semicolon_co_citation_still_credits_each_work` | green | green | green |
+
+The end-to-end prediction was wrong about the count, not the colour. The
+fixture holds no other citation of Kamimura or Mamatha, so all three co-cited
+works were reported where the real paper shows only Miranda.
+
+**Deletion tests** used `cargo test --workspace --no-fail-fast`. The mutated
+and restored files were each hash-checked against literal paths, and every run
+reported 26 targets:
+
+| | deletion | predicted | actual |
+|---|---|---|---|
+| D1 | the whole fix reverted | the three red tests above, nothing else | as predicted; 1961 passed + 3 failed |
+| D2 | the year-required guard on comma segments removed | `a_page_locator_is_not_a_second_work` only | as predicted |
+| D3 | the separator loses its year, `,\|;` | **green**, on the belief that the guard D2 removes would cover it | **red**: `a_semicolon_co_citation_still_credits_each_work` |
+| D4 | the lead keeps the marker's year | the IJAS test and the two-work test | as predicted |
+
+**D3 is the prediction that failed, and the failure is good news.** Split on
+every comma, `(Smith, 2019; Jones, 2020)` becomes `Smith | 2019 | Jones | 2020`.
+"Jones" then sits in a `;`-opened segment with no year, and is credited as
+`(jones, None)`. So the separator's year requirement is guarded, by a control I
+had not expected to reach it. The first D2 to D4 run compiled nothing: the disk
+was full (`No space left on device` writing `libapp_lib.a`). `targets=0` showed
+it, and `target/debug/incremental` was cleared before the re-run.
+
+**The real pipeline, before and after.** Both runs used the same probe, calling
+`preview_thesis_audit` on all six manuscripts. The "before" run was D1's
+reverted state.
+
+| manuscript | before | after | change |
+|---|---|---|---|
+| IJAS | 3 | **2** | Miranda 2002 "never cited" gone; the two figure findings unchanged |
+| Health Economics | 13 | **14** | + `orphan-author-year-marker` (structural): *"“(Dubai 2013, Abu Dhabi 2006)” cites a work the reference list does not contain: no entry begins with “abu”"*, the predicted consequence |
+| chapter3, final-L, Lake, R PAPER .docx | 18, 95, 0, 8 | identical | none |
+
+The two false Preacher findings remain, as expected (fix 2).
+
+`cargo test --workspace`: 26 targets, **1964 passed** (1957 + 7), 9 ignored.
+vitest: 75 files, 970 passed.
+
+#### Not claimed
+
+* **Not that the real pipeline's attribution was inspected work by work.**
+  `marker_works` is private. The four IJAS works are pinned by the unit test
+  over the verbatim raw text. In the real run, the evidence is that Miranda's
+  finding went and nothing else changed.
+* **Not same-author multi-year.** `(Smith 2019, 2020)` now credits smith 2019,
+  where it was 2020 before. The 2020 segment names no author and is dropped.
+  None is in the corpus.
+* **Not a general parser defect.** Two manuscripts, three findings, two styles.
+* **Not that the probe's parenthetical scan is complete.** It reads one block at
+  a time, so a citation split across blocks would be missed.
