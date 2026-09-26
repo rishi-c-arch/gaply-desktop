@@ -19401,3 +19401,124 @@ records, not defects introduced here.
 * Probes used a mock proxy and a hand-built opinion set; the real verification
   lane's opinion confidences differ, which changes soft weights, not the
   override.
+
+### D235 — the validation lane's hard-constraint override is keyed on the lane, not on the evidence class. Measured, NOT changed.
+
+**What D234 found and this measures.** `swarm::adapters::from_validation` sets
+`hard_constraint: true` unconditionally, and its answer is `concern` whenever
+`validate::validate` returns any flag (`passed = flags.is_empty()`). In
+`consensus`, a hard opinion displaces the soft vote outright, with
+`combined_confidence = 1.0` and `overridden_by_constraint` recorded. So one
+flag from any validation rule forces the report's verdict to `concern` over
+every other lane. Nothing here was changed.
+
+#### The rules that can set the flag `[src]`
+
+`RuleId::ALL` is four: `TestGroupMismatch` (Critical; has never fired on a real
+manuscript, D216), `PValueOverclaim` (Major; **wrong on 4 of 5 real firings**,
+D216: the matched word shared no sentence with any p-value), `MissingEffectSize`
+and `MissingConfidenceInterval` (Major; absence detections, D214).
+`SmallSampleCausalClaim` is declined (D178) and emits nothing. Each of the four
+carries the same authority; the rule D216 measured as unreliable is not
+distinguished from the others at the override.
+
+#### Live flips on the six corpus manuscripts `[probe]`
+
+Through `run_pipeline_measured` (release, `GAPLY_DISABLE_DEEP=1`, consent
+denied, in-memory database), reading `report.verdict`,
+`report.debate.overridden_by_constraint` (true means the hard answer displaced
+a DIFFERENT soft winner, i.e. the vote alone would have said `pass`), and the
+flags by rule from `validate::validate` on the run's own extraction:
+
+| manuscript | verdict | soft vote alone | flags by rule |
+|---|---|---|---|
+| chapter3 | pass | pass | none |
+| IJAS | pass | pass | none |
+| Lake Chapter 1 | pass | pass | none |
+| **final final L** | **concern** | **pass** — overridden | MissingEffectSize 42, MissingConfidenceInterval 31, PValueOverclaim 2 |
+| **R PAPER** | **concern** | **pass** — overridden | MissingEffectSize 2, MissingConfidenceInterval 1 |
+| **Health Economics** | **concern** | **pass** — overridden | MissingEffectSize 8, MissingConfidenceInterval 3, PValueOverclaim 3 |
+
+**Three of six verdicts are `concern` only because of the override.** In every
+one the soft vote said `pass`: every lane but the heuristic AI lane votes pass,
+and the AI lane's rescaled weight (k = 0.6) cannot win. None of the three rests
+on `PValueOverclaim` alone — the absence rules fire on each — so the D216
+rule is never the sole author of a live flip on this corpus. Its five real
+firings (three on Health Economics, two on final-L) land on manuscripts already
+flipped by the absence rules.
+
+#### The rule CAN flip a verdict alone, on a well-reported paper `[probe]`
+
+A constructed manuscript — Methods: *"analysed recall with a paired t-test
+after checking normality with the Shapiro-Wilk test"*; Results: *"The
+sensitivity analysis confirmed the main result. Sleep improved recall (t(47) =
+3.2, p = 0.002, d = 0.46, 95% CI [0.17, 0.75])."* — reports its p-value with
+an effect size, a confidence interval and a stated assumption check. Through
+the same pipeline: `flags = {PValueOverclaim: 1}`, **verdict `concern`,
+`overridden_by_constraint = true`**. The word "confirmed" is in the paragraph
+and not in the sentence with the p-value, which is exactly the 4-of-5 pattern
+D216 measured as a false firing. One word marks a well-reported paper
+`concern` against five passing lanes.
+
+#### What the override is for, from the record
+
+* `swarm.rs` header, item 5: *"HARD CONSTRAINTS: the Validation/Maths agent's
+  deterministic verdicts are never subject to the vote — a hard-constraint
+  opinion overrides any soft consensus, and the override is recorded."*
+* Architecture §4.4: *"**Deterministic evidence outranks model consensus.**
+  Eight agents agreeing an equation is correct is not evidence about the
+  equation. The existing `hard_constraint` flag is Tier 0 and Tier 1; this
+  table is the general form"*; and, on generalising: *"any evidence-backed
+  deterministic finding on the same claim sets the floor"*, *"the
+  hard-constraint override stays exactly as it is. A deterministic checklist
+  failure is not up for debate."*
+
+The premise is that a deterministic DETECTION is deterministic EVIDENCE about
+the manuscript. **D214–D219 withdrew that premise for these very rules**: their
+labels now read "not detected by an automated check" (the two absence rules)
+and "a listed word appears in the same paragraph as a p-value; its meaning was
+not assessed" (`PValueOverclaim`); D217's "mathematically certain" on them was
+reverted by D219; D216 measured the overclaim rule's firings as 0 of 5
+entailed. The record no longer claims these flags are evidence that a
+manuscript is wrong. The override still treats them as if it did, because it
+was never re-examined when the labels were.
+
+#### The inverse: a certain finding that forces nothing
+
+* **Equation findings** (`equation_report`, Tier 0, "mathematically certain")
+  are folded into the report after the debate and produce no opinion. D234
+  case D: `Total = 2 + 2 = 5` as a Major `DETECTED` arithmetic finding sits in
+  a report whose verdict is **`pass`**. §4.4 names equations as its example of
+  deterministic evidence that "sets the floor"; `equation_report`'s own header
+  frames `REQUIRES_AUTHOR_CONFIRMATION` as "a question", which is intended to
+  force nothing. For `DETECTED` and `CONTRADICTED` the stated intent and the
+  code disagree, and **no record decides it** — `report.rs`'s comment at the
+  flag-folding site says the engine's verdicts "already have two correct
+  homes: `Opinion::hard_constraint` and `CertaintyTier::MathematicallyCertain`",
+  and the first of those is never populated for equations.
+* **D233's row** casts no vote by explicit decision (a term scan is a
+  statement about the text). Intended.
+
+#### Verdict on the keying
+
+**The override is keyed on the wrong thing.** It fires on the LANE — "did the
+validator flag anything" — while the record justifies it by the EVIDENCE
+CLASS — "a deterministic verdict about the manuscript." The two have come
+apart in both directions: a term-scan absence rule and a word-in-paragraph
+rule inherit verdict-forcing authority the record has since said they do not
+have (three live flips; one reproducible on a well-reported paper from one
+word), while a recomputed arithmetic contradiction — the one thing §4.4
+describes — forces nothing. D234 showed the `MathematicallyCertain` tier to
+be inert; at least it is attached to the finding. The override is attached to
+a struct one step further from the claim. **Not changed here**; the change is
+a design decision with its own measurement (which findings, if any, should set
+the floor, and what a false one costs).
+
+#### Limitations
+
+* Six manuscripts and three flips are not a rate.
+* One constructed input.
+* Probes ran with the heuristic AI tier and a denied verification lane; with
+  the live lanes the soft vote's margin changes, the override does not.
+* `overridden_by_constraint` is the report's own record of the displacement;
+  the soft winner was not recomputed independently.
