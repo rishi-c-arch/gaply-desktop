@@ -19303,3 +19303,101 @@ forms) is its own measurement.
   whether the underlying tests were valid.
 * Probes ran consent denied with an in-memory database, so no journal rows and
   no verification lane; the finding does not depend on either.
+
+### D234 — what the `MathematicallyCertain` tier does in the engine: sort order, a badge colour, and a payload field. Nothing else. No change recommended.
+
+**Measured, no code changed.** Four finding families carry the tier: the three
+absence detections (`MissingEffectSize`, `MissingConfidenceInterval`, and D233's
+`parametric_test_assumptions_unstated`) and the equation recomputations. Traced
+finding → sort → consensus → verdict → editor → report → reviewer payload, and
+probed with constructed cases through the real functions (`run_debate`,
+`compile_report`, `build_review_payload`, `gate_reviewer_response`,
+`aggregate_reviewer_verdict`), then with every certain finding's tier flipped to
+`AiAssessedModerate` and the same functions re-run.
+
+#### Every production read of a finding's `tier` `[src]`
+
+| where | what it does with it | if it were `AiAssessedModerate` |
+|---|---|---|
+| `report.rs:1064` (compile_report sort) | third key after severity, before confidence | a same-severity AI-assessed finding could sort above it — but every certain finding has confidence 1.0, so in the probe (case G) the order was **identical** with tiers flipped |
+| `report_build.rs:194` | copies it into the report model | same |
+| `reviewer_agent.rs:610` (`build_review_payload`) | sent verbatim as `"tier"` | the model sees a different word. `summary_digest` differs; `findings_projection_digest` **does not** (tier is outside the projection) |
+| `reportTypes.ts` `tierStatus`, `TIER_RANK` | badge colour 🟢 vs 🟡; the viewer's mirror sort | 🟡 badge; same order (confidence decides) |
+| `ReportViewerPage.tsx:97-99` section status | a section reads "certain" only when a certain finding is **Critical** | no absence rule is Critical (`RuleId::severity`: only `TestGroupMismatch`, never fired live, and `SmallSampleCausalClaim`, declined), so no absence finding reaches this today |
+| `chatContext.ts:51` | sent to Copilot as a field | the model sees a different word; the prompt asks for a disclaimer on AI-assessed items only |
+| `chatBridge.ts:84` (mock) | `aiAssessed` flag | n/a |
+
+**Not read by:** the swarm (`swarm.rs` has no `Finding`), `evidence.rs` (routing,
+confidence kind and limitations are keyed on **agent**), the editor and lenses
+(unreachable anyway, and they read `ReviewerReport`s), `gate_reviewer_response`
+(checks grounding by id only), `aggregate_reviewer_verdict` (reads claim and
+severity), `disclaimer_for` (keys on `outcome.revised_agents`), the equation
+engine, `release_gate`, `reviewer_harness`.
+
+#### The five answers, from the probe `[probe]`
+
+1. **Override reviewer disagreement?** No. Case B: a reviewer response that
+   said `accept`, probability 90, with an issue disputing the certain finding
+   ("the CI is reported in Table 2") passed the gate intact —
+   `recommendation=Accept, issues_kept=1, warnings=[]`. The report's verdict
+   stayed `concern`, because the two are computed independently and neither
+   reads the other. What the gate DOES refuse is an ungrounded `reject`
+   (→ `Unknown`, "downgraded"), which has nothing to do with tier.
+2. **Verdict: direct or via sort?** Neither. The verdict is
+   `outcome.result.answer` from the debate, fixed before any finding exists.
+   Case A with tiers flipped: verdict `concern`, unchanged. Cases D and E:
+   a wrong equation ("Total = 2 + 2 = 5", Major, certain) and D233's row
+   alone each sat in a report whose verdict was **`pass`** — the tier moved
+   nothing, and neither of those findings can, because they are folded in
+   after the debate.
+3. **Hard constraint anywhere?** Not the finding. The hard constraint is the
+   **validation lane's opinion**, `adapters::from_validation`,
+   `hard_constraint: true` unconditionally, keyed on the agent. Case A: with
+   every other lane voting pass, the validation opinion's `concern` won —
+   `overridden_by_constraint=true`, combined confidence 1.0. Case A′, the same
+   opinion with `hard_constraint` cleared: `pass`, 0.800. So the override is
+   real, it is what turns two absence flags into a `concern` verdict against
+   five passing lanes, and it belongs to the opinion, not to any finding's tier.
+   The equation and D233 findings produce no opinion and cannot trigger it.
+4. **Can a reviewer disagree and reach a different conclusion?** Yes, freely
+   (case B), and the Box 4 shadow aggregation ignores tier entirely: case C,
+   certain vs flipped → identical `MajorRevision / 0.3`. `REVIEWER_INSTRUCTION`
+   says nothing about tiers. What the cloud model MAKES of the word
+   `mathematically_certain` in the payload is unmeasured (needs the proxy;
+   audit D19).
+5. **What the tier means in the engine today:** a sort key, a badge colour,
+   and a word forwarded to two models. It is NOT the mechanism that lets
+   deterministic rules override the vote — that is the opinion's
+   `hard_constraint`, which the tier neither sets nor reads. In the records it
+   has been described as Tier 0's authority; in the code that authority lives
+   one struct away.
+
+#### Where a finding could overreach, and on what input
+
+* **Through the opinion, not the tier.** Any validation flag makes the verdict
+  `concern` over every other lane. Two absence flags do this today on any
+  manuscript that reports a p-value without a CI or effect size (R PAPER,
+  final-L, Health Economics all do). The override is by design (§4.4); its
+  input is "any rule fired", so an absence rule's false positive becomes a
+  `concern` verdict. Not a tier effect; unchanged here.
+* **The inverse:** a certain Major (a wrong equation, or D233's row) in a
+  report whose verdict says `pass` — the reader sees a green verdict above a
+  "mathematically certain" arithmetic mismatch. Also not a tier effect.
+* **The forwarded word.** Whether the reviewer or Copilot model weights
+  `mathematically_certain` is the one place the tier could act, and it is
+  unmeasured.
+
+**Recommendation: no change.** The effect is sort order, colour, and a payload
+field; the consensus override these findings are said to have is not theirs.
+Two facts worth keeping visible rather than fixing: the opinion-level override
+turns any validation false positive into a `concern` verdict, and a folded-in
+certain finding cannot move a `pass`. Both are design decisions with their own
+records, not defects introduced here.
+
+#### Not claimed
+
+* The model-side effect of the forwarded tier word — unmeasured.
+* The TS surfaces were read, not driven; `sortFindings` mirrors the Rust key.
+* Probes used a mock proxy and a hand-built opinion set; the real verification
+  lane's opinion confidences differ, which changes soft weights, not the
+  override.
