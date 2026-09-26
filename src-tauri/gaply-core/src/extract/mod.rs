@@ -193,7 +193,21 @@ pub fn paragraph_at<'a>(result: &'a ExtractionResult, loc: &Location) -> Option<
 /// probably wrong is worse than none, which is §9 [v5]'s own argument for
 /// refusing `.docx` page reconstruction.
 pub fn locate_line(result: &ExtractionResult, line: &str) -> Option<Location> {
-    let needle = line.trim();
+    // **Compared with whitespace collapsed, on BOTH sides, and stored nowhere.**
+    //
+    // `sections::paragraphs_of` builds every paragraph with
+    // `split_whitespace().join(" ")`, so a paragraph never contains a
+    // non-ASCII space. The lines the equation engine reads come from the raw
+    // `docparse` text and do: `Revised Health Economics Paper FINAL (1).docx`
+    // writes U+202F NARROW NO-BREAK SPACE on both sides of every `×` (271 of
+    // them on 44 lines, measured), so its one equation finding compared
+    // `(0.108\u{202f}×\u{202f}0.78)` against `(0.108 × 0.78)`, found nothing,
+    // and shipped with `location: None` (`docs/D237_EQUATION_AUTHORITY_MEASUREMENT.md`).
+    // Collapsing the needle the same way the paragraph was built makes the two
+    // comparable; collapsing the paragraph too keeps this function correct
+    // even if `paragraphs_of` ever stops normalising. Neither side's text is
+    // rewritten anywhere a reader sees it.
+    let needle = comparable(line);
     // Below this, a "line" is a fragment that could sit anywhere. Measured on
     // the corpus: equation source lines run 8–120 characters, and the short end
     // is things like `n = N/(1+Ne²)`.
@@ -203,7 +217,7 @@ pub fn locate_line(result: &ExtractionResult, line: &str) -> Option<Location> {
     let mut found: Option<Location> = None;
     for (sec_idx, section) in result.sections.iter().enumerate() {
         for (i, para) in section.paragraphs.iter().enumerate() {
-            if para.contains(needle) {
+            if comparable(para).contains(&needle) {
                 if found.is_some() {
                     // The same text in two places: anchoring to the first would
                     // be the `paragraph_at` ambiguity defect, made here instead
@@ -220,6 +234,15 @@ pub fn locate_line(result: &ExtractionResult, line: &str) -> Option<Location> {
 /// The shortest line [`locate_line`] will anchor. Below it a match says more
 /// about how common the text is than about where the finding belongs.
 pub const MIN_LOCATABLE_LINE: usize = 8;
+
+/// The form two pieces of text are COMPARED in by [`locate_line`]: every run
+/// of Unicode whitespace becomes one ASCII space, and the ends are trimmed.
+/// This is exactly what `sections::paragraphs_of` does when it builds a
+/// paragraph, so a raw line and its paragraph agree. Used for comparison
+/// only; never written back into an `ExtractionResult`.
+fn comparable(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
 
 /// A span of the document a rule searches — §47.1's WINDOW form, made explicit.
 ///

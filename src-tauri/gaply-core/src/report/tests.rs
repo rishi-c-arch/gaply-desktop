@@ -2927,6 +2927,50 @@ fn a_line_appearing_twice_is_refused_rather_than_anchored_to_the_first() {
     assert!(crate::extract::locate_line(&ex, dup).is_none());
 }
 
+/// **A raw line whose spaces are not ASCII anchors to the paragraph that was
+/// built from it.** `Revised Health Economics Paper FINAL (1).docx` writes
+/// U+202F NARROW NO-BREAK SPACE on both sides of every `×`; `paragraphs_of`
+/// collapses those to ASCII when it builds the paragraph, and the equation
+/// engine reads the raw line. Before this, the one equation finding a real
+/// manuscript produces compared the two and shipped with `location: None`
+/// (`docs/D237_EQUATION_AUTHORITY_MEASUREMENT.md`). The fixture keeps the
+/// manuscript's bytes.
+#[test]
+fn a_line_with_narrow_no_break_spaces_is_anchored_like_its_paragraph() {
+    let raw = "Weighted provision = (0.108\u{202f}×\u{202f}0.78) + (0.500\u{202f}×\u{202f}0.13) \
+               = 0.084 + 0.065 = 14.9%";
+    let text = format!("A Title\n\n1. Background\n\nSome prose about provision.\n\n5. Results\n\n{raw}\n");
+    let ex = crate::extract::extract_from_text(&text);
+    // The stored paragraph is the ASCII-space form: normalisation happened on
+    // the storage side, and `locate_line` must not have to undo it.
+    let stored = crate::extract::paragraph_at(
+        &ex,
+        &crate::extract::Location::in_section(crate::extract::SectionKind::Results, 1, 0),
+    )
+    .expect("the results paragraph exists");
+    assert!(!stored.contains('\u{202f}'), "the paragraph should be stored ASCII-spaced: {stored:?}");
+    assert!(stored.contains("(0.108 × 0.78)"), "{stored:?}");
+
+    let at = crate::extract::locate_line(&ex, raw)
+        .expect("the raw line, U+202F and all, anchors to the paragraph built from it");
+    assert_eq!(at.section, crate::extract::SectionKind::Results);
+    // And nothing was rewritten: the paragraph is still the stored form.
+    assert_eq!(crate::extract::paragraph_at(&ex, &at), Some(stored));
+}
+
+/// **Negative control: a line absent from the manuscript anchors to nothing**,
+/// with ASCII spaces and with U+202F alike. The normalisation above must make
+/// a present line findable, not make an absent one look present.
+#[test]
+fn a_line_absent_from_the_manuscript_anchors_to_nothing() {
+    let text = "A Title\n\n5. Results\n\nThe indirect effect was 0.413 * 0.5317 = 0.21968.\n";
+    let ex = crate::extract::extract_from_text(text);
+    assert!(crate::extract::locate_line(&ex, "Total provision = 0.500 × 0.13 = 0.065").is_none());
+    assert!(crate::extract::locate_line(&ex, "Total provision = 0.500\u{202f}×\u{202f}0.13 = 0.065").is_none());
+    // A near miss — one digit changed — is still absent.
+    assert!(crate::extract::locate_line(&ex, "The indirect effect was 0.413 * 0.5317 = 0.21969.").is_none());
+}
+
 /// A line too short to identify a place is refused. `n = x` occurs everywhere.
 #[test]
 fn a_line_shorter_than_the_floor_is_not_anchored() {
