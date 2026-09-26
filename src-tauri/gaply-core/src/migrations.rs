@@ -1723,7 +1723,6 @@ mod tests {
     /// unit of work is a SENTENCE, so many items must share one chunk, and a
     /// citation_need item has no chunk at all. v14's shape forbade both.
     #[test]
-    #[test]
     fn v18_adds_abstract_only_additively_and_defaults_existing_rows_to_full_text() {
         // Simulate a db that predates v18: stand at v17 with a document row,
         // THEN apply v18. The row must survive, and it must default to 0 —

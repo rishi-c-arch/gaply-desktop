@@ -1173,7 +1173,6 @@ mod tests {
     /// validator ran.
     /// §11 D117. v1.8 must be v1.6 plus the own-work rule and NOTHING else —
     /// the same discipline v1.7 used, so a measured difference is attributable.
-    #[test]
     /// §11 D120. v1.10 must be v1.9 with EXACTLY the exclusion line removed —
     /// the isolation that v1.9 failed to provide by changing three things at
     /// once.

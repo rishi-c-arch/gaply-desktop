@@ -430,7 +430,6 @@ mod tests {
     /// `paragraph - 1` (off by one), and dropping the `find(kind)` filter
     /// (section ignored). Each produces a real, plausible sentence from the
     /// wrong place — which is the failure `nearby_text` exists to prevent.
-    #[test]
     /// **A finding must quote the sentence holding the statistic it is about.**
     ///
     /// Measured 22 Sep 2026 on R PAPER (docs/PROBLEM_DOSSIER.md A4): the flagged

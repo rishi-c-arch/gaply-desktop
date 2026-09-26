@@ -1808,7 +1808,6 @@ mod tests {
     }
 
     #[test]
-    #[test]
     fn a_numbered_reference_list_is_parsed_from_extraction_whitespace() {
         // Real IEEE shape, with the re-flow a PDF gives it: entries wrap, and
         // the wrapped lines belong to the entry above them.
@@ -1847,7 +1846,6 @@ mod tests {
         );
     }
 
-    #[test]
     /// §11 D67. Word keeps auto-list numbers in `numbering.xml`, never in the
     /// paragraph text, so a numbered reference list extracts with NO markers.
     #[test]
@@ -1937,7 +1935,6 @@ mod tests {
         assert!(!r.bibliography[&1].raw.contains("[1]"), "the marker was left in the body");
     }
 
-    #[test]
     /// §11 D132. THE AUTHOR-YEAR LIST CARRIES DOIs AND NOBODY READ THEM.
     ///
     /// Measured on a real paper: 35 entries, **26 with a DOI**, and the audit

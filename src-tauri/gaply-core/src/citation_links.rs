@@ -439,7 +439,6 @@ mod tests {
 
     /// Re-running adds nothing, and never downgrades a human's decision.
     #[test]
-    #[test]
     fn link_by_doi_records_doi_and_upgrades_a_title_link() {
         let db = Database::in_memory().unwrap();
         cite(&db, "c1", Some("10.1/a"), "A Paper");
