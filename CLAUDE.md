@@ -394,6 +394,15 @@ time injection.
   into a `.gitattributes` commit. Name every path, then read
   `git diff --cached --stat` before committing.
 - Commit ONLY when Rishi provides/approves the message; never push unprompted.
+- **Commit and push in SEPARATE commands, and read the commit's output before
+  pushing.** The pre-commit hook (`scripts/grrb-precommit.sh`) prints a verdict,
+  and exit 0 does not mean "nothing to read": HOLD-at-baseline exits 0 by
+  design (§11 D195's gate section). So the words are the only place that
+  verdict appears. 26 Sep 2026, `70232a2`: `git commit …; git log -1; git push`
+  in one call. The hook printed HOLD, and the push had gone out before anyone
+  read it. The verdict was benign; the order was not. And `;` would have pushed
+  even after a REFUSED commit, printing an ordinary push result for the old
+  HEAD. That is the unconditional-success-line shape from the entries below.
 - Canonical remote: `desktop` (`rishi-c-arch/gaply-desktop`); `main` there is
   the backup of local main. Push only when explicitly requested, never forced.
   **For `origin`, see the "Remotes" section at the top — it is the single
