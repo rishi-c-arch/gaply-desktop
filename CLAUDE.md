@@ -219,19 +219,19 @@ time injection.
 
   - inner loop — `cargo check --workspace --all-targets` (~7s after a core edit, 0.3s warm)
   - before a commit — `cargo test --workspace`
-    - **1957 passed, 9 ignored, 26 targets**
+    - **1966 passed, 9 ignored, 26 targets**
     - macOS, no features, CARGO_TERM_COLOR=never
-    - at `a21d8eb`, 26 Sep 2026
+    - at `eb0810a`, 27 Sep 2026
     - "passed" sums `test result: ok` lines; "targets" counts `Running` lines
   - the frontend — `npx vitest run --config vitest.config.ts`
     - **970 passed, 75 files**
-    - macOS, at `a21d8eb`, 26 Sep 2026
+    - macOS, at `eb0810a`, 27 Sep 2026
     - CI runs it in `frontend-build` since §11 D227
   - the app crate on Linux, as CI runs it — `cargo test -p app --features
     devtools`
-    - **488 passed, 10 targets**
-    - ubuntu, at `a21d8eb`, 26 Sep 2026
-    - `app-tests.yml` run `36251563731`: the `targets=10 passed=488` line it
+    - **492 passed, 10 targets**
+    - ubuntu, at `eb0810a`, 27 Sep 2026
+    - `app-tests.yml` run `36267911833`: the `targets=10 passed=492` line it
       prints
     - locally, WITHOUT `--features devtools`, `ai_eval_cli` fails 8 of 11
       unless a stale `target/debug/ai-eval` happens to exist, and then it
