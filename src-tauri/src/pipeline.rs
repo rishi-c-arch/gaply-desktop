@@ -1894,6 +1894,30 @@ Diekelmann S and Born J. 2010. The memory function of sleep. Nature Reviews Neur
         run_and_get_report_with(db, embedder, None)
     }
 
+    /// The manuscript file one e2e run writes and removes.
+    ///
+    /// The name used to be `{pid}_{seconds}`, and two tests in one process
+    /// that started in the same second shared it: the first one's cleanup
+    /// deleted the second one's input, and the loser alternated between runs
+    /// (`ingested_guidelines_appear_in_the_pipeline_checklist` and
+    /// `no_guidelines_yields_structural_only_checklist_no_crash`, CI run
+    /// `36263232729`, both attempts). A process-wide counter makes the name
+    /// unique whatever the clock says; the pid keeps two test processes apart.
+    /// `stamp` is taken as an argument so the guard below can hand two calls
+    /// the SAME second and still expect two paths.
+    fn e2e_manuscript_path(stamp: i64) -> std::path::PathBuf {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        std::env::temp_dir().join(format!("gaply_ck_e2e_{}_{stamp}_{n}.txt", std::process::id()))
+    }
+
+    /// The race above, pinned: the same second must not give the same file.
+    #[test]
+    fn two_e2e_runs_in_the_same_second_get_different_manuscript_files() {
+        let stamp = now_epoch();
+        assert_ne!(e2e_manuscript_path(stamp), e2e_manuscript_path(stamp));
+    }
+
     /// `guidelines_url` is now an INPUT to the pipeline, not something the
     /// checklist re-derives from corpus state — so a test that ingests
     /// guidelines must pass the document it ingested.
@@ -1902,8 +1926,7 @@ Diekelmann S and Born J. 2010. The memory function of sleep. Nature Reviews Neur
         embedder: Arc<dyn Embedder>,
         guidelines_url: Option<String>,
     ) -> serde_json::Value {
-        let path = std::env::temp_dir()
-            .join(format!("gaply_ck_e2e_{}_{}.txt", std::process::id(), now_epoch()));
+        let path = e2e_manuscript_path(now_epoch());
         std::fs::write(&path, MANUSCRIPT).expect("write manuscript");
         let events: std::cell::RefCell<Vec<AnalysisEvent>> = std::cell::RefCell::new(Vec::new());
         let emit = |e: AnalysisEvent| events.borrow_mut().push(e);
