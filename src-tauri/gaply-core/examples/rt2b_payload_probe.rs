@@ -53,7 +53,7 @@ fn main() {
     let outcome = run_debate(&mut agents, &DebateConfig::default()).unwrap();
     let lines: Vec<String> = text.lines().map(|l| l.to_string()).collect();
     let report =
-        compile_report(&outcome, &validation, None, None, Some(&ex), 2026, vec![], &[], &lines);
+        compile_report(&outcome, &validation, None, None, Some(&ex), 2026, vec![], &[], &lines, &[]);
 
     println!("  findings: {}", report.findings.len());
     for f in &report.findings {

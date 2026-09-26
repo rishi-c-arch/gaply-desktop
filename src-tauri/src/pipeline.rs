@@ -639,6 +639,20 @@ fn run_pipeline_inner(
     })?;
     let (verification, verify_items, verify_proxy) = verification;
 
+    // --- specialists — deliberately not all of them, and run BEFORE synthesis
+    //     so the report can read them (§11 D233). Pure: the same
+    //     `ExtractionResult` the lanes used, no model, no network. See the
+    //     `PipelineResult::specialists` docs for which two run and why, and
+    //     `report::specialist_findings` for the ONE code that reaches a reader.
+    let specialists = {
+        let sin = SpecialistInput { extraction: &extraction, science: None, analysis: None };
+        specialist::shipped()
+            .iter()
+            .filter(|s| matches!(s.id(), "frequentist_stats" | "claim_evidence_strength"))
+            .map(|s| specialist::run(s.as_ref(), &sin))
+            .collect::<Vec<_>>()
+    };
+
     // --- synthesis: round-table debate → compiled report --------------------
     let report = (|| -> Result<gaply_core::report::PublishReadyReport, GaplyError> {
         // **§5.1 — the verification participant REVISES.**
@@ -736,6 +750,7 @@ fn run_pipeline_inner(
             checklist,
             &registry,
             &manuscript_lines,
+            &specialists,
         ))
     })();
 
@@ -807,15 +822,9 @@ fn run_pipeline_inner(
     // lands" — this is the landing site.
     let research_state = ResearchState::from_extraction(&extraction);
 
-    // Specialists — additive, and deliberately not all of them. See the field.
-    let specialists = {
-        let sin = SpecialistInput { extraction: &extraction, science: None, analysis: None };
-        specialist::shipped()
-            .iter()
-            .filter(|s| matches!(s.id(), "frequentist_stats" | "claim_evidence_strength"))
-            .map(|s| specialist::run(s.as_ref(), &sin))
-            .collect::<Vec<_>>()
-    };
+    // The specialist stage ran above, before synthesis, so `compile_report`
+    // could read it (§11 D233); `specialists` carries every report, mapped or
+    // not, out of the function unchanged.
 
     Ok(PipelineResult {
         report_id,
@@ -1381,6 +1390,21 @@ Diekelmann S and Born J. 2010. The memory function of sleep. Nature Reviews Neur
     /// `disclaimer` value in place (the file re-serialises byte-identically, so
     /// no other byte moved). This test then passing is the proof that the
     /// disclaimer is the only thing in the report that changed.
+    ///
+    /// **[RECAPTURED, 27 Sep 2026 — §11 D233. THE PIN'S PURPOSE CHANGED.]**
+    /// Until D233 this capture proved that `research_state` and `specialists`
+    /// changed NO byte of the report — that both were additive. D233 wires one
+    /// specialist code into the report on purpose, and the golden manuscript
+    /// ("analysed recall with a paired t-test", no assumption check named) is
+    /// exactly the case it fires on. So the report GAINS one row here, and the
+    /// capture was regenerated from the pipeline at that commit. What it pins
+    /// from now on: (1) `research_state` is still a projection nothing in the
+    /// report reads; (2) of the specialist stage, EXACTLY the
+    /// `parametric_test_assumptions_unstated` row reaches the report, with the
+    /// approved title, label, agent, tier and location, and nothing else from
+    /// that stage does — `multiple_comparisons_uncorrected` included. A second
+    /// specialist row appearing here is a wiring change that needs its own
+    /// record, not a re-baseline.
     #[test]
     fn the_report_is_byte_identical_to_the_pre_research_state_capture() {
         use std::cell::RefCell;
@@ -1670,6 +1694,88 @@ Diekelmann S and Born J. 2010. The memory function of sleep. Nature Reviews Neur
     /// process is benign (and `set_var` is process-global regardless).
     fn force_heuristic() {
         std::env::set_var("GAPLY_DISABLE_DEEP", "1");
+    }
+
+    /// §11 D233 acceptance, in fixture form: the sentence a real manuscript
+    /// printed, wrapped in the smallest IMRaD body the pipeline accepts. The
+    /// LIVE acceptance is the six-manuscript run recorded in D233; these pin
+    /// the two positive sentences verbatim and the Shapiro–Wilk control.
+    fn assumption_rows_for(methods_sentence: &str) -> Vec<(String, String, Option<String>)> {
+        use std::cell::RefCell;
+        force_heuristic();
+        let text = format!(
+            "Title: A study\n\nAbstract\nWe measured a thing in two groups.\n\nMethods\n{methods_sentence}\n\n\
+             Results\nThe thing differed between groups.\n\nReferences\n[1] A. Author. A paper. Journal, 2020.\n"
+        );
+        let db = Arc::new(Database::in_memory().expect("in-memory db"));
+        let embedder: Arc<dyn Embedder> = Arc::new(gaply_core::embed::HashEmbedder);
+        let path = e2e_manuscript_path(now_epoch());
+        std::fs::write(&path, text).expect("write manuscript");
+        let events: RefCell<Vec<AnalysisEvent>> = RefCell::new(Vec::new());
+        let emit = |e: AnalysisEvent| events.borrow_mut().push(e);
+        let out = run_pipeline_inner(
+            db, embedder, path.to_string_lossy().to_string(), None, None, None, None,
+            NetworkConsent::Denied, &emit,
+        )
+        .expect("pipeline completes");
+        let _ = std::fs::remove_file(&path);
+        let v = serde_json::to_value(&out.report).expect("serialises");
+        v["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|f| f["title"].as_str().unwrap_or("").starts_with("No statistical assumption check detected"))
+            .map(|f| {
+                (
+                    f["title"].as_str().unwrap().to_string(),
+                    f["certainty_label"].as_str().unwrap().to_string(),
+                    f["location"].as_object().map(|_| f["location"].to_string()),
+                )
+            })
+            .collect()
+    }
+
+    /// IJAS's Methods sentence, verbatim (§11 D233): an ANOVA, no assumption
+    /// check named anywhere. One located row, with the approved title and label.
+    #[test]
+    fn the_ijas_anova_sentence_yields_one_located_assumption_row() {
+        let rows = assumption_rows_for(
+            "The data of each season were subjected to analysis of variance appropriate to a \
+             three-factor completely randomised design and treatment means were compared by the \
+             critical difference at p ≤ 0.05. Differences that failed to reach this level are shown as NS.",
+        );
+        assert_eq!(rows.len(), 1, "{rows:?}");
+        assert_eq!(rows[0].0, "No statistical assumption check detected: ANOVA");
+        assert_eq!(rows[0].1, "no assumption check is named in the text");
+        assert!(rows[0].2.is_some(), "the row must carry the sentence's location");
+    }
+
+    /// R PAPER's Methods sentence, verbatim (§11 D233): paired t-tests over CV
+    /// folds, no assumption check named anywhere.
+    #[test]
+    fn the_r_paper_paired_t_sentence_yields_one_located_assumption_row() {
+        let rows = assumption_rows_for(
+            "Cross-validation with a 10-fold showed confidence for statistical significance of all \
+             performance gains by paired t-tests (p < 0.05). The lowest t-statistics (t = 4.82 vis-a-vis \
+             the King-BiLSTM) exceed the standard value at α = 0.01 with 9 degrees of freedom, which \
+             implies that improvements were not merely due to luck.",
+        );
+        assert_eq!(rows.len(), 1, "{rows:?}");
+        assert_eq!(rows[0].0, "No statistical assumption check detected: t-test");
+        assert_eq!(rows[0].1, "no assumption check is named in the text");
+        assert!(rows[0].2.is_some());
+    }
+
+    /// NEGATIVE CONTROL (§11 D233): the same t-test with its normality check
+    /// named produces no row. final-L is this control live (Shapiro–Wilk stated,
+    /// Kruskal–Wallis throughout, 0 rows in the six-manuscript run).
+    #[test]
+    fn a_named_shapiro_wilk_check_yields_no_assumption_row() {
+        let rows = assumption_rows_for(
+            "Recall was compared with a paired t-test after normality was confirmed with the \
+             Shapiro-Wilk test (p = 0.41).",
+        );
+        assert!(rows.is_empty(), "{rows:?}");
     }
 
     /// A REALISTIC-length manuscript: ~4,000 words across a full IMRaD body,

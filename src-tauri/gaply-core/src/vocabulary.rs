@@ -134,6 +134,19 @@ pub fn rule_certainty_label(rule: crate::validate::RuleId) -> &'static str {
     }
 }
 
+/// **What the wired specialist detection may claim. §11 D233.**
+///
+/// `frequentist_stats`'s `parametric_test_assumptions_unstated` is a term scan:
+/// it reports that none of a fixed list of assumption-check terms appears in
+/// the manuscript. That is a statement about the TEXT. Whether the test's
+/// assumptions hold was not assessed, and the label must not read as if it
+/// were — the row sits beside "not detected by an automated check". The rest
+/// of the caveat (a check may have been run and not reported) belongs in the
+/// finding's detail, not here.
+pub fn assumption_check_label() -> &'static str {
+    "no assumption check is named in the text"
+}
+
 /// **What a finding from a deterministic check states. §11 D220, D221.**
 ///
 /// ONE source for a claim three surfaces make: the report disclaimer (and so
@@ -237,6 +250,13 @@ mod tests {
             rule_certainty_label(crate::validate::RuleId::MissingConfidenceInterval),
             "not detected by an automated check"
         );
+    }
+
+    /// §11 D233. Its own pin, like every rule label above: the words say what
+    /// the scan found in the text and make no claim about the test's validity.
+    #[test]
+    fn assumption_check_label_says_none_is_named_in_the_text() {
+        assert_eq!(assumption_check_label(), "no assumption check is named in the text");
     }
 
     /// **The clause three surfaces share — §11 D221.** The report disclaimer

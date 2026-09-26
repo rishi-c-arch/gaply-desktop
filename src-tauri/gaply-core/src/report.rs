@@ -629,6 +629,11 @@ pub fn compile_report(
     // the caller has no text — every existing caller passes `&[]` and the
     // report is byte-identical for them, which is what the golden capture pins.
     manuscript_lines: &[String],
+    // The pipeline's specialist stage (§11 D233). ONE code is mapped into the
+    // report, `parametric_test_assumptions_unstated`; see `specialist_findings`
+    // for the one that is not, and why. Every caller without a specialist
+    // stage passes `&[]` and its report is unchanged.
+    specialists: &[crate::specialist::SpecialistReport],
 ) -> PublishReadyReport {
     let equations = manuscript_lines;
     let mut items: Vec<ReportFinding> = Vec::new();
@@ -910,6 +915,12 @@ pub fn compile_report(
         items.push(paired(finding, 1.0));
     }
 
+    // The wired specialist detection (§11 D233). Deterministic term scan, no
+    // model; the mapping and its one deliberate omission are in one place.
+    for finding in specialist_findings(specialists, extraction) {
+        items.push(paired(finding, 1.0));
+    }
+
     // --- soft round-table opinions (Verification + Plagiarism are covered in
     //     detail above, so their aggregate opinions are skipped here) -----------
     for op in &outcome.opinions {
@@ -1126,6 +1137,108 @@ fn equation_findings(lines: &[String], ex: Option<&ExtractionResult>) -> Vec<Fin
             {
                 out.push(finding);
             }
+        }
+    }
+    out
+}
+
+/// The one specialist code that reaches a reader. §11 D233.
+const WIRED_SPECIALIST_CODE: &str = "parametric_test_assumptions_unstated";
+
+/// **The specialist findings a reader sees — and the one that stays invisible.
+/// §11 D233.**
+///
+/// ONE code is mapped: `frequentist_stats`'s `parametric_test_assumptions_unstated`,
+/// a term scan that reports when none of a fixed list of assumption-check terms
+/// appears anywhere in the manuscript. Hand-read on the six-manuscript corpus
+/// through the real pipeline it was 2 of 2 correct where it fired (IJAS: an
+/// ANOVA with no normality, homogeneity or transformation statement anywhere;
+/// R PAPER: paired t-tests over CV folds, likewise) and 3 of 3 silent where it
+/// should be — final-L states Shapiro–Wilk and uses Kruskal–Wallis throughout,
+/// and is the live negative control.
+///
+/// **`multiple_comparisons_uncorrected` is NOT mapped, deliberately, and stays
+/// in `PipelineResult.specialists` where no surface reads it.** It counts
+/// p-value OCCURRENCES, not tests. On Health Economics it reported "24 p-values
+/// … familywise error rate of 24 independent tests is 71%"; a hand-read of the
+/// 24 found 8 repeats (the abstract, table notes and discussion restating the
+/// results), 6 goodness-of-fit diagnostics (Hosmer–Lemeshow, Box–Tidwell), and
+/// ~14 distinct inferential values of which 10 are coefficients inside two
+/// pre-specified models — a plausible family of 5 bivariate tests, so ~23%. Its
+/// own `uncertainty` text names all three inflators. A Major whose number is
+/// off by a factor of five does not reach a reader. Any other code that a
+/// specialist may add later is likewise unmapped until it has been read.
+///
+/// What the mapped finding CLAIMS, field by field:
+/// * `agent: ValidationMaths` — the deterministic statistics lane made it;
+///   the row sits on the Statistics tab beside the effect-size and CI rows.
+/// * `severity: Major` — an important issue, not a blocker; the specialist's
+///   own severity, and the two absence rules' severity.
+/// * `tier: MathematicallyCertain` — the INTERNAL marker for a deterministic
+///   detection; it drives sort order, badge colour and the consensus override,
+///   and no reader sees its words. The words a reader sees are the label.
+/// * `certainty_label` — `vocabulary::assumption_check_label`: "no assumption
+///   check is named in the text". A statement about the text. Whether the
+///   assumptions hold was not assessed, and the label does not say it was.
+/// * `claim: ManuscriptDefect` — a reporting gap a reviewer can ask the
+///   author to fill; not a process state, not an authorship signal.
+/// * `confidence: 1.0` — for the DETECTION statement only; the debate never
+///   reads it.
+/// * `title` names the test the rule found, by calling the rule's own
+///   `first_parametric_test` on the same extraction — never parsed back out of
+///   the summary. Detection-oriented: "No statistical assumption check
+///   detected: t-test" is not a claim that assumptions were violated.
+/// * `detail` is the specialist's summary PLUS its uncertainty caveat, so a
+///   reader can separate what the detector observed from what it did not
+///   establish (a check may have been run and not reported).
+/// * `location` and the span are the specialist's own, so `nearby_text` quotes
+///   the sentence that produced the row.
+fn specialist_findings(
+    reports: &[crate::specialist::SpecialistReport],
+    ex: Option<&ExtractionResult>,
+) -> Vec<Finding> {
+    let mut out = Vec::new();
+    for r in reports {
+        for f in &r.admitted {
+            if f.code != WIRED_SPECIALIST_CODE {
+                continue;
+            }
+            let test = ex
+                .and_then(crate::specialist::frequentist::first_parametric_test)
+                .map(|(name, _)| name);
+            let title = match &test {
+                Some(t) => format!("No statistical assumption check detected: {t}"),
+                None => "No statistical assumption check detected".to_string(),
+            };
+            let mut detail = f.summary.clone();
+            if let Some(u) = &f.uncertainty {
+                detail.push(' ');
+                detail.push_str(u);
+            }
+            let mut provenance = vec![
+                format!("specialist:{}", r.specialist),
+                format!("code:{}", f.code),
+                "agent:validation_maths (deterministic)".to_string(),
+            ];
+            if let Some(loc) = &f.location {
+                provenance.push(crate::report_model::provenance_location(loc));
+            }
+            if let Some(span) = &f.span {
+                provenance.push(format!("span:{span}"));
+            }
+            out.push(Finding {
+                severity: FindingSeverity::Major,
+                tier: CertaintyTier::MathematicallyCertain,
+                certainty_label: crate::vocabulary::assumption_check_label().into(),
+                agent: AgentKind::ValidationMaths,
+                claim: ClaimKind::ManuscriptDefect,
+                title,
+                detail,
+                confidence: 1.0,
+                provenance,
+                location: f.location.clone(),
+                also_at: Vec::new(),
+            });
         }
     }
     out

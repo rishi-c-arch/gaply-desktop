@@ -606,6 +606,7 @@ mod tests {
             vec![],
             &[],
             &lines,
+            &[],
         );
 
         // PRECONDITION. Without this the scan below is vacuous — it would pass

@@ -278,7 +278,10 @@ fn lowercased_body(input: &SpecialistInput<'_>) -> String {
 }
 
 /// The first parametric test named, with where it was named.
-fn first_parametric_test(
+/// `pub(crate)` for `report::specialist_findings` (§11 D233): the report titles
+/// the wired finding with the SAME test name this rule found, by calling the same
+/// function on the same extraction, rather than parsing it back out of `summary`.
+pub(crate) fn first_parametric_test(
     r: &crate::extract::ExtractionResult,
 ) -> Option<(String, Location)> {
     for s in &r.statistics {

@@ -19189,3 +19189,117 @@ vitest: 75 files, 970 passed.
 * **Not a general parser defect.** Two manuscripts, three findings, two styles.
 * **Not that the probe's parenthetical scan is complete.** It reads one block at
   a time, so a citation split across blocks would be missed.
+
+### D233 — one specialist finding reaches a reader; the other stays out, and a blind spot is recorded
+
+**What was measured first** `[probe]`. `frequentist_stats` had run on every
+PublishReady analysis since it was wired as an additive stage
+(`pipeline.rs`, `PipelineResult.specialists`), and nothing rendered it. Through
+the real pipeline (`run_pipeline_measured`, release, consent denied, in-memory
+DB, `GAPLY_DISABLE_DEEP=1`) on the six corpus manuscripts it produced three
+Major findings, one each on IJAS, R PAPER and Health Economics, and nothing on
+chapter3, Lake and final-L. Hand-read (one reader, full text, no second
+reader):
+
+| manuscript | code | hand-read |
+|---|---|---|
+| IJAS | `parametric_test_assumptions_unstated` | **correct**: "analysis of variance appropriate to a three-factor completely randomised design … critical difference at p ≤ 0.05"; no normality, homogeneity or transformation statement anywhere |
+| R PAPER | `parametric_test_assumptions_unstated` | **correct**: paired t-tests over 10 CV folds (t = 4.82, 9 df); nothing on the distribution of the fold differences |
+| Health Economics | `multiple_comparisons_uncorrected` | **wrong as stated** (below) |
+| chapter3, Lake | silent | correct: no tests, no p-values |
+| final-L | silent | correct, for the right reason: Shapiro–Wilk stated ("normality was rejected for 16 of 16 parameters"), Kruskal–Wallis throughout, Dunn post-hoc Holm-adjusted |
+
+#### Wired: `parametric_test_assumptions_unstated`
+
+The rule is a term scan: it fires when the extraction holds a parametric test
+and none of `ASSUMPTION_TERMS` appears anywhere in the body. Its finding is a
+statement about the TEXT — no assumption check is named — and the wiring keeps
+it one. `report::specialist_findings` maps that code, and only that code, into
+the report:
+
+| field | value | what it claims to a reader |
+|---|---|---|
+| agent | `validation_maths` | the deterministic statistics lane made it; the row sits on the Statistics tab beside the effect-size and CI rows. NOT a hard constraint: `hard_constraint` lives on the lane's swarm opinion, and a folded finding casts no vote |
+| severity | Major | an important issue, not a blocker; the specialist's own severity and the two absence rules' |
+| tier | `MathematicallyCertain` | INTERNAL: drives sort order, badge colour and the consensus override; its words never reach a reader (R1–R4 print `certainty_label`, D214) |
+| certainty label | **"no assumption check is named in the text"** | what the scan found, and nothing about whether the assumptions hold. `vocabulary::assumption_check_label`, pinned by its own test, beside "not detected by an automated check" |
+| claim | `ManuscriptDefect` | a reporting gap a reviewer can ask the author to fill |
+| confidence | 1.0 | for the detection statement only; the debate never reads it |
+| title | "No statistical assumption check detected: {test}" | detection-oriented; `{test}` comes from the rule's own `first_parametric_test` on the same extraction, never parsed out of the summary |
+| detail | the specialist's summary + its uncertainty caveat | a reader can separate what was observed from what was not established ("it may have been run and not reported") |
+| location, span | the specialist's own | `nearby_text` quotes the sentence that produced the row |
+| provenance | `specialist:frequentist_stats`, `code:…`, `agent:validation_maths (deterministic)`, the location, `span:…` | traceable |
+
+**The pipeline change:** the specialist stage moved from after synthesis to
+before it, so `compile_report` can read it; `compile_report` gains a
+`specialists` parameter, and every other caller passes `&[]` (38 test sites,
+`red_team.rs`, `rt2b_payload_probe.rs`), so their reports are unchanged.
+`PipelineResult.specialists` still carries every report out, mapped or not.
+
+**Acceptance, live** `[probe what_a_user_sees, release, all six]`: IJAS 5 → 6
+findings and R PAPER 8 → 9, each gaining exactly the row above with its
+sentence; chapter3 5 → 5, Lake 5 → 5, final-L 9 → 9, Health Economics 10 → 10.
+final-L is the live negative control: it names Shapiro–Wilk and gains nothing.
+
+**Tests** (predictions written before the first run; all held):
+* `gaply_core` `report::tests`: `the_assumption_detection_reaches_the_report_with_the_approved_claims`
+  (the real specialist on a paired-t text; every field above asserted),
+  `a_manuscript_that_names_shapiro_wilk_produces_no_assumption_row`,
+  `the_multiple_comparisons_code_is_not_mapped_into_the_report` (a real admitted
+  finding with its code changed — every other field real, only the code keeps it
+  out), `no_specialist_reports_means_no_specialist_rows`;
+  `vocabulary::tests::assumption_check_label_says_none_is_named_in_the_text`.
+* app crate `pipeline::tests`: `the_ijas_anova_sentence_yields_one_located_assumption_row`
+  and `the_r_paper_paired_t_sentence_yields_one_located_assumption_row` (the
+  two Methods sentences verbatim → "…: ANOVA" and "…: t-test", located),
+  `a_named_shapiro_wilk_check_yields_no_assumption_row`.
+* Deletion tests, `--no-fail-fast`, red predicted first: DT-1 the mapping
+  removed (`specialist_findings` returns empty) → the two verbatim pins, the
+  approved-claims test and the golden red; DT-2 the label's words changed → its
+  vocabulary pin red, plus every test that asserts the label. Results in the
+  commit.
+
+**The golden capture was RECAPTURED and its purpose changed.** Until now
+`the_report_is_byte_identical_to_the_pre_research_state_capture` proved that
+`research_state` and `specialists` changed no byte of the report. The golden
+manuscript says "analysed recall with a paired t-test" and names no check, so
+it is exactly the case the wired rule fires on: the report gains one row.
+Regenerated from the pipeline at this commit; a structural diff of old vs new:
+findings 5 → 6, **zero removed, one added** (the row above, located at Methods
+¶1), surviving findings in the same order; evidence 5 → 6 records, the same one
+added, and the positional ids `f2…f5` became `f3…f6` with **no other field
+changed**. The test's doc now says what it pins: that EXACTLY this one
+specialist row reaches the report and nothing else from the stage does.
+
+#### NOT wired: `multiple_comparisons_uncorrected`
+
+It counts p-value **occurrences**, not tests. On Health Economics it said
+*"24 p-values are reported … the familywise error rate of 24 independent tests
+is 71%"*. The 24 hand-read: **8 repeats** (the abstract, table notes and the
+discussion restate the results), **6 goodness-of-fit diagnostics** (Hosmer–
+Lemeshow ×4, Box–Tidwell ×2 — not comparisons), and **~14 distinct inferential
+values**, of which 10 are coefficients inside two pre-specified models and one
+is the pre-declared primary inference (the bootstrapped indirect effect). The
+plausible family is the 5 bivariate tests (3 χ², 2 correlations): **~23%, not
+71%**. "No correction is named" is true; the number the severity rests on is
+off by a factor of about five, and the rule's own `uncertainty` text lists all
+three inflators. It stays in `PipelineResult.specialists`, read by nothing a
+user sees. The rule itself is unchanged.
+
+#### Recorded, NOT fixed: `"normality"` is also a chemistry unit
+
+`ASSUMPTION_TERMS` contains `"normality"`. chapter3 and final-L both print it
+as a titration unit — *"N = normality of thiosulphate"*, *"N = normality of
+EDTA"* — so a chemistry paper that ran an unstated ANOVA would be silenced by
+its own formulas. Latent: neither corpus manuscript has a parametric test, so
+nothing fired or was suppressed. Observed here so it is not rediscovered; the
+fix (a statistical-context match, or dropping the bare word for its two-word
+forms) is its own measurement.
+
+#### Not claimed
+
+* Two firings and three silences are not a precision or recall figure.
+* The hand-read checked the rule's CLAIM (is a check named anywhere?), not
+  whether the underlying tests were valid.
+* Probes ran consent denied with an in-memory database, so no journal rows and
+  no verification lane; the finding does not depend on either.
