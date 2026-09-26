@@ -44,6 +44,17 @@ pub struct Side {
     /// A parenthesised unit annotation stripped from a label — `mg/L` in
     /// `DO (mg/L)`. Input to the dimensional check.
     pub unit: Option<String>,
+    /// **Readings this parse CHOSE where the author's notation admits more
+    /// than one.** Empty for almost every side. Today one shape is recorded:
+    /// an implicit product formed immediately after a division, `1/2x`, which
+    /// this parser reads as `(1/2)·x` and much mathematical writing reads as
+    /// `1/(2x)`. `docs/D237_EQUATION_AUTHORITY_MEASUREMENT.md` case G2b: with
+    /// `x = 2` the first reading gives 1, the second 0.25, and the difference
+    /// shipped as a Major "mathematically certain" `DETECTED`. The checker
+    /// refuses a claim whose side carries one of these (§6b.3, "stated as
+    /// such, never guessed") rather than reporting arithmetic on a reading the
+    /// engine picked.
+    pub ambiguities: Vec<String>,
 }
 
 /// An equation, possibly a CHAIN: `a = b = c = d` is four sides and three
@@ -376,7 +387,17 @@ struct P<'a> {
     /// Whether token `i` was preceded by whitespace in the source.
     spaced: &'a [bool],
     i: usize,
+    /// See [`Side::ambiguities`]. Filled by [`P::term`] when an implicit
+    /// product is formed on the right of a division.
+    ambiguities: Vec<String>,
 }
+
+/// The note [`P::term`] records for `a/bc`-shaped input. One sentence, in the
+/// finding's own vocabulary, so the reader sees both readings and not a parser
+/// term.
+const DIVISION_JUXTAPOSITION: &str =
+    "a product written by juxtaposition directly after a division: `a/bc` can be read \
+     as `(a/b)·c` or as `a/(b·c)`, and the text does not say which";
 
 impl<'a> P<'a> {
     fn peek(&self) -> Option<&Tok> {
@@ -437,6 +458,7 @@ impl<'a> P<'a> {
                         Some(Tok::Num(..)) | Some(Tok::Close(_))
                     ) =>
                 {
+                    self.note_division_juxtaposition(&lhs);
                     lhs = Expr::Mul(Box::new(lhs), Box::new(self.unary()?));
                 }
                 // **A SPACE BREAKS IT.** `2A` is a product; `600 usable` is a
@@ -451,10 +473,28 @@ impl<'a> P<'a> {
                     if matches!(self.t.get(self.i.wrapping_sub(1)), Some(Tok::Num(..)))
                         && !self.spaced.get(self.i).copied().unwrap_or(true) =>
                 {
+                    self.note_division_juxtaposition(&lhs);
                     lhs = Expr::Mul(Box::new(lhs), Box::new(self.unary()?));
                 }
                 _ => return Ok(lhs),
             }
+        }
+    }
+
+    /// **`1/2x` is two equations, and this parser can only build one of
+    /// them.** `term` is left-associative, so by the time the implicit product
+    /// is formed the running `lhs` is already `Div(1, 2)`; the product then
+    /// multiplies the QUOTIENT by `x`. Writers who mean `1/(2x)` write it this
+    /// way constantly. The parse is kept (changing precedence would move the
+    /// same ambiguity to the other convention), and the side is marked so the
+    /// checker refuses rather than reports.
+    ///
+    /// Only the operand that is itself a division is ambiguous: in `2x/4` the
+    /// product is formed first and the division applies to it under both
+    /// conventions; in `1/(2x)` the brackets decide.
+    fn note_division_juxtaposition(&mut self, lhs: &Expr) {
+        if matches!(lhs, Expr::Div(..)) {
+            self.ambiguities.push(DIVISION_JUXTAPOSITION.to_string());
         }
     }
 
@@ -638,22 +678,32 @@ fn parse_side_with(text: &str, names: &[String]) -> Result<Side, ParseError> {
         return Err(ParseError::EmptySide);
     }
     if let Some((label, unit)) = split_label_unit(raw) {
-        return Ok(Side { expr: Expr::Var(label), text: raw.to_string(), unit: Some(unit) });
+        return Ok(Side {
+            expr: Expr::Var(label),
+            text: raw.to_string(),
+            unit: Some(unit),
+            ambiguities: Vec::new(),
+        });
     }
     if let Some(label) = as_label_phrase(raw) {
-        return Ok(Side { expr: Expr::Var(label), text: raw.to_string(), unit: None });
+        return Ok(Side {
+            expr: Expr::Var(label),
+            text: raw.to_string(),
+            unit: None,
+            ambiguities: Vec::new(),
+        });
     }
     let (toks, spaced) = tokenize(raw)?;
     if toks.is_empty() {
         return Err(ParseError::EmptySide);
     }
     let (toks, spaced) = join_known_names(toks, spaced, names);
-    let mut p = P { t: &toks, spaced: &spaced, i: 0 };
+    let mut p = P { t: &toks, spaced: &spaced, i: 0, ambiguities: Vec::new() };
     let e = p.expr()?;
     if p.i != toks.len() {
         return Err(ParseError::UnexpectedToken(format!("{:?}", toks[p.i])));
     }
-    Ok(Side { expr: e, text: raw.to_string(), unit: None })
+    Ok(Side { expr: e, text: raw.to_string(), unit: None, ambiguities: p.ambiguities })
 }
 
 /// **Join adjacent identifiers into a name the DOCUMENT declared.**
@@ -736,7 +786,7 @@ pub fn parses_as_expression(s: &str) -> bool {
     if toks.is_empty() {
         return false;
     }
-    let mut p = P { t: &toks, spaced: &spaced, i: 0 };
+    let mut p = P { t: &toks, spaced: &spaced, i: 0, ambiguities: Vec::new() };
     matches!(p.expr(), Ok(_) if p.i == toks.len())
 }
 
@@ -846,7 +896,7 @@ fn truncation_would_drop_mathematics(remainder: &str) -> bool {
     ) {
         return true;
     }
-    let mut p = P { t: &toks, spaced: &spaced, i: 0 };
+    let mut p = P { t: &toks, spaced: &spaced, i: 0, ambiguities: Vec::new() };
     matches!(p.expr(), Ok(_) if p.i == toks.len())
 }
 
@@ -907,6 +957,18 @@ mod tests {
 
     fn parse(s: &str) -> Equation {
         parse_equation(s).unwrap_or_else(|e| panic!("{s:?}: {e}"))
+    }
+
+    /// The parser records the one shape it reads by convention, and only that
+    /// shape. `docs/D237_EQUATION_AUTHORITY_MEASUREMENT.md` case G2b.
+    #[test]
+    fn a_product_formed_directly_after_a_division_is_marked_ambiguous() {
+        assert_eq!(parse("y = 1/2x").sides[1].ambiguities.len(), 1);
+        assert_eq!(parse("y = 1/2(x+1)").sides[1].ambiguities.len(), 1);
+        for unambiguous in ["y = 1/(2x)", "y = 2x/4", "y = (1/2)×x", "y = 1/2 × x", "y = 2x"] {
+            let eq = parse(unambiguous);
+            assert!(eq.sides[1].ambiguities.is_empty(), "{unambiguous}");
+        }
     }
 
     // ---- the real corpus -------------------------------------------------

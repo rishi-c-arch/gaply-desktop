@@ -204,6 +204,69 @@ fn defined_quantity(left: &Side, right: &Side, b: &BoundValues) -> Option<String
     })
 }
 
+/// **The two notations this engine reads one way and authors write the other
+/// way.** Returns the reason a claim over these sides must not be judged.
+///
+/// 1. **A product after a division, `1/2x`.** Recorded by the parser on the
+///    side ([`Side::ambiguities`]); the parser keeps `(1/2)·x`, this refuses to
+///    compute on it.
+/// 2. **Juxtaposed letters, `2ab`.** The parser's rule is that a run of letters
+///    is one name, and that is right for `Vsample`. It is wrong for `ab` when
+///    `a` and `b` are themselves variables of the same equation: the identity
+///    `(a + b)² = a² + 2ab + b²` then has a third free variable and is "refuted"
+///    at a witness (case G1). The shape is: an UNBOUND name of two or more
+///    letters, letters only, every one of which is a single-letter variable
+///    somewhere in the equation. A name the document values (`ab = 6` in a
+///    declaration) is a name, and is not caught.
+///
+/// Measured on the six corpus manuscripts before this was written: no node
+/// takes either shape (`Vtitrant`, `Vsample`, `mL`, `DO1` all contain letters
+/// that are not variables of their equation), so the corpus output is
+/// unchanged and only the constructed cases move.
+fn convention_ambiguity(left: &Side, right: &Side, b: &BoundValues) -> Option<String> {
+    let mut parse_notes: Vec<&str> = Vec::new();
+    for note in left.ambiguities.iter().chain(right.ambiguities.iter()) {
+        if !parse_notes.contains(&note.as_str()) {
+            parse_notes.push(note);
+        }
+    }
+    if !parse_notes.is_empty() {
+        return Some(parse_notes.join("; "));
+    }
+
+    let mut vars = left.expr.variables();
+    for v in right.expr.variables() {
+        if !vars.contains(&v) {
+            vars.push(v);
+        }
+    }
+    let singles: Vec<char> = vars
+        .iter()
+        .filter_map(|v| {
+            let mut cs = v.chars();
+            match (cs.next(), cs.next()) {
+                (Some(c), None) if c.is_alphabetic() => Some(c),
+                _ => None,
+            }
+        })
+        .collect();
+    for v in &vars {
+        let letters_only = v.chars().count() >= 2 && v.chars().all(|c| c.is_alphabetic());
+        if !letters_only || b.contains(v) {
+            continue;
+        }
+        if v.chars().all(|c| singles.contains(&c)) {
+            let product = v.chars().map(|c| c.to_string()).collect::<Vec<_>>().join("×");
+            return Some(format!(
+                "`{v}` is read as one name, but {} are variables of this equation, so it may \
+                 be the product {product}; juxtaposed letters are not split",
+                v.chars().map(|c| format!("`{c}`")).collect::<Vec<_>>().join(" and ")
+            ));
+        }
+    }
+    None
+}
+
 /// How a value appears in a finding: exact when it terminates, marked when it
 /// does not. See [`Rational::to_display_string`].
 fn render(v: Rational) -> String {
@@ -238,6 +301,23 @@ fn check_claim(
              record to check it against."
         );
         f.trail.push(format!("Supply a value for `{name}` to have this recomputed."));
+        return f;
+    }
+
+    // 1b. **A reading the engine chose is refused, not reported.** Two shapes
+    //     of ordinary mathematical writing admit more than one parse, and on
+    //     each this checker produced a Major "mathematically certain"
+    //     `DETECTED` from the reading it happened to take
+    //     (`docs/D237_EQUATION_AUTHORITY_MEASUREMENT.md`, cases G1 and G2b).
+    //     §6b.3: stated as such, never guessed.
+    if let Some(why) = convention_ambiguity(left, right, b) {
+        f.status = EpistemicStatus::Unverified;
+        f.message = format!("Not checked: {why}.");
+        f.trail.push(
+            "Write the product with an explicit operator (`×`) or brackets to have this \
+             recomputed."
+                .into(),
+        );
         return f;
     }
 
@@ -439,6 +519,74 @@ mod tests {
     fn reportable(line: &str) -> Vec<ArithmeticFinding> {
         let eq = parse_equation(line).unwrap_or_else(|e| panic!("{line:?}: {e}"));
         findings_for(&eq, &BoundValues::new())
+    }
+
+    // ------------------------------------------------------------------
+    // D237 items 2: two notations are refused, not judged
+    // ------------------------------------------------------------------
+
+    /// **G1.** The binomial expansion, written the way everyone writes it,
+    /// was a Major `DETECTED` at a witness with `ab = 3`. It is now a refusal
+    /// that names the ambiguity; the explicit form is still checked and is
+    /// still right.
+    #[test]
+    fn a_juxtaposed_product_in_an_identity_is_refused_rather_than_refuted() {
+        let all = check("(a + b)^2 = a^2 + 2ab + b^2");
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].status, EpistemicStatus::Unverified, "{}", all[0].message);
+        assert!(all[0].message.contains("`ab`"), "{}", all[0].message);
+        assert!(all[0].message.contains("a×b"), "{}", all[0].message);
+        assert!(reportable("(a + b)^2 = a^2 + 2ab + b^2").is_empty());
+
+        // Negative control: with the operator written, the identity is judged.
+        let explicit = check("(a + b)^2 = a^2 + 2×a×b + b^2");
+        assert_eq!(explicit[0].status, EpistemicStatus::Supported, "{}", explicit[0].message);
+        // And a false identity written explicitly is still refuted.
+        let wrong = check("(a + b)^2 = a^2 + b^2");
+        assert_eq!(wrong[0].status, EpistemicStatus::Detected);
+    }
+
+    /// A multi-letter name whose letters are NOT all variables of the equation
+    /// is a name (`Vsample`), and a valued name is a name whatever its letters.
+    #[test]
+    fn a_real_multi_letter_name_is_not_mistaken_for_a_product() {
+        let all = check("DO = (Vtitrant × N × 8000) / Vsample");
+        assert_eq!(all[0].status, EpistemicStatus::Unverified);
+        assert!(!all[0].message.contains("juxtaposed"), "{}", all[0].message);
+
+        let eq = parse_equation("y = 2ab = 12").unwrap();
+        let mut b = BoundValues::new();
+        b.insert("a", Rational::parse_decimal("2").unwrap().0, 0);
+        b.insert("ab", Rational::parse_decimal("6").unwrap().0, 0);
+        let all = check_equation(&eq, &b);
+        assert_eq!(all[1].status, EpistemicStatus::Confirmed, "{}", all[1].message);
+    }
+
+    /// **G2b.** `1/2x` with `x = 2` is 1 under this parser and 0.25 under the
+    /// other common reading; it shipped as `DETECTED`. Refused now; the
+    /// bracketed forms are still checked either way.
+    #[test]
+    fn implicit_multiplication_after_a_division_is_refused_rather_than_judged() {
+        let mut b = BoundValues::new();
+        b.insert("x", Rational::parse_decimal("2").unwrap().0, 0);
+
+        let eq = parse_equation("y = 1/2x = 0.25").unwrap();
+        let all = check_equation(&eq, &b);
+        assert_eq!(all[1].status, EpistemicStatus::Unverified, "{}", all[1].message);
+        assert!(all[1].message.contains("a/bc"), "{}", all[1].message);
+        assert!(findings_for(&eq, &b).is_empty());
+
+        // Negative controls: brackets decide, and a product BEFORE a division
+        // is the same under both conventions.
+        let eq = parse_equation("y = 1/(2x) = 0.25").unwrap();
+        assert_eq!(check_equation(&eq, &b)[1].status, EpistemicStatus::Confirmed);
+        let eq = parse_equation("y = (1/2)×x = 1").unwrap();
+        assert_eq!(check_equation(&eq, &b)[1].status, EpistemicStatus::Confirmed);
+        let eq = parse_equation("y = 2x/4 = 1").unwrap();
+        assert_eq!(check_equation(&eq, &b)[1].status, EpistemicStatus::Confirmed);
+        // And a genuine contradiction in the unambiguous form still reports.
+        let eq = parse_equation("y = 2x/4 = 3").unwrap();
+        assert_eq!(check_equation(&eq, &b)[1].status, EpistemicStatus::Detected);
     }
 
     /// The line, verbatim, from `Corrected_Chapters_3_4_Jitesh_Agarwal.docx`
