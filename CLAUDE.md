@@ -208,21 +208,35 @@ time injection.
 
 ## Working norms (standing)
 
-- **Standing verification commands (from `src-tauri/`, measured — ARCHITECTURE_TRACE §37):**
+- **Standing verification commands (from `src-tauri/`, measured — ARCHITECTURE_TRACE §37).**
+
+  **The suite sizes below are the ONLY place this file states them.** Each one
+  is a measurement: a count, the command that produced it, the features, the
+  commit and the date. When one drifts, correct it HERE and nowhere else.
+  Counts quoted elsewhere in this file are dated incident records of what a
+  run printed at the time, not the current size. Quote a fresh run, never
+  these lines.
+
   - inner loop — `cargo check --workspace --all-targets` (~7s after a core edit, 0.3s warm)
-  - before a commit — `cargo test --workspace`: **1949 tests, 26 targets, 9
-    ignored** (macOS, no features; re-measured 24 Sep 2026 at `81dd56f`, §11
-    D228). The figure here said 1302 until then, and 752 before that (§11 D124).
-    It drifts by hundreds between re-measurements, so quote a fresh run, never
-    this line.
-  - the frontend — `npx vitest run --config vitest.config.ts`: **970 tests, 75
-    files** (24 Sep 2026). CI runs it in `frontend-build` since §11 D227.
+  - before a commit — `cargo test --workspace`
+    - **1957 passed, 9 ignored, 26 targets**
+    - macOS, no features, CARGO_TERM_COLOR=never
+    - at `a21d8eb`, 26 Sep 2026
+    - "passed" sums `test result: ok` lines; "targets" counts `Running` lines
+  - the frontend — `npx vitest run --config vitest.config.ts`
+    - **970 passed, 75 files**
+    - macOS, at `a21d8eb`, 26 Sep 2026
+    - CI runs it in `frontend-build` since §11 D227
   - the app crate on Linux, as CI runs it — `cargo test -p app --features
-    devtools`: **490 tests, 10 targets** (run `36028096375`, `2ea46c6`). Locally,
-    WITHOUT `--features devtools`, `ai_eval_cli` fails 8 of 11 unless a stale
-    `target/debug/ai-eval` happens to exist, and then it passes on that stale
-    binary (§11 D210, still open). Neither local result says anything about
-    `ai-eval`.
+    devtools`
+    - **488 passed, 10 targets**
+    - ubuntu, at `a21d8eb`, 26 Sep 2026
+    - `app-tests.yml` run `36251563731`: the `targets=10 passed=488` line it
+      prints
+    - locally, WITHOUT `--features devtools`, `ai_eval_cli` fails 8 of 11
+      unless a stale `target/debug/ai-eval` happens to exist, and then it
+      passes on that stale binary (§11 D210, still open). Neither local result
+      says anything about `ai-eval`.
 
   **`--workspace` is load-bearing.** Without it, cargo checks the app package's
   targets and `gaply_core` only as a lib dependency, so a broken or failing
