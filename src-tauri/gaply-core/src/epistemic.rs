@@ -56,7 +56,30 @@
 
 use serde::{Deserialize, Serialize};
 
-/// What a finding asserts about the claim it names. §9's vocabulary, verbatim.
+/// What a finding asserts about the claim it names. §9's vocabulary, with one
+/// word removed.
+///
+/// # `CONTRADICTED` is not here, and that is a decision
+///
+/// §9 lists six statuses and this type carried all six from the day it was
+/// written (`99de714`). `Contradicted`, "established to be false", was
+/// produced by nothing: `docs/D237_EQUATION_AUTHORITY_MEASUREMENT.md` found
+/// two consumers (a severity arm and a slug) and zero producers across the
+/// crate and the app, and §9's own example says the arithmetic case is
+/// *"DETECTED / REQUIRES_AUTHOR_CONFIRMATION, never wrong"*. A status that
+/// `is_finding()` admitted and `severity_for` mapped to Major, that no code
+/// path could reach, was a latent Major finding with no pinned meaning.
+///
+/// **Removed rather than reserved**, because nothing is planned that could
+/// produce it. The one thing in the product that establishes a reported
+/// number false, a recomputation against the user's own data, already has
+/// its own binary type (`stats_verdict::Verdict::Mismatch`) and stays off
+/// this axis by design (see the module header). The equation engine never
+/// asserts falsity: the strongest thing it says is `Detected`, and §9 says
+/// what that is not. If a producer is ever written, it needs its own
+/// definition of what "established" adds over a two-reading disagreement,
+/// and its own measurement, before the variant returns. Serde has never
+/// written `"contradicted"` anywhere, so no stored value is orphaned.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EpistemicStatus {
@@ -67,8 +90,6 @@ pub enum EpistemicStatus {
     Supported,
     /// Established. For Tier 0 this means exact arithmetic agreement.
     Confirmed,
-    /// Established to be false.
-    Contradicted,
     /// The record is insufficient to decide, and the engine says so rather
     /// than guessing (§6b.3).
     Unverified,
@@ -84,12 +105,7 @@ impl EpistemicStatus {
     /// not: a report that lists every check that passed buries the ones that
     /// did not.
     pub fn is_finding(&self) -> bool {
-        matches!(
-            self,
-            EpistemicStatus::Detected
-                | EpistemicStatus::Contradicted
-                | EpistemicStatus::RequiresAuthorConfirmation
-        )
+        matches!(self, EpistemicStatus::Detected | EpistemicStatus::RequiresAuthorConfirmation)
     }
 
     /// The wording shown to a reader. Never a bare enum name.
@@ -98,11 +114,22 @@ impl EpistemicStatus {
             EpistemicStatus::Detected => "detected",
             EpistemicStatus::Supported => "supported",
             EpistemicStatus::Confirmed => "confirmed",
-            EpistemicStatus::Contradicted => "contradicted",
             EpistemicStatus::Unverified => "unverified",
             EpistemicStatus::RequiresAuthorConfirmation => "requires author confirmation",
         }
     }
+
+    /// Every status, in declaration order. **Five, not §9's six**: see the
+    /// type's header for the one that was removed and why. A test pins the
+    /// count and the serde names so the variant cannot return without a
+    /// producer and a decision.
+    pub const ALL: [EpistemicStatus; 5] = [
+        EpistemicStatus::Detected,
+        EpistemicStatus::Supported,
+        EpistemicStatus::Confirmed,
+        EpistemicStatus::Unverified,
+        EpistemicStatus::RequiresAuthorConfirmation,
+    ];
 }
 
 /// How to read the decimals a manuscript wrote.
@@ -206,11 +233,32 @@ mod tests {
     }
 
     #[test]
-    fn detected_is_not_contradicted_and_neither_is_silent() {
-        assert_ne!(EpistemicStatus::Detected, EpistemicStatus::Contradicted);
+    fn detected_is_a_finding_and_the_settled_statuses_are_silent() {
         assert!(EpistemicStatus::Detected.is_finding());
+        assert!(EpistemicStatus::RequiresAuthorConfirmation.is_finding());
         assert!(!EpistemicStatus::Unverified.is_finding());
         assert!(!EpistemicStatus::Confirmed.is_finding());
+        assert!(!EpistemicStatus::Supported.is_finding());
+    }
+
+    /// **The vocabulary is five words, and `contradicted` is not one of them.**
+    /// D237 found the sixth with two consumers and no producer. This pins the
+    /// count and the wire names, so the variant cannot be re-added without a
+    /// producer and this test being revisited together.
+    #[test]
+    fn the_status_vocabulary_is_five_words_and_none_of_them_is_contradicted() {
+        let names: Vec<String> = EpistemicStatus::ALL
+            .iter()
+            .map(|s| serde_json::to_string(s).unwrap().trim_matches('"').to_string())
+            .collect();
+        assert_eq!(
+            names,
+            ["detected", "supported", "confirmed", "unverified", "requires_author_confirmation"]
+        );
+        assert!(!names.iter().any(|n| n.contains("contradict")), "{names:?}");
+        // And a stored `"contradicted"` cannot be read back, because none was
+        // ever written: a producer must come with its own decision.
+        assert!(serde_json::from_str::<EpistemicStatus>("\"contradicted\"").is_err());
     }
 
     #[test]

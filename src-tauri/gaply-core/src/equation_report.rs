@@ -59,9 +59,12 @@ const DETERMINISTIC_CONF: f64 = 1.0;
 /// equally urgent.
 fn severity_for(status: EpistemicStatus) -> FindingSeverity {
     match status {
-        EpistemicStatus::Detected | EpistemicStatus::Contradicted => FindingSeverity::Major,
+        EpistemicStatus::Detected => FindingSeverity::Major,
         EpistemicStatus::RequiresAuthorConfirmation => FindingSeverity::Minor,
-        _ => FindingSeverity::Info,
+        // Not findings; `arithmetic_finding` returns before reaching here.
+        EpistemicStatus::Supported | EpistemicStatus::Confirmed | EpistemicStatus::Unverified => {
+            FindingSeverity::Info
+        }
     }
 }
 
@@ -192,7 +195,6 @@ fn status_slug(s: EpistemicStatus) -> &'static str {
         EpistemicStatus::Detected => "detected",
         EpistemicStatus::Supported => "supported",
         EpistemicStatus::Confirmed => "confirmed",
-        EpistemicStatus::Contradicted => "contradicted",
         EpistemicStatus::Unverified => "unverified",
         EpistemicStatus::RequiresAuthorConfirmation => "requires_author_confirmation",
     }
