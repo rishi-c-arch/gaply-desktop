@@ -353,6 +353,20 @@ pub struct DeclarationBlock {
 }
 
 /// Introducers a manuscript uses to open a declaration block.
+/// The words a declaration line may begin with that belong to the SENTENCE
+/// and not to the name: `where V = …`, `and 8000 = …`, `with N = 0.02`. One
+/// list, used by [`unit_declaration`] and [`declaration_binding`] alike, so a
+/// unit and a value on the same kind of line are read the same way.
+fn strip_declaration_lead(head: &str) -> &str {
+    let mut name = head.trim();
+    for lead in ["where ", "Where ", "in which ", "and ", "with "] {
+        if let Some(r) = name.strip_prefix(lead) {
+            name = r.trim();
+        }
+    }
+    name
+}
+
 fn is_introducer(line: &str) -> bool {
     let t = line.trim().trim_end_matches(':').trim().to_lowercase();
     matches!(t.as_str(), "where" | "in which" | "here" | "with")
@@ -435,12 +449,7 @@ pub fn unit_declaration(line: &str) -> Option<(String, Unit)> {
     let (head, rest) = line.split_once('=')?;
     // A `where` block runs as one line: `where Vtitrant = mL …; and 8000 = …`.
     // The introducer and the conjunction belong to the SENTENCE, not the name.
-    let mut name = head.trim();
-    for lead in ["where ", "Where ", "in which ", "and ", "with "] {
-        if let Some(r) = name.strip_prefix(lead) {
-            name = r.trim();
-        }
-    }
+    let name = strip_declaration_lead(head);
     if name.is_empty()
         || name.chars().count() > 24
         || !name.chars().next()?.is_alphabetic()
@@ -475,7 +484,18 @@ pub fn unit_declaration(line: &str) -> Option<(String, Unit)> {
 /// Conditions 3 (scope) and 4 (uniqueness) are the caller's, because neither is
 /// a property of a single line.
 pub fn declaration_binding(line: &str) -> Option<(String, Rational, u32)> {
-    let t = line.trim();
+    // **The introducer is stripped here as it is for units.** Before this,
+    // `unit_declaration` read `where V = volume (mL)` and this function did
+    // not read `where a = 3`: the line parsed as a five-word label `where a`
+    // and bound nothing. Measured consequences
+    // (`docs/D237_EQUATION_AUTHORITY_MEASUREMENT.md`, cases E2 and E3): a
+    // manuscript declaring `where a = 3` and then `a = 4` bound the second
+    // value alone and reported a Major DETECTED on the author's arithmetic,
+    // because D157's two-values-bind-neither rule never saw the first; and a
+    // lone `where a = 3` lost a real binding. Ordered after D237 item 2 on
+    // purpose: this makes the engine fire MORE often, and the two convention
+    // refusals narrowed it first.
+    let t = strip_declaration_lead(line.trim());
     // Condition 1: the WHOLE line is the declaration. `parse_equation` would
     // happily read `N = 600` out of `N = 600 | Scale: 1=Strongly Disagree…`;
     // requiring the parse to consume everything is what rejects it.
@@ -658,6 +678,52 @@ mod tests {
             "e= margin of error = 0.04 (4%)",
             "n=((237,000)/(1+237,000(0.04)^(2)))=((237,000)/(1+379.2))=((237,000)/(380.2))=623.36",
         ])
+    }
+
+    // ---- D237 item 3: `where`-prefixed value declarations are read --------
+
+    /// **E3.** `where a = 3` on its own line is a value declaration, not a
+    /// label named `where a`. It binds, and the chain it follows is judged.
+    #[test]
+    fn a_where_prefixed_value_declaration_binds() {
+        let g = graph_from_lines(&lines(&["y = a + 2 = 5", "where a = 3"]));
+        assert_eq!(g.binding("a").map(|b| b.value), Some(Rational::from_int(3)), "{:?}", g.refused);
+        let all = check_equation(&g.nodes[0].equation, &g.bound_values());
+        assert_eq!(all[1].status, EpistemicStatus::Confirmed, "{}", all[1].message);
+        // The other introducers the unit reader already strips read the same way.
+        for line in ["Where a = 3", "with a = 3", "in which a = 3"] {
+            let g = graph_from_lines(&lines(&["y = a + 2 = 5", line]));
+            assert!(g.binding("a").is_some(), "{line:?} must bind");
+        }
+    }
+
+    /// **E2.** The manuscript declares two values, one behind `where`. Before
+    /// this the first was invisible, the second bound alone, and the chain was
+    /// a Major DETECTED on the author's own arithmetic. D157 condition 4: two
+    /// values bind NEITHER, and the refusal keeps both as evidence.
+    #[test]
+    fn two_declared_values_refuse_even_when_one_is_where_prefixed() {
+        let g = graph_from_lines(&lines(&["y = a + 2 = 5", "where a = 3", "a = 4"]));
+        assert!(g.binding("a").is_none(), "{:?}", g.bindings);
+        let refusal = g.refused.iter().find(|r| r.name == "a").expect("a is refused");
+        assert!(refusal.reason.contains("2 different values"), "{}", refusal.reason);
+        assert_eq!(refusal.evidence.len(), 2, "{:?}", refusal.evidence);
+        let all = check_equation(&g.nodes[0].equation, &g.bound_values());
+        assert_eq!(all[1].status, EpistemicStatus::Unverified, "{}", all[1].message);
+    }
+
+    /// The corpus's `where` lines declare MEANINGS, several per line, and must
+    /// go on binding nothing: `chapter3 .docx` line 520, verbatim.
+    #[test]
+    fn a_where_line_declaring_meanings_still_binds_nothing() {
+        let g = graph_from_lines(&lines(&[
+            "DO (mg/L) = (Vtitrant × N × 8000) / Vsample",
+            "where Vtitrant = mL of Na₂S₂O₃ used; N = normality of thiosulphate; Vsample = mL of sample titrated; and 8000 = milliequivalent weight of O₂ × 1000.",
+        ]));
+        assert!(g.bindings.is_empty(), "{:?}", g.bindings);
+        assert_eq!(declaration_binding("where N = normality of thiosulphate"), None);
+        // A bare `and 8000 = …` fragment starts with a number, not a name.
+        assert_eq!(declaration_binding("and 8000 = milliequivalent weight of O₂ × 1000."), None);
     }
 
     // ---- binding source 1: the mathematics binds itself ------------------
