@@ -205,21 +205,41 @@ const NOT_AN_ARTICLE_TYPE: &[&str] = &[
 /// [`NOT_AN_ARTICLE_TYPE`] covers the capitalised-but-generic leads.
 fn article_type_in_sentence(sentence: &str) -> Option<String> {
     let lower = sentence.to_lowercase();
-    let at = ["articles are", "articles must", "articles should", "articles have"]
-        .iter()
-        .filter_map(|m| lower.find(m))
-        .min()?;
+    // "papers" beside "articles" (§11 D239): BMJ writes "Analysis papers should
+    // be 2000 words", the same construction with the other noun.
+    let at = [
+        "articles are", "articles must", "articles should", "articles have",
+        "papers are", "papers must", "papers should", "papers have",
+    ]
+    .iter()
+    .filter_map(|m| lower.find(m))
+    .min()?;
     let head = sentence[..at].trim();
     if head.is_empty() || head.len() > 60 {
         return None;
     }
     // Only the trailing clause: "For submissions, Data Reports" -> "Data Reports".
-    let head = head.rsplit([',', ':', ';', '.']).next().unwrap_or(head).trim();
+    let clause = head.rsplit([':', ';', '.']).next().unwrap_or(head).trim();
+    // **A list NAME is one type (§11 D239).** "Curriculum, Instruction, and
+    // Pedagogy" split on the comma left "and Pedagogy", which fails the
+    // capitalisation test, so the limit lost its type. When every word of the
+    // clause is capitalised apart from the connective, the commas are part of
+    // the name; otherwise the comma still separates a lead-in from the type.
+    let is_list_name = clause.contains(',')
+        && clause
+            .split(|c: char| c.is_whitespace() || c == ',')
+            .filter(|w| !w.is_empty() && !matches!(*w, "and" | "&"))
+            .all(|w| w.chars().next().is_some_and(|c| c.is_uppercase()));
+    let head = if is_list_name { clause } else { clause.rsplit(',').next().unwrap_or(clause).trim() };
     let words: Vec<&str> = head.split_whitespace().collect();
-    if words.is_empty() || words.len() > 4 {
+    let content = words.iter().filter(|w| !matches!(**w, "and" | "&")).count();
+    if content == 0 || content > 4 {
         return None;
     }
-    if !words.iter().all(|w| w.chars().next().is_some_and(|c| c.is_uppercase())) {
+    if !words
+        .iter()
+        .all(|w| matches!(*w, "and" | "&") || w.chars().next().is_some_and(|c| c.is_uppercase()))
+    {
         return None;
     }
     let joined = words.join(" ");
@@ -531,6 +551,148 @@ fn limit_kind(lower: &str, number_at: usize) -> Option<RequirementKind> {
     None
 }
 
+/// **The article type a stored row carries, from its heading and its sentence
+/// alone. §11 D239.**
+///
+/// One function, so the extractor and the reconcile of stored rows
+/// ([`crate::journal_store::reclassify_article_types`]) cannot disagree: both
+/// have exactly `(source_heading, source_span, kind)`, and D239 measured that
+/// the stored type is a function of those three on 203 of 203 rows.
+///
+/// # Why LIMITS read differently
+///
+/// D238's hand-read found the largest class of wrong rows was a limit stated for
+/// one article type stored with none. Measured per row:
+///
+/// * **the heading names the type, and the type is not in [`ARTICLE_TYPES`]**
+///   (FAIR² Data, Analysis, Policy Forum, Guidelines and Guidance): read by
+///   [`heading_as_article_type`];
+/// * **the heading names a longer type than the list** ("Mini Review" matched
+///   the list's "review"): the whole heading is the type.
+///
+/// Precedence for a limit: a heading the list covers WHOLE (D172's heading
+/// first, pinned by `a_heading_type_outranks_a_sentence_type`), then the
+/// sentence, then the whole heading, then a partial list match, then a plural
+/// subject. An unlisted heading is the weaker statement: measured, putting it
+/// before the sentence re-typed 12 correctly typed rows from the sentence's
+/// form to the heading's ("Data Reports" to "Data Report");
+/// * **the sentence names it in a shape the pattern missed** ("Analysis papers
+///   should", "Curriculum, Instruction, and Pedagogy articles", "Letters
+///   unrelated to…"): [`article_type_in_sentence`] and [`plural_type_subject`].
+///
+/// Other kinds keep the D172/D173 order, heading first: a statement required
+/// under "Clinical Research" is not scoped to an article type called that, and
+/// the whole-heading rule applies to limits only for exactly that reason.
+pub fn article_type_for(heading: &str, sentence: &str, kind: RequirementKind) -> Option<String> {
+    let is_limit = matches!(
+        kind,
+        RequirementKind::WordLimit
+            | RequirementKind::AbstractLimit
+            | RequirementKind::FigureLimit
+            | RequirementKind::ReferenceLimit
+    );
+    if is_limit {
+        // Heading first, as D172 settled (the more deliberate statement), but a
+        // heading the list only PARTLY covers ("Mini Review" -> "review") gives
+        // way to the whole heading when the heading has the shape of a type.
+        let listed = article_type_of(heading);
+        let covers_whole = listed.as_deref().is_some_and(|t| {
+            let h = heading.trim().to_lowercase();
+            let t = t.to_lowercase();
+            h == t || h == format!("{t}s") || h == format!("{t}es")
+        });
+        if covers_whole {
+            return listed;
+        }
+        // A sentence that names its type outranks a heading the list does not
+        // carry: "Data Reports articles are…" under "Data Report" keeps the
+        // sentence's form, which is what every stored row already carries.
+        article_type_in_sentence(sentence)
+            .or_else(|| heading_as_article_type(heading))
+            .or(listed)
+            .or_else(|| plural_type_subject(sentence))
+    } else {
+        article_type_of(heading).or_else(|| article_type_in_sentence(sentence))
+    }
+}
+
+/// Words a heading uses for a PART of a manuscript or of a guidelines page. A
+/// heading containing one is about that part, not an article type: "Abstract",
+/// "Structured abstract", "Author Guidelines", "9 – Extended data figures".
+const NOT_A_TYPE_HEADING_WORDS: &[&str] = &[
+    "abstract", "abstracts", "title", "keywords", "text", "reference", "references",
+    "figure", "figures", "table", "tables", "author", "authors", "manuscript",
+    "submission", "format", "formatting", "types", "style",
+];
+
+/// **A heading that IS an article type's name, for a limit under it. §11 D239.**
+///
+/// The shape, not a vocabulary: one to four words, every word capitalised (the
+/// connectives "and" and "&" excepted), not opening with a gerund or a generic
+/// lead ("All"), no preposition, and no word that names a part of a manuscript
+/// or a page ([`NOT_A_TYPE_HEADING_WORDS`]). Measured on every untyped limit
+/// row in the seed: it binds FAIR² Data, Analysis, Policy Forum and Guidelines
+/// and Guidance, and leaves "Abstract", "Structured abstract", "Author
+/// Guidelines", "Article types", "All rapid responses", "9 – Extended data
+/// figures" and "Preparing an Analysis article" unbound.
+fn heading_as_article_type(heading: &str) -> Option<String> {
+    let h = heading.trim();
+    if !h.chars().next().is_some_and(|c| c.is_alphabetic() && c.is_uppercase()) {
+        return None;
+    }
+    let words: Vec<&str> = h
+        .split(|c: char| c.is_whitespace() || c == ',')
+        .filter(|w| !w.is_empty())
+        .collect();
+    let content: Vec<&str> = words.iter().copied().filter(|w| !matches!(*w, "and" | "&")).collect();
+    if content.is_empty() || content.len() > 4 {
+        return None;
+    }
+    if !content.iter().all(|w| w.chars().next().is_some_and(|c| c.is_uppercase())) {
+        return None;
+    }
+    let lower: Vec<String> = content.iter().map(|w| w.to_lowercase()).collect();
+    if lower[0].ends_with("ing") && lower.len() > 1 {
+        return None;
+    }
+    if NOT_AN_ARTICLE_TYPE.contains(&lower[0].as_str()) {
+        return None;
+    }
+    if lower.iter().any(|w| {
+        NOT_A_TYPE_HEADING_WORDS.contains(&w.as_str())
+            || matches!(w.as_str(), "for" | "of" | "in" | "on" | "with" | "about" | "to")
+    }) {
+        return None;
+    }
+    Some(h.to_string())
+}
+
+/// **A listed type, plural, as the SUBJECT of the clause. §11 D239.**
+///
+/// *"Word/reference count: Letters unrelated to a specific article should not
+/// exceed 500 words"* scopes the limit to Letters, and neither the heading
+/// ("Article types") nor the `"<Type> articles are"` shape says so. Read from
+/// the last `:` onwards, the clause opens with a capitalised plural of a type in
+/// [`ARTICLE_TYPES`]. **"Articles" itself is excluded**: *"Articles should not
+/// exceed 3000 words"* under a type heading means the articles of that section,
+/// and reading it as the type "Article" would move the limit to the wrong type.
+fn plural_type_subject(sentence: &str) -> Option<String> {
+    let clause = sentence.rsplit(':').next().unwrap_or(sentence).trim();
+    let first = clause.split_whitespace().next()?;
+    if !first.chars().next().is_some_and(|c| c.is_uppercase()) {
+        return None;
+    }
+    let lower = first.to_lowercase();
+    ARTICLE_TYPES
+        .iter()
+        .filter(|t| !t.contains(' ') && **t != "article")
+        .find(|t| lower == format!("{t}s") || lower == format!("{t}es"))
+        .map(|t| {
+            let mut c = t.chars();
+            c.next().map(|f| f.to_uppercase().collect::<String>() + c.as_str()).unwrap_or_default()
+        })
+}
+
 /// Extract every requirement a pattern can reach. **Pure.**
 pub fn extract_requirements(blocks: &[GuidelineBlock]) -> Vec<ExtractedRequirement> {
     let mut out = Vec::new();
@@ -544,6 +706,11 @@ pub fn extract_requirements(blocks: &[GuidelineBlock]) -> Vec<ExtractedRequireme
             let article_type = heading_type
                 .clone()
                 .or_else(|| article_type_in_sentence(sentence));
+            // The type a LIMIT row carries (§11 D239). Deliberately separate from
+            // `article_type` above, which still decides ADMISSION
+            // (`is_about_the_manuscript`): a better type must not widen what a
+            // crawl admits, and that widening cannot be measured on the seed.
+            let limit_type = article_type_for(&block.heading, sentence, RequirementKind::WordLimit);
 
             // ONE SENTENCE, ONE LIMIT PER KIND — see `binding_limit`.
             let mut limits: Vec<(RequirementKind, String)> = Vec::new();
@@ -574,7 +741,7 @@ pub fn extract_requirements(blocks: &[GuidelineBlock]) -> Vec<ExtractedRequireme
                 }
             }
             for (kind, value) in binding_limit(limits) {
-                push(&mut out, kind, value, &article_type, block, sentence);
+                push(&mut out, kind, value, &limit_type, block, sentence);
             }
 
             // A style NAME is not a style STATEMENT — §11 D171/D172.
@@ -763,6 +930,79 @@ fn push(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ---- §11 D239: a limit keeps the article type its text states --------
+    //
+    // Every fixture is the bundled seed's own (heading, span), verbatim.
+
+    fn lim(heading: &str, span: &str) -> Option<String> {
+        article_type_for(heading, span, RequirementKind::FigureLimit)
+    }
+
+    /// The heading names a type the list does not carry.
+    #[test]
+    fn a_limit_under_a_heading_that_names_an_unlisted_type_carries_it() {
+        let fair = "These are capped at 12,000 words and may include up to 15 figures or tables, ensuring recognition and long-term visibility.";
+        assert_eq!(lim("FAIR² Data", fair).as_deref(), Some("FAIR² Data"));
+        assert_eq!(lim("Analysis", "Display items – up to 6 items (figures and/or tables).").as_deref(), Some("Analysis"));
+        let plos = "Articles should not exceed 3000 words and may cite up to 30 references.";
+        assert_eq!(lim("Guidelines and Guidance", plos).as_deref(), Some("Guidelines and Guidance"));
+        assert_eq!(
+            lim("Policy Forum", "Articles should not exceed 2000 words and may cite up to 30 references.").as_deref(),
+            Some("Policy Forum"),
+            "\"Articles should\" under a type heading is that section's articles, not the type Article"
+        );
+    }
+
+    /// The sentence names the type in a shape the old pattern missed.
+    #[test]
+    fn a_limit_whose_sentence_names_its_type_carries_it() {
+        assert_eq!(
+            lim("Preparing an Analysis article", "Analysis papers should be 2000 words with 20 references and up to 3 non-text items (box, figure, or table).").as_deref(),
+            Some("Analysis")
+        );
+        let cip = "Curriculum, Instruction, and Pedagogy articles are peer-reviewed, have a maximum word count of 5,000 and may contain no more than 5 Figures/Tables.";
+        assert_eq!(lim("Curriculum, Instruction, and Pedagogy", cip).as_deref(), Some("Curriculum, Instruction, and Pedagogy"));
+        let letters = "Word/reference count: Letters unrelated to a specific article should not exceed 500 words or have more than 3 references.";
+        assert_eq!(
+            article_type_for("Article types", letters, RequirementKind::WordLimit).as_deref(),
+            Some("Letter")
+        );
+    }
+
+    /// "Mini Review" is not "Review": the list's suffix match lost the modifier.
+    #[test]
+    fn a_mini_review_limit_is_not_filed_under_review() {
+        let span = "They offer a succinct and clear summary of the topic, allowing readers to get up-to-date on new developments and/or emerging concepts, as well as discuss the following: Different schools of thought or controversies Current research gaps Potential future developments in the field Mini Reviews articles are peer-reviewed, have a maximum word count of 3,000 and may contain no more than 2 Figures/Tables.";
+        let got = lim("Mini Review", span);
+        assert!(got.as_deref().is_some_and(|t| t.starts_with("Mini Review")), "{got:?}");
+    }
+
+    /// **Negative controls: a limit that correctly has no type keeps none**, and
+    /// a non-limit row keeps the heading-first rule.
+    #[test]
+    fn headings_that_name_a_part_or_a_page_bind_no_type() {
+        for (heading, span) in [
+            ("Abstract", "The Abstract should: Describe the main objective(s) of the study … Not exceed 300 words"),
+            ("Structured abstract", "Abstracts should be 250- 300 words long: you may need up to 400 words, however, for a CONSORT or PRISMA style abstract."),
+            ("Author Guidelines", "Enter an abstract of up to 250 words for all articles [except book reviews]."),
+            ("9 – Extended data figures", "A maximum of 10 Extended Data display figures is permitted."),
+            ("Article types", "1,800 words, maximum of 40 references Practice Pointer These are practical, often problem-based articles."),
+            ("All rapid responses", "The word limit for rapid responses is 600 words (excluding references) and they should have no more than 10 references."),
+        ] {
+            assert_eq!(lim(heading, span), None, "{heading:?} must stay unbound");
+        }
+        // A statement required under a section heading is not scoped to a type
+        // named after the section: the whole-heading rule is for limits only.
+        assert_eq!(
+            article_type_for(
+                "Clinical Research",
+                "Any relevant funding should be declared in a separate funding statement.",
+                RequirementKind::SectionRequired
+            ),
+            None
+        );
+    }
 
     /// **A stored span is the journal's complete sentence, or it is not evidence.**
     ///
@@ -1332,8 +1572,12 @@ mod tests {
             ("Article", "Article"),
             ("Brief Communication", "Brief Communication"),
             ("Clinical Trials", "Clinical Trial"),
-            ("Study Protocol", "Protocol"),
-            ("Mini Review", "Review"),
+            // §11 D239: a heading the list covers only in part is its own full
+            // name for a LIMIT. D173 pinned "Mini Review" -> "Review", which is
+            // the defect D238 found: Frontiers states different limits for
+            // Mini Review and for Review.
+            ("Study Protocol", "Study Protocol"),
+            ("Mini Review", "Mini Review"),
             ("Systematic reviews and meta-analyses", "Systematic Review"),
             ("Matters Arising", "Matters Arising"),
             ("Perspectives", "Perspective"),

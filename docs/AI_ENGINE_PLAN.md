@@ -19685,3 +19685,141 @@ positive counts checked, restores verified by sha256):
 | A | the pre-D238 seed put back | the seed-carries guard, both seed-count tests, the installed-database test, the acceptance test | exactly those 5 |
 | B | `apply_requirement_corrections` corrects nothing | the installed-database test | exactly that 1 |
 | C | `lib.rs` no longer applies the corrections | the startup pin | exactly that 1 |
+
+### D239 — a limit keeps the article type its text states: 19 rows re-typed, D238's largest failure class from 17 rows to 2
+
+**D238's largest class** was a limit stated for one article type stored with
+none (17 of 34 wrong rows), plus a mislabelled type (6). This measures where
+each lost its type and fixes what the measurement supports.
+
+#### How the type is decided, and why each row lost it `[probe]`
+
+`extract_requirements` read the type from the block HEADING against the
+17-entry `ARTICLE_TYPES` list (D172/D173), falling back to the sentence shape
+`"<Type> articles are…"`. Both inputs are stored on every row, so each row was
+re-extracted from its own `(source_heading, source_span)` (throwaway probe, not
+committed). Known-good first: re-extraction reproduced the stored type on
+**203 of 203** rows (the 204th is D238's hand-corrected value, which the
+extractor still reads as 400).
+
+| where the type is | rows | why it was lost |
+|---|---:|---|
+| **in the heading, not in the list** | 10 | FAIR² Data ×5, Analysis ×2 (Nature Medicine), Policy Forum, Guidelines and Guidance ×2 |
+| **in the heading, list matched only its suffix** | 5 | "Mini Review" matched the list's "review" and was stored as Review |
+| **in the sentence, in a shape the pattern missed** | 4 | "Analysis *papers* should…" (BMJ); "Curriculum, Instruction, and Pedagogy articles…" (the comma split left "and Pedagogy", failing the capitalisation test); "Letters unrelated to…" and "Letters pertaining to…" (Health Psychology, a plural type as subject) |
+| **in the sentence, lowercase prose** | 1 | BMJ "The word limit for rapid responses is…": not fixed, no general shape |
+| **in neither** | 1 | BMJ "1,800 words, maximum of 40 references Practice Pointer…": a flattened table cell whose type is the PREVIOUS cell. A crawl-shape problem, not a parse one; not fixed |
+| mislabelled from a compound heading | 1 | BMC "Cover letter" read as Letter: D173's recorded residue, not fixed |
+
+(BMJ's Careers limit, the 17th type-loss row, was removed by D238.) So this is
+a **parse fix for 19 rows** and a **crawl-shape problem for 1**.
+
+#### The fix — `journal_extract::article_type_for(heading, sentence, kind)`
+
+One function, used by the extractor and by the reconcile of stored rows, so the
+two cannot disagree. For a LIMIT (word, abstract, figure, reference):
+
+1. a heading the list covers WHOLE (D172's heading-first, still pinned by
+   `a_heading_type_outranks_a_sentence_type`);
+2. the sentence: `"<Type> articles|papers are|must|should|have"`, and a
+   Title-Case list name ("A, B, and C") is kept whole;
+3. the heading as a type: one to four capitalised words, no gerund, no
+   preposition, no generic lead, no word naming a part of a manuscript or page
+   (`NOT_A_TYPE_HEADING_WORDS`: abstract, references, figures, author,
+   manuscript, format, types, style…);
+4. a partial list match;
+5. a listed type in plural as the clause's subject ("Letters …"), with bare
+   "Articles" excluded ("Articles should not exceed 3000 words" under a type
+   heading means that section's articles).
+
+**Measured, the order matters.** Putting step 3 before step 2 re-typed 12
+correctly typed rows from the sentence's form to the heading's ("Data Reports"
+to "Data Report", "Policy Briefs" to "Policy Brief"). With this order the rule
+changes exactly the 19 rows above and no other.
+
+Non-limit kinds keep the old rule unchanged: a statement required under
+"Clinical Research" is not scoped to a type called that. And the extractor's
+ADMISSION gate (`is_about_the_manuscript`, which admits a word count when the
+sentence has a type) still uses the OLD type: a better type must not widen what
+a crawl admits, and that widening cannot be measured on the seed.
+
+**D173's table pinned "Mini Review" to "Review"** and "Study Protocol" to
+"Protocol". The first is the defect D238 found (Frontiers states different
+limits for Mini Review and Review); both pins now read the full name, for
+limits.
+
+#### Stored rows, and conflicts
+
+`journal_store::reclassify_article_types` re-reads every stored row's type
+with `article_type_for` and recomputes conflicts by the write path's own rule
+(same journal, single-valued kind, same type, more than one value), because the
+conflict id embeds the type. It runs at startup after the seed, D225 and D238
+(`lib.rs`), since the seed loads only into a database without the journal.
+Only `verified` and `conflicted` rows are touched. On the pre-D239 seed it
+reports **19 re-typed, 10 no longer conflicted, 2 moved to a new conflict
+group**; a second run reports nothing. The seed file was patched through the
+same function (19 types, 10 statuses, 12 conflict ids; 41 lines; every other
+byte identical, the file re-serialising exactly).
+
+The 10 un-conflicted rows are Frontiers' FAIR² Data (5) and Curriculum (1)
+figure limits, Nature Medicine's Analysis and Extended Data figure limits (2),
+and PLOS Medicine's Policy Forum and Guidelines word limits (2): each was "the
+journal contradicting itself" only because two types shared the untyped bucket.
+**Health Psychology's two letter limits stay conflicted**, now under Letter: the
+span distinguishes letters about a published article (800) from other letters
+(500), below the type. The Journal screen will still show them as a conflict;
+recorded as residue.
+
+#### The re-audit — D238's 205 rows, now 204
+
+| | D238 | after D238's fix and D239 |
+|---|---:|---:|
+| real | 143 | **163** |
+| wrong | 34 | **13** |
+| not a requirement | 26 | 26 |
+| undecidable | 2 | 2 |
+
+Wrong rows by failure class:
+
+| class | D238 | now | the rows left |
+|---|---:|---:|---|
+| 1. article type lost | 17 | **2** | BMJ rapid responses (lowercase prose); BMJ "40 references" (flattened table) |
+| 2. conditional maximum read as the limit | 6 | 5 | Frontiers Editorial 5,000 words ×5 |
+| 3. mislabelled type | 6 | **1** | BMC "Cover letter" as Letter |
+| 4. example read as a standard | 4 | 4 | Frontiers "for example the CONSORT flow diagram" ×4 |
+| other | 1 | 1 | Nature Medicine Extended Data figures stored as the figure limit |
+
+Hand-read by Claude alone, as D238 was: the 19 re-typed rows were re-read
+against their spans, and nobody else has checked them.
+
+#### Negative controls `[probe]`
+
+* **Rows that correctly have no type keep none**: every untyped limit whose
+  heading is a part or a page ("Abstract", "Structured abstract", "Author
+  Guidelines", "9 – Extended data figures", "Article types", "All rapid
+  responses") stays untyped, pinned by
+  `headings_that_name_a_part_or_a_page_bind_no_type` from the seed's own
+  headings and spans.
+* **The 24 reader-facing verdicts are unchanged.** The checklist probe on the
+  old seed, the old seed after the reconcile, and the new seed gives 24 verdicts
+  each. The only differences are the word-limit INFORMATION rows, which now name
+  the types the audit said they should — "800 (Letter); 500 (Letter)",
+  "4000 (Analysis)", "3000 (Guidelines and Guidance); 2000 (Policy Forum)" —
+  where they read "type not stated". The installed-database path (old seed plus
+  reconcile) is identical to the new seed.
+
+**Deletion tests — predictions written first; 3 of 4 as predicted, and the
+fourth a finding about the test** (`cargo test --workspace --no-fail-fast`,
+positive counts, restores verified by sha256):
+
+| # | break | predicted red | red |
+|---|---|---|---|
+| A | the pre-D239 seed put back | the seed-is-reclassified guard, the installed-database test | exactly those 2 |
+| B | the limit branch of `article_type_for` reverted to the old rule | the unlisted-heading, sentence, Mini Review and D173 topic tests, the seed guard, the installed-database test | exactly those 6 |
+| C | the conflict recompute skipped | the installed-database test | **green** on the first run; red after the fix below |
+| D | `lib.rs` no longer runs the reconcile | the startup pin | exactly that 1 |
+
+**C's green was the test.** It reverted the old TYPES but started from the
+fresh seed's STATUSES, so a recompute that did nothing left nothing to see. It
+now also restores the old conflict state and asserts the exact report (19
+re-typed, 10 un-conflicted, 2 moved); re-run, C reddens exactly that test.

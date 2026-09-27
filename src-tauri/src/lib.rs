@@ -145,6 +145,19 @@ pub fn run() {
                 Ok(_) => {}
                 Err(e) => tracing::warn!(error = %e, "journal requirement corrections did not run"),
             }
+            // §11 D239: every stored requirement's article type re-read with the
+            // current rule, and conflicts recomputed to match. After the seed,
+            // for the same reason as D225 and D238. Idempotent, and not fatal.
+            match gaply_core::journal_store::reclassify_article_types(&db) {
+                Ok(r) if r != Default::default() => tracing::info!(
+                    retyped = r.retyped,
+                    unconflicted = r.unconflicted,
+                    conflicted = r.conflicted,
+                    "re-read journal requirement article types"
+                ),
+                Ok(_) => {}
+                Err(e) => tracing::warn!(error = %e, "journal article-type reconcile did not run"),
+            }
 
             let embedder = Arc::new(gaply_core::embed::HashEmbedder);
             app.manage(AppState::new(config, db.clone(), db, embedder, data_dir.clone()));

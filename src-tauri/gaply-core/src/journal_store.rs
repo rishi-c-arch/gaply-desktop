@@ -622,6 +622,103 @@ pub fn apply_requirement_corrections(db: &Database) -> Result<CorrectionReport, 
     Ok(out)
 }
 
+/// What [`reclassify_article_types`] changed. Counts of rows.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ReclassifyReport {
+    /// Rows whose `article_type` the current rule reads differently.
+    pub retyped: usize,
+    /// Rows that were `conflicted` and whose group no longer disagrees.
+    pub unconflicted: usize,
+    /// Rows newly marked `conflicted`, or moved to another conflict group.
+    pub conflicted: usize,
+}
+
+/// **Re-read every stored requirement's article type with the current rule,
+/// and recompute conflicts to match. §11 D239.**
+///
+/// The type is [`crate::journal_extract::article_type_for`] over the row's own
+/// `source_heading`, `source_span` and `kind`, so a stored row and a fresh
+/// extraction of the same sentence cannot carry different types. Measured
+/// before this was written: the stored type is that function of those three
+/// inputs on 203 of 203 rows under the previous rule.
+///
+/// **Conflicts are recomputed because they are keyed on the type.** A figure
+/// limit for FAIR² Data and one for Curriculum were "in conflict" only because
+/// both were untyped; typed, they are two requirements. The rule is the write
+/// path's, applied to the whole table: same journal, same single-valued kind,
+/// same article type, more than one value. Only rows whose status is
+/// `verified` or `conflicted` are touched; `inferred` and `unavailable` are not
+/// this function's to change. Idempotent.
+pub fn reclassify_article_types(db: &Database) -> Result<ReclassifyReport, GaplyError> {
+    let mut conn = db.conn()?;
+    let tx = conn.transaction()?;
+    let mut out = ReclassifyReport::default();
+
+    // 1. Types.
+    let rows: Vec<(i64, String, String, String, Option<String>)> = {
+        let mut stmt = tx.prepare(
+            "SELECT id, kind, source_heading, source_span, article_type FROM journal_requirements",
+        )?;
+        let v = stmt
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)))?
+            .collect::<Result<Vec<_>, _>>()?;
+        v
+    };
+    for (id, kind, heading, span, stored) in rows {
+        let now = crate::journal_extract::article_type_for(&heading, &span, kind_from_str(&kind));
+        if now != stored {
+            tx.execute(
+                "UPDATE journal_requirements SET article_type = ?2 WHERE id = ?1",
+                params![id, now],
+            )?;
+            out.retyped += 1;
+        }
+    }
+
+    // 2. Conflicts, by the write path's rule.
+    let rows: Vec<(i64, String, String, String, Option<String>, String, Option<String>)> = {
+        let mut stmt = tx.prepare(
+            "SELECT id, journal_key, kind, value, article_type, status, conflict_id
+               FROM journal_requirements WHERE status IN ('verified', 'conflicted')",
+        )?;
+        let v = stmt
+            .query_map([], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        v
+    };
+    let mut groups: std::collections::BTreeMap<(String, String, String), std::collections::BTreeSet<String>> =
+        Default::default();
+    for (_, key, kind, value, ty, _, _) in &rows {
+        groups.entry((key.clone(), kind.clone(), article_key(ty))).or_default().insert(value.clone());
+    }
+    for (id, key, kind, _, ty, status, conflict_id) in rows {
+        let disagrees = kind_from_str(&kind).is_single_valued()
+            && groups[&(key.clone(), kind.clone(), article_key(&ty))].len() > 1;
+        if disagrees {
+            let want = format!("cf-{key}-{kind}-{}", article_key(&ty));
+            if status != "conflicted" || conflict_id.as_deref() != Some(want.as_str()) {
+                tx.execute(
+                    "UPDATE journal_requirements SET status = 'conflicted', conflict_id = ?2
+                      WHERE id = ?1",
+                    params![id, want],
+                )?;
+                out.conflicted += 1;
+            }
+        } else if status == "conflicted" {
+            tx.execute(
+                "UPDATE journal_requirements SET status = 'verified', conflict_id = NULL
+                  WHERE id = ?1",
+                params![id],
+            )?;
+            out.unconflicted += 1;
+        }
+    }
+    tx.commit()?;
+    Ok(out)
+}
+
 fn kind_from_str(s: &str) -> RequirementKind {
     match s {
         "word_limit" => RequirementKind::WordLimit,
@@ -1414,6 +1511,78 @@ mod seed_tests {
         assert_eq!(second.requirements, 0, "nothing left to seed");
         assert_eq!(second.skipped_already_present.len(), 10);
         assert_eq!(requirements_for(&db, "nature-medicine").unwrap().len(), 39);
+    }
+
+    // --- §11 D239: stored article types re-read with the current rule -----
+
+    /// **The shipped seed is already reclassified.** Goes red when a seed built
+    /// under the old rule comes back.
+    #[test]
+    fn the_bundled_seed_is_already_reclassified() {
+        let db = Database::in_memory().unwrap();
+        let r = load_bundled_seed(&db).unwrap();
+        assert!(r.requirements > 200, "the seed loaded: {}", r.requirements);
+        assert_eq!(reclassify_article_types(&db).unwrap(), ReclassifyReport::default());
+        let fr = requirements_for(&db, "frontiers-public-health").unwrap();
+        assert!(fr.iter().any(|q| q.article_type.as_deref() == Some("FAIR² Data") && q.status == "verified"));
+        assert!(!fr.iter().any(|q| q.article_type.as_deref() == Some("Review")), "Mini Review limits are not Review");
+    }
+
+    /// **An installed database seeded under the old rule is reclassified**, and
+    /// ends exactly where a fresh seed does: types, statuses and conflict ids.
+    #[test]
+    fn a_database_seeded_before_d239_is_reclassified_to_the_fresh_state() {
+        let fresh = Database::in_memory().unwrap();
+        load_bundled_seed(&fresh).unwrap();
+        let db = Database::in_memory().unwrap();
+        load_bundled_seed(&db).unwrap();
+        {
+            // Put the old rule's types back: every retyped limit untyped, Mini
+            // Review filed under Review.
+            let conn = db.conn().unwrap();
+            conn.execute(
+                "UPDATE journal_requirements SET article_type = 'Review' WHERE article_type = 'Mini Review'",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "UPDATE journal_requirements SET article_type = NULL WHERE article_type IN
+                   ('FAIR² Data', 'Analysis', 'Curriculum, Instruction, and Pedagogy',
+                    'Guidelines and Guidance', 'Policy Forum')
+                   OR (journal_key = 'j-health-psychology' AND kind = 'word_limit')",
+                [],
+            )
+            .unwrap();
+            // ...and the old rule's CONFLICTS, which were keyed on the missing
+            // type: every untyped limit in these four buckets disagreed. Without
+            // this the test starts from the fresh statuses and cannot see a
+            // conflict recompute that does nothing (a deletion test found that).
+            conn.execute(
+                "UPDATE journal_requirements SET status = 'conflicted',
+                   conflict_id = 'cf-' || journal_key || '-' || kind || '-' || char(0) || 'unbound'
+                 WHERE article_type IS NULL AND (
+                   (journal_key IN ('frontiers-public-health', 'nature-medicine') AND kind = 'figure_limit')
+                   OR (journal_key IN ('plos-medicine', 'j-health-psychology') AND kind = 'word_limit'))",
+                [],
+            )
+            .unwrap();
+        }
+        let r = reclassify_article_types(&db).unwrap();
+        assert_eq!(r, ReclassifyReport { retyped: 19, unconflicted: 10, conflicted: 2 });
+        let snap = |d: &Database| -> Vec<(String, Option<String>, String, Option<String>)> {
+            let mut v: Vec<_> = [
+                "bmc-public-health", "bmj", "frontiers-public-health", "j-health-psychology",
+                "nature-medicine", "plos-medicine", "plos-one", "statistics-in-medicine",
+            ]
+            .iter()
+            .flat_map(|k| requirements_for(d, k).unwrap())
+            .map(|q| (q.source_span, q.article_type, q.status, q.conflict_id))
+            .collect();
+            v.sort();
+            v
+        };
+        assert_eq!(snap(&db), snap(&fresh), "reclassified must equal freshly seeded");
+        assert_eq!(reclassify_article_types(&db).unwrap(), ReclassifyReport::default(), "idempotent");
     }
 
     // --- §11 D238: rows read wrongly from a page the journal owns ---------

@@ -988,6 +988,22 @@ mod tests {
         assert!(fix > seed, "the corrections run before the seed loads, so a fresh install keeps the bad rows");
     }
 
+    /// **§11 D239's article-type reconcile runs at startup, after the seed.**
+    #[test]
+    fn startup_reclassifies_article_types_after_the_seed_loads() {
+        let lib = include_str!("lib.rs");
+        let code: String = lib
+            .lines()
+            .filter(|l| !l.trim_start().starts_with("//"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let seed = code.find("load_bundled_seed(").expect("lib.rs no longer loads the seed");
+        let fix = code
+            .find("reclassify_article_types(")
+            .expect("lib.rs no longer runs the §11 D239 article-type reconcile at startup");
+        assert!(fix > seed, "the reconcile runs before the seed loads, so a fresh install keeps the old types");
+    }
+
     // --- §11 D211: identity comes from the URL -----------------------------
 
     /// The Journal of Natural Medicines page that reproduced the defect live.
