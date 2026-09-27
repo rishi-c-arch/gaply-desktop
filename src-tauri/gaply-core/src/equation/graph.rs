@@ -616,6 +616,31 @@ fn build(lines: &[String], names: &[String]) -> EquationGraph {
             continue;
         }
         if let Ok(eq) = parse_equation_with(line, names) {
+            // **A line the parser could read only in part is RECORDED, not
+            // dropped.** `parse_equation_with` keeps the longest prefix that
+            // parses; when what fell off is itself an equality the line went
+            // on to assert (`Distance = 1.5 km = 1500 m` → `Distance = 1.5`,
+            // dropping ` km = 1500 m`), the prefix may make no node at all, and
+            // before this nothing anywhere said the line existed. D157's rule
+            // for binders holds for the reader too: the number that says
+            // whether it is safe is how much it refuses, and a refusal nobody
+            // can see is not one. `docs/D237_EQUATION_AUTHORITY_MEASUREMENT.md`
+            // case D2.
+            let trimmed = line.trim();
+            if let Some(tail) = trimmed
+                .strip_prefix(eq.text.as_str())
+                .and_then(super::linear::dropped_equality)
+            {
+                let name = eq.sides.first().map(|s| s.text.trim().to_string()).unwrap_or_default();
+                g.refused.push(Refusal {
+                    name,
+                    reason: format!(
+                        "the line could not be read past `{}`; `{tail}` was not checked",
+                        eq.text
+                    ),
+                    evidence: vec![trimmed.to_string()],
+                });
+            }
             let needs_check = eq.sides.iter().skip(1).any(|s| !s.expr.variables().is_empty())
                 || eq.sides.len() > 2;
             if needs_check {
@@ -678,6 +703,57 @@ mod tests {
             "e= margin of error = 0.04 (4%)",
             "n=((237,000)/(1+237,000(0.04)^(2)))=((237,000)/(1+379.2))=((237,000)/(380.2))=623.36",
         ])
+    }
+
+    // ---- D237 item "truncated unit tails": an unread equality is refused ----
+
+    /// **D2.** The parser keeps `Distance = 1.5` and drops ` km = 1500 m`; the
+    /// prefix makes no node. The graph now says so instead of saying nothing.
+    #[test]
+    fn a_unit_conversion_chain_the_parser_cannot_read_is_refused_not_dropped() {
+        for line in ["Distance = 1.5 km = 1500 m", "Mass = 2 kg = 2000 g", "P = 760 mm Hg = 101.3 kPa"] {
+            let g = graph_from_lines(&lines(&[line]));
+            assert!(g.nodes.is_empty(), "{line}: {:?}", g.nodes);
+            let r = g
+                .refused
+                .iter()
+                .find(|r| r.reason.contains("could not be read past"))
+                .unwrap_or_else(|| panic!("{line}: no refusal recorded: {:?}", g.refused));
+            assert!(r.reason.contains("= "), "{line}: the dropped equality is quoted: {}", r.reason);
+            assert_eq!(r.evidence, vec![line.to_string()]);
+        }
+        let g = graph_from_lines(&lines(&["Distance = 1.5 km = 1500 m"]));
+        assert_eq!(g.refused[0].name, "Distance");
+        assert!(g.refused[0].reason.contains("`km = 1500 m`"), "{}", g.refused[0].reason);
+    }
+
+    /// **The eight truncated parses the six manuscripts actually contain, and
+    /// the two shapes near them, must go on producing no such refusal.**
+    /// Verbatim from `chapter3 .docx` 558, `final final L.pdf` 1370/1390/1448
+    /// and `Revised Health Economics` 318/548, plus the CI-tail and
+    /// call-shaped controls.
+    #[test]
+    fn a_where_clause_a_parenthetical_or_a_prose_tail_is_not_an_unread_equality() {
+        let corpus = [
+            "COD (mg/L) = [(A − B) × N × 8000] / mL of sample",
+            "DO (mg/L) = (Vtitrant × N × 8000) / Vsample where Vtitrant = mL of Na₂S₂O₃ used; N = normality of thiosulphate; Vsample = mL of sample titrated; and 8000 = milliequivalent weight of O₂ × 1000.",
+            "COD (mg/L) = [(A − B) × N × 8000] / mL of sample where A = mL of FAS used for the blank; B = mL of FAS used for the sample; N = normality of FAS; and 8000 = milliequivalent weight of oxygen × 1000.",
+            "Chloride (mg/L) = [(A − B) × N × 35.45 × 1000] / V where A = volume of AgNO₃ used for the sample (mL); B = volume of AgNO₃ used for the blank (mL); N = normality of AgNO₃ (0.0141 N); 35.45 = equivalent weight of chloride; and V = volume of sample taken (mL).",
+            "OR = 3.90 (2.24–6.81)",
+            "Weighted provision = (0.108 × 0.78) + (0.500 × 0.13) + (0.769 × 0.06) + (0.810 × 0.03) = 0.084 + 0.065 + 0.046 + 0.024 = 21.9% (95% CI: 17.0–26.8%).",
+            "Total = 2 + 2 = 5 (see Table 1)",
+        ];
+        for line in corpus {
+            let g = graph_from_lines(&lines(&[line]));
+            assert!(
+                !g.refused.iter().any(|r| r.reason.contains("could not be read past")),
+                "{line}: {:?}",
+                g.refused
+            );
+        }
+        // And a line with nothing dropped never records one.
+        let g = graph_from_lines(&lines(&["Total = 2 + 3 = 5"]));
+        assert!(!g.refused.iter().any(|r| r.reason.contains("could not be read past")));
     }
 
     // ---- D237 item 3: `where`-prefixed value declarations are read --------

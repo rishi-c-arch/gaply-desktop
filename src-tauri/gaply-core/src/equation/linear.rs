@@ -900,6 +900,62 @@ fn truncation_would_drop_mathematics(remainder: &str) -> bool {
     matches!(p.expr(), Ok(_) if p.i == toks.len())
 }
 
+/// **What [`parse_equation`] left behind, when that is an equality the line
+/// went on to assert.** `docs/D237_EQUATION_AUTHORITY_MEASUREMENT.md` case D2.
+///
+/// `Distance = 1.5 km = 1500 m` parses as `Distance = 1.5`: the tail
+/// ` km = 1500 m` begins with no operator and is not an expression on its own,
+/// so [`truncation_would_drop_mathematics`] lets it go — and then the prefix
+/// has no variable, so the graph makes no node and records nothing. A
+/// conversion claim the engine cannot read became silence.
+///
+/// The shape this names: the tail's first `=` outside any bracket is preceded
+/// by one or two bare words (`km`, `kg`, `mm Hg`) and no introducer, and
+/// something follows it. Measured across the six corpus manuscripts before it
+/// was written, every truncated parse there (8) is a `where` clause, a
+/// parenthetical `(95% CI: …)`, or a prose tail (`/ mL of sample`), and none
+/// of them match; the three same-line `where` clauses are excluded by the
+/// introducer test even where their text carries numbers.
+///
+/// Returns the tail, trimmed, so a refusal can quote it.
+pub fn dropped_equality(tail: &str) -> Option<String> {
+    let t = tail.trim();
+    if t.is_empty() || t.starts_with('(') || t.starts_with('[') {
+        return None;
+    }
+    let mut depth = 0i32;
+    let mut eq_at: Option<usize> = None;
+    for (i, c) in t.char_indices() {
+        match c {
+            '(' | '[' | '{' => depth += 1,
+            ')' | ']' | '}' => depth -= 1,
+            '=' if depth == 0 => {
+                eq_at = Some(i);
+                break;
+            }
+            _ => {}
+        }
+    }
+    let eq_at = eq_at?;
+    let before = t[..eq_at].trim();
+    let after = t[eq_at + 1..].trim();
+    if before.is_empty() || after.is_empty() {
+        return None;
+    }
+    let words: Vec<&str> = before.split_whitespace().collect();
+    if words.len() > 2 {
+        return None;
+    }
+    let lower = words[0].to_lowercase();
+    if matches!(lower.as_str(), "where" | "in" | "with" | "and" | "here" | "of" | "for")
+        || words[0].contains(';')
+        || !words.iter().all(|w| w.chars().all(|c| c.is_alphabetic() || c == '_'))
+    {
+        return None;
+    }
+    Some(t.to_string())
+}
+
 /// Parse a string that must be an equation in its entirety.
 fn parse_exact_with(line: &str, names: &[String]) -> Result<Equation, ParseError> {
     let line = line.trim();
