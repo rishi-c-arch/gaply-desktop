@@ -3249,3 +3249,37 @@ fn no_specialist_reports_means_no_specialist_rows() {
     );
     assert!(!report.findings.iter().any(|f| f.provenance.iter().any(|p| p.starts_with("specialist:"))));
 }
+
+/// **§11 D238's acceptance, at the checklist a reader sees.** Here and not in
+/// `journal_store`: the journal layer may not reach the manuscript layer
+/// (`tests/journal_layer_has_no_manuscript.rs`), and this join is the report's. A research paper
+/// over 1,300 words is no longer failed on a Careers length, and a
+/// 350-word non-trial abstract is no longer passed.
+#[test]
+fn bmj_fails_neither_on_1300_words_nor_passes_a_350_word_abstract() {
+    let db = crate::Database::in_memory().unwrap();
+    crate::journal_store::load_bundled_seed(&db).unwrap();
+    let reqs = crate::journal_store::requirements_for(&db, "bmj").unwrap();
+    let abstract_350 = vec!["word"; 350].join(" ");
+    let body = vec!["text"; 3000].join(" ");
+    let text = format!(
+        "A Title\n\nAbstract\n{abstract_350}\n\nMethods\n{body}\n\nResults\nThings happened.\n"
+    );
+    let ex = crate::extract::extract_from_text(&text);
+    let words = text.split_whitespace().count();
+    assert!(words > 1300, "the paper must be over the old limit: {words}");
+    let items = crate::report::design_independent(crate::report::checklist_from_requirements(
+        &ex, &text, words, &reqs, &[],
+    ));
+    assert!(
+        !items.iter().any(|i| i.requirement.contains("1300")),
+        "{:?}",
+        items.iter().map(|i| &i.requirement).collect::<Vec<_>>()
+    );
+    let a = items
+        .iter()
+        .find(|i| i.requirement.starts_with("abstract limit"))
+        .expect("BMJ still states an abstract limit");
+    assert_eq!(a.requirement, "abstract limit: 300 words");
+    assert!(!a.passed && !a.unevaluable, "a 350-word abstract fails 300: {}", a.detail);
+}

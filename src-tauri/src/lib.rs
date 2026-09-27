@@ -132,6 +132,19 @@ pub fn run() {
                 Ok(_) => {}
                 Err(e) => tracing::warn!(error = %e, "journal ownership reconcile did not run"),
             }
+            // §11 D238: rows read wrongly from a page the journal DOES own, named
+            // in `journal_store::REQUIREMENT_CORRECTIONS`. After the seed, for the
+            // same reason as D225: an existing install keeps the old rows
+            // otherwise. Idempotent, and not fatal.
+            match gaply_core::journal_store::apply_requirement_corrections(&db) {
+                Ok(r) if r != Default::default() => tracing::info!(
+                    removed = r.removed,
+                    revalued = r.revalued,
+                    "corrected journal requirement rows"
+                ),
+                Ok(_) => {}
+                Err(e) => tracing::warn!(error = %e, "journal requirement corrections did not run"),
+            }
 
             let embedder = Arc::new(gaply_core::embed::HashEmbedder);
             app.manage(AppState::new(config, db.clone(), db, embedder, data_dir.clone()));

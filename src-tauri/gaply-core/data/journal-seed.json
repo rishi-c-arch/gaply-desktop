@@ -123,7 +123,7 @@
   {
    "journal_key": "bmj",
    "kind": "abstract_limit",
-   "value": "400",
+   "value": "300",
    "article_type": null,
    "status": "verified",
    "source_url": "https://www.bmj.com/about-bmj/resources-authors/article-types",
@@ -337,19 +337,6 @@
    "source_url": "https://www.bmj.com/about-bmj/resources-authors/article-types",
    "source_heading": "Statements that must be included in Research submissions (Ethics approval, funding, and transparency)",
    "source_span": "Ethics approval All research studies published in The BMJ should be morally acceptable, and must follow the World Medical Association's Declaration of Helsinki .",
-   "extracted_by": "pattern",
-   "conflict_id": null,
-   "fetched_at": 1789728313
-  },
-  {
-   "journal_key": "bmj",
-   "kind": "word_limit",
-   "value": "1300",
-   "article_type": null,
-   "status": "verified",
-   "source_url": "https://www.bmj.com/about-bmj/resources-authors/article-types/student",
-   "source_heading": "Article types",
-   "source_span": "Careers (up to 1300 words) These articles explain ways to boost your CVs, tips for electives, and what you need to know as a final year medical student applying for and starting the UK foundation programme.",
    "extracted_by": "pattern",
    "conflict_id": null,
    "fetched_at": 1789728313

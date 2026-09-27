@@ -19522,3 +19522,166 @@ the floor, and what a false one costs).
   the live lanes the soft vote's margin changes, the override does not.
 * `overridden_by_constraint` is the report's own record of the displacement;
   the soft winner was not recomputed independently.
+
+### D238 — the bundled journal requirements, hand-read for accuracy: 143 of 205 real; 14 of 25 reader-facing verdicts correct. Two BMJ verdicts fixed.
+
+**D225 settled OWNERSHIP** (every row comes from a page its journal owns). It did
+not settle whether the rows are RIGHT. This measures that, and fixes the two
+wrong verdicts a reader acts on. D236 and D237 are separate documents
+(`docs/D236_VERDICT_AUTHORITY.md`, `docs/D237_EQUATION_AUTHORITY_MEASUREMENT.md`)
+and have no entry in this log; this number follows them.
+
+#### How it was measured, and who judged
+
+**Every one of the 205 requirement rows in `gaply-core/data/journal-seed.json`
+(at `4f17a63`) was hand-read against its own `source_span`, by Claude, alone.
+Nobody else has checked any call.** Judged against the stored span only, not the
+live page. Categories:
+
+* **real** — the span states this requirement for a manuscript at this journal,
+  and value and scope match. A conditional requirement (ethics approval "for
+  human research") counts as real;
+* **wrong** — the span states a requirement and the row misstates it;
+* **not a requirement** — the span places no obligation on an author submitting
+  a manuscript;
+* **undecidable** — the spans contradict each other and cannot say which holds.
+
+#### The rows
+
+| journal | real | wrong | not | undecidable | rows |
+|---|---:|---:|---:|---:|---:|
+| Frontiers Public Health | 42 | 20 | 6 | 0 | 68 |
+| Nature Medicine | 36 | 3 | 0 | 0 | 39 |
+| PLOS ONE | 26 | 0 | 12 | 0 | 38 |
+| PLOS Medicine | 22 | 3 | 8 | 0 | 33 |
+| BMJ | 13 | 5 | 0 | 0 | 18 |
+| J Health Psychology | 2 | 2 | 0 | 2 | 6 |
+| BMC Public Health | 1 | 1 | 0 | 0 | 2 |
+| Statistics in Medicine | 1 | 0 | 0 | 0 | 1 |
+| **total** | **143** | **34** | **26** | **2** | **205** |
+
+| kind | real | wrong | not | undecidable |
+|---|---:|---:|---:|---:|
+| reporting_standard | 48 | 4 | 15 | 0 |
+| figure_limit | 26 | 14 | 0 | 0 |
+| section_required | 28 | 1 | 3 | 0 |
+| reference_style | 7 | 0 | 8 | 2 |
+| word_limit | 6 | 11 | 0 | 0 |
+| data_policy | 15 | 0 | 0 | 0 |
+| abstract_limit | 10 | 1 | 0 | 0 |
+| reference_limit | 3 | 3 | 0 | 0 |
+
+The 205 rows are 106 distinct (journal, kind, value, article type) facts, 81 of
+them real; Frontiers repeats one article-types page across five section URLs.
+
+#### The four failure classes of the 34 wrong rows
+
+1. **Article type lost.** A limit stated for one article type is stored with
+   none: Frontiers FAIR² Data "15 figures" (×5) and Curriculum "5", BMJ Analysis
+   "3 items", BMJ rapid responses "10 references", Nature Medicine Analysis
+   "4,000 words", PLOS Medicine Policy Forum and Guidelines rows, Health
+   Psychology's two letter limits, BMJ's student Careers "1300 words".
+2. **A conditional maximum read as the limit.** BMJ abstract "400" (only for
+   CONSORT or PRISMA abstracts; the limit is 300); Frontiers Editorial "5,000
+   words" (the cap for Research Topics of 50 or more articles, ×5).
+3. **Mislabelled article type.** Frontiers Mini Review limits stored as "Review"
+   (×5); BMC's cover-letter list stored under article type "Letter".
+4. **An example read as a standard.** Frontiers "for example the CONSORT flow
+   diagram" stored as a CONSORT requirement (×4).
+
+The 26 not-a-requirement rows are reviewer and editor questions, the PLOS
+comments policy and a disputed-author review, "when citing a PLOS article",
+resource pointers, descriptive sentences ("the ARRIVE guidelines aim to…"),
+Frontiers' description of "many Frontiers journals", and one sentence from a
+published article in the PLOS ONE atom feed. The two undecidable rows are Health
+Psychology's page stating both "Sage Harvard" and "Sage Vancouver".
+
+#### What a reader acts on `[probe]`
+
+Measured by seeding an in-memory database exactly as first run does and calling
+what `build_checklist` calls, `checklist_from_requirements(.., &[])` filtered by
+`design_independent` (throwaway probe, not committed). The 205 rows produce 33
+checklist items: **25 carry a pass/fail verdict**, 4 only list word limits, 4
+are undecidable because the row is scoped to an article type the analysis does
+not know. Figure limits, reference styles and reference limits have no check;
+reporting standards are dropped because no design bindings are passed. The
+Journal screen (`journal_fingerprint`) lists all 205 rows but gives no verdict.
+
+Of the 25 verdicts, before this fix:
+
+| | verdicts | |
+|---|---:|---|
+| correct for every manuscript | **14** | data availability ×4; abstract limits for PLOS ONE, PLOS Medicine, Statistics in Medicine; funding and competing-interests statements at BMJ, Nature Medicine and both PLOS journals. Two of these quote the comments-page span, because the item shows the newest row's source |
+| right only when a condition holds | **9** | ethics, informed-consent and code-availability items, and Frontiers' competing interests (its only span is the tobacco-funding policy). The checklist applies all nine unconditionally |
+| wrong | **2** | BMJ "word limit: 1300"; BMJ "abstract limit: 400" |
+
+**This is the rate that widening the journal list would multiply: about one
+verdict in two correct for every manuscript, one in three conditional, one in
+twelve wrong for all of them.** It is measured on eight journals, from one hand
+reading. Adding journals adds verdicts at this rate unless the failure classes
+above are closed first; the journal count is not the quantity that scales.
+
+#### The fix: the two wrong BMJ verdicts
+
+| row | source URL | span | decision |
+|---|---|---|---|
+| word_limit 1300 | `https://www.bmj.com/about-bmj/resources-authors/article-types/student` | *"Careers (up to 1300 words) These articles explain ways to boost your CVs, tips for electives…"* | **removed**: a student BMJ Careers article's length, not a submission requirement |
+| abstract_limit 400 | `https://www.bmj.com/about-bmj/resources-authors/article-types` | *"Abstracts should be 250- 300 words long: you may need up to 400 words, however, for a CONSORT or PRISMA style abstract."* | **value corrected to 300**, span kept verbatim, so the reader can check it |
+
+No other requirement row comes from the student page (one expectation row does,
+*"Previous articles include…"*, and is untouched: out of scope). Twelve other
+requirement rows come from the article-types page; they are not changed.
+
+**Seed data, handled as D225 handled it.** The seed file is corrected textually
+(205 → 204 requirements; checked to equal the original minus the Careers row
+with the abstract row revalued, every other table and field identical). Because
+the seed loads only into a database without the journal, an installed database
+keeps the old rows, so `journal_store::REQUIREMENT_CORRECTIONS` names each row
+exactly with its reason, and `apply_requirement_corrections` runs at startup
+after the seed and the D225 reconcile (`lib.rs`). `extracted_by` stays `pattern`
+(the column is CHECK-constrained); the correction list is the provenance.
+
+**Residual, stated.** A CONSORT or PRISMA abstract of 301 to 400 words now
+FAILS BMJ's abstract limit, which the journal allows. That is the conditional
+class above, moved from a false pass on non-trial abstracts to a false fail on
+trial and review abstracts. And a fresh crawl of the same pages would read both
+rows again: the extractor is not fixed.
+
+**Guards** (`journal_store::seed_tests` unless noted):
+* `the_bundled_seed_already_carries_every_requirement_correction` — goes red on
+  a regenerated seed;
+* `a_database_seeded_before_d238_is_corrected_and_nothing_else_moves` — old rows
+  written back, 1 removed and 1 revalued, every journal's count restored,
+  idempotent;
+* `report::tests::bmj_fails_neither_on_1300_words_nor_passes_a_350_word_abstract` — the
+  acceptance at the checklist;
+* `guidelines::tests::startup_applies_the_requirement_corrections_after_the_seed_loads`
+  (app crate) — the startup call, by source, after the seed;
+* the two seed-count tests, 205 → 204.
+
+**Negative control `[probe]`.** The checklist probe run on the pre-D238 seed and
+on the corrected one differs in exactly these lines, and every other journal's
+items are identical:
+
+```
+- seeded requirements=205                 + seeded requirements=204
+- bmj: rows=18 items=4                    + bmj: rows=17 items=3
+-   VERDICT | word limit: 1300            (gone)
+-   VERDICT | abstract limit: 400 words   +   VERDICT | abstract limit: 300 words
+- VERDICTS=25                             + VERDICTS=24
+```
+
+So after this change the reader-facing verdicts are **24: 15 correct, 9
+conditional, 0 wrong for every manuscript**. The corrected abstract item is
+correct for non-trial abstracts and falsely fails a 301-400 word CONSORT or
+PRISMA abstract (the residual above). The 1300 verdict is gone, not moved.
+
+**Deletion tests — predictions written first, 3 of 3 as predicted**
+(`cargo test --workspace --no-fail-fast`, filters passed as separate words,
+positive counts checked, restores verified by sha256):
+
+| # | break | predicted red | red |
+|---|---|---|---|
+| A | the pre-D238 seed put back | the seed-carries guard, both seed-count tests, the installed-database test, the acceptance test | exactly those 5 |
+| B | `apply_requirement_corrections` corrects nothing | the installed-database test | exactly that 1 |
+| C | `lib.rs` no longer applies the corrections | the startup pin | exactly that 1 |

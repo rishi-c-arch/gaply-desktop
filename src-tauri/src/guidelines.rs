@@ -971,6 +971,23 @@ mod tests {
         assert!(reconcile > seed, "the reconcile runs before the seed loads, so a fresh install keeps the seed's rows");
     }
 
+    /// **§11 D238's corrections are a fix only if startup applies them**, after
+    /// the seed loads, for the reason the D225 pin above states.
+    #[test]
+    fn startup_applies_the_requirement_corrections_after_the_seed_loads() {
+        let lib = include_str!("lib.rs");
+        let code: String = lib
+            .lines()
+            .filter(|l| !l.trim_start().starts_with("//"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let seed = code.find("load_bundled_seed(").expect("lib.rs no longer loads the seed");
+        let fix = code
+            .find("apply_requirement_corrections(")
+            .expect("lib.rs no longer applies the §11 D238 requirement corrections at startup");
+        assert!(fix > seed, "the corrections run before the seed loads, so a fresh install keeps the bad rows");
+    }
+
     // --- §11 D211: identity comes from the URL -----------------------------
 
     /// The Journal of Natural Medicines page that reproduced the defect live.

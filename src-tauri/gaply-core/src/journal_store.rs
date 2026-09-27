@@ -530,6 +530,98 @@ pub fn remove_unowned_rows(
     Ok(UnownedRemoval { requirements: counts[0], bindings: counts[1], expectations: counts[2] })
 }
 
+/// What a [`RequirementCorrection`] does to the row it names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CorrectionAction {
+    /// The span states no requirement a manuscript submitted to this journal
+    /// must meet.
+    Remove,
+    /// The span states the requirement and the extractor read the wrong
+    /// number out of it. The span is kept verbatim: it is what lets a reader
+    /// check the corrected value.
+    SetValue(&'static str),
+}
+
+/// **A requirement row the extractor read wrongly from a page the journal DOES
+/// own. §11 D238.**
+///
+/// §11 D225 removed rows from pages a journal does not own. These are the other
+/// failure: the page is the journal's, and the row still says something the
+/// page does not require. Each entry names the row exactly (journal, kind,
+/// value as stored, source URL) and carries the reason in one sentence, so the
+/// list is the provenance of every value it changes: `extracted_by` stays
+/// `pattern`, because the column is CHECK-constrained to `pattern` or `model`.
+pub struct RequirementCorrection {
+    pub journal_key: &'static str,
+    pub kind: &'static str,
+    pub value: &'static str,
+    pub source_url: &'static str,
+    pub action: CorrectionAction,
+    pub reason: &'static str,
+}
+
+/// Every known misreading, applied to the bundled seed file AND, at startup, to
+/// an installed database (the seed loads only into a database without the
+/// journal, so an existing install would otherwise keep the old rows, the
+/// reason D225's reconcile runs at startup too).
+///
+/// **This is not a fix to the extractor.** A fresh crawl of the same pages
+/// would read the same rows again; that is recorded in §11 D238 as open.
+pub const REQUIREMENT_CORRECTIONS: &[RequirementCorrection] = &[
+    RequirementCorrection {
+        journal_key: "bmj",
+        kind: "word_limit",
+        value: "1300",
+        source_url: "https://www.bmj.com/about-bmj/resources-authors/article-types/student",
+        action: CorrectionAction::Remove,
+        reason: "a student BMJ Careers article's length, stored with no article type, so every \
+                 research paper over 1,300 words failed it",
+    },
+    RequirementCorrection {
+        journal_key: "bmj",
+        kind: "abstract_limit",
+        value: "400",
+        source_url: "https://www.bmj.com/about-bmj/resources-authors/article-types",
+        action: CorrectionAction::SetValue("300"),
+        reason: "the span says abstracts should be 250-300 words, and up to 400 only for a \
+                 CONSORT or PRISMA style abstract; 400 passed a 350-word non-trial abstract",
+    },
+];
+
+/// Rows changed by [`apply_requirement_corrections`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CorrectionReport {
+    pub removed: usize,
+    pub revalued: usize,
+}
+
+/// Apply [`REQUIREMENT_CORRECTIONS`] to `journal_requirements`, in one
+/// transaction. Idempotent: a corrected row no longer matches its entry, so a
+/// second run changes nothing.
+pub fn apply_requirement_corrections(db: &Database) -> Result<CorrectionReport, GaplyError> {
+    let mut conn = db.conn()?;
+    let tx = conn.transaction()?;
+    let mut out = CorrectionReport::default();
+    for c in REQUIREMENT_CORRECTIONS {
+        let key = params![c.journal_key, c.kind, c.value, c.source_url];
+        let filter = "journal_key = ?1 AND kind = ?2 AND value = ?3 AND source_url = ?4";
+        match c.action {
+            CorrectionAction::Remove => {
+                out.removed +=
+                    tx.execute(&format!("DELETE FROM journal_requirements WHERE {filter}"), key)?;
+            }
+            CorrectionAction::SetValue(v) => {
+                out.revalued += tx.execute(
+                    &format!("UPDATE journal_requirements SET value = ?5 WHERE {filter}"),
+                    params![c.journal_key, c.kind, c.value, c.source_url, v],
+                )?;
+            }
+        }
+    }
+    tx.commit()?;
+    Ok(out)
+}
+
 fn kind_from_str(s: &str) -> RequirementKind {
     match s {
         "word_limit" => RequirementKind::WordLimit,
@@ -1248,8 +1340,9 @@ mod seed_tests {
 
         assert_eq!(r.seeded.len(), 10, "ten profiled journals: {:?}", r.seeded);
         assert!(r.skipped_already_present.is_empty());
-        // 213 crawled, minus the 8 from pages the journal does not own (§11 D225).
-        assert_eq!(r.requirements, 205, "the crawl's row count, not a round number");
+        // 213 crawled, minus the 8 from pages the journal does not own (§11 D225),
+        // minus BMJ's student Careers word limit (§11 D238).
+        assert_eq!(r.requirements, 204, "the crawl's row count, not a round number");
 
         // The rows are READABLE through the real reader, not just present.
         let reqs = requirements_for(&db, "nature-medicine").unwrap();
@@ -1317,9 +1410,95 @@ mod seed_tests {
         let db = Database::in_memory().unwrap();
         let first = load_bundled_seed(&db).unwrap();
         let second = load_bundled_seed(&db).unwrap();
-        assert_eq!(first.requirements, 205);
+        assert_eq!(first.requirements, 204);
         assert_eq!(second.requirements, 0, "nothing left to seed");
         assert_eq!(second.skipped_already_present.len(), 10);
         assert_eq!(requirements_for(&db, "nature-medicine").unwrap().len(), 39);
+    }
+
+    // --- §11 D238: rows read wrongly from a page the journal owns ---------
+
+    fn seed_rows() -> Vec<serde_json::Value> {
+        let v: serde_json::Value = serde_json::from_str(SEED_JSON).unwrap();
+        v["requirements"].as_array().unwrap().clone()
+    }
+
+    fn matches(r: &serde_json::Value, c: &RequirementCorrection, value: &str) -> bool {
+        r["journal_key"] == c.journal_key
+            && r["kind"] == c.kind
+            && r["value"] == value
+            && r["source_url"] == c.source_url
+    }
+
+    /// **The shipped seed already carries every correction.** The seed is
+    /// filtered, not regenerated; a regeneration from the same crawl would
+    /// read the same rows again, and this is what goes red when it does.
+    #[test]
+    fn the_bundled_seed_already_carries_every_requirement_correction() {
+        let rows = seed_rows();
+        assert!(rows.len() > 200, "read the seed: {} rows", rows.len());
+        assert!(!REQUIREMENT_CORRECTIONS.is_empty());
+        for c in REQUIREMENT_CORRECTIONS {
+            assert!(
+                !rows.iter().any(|r| matches(r, c, c.value)),
+                "the seed still carries {} {} {} from {}: {}",
+                c.journal_key, c.kind, c.value, c.source_url, c.reason
+            );
+            if let CorrectionAction::SetValue(v) = c.action {
+                assert!(
+                    rows.iter().any(|r| matches(r, c, v)),
+                    "the corrected row {} {} = {v} is missing from the seed",
+                    c.journal_key, c.kind
+                );
+            }
+        }
+    }
+
+    /// **An installed database is corrected too.** The seed loads only into a
+    /// database without the journal, so a machine seeded before D238 keeps
+    /// the old rows unless startup corrects them. Written back through a raw
+    /// insert, exactly as the old seed stored them; every other journal is
+    /// untouched; a second run changes nothing.
+    #[test]
+    fn a_database_seeded_before_d238_is_corrected_and_nothing_else_moves() {
+        let db = Database::in_memory().unwrap();
+        load_bundled_seed(&db).unwrap();
+        let keys = [
+            "bmc-public-health", "bmj", "frontiers-public-health", "j-health-psychology",
+            "nature-medicine", "plos-medicine", "plos-one", "statistics-in-medicine",
+        ];
+        let before: Vec<usize> =
+            keys.iter().map(|k| requirements_for(&db, k).unwrap().len()).collect();
+        {
+            let conn = db.conn().unwrap();
+            // The pre-D238 abstract row, and the Careers row.
+            conn.execute(
+                "UPDATE journal_requirements SET value = '400' WHERE journal_key = 'bmj'
+                   AND kind = 'abstract_limit' AND value = '300'",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO journal_requirements (journal_key, kind, value, status,
+                   source_url, source_heading, source_span, extracted_by, fetched_at)
+                 VALUES ('bmj', 'word_limit', '1300', 'verified', ?1, 'Article types',
+                   'Careers (up to 1300 words) These articles explain ways to boost your CVs',
+                   'pattern', 1789728313)",
+                params![REQUIREMENT_CORRECTIONS[0].source_url],
+            )
+            .unwrap();
+        }
+        let r = apply_requirement_corrections(&db).unwrap();
+        assert_eq!(r, CorrectionReport { removed: 1, revalued: 1 });
+        let after: Vec<usize> =
+            keys.iter().map(|k| requirements_for(&db, k).unwrap().len()).collect();
+        assert_eq!(before, after, "only the two BMJ rows change, and the counts come back");
+        let bmj = requirements_for(&db, "bmj").unwrap();
+        assert!(!bmj.iter().any(|q| q.kind == RequirementKind::WordLimit), "{bmj:#?}");
+        let abs: Vec<_> = bmj.iter().filter(|q| q.kind == RequirementKind::AbstractLimit).collect();
+        assert_eq!(abs.len(), 1);
+        assert_eq!(abs[0].value, "300");
+        assert!(abs[0].source_span.contains("250- 300 words"), "the span is kept verbatim");
+        assert_eq!(apply_requirement_corrections(&db).unwrap(), CorrectionReport::default(), "idempotent");
     }
 }
