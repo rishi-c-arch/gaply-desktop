@@ -145,6 +145,19 @@ pub fn run() {
                 Ok(_) => {}
                 Err(e) => tracing::warn!(error = %e, "journal requirement corrections did not run"),
             }
+            // §11 D240: rows the extractor no longer reads (a limit that is only
+            // an extension's ceiling; a standard named only as an example), and
+            // the binding derived from one. Before D239's re-typing, so conflicts
+            // are recomputed over what remains. Idempotent, and not fatal.
+            match gaply_core::journal_store::remove_misread_rows(&db) {
+                Ok(r) if r != Default::default() => tracing::info!(
+                    requirements = r.requirements,
+                    bindings = r.bindings,
+                    "removed misread journal rows"
+                ),
+                Ok(_) => {}
+                Err(e) => tracing::warn!(error = %e, "journal misread-row reconcile did not run"),
+            }
             // §11 D239: every stored requirement's article type re-read with the
             // current rule, and conflicts recomputed to match. After the seed,
             // for the same reason as D225 and D238. Idempotent, and not fatal.

@@ -551,6 +551,62 @@ fn limit_kind(lower: &str, number_at: usize) -> Option<RequirementKind> {
     None
 }
 
+/// Phrases that introduce an EXTENSION of a limit rather than the limit.
+const EXTENSION_PHRASES: &[&str] =
+    &["can be increased", "may be increased", "can be extended", "may be extended"];
+
+/// **Where a sentence starts describing how a limit may be EXTENDED. §11 D240.**
+///
+/// *"The word limit can be increased for each additional article in the Topic,
+/// up to a maximum of 5,000 words for 50 articles or more."* (Frontiers,
+/// Editorial). 5,000 is the ceiling for Research Topics of fifty or more
+/// articles; the Editorial limit itself is not in the sentence at all. Stored as
+/// the limit, it passed almost every editorial that was over the real one. A
+/// number AFTER this position is an extension and is not read as a limit; a
+/// number before it still is ("up to 1,000 words, which can be increased…").
+/// Measured on the seed: the phrases occur in exactly those five limit spans.
+pub fn extension_clause_at(lower: &str) -> Option<usize> {
+    EXTENSION_PHRASES.iter().filter_map(|p| lower.find(p)).min()
+}
+
+/// **Is every mention of `standard` in this sentence given as an EXAMPLE?
+/// §11 D240.**
+///
+/// *"Materials and Methods (including flow diagram when applicable, for example
+/// the CONSORT FLOW DIAGRAM…"* names CONSORT as an example of a flow diagram,
+/// not as a standard the article must follow. The cue is "for example", "e.g."
+/// or "for instance" DIRECTLY before the name (an article allowed between).
+///
+/// **"such as" is deliberately NOT a cue.** PLOS writes *"must adhere to the
+/// relevant reporting guidelines for their study design, such as CONSORT for
+/// randomized controlled trials"*, which is a requirement: the obligation is on
+/// the guidelines, and the standard is one of them. Measured on the seed: this
+/// predicate is true for the four Frontiers rows and for no other of the 67
+/// reporting-standard rows, including BMJ's "(for example, for cluster RCTs…)",
+/// where the cue comes AFTER the name.
+pub fn standard_named_as_example(sentence: &str, standard: &str) -> bool {
+    let mut any = false;
+    for (i, _) in sentence.match_indices(standard) {
+        any = true;
+        let before = sentence[..i].trim_end().to_lowercase();
+        let before = before
+            .strip_suffix(" the")
+            .or_else(|| before.strip_suffix(" a"))
+            .or_else(|| before.strip_suffix(" an"))
+            .unwrap_or(&before)
+            .trim_end()
+            .trim_end_matches(',')
+            .trim_end();
+        let framed = ["for example", "e.g.", "e.g", "for instance"]
+            .iter()
+            .any(|cue| before.ends_with(cue));
+        if !framed {
+            return false;
+        }
+    }
+    any
+}
+
 /// **The article type a stored row carries, from its heading and its sentence
 /// alone. §11 D239.**
 ///
@@ -714,11 +770,17 @@ pub fn extract_requirements(blocks: &[GuidelineBlock]) -> Vec<ExtractedRequireme
 
             // ONE SENTENCE, ONE LIMIT PER KIND — see `binding_limit`.
             let mut limits: Vec<(RequirementKind, String)> = Vec::new();
+            // §11 D240: a number after "the limit can be increased…" is how far
+            // it may be EXTENDED under a condition, not the limit.
+            let extension_from = extension_clause_at(&lower);
             for lead in LIMIT_LEADS {
                 let mut from = 0usize;
                 while let Some(i) = lower[from..].find(lead) {
                     let at = from + i + lead.len();
                     from = at;
+                    if extension_from.is_some_and(|p| at > p) {
+                        continue;
+                    }
                     let Some(value) = number_after(&lower, at) else { continue };
                     let Some(kind) = limit_kind(&lower, at) else { continue };
                     // An abstract limit is a word limit under a different name,
@@ -753,7 +815,7 @@ pub fn extract_requirements(blocks: &[GuidelineBlock]) -> Vec<ExtractedRequireme
             }
 
             for s in STANDARDS {
-                if sentence.contains(s) {
+                if sentence.contains(s) && !standard_named_as_example(sentence, s) {
                     push(&mut out, RequirementKind::ReportingStandard, (*s).to_string(),
                          &article_type, block, sentence);
                 }
@@ -1002,6 +1064,44 @@ mod tests {
             ),
             None
         );
+    }
+
+    // ---- §11 D240: an extension is not the limit; an example is not a rule --
+
+    #[test]
+    fn a_limit_that_can_be_increased_is_not_read_from_its_extension() {
+        let fr = "The word limit can be increased for each additional article in the Topic, up to a maximum of 5,000 words for 50 articles or more.";
+        let got = extract_requirements(&[b("Editorial", fr)]);
+        assert!(!got.iter().any(|r| r.kind == RequirementKind::WordLimit), "{got:#?}");
+        // A number BEFORE the extension clause is still the limit.
+        let got = extract_requirements(&[b(
+            "Editorial",
+            "Editorials are up to 1,000 words, which can be increased to 2,000 words for large Topics.",
+        )]);
+        let w: Vec<_> = got.iter().filter(|r| r.kind == RequirementKind::WordLimit).collect();
+        assert_eq!(w.len(), 1, "{got:#?}");
+        assert_eq!(w[0].value, "1000");
+    }
+
+    #[test]
+    fn a_standard_named_as_an_example_is_not_a_requirement() {
+        let fr = "Clinical Trial articles should have the following format: Abstract (please include the clinical trial registry number) Introduction Materials and Methods (including flow diagram when applicable, for example the CONSORT FLOW DIAGRAM- http://www.";
+        assert!(!extract_requirements(&[b("Clinical Trial", fr)])
+            .iter()
+            .any(|r| r.kind == RequirementKind::ReportingStandard));
+        // Negative controls, verbatim from the seed: "such as" is a requirement,
+        // and a "for example" AFTER the name does not touch it.
+        for span in [
+            "Clinical trial reports must adhere to the relevant reporting guidelines for their study design, such as CONSORT for randomized controlled trials, TREND for non-randomized trials, and other specialized guidelines as appropriate.",
+            "For a clinical trials , use the CONSORT checklist and also include a structured abstract that follows the CONSORT extension for abstract checklist, the CONSORT flowchart and, where applicable, the appropriate CONSORT extension statements (for example, for cluster RCTs, pragmatic trials, etc.",
+        ] {
+            assert!(
+                extract_requirements(&[b("Reporting guidelines", span)])
+                    .iter()
+                    .any(|r| r.kind == RequirementKind::ReportingStandard && r.value == "CONSORT"),
+                "{span:?}"
+            );
+        }
     }
 
     /// **A stored span is the journal's complete sentence, or it is not evidence.**

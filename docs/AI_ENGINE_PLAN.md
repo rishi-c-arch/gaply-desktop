@@ -19823,3 +19823,120 @@ positive counts, restores verified by sha256):
 fresh seed's STATUSES, so a recompute that did nothing left nothing to see. It
 now also restores the old conflict state and asserts the exact report (19
 re-typed, 10 un-conflicted, 2 moved); re-run, C reddens exactly that test.
+
+### D240 — an extension is not the limit, and an example is not a requirement: D238's classes 2 and 4 removed, 9 rows
+
+**The two largest wrong classes after D239**, measured before changing anything.
+They are **two different problems** decided at two different points in the
+extractor, and no one rule covers both.
+
+#### Class 2 — a conditional maximum read as the limit (5 rows) `[src]`, `[probe]`
+
+The limit loop reads the number after a limit lead ("up to a maximum of") and
+`binding_limit` keeps the largest per kind. Frontiers' Editorial sentence, on
+five section URLs:
+
+> *"The word limit **can be increased** for each additional article in the
+> Topic, up to a maximum of 5,000 words for 50 articles or more."*
+
+**The condition is in the span, and the limit is not.** 5,000 is the ceiling for
+Research Topics of fifty or more articles; the Editorial limit itself appears
+nowhere in the sentence. So there is no correct number to store from it, and
+**refusing is better than storing one**: 5,000 is wrong for almost every
+editorial, in the direction that passes an over-long one. Measured on the seed:
+"can/may be increased/extended" occurs in exactly these five limit spans. BMJ's
+*"you may need up to 400 words, however, for a CONSORT…"* is a different phrase,
+already hand-corrected by D238, and untouched.
+
+**Rule:** `extension_clause_at` finds where a sentence starts describing an
+extension; a number AFTER it is not read as a limit, a number before it still
+is ("up to 1,000 words, which can be increased to 2,000…" keeps 1,000).
+
+#### Class 4 — an example read as a requirement (4 rows) `[src]`, `[probe]`
+
+Any sentence containing a standard's name became a `reporting_standard` row:
+
+> *"…Materials and Methods (including flow diagram when applicable, **for example
+> the CONSORT** FLOW DIAGRAM…"*
+
+**Rule:** `standard_named_as_example` is true when EVERY mention of the standard
+is directly preceded by "for example", "e.g." or "for instance" (an article
+allowed between). Measured over all 67 reporting-standard spans: true for these
+four and for no other. **"such as" is deliberately not a cue**: PLOS's *"must
+adhere to the relevant reporting guidelines for their study design, such as
+CONSORT for randomized controlled trials"* is a requirement (6 rows), and BMJ's
+"(for example, for cluster RCTs…)" comes after the name and is untouched. The
+same sentence had produced one BINDING (CONSORT for clinical trials);
+`bindings_from` derives bindings from extracted standards, so a new crawl drops
+it, and the stored one is removed with the rows.
+
+#### Stored rows
+
+`journal_store::remove_misread_rows` applies the two predicates to every stored
+row (limits: the value occurs in its span only after the extension clause;
+standards and bindings: named only as an example) and deletes them. It runs at
+startup after the seed, D225 and D238, and BEFORE D239's re-typing, so conflicts
+are recomputed over what remains. On the pre-D240 seed: **9 requirements and 1
+binding removed**; a second run removes nothing. The seed file: 204 → **195**
+requirements, 47 → 46 bindings, every other byte identical. Re-extracting every
+stored row with the new rules stops producing exactly those 9 (plus D238's
+hand-corrected BMJ row, which already did not re-extract), and changes no type.
+
+#### The re-audit — 195 rows
+
+| | D238 (205) | D239 (204) | **D240 (195)** |
+|---|---:|---:|---:|
+| real | 143 | 163 | **163** |
+| wrong | 34 | 13 | **4** |
+| not a requirement | 26 | 26 | 26 |
+| undecidable | 2 | 2 | 2 |
+
+| wrong, by class | D238 | D239 | **D240** |
+|---|---:|---:|---:|
+| 1. article type lost | 17 | 2 | 2 |
+| 2. conditional maximum read as the limit | 6 | 5 | **0** |
+| 3. mislabelled type | 6 | 1 | 1 |
+| 4. example read as a standard | 4 | 4 | **0** |
+| other (Extended Data figures as the figure limit) | 1 | 1 | 1 |
+
+The four left: BMJ rapid responses (type in lowercase prose), BMJ "40
+references" (a flattened table cell), BMC "Cover letter" as Letter, Nature
+Medicine's Extended Data figure cap. Classification is D238's hand-reading,
+Claude alone; the nine removed rows were each re-read against their spans.
+
+#### Negative controls `[probe]`
+
+* **The real reporting standards survive**: 67 − 4 = 63 reporting-standard rows
+  remain (48 real, 15 not-a-requirement as D238 classified them), pinned with
+  the "such as CONSORT" row by
+  `the_bundled_seed_carries_no_misread_row_and_keeps_every_other_standard`.
+* **Every other limit survives**: the seed diff is exactly the nine rows.
+* **The 24 verdicts are unchanged.** Reporting standards reach no checklist
+  verdict and the Editorial limit fed only an information row. The one visible
+  change: Frontiers' *"the journal states 5 word limits — 5000 (Editorial)…"*
+  information row is gone. The old seed after the startup reconciles is
+  identical to the new seed.
+
+**Deletion tests — predictions written first, 4 of 4 as predicted**
+(`cargo test --workspace --no-fail-fast`, positive counts, every restore
+checked with `cmp` before the next break):
+
+| # | break | predicted red | red |
+|---|---|---|---|
+| A | the pre-D240 seed put back | the misread-row guard, both seed-count tests, the installed-database test | exactly those 4 |
+| B | `extension_clause_at` finds nothing | the extension test, the installed-database test | exactly those 2 |
+| C | `standard_named_as_example` always false | the example test, the installed-database test | exactly those 2 |
+| D | `lib.rs` no longer runs the reconcile | the startup pin | exactly that 1 |
+
+**The first run of these four was invalid, and damaged the tree.** The backup,
+restore and hash lines took their file list from an unquoted `$FILES`; zsh does
+not split it, so `cp` received one argument naming no file, no backup was
+made, and no restore ran. The breaks ACCUMULATED — B ran on A's old seed, C on
+B, D on C — and the closing check printed "ALL RESTORED" because it compared
+two EMPTY hash lists. It is CLAUDE.md's unquoted-variable entry (§11 D225,
+D231) once more, arriving through a restore rather than a filter. Caught by
+reading the output (every `cp` said "No such file"), not by the success line.
+Recovered by restoring the seed from a copy verified to be D240's (195 rows, no
+extension span) and reversing each break by exact string; the journal tests
+were green (76) before the clean re-run above, whose restores name each file
+literally and stop on the first `cmp` failure.

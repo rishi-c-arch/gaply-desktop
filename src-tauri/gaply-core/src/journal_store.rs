@@ -622,6 +622,80 @@ pub fn apply_requirement_corrections(db: &Database) -> Result<CorrectionReport, 
     Ok(out)
 }
 
+/// Rows removed by [`remove_misread_rows`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct MisreadRemoval {
+    pub requirements: usize,
+    pub bindings: usize,
+}
+
+/// Does this stored LIMIT row's value appear in its span only after the span
+/// starts describing an extension? Commas are dropped first: the span writes
+/// "5,000" where the value is "5000".
+fn limit_is_only_an_extension(span: &str, value: &str) -> bool {
+    let lower = span.to_lowercase().replace(',', "");
+    let Some(p) = crate::journal_extract::extension_clause_at(&lower) else { return false };
+    let hits: Vec<usize> = lower.match_indices(value).map(|(i, _)| i).collect();
+    !hits.is_empty() && hits.iter().all(|i| *i > p)
+}
+
+/// **Remove stored rows the current extractor no longer reads. §11 D240.**
+///
+/// Two misreadings, each decided by the extractor's own predicate over the
+/// row's own span, so a stored row and a fresh crawl of the same sentence agree:
+///
+/// * a LIMIT whose number is only the ceiling of an extension
+///   ([`crate::journal_extract::extension_clause_at`]): Frontiers' Editorial
+///   "5,000 words", which is the cap for Research Topics of fifty or more
+///   articles, while the Editorial limit itself is not in the sentence. No
+///   number from that sentence is right, so the row is refused, not revalued;
+/// * a REPORTING STANDARD, or a binding, whose sentence names the standard only
+///   as an example ([`crate::journal_extract::standard_named_as_example`]).
+///
+/// Runs at startup after the seed (the seed loads only into a database without
+/// the journal). Idempotent.
+pub fn remove_misread_rows(db: &Database) -> Result<MisreadRemoval, GaplyError> {
+    let mut conn = db.conn()?;
+    let tx = conn.transaction()?;
+    let mut out = MisreadRemoval::default();
+    let reqs: Vec<(i64, String, String, String)> = {
+        let mut stmt = tx.prepare("SELECT id, kind, value, source_span FROM journal_requirements")?;
+        let v = stmt
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
+            .collect::<Result<Vec<_>, _>>()?;
+        v
+    };
+    for (id, kind, value, span) in reqs {
+        let misread = match kind.as_str() {
+            "word_limit" | "abstract_limit" | "figure_limit" | "reference_limit" => {
+                limit_is_only_an_extension(&span, &value)
+            }
+            "reporting_standard" => crate::journal_extract::standard_named_as_example(&span, &value),
+            _ => false,
+        };
+        if misread {
+            out.requirements +=
+                tx.execute("DELETE FROM journal_requirements WHERE id = ?1", params![id])?;
+        }
+    }
+    let binds: Vec<(i64, String, String)> = {
+        let mut stmt =
+            tx.prepare("SELECT id, standard, source_span FROM journal_standard_bindings")?;
+        let v = stmt
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+            .collect::<Result<Vec<_>, _>>()?;
+        v
+    };
+    for (id, standard, span) in binds {
+        if crate::journal_extract::standard_named_as_example(&span, &standard) {
+            out.bindings +=
+                tx.execute("DELETE FROM journal_standard_bindings WHERE id = ?1", params![id])?;
+        }
+    }
+    tx.commit()?;
+    Ok(out)
+}
+
 /// What [`reclassify_article_types`] changed. Counts of rows.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ReclassifyReport {
@@ -1438,8 +1512,9 @@ mod seed_tests {
         assert_eq!(r.seeded.len(), 10, "ten profiled journals: {:?}", r.seeded);
         assert!(r.skipped_already_present.is_empty());
         // 213 crawled, minus the 8 from pages the journal does not own (§11 D225),
-        // minus BMJ's student Careers word limit (§11 D238).
-        assert_eq!(r.requirements, 204, "the crawl's row count, not a round number");
+        // minus BMJ's student Careers word limit (§11 D238), minus the five
+        // Frontiers extension ceilings and four example-only CONSORT rows (§11 D240).
+        assert_eq!(r.requirements, 195, "the crawl's row count, not a round number");
 
         // The rows are READABLE through the real reader, not just present.
         let reqs = requirements_for(&db, "nature-medicine").unwrap();
@@ -1507,10 +1582,85 @@ mod seed_tests {
         let db = Database::in_memory().unwrap();
         let first = load_bundled_seed(&db).unwrap();
         let second = load_bundled_seed(&db).unwrap();
-        assert_eq!(first.requirements, 204);
+        assert_eq!(first.requirements, 195);
         assert_eq!(second.requirements, 0, "nothing left to seed");
         assert_eq!(second.skipped_already_present.len(), 10);
         assert_eq!(requirements_for(&db, "nature-medicine").unwrap().len(), 39);
+    }
+
+    // --- §11 D240: rows the extractor no longer reads ---------------------
+
+    /// **The shipped seed carries no misread row**, and the real reporting
+    /// standards are all still there: 67 rows before D240, four removed.
+    #[test]
+    fn the_bundled_seed_carries_no_misread_row_and_keeps_every_other_standard() {
+        let db = Database::in_memory().unwrap();
+        load_bundled_seed(&db).unwrap();
+        assert_eq!(remove_misread_rows(&db).unwrap(), MisreadRemoval::default());
+        let keys = [
+            "bmc-public-health", "bmj", "frontiers-public-health", "j-health-psychology",
+            "nature-medicine", "plos-medicine", "plos-one", "statistics-in-medicine",
+        ];
+        let standards: usize = keys
+            .iter()
+            .flat_map(|k| requirements_for(&db, k).unwrap())
+            .filter(|q| q.kind == RequirementKind::ReportingStandard)
+            .count();
+        assert_eq!(standards, 63, "67 reporting-standard rows minus the four example-only ones");
+        // "such as CONSORT" is a requirement, and stays.
+        let plos = requirements_for(&db, "plos-one").unwrap();
+        assert!(plos.iter().any(|q| q.kind == RequirementKind::ReportingStandard
+            && q.value == "CONSORT" && q.source_span.contains("such as CONSORT")));
+    }
+
+    /// **An installed database seeded before D240 loses exactly the misread
+    /// rows**: the five extension ceilings, the four example-only standards and
+    /// the binding derived from them, and nothing else. Idempotent.
+    #[test]
+    fn a_database_seeded_before_d240_loses_only_the_misread_rows() {
+        let db = Database::in_memory().unwrap();
+        load_bundled_seed(&db).unwrap();
+        let keys = [
+            "bmc-public-health", "bmj", "frontiers-public-health", "j-health-psychology",
+            "nature-medicine", "plos-medicine", "plos-one", "statistics-in-medicine",
+        ];
+        let before: Vec<usize> = keys.iter().map(|k| requirements_for(&db, k).unwrap().len()).collect();
+        let ext = "The word limit can be increased for each additional article in the Topic, up to a maximum of 5,000 words for 50 articles or more.";
+        let eg = "Clinical Trial articles should have the following format: Abstract (please include the clinical trial registry number) Introduction Materials and Methods (including flow diagram when applicable, for example the CONSORT FLOW DIAGRAM- http://www.";
+        {
+            let conn = db.conn().unwrap();
+            for n in 0..5 {
+                conn.execute(
+                    "INSERT INTO journal_requirements (journal_key, kind, value, article_type, status,
+                       source_url, source_heading, source_span, extracted_by, fetched_at)
+                     VALUES ('frontiers-public-health', 'word_limit', '5000', 'Editorial', 'verified',
+                       ?1, 'Editorial', ?2, 'pattern', 1)",
+                    params![format!("https://www.frontiersin.org/x/{n}"), ext],
+                )
+                .unwrap();
+            }
+            for n in 0..4 {
+                conn.execute(
+                    "INSERT INTO journal_requirements (journal_key, kind, value, article_type, status,
+                       source_url, source_heading, source_span, extracted_by, fetched_at)
+                     VALUES ('frontiers-public-health', 'reporting_standard', 'CONSORT', 'Clinical Trial',
+                       'verified', ?1, 'Clinical Trial', ?2, 'pattern', 1)",
+                    params![format!("https://www.frontiersin.org/y/{n}"), eg],
+                )
+                .unwrap();
+            }
+            conn.execute(
+                "INSERT INTO journal_standard_bindings (journal_key, design, standard, source_url,
+                   source_span, fetched_at)
+                 VALUES ('frontiers-public-health', 'clinical trial', 'CONSORT', 'u', ?1, 1)",
+                params![eg],
+            )
+            .unwrap();
+        }
+        assert_eq!(remove_misread_rows(&db).unwrap(), MisreadRemoval { requirements: 9, bindings: 1 });
+        let after: Vec<usize> = keys.iter().map(|k| requirements_for(&db, k).unwrap().len()).collect();
+        assert_eq!(before, after, "only the nine written back are removed");
+        assert_eq!(remove_misread_rows(&db).unwrap(), MisreadRemoval::default(), "idempotent");
     }
 
     // --- §11 D239: stored article types re-read with the current rule -----
@@ -1521,7 +1671,7 @@ mod seed_tests {
     fn the_bundled_seed_is_already_reclassified() {
         let db = Database::in_memory().unwrap();
         let r = load_bundled_seed(&db).unwrap();
-        assert!(r.requirements > 200, "the seed loaded: {}", r.requirements);
+        assert!(r.requirements > 150, "the seed loaded: {}", r.requirements);
         assert_eq!(reclassify_article_types(&db).unwrap(), ReclassifyReport::default());
         let fr = requirements_for(&db, "frontiers-public-health").unwrap();
         assert!(fr.iter().any(|q| q.article_type.as_deref() == Some("FAIR² Data") && q.status == "verified"));
@@ -1605,7 +1755,7 @@ mod seed_tests {
     #[test]
     fn the_bundled_seed_already_carries_every_requirement_correction() {
         let rows = seed_rows();
-        assert!(rows.len() > 200, "read the seed: {} rows", rows.len());
+        assert!(rows.len() > 150, "read the seed: {} rows", rows.len());
         assert!(!REQUIREMENT_CORRECTIONS.is_empty());
         for c in REQUIREMENT_CORRECTIONS {
             assert!(
