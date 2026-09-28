@@ -19940,3 +19940,129 @@ Recovered by restoring the seed from a copy verified to be D240's (195 rows, no
 extension span) and reversing each break by exact string; the journal tests
 were green (76) before the clean re-run above, whose restores name each file
 literally and stop on the first `cmp` failure.
+
+### D241 — identity resolution, not extraction, is what blocks widening the journal list. Measured, not changed.
+
+**Measured by Claude, alone, 28 Sep 2026. Every label below is one reader's;
+nobody has checked any of them.** No production code changed; the probes were
+throwaway examples, not committed.
+
+#### The question
+
+§11 D211 made `journal_crawl::key_for_url` the only way a page acquires a
+journal key, and it resolves only the ten profiled journals. That rule was
+written for a PASTED url, where the picker's name could bind the wrong journal.
+A page reached by walking from a journal's own OpenAlex `homepage_url`, on the
+same host, is different provenance. Does the product distinguish the two, and
+would a rule that used the difference admit a journal's own guidance while
+refusing publisher-wide pages — the §11 D225 failure — without a hand-written
+config entry per journal?
+
+#### The two cases are not distinguished today, and cannot be after the fact `[src]`
+
+* **The paste path** (`guidelines::ingest_with`) keys every page by
+  `key_for_url` alone; the picker's journal only produces a warning.
+* **The crawl path has no production writer.** Crawl output is stored only by
+  the offline seed builders (`examples/journal_stage2_build.rs`,
+  `examples/journal_fingerprint_build.rs`), and they store EVERY crawled page
+  under the key of the journal whose entry started the crawl, with no
+  ownership check. That is how D225's 8 publisher-wide rows entered the seed.
+* **Stored rows keep only `source_url`.** The crawl knows how it reached a page
+  in memory (`CrawlOutcome.entry`, each `CrawledPage`'s depth and anchor) and
+  drops it at storage. So D225's startup reconcile, and any later check, sees
+  a URL and nothing about whether it was pasted or walked from the journal's
+  own homepage. The distinction cannot be recovered from the table.
+
+**Where a distinction would go**, if a rule allowed it:
+
+1. the crawl's admission check (the `allowed` closure in `journal_crawl::crawl`,
+   today host plus `journal_path_segments`), so a page outside the journal is
+   never fetched as its guidance;
+2. `key_for_url`, which would need the journal's own identifiers as an input
+   rather than only the profiled entries;
+3. a provenance column on `journal_requirements`, so a reconcile could tell a
+   pasted page from one walked from the journal's homepage.
+
+#### The candidate rule, and its score `[probe]`
+
+**Derived identity**, from OpenAlex data only: admit a page when it is on the
+homepage's registrable domain AND its path carries a journal token — the
+display name as a slug, each ISSN with and without its hyphen, a homepage path
+segment or query value (tokens under five characters must equal a whole path
+segment) — or when the homepage sits at the root of its own host, which then
+counts as the journal's. Scored against two naive rules on four URL sets:
+
+| set | label | n | same host | same domain | derived |
+|---|---|---:|---:|---:|---:|
+| guideline-shaped links on nine homepages, plus The Lancet and Statistics in Medicine | publisher-wide | 156 | 139 | 154 | **0** |
+| | another journal | 1 | 1 | 1 | **0** |
+| | the journal's own guidance | 16 | 13 | 14 | 14 |
+| D225's 8 removed rows | publisher-wide | 8 | 0 | **6** (Wiley) | **0** |
+| pages that produced rows in D-probe crawls | another journal | 24 | 24 | 24 | **0** |
+| | publisher-wide | 4 | 1 | 4 | **0** |
+| the current seed's 195 rows | the journal's own | 195 | 40 | 105 | **99** |
+
+* **A naive same-origin rule is unsafe.** Same host admits 139 of 156
+  publisher-wide links and all 24 sibling-journal pages (AEA's other journals,
+  IOP's). Same domain re-admits 6 of D225's 8, the 250-word licence quota among
+  them.
+* **The derived rule blocked every outside-journal page in every set**: 0 of
+  156 publisher-wide links, 0 of 25 sibling-journal pages, 0 of D225's 8.
+* **It matched 99 of the 195 curated seed rows; 60 before the two-character
+  token fix.** The first version dropped tokens under three characters, which
+  lost Nature Medicine's `nm` path segment; allowing two-character tokens as
+  whole-segment matches added its 39 rows. (The request that commissioned this
+  record gave "60 after the fix"; the measured figures are 60 before, 99 after.)
+* **What it misses, row by row:**
+
+| journal | seed rows matched | the miss |
+|---|---:|---|
+| Frontiers in Public Health | 59/59 | — |
+| Nature Medicine | 39/39 | — (after the token fix) |
+| Statistics in Medicine | 1/1 | — |
+| PLOS ONE, PLOS Medicine | **0/71** | OpenAlex gives the retired `plosone.org` / `plosmedicine.org`; the guidance is on `journals.plos.org` |
+| BMJ | **0/17** | OpenAlex has no `homepage_url` |
+| J Health Psychology | **0/6** | homepage `sagepub.com/journals/Journal200899`: another host, and no token that reaches `journals.sagepub.com/…/JHP` |
+| BMC Public Health | **0/2** | homepage is Springer Link; the guidance is on `biomedcentral.com` |
+
+  Outside the seed, it also misses J Phys: Condensed Matter's own guidance
+  (OpenAlex gives `iopscience.org`, the guidance is on `iop.org`). And it
+  ADMITS the journal's own non-guidance pages (author profiles, a research
+  article the page classifier had admitted as guidance); keeping those out is
+  the classifier's job, not identity's.
+
+#### The input the rule depends on is the weak part
+
+**OpenAlex's `homepage_url` is stale, missing or on another platform for 4 of the
+8 seeded journals** — PLOS ONE and PLOS Medicine (retired domains), BMJ
+(missing), BMC Public Health (Springer Link) — and for J Health Psychology it is
+on another host with no usable token. In the widening probe that preceded this
+(20 journals chosen before any fetch), 8 of 20 failed before any guidance link
+was reached: two 403s, one 429, two 212-byte redirect stubs, one stale
+homepage, one with no guidance link, one with no homepage.
+
+#### The consequence
+
+**Identity resolution is the blocker, not extraction.** A rule exists that
+decides a page's journal without a config entry per journal, and on this sample
+it never admitted a publisher-wide or sibling page. But its precision rests on
+the homepage being the journal's current platform, and the source a widening
+would use gets that wrong for half the seeded journals.
+
+**So widening needs per-journal verification — of one homepage URL, rather than
+today's hand-chosen crawl entry plus host scope and identity settings.** That is
+cheaper than today. It is not automatic.
+
+#### Limits
+
+* The labels are one reader's. The derived rule was written after seeing these
+  URLs, so its zero false admissions are a result on this sample, not a
+  guarantee on the next.
+* The whole-host shortcut (a root homepage means the host is the journal) would
+  be wrong for a publisher that uses its own root as a journal's homepage.
+  Nothing in this sample does.
+* One run per journal. Physical Review B answered 403 on this run and 200 on the
+  widening probe; Journal of Financial Economics 429 on one run and 200 on the
+  other.
+* Registrable domain is taken as the last two labels; a `.co.uk`-style suffix
+  would need a public-suffix list.
