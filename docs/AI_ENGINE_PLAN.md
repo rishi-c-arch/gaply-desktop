@@ -20066,3 +20066,70 @@ cheaper than today. It is not automatic.
   other.
 * Registrable domain is taken as the last two labels; a `.co.uk`-style suffix
   would need a public-suffix list.
+
+### D242 — a keyword count and a biographical note's example are not word limits: two wrong rows, fixed before any recall work
+
+**Found by the 16-page yield measurement** (5 Elsevier, 5 Taylor & Francis, 4
+Springer, 2 Wiley guides, refetched 29 Sep 2026 through `ReqwestFetcher`, all
+200). The pages state 73 numeric limits. At `58f5a31` the extractor read 16
+correctly and produced **6 wrong limit rows**. These were fixed first, before
+any recall work: a recall fix on top of a precision defect multiplies the
+wrong rows.
+
+#### Wrong row 1: "no more than 6 keywords" became five 6-word limits `[src]`, `[probe]`
+
+Annals of Medicine repeats *"Should contain no more than 6 keywords ."* under
+five article-type headings. **Cause:** `limit_kind` tests the window after the
+number with `contains("words")`, and "keywords" contains "words". Each
+heading then passed the manuscript gate by naming an article type, so one
+sentence became five rows. **Fix:** the unit must be a whole word
+(`contains_word`, already in the module for reference styles).
+
+#### Wrong row 2: a biographical note's example became a 200-word limit on review articles `[src]`, `[probe]`
+
+Journal of Coordination Chemistry, under "Review Articles":
+
+> *"Please supply a short biographical note for each author. This could be
+> adapted from your departmental website or academic networking profile and
+> should be relatively brief (e.g. no more than 200 words)."*
+
+**Cause, in two parts.** `sentences()` split at both periods of "e.g.", so the
+extractor saw the fragment *"no more than 200 words)."* That fragment has no
+subject and no example cue, and the heading's article type admitted it.
+Fixing the split alone does not remove the row: the whole sentence still sits
+under a type heading. **Fix:** "e.g." and "i.e." do not end a sentence
+(`inside_latin_abbreviation`), and a limit lead directly preceded by "e.g.",
+"for example" or "for instance" is not read (`limit_named_as_example`). The cue
+list is now one constant shared with D240's `standard_named_as_example`.
+
+#### Negative controls `[probe]`
+
+* **Seed:** re-extracting all 195 stored rows gives output byte-identical to
+  before (194 reproduced; the one that does not is D238's hand-corrected BMJ
+  row, as before).
+* **The 16 pages:** the only limit rows that changed are the 6 wrong ones,
+  which are removed. Five other rows (S1, S2, S4, T1, W1) keep their kind,
+  value, type and heading. Only their span changes, from a fragment cut at
+  "(e.g." or "(i." to the whole sentence.
+
+| 16 pages | stated | extracted | missed | WRONG |
+|---|---:|---:|---:|---:|
+| `58f5a31` | 73 | 16 | 57 | 6 |
+| **D242** | 73 | 16 | 57 | **0** |
+
+**Not reconciled: stored rows outside the seed.** A database that crawled
+either page before this change still holds its rows. Re-extracting the stored
+span cannot find the biographical-note row, because the stored span is the
+fragment. No such row is in the seed.
+
+**Deletion tests: predictions written first, and all 3 went red as predicted**
+(`cargo test --workspace --no-fail-fast`, 26 targets each run, every restore
+checked with `cmp`):
+
+| # | break | predicted red | red |
+|---|---|---|---|
+| A | unit matched as a substring | `a_keyword_count_is_not_a_word_limit` | exactly that 1 |
+| B | the splitter guard removed | the splitter test and the biographical-note test | exactly those 2 |
+| C | the example check removed | the biographical-note test | exactly that 1 |
+
+B shows the split fix is necessary. C shows it is not sufficient.

@@ -350,6 +350,9 @@ fn sentences(text: &str) -> Vec<&str> {
         {
             continue;
         }
+        if c == '.' && inside_latin_abbreviation(text, i) {
+            continue;
+        }
         let end = i + c.len_utf8();
         let s = text[start..end].trim();
         if s.chars().count() > 3 {
@@ -362,6 +365,26 @@ fn sentences(text: &str) -> Vec<&str> {
         out.push(tail);
     }
     out
+}
+
+/// Is the period at `i` one of the periods of "e.g." or "i.e."? §11 D242.
+///
+/// **Measured on the Journal of Coordination Chemistry's guide.** *"Please
+/// supply a short biographical note for each author. This could be adapted
+/// from your departmental website … and should be relatively brief (e.g. no
+/// more than 200 words)."* Split at both periods of "e.g.", the last sentence
+/// reached the extractor as *"no more than 200 words)."*: a fragment that no
+/// longer said the 200 words were a biographical note's, or that they were an
+/// example. Under the heading "Review Articles" it was stored as a 200-word
+/// limit on review articles.
+fn inside_latin_abbreviation(text: &str, i: usize) -> bool {
+    let start = text[..i]
+        .char_indices()
+        .rev()
+        .find(|(_, c)| c.is_whitespace() || *c == '(')
+        .map_or(0, |(p, c)| p + c.len_utf8());
+    let token: String = text[start..].chars().take(4).collect::<String>().to_lowercase();
+    matches!(token.as_str(), "e.g." | "i.e.") && i < start + 4
 }
 
 /// Digits immediately after a lead phrase. A long gap means the number belongs
@@ -544,7 +567,10 @@ fn limit_kind(lower: &str, number_at: usize) -> Option<RequirementKind> {
         ("items", RequirementKind::FigureLimit),
         ("references", RequirementKind::ReferenceLimit),
     ] {
-        if window.contains(unit) {
+        // A WHOLE word: "keywords" contains "words" (§11 D242). Measured on Annals of
+        // Medicine's guide, where "Should contain no more than 6 keywords"
+        // under five article-type headings was stored as five 6-word limits.
+        if contains_word(&window, unit) {
             return Some(kind);
         }
     }
@@ -567,6 +593,19 @@ const EXTENSION_PHRASES: &[&str] =
 /// Measured on the seed: the phrases occur in exactly those five limit spans.
 pub fn extension_clause_at(lower: &str) -> Option<usize> {
     EXTENSION_PHRASES.iter().filter_map(|p| lower.find(p)).min()
+}
+
+/// What introduces an example rather than a rule. See
+/// [`standard_named_as_example`] for why "such as" is not one.
+const EXAMPLE_CUES: &[&str] = &["for example", "e.g.", "e.g", "for instance"];
+
+/// **Is the limit whose lead starts at `lead_at` given as an EXAMPLE? §11 D242.** The
+/// same cue as [`standard_named_as_example`], directly before the lead phrase:
+/// *"should be relatively brief (e.g. no more than 200 words)"* illustrates
+/// "brief" and states no limit.
+fn limit_named_as_example(lower: &str, lead_at: usize) -> bool {
+    let before = lower[..lead_at].trim_end().trim_end_matches([',', ':']).trim_end();
+    EXAMPLE_CUES.iter().any(|cue| before.ends_with(cue))
 }
 
 /// **Is every mention of `standard` in this sentence given as an EXAMPLE?
@@ -597,9 +636,7 @@ pub fn standard_named_as_example(sentence: &str, standard: &str) -> bool {
             .trim_end()
             .trim_end_matches(',')
             .trim_end();
-        let framed = ["for example", "e.g.", "e.g", "for instance"]
-            .iter()
-            .any(|cue| before.ends_with(cue));
+        let framed = EXAMPLE_CUES.iter().any(|cue| before.ends_with(cue));
         if !framed {
             return false;
         }
@@ -777,8 +814,12 @@ pub fn extract_requirements(blocks: &[GuidelineBlock]) -> Vec<ExtractedRequireme
                 let mut from = 0usize;
                 while let Some(i) = lower[from..].find(lead) {
                     let at = from + i + lead.len();
+                    let lead_at = from + i;
                     from = at;
                     if extension_from.is_some_and(|p| at > p) {
+                        continue;
+                    }
+                    if limit_named_as_example(&lower, lead_at) {
                         continue;
                     }
                     let Some(value) = number_after(&lower, at) else { continue };
@@ -1102,6 +1143,39 @@ mod tests {
                 "{span:?}"
             );
         }
+    }
+
+    // ---- §11 D242: a keyword count, and a biographical note's example -------
+    //
+    // Fixtures are verbatim from Annals of Medicine's and the Journal of
+    // Coordination Chemistry's Taylor & Francis guides.
+
+    #[test]
+    fn a_keyword_count_is_not_a_word_limit() {
+        for heading in ["Research Article", "Review Article", "Clinical Trial"] {
+            let got = extract_requirements(&[b(heading, "Should contain no more than 6 keywords .")]);
+            assert!(got.is_empty(), "{heading}: {got:#?}");
+        }
+        // The same sentence shape with "words" as a word is still a limit.
+        let got = extract_requirements(&[b("Research Article", "Should contain no more than 6000 words .")]);
+        assert_eq!(got.len(), 1, "{got:#?}");
+        assert_eq!((got[0].kind, got[0].value.as_str()), (RequirementKind::WordLimit, "6000"));
+    }
+
+    #[test]
+    fn a_biographical_notes_example_length_is_not_an_article_limit() {
+        let jcc = "Biographical note (for Review Articles only). Please supply a short biographical note for each author. This could be adapted from your departmental website or academic networking profile and should be relatively brief (e.g. no more than 200 words).";
+        let got = extract_requirements(&[b("Review Articles", jcc)]);
+        assert!(!got.iter().any(|r| r.kind == RequirementKind::WordLimit), "{got:#?}");
+    }
+
+    #[test]
+    fn e_g_and_i_e_do_not_end_a_sentence() {
+        let s = sentences("It should be brief (e.g. no more than 200 words). Use one style, i.e. APA.");
+        assert_eq!(
+            s,
+            vec!["It should be brief (e.g. no more than 200 words).", "Use one style, i.e. APA."]
+        );
     }
 
     /// **A stored span is the journal's complete sentence, or it is not evidence.**
