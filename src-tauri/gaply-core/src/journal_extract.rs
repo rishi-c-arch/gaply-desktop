@@ -390,18 +390,46 @@ fn inside_latin_abbreviation(text: &str, i: usize) -> bool {
 /// Digits immediately after a lead phrase. A long gap means the number belongs
 /// to something else — "up to the limit described in section 4" is not a limit
 /// of four.
+///
+/// **A RANGE YIELDS ITS UPPER BOUND. §11 D243.** *"Please provide an abstract of
+/// 150 to 250 words"* stores 250. The extractor keeps one value, and it keeps
+/// the one whose breach is a violation, which is [`binding_limit`]'s rule: a
+/// 240-word abstract complies and a 260-word one does not. The lower bound is
+/// in the span for any reader who wants it.
 fn number_after(s: &str, at: usize) -> Option<String> {
     let rest = &s[at..];
     let start = rest.find(|c: char| c.is_ascii_digit())?;
     if rest[..start].chars().filter(|c| !c.is_whitespace()).count() > 2 {
         return None;
     }
-    let digits: String = rest[start..]
+    let (digits, len) = digits_at(&rest[start..]);
+    if digits.is_empty() {
+        return None;
+    }
+    let after = rest[start + len..].trim_start();
+    let upper = ["to ", "-", "–", "—"]
+        .iter()
+        .find_map(|sep| after.strip_prefix(sep))
+        .map(|r| r.trim_start())
+        .filter(|r| r.starts_with(|c: char| c.is_ascii_digit()))
+        .map(|r| digits_at(r).0);
+    match (upper, digits.parse::<u64>()) {
+        (Some(u), Ok(lo)) if u.parse::<u64>().is_ok_and(|u| u > lo) => Some(u),
+        _ => Some(digits),
+    }
+}
+
+/// The number at the start of `s`, thousands separators dropped, and how many
+/// bytes it spans.
+fn digits_at(s: &str) -> (String, usize) {
+    let len: usize = s
         .chars()
         .take_while(|c| c.is_ascii_digit() || *c == ',')
-        .filter(|c| c.is_ascii_digit())
-        .collect();
-    (!digits.is_empty()).then_some(digits)
+        .map(char::len_utf8)
+        .sum();
+    // A trailing comma is punctuation, not a separator: "250, 10 references".
+    let len = s[..len].trim_end_matches(',').len();
+    (s[..len].chars().filter(|c| c.is_ascii_digit()).collect(), len)
 }
 
 /// **A word limit is about a PART OF THE MANUSCRIPT.** Measured, and it reached
@@ -428,9 +456,16 @@ fn is_about_the_manuscript(sentence_lower: &str, article_type: &Option<String>) 
     article_type.is_some() || MANUSCRIPT_PARTS.iter().any(|p| sentence_lower.contains(p))
 }
 
+/// `"abstract of"` states a limit with no lead phrase at all: *"structured
+/// abstract of 300 words"*, *"abstract of 150-200 words"*, *"abstract of maximum
+/// 200 words"* (the last needs its own entry, because "maximum" is too long a
+/// gap for [`number_after`]). Measured on the 16 guide pages, where Taylor &
+/// Francis's per-type blocks and Springer's "Please provide an abstract of 150
+/// to 250 words" use only this form: 21 stated limits, none extracted. §11 D243.
 const LIMIT_LEADS: &[&str] = &[
     "up to", "no more than", "maximum of", "a maximum", "not exceed", "limited to",
     "must not exceed", "should not exceed", "fewer than", "at most",
+    "abstract of", "abstract of maximum",
 ];
 
 const REFERENCE_STYLES: &[(&str, &str)] = &[
@@ -1175,6 +1210,72 @@ mod tests {
         assert_eq!(
             s,
             vec!["It should be brief (e.g. no more than 200 words).", "Use one style, i.e. APA."]
+        );
+    }
+
+    // ---- §11 D243: "abstract of N words", with no lead phrase -----------------
+    //
+    // Fixtures are verbatim from the Springer, Taylor & Francis and Elsevier
+    // guides of the 16-page yield measurement.
+
+    fn abstract_limits(heading: &str, span: &str) -> Vec<(String, Option<String>)> {
+        extract_requirements(&[b(heading, span)])
+            .into_iter()
+            .filter(|r| matches!(r.kind, RequirementKind::WordLimit | RequirementKind::AbstractLimit))
+            .map(|r| {
+                assert_eq!(r.kind, RequirementKind::AbstractLimit, "{r:#?}");
+                (r.value, r.article_type)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn an_abstract_of_n_words_is_an_abstract_limit() {
+        let one = |v: &str, t: Option<&str>| vec![(v.to_string(), t.map(String::from))];
+        assert_eq!(abstract_limits("Abstract", "Please provide an abstract of 150 to 250 words."), one("250", None));
+        assert_eq!(
+            abstract_limits("Research Article", "Should contain an unstructured abstract of 150-200 words."),
+            one("200", Some("Research Article"))
+        );
+        assert_eq!(
+            abstract_limits("Clinical Trial", "Should contain a structured abstract of 300 words."),
+            one("300", Some("Clinical Trial"))
+        );
+        assert_eq!(
+            abstract_limits("Review Article", "Should contain an unstructured abstract of maximum 200 words."),
+            one("200", Some("Review Article"))
+        );
+        // A word limit and an abstract limit in one run-on sentence stay two
+        // kinds (Taylor & Francis's per-type blocks read exactly like this).
+        let ijpr = "figure captions (as a list) Should be no more than 12,000 words, inclusive of: Abstract Tables References Figure or table captions Should contain an unstructured abstract of maximum 200 words.";
+        let got = extract_requirements(&[b("Research Article", ijpr)]);
+        let got: Vec<_> = got.iter().map(|r| (r.kind, r.value.as_str())).collect();
+        assert_eq!(got, vec![(RequirementKind::WordLimit, "12000"), (RequirementKind::AbstractLimit, "200")]);
+    }
+
+    #[test]
+    fn a_range_yields_its_upper_bound() {
+        assert_eq!(number_after("abstract of 150 to 250 words", 11), Some("250".into()));
+        assert_eq!(number_after("abstract of 150-200 words", 11), Some("200".into()));
+        assert_eq!(number_after("abstract of 150 – 200 words", 11), Some("200".into()));
+        assert_eq!(number_after("up to 4,000 to 6,000 words", 5), Some("6000".into()));
+        // Not a range: a list, and a second number that is not larger.
+        assert_eq!(number_after("up to 250, 10 references", 5), Some("250".into()));
+        assert_eq!(number_after("up to 250 - 3 figures", 5), Some("250".into()));
+    }
+
+    #[test]
+    fn abstract_of_without_a_number_or_after_a_lead_reads_nothing_new() {
+        // No number: the abstract OF something.
+        assert!(abstract_limits(
+            "Clinical trials",
+            "Please report the study ID number and the website where the clinical trial is registered at the end of the abstract of the article."
+        )
+        .is_empty());
+        // "abstract of up to N" was always read, by "up to", and is still one row.
+        assert_eq!(
+            abstract_limits("Abstract", "Please provide an abstract of up to 250 words."),
+            vec![("250".to_string(), None)]
         );
     }
 

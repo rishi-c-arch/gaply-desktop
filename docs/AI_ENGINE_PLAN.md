@@ -20133,3 +20133,80 @@ checked with `cmp`):
 | C | the example check removed | the biographical-note test | exactly that 1 |
 
 B shows the split fix is necessary. C shows it is not sufficient.
+
+### D243 — "abstract of N words" is an abstract limit, and a range yields its upper bound: 21 limits recovered, "not exceeding" held
+
+**The largest recall gap on the 16 guide pages.** Taylor & Francis's per-type
+blocks and Springer's abstract section state the abstract limit with no lead
+phrase, so nothing read it: *"Please provide an abstract of 150 to 250 words"*
+(4 Springer pages), *"structured abstract of 300 words"*, *"unstructured
+abstract of 200 words"*, *"unstructured abstract of 150-200 words"*,
+*"unstructured abstract of maximum 200 words"* (IJPR, ×3). The last form needs
+its own entry: "maximum" is more than the two characters `number_after` allows
+between a lead and its number.
+
+**Rule:** `"abstract of"` and `"abstract of maximum"` are limit leads. The
+existing "abstract" check makes the kind `abstract_limit`, and
+`is_about_the_manuscript` admits the row because "abstract" names a part.
+
+#### A range yields its UPPER bound `[src]`
+
+*"150 to 250 words"* stores **250**. The extractor keeps one value, and
+`binding_limit` already keeps the one whose breach is a violation: a 240-word
+abstract complies and a 260-word one does not. Storing 150 would flag compliant
+manuscripts, which D167 refuses. The lower bound stays in the span.
+`number_after` reads `N to M`, `N-M`, `N–M` and `N—M` as a range only when M is
+larger, so *"up to 250 - 3 figures"* stays 250. The seed re-extracts
+identically, so the rule moves no stored value.
+
+#### Measured `[probe]`
+
+Every row the change adds on the 16 pages was read against its block:
+
+| | stated | extracted | missed | WRONG |
+|---|---:|---:|---:|---:|
+| D242 | 73 | 16 | 57 | 0 |
+| **D243** | 73 | **37** | **36** | 0 |
+
+* **+21 units, exactly the predicted 21:** Springer 4 (250, untyped, under
+  "Abstract"); Annals of Medicine 7 (300 for six types, 250 for Data Note);
+  JCC 5 (200 each, including "Methods" and "Notes", which are two of its
+  article-type headings); IJPR 3; TQM 1 (the 150-200 range → 200); JVAP 1.
+* **One more row that is not a new unit:** JBR's *"An Abstract of 150 words
+  or less…"* repeats the untyped 150 already read from its Abstract section.
+* **One row carries no type** where the page gives one: IJPR's "Discussion or
+  Technical Notes" heading is not read as a type (the lowercase "or"). The
+  5000-word row under that heading has the same gap, and the baseline counted
+  it as extracted. The value, 200, is the same as every typed IJPR abstract
+  row, so no conflict can result.
+* **Negative controls:** seed re-extraction is byte-identical (194 of 195).
+  No existing row on the 16 pages changed. The only other "abstract of" on the
+  pages, Clinical Nutrition's *"the abstract of the article"*, has no number
+  and yields nothing.
+
+**Deletion tests: predictions written first, and all 3 went red as predicted**
+(`cargo test --workspace --no-fail-fast`, 26 targets each run, every restore
+checked with `cmp`):
+
+| # | break | predicted red | red |
+|---|---|---|---|
+| D | the `"abstract of"` lead removed | `an_abstract_of_n_words_is_an_abstract_limit` | exactly that 1 |
+| E | the `"abstract of maximum"` lead removed | the same test | exactly that 1 |
+| F | a range yields its lower bound | the range test and the abstract test | exactly those 2 |
+
+#### "Not exceeding N" is held, not shipped
+
+The same lookup gap blocks the Journal of Internal Medicine's ten "Not
+exceeding N words" limits. "not exceed" matches, and `number_after` then starts
+at "ing 5000", which is three characters, one more than it allows. No other
+lead has this gap on the 16 pages. "a maximum" is refused 5 times, and every
+one is *"a maximum width of 525 pixels"*, correctly.
+
+A separate `"not exceeding"` lead recovers 8 of the 10 values as 7 rows, **all
+with no article type.** JIM labels its types as `<li><em>Original
+Article</em><br>…`, and `html_to_blocks` takes only `<h1>`–`<h4>` as headings,
+so the whole format list is one block under "Author Guidelines". The store
+would then record four untyped word limits (500, 750, 1500, 5000) and two
+untyped abstract limits (150, 250) as the journal contradicting itself: D238's
+class 1, and 7 new wrong rows. Held until the type labels are read. Rishi
+chose this on 29 Sep 2026.
