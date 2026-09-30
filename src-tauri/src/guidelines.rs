@@ -743,16 +743,10 @@ pub fn html_to_blocks(html: &str) -> Vec<gaply_core::journal_extract::GuidelineB
             .filter_map(|t| lower[cursor..].find(t).map(|i| (cursor + i, *t)))
             .min_by_key(|(i, _)| *i);
         let Some((at, tag)) = next else {
-            let text = html_to_text(&html[cursor..]);
-            if !text.trim().is_empty() {
-                out.push(GuidelineBlock { heading: heading.clone(), text });
-            }
+            push_segment(&mut out, &heading, &html[cursor..]);
             break;
         };
-        let body = html_to_text(&html[cursor..at]);
-        if !body.trim().is_empty() {
-            out.push(GuidelineBlock { heading: heading.clone(), text: body });
-        }
+        push_segment(&mut out, &heading, &html[cursor..at]);
         // The heading's own text, then continue after its close tag.
         let close = format!("</{}>", &tag[1..]);
         let Some(open_end) = lower[at..].find('>').map(|i| at + i + 1) else { break };
@@ -764,6 +758,125 @@ pub fn html_to_blocks(html: &str) -> Vec<gaply_core::journal_extract::GuidelineB
         cursor = close_at + close.len();
     }
     out
+}
+
+/// Push one heading's HTML segment, split at any INLINE TYPE LABEL in it.
+/// §11 D249.
+///
+/// Publishers flatten article-type sections into an emphasised label that
+/// opens a line: `<p><i>Expert Opinion</i><br/>Expert Opinion articles will…`
+/// (J Hepatology), `<br/><br/><b>Invited Reviews</b><br/>This is upon
+/// invitation only.<br/>Each article should consist of a maximum of 3500
+/// words…` (Int J Cardiology), `<li><a id="original"></a><em>Original
+/// Article</em><br>JIM publishes…` (J Internal Medicine). Heading levels alone
+/// dissolve the label into running text, so the limit loses its type. Measured:
+/// 8 of the 13 rows on the 20 Elsevier stage-1 journals that lose a stated type.
+///
+/// A label starts a sub-block ONLY when
+/// [`gaply_core::journal_extract::label_names_article_type`] admits it; any
+/// other emphasised line ("Highlights", "Funding") leaves the segment whole.
+fn push_segment(out: &mut Vec<gaply_core::journal_extract::GuidelineBlock>, heading: &str, seg: &str) {
+    use gaply_core::journal_extract::GuidelineBlock;
+    // (label start, body start, the label if it names a type). EVERY line-opening
+    // label ends the section before it: measured, a type label otherwise ran on
+    // through the next sections, whose labels ("Letters to the Editor", "What
+    // is your diagnosis?") this does not admit, and typed their limits and
+    // statements as its own. A refused label returns to the parent heading.
+    let mut cuts: Vec<(usize, usize, Option<String>)> = Vec::new();
+    let lower = seg.to_lowercase();
+    let mut from = 0usize;
+    while let Some(rel) = lower[from..].find('<') {
+        let at = from + rel;
+        from = at + 1;
+        // A lower-level heading (<h5>, <h6>) also ends a label's section:
+        // Int J Cardiology's "Letters to the Editor" is an <h5> inside the <h4>
+        // that holds "Unsolicited Reviews", and without this its 250-word LTE
+        // limit was typed as an Unsolicited Review. Same admission test.
+        let minor = ["h5", "h6"].into_iter().find(|t| {
+            lower[at + 1..].starts_with(t)
+                && lower[at + 1 + t.len()..].starts_with(|c: char| c == '>' || c.is_whitespace())
+        });
+        if let Some(h) = minor {
+            let close = format!("</{h}>");
+            if let (Some(open_end), true) = (lower[at..].find('>').map(|i| at + i + 1), true) {
+                if let Some(close_at) = lower[open_end..].find(&close).map(|i| open_end + i) {
+                    let after = close_at + close.len();
+                    let label = html_to_text(&seg[open_end..close_at]).trim().to_string();
+                    let typed = gaply_core::journal_extract::label_names_article_type(&label).then_some(label);
+                    cuts.push((at, after, typed));
+                    from = after;
+                }
+            }
+            continue;
+        }
+        let tag = ["strong", "em", "b", "i"].into_iter().find(|t| {
+            lower[at + 1..].starts_with(t)
+                && lower[at + 1 + t.len()..].starts_with(|c: char| c == '>' || c.is_whitespace())
+        });
+        let Some(tag) = tag else { continue };
+        let Some(open_end) = lower[at..].find('>').map(|i| at + i + 1) else { continue };
+        let close = format!("</{tag}>");
+        let Some(close_at) = lower[open_end..].find(&close).map(|i| open_end + i) else { continue };
+        // The label: text only, with an optional trailing <br> inside the tag.
+        let mut inner = lower[open_end..close_at].trim_end().to_string();
+        let mut br_inside = false;
+        for b in ["<br/>", "<br />", "<br>"] {
+            if let Some(x) = inner.strip_suffix(b) {
+                inner = x.trim_end().to_string();
+                br_inside = true;
+            }
+        }
+        if inner.contains('<') {
+            continue;
+        }
+        let after = close_at + close.len();
+        let br_after = lower[after..].trim_start().starts_with("<br");
+        if !(br_inside || br_after) {
+            continue;
+        }
+        // It must OPEN a line: after <p>, <li>, <div> or <br>, ignoring
+        // whitespace and empty anchors, or at the start of the segment.
+        let mut before = lower[..at].trim_end();
+        while before.ends_with("</a>") {
+            let Some(i) = before.rfind("<a ") else { break };
+            let a = &before[i..];
+            let empty = a.find('>').is_some_and(|g| &a[g + 1..] == "</a>");
+            if !empty {
+                break;
+            }
+            before = before[..i].trim_end();
+        }
+        let opens_line = before.is_empty()
+            || before.rfind('<').is_some_and(|i| {
+                let t = &before[i..];
+                t.ends_with('>') && ["<p", "<li", "<div", "<br"].iter().any(|o| t.starts_with(o))
+            });
+        if !opens_line {
+            continue;
+        }
+        let label = html_to_text(&seg[open_end..close_at]).trim().to_string();
+        if label.is_empty() || label.chars().count() > 60 {
+            continue;
+        }
+        let typed = gaply_core::journal_extract::label_names_article_type(&label).then_some(label);
+        cuts.push((at, after, typed));
+        from = after;
+    }
+    let mut push = |h: &str, part: &str| {
+        let text = html_to_text(part);
+        if !text.trim().is_empty() {
+            out.push(GuidelineBlock { heading: h.to_string(), text });
+        }
+    };
+    let mut start = 0usize;
+    let mut current = heading.to_string();
+    for (label_at, body_at, label) in cuts {
+        push(&current, &seg[start..label_at]);
+        current = label.unwrap_or_else(|| heading.to_string());
+        // A refused label's own text stays in the body it opens.
+        start = if current == heading { label_at } else { body_at };
+    }
+    push(&current, &seg[start..]);
 }
 
 /// `html_to_text` for probes outside this module (`examples/journal_reach_probe.rs`),
@@ -1136,6 +1249,52 @@ mod tests {
     /// Health Psychology (1 stored). Each shared host must refuse the other
     /// journal AND still claim its own — both halves, or the test passes on a
     /// rule that refuses everything.
+    // ---- §11 D249: an inline type label types the section under it ----------
+
+    fn limits_by_type(html: &str) -> Vec<(String, String, Option<String>)> {
+        let mut v: Vec<_> = gaply_core::journal_extract::extract_requirements(&html_to_blocks(html))
+            .into_iter()
+            .filter(|r| r.kind.as_str().ends_with("_limit"))
+            .map(|r| (r.kind.as_str().to_string(), r.value, r.article_type))
+            .collect();
+        v.sort();
+        v
+    }
+
+    #[test]
+    fn an_inline_type_label_types_the_limits_in_its_section() {
+        // Verbatim markup shapes, Int J Cardiology: a bold label with a line
+        // break opens each type's section; an <h5> opens the next one.
+        let html = "<h4>Article types</h4><div><p>Some general text.<br/><br/><b>Commentary<br/></b>To provide our readership with both new and high-quality content, we have introduced a new article type called \u{2018}Commentary\u{2019}. Each article should consist of a maximum of <b>1500 </b>words, up to <b>10</b> references and a maximum of <b>2</b> figures.<br/><br/><b>Invited Reviews</b><br/>This is upon invitation only.<br/>Each article should consist of a maximum of <b>3500</b> words, up to <b>50</b> references and a maximum of <b>4</b> tables/figures.</p><h5>Letters to the Editor </h5><p><br/><b>Format Guidelines</b>: LTEs must not exceed 250 words in total.</p></div>";
+        let t = |k: &str, v: &str, ty: Option<&str>| (k.to_string(), v.to_string(), ty.map(String::from));
+        let mut want = vec![
+            t("word_limit", "1500", Some("Commentary")), t("reference_limit", "10", Some("Commentary")), t("figure_limit", "2", Some("Commentary")),
+            t("word_limit", "3500", Some("Invited Reviews")), t("reference_limit", "50", Some("Invited Reviews")), t("figure_limit", "4", Some("Invited Reviews")),
+            // The <h5> closes "Invited Reviews", and "Letters to the Editor" is
+            // not admitted as a label, so the LTE limit keeps the parent heading.
+            t("word_limit", "250", None),
+        ];
+        want.sort();
+        assert_eq!(limits_by_type(html), want);
+    }
+
+    #[test]
+    fn a_label_that_names_no_type_neither_types_nor_extends_a_section() {
+        // Verbatim shape, J Hepatology: "What is your diagnosis?" follows
+        // "Expert Opinion" and is not a type label, so it must END the Expert
+        // Opinion section rather than inherit its type.
+        let html = "<h4>Special sections</h4><div><p><i>Expert Opinion</i><br/>Expert Opinion articles will provide an editorialized analysis of a narrow issue. The inclusion of a maximum of 2 high-quality tables and 2 colored figures to summarize critical points is highly desirable.</p><p><i>What is your diagnosis?</i><br/>Articles will be divided into two parts. The first page will contain a brief summary of the clinical case (should not exceed 250 words);</p><p><b>Highlights</b><br/>The main text of the manuscript must not exceed 6000 words.</p></div>";
+        let t = |k: &str, v: &str, ty: Option<&str>| (k.to_string(), v.to_string(), ty.map(String::from));
+        let mut want = vec![
+            t("figure_limit", "2", Some("Expert Opinion")),
+            t("word_limit", "250", None),
+            // "Highlights" is not admitted: the limit keeps the parent heading.
+            t("word_limit", "6000", None),
+        ];
+        want.sort();
+        assert_eq!(limits_by_type(html), want);
+    }
+
     #[test]
     fn a_shared_publisher_host_binds_only_its_own_journals_path() {
         let k = |u: &str| crate::journal_crawl::key_for_url(u, profiled());

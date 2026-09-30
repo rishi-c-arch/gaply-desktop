@@ -20404,3 +20404,87 @@ the "respectively" clause removed. Each reddens
 `several_standards_in_one_sentence_each_bind_their_own_design` and nothing else.
 The ten profiled journals' checklists are byte-identical. The seed's bindings
 cannot move, since nothing at startup calls `bindings_from`.
+
+### D249 — an inline type label types the section under it: 7 of the 13 lost types recovered, no page outside them moved
+
+**Why the twenty Elsevier journals were not stored** (the store was committed and
+then reverted). 20 of their 96 rows were wrong (21%, against the seed's 2%).
+13 of the 20 lose an article type the page states. Hand-read by Claude alone, the
+13 fall into three shapes:
+
+| shape | rows | known or new |
+|---|---:|---|
+| **inline label**: an emphasised label and a line break open the type's section (`<b>Invited Reviews</b><br/>`, `<i>Expert Opinion</i><br/>`) | 7 | the JIM/JME shape, seen on three more pages |
+| inline label as a typed bullet (Research Policy: `<br/>• Research Articles - …`) | 1 | new variant |
+| type in the limit's own sentence (*"review articles should…"*, *"per original article"*, *"The length of a Letter to the Editor…"*) | 4 | D239's residue, plus two new variants |
+| type in the preceding sentence (*"Original articles describing… They should not exceed…"*) | 1 | new |
+
+The other 7 wrong rows are not type loss: 5 title lengths read as word limits, 2
+limits on a PART of an article.
+
+#### Cause and rule `[src]`
+
+`html_to_blocks` recognises `<h1>`–`<h4>` only, so a label dissolves into running
+text and the limit under it has no heading to take a type from. **Rule:** in a
+heading's segment, a short `<b>`/`<i>`/`<em>`/`<strong>` run that opens a line
+(after `<p>`, `<li>`, `<div>` or `<br>`, ignoring empty anchors) and is followed
+by a line break is a label. So is an `<h5>`/`<h6>`. **Every** label ends the
+section before it. A label starts a typed block only if
+`label_names_article_type` admits it; otherwise the text returns to the parent
+heading.
+
+**The admission test is stricter than a heading's, measured.** Of 78 such labels
+on four guide pages, the heading rules would type 31, about 15 of them not
+article types: Highlights, Funding, Results, Proofs, "Cover letter", "Editorial
+and peer review", "Clinical trials". So a label must also end in an article-type
+noun (article, paper, review, report, communication, letter, commentary,
+editorial, perspective, opinion, correspondence, debate), and "peer review" and
+"cover letter" do not count. **14 labels are admitted, all genuine types; 65 are
+refused, none of them a missed type** except five recorded as recall gaps
+("Research Letter", "Original articles", "Systematic reviews and
+meta-analyses", "Letter to the Editor", "Case reports (also known as case
+series)").
+
+**Two defects in the first version, both found by the diff, not by a test.**
+(1) A type label ran on until the NEXT ADMITTED label, so it swallowed the
+following sections whose labels it refused. Int J Cardiology's "Unsolicited
+Reviews" typed the journal's Vancouver style and consent statement as Review
+requirements. So now every label closes the section before it. (2) Int J
+Cardiology's "Letters to the Editor" is an `<h5>` inside the `<h4>`, so the LTE
+limit was typed as an Unsolicited Review. So `<h5>`/`<h6>` close a section too.
+
+#### Measured `[probe]`
+
+The same saved HTML (40 stage-1 pages, refetched 30 Sep, all 200, plus JIM), run
+through the old and new `html_to_blocks`:
+
+* **37 of 41 pages: identical rows.**
+* **Int J Cardiology:** the 6 target rows gain their types (Commentary 1500
+  words / 10 references / 2 figures; Invited Reviews 3500 / 50 / 4). A seventh
+  sentence, *"Short communication should … not exceed 1,500 words"*, gains Short
+  Communication.
+* **J Hepatology:** only the target changes: figure limit 2 → Expert Opinion.
+* **Two corrections outside the 13:** JME's *"No more than 10 references"* moves
+  from Review Article to **Patient Perspectives** (the page: *"General
+  guidelines for Patient Perspectives are listed below: … No more than 10
+  references"*). JIM's *"Up to 10 References"* gains **Debate** (its Debate
+  format line). JIM's competing-interests span now ends where the next section
+  begins; kind, value and type are unchanged.
+* **Not reached, as expected:** Research Policy's bullets, the four
+  same-sentence rows, and the preceding-sentence row (J Hepatology's 6000
+  stays untyped).
+
+**Deletion tests, predictions written first: 3 of 4 exact, 1 wrong about its
+reach** (`--workspace --no-fail-fast`, 26 targets, every restore checked with
+`cmp`):
+
+| # | break | predicted red | red |
+|---|---|---|---|
+| N | admission always refuses | the admission test and both label tests (3) | exactly those 3 |
+| Q | the type-noun requirement removed | the admission test and the refused-label test (2) | exactly those 2 |
+| O | only admitted labels close a section | the refused-label test and the section test (2) | **only the refused-label test** |
+| P | `<h5>`/`<h6>` no longer close a section | the section test | exactly that 1 |
+
+O's miss is in my model, not in the guards. The `<h5>` path pushes its own cut,
+so under O the LTE limit was still closed by the `<h5>`. P, which breaks that
+path, reddens it. Every behaviour has a test that fails without it.

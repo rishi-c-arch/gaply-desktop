@@ -766,6 +766,48 @@ pub fn article_type_for(heading: &str, sentence: &str, kind: RequirementKind) ->
     }
 }
 
+/// Head nouns that make a short label the NAME of an article type.
+const TYPE_HEAD_NOUNS: &[&str] = &[
+    "article", "paper", "review", "report", "communication", "letter", "commentary",
+    "editorial", "perspective", "opinion", "correspondence", "debate",
+];
+
+/// **May an inline label type the text under it? §11 D249.**
+///
+/// Publishers flatten article-type sections into labels: `<i>Expert
+/// Opinion</i><br/>` (J Hepatology), `<b>Invited Reviews</b><br/>` (Int J
+/// Cardiology), `<em>Original Article</em><br>` (J Internal Medicine).
+/// `html_to_blocks` splits on such a label only when this says it names a type.
+///
+/// **Stricter than a heading, measured.** Of 78 such labels on four guide
+/// pages, the heading rules would type 31, and about 15 of those are not
+/// article types: Highlights, Abbreviations, Funding, Results, Proofs, Offprints,
+/// Early View, Definitions, Introduction, Conclusions, Acknowledgements,
+/// "Cover letter", "Editorial and peer review", "Clinical trials". So a label
+/// must ALSO end in an article-type noun ([`TYPE_HEAD_NOUNS`], plural allowed),
+/// and "peer review" and "cover letter" do not count (§11 D244, D173's residue).
+pub fn label_names_article_type(label: &str) -> bool {
+    let l = label.trim().trim_end_matches(':').trim();
+    let words: Vec<String> = l.split_whitespace().map(|w| w.to_lowercase()).collect();
+    let Some(last) = words.last() else { return false };
+    let singular = last
+        .strip_suffix("ies")
+        .map(|s| format!("{s}y"))
+        .or_else(|| last.strip_suffix('s').map(str::to_string))
+        .unwrap_or_else(|| last.clone());
+    if !TYPE_HEAD_NOUNS.contains(&singular.as_str()) && !TYPE_HEAD_NOUNS.contains(&last.as_str()) {
+        return false;
+    }
+    if words.len() >= 2 && matches!(words[words.len() - 2].as_str(), "peer" | "cover") {
+        return false;
+    }
+    let listed_whole = article_type_of(l).is_some_and(|t| {
+        let (h, t) = (l.to_lowercase(), t.to_lowercase());
+        h == t || h == format!("{t}s") || h == format!("{t}es")
+    });
+    listed_whole || heading_as_article_type(l).is_some()
+}
+
 /// Words a heading uses for a PART of a manuscript or of a guidelines page. A
 /// heading containing one is about that part, not an article type: "Abstract",
 /// "Structured abstract", "Author Guidelines", "9 – Extended data figures".
@@ -1345,6 +1387,22 @@ mod tests {
         ];
         want.sort();
         assert_eq!(limits("Each article should consist of a maximum of 1500 words, up to 10 references and a maximum of 2 figures."), want);
+    }
+
+    // ---- §11 D249: which inline labels may type a section --------------------
+
+    #[test]
+    fn only_a_label_naming_an_article_type_is_admitted() {
+        // All from the label scan of four guide pages.
+        for l in ["Commentary", "Invited Reviews", "Expert Opinion", "Original Article", "Brief Report",
+                  "Editorials", "Short communication", "Patient Perspectives", "Consensus and Position Papers", "Debate"] {
+            assert!(label_names_article_type(l), "{l}");
+        }
+        for l in ["Highlights", "Abbreviations", "Funding", "Results", "Proofs", "Offprints", "Early View",
+                  "Definitions", "Introduction", "Conclusions", "Acknowledgements", "Cover letter",
+                  "Editorial and peer review", "Clinical trials", "Accelerated Publication Fee", "Title page"] {
+            assert!(!label_names_article_type(l), "{l}");
+        }
     }
 
     /// **A stored span is the journal's complete sentence, or it is not evidence.**
