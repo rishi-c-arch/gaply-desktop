@@ -20522,3 +20522,67 @@ and author information)"* and *"excluding title page"* ×2.
 exactly `a_title_length_is_not_a_word_limit` reddens (`--workspace
 --no-fail-fast`, 26 targets, restore checked with `cmp`). The ten profiled
 journals' checklists are byte-identical.
+
+### D251 — a listed type named anywhere in the limit's own sentence types it: 7 rows, D239's residue and two new variants
+
+**The four same-sentence type losses on the Elsevier stage-1 journals**:
+*"review articles should preferably not exceed 8,000 words"* (J Pragmatics),
+*"…and review articles should be up to 10,000 words"* (Renewable Energy), *"The
+length of a Letter to the Editor should not exceed 800 words"* and *"a maximum
+of 8 tables and/or figures per original article"* (J Hepatology).
+
+#### Cause `[src]`
+
+D239's sentence readers need a capitalised type in a fixed shape
+(`"<Type> articles should"`, or a plural type opening the clause). The first two
+are D239's recorded residue: the type in lowercase prose. The Letter sentence is
+a new variant: a capitalised type after "The length of a". The heading "Letters
+to the Editor" names it but is refused by the preposition rule. "per original
+article" is a second new variant: a lowercase type as the object of "per", and
+"original article" is not a listed phrase.
+
+#### Rule, and what it would wrongly type, measured `[probe]`
+
+`type_named_in_sentence` is the LAST fallback for a limit. The heading rules and
+D239's sentence patterns come first, so a heading that names a type always wins.
+It reads the longest listed type phrase, plus "original article", anywhere in
+the sentence, in any case and plural. Bare "article" and "review" are not read
+(*"Articles should not exceed…"* means every article of the section; "review"
+hides in "peer review"). "cover letter" and "peer review" are excluded. A
+sentence naming two different types gets no type rather than a guess.
+
+Over every untyped limit sentence in the seed and on 41 guide pages, it fires on
+**7, all typed correctly, and on no seed row**: the four targets, plus *"The
+commentary articles should be no more than 1000 words"* → Commentary (Annals of
+Human Biology), Research Policy's *"• Research Articles - … up to 8-10,000
+words"* → Research Article, and Int J Cardiology's *"Original articles Text in
+these articles should not exceed 3,500 words"* → Original Article (the row whose
+label D249's admission test refuses).
+
+* **Seed:** re-extraction byte-identical. Because the rule sits in
+  `article_type_for`, D239's startup re-typing applies it to stored rows too, and
+  no stored seed row changes.
+* **41 saved pages:** exactly those 7 rows gain a type. 35 of 41 pages are
+  identical.
+* **Not reached, by design:** J Hepatology's *"Original articles describing… They
+  should not exceed 6000 words"*. The type is in the preceding sentence.
+
+**Deletion tests, predictions written first** (`--workspace --no-fail-fast`, 26
+targets, every restore checked with `cmp`): with the fallback removed (S), the
+one-type-only check removed (U) and the "cover" exclusion removed (V), each
+reddens `a_type_named_in_the_limits_own_sentence_types_it`, as predicted.
+Allowing bare "article" (T) reddens that test **and four more**, including the
+seed's own `the_bundled_seed_is_already_reclassified`: the startup re-typing
+would retype stored seed rows (*"Articles should not exceed…"*). That exclusion
+is guarded far more widely than predicted.
+
+**A failure I did not see until the full suite ran.** D249's
+`an_inline_type_label_types_the_limits_in_its_section` expected Int J
+Cardiology's LTE limit to stay untyped. Under this rule its own sentence
+(*"Letters to the Editor … LTEs must not exceed 250 words"*) types it **Letter**,
+which is correct. The expectation was written before this rule. The new test had
+been run alone, so the first run that included D249's test was the deletion
+suite, where this pre-existing red looked like extra coverage for U and V. It is
+corrected. On the real page the LTE row does not exist: its sentence names no
+manuscript part, so the gate refuses it before typing. The ten profiled
+journals' checklists are byte-identical.

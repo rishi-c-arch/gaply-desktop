@@ -1272,7 +1272,9 @@ mod tests {
             t("word_limit", "3500", Some("Invited Reviews")), t("reference_limit", "50", Some("Invited Reviews")), t("figure_limit", "4", Some("Invited Reviews")),
             // The <h5> closes "Invited Reviews", and "Letters to the Editor" is
             // not admitted as a label, so the LTE limit keeps the parent heading.
-            t("word_limit", "250", None),
+            // Its TYPE then comes from its own sentence, "Letters to the Editor …
+            // LTEs must not exceed 250 words" (§11 D251), which is correct.
+            t("word_limit", "250", Some("Letter")),
         ];
         want.sort();
         assert_eq!(limits_by_type(html), want);

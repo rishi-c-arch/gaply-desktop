@@ -785,6 +785,7 @@ pub fn article_type_for(heading: &str, sentence: &str, kind: RequirementKind) ->
             .or_else(|| heading_as_article_type(heading))
             .or(listed)
             .or_else(|| plural_type_subject(sentence))
+            .or_else(|| type_named_in_sentence(sentence))
     } else {
         article_type_of(heading).or_else(|| article_type_in_sentence(sentence))
     }
@@ -830,6 +831,74 @@ pub fn label_names_article_type(label: &str) -> bool {
         h == t || h == format!("{t}s") || h == format!("{t}es")
     });
     listed_whole || heading_as_article_type(l).is_some()
+}
+
+/// **A listed type named anywhere in the limit's own sentence, in any case.
+/// §11 D251.** The LAST fallback for a limit: every heading rule and the
+/// sentence patterns above come first, so a heading that names a type wins.
+///
+/// D239's sentence readers need a capitalised type in a fixed shape
+/// (`"<Type> articles should"`, a plural type opening the clause). Guides also
+/// write *"review articles should preferably not exceed 8,000 words"* (J
+/// Pragmatics), *"…and review articles should be up to 10,000 words"* (Renewable
+/// Energy), *"The length of a Letter to the Editor should not exceed 800 words"*
+/// and *"a maximum of 8 tables and/or figures per original article"* (J
+/// Hepatology). Measured over every untyped limit sentence in the seed and on 41
+/// guide pages, this fires on those four and on three more (*"The commentary
+/// articles…"*, Research Policy's *"• Research Articles - … up to 8-10,000
+/// words"*, Int J Cardiology's *"Original articles Text in these articles…"*),
+/// all seven typed correctly, and on no seed row.
+///
+/// Bare "article" and "review" are not read: *"Articles should not exceed…"*
+/// means every article of the section (see [`plural_type_subject`]), and
+/// "review" hides in "peer review". "cover letter" is not a Letter (D173's
+/// residue). A sentence naming two different types is not guessed.
+fn type_named_in_sentence(sentence: &str) -> Option<String> {
+    let lower = sentence.to_lowercase();
+    let mut phrases: Vec<&str> = ARTICLE_TYPES
+        .iter()
+        .copied()
+        .filter(|t| !matches!(*t, "article" | "review"))
+        .chain(["original article"])
+        .collect();
+    phrases.sort_by_key(|t| std::cmp::Reverse(t.len()));
+    let mut taken: Vec<(usize, usize)> = Vec::new();
+    let mut found: Vec<&str> = Vec::new();
+    for t in phrases {
+        for (at, _) in lower.match_indices(t) {
+            let mut end = at + t.len();
+            if lower[end..].starts_with("es") {
+                end += 2;
+            } else if lower[end..].starts_with('s') {
+                end += 1;
+            }
+            let bounded = !lower[..at].chars().next_back().is_some_and(char::is_alphanumeric)
+                && !lower[end..].chars().next().is_some_and(char::is_alphanumeric);
+            if !bounded || taken.iter().any(|&(s, e)| at < e && s < end) {
+                continue;
+            }
+            if lower[..at].trim_end().ends_with("cover") || lower[..at].trim_end().ends_with("peer") {
+                continue;
+            }
+            taken.push((at, end));
+            if !found.contains(&t) {
+                found.push(t);
+            }
+        }
+    }
+    if found.len() != 1 {
+        return None;
+    }
+    Some(
+        found[0]
+            .split(' ')
+            .map(|w| {
+                let mut c = w.chars();
+                c.next().map(|f| f.to_uppercase().collect::<String>() + c.as_str()).unwrap_or_default()
+            })
+            .collect::<Vec<_>>()
+            .join(" "),
+    )
 }
 
 /// Words a heading uses for a PART of a manuscript or of a guidelines page. A
@@ -1452,6 +1521,33 @@ mod tests {
         // Negative controls, verbatim: a title named inside the counted text.
         assert_eq!(words("Commentary", "The commentary articles should be no more than 1000 words in length (including title and author information)."), vec!["1000"]);
         assert_eq!(words("Research article", "If including an experimental section: up to 4,500 words, including figures and tables and excluding title page, abstract and keywords."), vec!["4500"]);
+    }
+
+    // ---- §11 D251: a listed type named anywhere in the limit's sentence -------
+
+    #[test]
+    fn a_type_named_in_the_limits_own_sentence_types_it() {
+        let ty = |h: &str, span: &str| -> Vec<Option<String>> {
+            extract_requirements(&[b(h, span)])
+                .into_iter()
+                .filter(|r| r.kind.as_str().ends_with("_limit"))
+                .map(|r| r.article_type)
+                .collect()
+        };
+        let one = |t: &str| vec![Some(t.to_string())];
+        // Verbatim, the four target sentences.
+        assert_eq!(ty("Article types", "review articles should preferably not exceed 8,000 words."), one("Review Article"));
+        assert_eq!(ty("Article types", "Paper length: as a guide, original papers should be between 4000 and 6000 words (excluding table/figure captions and references), and review articles should be up to 10,000 words."), one("Review Article"));
+        assert_eq!(ty("Letters to the Editor", "The length of a Letter to the Editor should not exceed 800 words and may be subject to further editing by the Editors."), one("Letter"));
+        assert_eq!(ty("Article structure", "There is a maximum of 8 tables and/or figures per original article."), one("Original Article"));
+        // The heading wins when it names a type.
+        assert_eq!(ty("Review Articles", "Unlike research articles, the manuscript should not exceed 5000 words."), one("Review Article"));
+        // Bare "Articles" means every article of the section: no type.
+        assert_eq!(ty("Article types", "Articles should not exceed 3000 words."), vec![None]);
+        // Two different types in one sentence are not guessed.
+        assert_eq!(ty("Article types", "Unlike review articles, letters to the editor must not exceed 500 words."), vec![None]);
+        // A cover letter is not a Letter.
+        assert_eq!(ty("Submission", "The manuscript and its cover letter together should not exceed 6000 words."), vec![None]);
     }
 
     /// **A stored span is the journal's complete sentence, or it is not evidence.**
