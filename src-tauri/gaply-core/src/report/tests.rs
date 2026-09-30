@@ -3283,3 +3283,45 @@ fn bmj_fails_neither_on_1300_words_nor_passes_a_350_word_abstract() {
     assert_eq!(a.requirement, "abstract limit: 300 words");
     assert!(!a.passed && !a.unevaluable, "a 350-word abstract fails 300: {}", a.detail);
 }
+
+/// **Two stated abstract limits decide nothing. §11 D246.** Lingua's guide
+/// states 250 in Elsevier's template and 200 in its own checklist; both are
+/// stored, as a conflict. The item used to show the newest ("abstract limit:
+/// 200 words") and say nothing of 250. Spans verbatim from the page.
+#[test]
+fn a_journal_stating_two_abstract_limits_gets_no_verdict() {
+    let text = format!("Title\n\nAbstract\n{}\n\nMethods\nWe did work.\n", "word ".repeat(220));
+    let ex = crate::extract::extract_from_text(&text);
+    let row = |value: &str, heading: &str, span: &str| crate::journal_store::StoredRequirement {
+        kind: crate::journal_extract::RequirementKind::AbstractLimit,
+        value: value.into(),
+        article_type: None,
+        status: "conflicted".into(),
+        source_url: "https://www.sciencedirect.com/journal/lingua/publish/guide-for-authors".into(),
+        source_heading: heading.into(),
+        source_span: span.into(),
+        conflict_id: Some("cf-lingua-abstract_limit- unbound".into()),
+    };
+    let reqs = [
+        row("250", "Abstract", "You are required to provide a concise and factual abstract which does not exceed 250 words."),
+        row("200", "Submission checklist", "As well as an abstract (of no more than 200 words) and a maximum of 6 keywords, authors must provide highlights, namely 3 to 5 bullet points (85 characters maximum, including spaces, per bullet point)."),
+    ];
+    let items = checklist_from_requirements(&ex, &text, 230, &reqs, &[]);
+    let abs: Vec<_> = items.iter().filter(|i| i.requirement.starts_with("abstract limit")).collect();
+    assert_eq!(abs.len(), 1, "{abs:#?}");
+    let it = abs[0];
+    assert!(it.unevaluable && !it.passed, "{it:?}");
+    // Both values reach the reader, and so does what was counted.
+    assert!(it.detail.contains("250") && it.detail.contains("200") && it.detail.contains("220 words"), "{}", it.detail);
+    assert_eq!(it.also_from.len(), 1, "the second source is kept");
+    // The rendered sentence, not the source: no whitespace runs from a line join.
+    assert!(!it.detail.contains("  "), "{:?}", it.detail);
+
+    // Negative control: two rows with ONE value (Nature Medicine's shape) still decide.
+    let mut same = reqs.clone();
+    same[1].value = "250".into();
+    let items = checklist_from_requirements(&ex, &text, 230, &same, &[]);
+    let it = items.iter().find(|i| i.requirement.starts_with("abstract limit")).unwrap();
+    assert_eq!(it.requirement, "abstract limit: 250 words");
+    assert!(!it.unevaluable && it.passed, "{it:?}");
+}

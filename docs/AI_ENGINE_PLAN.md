@@ -20295,3 +20295,41 @@ row becomes readable.
   Those four Int J Cardiology rows still lose their article type (D239's class)
   and are stored conflicted, so they reach no verdict.
 * **16 yield pages:** no change.
+
+### D246 — two stated abstract limits decide nothing: the abstract branch stops picking the newest row
+
+**Found storing the 20 Elsevier stage-1 journals.** Lingua's guide states the
+abstract limit twice: 250 in Elsevier's template sentence (*"You are required
+to provide a concise and factual abstract which does not exceed 250 words"*) and
+200 in its own submission checklist. The store keeps both, as a conflict. The
+checklist showed **"abstract limit: 200 words"** and said nothing of 250.
+
+#### Why this branch and not the word limit `[src]`
+
+`checklist_from_requirements` took `requirements.iter().find(…)` for the abstract
+limit: the first row `requirements_for` returns, which is the newest stored. The
+word-limit branch collects every row and refuses to pick when there is more than
+one. The abstract branch arrived with the first journal checklist (`542c86b`,
+D183), and **every journal seeded since has exactly one distinct abstract value**
+(Nature Medicine's two rows both say 150). So `.find()` never met a disagreement
+on any data it ran against. It is CLAUDE.md's spec/implementation/test entry: the
+rule had never been forced to decide a real case. The word-limit branch was
+forced by Nature Medicine's 4,000 and 2,000; this one never was.
+
+#### Rule
+
+Collect every abstract row. With one distinct value, the item is exactly as
+before: same row, same bytes. With more than one, the item is `unevaluable`,
+lists every value with its scope, keeps the other sources in `also_from`, and
+decides nothing. It does not choose the journal's own sentence over the
+template: nothing in a stored row says which of the two was written for this
+journal, and D238's hand-reading is the only thing that has told them apart.
+
+#### Measured `[probe]`
+
+* **The ten profiled journals' checklists are byte-identical** (startup sequence
+  plus `build_checklist` against a fixed manuscript).
+* `a_journal_stating_two_abstract_limits_gets_no_verdict` uses Lingua's two spans
+  verbatim. It asserts both values reach the reader, the counted words are kept,
+  and the rendered sentence has no whitespace runs. Its negative control: two
+  rows stating ONE value still decide.

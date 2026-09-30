@@ -2235,7 +2235,48 @@ pub fn checklist_from_requirements(
     }
 
     // --- abstract limit --------------------------------------------------
-    if let Some(r) = requirements.iter().find(|r| r.kind == RequirementKind::AbstractLimit) {
+    //
+    // **More than one stated value decides nothing. §11 D246.** This took
+    // `.find()`, the newest row, so a journal whose pages state 200 AND 250
+    // (Lingua: Elsevier's template sentence and its own checklist, stored as a
+    // conflict) showed "abstract limit: 200 words" with no mention of 250. Every
+    // journal seeded before had one distinct abstract value (Nature Medicine's
+    // two rows both say 150), so the branch never met a disagreement. The word
+    // limit above already refuses to pick; this now does the same.
+    let abstract_rows: Vec<&crate::journal_store::StoredRequirement> =
+        requirements.iter().filter(|r| r.kind == RequirementKind::AbstractLimit).collect();
+    let abstract_values: std::collections::BTreeSet<&str> =
+        abstract_rows.iter().map(|r| r.value.as_str()).collect();
+    let abstract_words_found = extraction
+        .sections
+        .iter()
+        .filter(|s| s.kind == SectionKind::Abstract)
+        .flat_map(|s| s.paragraphs.iter())
+        .map(|p| p.split_whitespace().count())
+        .sum::<usize>();
+    if abstract_values.len() > 1 && abstract_words_found > 0 {
+        let stated = abstract_rows
+            .iter()
+            .map(|r| format!("{} ({})", r.value, r.article_type.as_deref().unwrap_or("type not stated")))
+            .collect::<Vec<_>>()
+            .join("; ");
+        items.push(ChecklistItem {
+            also_from: abstract_rows[1..].iter().map(|r| source_of(r)).collect(),
+            requirement: "abstract limit: the journal states more than one".into(),
+            passed: false,
+            detail: format!(
+                "the journal's guidance states {} abstract limits: {stated}. Your abstract has \
+                 {abstract_words_found} words. Gaply does not choose between them, so this row \
+                 is not decided.",
+                abstract_rows.len()
+            ),
+            guideline_source: Some(abstract_rows[0].source_url.clone()),
+            source_span: Some(abstract_rows[0].source_span.clone()),
+            article_type: None,
+            checked_field: Some("extraction.sections[Abstract]".into()),
+            unevaluable: true,
+        });
+    } else if let Some(r) = abstract_rows.first().copied() {
         if let Ok(limit) = r.value.parse::<usize>() {
             let abstract_words = extraction
                 .sections
