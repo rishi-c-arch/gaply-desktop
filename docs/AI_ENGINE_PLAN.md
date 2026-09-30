@@ -20754,3 +20754,35 @@ the two "Word Limits" rows change; the thirty profiled journals' checklists are
 byte-identical. **Deletion test, prediction written first:** with the new words
 removed, exactly `a_section_heading_is_not_an_article_type` reddens
 (`--workspace --no-fail-fast`, 26 targets, restore checked with `cmp`).
+
+### D256 — "eg." is "e.g.": an abbreviation and an example cue
+
+**Found in the 80-journal Elsevier batch's sample.** Archives PM&R writes
+*"Authors should make sure the key elements from the Reporting Guideline (eg.
+CONSORT, PRISMA, etc.) they followed … are included in the abstract"*. The
+splitter cut after "eg.", leaving the fragment *"CONSORT, PRISMA, etc."*, stored
+as two reporting-standard rows. It is D242's "e.g." class without the first
+period.
+
+**Rule `[src]`:** as D242 did for "e.g.", "eg." does not end a sentence and is an
+example cue (the D240 rule: a standard named directly after the cue is not
+required). Only "eg." is added, not a bare "eg", which would match the end of
+words like "leg".
+
+**Measured `[probe]`:** "eg." occurs twice in the seed and on 61 guide pages:
+Archives PM&R's, and Clinical Nutrition's *"…not applicable. Eg. Biological
+Specimens, Item no. 33"*, whose rows are byte-identical after the change.
+
+* **The CONSORT row is gone.**
+* **The PRISMA row remains, a known limit.** PRISMA is the second name after
+  the cue, and D240's example rule covers only the name directly after it. The
+  row still is not a requirement; its span is now the whole sentence rather than
+  a fragment. Extending the cue to a whole list is a separate, measured change.
+* **Seed:** re-extraction byte-identical (289 rows). **41 saved pages:**
+  identical.
+* **The thirty profiled journals' checklists are byte-identical.**
+
+**Deletion tests, predictions written first:** with the "eg." splitter guard
+removed, and separately with "eg." removed from the example cues, exactly
+`eg_without_its_first_period_is_an_abbreviation_and_an_example_cue` reddens each
+time (`--workspace --no-fail-fast`, 26 targets, restores checked with `cmp`).

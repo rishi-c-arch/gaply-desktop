@@ -395,7 +395,13 @@ fn inside_latin_abbreviation(text: &str, i: usize) -> bool {
         .find(|(_, c)| c.is_whitespace() || *c == '(')
         .map_or(0, |(p, c)| p + c.len_utf8());
     let token: String = text[start..].chars().take(4).collect::<String>().to_lowercase();
-    matches!(token.as_str(), "e.g." | "i.e.") && i < start + 4
+    if matches!(token.as_str(), "e.g." | "i.e.") && i < start + 4 {
+        return true;
+    }
+    // "eg." without its first period (§11 D256): Archives PM&R writes "(eg.
+    // CONSORT, PRISMA, etc.)", which was cut after "eg." into the fragment
+    // "CONSORT, PRISMA, etc.". Two occurrences in the seed and on 61 guide pages.
+    token.starts_with("eg.") && i == start + 2 && token.chars().nth(3).is_none_or(char::is_whitespace)
 }
 
 /// Digits immediately after a lead phrase. A long gap means the number belongs
@@ -719,7 +725,7 @@ pub fn extension_clause_at(lower: &str) -> Option<usize> {
 
 /// What introduces an example rather than a rule. See
 /// [`standard_named_as_example`] for why "such as" is not one.
-const EXAMPLE_CUES: &[&str] = &["for example", "e.g.", "e.g", "for instance"];
+const EXAMPLE_CUES: &[&str] = &["for example", "e.g.", "e.g", "eg.", "for instance"];
 
 /// **Is the limit whose lead starts at `lead_at` given as an EXAMPLE? §11 D242.** The
 /// same cue as [`standard_named_as_example`], directly before the lead phrase:
@@ -1657,6 +1663,17 @@ mod tests {
         // Headings that ARE types keep them (all seed headings).
         assert_eq!(ty("FAIR² Data", "These are capped at 12,000 words and may include up to 15 figures or tables."), vec![Some("FAIR² Data".into())]);
         assert_eq!(ty("Policy Forum", "Articles should not exceed 2000 words and may cite up to 30 references."), vec![Some("Policy Forum".into()); 2]);
+    }
+
+    // ---- §11 D256: "eg." is "e.g." -------------------------------------------
+
+    #[test]
+    fn eg_without_its_first_period_is_an_abbreviation_and_an_example_cue() {
+        // Verbatim, Archives PM&R.
+        let span = "Authors should make sure the key elements from the Reporting Guideline (eg. CONSORT, PRISMA, etc.) they followed for their manuscript are included in the abstract as well as the body of the paper.";
+        assert!(sentences(span)[0].contains("(eg. CONSORT"), "{:?}", sentences(span));
+        let got = extract_requirements(&[b("Abstract", span)]);
+        assert!(!got.iter().any(|r| r.value == "CONSORT"), "{got:#?}");
     }
 
     /// **A stored span is the journal's complete sentence, or it is not evidence.**
