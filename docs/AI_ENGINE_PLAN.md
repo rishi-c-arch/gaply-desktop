@@ -20701,3 +20701,56 @@ words)"* and J Affective Disorders' *"(up to 8000 words…)"*.
 **Deletion test, prediction written first:** with the bracket branch disabled,
 exactly `a_title_limit_inside_a_bracket_is_not_a_word_limit` reddens
 (`--workspace --no-fail-fast`, 26 targets, restore checked with `cmp`).
+
+### D255 — a manuscript or page section is not an article type; and the heading override, measured and not built
+
+**Found in the 80-journal Elsevier batch's sample:** "Results" (Archives PM&R),
+"Conclusion" (Acta Materialia) and "Article Structure" (JADA) were each read as
+an article type by D239's heading-shape rule, as T&F's "Word Limits" had been
+twice.
+
+#### The rule first proposed, measured and refused `[probe]`
+
+"A heading must end in an article-type noun, as D249's labels must" was measured
+before being written. Over 861 rows (seed, 41 guide pages, 73 batch journals) it
+changes 79: about 10 wrong types fixed and **about 69 real types refused**:
+Clinical Trial ×26 ("Clinical Trials" ends in *trials*), Data Note ×9, Protocol
+×6, Systematic Review ×5, FAIR² Data ×5, Matters Arising ×4 and more. **32 of the
+79 are seed rows.** D239's startup re-typing would change them on every install.
+Labels can afford a type-noun test because a label is a flattened sub-heading.
+Section headings name types like Clinical Trial and Matters Arising that end in
+no such noun.
+
+#### Rule `[src]`
+
+The three false types are manuscript-section and page words, and
+`NOT_A_TYPE_HEADING_WORDS` already exists to refuse exactly those ("abstract",
+"title", "references"). Added: results, conclusion(s), discussion,
+introduction, structure, acknowledgements, abbreviations, highlights, funding,
+limits. "translations" is deliberately NOT added: it may be a real type (Visual
+Studies), and the row under it was wrong for another reason.
+
+#### Measured `[probe]`
+
+Over **989 rows** (the 861 plus the refetched 20-journal sample), exactly the 5
+target rows lose their false type: Word Limits ×2, Conclusion, Article Structure,
+Results. **No other row changes, and no seed row.** The seed re-extracts
+byte-identically.
+
+#### The heading override: measured, not built
+
+Materials Today's *"Short Communications should … include a maximum of 50
+references"* sits under an "Original Research" heading, and the heading's type
+wins. Over the same rows, 6 have a sentence naming a type different from its
+heading's, and only this one is a real disagreement. The other 5 are one type
+spelt two ways ("Reviews" / Review Article, "Commentary" / "Commentaries"). A
+rule comparing the type's head word changes exactly this one row, but one
+instance is thin evidence. And "more specific" cannot be read from the text:
+Short Communication is a sibling section nested under Original Research, not a
+sub-type of it. **Not built.**
+
+**Controls:** the seed re-extracts byte-identically; on the 41 saved pages only
+the two "Word Limits" rows change; the thirty profiled journals' checklists are
+byte-identical. **Deletion test, prediction written first:** with the new words
+removed, exactly `a_section_heading_is_not_an_article_type` reddens
+(`--workspace --no-fail-fast`, 26 targets, restore checked with `cmp`).

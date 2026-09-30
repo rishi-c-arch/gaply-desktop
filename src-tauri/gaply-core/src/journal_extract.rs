@@ -949,6 +949,16 @@ const NOT_A_TYPE_HEADING_WORDS: &[&str] = &[
     "abstract", "abstracts", "title", "keywords", "text", "reference", "references",
     "figure", "figures", "table", "tables", "author", "authors", "manuscript",
     "submission", "format", "formatting", "types", "style",
+    // §11 D255: sections of a manuscript and of a guide page. Measured on the
+    // 80-journal Elsevier batch, "Results", "Conclusion" and "Article
+    // Structure" were each typed as an article type, and T&F's "Word Limits"
+    // twice. Over 989 rows in the seed, on 57 guide pages and in the batch,
+    // these words change exactly those 5 rows and no seed row. The alternative,
+    // requiring every type heading to end in an article-type noun, refused ~69
+    // real types (26 of them Clinical Trial) to fix ~10, 32 of them seed rows.
+    "results", "result", "conclusion", "conclusions", "discussion", "introduction",
+    "structure", "acknowledgements", "acknowledgments", "abbreviations", "highlights",
+    "funding", "limits",
 ];
 
 /// **A heading that IS an article type's name, for a limit under it. §11 D239.**
@@ -1626,6 +1636,27 @@ mod tests {
         // Negative controls, verbatim: a bracketed limit on the manuscript text.
         assert_eq!(words("Commentary", "The commentary need not follow a structured format, should be limited to 1-2 typed pages (maximum of 1,000 words), and may include up to 10 citations, as well as a figure or table."), vec!["1000"]);
         assert_eq!(words("References", "Letters must be short (a maximum 800 words) and include only key references (5 maximum) and one figure if necessary."), vec!["800"]);
+    }
+
+    // ---- §11 D255: a manuscript or page section is not an article type ------
+
+    #[test]
+    fn a_section_heading_is_not_an_article_type() {
+        let ty = |h: &str, span: &str| -> Vec<Option<String>> {
+            extract_requirements(&[b(h, span)])
+                .into_iter()
+                .filter(|r| r.kind.as_str().ends_with("_limit"))
+                .map(|r| r.article_type)
+                .collect()
+        };
+        // Verbatim, from the Elsevier batch and T&F.
+        assert_eq!(ty("Results", "Archives aims to publish no more than 5 figures per manuscript so restrict tables and figures to those needed to explain arguments and to assess their support."), vec![None]);
+        assert_eq!(ty("Article Structure", "Figures (up to 8 total figures/tables combined) Number consecutively."), vec![None]);
+        assert_eq!(ty("Conclusion", "Length of papers Published articles normally have fewer than 11, 000 words and 12 figures in the main text."), vec![None]);
+        assert_eq!(ty("Word Limits", "A typical paper for this journal should be no more than 5000 words."), vec![None]);
+        // Headings that ARE types keep them (all seed headings).
+        assert_eq!(ty("FAIR² Data", "These are capped at 12,000 words and may include up to 15 figures or tables."), vec![Some("FAIR² Data".into())]);
+        assert_eq!(ty("Policy Forum", "Articles should not exceed 2000 words and may cite up to 30 references."), vec![Some("Policy Forum".into()); 2]);
     }
 
     /// **A stored span is the journal's complete sentence, or it is not evidence.**
