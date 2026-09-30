@@ -20333,3 +20333,74 @@ journal, and D238's hand-reading is the only thing that has told them apart.
   verbatim. It asserts both values reach the reader, the counted words are kept,
   and the rendered sentence has no whitespace runs. Its negative control: two
   rows stating ONE value still decide.
+
+### D247 — a sentence naming several standards pairs each with its own design: 98 wrong bindings to 0, every correct one kept
+
+**Found storing the 20 Elsevier stage-1 journals.** J Hepatology's
+reporting-guidelines paragraph produced **50 bindings, 44 of them wrong**: CONSORT
+with animal study, CHEERS with systematic review. Bindings reach no checklist
+verdict (`build_checklist` passes `&[]`, D177), but the Journal screen lists
+them.
+
+#### Cause `[src]`
+
+`bindings_from` bound a standard to EVERY design phrase in its sentence, with no
+notion of position. That is right for a sentence naming one standard (*"STROBE …
+cohort, case-control or cross-sectional"* is three bindings). It is wrong for a
+sentence naming several. Elsevier's paragraph names ten guidelines and seven
+designs in one sentence, so each of the seven supported standards took all seven
+designs. Nothing in the app calls `bindings_from`: it runs only in the offline
+seed builders. So this changes what a future seed contains and cannot move a
+stored binding.
+
+#### Can "the design stated nearest it" work? Measured, not argued `[probe]`
+
+The corpus holds 7 sentences naming two or more supported standards (the seed
+and 56 guide pages). Hand-labelled by Claude alone, they have 17 correct pairs.
+Journals write the pairing in BOTH directions: *"Use the ARRIVE guideline for
+research on animals"* (standard first); *"Studies of diagnostic accuracy: STARD
+Observational studies: STROBE"* and *"Animal pre-clinical studies (ARRIVE)"*
+(design first).
+
+| rule | correct | wrong | missed |
+|---|---:|---:|---:|
+| every pair (before) | 17 | 98 | 0 |
+| nearest by character distance | 9 | 8 | 8 |
+| orientation-aware | 13 | 2 | 4 |
+| **orientation-aware, refined, with "respectively"** | **17** | **0** | **0** |
+
+**Plain nearest-distance fails**, because flattened lists put a design one
+character after the PREVIOUS standard (*"STARD Observational studies: STROBE"*).
+So the rule is not "nearest":
+
+* **Forward:** a design binds to the next guideline name when at most three
+  words, then `:` or `(`, separate them.
+* **Backward:** a design binds to the nearest guideline name before it, only if
+  no other design sits between them, unless coordinated (*"systematic review or
+  meta-analysis"*). Without that clause, *"If you are reporting on animal
+  research – Use the ARRIVE…"* bound animal study to the PREVIOUS standard.
+* **"respectively"** pairs a coordinated run of standards with the same number of
+  designs before it, in order. It covers exactly one corpus sentence: *"For
+  meta-analyses or Clinical Trials, use … PRISMA-P or SPIRIT respectively"*.
+  Without it, the rule loses the two pairs that sentence has always produced
+  correctly.
+* Guideline names Gaply does not support (MOOSE, CARE, TREND, COREQ) are
+  boundaries: a design stated for one binds to nothing rather than to a
+  neighbour.
+
+A sentence naming ONE supported standard is not touched. The Rust port was
+checked against the scored Python model on all 73 reporting-standard sentences
+in the corpus: identical output on all 73.
+
+**Limit, stated:** 17 pairs in 7 sentences is a small labelled set, and the
+refined clauses were designed while looking at it. The next journal's phrasing
+is the real test. Where no clause fires, the rule binds nothing, which is the
+safe direction.
+
+**Deletion tests, predictions written first, and all 3 went red as predicted**
+(`--workspace --no-fail-fast`, 26 targets, every restore checked with `cmp`):
+the pairing disabled, the backward rule's "no design between" clause removed, and
+the "respectively" clause removed. Each reddens
+`several_standards_in_one_sentence_each_bind_their_own_design` and nothing else.
+The ten profiled journals' checklists are byte-identical. The seed's bindings
+cannot move, since nothing at startup calls `bindings_from`.

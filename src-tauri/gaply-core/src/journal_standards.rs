@@ -121,6 +121,14 @@ pub fn bindings_from(reqs: &[ExtractedRequirement]) -> Vec<StandardBinding> {
     let mut out: Vec<StandardBinding> = Vec::new();
     for r in reqs.iter().filter(|r| r.kind == RequirementKind::ReportingStandard) {
         let Some(standard) = Standard::parse(&r.value) else { continue };
+        // **A sentence naming SEVERAL standards pairs each with its own design.
+        // §11 D247.** See `paired_in_sentence`.
+        if let Some(pairs) = paired_in_sentence(&r.source_span) {
+            for (st, d) in pairs.into_iter().filter(|(st, _)| *st == standard) {
+                out.push(StandardBinding { standard: st, design: d.to_string(), source_span: r.source_span.clone() });
+            }
+            continue;
+        }
         let lower = r.source_span.to_lowercase();
         // A sentence may bind one standard to several designs — STROBE to
         // "cohort, case-control or cross-sectional" — and each is a binding.
@@ -141,6 +149,178 @@ pub fn bindings_from(reqs: &[ExtractedRequirement]) -> Vec<StandardBinding> {
     out.sort();
     out.dedup();
     out
+}
+
+/// **Which design each standard is paired with, when one sentence names two or
+/// more supported standards. §11 D247.** `None` for a sentence naming one,
+/// which keeps the every-design binding above: *"STROBE … cohort, case-control
+/// or cross-sectional"* is three bindings and should be.
+///
+/// # Why: a sentence can name every standard at once
+///
+/// The loop above binds a standard to EVERY design phrase in its sentence.
+/// Elsevier's reporting-guidelines paragraph names ten guidelines and seven
+/// designs in one sentence (J Hepatology, *"– Use the SPIRIT guideline for the
+/// protocol of a clinical trial – … – Use the ARRIVE guideline for research on
+/// animals …"*), so each standard was bound to all seven: CONSORT to animal
+/// study, CHEERS to systematic review. 50 bindings, 44 wrong.
+///
+/// # The rule, and the two directions journals write it in
+///
+/// Measured over the 7 sentences in the seed and on 56 guide pages that name
+/// two or more supported standards, hand-labelled (17 correct pairs):
+///
+/// * **Forward**, design then standard: *"Studies of diagnostic accuracy:
+///   STARD"*, *"Animal pre-clinical studies (ARRIVE)"*. A design binds to the
+///   next guideline name when at most three words and then `:` or `(` separate
+///   them.
+/// * **Backward**, standard then design: *"Use the ARRIVE guideline for research
+///   on animals"*. A design binds to the nearest guideline name before it, but
+///   only if no other design sits between them, unless that design is
+///   coordinated with it (*"systematic review or meta-analysis"*). That clause
+///   stops a heading clause (*"If you are reporting on animal research – Use the
+///   ARRIVE…"*) binding to the PREVIOUS standard.
+/// * **"respectively"** pairs a coordinated run of standards with the same
+///   number of designs before it, in order: *"For meta-analyses or Clinical
+///   Trials, use … PRISMA-P or SPIRIT respectively"*.
+///
+/// Guideline names Gaply does not support (MOOSE, CARE, TREND, COREQ…) are
+/// boundaries too: a design stated for one of them binds to nothing rather than
+/// to a neighbour. Scored on the 17: the old rule 17 correct and 98 wrong,
+/// this one 17 correct and 0 wrong.
+fn paired_in_sentence(span: &str) -> Option<Vec<(Standard, &'static str)>> {
+    let lower = span.to_ascii_lowercase();
+    let bytes = span.as_bytes();
+    // Guideline mentions: (start, end, supported standard or None).
+    let mut mentions: Vec<(usize, usize, Option<Standard>)> = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        if !bytes[i].is_ascii_alphanumeric() {
+            i += 1;
+            continue;
+        }
+        let start = i;
+        while i < bytes.len() && bytes[i].is_ascii_alphanumeric() {
+            i += 1;
+        }
+        let tok = &span[start..i];
+        let mut end = i;
+        // "PRISMA-P": one mention, as long as the suffix is a single capital.
+        if i + 1 < bytes.len()
+            && bytes[i] == b'-'
+            && bytes[i + 1].is_ascii_uppercase()
+            && (i + 2 >= bytes.len() || !bytes[i + 2].is_ascii_alphanumeric())
+        {
+            end = i + 2;
+            i += 2;
+        }
+        let first_last_upper = tok.as_bytes()[0].is_ascii_uppercase()
+            && tok.as_bytes()[tok.len() - 1].is_ascii_uppercase();
+        let all_upper = tok.bytes().all(|b| !b.is_ascii_lowercase());
+        if !first_last_upper || !all_upper {
+            continue;
+        }
+        if let Some(st) = Standard::parse(tok) {
+            mentions.push((start, end, Some(st)));
+        } else if tok.len() >= 3 {
+            mentions.push((start, end, None));
+        }
+    }
+    let supported: std::collections::BTreeSet<Standard> = mentions.iter().filter_map(|m| m.2).collect();
+    if supported.len() < 2 {
+        return None;
+    }
+    // Design phrases, each extended to the end of its word ("studies").
+    let mut designs: Vec<(usize, usize, &'static str)> = Vec::new();
+    for (phrase, canonical) in DESIGN_PHRASES {
+        for (at, _) in lower.match_indices(phrase) {
+            let mut e = at + phrase.len();
+            while e < lower.len() && lower.as_bytes()[e].is_ascii_lowercase() {
+                e += 1;
+            }
+            designs.push((at, e, canonical));
+        }
+    }
+    designs.sort();
+    let mut kept: Vec<(usize, usize, &'static str)> = Vec::new();
+    for d in designs {
+        if kept.last().is_some_and(|k| d.0 < k.1) {
+            continue;
+        }
+        kept.push(d);
+    }
+    let designs = kept;
+    let coordinated = |gap: &str| {
+        let core: String = gap.chars().filter(|c| !c.is_whitespace() && *c != ',').collect::<String>().to_lowercase();
+        ((core.is_empty() && gap.contains(',')) || core == "or" || core == "and")
+            && gap.ends_with(char::is_whitespace)
+    };
+    let mut out: Vec<(Standard, &'static str)> = Vec::new();
+    for (di, &(a, b, canonical)) in designs.iter().enumerate() {
+        if let Some(next) = mentions.iter().find(|m| m.0 >= b) {
+            let gap = &span[b..next.0];
+            let body = gap.trim_end();
+            let forward = (body.ends_with(':') || body.ends_with('('))
+                && {
+                    let words = &body[..body.len() - 1];
+                    let ws: Vec<&str> = words.split_whitespace().collect();
+                    ws.len() <= 3
+                        && (words.is_empty() || words.starts_with(char::is_whitespace))
+                        && ws.iter().all(|w| w.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '/' || c == '-'))
+                }
+                && !designs.iter().enumerate().any(|(j, d)| {
+                    j != di && b <= d.0 && d.0 < next.0 && !coordinated(&span[b..d.0])
+                });
+            if forward {
+                if let Some(st) = next.2 {
+                    out.push((st, canonical));
+                }
+                continue;
+            }
+        }
+        if let Some(prev) = mentions.iter().filter(|m| m.1 <= a).max_by_key(|m| m.1) {
+            let mut cur = a;
+            let mut ok = true;
+            for d in designs.iter().rev().filter(|d| prev.1 <= d.0 && d.1 <= a) {
+                if coordinated(&span[d.1..cur]) {
+                    cur = d.0;
+                } else {
+                    ok = false;
+                    break;
+                }
+            }
+            if ok {
+                if let Some(st) = prev.2 {
+                    out.push((st, canonical));
+                }
+            }
+        }
+    }
+    // "…PRISMA-P or SPIRIT respectively": the k-th design with the k-th standard.
+    if let Some(r) = lower.find("respectively") {
+        let sup: Vec<&(usize, usize, Option<Standard>)> =
+            mentions.iter().filter(|m| m.2.is_some() && m.1 <= r).collect();
+        let mut group: Vec<&(usize, usize, Option<Standard>)> = Vec::new();
+        for m in sup.into_iter().rev() {
+            if group.is_empty() || coordinated(&span[m.1..group[0].0]) {
+                group.insert(0, m);
+            } else {
+                break;
+            }
+        }
+        if group.len() >= 2 {
+            let before: Vec<&(usize, usize, &'static str)> =
+                designs.iter().filter(|d| d.1 <= group[0].0).collect();
+            if before.len() >= group.len() {
+                for (m, d) in group.iter().zip(&before[before.len() - group.len()..]) {
+                    out.push((m.2.expect("supported"), d.2));
+                }
+            }
+        }
+    }
+    out.sort();
+    out.dedup();
+    Some(out)
 }
 
 // ---------------------------------------------------------------------------
@@ -374,6 +554,49 @@ mod tests {
         )]);
         assert_eq!(got.len(), 1, "{got:#?}");
         assert_eq!(got[0].design, "animal study");
+    }
+
+    // ---- §11 D247: several standards in one sentence, each with its own design --
+
+    fn pairs_in(span: &str) -> Vec<(&'static str, String)> {
+        let reqs: Vec<ExtractedRequirement> = ["CONSORT", "PRISMA", "STROBE", "ARRIVE", "TRIPOD", "CHEERS", "SPIRIT", "STARD"]
+            .iter()
+            .filter(|s| span.contains(*s))
+            .map(|s| req(s, span))
+            .collect();
+        let mut v: Vec<_> = bindings_from(&reqs).into_iter().map(|b| (b.standard.as_str(), b.design)).collect();
+        v.sort();
+        v
+    }
+
+    fn want(pairs: &[(&'static str, &str)]) -> Vec<(&'static str, String)> {
+        let mut v: Vec<_> = pairs.iter().map(|(a, b)| (*a, b.to_string())).collect();
+        v.sort();
+        v
+    }
+
+    #[test]
+    fn several_standards_in_one_sentence_each_bind_their_own_design() {
+        // Verbatim, J Hepatology: standard first ("Use the X guideline for ...").
+        let jhep = "If you are reporting a protocol – Use the SPIRIT guideline for the protocol of a clinical trial – Use the PRISMA-P guideline for the protocol of a systematic review If you are reporting a review of a section of the existing literature – Use the MOOSE guideline for a review of observational studies – Use the PRISMA guideline for any other kind of systematic review or meta-analysis If you are reporting on animal research – Use the ARRIVE guideline for research on animals in a lab If you are reporting descriptive data (either alone or alongside quantitative data) – Use the CARE guideline for reporting one case study or a series of case studies – Use the SRQR guideline for any other descriptive data (qualitative research) If you are reporting research into diagnosis – Use the STARD guideline if you compared the accuracy of a diagnostic test with an established reference standard test – Use the REMARK guideline if you evaluated the prognostic value of a biomarker – Use the TRIPOD guideline if you developed, validated, or updated a prognostic or diagnostic prediction modelling tool If you are reporting research into an intervention or treatment on people – Use the TIDIER guideline to fully describe your intervention – Use the CHEERS guideline for an economic evaluation of the interventions If you are reporting research into an intervention, treatment, exposure, or protective factor on people – Use the CARE guideline for reporting one case study or a series of case studies – Use the CONSORT guideline or one of its extensions: • If you selected your participants before they received the intervention/exposure/etc.";
+        assert_eq!(pairs_in(jhep), want(&[
+            ("SPIRIT", "clinical trial"), ("PRISMA", "systematic review"), ("PRISMA", "meta-analysis"),
+            ("ARRIVE", "animal study"), ("TRIPOD", "prediction model study"), ("CHEERS", "economic evaluation"),
+        ]));
+        // Verbatim, PLOS ONE: design first, flattened list ("X: STANDARD").
+        let plos = "Manuscripts should conform to the following reporting guidelines: Studies of diagnostic accuracy: STARD Observational studies: STROBE Microarray experiments: MIAME Other types of health-related research: Consult the EQUATOR web site for appropriate reporting guidelines Methods sections of papers on research using human subjects or samples must include ethics statements that specify: The name of the approving institutional review board or equivalent committee(s) .";
+        assert_eq!(pairs_in(plos), want(&[("STARD", "diagnostic accuracy study"), ("STROBE", "observational study")]));
+        // Verbatim, PLOS ONE: "respectively" pairs in order.
+        let resp = "For Registered Report Protocols: Provide enough methodological detail to make the study reproducible and replicable Confirm that data will be made available upon study completion in keeping with the PLOS Data policy \u{200b} Include ethical approval or waivers, if applicable Preliminary or pilot data may be included, but only if necessary to support the feasibility of the study or as a proof of principle For meta-analyses or Clinical Trials, use the protocol-specific reporting guidelines PRISMA-P or SPIRIT respectively For more guidance on format and presentation of a protocol, consult the sample template hosted by the Open Science Framework .";
+        assert_eq!(pairs_in(resp), want(&[("PRISMA", "meta-analysis"), ("SPIRIT", "clinical trial")]));
+        // Verbatim, BMJ: several standards, no design, nothing bound ("study
+        // protocols" is a file, not the design of the study).
+        assert_eq!(pairs_in("study protocols, and checklists for the CONSORT, QUOROM, and STARD statements;"), vec![]);
+        // Negative control: ONE standard keeps every design it names.
+        assert_eq!(
+            pairs_in("Observational studies (cohort, case-control or cross-sectional designs) must be reported according to the STROBE statement ."),
+            want(&[("STROBE", "observational study"), ("STROBE", "cohort study"), ("STROBE", "case-control study"), ("STROBE", "cross-sectional study")])
+        );
     }
 
     #[test]
