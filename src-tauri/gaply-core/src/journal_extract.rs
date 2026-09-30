@@ -302,6 +302,17 @@ fn heading_names_the_type(clause: &str, ty: &str) -> bool {
     if words.iter().any(|w| matches!(*w, "for" | "of" | "in" | "on" | "with" | "about" | "to")) {
         return false;
     }
+    // "Double anonymized peer review", "Single-blind peer review", "Peer
+    // review": the peer-review PROCESS, not the article type Review. §11 D244.
+    // Elsevier's guide template carries the first under every journal that
+    // uses it, so this one heading typed a competing-interests row as a Review
+    // requirement on 8 of 20 stage-1 journals. Measured over every heading on
+    // 56 guide pages and in the seed: 8 headings end in "peer review", all of
+    // them the process; the 4 that keep "Review" (Review, Mini Review, Book
+    // Reviews, New Media Reviews) never follow "peer".
+    if words.len() >= 2 && words[words.len() - 2] == "peer" {
+        return false;
+    }
     // The type must be the HEAD: the clause ends with it, bare or pluralised.
     c == ty || c.ends_with(ty) || c.ends_with(&format!("{ty}s")) || c.ends_with(&format!("{ty}es"))
 }
@@ -1277,6 +1288,24 @@ mod tests {
             abstract_limits("Abstract", "Please provide an abstract of up to 250 words."),
             vec![("250".to_string(), None)]
         );
+    }
+
+    // ---- §11 D244: "peer review" is the process, not the article type -------
+
+    #[test]
+    fn a_peer_review_heading_is_not_the_article_type_review() {
+        // Verbatim from Elsevier's guide template (Journal of Historical Geography).
+        let span = "Declaration of competing interests (when a separate declaration of interest file is not submitted) Corresponding author address (full address is required) and email address The anonymized manuscript should contain the main body of your paper, including references and tables.";
+        let got = extract_requirements(&[b("Double anonymized peer review", span)]);
+        assert_eq!(got.len(), 1, "{got:#?}");
+        assert_eq!(got[0].article_type, None, "{got:#?}");
+        for h in ["Peer review", "Single-blind peer review", "Peer Review and Ethics", "Research data and peer review"] {
+            assert_eq!(article_type_of(h), None, "{h}");
+        }
+        // The headings that ARE the type keep it.
+        for h in ["Review", "Mini Review", "Book Reviews", "New Media Reviews"] {
+            assert_eq!(article_type_of(h).as_deref(), Some("Review"), "{h}");
+        }
     }
 
     /// **A stored span is the journal's complete sentence, or it is not evidence.**

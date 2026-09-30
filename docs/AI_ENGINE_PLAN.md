@@ -20210,3 +20210,48 @@ would then record four untyped word limits (500, 750, 1500, 5000) and two
 untyped abstract limits (150, 250) as the journal contradicting itself: D238's
 class 1, and 7 new wrong rows. Held until the type labels are read. Rishi
 chose this on 29 Sep 2026.
+
+### D244 — "peer review" is the process, not the article type Review: 8 wrong rows from one template heading
+
+**Found by the stage-1 widening measurement** (20 Elsevier and 20 Taylor &
+Francis guide pages, hand-read by Claude alone, 30 Sep 2026). One Elsevier guide
+template heading, **"Double anonymized peer review"**, typed a
+competing-interests row as a requirement for Review articles on 8 of the 20
+Elsevier journals. It would do the same on every Elsevier journal added later
+that uses double-anonymized review.
+
+#### Cause `[src]`
+
+`heading_names_the_type` asks whether a heading clause ENDS with a listed
+article type (D173: the type is the head of the noun phrase). *"double
+anonymized peer review"* is four words, opens with no gerund, contains no
+disqualifying preposition, and ends with "review", which is in
+`ARTICLE_TYPES`. So the compound "peer review", which names the review PROCESS,
+passed as the type. This is the shape D173 recorded as residue for "Cover letter"
+→ Letter: a modifier that changes what the head word refers to. It reached limits
+as well as statements, because `article_type_of` is the fallback type for a limit
+(`article_type_for`).
+
+#### Rule, and what it was measured on `[probe]`
+
+A type word directly after "peer" does not name an article type. Over every
+heading on 56 guide pages (the 40 stage-1 pages and the 16 yield pages) and every
+seed heading, 488 in all, the rule changes exactly 8: Double anonymized,
+Double-blind, Fast-track, Single-blind, "Peer Review", "Peer review", "Peer Review
+and Ethics", "Research data and peer review", each from Review to none. The four
+headings that are the type (Review, Mini Review, Book Reviews, New Media Reviews)
+keep it. It is one word, not a vocabulary fitted to rows: every journal page that
+describes peer review names the process this way.
+
+* **Stage-1 rows:** exactly 8 change, each Review → none, and each is now real
+  (a conditional title-page declaration). No other row on the 40 pages changes.
+* **Seed:** re-extraction is byte-identical (194 of 195, as before). No seed row
+  sits under a peer-review heading. Installed databases need no new reconcile:
+  D239's `reclassify_article_types` re-reads every stored type at startup.
+
+**Deletion test, prediction written first:** removing the rule reddens
+`a_peer_review_heading_is_not_the_article_type_review`, as predicted. The same
+run also reddened `every_cited_decision_record_exists`, because the new comment
+cited this record before it was written. That second red did not come from the
+break: it was the D-number guard catching a real dangling citation in the
+working tree.
