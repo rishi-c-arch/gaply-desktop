@@ -20586,3 +20586,61 @@ suite, where this pre-existing red looked like extra coverage for U and V. It is
 corrected. On the real page the LTE row does not exist: its sentence names no
 manuscript part, so the gate refuses it before typing. The ten profiled
 journals' checklists are byte-identical.
+
+### D252 — twenty Elsevier journals ship in the seed: 4 of 94 rows wrong, after four fixes the first attempt required
+
+**The first journals added since the ten.** `www.sciencedirect.com: 2` makes
+`/journal/<slug>` identify the journal. Measured before storing: 31 of 31
+Elsevier URLs resolved to the right journal and none to a wrong one, over the 20
+guide pages and 536 links harvested from them. One entry per slug: key = slug,
+entry = `sciencedirect.com/journal/<slug>/publish/guide-for-authors`. Taylor &
+Francis is not included: its journal is a query parameter `key_for_url` cannot
+read, and a path-only entry filed 19 of 20 T&F guides under one journal.
+
+**This store was committed once before and reverted.** At that point 20 of 96
+rows were wrong (21%, against the seed's 2%). D249 (inline type labels), D250
+(title lengths) and D251 (a type in the limit's own sentence) came first. The
+earlier D245–D247 had been forced by the store before that: a 15-word "limit"
+read from 15 pages, two abstract limits shown as one, and 44 wrong bindings.
+
+#### How the rows were made `[probe]`
+
+One fetch per guide page, 40 s apart, all 200, through the pasted-URL path's
+gates. Extracted with D244–D251, stored through the real `store_requirements`
+(so `status` and `conflict_id` are the store's own decisions), with bindings
+de-duplicated on the table's own key.
+
+#### Audit — 94 requirement rows, hand-read by Claude alone
+
+| | real | wrong | not a requirement | undecidable |
+|---|---:|---:|---:|---:|
+| first attempt, before D249 (96 rows) | 68 | 20 | 4 | 4 |
+| after D249 (98) | 76 | 14 | 4 | 4 |
+| **after D250 and D251 (94)** | **82** | **4** | **4** | **4** |
+
+**The 4 wrong rows are all J Hepatology's:** two limits on a PART of an article
+(the case summary's 250 words and the second page's 500), and two under the
+heading "Original manuscripts", which names the type but is refused because
+"manuscripts" is a part word: *"They should not exceed 6000 words"* and *"A
+maximum of 8 tables and/or figures is allowed"*. The three untyped word limits
+there are stored conflicted, so none reaches a verdict, and figure limits have no
+check. The 4 not-a-requirement rows include Elsevier's registry sentence
+(*"a brief structured abstract (fewer than 500 words)"* for results posted in a
+trial registry), stored as a Clinical Trial abstract limit. Under D246, Am J
+Medicine, Int J Cardiology and J Affective Disorders therefore show "abstract
+limit: the journal states more than one" rather than a verdict. That is no
+verdict rather than a wrong one; the fix belongs in extraction.
+
+**Bindings: 12, 11 real.** The wrong one is J Hepatology's STROBE ↔ randomised
+trial, from a fragment cut at "etc." that lost its "not" condition.
+
+#### Negative controls
+
+* **The seed loads:** 30 fingerprints, 289 requirements and 58 bindings, all 30
+  `bundled`. The startup reconciles remove nothing, so D225's ownership check
+  accepts every Elsevier row under the new identity.
+* **The existing rows:** every existing seed row and every other table are
+  byte-identical.
+* **The ten profiled journals' checklists are byte-identical** to HEAD.
+* The six pins counting journals or seed rows move by exactly the store's size:
+  10→30, 9→29, 8→28 journals, 195→289 rows.

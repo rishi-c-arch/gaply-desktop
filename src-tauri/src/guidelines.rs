@@ -1315,7 +1315,8 @@ mod tests {
     #[test]
     fn every_profiled_journal_still_resolves_its_entry_and_its_seeded_pages() {
         let b = profiled();
-        assert_eq!(b.profiled_journals.len(), 10);
+        // Ten profiled journals, plus twenty Elsevier journals (§11 D252).
+        assert_eq!(b.profiled_journals.len(), 30);
         for j in &b.profiled_journals {
             assert_eq!(
                 crate::journal_crawl::key_for_url(&j.entry, b).as_deref(),
@@ -1332,8 +1333,9 @@ mod tests {
             *per.entry(key.to_string()).or_default() += 1;
         }
         // Eight journals carry seeded requirements: Nature Communications never
-        // had one, and The Lancet has none of its own since §11 D225.
-        assert_eq!(per.len(), 8, "{per:?}");
+        // had one, and The Lancet has none of its own since §11 D225. All
+        // twenty Elsevier journals (§11 D252) carry theirs: 28.
+        assert_eq!(per.len(), 28, "{per:?}");
     }
 
     const GUIDELINE_HTML: &str = "<html><head><style>.x{}</style></head><body>\
