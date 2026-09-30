@@ -20488,3 +20488,37 @@ reach** (`--workspace --no-fail-fast`, 26 targets, every restore checked with
 O's miss is in my model, not in the guards. The `<h5>` path pushes its own cut,
 so under O the LTE limit was still closed by the `<h5>`. P, which breaks that
 path, reddens it. Every behaviour has a test that fails without it.
+
+### D250 — a title's length is not a word limit: 5 wrong rows refused
+
+**The largest remaining wrong class on the twenty Elsevier stage-1 journals**
+after D249. *"Other Manuscript titles should run to no more than 20 words in
+length"* (Am J Medicine ×4 stored rows) and *"the most effective titles are no
+more than 10–12 words and should readily give readers an overall view of the
+paper's significance"* (J Hepatology) were stored as manuscript word limits.
+
+#### Cause `[src]`
+
+The unit decided nothing wrong: these really are word counts. What let them
+through is the manuscript-part gate, `is_about_the_manuscript`, which accepts a
+sentence containing a part word ANYWHERE. Here "Manuscript" modifies "titles",
+and "paper's" sits in a later clause. There is no title-limit kind.
+
+#### Rule, measured `[probe]`
+
+`limit_is_on_the_title` reads the SUBJECT: "title" or "titles" among the last
+four words of the clause before the limit phrase, and not "title page". Such a
+row is refused, as D245 refuses a page count. Over every word and abstract limit
+sentence in the seed and on 41 guide pages, 9 mention a title. The rule refuses
+exactly the 6 title lengths and keeps the 3 incidental ones: *"(including title
+and author information)"* and *"excluding title page"* ×2.
+
+* **Seed:** re-extraction byte-identical (no seed limit sentence mentions a
+  title).
+* **41 saved pages:** exactly the 6 title-length sentences change, all removed.
+  39 of 41 pages are identical.
+
+**Deletion test, prediction written first:** with the title check removed,
+exactly `a_title_length_is_not_a_word_limit` reddens (`--workspace
+--no-fail-fast`, 26 targets, restore checked with `cmp`). The ten profiled
+journals' checklists are byte-identical.

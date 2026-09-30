@@ -463,6 +463,30 @@ const MANUSCRIPT_PARTS: &[&str] = &[
     "summary", "text is", "length", "body", "contribution", "letter", "report",
 ];
 
+/// **Is this a limit on the TITLE? §11 D250.** There is no title-limit kind, so
+/// such a row is refused, as D245 refuses a page count.
+///
+/// *"Other Manuscript titles should run to no more than 20 words in length"*
+/// (Am J Medicine) and *"the most effective titles are no more than 10–12 words
+/// and should readily give readers an overall view of the paper's significance"*
+/// (J Hepatology) were stored as manuscript WORD limits. The unit is right; what
+/// let them through is [`is_about_the_manuscript`], which accepts a part word
+/// ("Manuscript", "paper's") anywhere in the sentence. So this reads the SUBJECT:
+/// "title(s)" among the last four words of the clause before the limit phrase,
+/// and not "title page". Measured over every word and abstract limit sentence in
+/// the seed and on 41 guide pages: 9 mention a title, this refuses exactly the 6
+/// title lengths, and keeps *"(including title and author information)"* and
+/// *"excluding title page"*.
+fn limit_is_on_the_title(lower: &str, lead_at: usize) -> bool {
+    let clause = lower[..lead_at].rsplit([',', ';', ':', '.', '(', ')']).next().unwrap_or("");
+    let words: Vec<&str> = clause
+        .split(|c: char| !c.is_ascii_alphabetic())
+        .filter(|w| !w.is_empty())
+        .collect();
+    let tail = &words[words.len().saturating_sub(4)..];
+    tail.iter().any(|w| matches!(*w, "title" | "titles")) && !tail.contains(&"page")
+}
+
 fn is_about_the_manuscript(sentence_lower: &str, article_type: &Option<String>) -> bool {
     article_type.is_some() || MANUSCRIPT_PARTS.iter().any(|p| sentence_lower.contains(p))
 }
@@ -939,6 +963,12 @@ pub fn extract_requirements(blocks: &[GuidelineBlock]) -> Vec<ExtractedRequireme
                     {
                         continue;
                     }
+                    // A title's length is not the manuscript's (§11 D250).
+                    if matches!(kind, RequirementKind::WordLimit | RequirementKind::AbstractLimit)
+                        && limit_is_on_the_title(&lower, lead_at)
+                    {
+                        continue;
+                    }
                     limits.push((kind, value));
                 }
             }
@@ -1403,6 +1433,25 @@ mod tests {
                   "Editorial and peer review", "Clinical trials", "Accelerated Publication Fee", "Title page"] {
             assert!(!label_names_article_type(l), "{l}");
         }
+    }
+
+    // ---- §11 D250: a title's length is not a word limit ---------------------
+
+    #[test]
+    fn a_title_length_is_not_a_word_limit() {
+        let words = |h: &str, span: &str| -> Vec<String> {
+            extract_requirements(&[b(h, span)])
+                .into_iter()
+                .filter(|r| r.kind == RequirementKind::WordLimit)
+                .map(|r| r.value)
+                .collect()
+        };
+        // Verbatim, Am J Medicine and J Hepatology.
+        assert!(words("Article types", "Other Manuscript titles should run to no more than 20 words in length.").is_empty());
+        assert!(words("Article structure", "As a general guideline, the most effective titles are no more than 10–12 words and should readily give readers an overall view of the paper's significance.").is_empty());
+        // Negative controls, verbatim: a title named inside the counted text.
+        assert_eq!(words("Commentary", "The commentary articles should be no more than 1000 words in length (including title and author information)."), vec!["1000"]);
+        assert_eq!(words("Research article", "If including an experimental section: up to 4,500 words, including figures and tables and excluding title page, abstract and keywords."), vec!["4500"]);
     }
 
     /// **A stored span is the journal's complete sentence, or it is not evidence.**
