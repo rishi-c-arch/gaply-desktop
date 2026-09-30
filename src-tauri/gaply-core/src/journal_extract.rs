@@ -506,7 +506,26 @@ fn limit_is_on_the_title(lower: &str, lead_at: usize) -> bool {
         .filter(|w| !w.is_empty())
         .collect();
     let tail = &words[words.len().saturating_sub(4)..];
-    tail.iter().any(|w| matches!(*w, "title" | "titles")) && !tail.contains(&"page")
+    if tail.iter().any(|w| matches!(*w, "title" | "titles")) && !tail.contains(&"page") {
+        return true;
+    }
+    // **A limit that opens a bracket describes what precedes it. §11 D254.**
+    // *"Title The full title and subtitle of the article (no more than 25
+    // words)"* (Value in Health): the clause before the phrase is empty, so the
+    // subject is the clause before the bracket. Measured over every bracketed
+    // limit in the seed, on 57 guide pages and on the 80-journal batch: 17, and
+    // only this one has a title before its bracket.
+    let before = &lower[..lead_at];
+    let Some(open) = before.rfind('(') else { return false };
+    if before[open + 1..].chars().any(|c| c.is_alphanumeric() || c == ')') {
+        return false;
+    }
+    let outer = before[..open].rsplit([',', ';', ':', '.', ')']).next().unwrap_or("");
+    let outer_words: Vec<&str> =
+        outer.split(|c: char| !c.is_ascii_alphabetic()).filter(|w| !w.is_empty()).collect();
+    let titled = outer_words.iter().any(|w| matches!(*w, "title" | "titles"));
+    let title_page = outer_words.windows(2).any(|w| matches!(w[0], "title" | "titles") && w[1] == "page");
+    titled && !title_page
 }
 
 fn is_about_the_manuscript(sentence_lower: &str, article_type: &Option<String>) -> bool {
@@ -1589,6 +1608,24 @@ mod tests {
         assert_eq!(number_after("up to 250, 10 references", 5), Some("250".into()));
         assert_eq!(number_after("up to 30, 300, 3000 words", 5), Some("30".into()));
         assert_eq!(number_after("up to 4,000 words", 5), Some("4000".into()));
+    }
+
+    // ---- §11 D254: a title limit inside a bracket ----------------------------
+
+    #[test]
+    fn a_title_limit_inside_a_bracket_is_not_a_word_limit() {
+        let words = |heading: &str, span: &str| -> Vec<String> {
+            extract_requirements(&[b(heading, span)])
+                .into_iter()
+                .filter(|r| r.kind == RequirementKind::WordLimit)
+                .map(|r| r.value)
+                .collect()
+        };
+        // Verbatim, Value in Health (a cover-letter component list).
+        assert!(words("II. Manuscript Specifications and Submission", "In addition, the cover letter should include the following specific components: Components Description Title The full title and subtitle of the article (no more than 25 words) Description/Interest to Readers A brief description of the article.").is_empty());
+        // Negative controls, verbatim: a bracketed limit on the manuscript text.
+        assert_eq!(words("Commentary", "The commentary need not follow a structured format, should be limited to 1-2 typed pages (maximum of 1,000 words), and may include up to 10 citations, as well as a figure or table."), vec!["1000"]);
+        assert_eq!(words("References", "Letters must be short (a maximum 800 words) and include only key references (5 maximum) and one figure if necessary."), vec!["800"]);
     }
 
     /// **A stored span is the journal's complete sentence, or it is not evidence.**

@@ -20675,3 +20675,29 @@ there is no measured case to justify it.
 **Deletion test, prediction written first:** with the extension disabled, exactly
 `a_spaced_thousands_separator_is_read_whole` reddens (`--workspace
 --no-fail-fast`, 26 targets, restore checked with `cmp`).
+
+### D254 — a title limit inside a bracket is still a title limit
+
+**Found in the 80-journal Elsevier batch's hand-read sample.** Value in Health's
+cover-letter component list, *"Title The full title and subtitle of the article
+(no more than 25 words)"*, was stored as a manuscript word limit. D250 reads the
+last four words of the clause before the limit phrase; here that clause is empty,
+because the phrase opens a bracket, and "title" is six words back.
+
+**Rule `[src]`:** when the limit phrase opens a bracket, the subject is the clause
+before the bracket. If that clause names a title (not "title page"), the row is
+refused, as D250 refuses the unbracketed form.
+
+**Measured `[probe]`:** over every bracketed word or abstract limit in the seed,
+on 57 guide pages and on the 80-journal batch, there are 17, and **only Value in
+Health's has a title before its bracket**. The other 16 are kept, including
+JADA's *"(maximum of 1,000 words)"*, Biological Conservation's *"(a maximum 800
+words)"* and J Affective Disorders' *"(up to 8000 words…)"*.
+
+* **Seed:** re-extraction byte-identical (289 rows).
+* **41 saved pages:** identical.
+* **The thirty profiled journals' checklists are byte-identical.**
+
+**Deletion test, prediction written first:** with the bracket branch disabled,
+exactly `a_title_limit_inside_a_bracket_is_not_a_word_limit` reddens
+(`--workspace --no-fail-fast`, 26 targets, restore checked with `cmp`).
