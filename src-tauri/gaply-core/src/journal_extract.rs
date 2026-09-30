@@ -432,6 +432,16 @@ fn number_after(s: &str, at: usize) -> Option<String> {
 
 /// The number at the start of `s`, thousands separators dropped, and how many
 /// bytes it spans.
+///
+/// **A separator followed by a space is still a separator. §11 D253.** *"Published
+/// articles normally have fewer than 11, 000 words"* (Acta Materialia) was read
+/// as 11. So `", "` or `". "` then EXACTLY three digits, then a space and a
+/// word, continues the number. The trailing-word condition keeps a list of
+/// numbers apart: over every sentence in the seed and on 57 guide pages the
+/// pattern occurs three times, and the other two (*"Ion Processes, 142,
+/// 209-240"*, *"the forms 30, 300, 3000"*) end in a digit or comma. The `". "`
+/// form never occurs, and the sentence splitter cuts at it before this is
+/// reached; the splitter is deliberately not changed without a measured case.
 fn digits_at(s: &str) -> (String, usize) {
     let len: usize = s
         .chars()
@@ -439,7 +449,19 @@ fn digits_at(s: &str) -> (String, usize) {
         .map(char::len_utf8)
         .sum();
     // A trailing comma is punctuation, not a separator: "250, 10 references".
-    let len = s[..len].trim_end_matches(',').len();
+    let mut len = s[..len].trim_end_matches(',').len();
+    let b = s.as_bytes();
+    let group_len = s[..len].rsplit(',').next().map_or(0, str::len);
+    if (1..=3).contains(&group_len)
+        && b.len() >= len + 6
+        && matches!(b[len], b',' | b'.')
+        && b[len + 1] == b' '
+        && b[len + 2..len + 5].iter().all(u8::is_ascii_digit)
+        && b[len + 5] == b' '
+        && b.get(len + 6).is_some_and(u8::is_ascii_alphabetic)
+    {
+        len += 5;
+    }
     (s[..len].chars().filter(|c| c.is_ascii_digit()).collect(), len)
 }
 
@@ -1548,6 +1570,25 @@ mod tests {
         assert_eq!(ty("Article types", "Unlike review articles, letters to the editor must not exceed 500 words."), vec![None]);
         // A cover letter is not a Letter.
         assert_eq!(ty("Submission", "The manuscript and its cover letter together should not exceed 6000 words."), vec![None]);
+    }
+
+    // ---- §11 D253: a separator followed by a space is still a separator ------
+
+    #[test]
+    fn a_spaced_thousands_separator_is_read_whole() {
+        let words = |span: &str| -> Vec<String> {
+            extract_requirements(&[b("Length of papers", span)])
+                .into_iter()
+                .filter(|r| r.kind == RequirementKind::WordLimit)
+                .map(|r| r.value)
+                .collect()
+        };
+        // Verbatim, Acta Materialia.
+        assert_eq!(words("Published articles normally have fewer than 11, 000 words and 12 figures in the main text."), vec!["11000"]);
+        // Negative controls: a comma before a list or another count is punctuation.
+        assert_eq!(number_after("up to 250, 10 references", 5), Some("250".into()));
+        assert_eq!(number_after("up to 30, 300, 3000 words", 5), Some("30".into()));
+        assert_eq!(number_after("up to 4,000 words", 5), Some("4000".into()));
     }
 
     /// **A stored span is the journal's complete sentence, or it is not evidence.**

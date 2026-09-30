@@ -20644,3 +20644,34 @@ trial, from a fragment cut at "etc." that lost its "not" condition.
 * **The ten profiled journals' checklists are byte-identical** to HEAD.
 * The six pins counting journals or seed rows move by exactly the store's size:
   10→30, 9→29, 8→28 journals, 195→289 rows.
+
+### D253 — a thousands separator followed by a space is still a separator
+
+**Found in the 80-journal Elsevier batch's hand-read sample.** *"Published
+articles normally have fewer than 11, 000 words and 12 figures in the main
+text"* (Acta Materialia) was stored as a word limit of **11**.
+
+#### Cause and rule `[src]`
+
+`digits_at` reads digits and commas, so the space after "11," ended the number.
+Now `", "` or `". "` followed by EXACTLY three digits, then a space and a word,
+continues it. The trailing-word condition keeps a list of numbers apart.
+
+#### Measured `[probe]`
+
+Over every sentence in the seed and on 57 saved guide pages, "1–3 digits, a
+separator, a space, 3 digits" occurs **3 times**: Acta Materialia's, and two that
+are not separators (*"Ion Processes, 142, 209-240 (1995)"*, *"the forms 30, 300,
+3000"*). Both end in a digit or comma, and neither follows a limit phrase. The
+`". "` form occurs **0 times**, and the sentence splitter cuts at it before
+`digits_at` is reached. The splitter is deliberately not changed: that would
+merge a sentence ending in a number with one starting with three digits, and
+there is no measured case to justify it.
+
+* **Seed:** re-extraction byte-identical (289 rows, 288 reproduced, as at HEAD).
+* **41 saved pages:** identical (the one instance is on a batch page).
+* **The thirty profiled journals' checklists are byte-identical.**
+
+**Deletion test, prediction written first:** with the extension disabled, exactly
+`a_spaced_thousands_separator_is_read_whole` reddens (`--workspace
+--no-fail-fast`, 26 targets, restore checked with `cmp`).
