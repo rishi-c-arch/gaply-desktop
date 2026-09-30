@@ -20255,3 +20255,43 @@ run also reddened `every_cited_decision_record_exists`, because the new comment
 cited this record before it was written. That second red did not come from the
 break: it was the D-number guard catching a real dangling citation in the
 working tree.
+
+### D245 — the first unit after a number is its unit, and a page count is refused: 3 wrong rows removed, 2 corrected
+
+**Found storing the 20 Elsevier stage-1 journals.** *"Manuscripts should
+normally not exceed 15 printed journal pages (around 10,000 words)"* (Int J
+Production Economics) was stored as a **15-word limit**. It is not conflicted, so
+it reaches a verdict: every manuscript FAILED "word limit: 15".
+
+#### Cause `[src]`
+
+Both halves of the question were true. **There is no page-limit kind**, and
+`limit_kind` did not look at the unit of THIS number. It scanned the whole
+60-character window after the lead for any unit, in a fixed order with "words"
+first. So the "words" of the bracketed approximation, 30 characters later,
+claimed 15. The same mechanism stored *"up to 10 references and a maximum of 2
+figures"* (Int J Cardiology) as a figure limit of 10, because "figures" outranked
+"references". It also stored T&F's *"no more than 20 pages, inclusive of:
+Tables…"* as a figure limit.
+
+#### Rule
+
+The FIRST unit word after the number decides its kind. "pages", "page",
+"characters", "lines" and "keywords" have no kind and refuse the row. A page
+count depends on a layout Gaply does not have, so refusing is right rather than
+converting. The vocabulary of units that DO have a kind is unchanged: no new
+row becomes readable.
+
+#### Measured `[probe]`
+
+* **Seed:** re-extraction byte-identical (194 of 195, as before).
+* **40 stage-1 pages:** exactly these rows change:
+  * IJPE's 15-page word limit is **refused**.
+  * Natural Product Research's 20 pages and Int J Pavement Engineering's 25
+    pages, both stored as figure limits, are **refused**.
+  * Int J Cardiology's figure limits 10 and 50 become **reference limits 10 and
+    50 plus figure limits 2 and 4**, the values the sentences state.
+
+  Those four Int J Cardiology rows still lose their article type (D239's class)
+  and are stored conflicted, so they reach no verdict.
+* **16 yield pages:** no change.

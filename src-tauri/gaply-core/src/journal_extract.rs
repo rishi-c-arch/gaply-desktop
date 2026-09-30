@@ -600,24 +600,35 @@ fn binding_limit(limits: Vec<(RequirementKind, String)>) -> Vec<(RequirementKind
 }
 
 /// Which unit a limit applies to, and therefore which kind it is.
+///
+/// **The FIRST unit after the number decides, and a unit with no kind refuses
+/// the row. §11 D245.** This scanned the whole 60-character window for any unit,
+/// in a fixed order with "words" first, so a unit belonging to a LATER number
+/// could claim this one:
+///
+/// * *"Manuscripts should normally not exceed 15 printed journal pages (around
+///   10,000 words)"* (Int J Production Economics) was stored as a 15-WORD limit
+///   and failed every manuscript. The unit of 15 is "pages", which has no kind,
+///   and the "words" belongs to the approximation in brackets.
+/// * *"up to 10 references and a maximum of 2 figures"* (Int J Cardiology) was
+///   stored as a figure limit of 10, because "figures" outranked "references".
+///
+/// There is no page-limit kind (a page count depends on a layout Gaply does not
+/// have), so a page limit is refused rather than converted.
 fn limit_kind(lower: &str, number_at: usize) -> Option<RequirementKind> {
     let window: String = lower[number_at..].chars().take(60).collect();
-    for (unit, kind) in [
-        ("words", RequirementKind::WordLimit),
-        ("figures", RequirementKind::FigureLimit),
-        ("tables", RequirementKind::FigureLimit),
-        ("display items", RequirementKind::FigureLimit),
-        // `Display items – up to 6 items` puts the qualifier BEFORE the number
-        // and the bare noun after it, so the window that follows says only
-        // "items". Measured on nature.com/nm/content.
-        ("items", RequirementKind::FigureLimit),
-        ("references", RequirementKind::ReferenceLimit),
-    ] {
-        // A WHOLE word: "keywords" contains "words" (§11 D242). Measured on Annals of
-        // Medicine's guide, where "Should contain no more than 6 keywords"
-        // under five article-type headings was stored as five 6-word limits.
-        if contains_word(&window, unit) {
-            return Some(kind);
+    // Whole words only: "keywords" contains "words" (§11 D242).
+    for token in window.split(|c: char| !c.is_alphanumeric()).filter(|t| !t.is_empty()) {
+        match token {
+            "words" => return Some(RequirementKind::WordLimit),
+            // `Display items – up to 6 items` puts the qualifier BEFORE the
+            // number and the bare noun after it, so the window that follows
+            // says only "items". Measured on nature.com/nm/content.
+            "figures" | "tables" | "items" => return Some(RequirementKind::FigureLimit),
+            "references" => return Some(RequirementKind::ReferenceLimit),
+            // Units with no kind: the number is not a limit Gaply can check.
+            "pages" | "page" | "characters" | "lines" | "keywords" => return None,
+            _ => {}
         }
     }
     None
@@ -1306,6 +1317,34 @@ mod tests {
         for h in ["Review", "Mini Review", "Book Reviews", "New Media Reviews"] {
             assert_eq!(article_type_of(h).as_deref(), Some("Review"), "{h}");
         }
+    }
+
+    // ---- §11 D245: the first unit after the number decides its kind --------
+
+    fn limits(span: &str) -> Vec<(RequirementKind, String)> {
+        let mut v: Vec<_> = extract_requirements(&[b("Article types", span)])
+            .into_iter()
+            .filter(|r| r.kind.as_str().ends_with("_limit"))
+            .map(|r| (r.kind, r.value))
+            .collect();
+        v.sort();
+        v
+    }
+
+    #[test]
+    fn the_first_unit_after_a_number_is_its_unit() {
+        // Verbatim, Int J Production Economics: 15 PAGES, not 15 words.
+        assert_eq!(limits("Manuscripts should normally not exceed 15 printed journal pages (around 10,000 words)."), vec![]);
+        // Verbatim, Int J Pavement Engineering: pages, not figures.
+        assert_eq!(limits("A typical paper for this journal should be no more than 25 pages, inclusive of: Abstract Tables References Figure or table captions Footnotes Endnotes"), vec![]);
+        // Verbatim, Int J Cardiology: 10 is the reference count, 2 the figures.
+        let mut want = vec![
+            (RequirementKind::WordLimit, "1500".to_string()),
+            (RequirementKind::ReferenceLimit, "10".to_string()),
+            (RequirementKind::FigureLimit, "2".to_string()),
+        ];
+        want.sort();
+        assert_eq!(limits("Each article should consist of a maximum of 1500 words, up to 10 references and a maximum of 2 figures."), want);
     }
 
     /// **A stored span is the journal's complete sentence, or it is not evidence.**
