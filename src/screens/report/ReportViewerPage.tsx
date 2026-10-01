@@ -516,6 +516,21 @@ const ChecklistView: React.FC<{
                 scoped to Matters Arising. Showing every one lets a reader see
                 which scope covers them, which is the judgement the code
                 demonstrably cannot make. */}
+            {/* ONE SOURCE IS STILL EVIDENCE. This rendered only for several
+                sources (D188 built it for corroboration), so a single-source
+                row showed its verdict with none of the journal's words: 13 of
+                the six corpus reports' 20 journal rows. Both PDF paths
+                (`checklistLines`, Rust `checklist_lines`) always printed the
+                span, so screen and export disagreed. §11 D263. */}
+            {sources.length === 1 && (
+              <div className="gds-finding__detail" style={{ fontSize: 12, marginTop: 4 }} data-testid={`check-quote-${i}`}>
+                {sources[0].article_type ? <strong>[{sources[0].article_type}] </strong> : null}
+                “{sources[0].source_span}”
+                {sources[0].guideline_source ? (
+                  <span className="gds-mono" style={{ opacity: 0.7 }}> — {sources[0].guideline_source}</span>
+                ) : null}
+              </div>
+            )}
             {sources.length > 1 && (
               <details style={{ marginTop: 4 }} data-testid={`check-sources-${i}`}>
                 <summary className="gds-finding__detail" style={{ fontSize: 12, cursor: 'pointer' }}>

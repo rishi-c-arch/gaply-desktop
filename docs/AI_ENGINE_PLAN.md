@@ -21399,3 +21399,77 @@ test -p app --features devtools` 10 targets, 500 passed (macOS). vitest below.
   That is a measurement, not a guard.
 * Environmental Pollution's *"abstract limit 4000"* (a total length read as
   an abstract limit) is a different defect and remains.
+
+### D263 — a single-source checklist row shows the journal's sentence: 13 of 20 journal rows showed a verdict with nothing to check it against
+
+**Found by `docs/PUBLISHREADY_AT_HEAD_2026-10-01.md` §3 item 5.** The Checklist
+tab rendered a row's `source_span` only when `sources.length > 1`
+(`ReportViewerPage.tsx`). At HEAD, 13 of the six corpus reports' 20 journal
+rows are single-source, so the reader got "✓ abstract limit: 300 words" or
+"✗ competing interests statement" with none of the journal's words.
+
+#### Cause: incidental, not deliberate `[src]`
+
+Before `93bea3a` (D188, 19 Sep) the viewer rendered no span at all. D188 built
+the quote list for a different problem: one requirement stated on six pages,
+with storage order picking which page was shown. So it drew the list only when
+there was more than one source. Its commit message says *"The frontend renders
+every source with its own article_type"*, which is not true of a single source,
+and nothing in it argues a single-source row should hide its quote. The one
+test that touches the case, *"the box appears for several sources and not for
+one"*, pins the absence of the corroboration BOX, and says it exists to catch
+deletion of the box.
+
+**The PDF paths always printed it.** The TS exporter (`checklistLines`,
+`exportPdf.ts`) and the Rust PDF (`checklist_lines`, `report_compose.rs`) both
+emit *"the journal's words: “…”"* for every row with a span. So the screen and
+the PDF disagreed about the same row, the D220 shape again, with the viewer the
+odd one out.
+
+#### Fix `[src]`
+
+A single-source row renders its quote inline (`check-quote-{i}`), with the
+article type and the URL, styled like one entry of the multi-source list. The
+multi-source `<details>` box is unchanged. A row with no span renders nothing.
+
+#### Acceptance `[probe]`
+
+The six reports regenerated at HEAD (`zz_publishready_at_head`, consent denied,
+seeded as at startup) were rendered through `ReportViewerPage` in a throwaway
+vitest (not committed). For every checklist row it asserts:
+
+* every span the row carries (`source_span` and each `also_from`) appears whole
+  in the rendered row;
+* a row with none shows no quote, no box and no quotation mark.
+
+| report | rows | journal rows | rows showing a quote |
+|---|---:|---:|---:|
+| R PAPER → ESWA | 6 | 2 | 2 |
+| IJAS → PLOS ONE | 9 | 5 | 5 |
+| Health Economics → Value in Health | 6 | 2 | 2 |
+| chapter3 → Environmental Pollution | 8 | 4 | 4 |
+| Lake → STOTEN | 8 | 4 | 4 |
+| final-L → Water Research | 7 | 3 | 3 |
+
+**20 of 20 journal rows show their quote; none of the 24 structural rows gains
+one.** Negative control: the same check over the pre-fix viewer fails on all
+six reports. The first failure is IJAS's PLOS ONE row, rendered as *"✓abstract
+limit: 300 words…source"* with no sentence.
+
+#### Tests
+
+`report.vitest.tsx`, in the D188 block:
+
+* *"a single-source row shows the journal sentence; a sourceless row shows
+  none"*;
+* *"a several-source row keeps its box and gains no second, inline quote"*.
+
+Deletion check, predicted first: the single-source block disabled → exactly
+the first test red (1 failed, 26 passed). The second cannot be reddened by a
+deletion, since it guards against duplication. Restore `cmp`-checked.
+
+#### Not claimed
+
+* The quote's placement was read in the test DOM, not looked at in the app.
+* `ReportViewerPage.tsx:483-486`'s comment ("No row reaches this screen with
+  the flag set today") is stale since D246/D259 and is still not changed here.

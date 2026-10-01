@@ -280,6 +280,40 @@ describe('checklist rows carry every page the journal states them on (§11 D188)
     expect(screen.getByTestId('check-sources-0')).toBeTruthy();
   });
 
+  // **ONE SOURCE IS STILL EVIDENCE (§11 D263).** The quote rendered only for
+  // several sources, so a single-source row showed its verdict with none of
+  // the journal's words, while both PDF paths printed them.
+  it('a single-source row shows the journal sentence; a sourceless row shows none', () => {
+    const { unmount } = renderReport(withSources({}), true);
+    fireEvent.click(screen.getByTestId('tab-Checklist'));
+    const quote = screen.getByTestId('check-quote-0');
+    expect(quote.textContent).toContain('\u201call fast track submissions must include the following\u201d');
+    expect(quote.textContent).toContain('https://www.nature.com/nm/aims/fasttrack');
+    // The corroboration box is still for several sources only.
+    expect(screen.queryByTestId('check-sources-0')).toBeNull();
+    unmount();
+
+    // A structural row carries no source: no quote is invented for it.
+    renderReport(
+      withSources({ requirement: 'required section: Abstract', guideline_source: null, source_span: null }),
+      true
+    );
+    fireEvent.click(screen.getByTestId('tab-Checklist'));
+    expect(screen.queryByTestId('check-quote-0')).toBeNull();
+  });
+
+  it('a several-source row keeps its box and gains no second, inline quote', () => {
+    renderReport(
+      withSources({
+        also_from: [{ guideline_source: 'https://example.test/other', source_span: 'stated again elsewhere', article_type: null }],
+      }),
+      true
+    );
+    fireEvent.click(screen.getByTestId('tab-Checklist'));
+    expect(screen.getByTestId('check-sources-0')).toBeTruthy();
+    expect(screen.queryByTestId('check-quote-0')).toBeNull();
+  });
+
   it('an UNDECIDABLE row is not drawn as a failure', () => {
     renderReport(withSources({ unevaluable: true, passed: false }), true);
     fireEvent.click(screen.getByTestId('tab-Checklist'));
