@@ -3386,3 +3386,80 @@ fn a_journal_stating_several_word_limits_gets_no_verdict() {
     let it = under.iter().find(|i| i.requirement.starts_with("word limit")).unwrap();
     assert_eq!(mark(it), '✓', "{it:?}");
 }
+
+/// **An abstract ends at its keywords line.** IJAS has no Introduction heading,
+/// so its Abstract section runs on to MATERIALS AND METHODS, and the PDF parse
+/// glues the keywords line to the first introduction paragraph (`parse_path`
+/// emits "…Trehalose Sericulture is one of…" as one paragraph). The checklist
+/// counted 588 words against PLOS ONE's 300 and failed a 248-word abstract.
+/// Health Economics ("Keywords:", its own paragraph) counted 306 for 287, and
+/// R PAPER ("Keywords-") 202 for 181. The keyword lines are verbatim.
+#[test]
+fn the_abstract_word_count_stops_at_the_keywords_line() {
+    let limit = |value: &str, span: &str| crate::journal_store::StoredRequirement {
+        kind: crate::journal_extract::RequirementKind::AbstractLimit,
+        value: value.into(),
+        article_type: None,
+        status: "verified".into(),
+        source_url: "https://journals.plos.org/plosone/s/submission-guidelines".into(),
+        source_heading: "Abstract".into(),
+        source_span: span.into(),
+        conflict_id: None,
+    };
+    let plos = [limit("300", "Not exceed 300 words")];
+    let row = |text: &str, reqs: &[crate::journal_store::StoredRequirement]| {
+        let ex = crate::extract::extract_from_text(text);
+        checklist_from_requirements(&ex, text, 5000, reqs, &[])
+            .into_iter()
+            .find(|i| i.requirement.starts_with("abstract limit"))
+            .expect("an abstract row")
+    };
+    let w = |n: usize| "word ".repeat(n).trim_end().to_string();
+
+    // IJAS's shape: two abstract paragraphs (170 + 78), then the keywords line
+    // glued to 110 words of introduction, two more introduction paragraphs, and
+    // no heading until Methods.
+    let ijas = format!(
+        "ABSTRACT\n\n{}\n\n{}\n\nKeywords: Bakuchiol, Fenoxycarb, Haemolymph, Methoprene, Total protein, \
+         Trehalose Sericulture is one of the few agro-based enterprises {}\n\n{}\n\n{}\n\n\
+         MATERIALS AND METHODS\n\n{}\n",
+        w(170), w(78), w(94), w(111), w(119), w(60)
+    );
+    let it = row(&ijas, &plos);
+    assert_eq!(it.requirement, "abstract limit: 300 words");
+    assert!(it.detail.contains("abstract has 248 words"), "{}", it.detail);
+    assert!(it.passed && !it.unevaluable, "a 248-word abstract passes a 300-word limit: {it:?}");
+
+    // Health Economics' shape: the keywords line is its own paragraph and a
+    // heading follows. 287 words still fail Value in Health's 250.
+    let he = format!(
+        "Abstract\n\n{}\n\nKeywords: universal health coverage; employer mandate; organisational \
+         resource capacity; SME; Oman; Dhamani; bootstrapped mediation; health financing; Gulf \
+         Cooperation Council\n\n1. Background\n\n{}\n",
+        w(287), w(60)
+    );
+    let it = row(&he, &[limit("250", "No more than 250 words")]);
+    assert!(it.detail.contains("abstract has 287 words"), "{}", it.detail);
+    assert!(!it.passed && !it.unevaluable, "{it:?}");
+
+    // R PAPER's dash form.
+    let rp = format!(
+        "Abstract\n\n{}\n\nKeywords- emotion detection, social media NLP, BiLSTM, Firefly Algorithm, \
+         Crow Search Algorithm, HEFCSO, hyperparameter optimization, GloVe embeddings, class \
+         imbalance, deep learning.\n\nIntroduction\n\n{}\n",
+        w(181), w(60)
+    );
+    assert!(row(&rp, &plos).detail.contains("abstract has 181 words"));
+
+    // The multi-limit row reports the same count.
+    let two = [limit("250", "a"), limit("300", "b")];
+    let it = row(&ijas, &two);
+    assert!(it.unevaluable && it.detail.contains("Your abstract has 248 words"), "{}", it.detail);
+
+    // Negative control: "keywords" inside an abstract sentence closes nothing.
+    let inline = format!(
+        "Abstract\n\n{}\n\nKeywords were chosen from the MeSH thesaurus {}\n\nMethods\n\n{}\n",
+        w(100), w(50), w(60)
+    );
+    assert!(row(&inline, &plos).detail.contains("abstract has 157 words"));
+}

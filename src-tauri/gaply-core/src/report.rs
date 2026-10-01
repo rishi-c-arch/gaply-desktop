@@ -2257,13 +2257,7 @@ pub fn checklist_from_requirements(
         requirements.iter().filter(|r| r.kind == RequirementKind::AbstractLimit).collect();
     let abstract_values: std::collections::BTreeSet<&str> =
         abstract_rows.iter().map(|r| r.value.as_str()).collect();
-    let abstract_words_found = extraction
-        .sections
-        .iter()
-        .filter(|s| s.kind == SectionKind::Abstract)
-        .flat_map(|s| s.paragraphs.iter())
-        .map(|p| p.split_whitespace().count())
-        .sum::<usize>();
+    let abstract_words_found = abstract_word_count(extraction);
     if abstract_values.len() > 1 && abstract_words_found > 0 {
         let stated = abstract_rows
             .iter()
@@ -2288,13 +2282,7 @@ pub fn checklist_from_requirements(
         });
     } else if let Some(r) = abstract_rows.first().copied() {
         if let Ok(limit) = r.value.parse::<usize>() {
-            let abstract_words = extraction
-                .sections
-                .iter()
-                .filter(|s| s.kind == SectionKind::Abstract)
-                .flat_map(|s| s.paragraphs.iter())
-                .map(|p| p.split_whitespace().count())
-                .sum::<usize>();
+            let abstract_words = abstract_word_count(extraction);
             // An abstract the extractor did not find is not an abstract over
             // the limit. Absence is UNEVALUABLE, not a failure.
             if abstract_words > 0 {
@@ -2562,6 +2550,49 @@ pub fn checklist_from_requirements(
 /// * **never named at all**, and only for standards that have an evaluator.
 ///   Saying "this journal does not require CHEERS" when nothing could have
 ///   checked CHEERS anyway is clutter, not information.
+/// **The words of the abstract, which end at its keywords line.**
+///
+/// An Abstract SECTION runs to the next heading the splitter recognises, and
+/// that is not always where the abstract ends. IJAS has no Introduction
+/// heading, so its section ran on through three introduction paragraphs to
+/// MATERIALS AND METHODS, and the PDF parse glued the keywords line to the first
+/// of them: 588 words counted for a 248-word abstract, failed against PLOS
+/// ONE's 300. Health Economics (306 for 287) and R PAPER (202 for 181) counted
+/// their keywords line. All three close with a paragraph that OPENS with a
+/// keywords label, so counting stops there; everything from it on is not
+/// abstract. Measured forms: "Keywords:" and "Keywords-".
+///
+/// Scoped to this count only. The section itself is unchanged, and its other
+/// readers (validation scope, claim strength, AI detection, chunking,
+/// locations) still see the run-on paragraphs as Abstract.
+fn abstract_word_count(extraction: &ExtractionResult) -> usize {
+    let mut words = 0;
+    for section in extraction.sections.iter().filter(|s| s.kind == SectionKind::Abstract) {
+        for p in &section.paragraphs {
+            if opens_with_keywords_label(p) {
+                break;
+            }
+            words += p.split_whitespace().count();
+        }
+    }
+    words
+}
+
+/// "Keywords:" / "Key words -" / "KEYWORDS—": the label, then a separator. A
+/// sentence that begins with the word ("Keywords were chosen from MeSH") is
+/// abstract text, not the closing line.
+fn opens_with_keywords_label(paragraph: &str) -> bool {
+    let p = paragraph.trim_start();
+    let lower = p.to_lowercase();
+    let rest = ["keywords", "key words", "key-words"]
+        .iter()
+        .find_map(|label| lower.strip_prefix(label));
+    match rest {
+        Some(rest) => matches!(rest.trim_start().chars().next(), Some(':' | '-' | '–' | '—')),
+        None => false,
+    }
+}
+
 fn unbound_standard_findings(
     requirements: &[crate::journal_store::StoredRequirement],
     bound: &std::collections::BTreeSet<(&str, &str)>,

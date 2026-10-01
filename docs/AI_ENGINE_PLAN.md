@@ -21011,3 +21011,115 @@ ignored. `cargo test -p app --features devtools`: 10 targets, 500 passed
 `checklist_line.vitest.ts:62` still say no row reaches the screen or the
 exporters with `unevaluable` set. D246's abstract row and the typed word limit
 already did before this change, and this row now does too.
+
+### D260 — an abstract ends at its keywords line: IJAS counted 588 for 248 and failed a correct abstract
+
+**Found by `docs/PUBLISHREADY_AT_HEAD_2026-10-01.md` §3 item 2.** IJAS against
+PLOS ONE read *"abstract has 588 words against a limit of 300"* → ✗. The
+abstract is 248 words and passes.
+
+#### Cause `[probe zz_abstract_bounds]`
+
+The checklist counts every paragraph of every section typed Abstract
+(`report.rs`, both abstract branches). On IJAS:
+
+* **The splitter does NOT miss the Methods heading.** MATERIALS AND METHODS is
+  found, with 556 words.
+* **The abstract has no closing boundary.** IJAS has no Introduction heading,
+  so the section runs on through three introduction paragraphs (110 + 111 +
+  119). The only marker of the abstract's end is the keywords line. Nothing
+  treats that line as an end, and **`parse_path` glues it to the first
+  introduction paragraph**: *"…Methoprene, Total protein, Trehalose
+  Sericulture is one of the few agro-based enterprises…"* is one paragraph in
+  the parsed text. The abstract proper is 170 + 78 = 248.
+
+#### All six manuscripts: Abstract section against the abstract inside it `[probe]`
+
+| manuscript | counted | abstract proper | the excess |
+|---|---:|---:|---|
+| IJAS (PDF) | 588 | 248 | keywords line + 3 introduction paragraphs (no closing heading) |
+| Health Economics | 306 | 287 | the keywords line (19), its own paragraph |
+| R PAPER | 202 | 181 | the keywords line (21), "Keywords-" form |
+| chapter3 | 212 | **none** | "3.10 Summary" is typed Abstract (`sections.rs:42`, `"summary"`). It is a chapter summary, not an abstract |
+| final-L | 9764 | 729 | ABSTRACT (799) holds a 70-word page-footer paragraph (*"232 Page 50 of 401 - Integrity Submission…"*); "3.10 Summary" (8965) is typed Abstract and runs over Chapter 4, whose numbered headings are not split |
+| Lake Chapter 1 | — | — | no Abstract section |
+
+The first three share one cause, and the keywords line is their boundary.
+chapter3 and final-L are a different defect: a heading classified as Abstract
+that is not one, plus footer residue. **Not fixed here.** A boundary rule
+cannot repair a section that was never an abstract.
+
+#### Fix `[src]`
+
+`abstract_word_count` stops counting at the first Abstract paragraph that
+**opens with a keywords label followed by a separator**. The labels are
+"keywords", "key words" and "key-words"; the separators are `:`, `-`, `–`
+and `—`. Measured forms: "Keywords:" (IJAS, Health Economics) and "Keywords-"
+(R PAPER). Both abstract branches use it.
+
+**Scoped to the checklist count.** The section is unchanged. The Abstract
+section feeds the validation rule scope, the claim-strength specialist, AI
+detection, chunking, locations and the dataset scan. Moving paragraphs out of
+it shifts `section_index` for every later section, a change none of those
+consumers has been measured for. So the run-on IJAS paragraphs are still
+Abstract to everything else. Recorded, not changed.
+
+#### Measured `[probe zz_verdict_control]`
+
+`build_checklist` for all 106 profiled journals over each manuscript's
+`parse_path` text, before and after. **The prediction was written first**, from
+the baseline rows and the new counts:
+
+| text | abstract rows changed (pred / actual) | verdict flips (pred / actual) | non-abstract differences |
+|---|---|---|---|
+| IJAS | 96 / 96 (588 → 248) | 67 / **67, the identical set** | 0 |
+| Health Economics | 96 / 96 (306 → 287) | 3 / 3: PLOS ONE, BMJ, STOTEN (300) | 0 |
+| R PAPER | 96 / 96 (202 → 181) | 3 / 3: J Historical Geography, J Second Language Writing, Ocean Engineering (200) | 0 |
+| chapter3, final-L, Lake | 0 / 0 | 0 / 0 | 0 |
+
+Each changed row differs only in `passed` and `detail`. Acceptance: IJAS →
+PLOS ONE *"248 words against a limit of 300"* ✓, and Health Economics → Value
+in Health *"287 words against a limit of 250"* ✗. `journal-seed.json` is
+untouched (`c0b97398c25624f4…`).
+
+**Correction to the audit.** It gave Health Economics' abstract as "273 by
+hand". `parse_path` and `textutil` both give 287, token for token, so the 273
+was a hand-count error. Amended in place in the audit file.
+
+#### Test and deletion tests
+
+`report::tests::the_abstract_word_count_stops_at_the_keywords_line` covers four
+cases, and its fixture reproduces the real 588 on the unfixed tree:
+
+* IJAS's shape (the keywords line glued to introduction text, no heading until
+  Methods): 248, passes 300.
+* Health Economics' shape: 287, fails 250.
+* R PAPER's dash form: 181.
+* The multi-limit row: it reports the same 248.
+
+Negative control: *"Keywords were chosen from the MeSH thesaurus…"* inside an
+abstract closes nothing (157).
+
+Before the fix the test was red at the predicted assertion. Each deletion was
+predicted first and run with `--workspace --no-fail-fast`, restore
+`cmp`-checked:
+
+| | deletion | predicted | actual |
+|---|---|---|---|
+| DT-1 | the stop removed (every paragraph counts) | the new test only, at IJAS's 248 | as predicted, 588 observed; 26 targets, 2016 + 1 failed |
+| DT-2 | the separator requirement removed | the new test only, at the negative control | as predicted (`tests.rs:3464`); 26 targets, 2016 + 1 failed |
+
+**Suites:** `cargo test --workspace` 26 targets, 2017 passed (2016 + 1). `cargo
+test -p app --features devtools` 10 targets, 500 passed (macOS). vitest 75
+files, 970 passed. The golden capture is unchanged.
+
+#### Not claimed
+
+* That every keywords form is recognised. Two were measured; "Index Terms" (IEEE)
+  and a keywords line with no separator are not handled.
+* That the parse-level glue is fixed. `parse_path` still joins IJAS's keywords
+  line to the next paragraph. The count is right only because the whole
+  paragraph is excluded, and the introduction text excluded with it is not
+  abstract.
+* chapter3's and final-L's Summary-as-Abstract and the footer paragraph. Both
+  still reach the count.

@@ -297,7 +297,10 @@ the decided fraction. It is decided-and-correct, and on this sample that is
   pass.
 * Health Economics' abstract counts as 306, against 273 by hand up to
   `Keywords:`. The keywords line is the likely difference; this was not
-  traced.
+  traced. **Corrected by D260: the 273 was a hand-count error.** `parse_path`
+  and `textutil` both give **287** words before `Keywords:`, token for token.
+  The 19-word difference from 306 is the keywords line, which the count now
+  excludes. 287 still fails Value in Health's 250.
 
 ## 6. Probes run
 
