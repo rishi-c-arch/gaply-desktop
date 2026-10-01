@@ -534,6 +534,74 @@ fn limit_is_on_the_title(lower: &str, lead_at: usize) -> bool {
     titled && !title_page
 }
 
+/// **Is this a limit on a part that is not the manuscript? §11 D261.** The
+/// same question as [`limit_is_on_the_title`], with two more subjects, read
+/// from the whole clause before the limit phrase. The clause runs through an
+/// open bracket, so a bracketed limit is read against what the bracket
+/// describes:
+///
+/// * *"The capsule is a summary of the abstract of 30 words or less"*
+///   (Fertility and Sterility): the capsule's length, not the abstract's;
+/// * *"Provide 3 highlight statements (a combined total of no more than 120
+///   words)"* (Value in Health): the highlights', not the manuscript's.
+///
+/// Measured over the 222 seed limit rows and 61 saved guide pages. Sentences
+/// that name highlights AFTER a real limit keep it (Water Research's 3,000,
+/// Environmental Pollution's and Lingua's abstracts). Deliberately only these
+/// two subjects; the other non-manuscript subjects measured (take-home
+/// message, trial-registry abstract, case summaries, biography, impact
+/// statement) are recorded in D261 and not decided here.
+///
+/// **A RUN-IN LABEL is not a subject.** A bold "Highlights" opening a paragraph
+/// reaches the sentence glued on: *"Highlights The main text of the manuscript
+/// must not exceed 6000 words"* (J Hepatology's shape, pinned in
+/// `guidelines.rs`). So a subject word that is capitalised and followed directly
+/// by another capitalised word ("Highlights The", "Capsule The", "SEO
+/// Highlights Provide") is read as a label and skipped. Needs the sentence's
+/// own case, so it takes the original beside the lowercased text; where
+/// lowercasing changed the character count, the case is unavailable and every
+/// occurrence counts.
+fn limit_is_on_a_part_that_is_not_the_manuscript(sentence: &str, lower: &str, lead_at: usize) -> bool {
+    let n = lower[..lead_at].chars().count();
+    let prefix: String = if sentence.chars().count() == lower.chars().count() {
+        sentence.chars().take(n).collect()
+    } else {
+        lower[..lead_at].to_string()
+    };
+    let clause = prefix.rsplit(['.', ';', ':', ',']).next().unwrap_or("");
+    let words: Vec<&str> =
+        clause.split(|c: char| !c.is_ascii_alphabetic()).filter(|w| !w.is_empty()).collect();
+    let capital = |w: &str| w.starts_with(|c: char| c.is_ascii_uppercase());
+    words.iter().enumerate().any(|(i, w)| {
+        let subject = matches!(w.to_ascii_lowercase().as_str(), "capsule" | "highlight" | "highlights");
+        let label = capital(w) && words.get(i + 1).is_some_and(|next| capital(next));
+        subject && !label
+    })
+}
+
+/// **Would the extractor refuse this stored LIMIT row today? §11 D261.** For
+/// [`crate::journal_store::remove_misread_rows`]: true when the row's value is
+/// read from its span only by leads whose unit has no kind (a count of authors)
+/// or whose subject is not the manuscript. A stored row and a fresh crawl of the
+/// same sentence then agree.
+pub fn stored_limit_is_not_on_the_manuscript(span: &str, value: &str) -> bool {
+    let lower = span.to_lowercase();
+    let mut refused = Vec::new();
+    for lead in LIMIT_LEADS {
+        for (lead_at, _) in lower.match_indices(lead) {
+            let at = lead_at + lead.len();
+            if number_after(&lower, at).as_deref() != Some(value) {
+                continue;
+            }
+            refused.push(
+                limit_kind(&lower, at).is_none()
+                    || limit_is_on_a_part_that_is_not_the_manuscript(span, &lower, lead_at),
+            );
+        }
+    }
+    !refused.is_empty() && refused.iter().all(|r| *r)
+}
+
 fn is_about_the_manuscript(sentence_lower: &str, article_type: &Option<String>) -> bool {
     article_type.is_some() || MANUSCRIPT_PARTS.iter().any(|p| sentence_lower.contains(p))
 }
@@ -699,6 +767,10 @@ fn limit_kind(lower: &str, number_at: usize) -> Option<RequirementKind> {
             "references" => return Some(RequirementKind::ReferenceLimit),
             // Units with no kind: the number is not a limit Gaply can check.
             "pages" | "page" | "characters" | "lines" | "keywords" => return None,
+            // A count of PEOPLE (§11 D261). *"limited to 3 authors, 400 words"*
+            // (Fertility and Sterility) read past "authors" to "words" and
+            // stored 3 as a word limit.
+            "author" | "authors" => return None,
             _ => {}
         }
     }
@@ -1128,6 +1200,12 @@ pub fn extract_requirements(blocks: &[GuidelineBlock]) -> Vec<ExtractedRequireme
                     // A title's length is not the manuscript's (§11 D250).
                     if matches!(kind, RequirementKind::WordLimit | RequirementKind::AbstractLimit)
                         && limit_is_on_the_title(&lower, lead_at)
+                    {
+                        continue;
+                    }
+                    // Nor a capsule's or the highlights' (§11 D261).
+                    if matches!(kind, RequirementKind::WordLimit | RequirementKind::AbstractLimit)
+                        && limit_is_on_a_part_that_is_not_the_manuscript(sentence, &lower, lead_at)
                     {
                         continue;
                     }
@@ -1614,6 +1692,36 @@ mod tests {
         // Negative controls, verbatim: a title named inside the counted text.
         assert_eq!(words("Commentary", "The commentary articles should be no more than 1000 words in length (including title and author information)."), vec!["1000"]);
         assert_eq!(words("Research article", "If including an experimental section: up to 4,500 words, including figures and tables and excluding title page, abstract and keywords."), vec!["4500"]);
+    }
+
+    // ---- §11 D261: a limit on a capsule, highlights or authors ---------------
+
+    /// Three seed rows stored as manuscript limits, verbatim: F&S's Capsule
+    /// (abstract 30), F&S's "3 authors" (word limit 3), Value in Health's
+    /// highlights (word limit 120). The controls are the real limits on the same
+    /// pages and the sentences that name highlights or keywords AFTER a real
+    /// limit, verbatim from the seed.
+    #[test]
+    fn a_limit_on_a_capsule_highlights_or_authors_is_not_a_manuscript_limit() {
+        let limits = |h: &str, span: &str| -> Vec<(String, String)> {
+            extract_requirements(&[b(h, span)])
+                .into_iter()
+                .filter(|r| matches!(r.kind, RequirementKind::WordLimit | RequirementKind::AbstractLimit))
+                .map(|r| (r.kind.as_str().to_string(), r.value))
+                .collect()
+        };
+        let one = |k: &str, v: &str| vec![(k.to_string(), v.to_string())];
+        assert_eq!(limits("Submission", "Capsule The capsule is a summary of the abstract of 30 words or less."), vec![]);
+        assert_eq!(limits("Letters to the Editors", "Letters to the Editors are limited to 3 authors, 400 words (not counting the title page or references), and 1 to 4 references."), vec![]);
+        assert_eq!(limits("Highlights", "and Making Your Article Visible with SEO Highlights Provide 3 highlight statements (a combined total of no more than 120 words) that capture the paper's contribution to the field."), vec![]);
+
+        // Controls: the real limits survive.
+        assert_eq!(limits("Submission", "Submissions are limited to 650 words, up to a total of two tables and/or figures and a maximum of 5 references."), one("word_limit", "650"));
+        assert_eq!(limits("Short Communications", "Submissions are usually limited to 3000 words accompanied by no more than two illustrations (figures or tables), plus a short abstract and up to three highlights."), one("word_limit", "3000"));
+        assert_eq!(limits("Abstract", "The abstract (up to 300 words), highlights and conclusions of papers in this journal must contain clear and concise statements."), one("abstract_limit", "300"));
+        // A run-in "Highlights" label glued to a real limit is not its subject.
+        assert_eq!(limits("Special sections", "Highlights The main text of the manuscript must not exceed 6000 words."), one("word_limit", "6000"));
+        assert_eq!(limits("Abstract", "As well as an abstract (of no more than 200 words) and a maximum of 6 keywords, authors must provide highlights, namely 3 to 5 bullet points (85 characters maximum, including spaces, per bullet point)."), one("abstract_limit", "200"));
     }
 
     // ---- §11 D251: a listed type named anywhere in the limit's sentence -------

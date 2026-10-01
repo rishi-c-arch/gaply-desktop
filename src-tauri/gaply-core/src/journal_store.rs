@@ -651,6 +651,10 @@ fn limit_is_only_an_extension(span: &str, value: &str) -> bool {
 ///   number from that sentence is right, so the row is refused, not revalued;
 /// * a REPORTING STANDARD, or a binding, whose sentence names the standard only
 ///   as an example ([`crate::journal_extract::standard_named_as_example`]).
+/// * a WORD or ABSTRACT limit whose number counts authors, or whose subject is a
+///   capsule or the highlights
+///   ([`crate::journal_extract::stored_limit_is_not_on_the_manuscript`],
+///   §11 D261).
 ///
 /// Runs at startup after the seed (the seed loads only into a database without
 /// the journal). Idempotent.
@@ -667,9 +671,11 @@ pub fn remove_misread_rows(db: &Database) -> Result<MisreadRemoval, GaplyError> 
     };
     for (id, kind, value, span) in reqs {
         let misread = match kind.as_str() {
-            "word_limit" | "abstract_limit" | "figure_limit" | "reference_limit" => {
+            "word_limit" | "abstract_limit" => {
                 limit_is_only_an_extension(&span, &value)
+                    || crate::journal_extract::stored_limit_is_not_on_the_manuscript(&span, &value)
             }
+            "figure_limit" | "reference_limit" => limit_is_only_an_extension(&span, &value),
             "reporting_standard" => crate::journal_extract::standard_named_as_example(&span, &value),
             _ => false,
         };
@@ -1517,8 +1523,9 @@ mod seed_tests {
         // minus BMJ's student Careers word limit (§11 D238), minus the five
         // Frontiers extension ceilings and four example-only CONSORT rows (§11 D240),
         // plus 94 from the twenty Elsevier guide pages (§11 D252), plus 377 from
-        // the seventy-six of the 80-journal Elsevier batch (§11 D258).
-        assert_eq!(r.requirements, 666, "the crawl's row count, not a round number");
+        // the seventy-six of the 80-journal Elsevier batch (§11 D258), minus
+        // F&S's Capsule and "3 authors" and Value in Health's highlights (§11 D261).
+        assert_eq!(r.requirements, 663, "the crawl's row count, not a round number");
 
         // The rows are READABLE through the real reader, not just present.
         let reqs = requirements_for(&db, "nature-medicine").unwrap();
@@ -1586,7 +1593,7 @@ mod seed_tests {
         let db = Database::in_memory().unwrap();
         let first = load_bundled_seed(&db).unwrap();
         let second = load_bundled_seed(&db).unwrap();
-        assert_eq!(first.requirements, 666);
+        assert_eq!(first.requirements, 663);
         assert_eq!(second.requirements, 0, "nothing left to seed");
         assert_eq!(second.skipped_already_present.len(), 106);
         assert_eq!(requirements_for(&db, "nature-medicine").unwrap().len(), 39);
@@ -1664,6 +1671,48 @@ mod seed_tests {
         assert_eq!(remove_misread_rows(&db).unwrap(), MisreadRemoval { requirements: 9, bindings: 1 });
         let after: Vec<usize> = keys.iter().map(|k| requirements_for(&db, k).unwrap().len()).collect();
         assert_eq!(before, after, "only the nine written back are removed");
+        assert_eq!(remove_misread_rows(&db).unwrap(), MisreadRemoval::default(), "idempotent");
+    }
+
+    /// **§11 D261: a database seeded before D261 loses exactly the three
+    /// non-manuscript limits**, written back verbatim, and keeps the real limits
+    /// on the same pages. Idempotent.
+    #[test]
+    fn a_database_seeded_before_d261_loses_only_the_non_manuscript_limits() {
+        let db = Database::in_memory().unwrap();
+        load_bundled_seed(&db).unwrap();
+        let rows = [
+            ("fertility-and-sterility", "abstract_limit", "30", "Capsule The capsule is a summary of the abstract of 30 words or less."),
+            ("fertility-and-sterility", "word_limit", "3", "Letters to the Editors are limited to 3 authors, 400 words (not counting the title page or references), and 1 to 4 references."),
+            ("value-in-health", "word_limit", "120", "and Making Your Article Visible with SEO Highlights Provide 3 highlight statements (a combined total of no more than 120 words) that capture the paper's contribution to the field."),
+        ];
+        let keys = ["fertility-and-sterility", "value-in-health"];
+        let before: Vec<Vec<(String, String)>> = keys
+            .iter()
+            .map(|k| requirements_for(&db, k).unwrap().into_iter().map(|q| (q.kind.as_str().to_string(), q.value)).collect())
+            .collect();
+        {
+            let conn = db.conn().unwrap();
+            for (n, (j, kind, value, span)) in rows.iter().enumerate() {
+                conn.execute(
+                    "INSERT INTO journal_requirements (journal_key, kind, value, article_type, status,
+                       source_url, source_heading, source_span, extracted_by, fetched_at)
+                     VALUES (?1, ?2, ?3, NULL, 'verified', ?4, 'h', ?5, 'pattern', 1)",
+                    params![j, kind, value, format!("https://example.org/d261/{n}"), span],
+                )
+                .unwrap();
+            }
+        }
+        assert_eq!(remove_misread_rows(&db).unwrap(), MisreadRemoval { requirements: 3, bindings: 0 });
+        let after: Vec<Vec<(String, String)>> = keys
+            .iter()
+            .map(|k| requirements_for(&db, k).unwrap().into_iter().map(|q| (q.kind.as_str().to_string(), q.value)).collect())
+            .collect();
+        assert_eq!(before, after, "only the three written back are removed");
+        // The real limits on those pages are still there.
+        let fs = &after[0];
+        assert!(fs.contains(&("word_limit".into(), "650".into())) && fs.contains(&("word_limit".into(), "2000".into())), "{fs:?}");
+        assert!(after[1].contains(&("abstract_limit".into(), "250".into())), "{:?}", after[1]);
         assert_eq!(remove_misread_rows(&db).unwrap(), MisreadRemoval::default(), "idempotent");
     }
 

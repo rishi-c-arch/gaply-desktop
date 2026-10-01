@@ -21123,3 +21123,146 @@ files, 970 passed. The golden capture is unchanged.
   abstract.
 * chapter3's and final-L's Summary-as-Abstract and the footer paragraph. Both
   still reach the count.
+
+### D261 — a limit on a capsule, the highlights or the author count is not a manuscript limit: 3 rows removed, and the class measured at 22 of 222
+
+**Found by `docs/PUBLISHREADY_AT_HEAD_2026-10-01.md` §3 items 2–3.** Three
+bundled rows were stored as manuscript limits:
+
+* Fertility and Sterility, *"abstract limit: 30 words"*. Every manuscript with
+  an abstract failed it.
+* Fertility and Sterility, *"word limit: 3"*.
+* Value in Health, *"word limit: 120"*. A 6,755-word paper failed it.
+
+#### Causes `[src]`
+
+| row | sentence | why it was stored |
+|---|---|---|
+| F&S 30 | *"Capsule The capsule is a summary of the abstract of 30 words or less."* | The D243 lead "abstract of" fires. The sentence passes `is_about_the_manuscript` on "summary" / "abstract". D250's subject check reads only the last four words before the lead ("a summary of the"), so "capsule" is outside it |
+| F&S 3 | *"…limited to 3 authors, 400 words…"* | **A unit problem, not a subject problem.** `limit_kind` walks the tokens after the number. "authors" is not a unit it knows, so it does not stop there (D245 stops only at listed units) and reaches "words": 3 became a word limit |
+| VIH 120 | *"Provide 3 highlight statements (a combined total of no more than 120 words) that capture the paper's contribution…"* | D254's bracket rule looks for a TITLE before the bracket, and only when the bracket holds nothing before the lead. This one holds "a combined total of". The sentence passes the manuscript check on "paper's" / "contribution" |
+
+**One rule does not cover all three.** The capsule and the highlights are
+D250/D254's subject question with other subjects. The author count is a unit:
+the number counts people. So the change has two parts:
+
+* "author" / "authors" joins `limit_kind`'s units with no kind.
+* `limit_is_on_a_part_that_is_not_the_manuscript` reads the WHOLE clause
+  before the lead, through an open bracket, for "capsule" or "highlight(s)".
+
+#### The class: every stored limit, hand-read `[seed]`
+
+All 222 word and abstract limit rows (128 distinct sentences) were read. **22
+rows (10%) are limits on something that is not the manuscript.** These three
+are not singletons:
+
+| subject | rows | journals | sentence (abridged) |
+|---|---:|---:|---|
+| trial-registry results abstract | 13 | 13 | *"Editors will not consider results to be a prior publication if … posted in the same clinical trials registry … brief structured abstract (fewer than 500 words)"* |
+| take-home message | 4 | 1 (European Urology) | *"a two or three sentence take home message (no more than 40 words)"* |
+| case-report sub-sections | 2 | 1 (J Hepatology) | *"a brief summary of the clinical case (should not exceed 250 words)"*; *"On the second page … (should not exceed 500 words)"* |
+| capsule | 1 | F&S | above |
+| highlights | 1 | VIH | above |
+| **unit:** authors | 1 | F&S | above |
+
+Separate, and not this shape: Environmental Pollution's *"abstract limit
+4000"* is *"Manuscript should include an Abstract, with flexible format and total
+length up to 4,000 words"*. That is the right subject read as the wrong kind.
+
+**Subjects on the 61 saved guide pages** (`~/gaply-b80-sample/html` + `html41`;
+the 67 of D257 were lost to the 1 Oct reboot, and 61 were refetched). The rule
+would need to know these too:
+
+* **Vitae / biography**: *"a short (maximum 100 words) biography of each author"*.
+* **Précis**.
+* **Impact Statement**: *"An Impact Statement of up to 150 words"*.
+* **Proposal**: *"The proposal (no more than 350 words)"*.
+* **title** and **keywords**, which are already refused (D250, D254, D242).
+
+**Only capsule, highlights and the author unit are acted on here.** The
+registry, take-home and case-section rows are the same class. Acting on them
+changes 19 more rows in 15 journals. That was outside this change's control
+("only these rows"), and they are recorded for the next one.
+
+#### Fix `[src]`
+
+* **Extractor** (`journal_extract.rs`): the unit, plus the subject check at the
+  same site as D250's.
+* **Installed databases:** `remove_misread_rows` (D240) also refuses a word or
+  abstract limit when `stored_limit_is_not_on_the_manuscript(span, value)`
+  holds. That is true when every lead that yields the row's value is refused by
+  the unit or the subject. The extractor and the store share one predicate.
+* **The bundled seed:** the three rows are removed from `journal-seed.json`,
+  because `the_bundled_seed_carries_no_misread_row_and_keeps_every_other_standard`
+  pins that it carries none (D240's pattern). That is 39 lines deleted and none
+  added; every other table and row is asserted equal. 666 → 663, and the two
+  count pins say why.
+
+#### Negative controls, predictions written first (`~/gaply-b80-sample/nm/PREDICTION.txt`) `[probe]`
+
+| control | predicted | actual |
+|---|---|---|
+| The 222 original seed limit rows through the new extractor (own heading + sentence) | gone: the baseline's 1 (BMJ 300, the D238 hand-correction) + the 3 | **as predicted, 218 real limits re-read unchanged**; the predicate fires on exactly the 3 |
+| The 61 saved pages re-extracted | only VIH's 120 removed | **as predicted**; every other page's rows and every block byte-identical |
+| `build_checklist`, 106 journals × 6 manuscripts' `parse_path` text, against D260's outputs | only F&S and VIH change: VIH's "word limit: 120" and F&S's "abstract limit: 30 words" gone; F&S's depends-on-type row lists 650 and 2000 (also_from 2 → 1) | **as predicted on all 6 texts**; no other journal, no other row |
+
+#### Tests
+
+* `journal_extract::tests::a_limit_on_a_capsule_highlights_or_authors_is_not_a_manuscript_limit`:
+  the three sentences verbatim. Controls: F&S's 650, plus Water Research's
+  3000, Environmental Pollution's abstract 300 and Lingua's abstract 200, the
+  three sentences that name highlights after a real limit.
+* `journal_store::seed_tests::a_database_seeded_before_d261_loses_only_the_non_manuscript_limits`:
+  the three rows written back verbatim. Exactly 3 are removed, F&S's 650 and
+  2000 and VIH's abstract 250 survive, and it is idempotent. **Before the seed
+  edit it removed 6**: the 3 written back plus the 3 still in the seed. That is
+  independent evidence that the predicate catches nothing else in 666 rows.
+* Both were red before the fix, at the predicted assertions (`[("abstract_limit",
+  "30")]` vs `[]`; `MisreadRemoval { requirements: 0 }` vs `3`).
+
+#### The first suite run found a false refusal the corpus controls did not
+
+With the first version of the subject check, all three controls above came back
+as predicted. Then `cargo test --workspace` went red on a test I had not
+predicted to move:
+`guidelines::tests::a_label_that_names_no_type_neither_types_nor_extends_a_section`
+(app crate). It pins J Hepatology's markup, in which a bold run-in
+**Highlights** label reaches the extractor glued to the sentence: *"Highlights
+The main text of the manuscript must not exceed 6000 words."* The clause scan
+refused a real 6,000-word manuscript limit.
+
+**Neither the 222 seed rows nor the 61 pages contain that shape, so no corpus
+could have caught it.** The fix skips a subject word that is a glued label:
+capitalised and directly followed by another capitalised word ("Highlights
+The", "Capsule The", "SEO Highlights Provide"). Capsule's own "the capsule
+is…" and VIH's "3 highlight statements" still decide. The verbatim shape is now
+also a control in the extractor test. **All three controls were re-run on the
+refined rule and matched the same written predictions.** The suite then ran
+green: 26 targets, 2019 passed (2017 + 2). The app crate: 10 targets, 500
+passed.
+
+#### Deletion tests, predicted first (`~/gaply-b80-sample/nm/DT_PREDICTION.txt`)
+
+`--workspace --no-fail-fast`, one log per run. Each mutated file was restored
+from a saved copy and `cmp`-checked before the next run. All 26 targets ran
+every time.
+
+| | deletion | predicted red | actual red |
+|---|---|---|---|
+| DT-1 | the "authors" unit | the extract test (3 authors) and the D261 store test | **as predicted**: `[("word_limit", "3")]`; removal 2 ≠ 3 |
+| DT-2 | the subject check (always false) | the extract test (capsule) and the D261 store test | **as predicted**: `[("abstract_limit", "30")]`; removal 1 ≠ 3 |
+| DT-3 | the run-in label skip | the extract test (6000 control) and the app crate's label test | **as predicted**: both lose 6000 |
+| DT-4 | the reconcile's call to the predicate | the D261 store test only | **2, one more than predicted**: plus `journal_producers_have_callers.rs`, because a public journal producer with no production caller is itself refused. A real guard I had not counted |
+| DT-5 | the three seed rows put back | four: no-misread-seed, the two 663 pins, the D261 store test | **5, one more than predicted**: plus D240's `a_database_seeded_before_d240_loses_only_the_misread_rows`, which pins its exact removal count (12 ≠ 9). A real guard, not counted |
+
+Both misses undercounted. In each, a second guard I had not listed depends on
+the mutated thing. No prediction was missed in the dangerous direction: every
+mutation reddened at least the tests named for it.
+
+#### Not claimed
+
+* The other 19 class rows, and the six page subjects, are measured and not
+  decided.
+* F&S's Letter limit of 400 is not recovered. The sentence's only lead is
+  before "3 authors", so the row is refused, not revalued.
+* The class count is one reader's hand-read of 128 sentences.

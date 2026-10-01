@@ -7562,19 +7562,6 @@
    "conflict_id": null,
    "extracted_by": "pattern",
    "fetched_at": 1790835473,
-   "journal_key": "value-in-health",
-   "kind": "word_limit",
-   "source_heading": "II. Manuscript Specifications and Submission",
-   "source_span": "and Making Your Article Visible with SEO Highlights Provide 3 highlight statements (a combined total of no more than 120 words) that capture the paper's contribution to the field.",
-   "source_url": "https://www.sciencedirect.com/journal/value-in-health/publish/guide-for-authors",
-   "status": "verified",
-   "value": "120"
-  },
-  {
-   "article_type": null,
-   "conflict_id": null,
-   "extracted_by": "pattern",
-   "fetched_at": 1790835473,
    "journal_key": "annals-of-oncology",
    "kind": "reporting_standard",
    "source_heading": "Reporting Clinical Trials",
@@ -7728,19 +7715,6 @@
   },
   {
    "article_type": null,
-   "conflict_id": null,
-   "extracted_by": "pattern",
-   "fetched_at": 1790835473,
-   "journal_key": "fertility-and-sterility",
-   "kind": "abstract_limit",
-   "source_heading": "Submission",
-   "source_span": "Capsule The capsule is a summary of the abstract of 30 words or less.",
-   "source_url": "https://www.sciencedirect.com/journal/fertility-and-sterility/publish/guide-for-authors",
-   "status": "verified",
-   "value": "30"
-  },
-  {
-   "article_type": null,
    "conflict_id": "cf-fertility-and-sterility-word_limit-\u0000unbound",
    "extracted_by": "pattern",
    "fetched_at": 1790835473,
@@ -7751,19 +7725,6 @@
    "source_url": "https://www.sciencedirect.com/journal/fertility-and-sterility/publish/guide-for-authors",
    "status": "conflicted",
    "value": "650"
-  },
-  {
-   "article_type": "Letter",
-   "conflict_id": null,
-   "extracted_by": "pattern",
-   "fetched_at": 1790835473,
-   "journal_key": "fertility-and-sterility",
-   "kind": "word_limit",
-   "source_heading": "Article Types",
-   "source_span": "Letters to the Editors are limited to 3 authors, 400 words (not counting the title page or references), and 1 to 4 references.",
-   "source_url": "https://www.sciencedirect.com/journal/fertility-and-sterility/publish/guide-for-authors",
-   "status": "verified",
-   "value": "3"
   },
   {
    "article_type": null,
