@@ -569,14 +569,56 @@ fn limit_is_on_a_part_that_is_not_the_manuscript(sentence: &str, lower: &str, le
         lower[..lead_at].to_string()
     };
     let clause = prefix.rsplit(['.', ';', ':', ',']).next().unwrap_or("");
+    names_a_subject(clause, CLAUSE_SUBJECTS) || names_a_subject(&prefix, SENTENCE_SUBJECTS)
+}
+
+/// Subjects read from the limit's own clause. §11 D261: capsule, highlights.
+/// §11 D262: European Urology's take-home message, J Hepatology's "brief
+/// summary" of the clinical case / the patient's outcome.
+const CLAUSE_SUBJECTS: &[&[&str]] = &[
+    &["capsule"], &["highlight"], &["highlights"],
+    &["take", "home", "message"], &["brief", "summary"],
+];
+
+/// Subjects read from the whole sentence before the limit phrase. §11 D262:
+/// *"…posted in the same clinical trials registry in which primary registration
+/// resides, as long as the results are presented in the form of a brief
+/// structured abstract (fewer than 500 words)"* names the registry two commas
+/// before the limit, so a clause-only read cannot see it.
+const SENTENCE_SUBJECTS: &[&[&str]] = &[&["trials", "registry"]];
+
+/// Does `text` name one of `subjects` as the thing the limit is about?
+///
+/// **A glued run-in label is the subject only when nothing of the manuscript
+/// follows it** (§11 D262, refining D261's skip). *"Highlights The main text of
+/// the manuscript must not exceed 6000 words"* names the main text after its
+/// label, so the label is a heading. *"Take Home Message Two or three sentences
+/// (no more than 40 words)"* names nothing of the manuscript after its label,
+/// so the label is what the limit is about. A label is the subject's words all
+/// capitalised and followed directly by another capitalised word.
+fn names_a_subject(text: &str, subjects: &[&[&str]]) -> bool {
     let words: Vec<&str> =
-        clause.split(|c: char| !c.is_ascii_alphabetic()).filter(|w| !w.is_empty()).collect();
+        text.split(|c: char| !c.is_ascii_alphabetic()).filter(|w| !w.is_empty()).collect();
     let capital = |w: &str| w.starts_with(|c: char| c.is_ascii_uppercase());
-    words.iter().enumerate().any(|(i, w)| {
-        let subject = matches!(w.to_ascii_lowercase().as_str(), "capsule" | "highlight" | "highlights");
-        let label = capital(w) && words.get(i + 1).is_some_and(|next| capital(next));
-        subject && !label
-    })
+    let lower: Vec<String> = words.iter().map(|w| w.to_ascii_lowercase()).collect();
+    for subject in subjects {
+        let n = subject.len();
+        for i in 0..words.len().saturating_sub(n - 1) {
+            if !(0..n).all(|k| lower[i + k] == subject[k]) {
+                continue;
+            }
+            let label = words[i..i + n].iter().all(|w| capital(w))
+                && words.get(i + n).is_some_and(|next| capital(next));
+            if !label {
+                return true;
+            }
+            let rest = lower[i + n..].join(" ");
+            if !MANUSCRIPT_PARTS.iter().any(|p| rest.contains(p.trim_end())) {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// **Would the extractor refuse this stored LIMIT row today? §11 D261.** For
@@ -1722,6 +1764,43 @@ mod tests {
         // A run-in "Highlights" label glued to a real limit is not its subject.
         assert_eq!(limits("Special sections", "Highlights The main text of the manuscript must not exceed 6000 words."), one("word_limit", "6000"));
         assert_eq!(limits("Abstract", "As well as an abstract (of no more than 200 words) and a maximum of 6 keywords, authors must provide highlights, namely 3 to 5 bullet points (85 characters maximum, including spaces, per bullet point)."), one("abstract_limit", "200"));
+    }
+
+    // ---- §11 D262: a registry abstract, a take-home message, a case summary --
+
+    /// The seven distinct sentences behind the remaining 19 rows of D261's
+    /// class, verbatim with their stored headings, and for every subject the
+    /// glued run-in label case both ways: a label followed by a manuscript part
+    /// is not the subject; a label followed by nothing of the manuscript is.
+    #[test]
+    fn a_registry_abstract_a_take_home_message_or_a_case_summary_is_not_a_manuscript_limit() {
+        let limits = |h: &str, span: &str| -> Vec<(String, String)> {
+            extract_requirements(&[b(h, span)])
+                .into_iter()
+                .filter(|r| matches!(r.kind, RequirementKind::WordLimit | RequirementKind::AbstractLimit))
+                .map(|r| (r.kind.as_str().to_string(), r.value))
+                .collect()
+        };
+        let one = |k: &str, v: &str| vec![(k.to_string(), v.to_string())];
+        // 13 journals' registry sentence: the subject is two commas before the limit.
+        assert_eq!(limits("Clinical Trials", "Editors will not consider results to be a prior publication if they have already been posted in the same clinical trials registry in which primary registration resides, as long as the results are presented in the form of a brief structured abstract (fewer than 500 words) or table."), vec![]);
+        // European Urology, all four.
+        assert_eq!(limits("Guide for authors", "Rapid Review articles also require a two or three sentence take home message (no more than 40 words) summarising the main message expressed in the article, which must be uploaded as a separate file."), vec![]);
+        assert_eq!(limits("Guide for authors", "Platinum Opinion Editorials require a take home message of two or three sentences (no more than 40 words) summarising the main message expressed in the article that must be uploaded as a separate file or included at the end of the manuscript."), vec![]);
+        assert_eq!(limits("Guide for authors", "Brief Correspondence articles also require a two or three sentence take home message (no more than 40 words) summarising the main message expressed in the article, which must be uploaded as a separate file."), vec![]);
+        // The label IS the subject here: nothing of the manuscript follows it.
+        assert_eq!(limits("Guide for authors", "Take Home Message Two or three sentences (no more than 40 words) summarising the main message expressed in the article should be uploaded as a separate file or included at the end of the manuscript text."), vec![]);
+        // J Hepatology's two case-report sub-sections.
+        assert_eq!(limits("Special sections", "a brief summary of the clinical case (should not exceed 250 words);"), vec![]);
+        assert_eq!(limits("Special sections", "On the second page, the authors will reveal the diagnosis, including a very brief summary of the patient's outcome and the diagnostic challenges of the disease (should not exceed 500 words)."), vec![]);
+
+        // Glued labels followed by a manuscript part are not the subject.
+        assert_eq!(limits("Article types", "Take Home Message The main text should not exceed 3000 words."), one("word_limit", "3000"));
+        assert_eq!(limits("Article types", "Brief Summary The manuscript should not exceed 3000 words."), one("word_limit", "3000"));
+        assert_eq!(limits("Abstract", "Clinical Trials Registry The abstract should not exceed 250 words."), one("abstract_limit", "250"));
+        // A subject named only AFTER a real limit leaves it alone.
+        assert_eq!(limits("Abstract", "Abstracts should not exceed 250 words and must give the clinical trials registry number."), one("abstract_limit", "250"));
+        assert_eq!(limits("Article types", "The main text should not exceed 3000 words, plus a take home message."), one("word_limit", "3000"));
     }
 
     // ---- §11 D251: a listed type named anywhere in the limit's sentence -------

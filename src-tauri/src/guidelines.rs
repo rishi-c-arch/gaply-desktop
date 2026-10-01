@@ -1321,12 +1321,21 @@ mod tests {
         let t = |k: &str, v: &str, ty: Option<&str>| (k.to_string(), v.to_string(), ty.map(String::from));
         let mut want = vec![
             t("figure_limit", "2", Some("Expert Opinion")),
-            t("word_limit", "250", None),
+            // The case summary's 250 is no longer a manuscript limit (§11 D262),
+            // so it cannot witness the section ending; the block below does.
             // "Highlights" is not admitted: the limit keeps the parent heading.
             t("word_limit", "6000", None),
         ];
         want.sort();
         assert_eq!(limits_by_type(html), want);
+        // The witness, read from the blocks: the case-summary sentence sits
+        // under the parent heading, not under "Expert Opinion".
+        let blocks = html_to_blocks(html);
+        let case = blocks
+            .iter()
+            .find(|b| b.text.contains("brief summary of the clinical case"))
+            .expect("the case-summary block");
+        assert_eq!(case.heading, "Special sections", "{blocks:#?}");
     }
 
     // ---- §11 D257: a run-in label types the paragraph it opens --------------

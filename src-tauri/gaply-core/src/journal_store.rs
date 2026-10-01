@@ -1524,8 +1524,10 @@ mod seed_tests {
         // Frontiers extension ceilings and four example-only CONSORT rows (§11 D240),
         // plus 94 from the twenty Elsevier guide pages (§11 D252), plus 377 from
         // the seventy-six of the 80-journal Elsevier batch (§11 D258), minus
-        // F&S's Capsule and "3 authors" and Value in Health's highlights (§11 D261).
-        assert_eq!(r.requirements, 663, "the crawl's row count, not a round number");
+        // F&S's Capsule and "3 authors" and Value in Health's highlights (§11 D261),
+        // minus 13 trial-registry abstracts, European Urology's four take-home
+        // messages and J Hepatology's two case summaries (§11 D262).
+        assert_eq!(r.requirements, 644, "the crawl's row count, not a round number");
 
         // The rows are READABLE through the real reader, not just present.
         let reqs = requirements_for(&db, "nature-medicine").unwrap();
@@ -1593,7 +1595,7 @@ mod seed_tests {
         let db = Database::in_memory().unwrap();
         let first = load_bundled_seed(&db).unwrap();
         let second = load_bundled_seed(&db).unwrap();
-        assert_eq!(first.requirements, 663);
+        assert_eq!(first.requirements, 644);
         assert_eq!(second.requirements, 0, "nothing left to seed");
         assert_eq!(second.skipped_already_present.len(), 106);
         assert_eq!(requirements_for(&db, "nature-medicine").unwrap().len(), 39);
@@ -1713,6 +1715,52 @@ mod seed_tests {
         let fs = &after[0];
         assert!(fs.contains(&("word_limit".into(), "650".into())) && fs.contains(&("word_limit".into(), "2000".into())), "{fs:?}");
         assert!(after[1].contains(&("abstract_limit".into(), "250".into())), "{:?}", after[1]);
+        assert_eq!(remove_misread_rows(&db).unwrap(), MisreadRemoval::default(), "idempotent");
+    }
+
+    /// **§11 D262: the rest of D261's class.** The seven distinct sentences
+    /// behind the 19 rows, written back verbatim under one of their journals,
+    /// are removed, and every other row of those journals survives. Idempotent.
+    #[test]
+    fn a_database_seeded_before_d262_loses_only_the_registry_take_home_and_case_summary_limits() {
+        let db = Database::in_memory().unwrap();
+        load_bundled_seed(&db).unwrap();
+        let rows = [
+            ("the-american-journal-of-medicine", "abstract_limit", "500", "Editors will not consider results to be a prior publication if they have already been posted in the same clinical trials registry in which primary registration resides, as long as the results are presented in the form of a brief structured abstract (fewer than 500 words) or table."),
+            ("european-urology", "word_limit", "40", "Rapid Review articles also require a two or three sentence take home message (no more than 40 words) summarising the main message expressed in the article, which must be uploaded as a separate file."),
+            ("european-urology", "word_limit", "40", "Platinum Opinion Editorials require a take home message of two or three sentences (no more than 40 words) summarising the main message expressed in the article that must be uploaded as a separate file or included at the end of the manuscript."),
+            ("european-urology", "word_limit", "40", "Brief Correspondence articles also require a two or three sentence take home message (no more than 40 words) summarising the main message expressed in the article, which must be uploaded as a separate file."),
+            ("european-urology", "word_limit", "40", "Take Home Message Two or three sentences (no more than 40 words) summarising the main message expressed in the article should be uploaded as a separate file or included at the end of the manuscript text."),
+            ("journal-of-hepatology", "word_limit", "250", "a brief summary of the clinical case (should not exceed 250 words);"),
+            ("journal-of-hepatology", "word_limit", "500", "On the second page, the authors will reveal the diagnosis, including a very brief summary of the patient's outcome and the diagnostic challenges of the disease (should not exceed 500 words)."),
+        ];
+        let keys = ["the-american-journal-of-medicine", "european-urology", "journal-of-hepatology"];
+        let snapshot = |db: &Database| -> Vec<Vec<(String, String, String)>> {
+            keys.iter()
+                .map(|k| requirements_for(db, k).unwrap().into_iter()
+                    .map(|q| (q.kind.as_str().to_string(), q.value, q.source_span)).collect())
+                .collect()
+        };
+        let before = snapshot(&db);
+        {
+            let conn = db.conn().unwrap();
+            for (n, (j, kind, value, span)) in rows.iter().enumerate() {
+                conn.execute(
+                    "INSERT INTO journal_requirements (journal_key, kind, value, article_type, status,
+                       source_url, source_heading, source_span, extracted_by, fetched_at)
+                     VALUES (?1, ?2, ?3, NULL, 'verified', ?4, 'h', ?5, 'pattern', 1)",
+                    params![j, kind, value, format!("https://example.org/d262/{n}"), span],
+                )
+                .unwrap();
+            }
+        }
+        assert_eq!(remove_misread_rows(&db).unwrap(), MisreadRemoval { requirements: 7, bindings: 0 });
+        let after = snapshot(&db);
+        assert_eq!(before, after, "only the seven written back are removed");
+        // Real limits on those journals survive (J Hepatology's 6000, European
+        // Urology's 1000 and 500, Am J Medicine's abstract 250).
+        let has = |i: usize, v: &str| after[i].iter().any(|(k, val, _)| k.ends_with("_limit") && val == v);
+        assert!(has(0, "250") && has(1, "1000") && has(1, "500") && has(2, "6000"), "{after:?}");
         assert_eq!(remove_misread_rows(&db).unwrap(), MisreadRemoval::default(), "idempotent");
     }
 

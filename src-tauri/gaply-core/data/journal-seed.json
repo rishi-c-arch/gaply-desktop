@@ -3437,19 +3437,6 @@
    "value": "competing interests statement"
   },
   {
-   "article_type": "Clinical Trial",
-   "conflict_id": null,
-   "extracted_by": "pattern",
-   "fetched_at": 1790774067,
-   "journal_key": "the-american-journal-of-medicine",
-   "kind": "abstract_limit",
-   "source_heading": "Clinical Trials",
-   "source_span": "Editors will not consider results to be a prior publication if they have already been posted in the same clinical trials registry in which primary registration resides, as long as the results are presented in the form of a brief structured abstract (fewer than 500 words) or table.",
-   "source_url": "https://www.sciencedirect.com/journal/the-american-journal-of-medicine/publish/guide-for-authors",
-   "status": "verified",
-   "value": "500"
-  },
-  {
    "article_type": null,
    "conflict_id": null,
    "extracted_by": "pattern",
@@ -3672,7 +3659,7 @@
   },
   {
    "article_type": null,
-   "conflict_id": "cf-journal-of-hepatology-word_limit-\u0000unbound",
+   "conflict_id": null,
    "extracted_by": "pattern",
    "fetched_at": 1790774067,
    "journal_key": "journal-of-hepatology",
@@ -3680,21 +3667,8 @@
    "source_heading": "Original manuscripts",
    "source_span": "They should not exceed 6000 words, including the abstract, references, tables, and figure legends.",
    "source_url": "https://www.sciencedirect.com/journal/journal-of-hepatology/publish/guide-for-authors",
-   "status": "conflicted",
+   "status": "verified",
    "value": "6000"
-  },
-  {
-   "article_type": null,
-   "conflict_id": "cf-journal-of-hepatology-word_limit-\u0000unbound",
-   "extracted_by": "pattern",
-   "fetched_at": 1790774067,
-   "journal_key": "journal-of-hepatology",
-   "kind": "word_limit",
-   "source_heading": "Special sections",
-   "source_span": "On the second page, the authors will reveal the diagnosis, including a very brief summary of the patient's outcome and the diagnostic challenges of the disease (should not exceed 500 words).",
-   "source_url": "https://www.sciencedirect.com/journal/journal-of-hepatology/publish/guide-for-authors",
-   "status": "conflicted",
-   "value": "500"
   },
   {
    "article_type": "Case Report",
@@ -3708,19 +3682,6 @@
    "source_url": "https://www.sciencedirect.com/journal/journal-of-hepatology/publish/guide-for-authors",
    "status": "verified",
    "value": "3000"
-  },
-  {
-   "article_type": null,
-   "conflict_id": "cf-journal-of-hepatology-word_limit-\u0000unbound",
-   "extracted_by": "pattern",
-   "fetched_at": 1790774067,
-   "journal_key": "journal-of-hepatology",
-   "kind": "word_limit",
-   "source_heading": "Special sections",
-   "source_span": "a brief summary of the clinical case (should not exceed 250 words);",
-   "source_url": "https://www.sciencedirect.com/journal/journal-of-hepatology/publish/guide-for-authors",
-   "status": "conflicted",
-   "value": "250"
   },
   {
    "article_type": "Editorial",
@@ -3840,19 +3801,6 @@
    "value": "competing interests statement"
   },
   {
-   "article_type": "Clinical Trial",
-   "conflict_id": null,
-   "extracted_by": "pattern",
-   "fetched_at": 1790774067,
-   "journal_key": "international-journal-of-cardiology",
-   "kind": "abstract_limit",
-   "source_heading": "Clinical Trials",
-   "source_span": "Editors will not consider results to be a prior publication if they have already been posted in the same clinical trials registry in which primary registration resides, as long as the results are presented in the form of a brief structured abstract (fewer than 500 words) or table.",
-   "source_url": "https://www.sciencedirect.com/journal/international-journal-of-cardiology/publish/guide-for-authors",
-   "status": "verified",
-   "value": "500"
-  },
-  {
    "article_type": null,
    "conflict_id": null,
    "extracted_by": "pattern",
@@ -3968,19 +3916,6 @@
    "source_url": "https://www.sciencedirect.com/journal/journal-of-affective-disorders/publish/guide-for-authors",
    "status": "verified",
    "value": "competing interests statement"
-  },
-  {
-   "article_type": "Clinical Trial",
-   "conflict_id": null,
-   "extracted_by": "pattern",
-   "fetched_at": 1790774067,
-   "journal_key": "journal-of-affective-disorders",
-   "kind": "abstract_limit",
-   "source_heading": "Clinical Trials",
-   "source_span": "Editors will not consider results to be a prior publication if they have already been posted in the same clinical trials registry in which primary registration resides, as long as the results are presented in the form of a brief structured abstract (fewer than 500 words) or table.",
-   "source_url": "https://www.sciencedirect.com/journal/journal-of-affective-disorders/publish/guide-for-authors",
-   "status": "verified",
-   "value": "500"
   },
   {
    "article_type": null,
@@ -4685,19 +4620,6 @@
    "value": "competing interests statement"
   },
   {
-   "article_type": "Clinical Trial",
-   "conflict_id": null,
-   "extracted_by": "pattern",
-   "fetched_at": 1790830854,
-   "journal_key": "international-journal-of-nursing-studies",
-   "kind": "abstract_limit",
-   "source_heading": "Clinical Trials",
-   "source_span": "Editors will not consider results to be a prior publication if they have already been posted in the same clinical trials registry in which primary registration resides, as long as the results are presented in the form of a brief structured abstract (fewer than 500 words) or table.",
-   "source_url": "https://www.sciencedirect.com/journal/international-journal-of-nursing-studies/publish/guide-for-authors",
-   "status": "verified",
-   "value": "500"
-  },
-  {
    "article_type": "Systematic Review",
    "conflict_id": null,
    "extracted_by": "pattern",
@@ -4867,19 +4789,6 @@
    "value": "competing interests statement"
   },
   {
-   "article_type": "Clinical Trial",
-   "conflict_id": null,
-   "extracted_by": "pattern",
-   "fetched_at": 1790830854,
-   "journal_key": "nurse-education-today",
-   "kind": "abstract_limit",
-   "source_heading": "Clinical Trials",
-   "source_span": "Editors will not consider results to be a prior publication if they have already been posted in the same clinical trials registry in which primary registration resides, as long as the results are presented in the form of a brief structured abstract (fewer than 500 words) or table.",
-   "source_url": "https://www.sciencedirect.com/journal/nurse-education-today/publish/guide-for-authors",
-   "status": "verified",
-   "value": "500"
-  },
-  {
    "article_type": null,
    "conflict_id": null,
    "extracted_by": "pattern",
@@ -4943,19 +4852,6 @@
    "source_url": "https://www.sciencedirect.com/journal/nursing-outlook/publish/guide-for-authors",
    "status": "verified",
    "value": "competing interests statement"
-  },
-  {
-   "article_type": "Clinical Trial",
-   "conflict_id": null,
-   "extracted_by": "pattern",
-   "fetched_at": 1790830854,
-   "journal_key": "nursing-outlook",
-   "kind": "abstract_limit",
-   "source_heading": "Clinical Trials",
-   "source_span": "Editors will not consider results to be a prior publication if they have already been posted in the same clinical trials registry in which primary registration resides, as long as the results are presented in the form of a brief structured abstract (fewer than 500 words) or table.",
-   "source_url": "https://www.sciencedirect.com/journal/nursing-outlook/publish/guide-for-authors",
-   "status": "verified",
-   "value": "500"
   },
   {
    "article_type": null,
@@ -5166,19 +5062,6 @@
    "value": "competing interests statement"
   },
   {
-   "article_type": "Clinical Trial",
-   "conflict_id": null,
-   "extracted_by": "pattern",
-   "fetched_at": 1790830854,
-   "journal_key": "pain-management-nursing",
-   "kind": "abstract_limit",
-   "source_heading": "Clinical Trials",
-   "source_span": "Editors will not consider results to be a prior publication if they have already been posted in the same clinical trials registry in which primary registration resides, as long as the results are presented in the form of a brief structured abstract (fewer than 500 words) or table.",
-   "source_url": "https://www.sciencedirect.com/journal/pain-management-nursing/publish/guide-for-authors",
-   "status": "verified",
-   "value": "500"
-  },
-  {
    "article_type": null,
    "conflict_id": null,
    "extracted_by": "pattern",
@@ -5346,19 +5229,6 @@
    "source_url": "https://www.sciencedirect.com/journal/preventive-medicine/publish/guide-for-authors",
    "status": "verified",
    "value": "competing interests statement"
-  },
-  {
-   "article_type": "Clinical Trial",
-   "conflict_id": null,
-   "extracted_by": "pattern",
-   "fetched_at": 1790830854,
-   "journal_key": "preventive-medicine",
-   "kind": "abstract_limit",
-   "source_heading": "Clinical Trials",
-   "source_span": "Editors will not consider results to be a prior publication if they have already been posted in the same clinical trials registry in which primary registration resides, as long as the results are presented in the form of a brief structured abstract (fewer than 500 words) or table.",
-   "source_url": "https://www.sciencedirect.com/journal/preventive-medicine/publish/guide-for-authors",
-   "status": "verified",
-   "value": "500"
   },
   {
    "article_type": null,
@@ -6594,19 +6464,6 @@
    "source_url": "https://www.sciencedirect.com/journal/artificial-intelligence/publish/guide-for-authors",
    "status": "verified",
    "value": "competing interests statement"
-  },
-  {
-   "article_type": "Clinical Trial",
-   "conflict_id": null,
-   "extracted_by": "pattern",
-   "fetched_at": 1790830854,
-   "journal_key": "artificial-intelligence",
-   "kind": "abstract_limit",
-   "source_heading": "Clinical Trials",
-   "source_span": "Editors will not consider results to be a prior publication if they have already been posted in the same clinical trials registry in which primary registration resides, as long as the results are presented in the form of a brief structured abstract (fewer than 500 words) or table.",
-   "source_url": "https://www.sciencedirect.com/journal/artificial-intelligence/publish/guide-for-authors",
-   "status": "verified",
-   "value": "500"
   },
   {
    "article_type": null,
@@ -7896,19 +7753,6 @@
    "value": "competing interests statement"
   },
   {
-   "article_type": "Clinical Trial",
-   "conflict_id": null,
-   "extracted_by": "pattern",
-   "fetched_at": 1790835473,
-   "journal_key": "the-journal-of-pediatrics",
-   "kind": "abstract_limit",
-   "source_heading": "Clinical Trials",
-   "source_span": "Editors will not consider results to be a prior publication if they have already been posted in the same clinical trials registry in which primary registration resides, as long as the results are presented in the form of a brief structured abstract (fewer than 500 words) or table.",
-   "source_url": "https://www.sciencedirect.com/journal/the-journal-of-pediatrics/publish/guide-for-authors",
-   "status": "verified",
-   "value": "500"
-  },
-  {
    "article_type": "Brief Reports",
    "conflict_id": null,
    "extracted_by": "pattern",
@@ -8063,19 +7907,6 @@
    "source_url": "https://www.sciencedirect.com/journal/american-heart-journal/publish/guide-for-authors",
    "status": "verified",
    "value": "competing interests statement"
-  },
-  {
-   "article_type": "Clinical Trial",
-   "conflict_id": null,
-   "extracted_by": "pattern",
-   "fetched_at": 1790835473,
-   "journal_key": "american-heart-journal",
-   "kind": "abstract_limit",
-   "source_heading": "Clinical Trials",
-   "source_span": "Editors will not consider results to be a prior publication if they have already been posted in the same clinical trials registry in which primary registration resides, as long as the results are presented in the form of a brief structured abstract (fewer than 500 words) or table.",
-   "source_url": "https://www.sciencedirect.com/journal/american-heart-journal/publish/guide-for-authors",
-   "status": "verified",
-   "value": "500"
   },
   {
    "article_type": null,
@@ -8845,58 +8676,6 @@
    "value": "500"
   },
   {
-   "article_type": "Review Article",
-   "conflict_id": null,
-   "extracted_by": "pattern",
-   "fetched_at": 1790835473,
-   "journal_key": "european-urology",
-   "kind": "word_limit",
-   "source_heading": "Guide for authors",
-   "source_span": "Rapid Review articles also require a two or three sentence take home message (no more than 40 words) summarising the main message expressed in the article, which must be uploaded as a separate file.",
-   "source_url": "https://www.sciencedirect.com/journal/european-urology/publish/guide-for-authors",
-   "status": "verified",
-   "value": "40"
-  },
-  {
-   "article_type": "Editorial",
-   "conflict_id": null,
-   "extracted_by": "pattern",
-   "fetched_at": 1790835473,
-   "journal_key": "european-urology",
-   "kind": "word_limit",
-   "source_heading": "Guide for authors",
-   "source_span": "Platinum Opinion Editorials require a take home message of two or three sentences (no more than 40 words) summarising the main message expressed in the article that must be uploaded as a separate file or included at the end of the manuscript.",
-   "source_url": "https://www.sciencedirect.com/journal/european-urology/publish/guide-for-authors",
-   "status": "verified",
-   "value": "40"
-  },
-  {
-   "article_type": "Correspondence",
-   "conflict_id": null,
-   "extracted_by": "pattern",
-   "fetched_at": 1790835473,
-   "journal_key": "european-urology",
-   "kind": "word_limit",
-   "source_heading": "Guide for authors",
-   "source_span": "Brief Correspondence articles also require a two or three sentence take home message (no more than 40 words) summarising the main message expressed in the article, which must be uploaded as a separate file.",
-   "source_url": "https://www.sciencedirect.com/journal/european-urology/publish/guide-for-authors",
-   "status": "verified",
-   "value": "40"
-  },
-  {
-   "article_type": null,
-   "conflict_id": "cf-european-urology-word_limit-\u0000unbound",
-   "extracted_by": "pattern",
-   "fetched_at": 1790835473,
-   "journal_key": "european-urology",
-   "kind": "word_limit",
-   "source_heading": "Guide for authors",
-   "source_span": "Take Home Message Two or three sentences (no more than 40 words) summarising the main message expressed in the article should be uploaded as a separate file or included at the end of the manuscript text.",
-   "source_url": "https://www.sciencedirect.com/journal/european-urology/publish/guide-for-authors",
-   "status": "conflicted",
-   "value": "40"
-  },
-  {
    "article_type": null,
    "conflict_id": "cf-european-urology-word_limit-\u0000unbound",
    "extracted_by": "pattern",
@@ -9077,19 +8856,6 @@
    "source_url": "https://www.sciencedirect.com/journal/virology/publish/guide-for-authors",
    "status": "verified",
    "value": "competing interests statement"
-  },
-  {
-   "article_type": "Clinical Trial",
-   "conflict_id": null,
-   "extracted_by": "pattern",
-   "fetched_at": 1790835473,
-   "journal_key": "virology",
-   "kind": "abstract_limit",
-   "source_heading": "Clinical Trials",
-   "source_span": "Editors will not consider results to be a prior publication if they have already been posted in the same clinical trials registry in which primary registration resides, as long as the results are presented in the form of a brief structured abstract (fewer than 500 words) or table.",
-   "source_url": "https://www.sciencedirect.com/journal/virology/publish/guide-for-authors",
-   "status": "verified",
-   "value": "500"
   },
   {
    "article_type": null,
@@ -9389,19 +9155,6 @@
    "source_url": "https://www.sciencedirect.com/journal/journal-of-biomechanics/publish/guide-for-authors",
    "status": "verified",
    "value": "competing interests statement"
-  },
-  {
-   "article_type": "Clinical Trial",
-   "conflict_id": null,
-   "extracted_by": "pattern",
-   "fetched_at": 1790835473,
-   "journal_key": "journal-of-biomechanics",
-   "kind": "abstract_limit",
-   "source_heading": "Clinical Trials",
-   "source_span": "Editors will not consider results to be a prior publication if they have already been posted in the same clinical trials registry in which primary registration resides, as long as the results are presented in the form of a brief structured abstract (fewer than 500 words) or table.",
-   "source_url": "https://www.sciencedirect.com/journal/journal-of-biomechanics/publish/guide-for-authors",
-   "status": "verified",
-   "value": "500"
   },
   {
    "article_type": null,

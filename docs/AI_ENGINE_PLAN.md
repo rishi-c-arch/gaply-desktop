@@ -21266,3 +21266,136 @@ mutation reddened at least the tests named for it.
 * F&S's Letter limit of 400 is not recovered. The sentence's only lead is
   before "3 authors", so the row is refused, not revalued.
 * The class count is one reader's hand-read of 128 sentences.
+
+### D262 — the rest of D261's class: 19 more non-manuscript limits refused, and a glued label that IS the subject
+
+**D261's class, finished.** D261 measured 22 of the 222 seed limit rows as limits
+on something other than the manuscript and acted on 3. This change removes the
+other 19, on 15 journals:
+
+* **13 trial-registry abstracts**, one per journal: *"abstract limit 500
+  (Clinical Trial)"*.
+* **European Urology's 4 take-home messages** (40 words).
+* **J Hepatology's 2 case-report sub-sections** (250, 500).
+
+#### The subject each needs, and where it sits `[seed]`
+
+| rows | subject words | scope | why that scope |
+|---|---|---|---|
+| registry (13) | "trials registry" | **the sentence before the limit phrase** | *"…posted in the same clinical trials registry in which primary registration resides, as long as the results are presented in the form of a brief structured abstract (fewer than 500 words)"*. The limit's clause is "as long as … abstract (", and the registry is two commas earlier |
+| take-home (4) | "take home message" | the limit's clause | three rows name it in the clause ("require a … take home message (no more than 40 words)") |
+| J Hepatology (2) | "brief summary" | the limit's clause | *"a brief summary of the clinical case (should not exceed 250 words)"*; *"a very brief summary of the patient's outcome … (should not exceed 500 words)"* |
+
+`CLAUSE_SUBJECTS` and `SENTENCE_SUBJECTS` hold them, beside D261's capsule
+and highlight(s).
+
+#### The glued-label case, checked for every subject, and D261's skip was too blunt
+
+D261 skipped any subject word that was a glued run-in label (capitalised, then
+another capitalised word), because the suite caught *"Highlights The main text
+of the manuscript must not exceed 6000 words"*. **European Urology's fourth row
+is the opposite case:** *"Take Home Message Two or three sentences (no more
+than 40 words) summarising…"*. The subject appears ONLY as a glued label, and
+there the label IS what the limit is about. The D261 skip would have kept it.
+
+The rule now: **a glued label is the subject unless a manuscript part
+(`MANUSCRIPT_PARTS`) follows it before the limit phrase.**
+
+* *"Highlights The main text of the manuscript…"*: a part follows, so it is a
+  heading and the 6000 is kept.
+* *"Take Home Message Two or three sentences (…"*: nothing of the manuscript
+  follows, so it is the subject and the 40 is refused.
+
+Every D261 case decides as before. The extractor test asserts the label case
+both ways for every new subject:
+
+* *"Take Home Message The main text should not exceed 3000 words."* → 3000 kept.
+* *"Brief Summary The manuscript should not exceed 3000 words."* → 3000 kept.
+* *"Clinical Trials Registry The abstract should not exceed 250 words."* →
+  abstract 250 kept.
+* A subject named only AFTER a real limit leaves it alone: *"Abstracts should
+  not exceed 250 words and must give the clinical trials registry number."*;
+  *"…3000 words, plus a take home message."*
+
+#### The four subjects D261 listed and did not act on, on the 61 pages `[probe zz_gate_probe]`
+
+Under the current extractor, **each stores 0 rows**, so a re-crawl of the seed
+would refuse 0. But three of the four are held by a gate that is not about
+their subject. Each was probed verbatim and with one change:
+
+| subject | sentence | refused by | one change that stores it |
+|---|---|---|---|
+| Vitae / biography | *"a short (maximum 100 words) biography of each author"* | no lead phrase, and with "maximum of" added the manuscript-part gate | none found (held twice) |
+| Impact Statement | *"An Impact Statement of up to 150 words is required."* | the manuscript-part gate only | "…in the manuscript" → `word_limit 150` |
+| précis | *"a concise description (no more than 25 words; do not simply restate the title) of your article"* | **sentence splitting**: the ";" cuts "of your article" off, so the part gate refuses | ";" → "," → `word_limit 25` |
+| proposal | *"The proposal ( no more than 350 words ) can be submitted as a PDF file"* | the manuscript-part gate only | "…with the manuscript" → `word_limit 350` |
+
+Not acted on: none of them reaches a reader today. Recorded, because the précis
+is one punctuation mark from a wrong row.
+
+#### Seed and installed databases
+
+* `remove_misread_rows` already calls `stored_limit_is_not_on_the_manuscript`
+  (D261), so installed databases lose the 19 rows at startup.
+* On the unedited seed the predicate removed **exactly 19**
+  (`the_bundled_seed_carries_no_misread_row…`: 19 ≠ 0), and every other store
+  test was off by exactly +19. It catches the 19 and nothing else in 663.
+* The seed drops the 19 objects: 247 lines deleted, every other row asserted
+  identical and in order. **663 → 644.**
+* **One more seed row changes, and it is a real limit.** J Hepatology's
+  *"They should not exceed 6000 words, including the abstract…"* was
+  `conflicted`, only because the two misread case-summary limits (250, 500) sat
+  in its untyped word-limit group. Alone, it is `verified` with no conflict id,
+  which is exactly what `reclassify_article_types` (D239) does at startup.
+  `the_bundled_seed_is_already_reclassified` pins the shipped seed in that
+  settled state, and went red until it was. Not predicted. Seed diff: 249
+  deleted, 2 changed.
+
+#### Negative controls, predictions first (`~/gaply-b80-sample/nm/PREDICTION_D262.txt`) `[probe]`
+
+| control | predicted | actual |
+|---|---|---|
+| The original 222 seed limit rows through the new extractor | 23 gone (BMJ's D238 correction + D261's 3 + these 19), the predicate on exactly 22, **200 real limits survive** | **as predicted**: 199 re-read as stored + BMJ's corrected row |
+| The 61 saved pages vs D261's output | only removals: 4 registry rows (Am J Med, IJ Cardiology, J Affective Disorders, Artificial Intelligence) and J Hepatology's 250 and 500 | **as predicted**; nothing added or revalued |
+| `build_checklist`, 106 journals × 6 texts, vs D261's outputs | only the 15 journals, only abstract and word limit rows | **as predicted**: 15 journals (Lake: 2, no abstract), 25 abstract and 2 word rows per text. **11 of the 13 registry journals go from "states more than one" (undecided) to a decided abstract limit** |
+
+The brief said "the 203 real limits survive". 222 − 19 = 203 does not subtract
+D261's 3. The count is 222 − 3 − 19 = 200.
+
+#### An existing pin, predicted red and re-witnessed
+
+`guidelines::tests::a_label_that_names_no_type_neither_types_nor_extends_a_section`
+(app crate) pinned J Hepatology's 250 as a `word_limit`. The row was that
+test's WITNESS that the "What is your diagnosis?" label ends the Expert Opinion
+section (the 250 came out untyped). Predicted red; red. The 250 is now refused,
+so the witness moved to the blocks: the case-summary sentence's block has
+heading "Special sections", not "Expert Opinion". The section-ending property is
+asserted directly rather than through a row that should not exist.
+
+#### Deletion tests, predicted first (`~/gaply-b80-sample/nm/DT_PREDICTION_D262.txt`)
+
+`--workspace --no-fail-fast`, one log per run. Four files were restored from
+saved copies and `cmp`-checked after every run. All 26 targets ran. **All six
+reddened exactly the predicted tests**: this time the second guards were
+counted (the app crate's label test; D240's and D261's store tests).
+
+| | deletion | predicted red | actual |
+|---|---|---|---|
+| DT-1 | "take home message" | the D262 extract and store tests | **as predicted** (2) |
+| DT-2 | "brief summary" | the same two + the app label test (250 reappears) | **as predicted** (3) |
+| DT-3 | sentence-scope "trials registry" | the D262 extract and store tests | **as predicted** (2) |
+| DT-4 | a label is never the subject (D261's skip) | the D262 extract test (the "Take Home Message Two…" row returns 40) and the store test | **as predicted** (2); `[("word_limit", "40")]` |
+| DT-5 | a label is always the subject (no part check) | the D262 extract test, D261's extract test and the app label test (all lose a real 3000/6000) | **as predicted** (3); `[]` vs `[("word_limit", "6000")]` |
+| DT-6 | the pre-D262 seed | no-misread seed, both count pins, and the D240, D261 and D262 store tests | **as predicted** (6) |
+
+**Suites:** `cargo test --workspace` 26 targets, 2021 passed (2019 + 2). `cargo
+test -p app --features devtools` 10 targets, 500 passed (macOS). vitest below.
+
+#### Not claimed
+
+* The class count (22 of 222) is one reader's hand-read of 128 distinct
+  sentences.
+* The four page subjects are held today by gates that are not about them.
+  That is a measurement, not a guard.
+* Environmental Pollution's *"abstract limit 4000"* (a total length read as
+  an abstract limit) is a different defect and remains.
