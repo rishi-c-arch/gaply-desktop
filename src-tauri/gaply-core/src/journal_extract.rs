@@ -948,6 +948,42 @@ fn type_named_in_sentence(sentence: &str) -> Option<String> {
     )
 }
 
+/// **May a RUN-IN label type the text after it? §11 D257.** Returns the type
+/// name to use (the label without its colon and bracketed qualifier), or `None`.
+///
+/// Archives PM&R opens each type's paragraph with a bold run-in label and no
+/// line break: `<p><b>Original Research:</b> … Manuscripts should be limited to
+/// 3000 words…`. D249's labels need a line break, so all five limits fell under
+/// "Types of papers" untyped. Run-in labels are also used for fields inside a
+/// section ("Format Guidelines:", "Word Count:"), so admission is measured.
+///
+/// **Measured over 72 distinct run-in labels on 67 saved guide pages:** D249's
+/// test ([`label_names_article_type`]) on the label with its bracket stripped
+/// admits 9, all genuine types (Brief Reports, Commentaries (by Invitation),
+/// Review Articles (Meta-Analyses), Special Communications, Good Practices
+/// Reports…). It refuses "Original Research", because "research" is no type
+/// noun, so a label that IS a listed type whole is admitted too: 10 admitted, all
+/// genuine; "Format Guidelines", "Word Count", "Number of Pages", "Conflict of
+/// Interest" and the other 58 refused. This bypass is for run-in labels only:
+/// applied to D249's line-break labels it would admit "Clinical trials", a
+/// policy section there.
+pub fn run_in_label_names_article_type(label: &str) -> Option<String> {
+    let mut l = label.trim().trim_end_matches(':').trim();
+    if l.ends_with(')') {
+        if let Some(i) = l.rfind('(') {
+            l = l[..i].trim_end();
+        }
+    }
+    if l.is_empty() {
+        return None;
+    }
+    let listed_whole = article_type_of(l).is_some_and(|t| {
+        let (h, t) = (l.to_lowercase(), t.to_lowercase());
+        h == t || h == format!("{t}s") || h == format!("{t}es")
+    });
+    (label_names_article_type(l) || listed_whole).then(|| l.to_string())
+}
+
 /// Words a heading uses for a PART of a manuscript or of a guidelines page. A
 /// heading containing one is about that part, not an article type: "Abstract",
 /// "Structured abstract", "Author Guidelines", "9 – Extended data figures".
@@ -1674,6 +1710,19 @@ mod tests {
         assert!(sentences(span)[0].contains("(eg. CONSORT"), "{:?}", sentences(span));
         let got = extract_requirements(&[b("Abstract", span)]);
         assert!(!got.iter().any(|r| r.value == "CONSORT"), "{got:#?}");
+    }
+
+    // ---- §11 D257: which run-in labels may type a paragraph ------------------
+
+    #[test]
+    fn only_a_run_in_label_naming_an_article_type_is_admitted() {
+        let got = |l: &str| run_in_label_names_article_type(l);
+        assert_eq!(got("Original Research:").as_deref(), Some("Original Research"));
+        assert_eq!(got("Review Articles (Meta-Analyses):").as_deref(), Some("Review Articles"));
+        assert_eq!(got("Commentaries (by Invitation)").as_deref(), Some("Commentaries"));
+        for l in ["Format Guidelines", "Word Count", "Number of Pages", "Conflict of Interest", "File format", "Use of AI"] {
+            assert_eq!(got(l), None, "{l}");
+        }
     }
 
     /// **A stored span is the journal's complete sentence, or it is not evidence.**

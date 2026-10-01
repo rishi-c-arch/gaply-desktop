@@ -20786,3 +20786,109 @@ Specimens, Item no. 33"*, whose rows are byte-identical after the change.
 removed, and separately with "eg." removed from the example cues, exactly
 `eg_without_its_first_period_is_an_abbreviation_and_an_example_cue` reddens each
 time (`--workspace --no-fail-fast`, 26 targets, restores checked with `cmp`).
+
+### D257 — a run-in type label types the paragraph it opens: Archives PM&R's five limits
+
+**Archives PM&R carried 5 of the 16 wrong rows in the 80-journal batch's sample.**
+Its guide opens each type's paragraph with a bold **run-in** label and no line
+break: `<p><b>Original Research:</b> … Manuscripts should be limited to 3000
+words of text…`. D249's labels need a line break after them, so none of these
+started a typed section, and all five limits fell under "Types of papers" with
+no type. It is a new shape, not D249's.
+
+#### The admission test, measured before the rule `[probe]`
+
+Run-in labels are also fields inside a section ("Format Guidelines:", "Word
+Count:"). So every `<b>`/`<strong>` label ending in a colon (inside the tag or
+right after it), opening a paragraph, list item or line, with no line break
+after it, was collected. **30 Sep, 67 saved guide pages: 72 distinct labels.**
+D249's test on the label with its bracketed qualifier stripped admits 9, all
+genuine types. It refuses **"Original Research"**, because "research" is no type
+noun. So `run_in_label_names_article_type` also admits a label that IS a listed
+type whole. The bypass is for run-in labels only: applied to D249's labels it
+would admit "Clinical trials", which that scan refused as a policy section.
+
+**Re-measured 1 Oct on 61 refetched pages** (the 20-journal sample and the 41
+stage-1 pages; the saved copies were lost with `/tmp` at a reboot): **71
+distinct labels, 10 admitted, all genuine**: Original Research, Brief Reports,
+Commentaries (by Invitation), Editorials, Review Articles (Meta-Analyses),
+Special Communications (Archives PM&R); Good Practices Reports, Systematic
+Reviews (Value in Health); Full Length Research Article, Review Articles
+(Applied Energy). **61 refused**, among them "Format Guidelines", "Word Count",
+"Number of Pages", "Conflict of Interest", "Use of AI", "Step 1".
+
+Refused real types, recall gaps and not false admits: Letters to The Editor,
+Information/Education, Measurement Tools, Health Policy Analyses, Technology
+assessment articles, Perspective papers, Accelerated Publication, and Tourism
+Management's three bracketed types ("Research note (3,000-5,000 words):").
+
+#### What a refused run-in label does: three rules, measured `[src]` `[probe]`
+
+An admitted run-in label starts a typed section, and its text after the colon
+is a block under the label. What a REFUSED one does was decided by two pages
+that need opposite answers:
+
+| rule | Int J Cardiology: `<h5>Letters to the Editor</h5>` … `<b>Format Guidelines</b>: LTEs must not exceed 250 words` | Archives PM&R: `<b>Editorials:</b>` … `<b>Information/Education:</b>` … `<b>Letters to The Editor:</b>` … *"Letters … no more than 5 references"* |
+|---|---|---|
+| **A** — ends the section, as D249's refused labels do | **wrong**: the cut separates the LTE sentence from "Letters to the Editor", and D251 can no longer type it | right: Letter |
+| **C** — never ends a section | right: Letter | **wrong**: "Editorials" runs through both refused labels, and the 5-reference limit is typed **Editorial** (Letter at HEAD) |
+| **D** — ends a section only if an admitted run-in label opened it | right | right |
+
+A was measured first and broke D249's `an_inline_type_label_types_the_limits_in_its_section`.
+C was written next and never measured before a reboot. Measured today, C turned
+a correct HEAD row wrong. **D is the rule.** Run-in labels are paragraph
+siblings, so a refused one closes a run-in type. Under a heading or a line-break
+label it is a field of that section.
+
+#### Measured `[probe]`, HEAD (`10c144b`) against D on identical bytes
+
+* **Sample, 20 journals:** 18 identical. **Archives PM&R:** all 5 target limits
+  gain their types (Original Research 3000, Review Article 5000, Commentaries
+  2000, Brief Reports 1500 and its 10 references), and two correct rows surface:
+  Editorials 1000 (refused by the manuscript gate while untyped) and Special
+  Communications 5000 (merged with an untyped 5000 before). At HEAD the four
+  untyped word limits were stored conflicted, so they gave no verdict rather
+  than a wrong one. **Value in Health:** one PRISMA row gains Systematic Review,
+  under its admitted label. Correct.
+* **41 stage-1 pages: identical, 41 of 41** (214 rows at HEAD).
+* **Seed:** re-extraction byte-identical (289 rows, 288 reproduced, as at HEAD).
+* **The thirty profiled journals' checklists are byte-identical.** Neither of
+  these two controls goes through the HTML path this changes, so they are
+  necessary but weak here. The page diffs are the evidence.
+
+**Deletion tests, predictions written first** (`--workspace --no-fail-fast`, 26
+targets, restores checked with `cmp`): rule C (never cut) reddens exactly
+`a_run_in_type_label_types_its_paragraph`, whose Letters row becomes Editorial.
+Rule A (always cut) reddens exactly D249's
+`an_inline_type_label_types_the_limits_in_its_section`. Run-in detection off
+reddens exactly `a_run_in_type_label_types_its_paragraph`. The two tests pin D
+from both sides. The run-in test's earlier fixture spliced Int J Cardiology's
+"Format Guidelines" after "Brief Reports", a layout neither page has. It is
+replaced with Archives PM&R's own Editorials, Information/Education and Letters
+paragraphs, which is what separates C from D.
+
+#### Re-audit of the same 20 journals, hand-read by Claude alone
+
+Pages refetched 1 Oct, stored offline through the real `store_requirements`:
+
+| | real | wrong | not | undecidable | rows |
+|---|---:|---:|---:|---:|---:|
+| 30 Sep, before D253 | 77 | 16 | 5 | 2 | 100 |
+| after D253 + D254 | 77 | 15 | 5 | 2 | 99 |
+| **after D255 + D256 + D257** | **90** | **7** | **3** | **2** | **102** |
+
+**7 of 102 wrong (6.9%)**, every one a known singleton: Archives PM&R's two
+abstract-scope rows (a 300-word limit for Original Research and Systematic
+Reviews stored untyped, and a 250-word limit for Commentaries, Editorials and
+Special Communications stored as Editorial only); three lost types (BJA's 1,000
+words, AI's "Research Notes" 4500, Biological Conservation's "Full length
+articles" 8,000); Value in Health's 120-word highlights limit; and Materials
+Today's Short Communications reference limit under "Original Research" (D255's
+heading override, measured and not built). Not-a-requirement: the registry
+abstract twice (AI, BJA's registry list) and D256's PRISMA row.
+
+**A correction to D256.** It says the PRISMA row's span "is now the whole
+sentence rather than a fragment". The stored span is *"Authors should make sure
+the key elements from the Reporting Guideline (eg. CONSORT, PRISMA, etc."*: the
+splitter still ends it at "etc.)". The row was already counted as not a
+requirement, so no count changes.

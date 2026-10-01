@@ -782,9 +782,13 @@ fn push_segment(out: &mut Vec<gaply_core::journal_extract::GuidelineBlock>, head
     // through the next sections, whose labels ("Letters to the Editor", "What
     // is your diagnosis?") this does not admit, and typed their limits and
     // statements as its own. A refused label returns to the parent heading.
+    // The one exception is a refused RUN-IN label (§11 D257), below.
     let mut cuts: Vec<(usize, usize, Option<String>)> = Vec::new();
     let lower = seg.to_lowercase();
     let mut from = 0usize;
+    // Whether the open section was started by an ADMITTED run-in label (§11
+    // D257), which decides what a refused run-in label does. See below.
+    let mut open_run_in = false;
     while let Some(rel) = lower[from..].find('<') {
         let at = from + rel;
         from = at + 1;
@@ -804,6 +808,7 @@ fn push_segment(out: &mut Vec<gaply_core::journal_extract::GuidelineBlock>, head
                     let label = html_to_text(&seg[open_end..close_at]).trim().to_string();
                     let typed = gaply_core::journal_extract::label_names_article_type(&label).then_some(label);
                     cuts.push((at, after, typed));
+                    open_run_in = false;
                     from = after;
                 }
             }
@@ -831,7 +836,13 @@ fn push_segment(out: &mut Vec<gaply_core::journal_extract::GuidelineBlock>, head
         }
         let after = close_at + close.len();
         let br_after = lower[after..].trim_start().starts_with("<br");
-        if !(br_inside || br_after) {
+        // A RUN-IN label (§11 D257): bold, ending in a colon, text on the same
+        // line. `<p><b>Original Research:</b> … limited to 3000 words`.
+        let colon_after = lower[after..].starts_with(':');
+        let run_in = !(br_inside || br_after)
+            && matches!(tag, "b" | "strong")
+            && (inner.trim_end().ends_with(':') || colon_after);
+        if !(br_inside || br_after || run_in) {
             continue;
         }
         // It must OPEN a line: after <p>, <li>, <div> or <br>, ignoring
@@ -858,9 +869,30 @@ fn push_segment(out: &mut Vec<gaply_core::journal_extract::GuidelineBlock>, head
         if label.is_empty() || label.chars().count() > 60 {
             continue;
         }
-        let typed = gaply_core::journal_extract::label_names_article_type(&label).then_some(label);
-        cuts.push((at, after, typed));
-        from = after;
+        let typed = if run_in {
+            gaply_core::journal_extract::run_in_label_names_article_type(&label)
+        } else {
+            gaply_core::journal_extract::label_names_article_type(&label).then_some(label)
+        };
+        let body_at = if run_in && colon_after { after + 1 } else { after };
+        // A REFUSED run-in label ends a section only if an admitted run-in
+        // label opened it. Run-in labels are paragraph siblings: at Archives
+        // PM&R, "Editorials:" otherwise ran on through the refused "Letters to
+        // The Editor:" and typed its 5-reference limit as an Editorial. Under a
+        // heading or a line-break label it is a field of that section, and
+        // ending there cut Int J Cardiology's "Format Guidelines: LTEs must not
+        // exceed 250 words" off from the "Letters to the Editor" that types it.
+        if run_in && typed.is_none() {
+            if open_run_in {
+                cuts.push((at, body_at, None));
+                open_run_in = false;
+            }
+            from = body_at;
+            continue;
+        }
+        cuts.push((at, body_at, typed));
+        open_run_in = run_in;
+        from = body_at;
     }
     let mut push = |h: &str, part: &str| {
         let text = html_to_text(part);
@@ -1292,6 +1324,28 @@ mod tests {
             t("word_limit", "250", None),
             // "Highlights" is not admitted: the limit keeps the parent heading.
             t("word_limit", "6000", None),
+        ];
+        want.sort();
+        assert_eq!(limits_by_type(html), want);
+    }
+
+    // ---- §11 D257: a run-in label types the paragraph it opens --------------
+
+    #[test]
+    fn a_run_in_type_label_types_its_paragraph() {
+        // Verbatim markup, Archives PM&R (abridged), ending with the refused
+        // "Information/Education:" and "Letters to The Editor:" labels.
+        let html = "<h4>Types of papers</h4><div><p><b>Original Research:</b> Present new and important basic and clinical information. Manuscripts should be limited to 3000 words of text (Introduction through Conclusions).</p><p><b>Review Articles (Meta-Analyses):</b> The Editorial Board welcomes state-of-the-art review articles. Manuscripts should be limited to 5000 words of text (Introduction through Conclusions).</p><p><b>Brief Reports:</b> Provide preliminary communications of new data. Manuscripts should be limited to 1500 words of text, and no more than 10 references.</p><p><b>Editorials:</b> Editorials published in <i>Archives</i> may only be written by the elected officers of ACRM. Editorials should be limited to 1000 words of text.</p><p><b>Information/Education:</b> The ACRM Communications Committee has developed a new feature.</p><p><b>Letters to The Editor: </b>Letters are published at the discretion of the Editorial Board.</p><p>Letters must be limited to roughly 500 words of text, 1 table, and no more than 5 references.</p></div>";
+        let t = |k: &str, v: &str, ty: Option<&str>| (k.to_string(), v.to_string(), ty.map(String::from));
+        let mut want = vec![
+            t("word_limit", "3000", Some("Original Research")),
+            t("word_limit", "5000", Some("Review Article")),
+            t("word_limit", "1500", Some("Brief Reports")),
+            t("reference_limit", "10", Some("Brief Reports")),
+            t("word_limit", "1000", Some("Editorial")),
+            // The refused "Information/Education:" ends Editorials, so this is
+            // typed by its own sentence (D251), not as an Editorial.
+            t("reference_limit", "5", Some("Letter")),
         ];
         want.sort();
         assert_eq!(limits_by_type(html), want);
