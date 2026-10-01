@@ -3325,3 +3325,64 @@ fn a_journal_stating_two_abstract_limits_gets_no_verdict() {
     assert_eq!(it.requirement, "abstract limit: 250 words");
     assert!(!it.unevaluable && it.passed, "{it:?}");
 }
+
+/// **Several stated word limits decide nothing, and are DRAWN as deciding
+/// nothing.** The row was built `passed: true` when `ChecklistItem` had one
+/// bool (542c86b), and `unevaluable` was later added as `false` at every site
+/// (b1d795a), so the Checklist tab drew ✓ and the PDF printed "met" whatever
+/// the manuscript's length: chapter3 at 10,733 words against Environmental
+/// Pollution's 3,000 / 8,000 / 10,000, and final-L at 117,337. The spans are
+/// Environmental Pollution's own, from the bundled seed.
+///
+/// Asserted the way the renderer computes its mark
+/// (`ReportViewerPage.tsx`: `unevaluable ? '–' : passed ? '✓' : '✗'`), at a
+/// length over every limit AND under every limit: the row decides neither.
+#[test]
+fn a_journal_stating_several_word_limits_gets_no_verdict() {
+    let ex = crate::extract::extract_from_text("Title\n\nAbstract\nA paper.\n");
+    let row = |value: &str, ty: &str, heading: &str, span: &str| crate::journal_store::StoredRequirement {
+        kind: crate::journal_extract::RequirementKind::WordLimit,
+        value: value.into(),
+        article_type: Some(ty.into()),
+        status: "verified".into(),
+        source_url: "https://www.sciencedirect.com/journal/environmental-pollution/publish/guide-for-authors".into(),
+        source_heading: heading.into(),
+        source_span: span.into(),
+        conflict_id: None,
+    };
+    let reqs = [
+        row("8000", "Full Research", "Article types", "Research Papers: Full Research Papers should not exceed 8000 words (including abstract, figures, and tables but excluding references)."),
+        row("3000", "Short Communication", "Short Communication", "Short Communications should be items of no more than 3000 words in length and be of significant scientific merit (for example a novel finding that warrants immediate publication), rather than simply a shortened version of a Research Paper."),
+        row("10000", "Review Article", "Review Articles", "Manuscripts should not exceed 10,000 words, as defined above."),
+    ];
+    let mark = |i: &ChecklistItem| if i.unevaluable { '–' } else if i.passed { '✓' } else { '✗' };
+
+    for words in [10_733usize, 500] {
+        let items = checklist_from_requirements(&ex, "", words, &reqs, &[]);
+        let wl: Vec<_> = items.iter().filter(|i| i.requirement.starts_with("word limit")).collect();
+        assert_eq!(wl.len(), 1, "{wl:#?}");
+        let it = wl[0];
+        assert_eq!(it.requirement, "word limit depends on article type");
+        assert_eq!(mark(it), '–', "at {words} words the row must be drawn undecided: {it:?}");
+        assert!(it.unevaluable && !it.passed, "{it:?}");
+        // Every limit reaches the reader with its type, and so does the count.
+        for v in ["8000 (Full Research)", "3000 (Short Communication)", "10000 (Review Article)"] {
+            assert!(it.detail.contains(v), "{v} missing: {}", it.detail);
+        }
+        assert!(it.detail.contains(&format!("{words} words")), "{}", it.detail);
+        assert_eq!(it.also_from.len(), 2, "the other two sources are kept");
+        assert!(!it.detail.contains("  "), "{:?}", it.detail);
+    }
+
+    // Negative control: ONE untyped limit still decides, both ways. (One TYPED
+    // limit is undecided too, by `scoped`, which is a different rule.)
+    let mut untyped = reqs[1].clone();
+    untyped.article_type = None;
+    let one = std::slice::from_ref(&untyped);
+    let over = checklist_from_requirements(&ex, "", 10_733, one, &[]);
+    let it = over.iter().find(|i| i.requirement.starts_with("word limit")).unwrap();
+    assert_eq!((it.requirement.as_str(), mark(it)), ("word limit: 3000", '✗'), "{it:?}");
+    let under = checklist_from_requirements(&ex, "", 500, one, &[]);
+    let it = under.iter().find(|i| i.requirement.starts_with("word limit")).unwrap();
+    assert_eq!(mark(it), '✓', "{it:?}");
+}

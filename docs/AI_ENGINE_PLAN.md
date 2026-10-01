@@ -20953,3 +20953,61 @@ directory or, for the OpenAlex picks, from the page title.
   76 new journals produce a checklist.
 * The six pins counting journals or seed rows move by exactly the store's size:
   30→106, 29→105, 28→104 journals, 289→666 rows.
+
+### D259 — several stated word limits decide nothing: the row was drawn "met" at any length
+
+**Found by `docs/PUBLISHREADY_AT_HEAD_2026-10-01.md` §3 item 1.** When a
+journal states more than one word limit, `checklist_from_requirements` emits
+one row, "word limit depends on article type", whose text says it decides
+nothing. It was built `passed: true`, so the Checklist tab drew ✓ and the PDF
+printed "met" whatever the manuscript's length. Live: chapter3 (10,733 words)
+against Environmental Pollution's 3,000 / 8,000 / 10,000, and final-L
+(117,337) against Water Research's 3,000 / 8,000, both read as met.
+
+**Cause `[src]`.** The row was written in `542c86b` (14 Sep), when
+`ChecklistItem` had one bool. "Report them; judge nothing" could only be said as
+"not failed". `b1d795a` (15 Sep) added `unevaluable` and set it `false` at every
+existing construction site, this one included. D182 later withdrew the same
+`passed: true` from the reporting-standard rows, and D246 built the abstract
+branch the right way. This branch was not revisited by either.
+
+**Fix `[src]`.** `passed: false`, `unevaluable: true`, and the detail ends "so
+this row is not decided", which is D246's shape. The row still lists every
+limit with its type, keeps the other sources in `also_from`, and states the
+count. It does not decide a FAIL when the count exceeds every stated limit. That
+would be a rule of its own, and this change only stops the false claim.
+
+**Measured `[probe]`.**
+* `zz_verdict_control` (startup sequence plus `build_checklist`) for all 106
+  profiled journals against chapter3's and R PAPER's text, before and after:
+  **23 journals change, exactly one row each**, and only in `passed`,
+  `unevaluable` and the detail tail. **7 of the 23 are among the thirty
+  journals profiled before D258.** No other byte differs.
+* The real pipeline (`run_pipeline_measured`, seeded as at startup):
+  chapter3 → Environmental Pollution and final-L → Water Research now read
+  UNDECIDED. Each manuscript's journal-row pass count goes 1 → 0.
+* `journal-seed.json` is untouched (sha256 `c0b97398c25624f4…` before and after).
+
+**Test.** `report::tests::a_journal_stating_several_word_limits_gets_no_verdict`
+uses Environmental Pollution's three spans verbatim. It computes the renderer's
+mark at 10,733 words AND at 500, so the row decides neither way, and checks that
+all three limits and the count reach the reader and that the rendered sentence
+has no whitespace runs. Negative control: one UNTYPED limit still decides ✗
+and ✓. Its first draft used a typed single limit as the control. That went red
+after the fix, because `scoped` already makes a typed limit undecided. The
+control was wrong, not the fix.
+
+**Deletion test** (`--workspace --no-fail-fast`, restore `cmp`-checked). Red
+predicted first: `passed: true` / `unevaluable: false` restored should redden
+exactly the new test. **Result: as predicted**, 26 targets, 2015 passed + 1
+failed. Before the fix, the same test failed at the predicted assertion (mark
+✓ at 10,733 words).
+
+**Suites:** `cargo test --workspace` 26 targets, 2016 passed (2015 + 1), 9
+ignored. `cargo test -p app --features devtools`: 10 targets, 500 passed
+(macOS). vitest: 75 files, 970 passed.
+
+**Left stale, not changed here:** `ReportViewerPage.tsx:483-486` and
+`checklist_line.vitest.ts:62` still say no row reaches the screen or the
+exporters with `unevaluable` set. D246's abstract row and the typed word limit
+already did before this change, and this row now does too.

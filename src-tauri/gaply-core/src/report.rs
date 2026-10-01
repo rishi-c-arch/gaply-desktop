@@ -2205,6 +2205,15 @@ pub fn checklist_from_requirements(
         }
         _ => {
             // Several limits, one per article type. Report them; judge nothing.
+            //
+            // **`unevaluable`, not `passed`.** This was `passed: true` from
+            // 542c86b, when the item had one bool and "judge nothing" could
+            // only be said as "not failed"; `unevaluable` arrived in b1d795a as
+            // `false` at every site, and this one was never revisited. So the
+            // Checklist tab drew ✓ and the PDF printed "met" whatever the
+            // length — chapter3's 10,733 words against Environmental
+            // Pollution's 3,000 / 8,000 / 10,000 read as met. Same shape as the
+            // abstract branch below (§11 D246) and the standards rows (D182).
             let stated = word_limits
                 .iter()
                 .map(|r| {
@@ -2218,18 +2227,19 @@ pub fn checklist_from_requirements(
                 // the others left the row unable to show where each came from.
                 also_from: word_limits[1..].iter().map(|r| source_of(r)).collect(),
                 requirement: "word limit depends on article type".into(),
-                passed: true,
+                passed: false,
                 detail: format!(
                     "the journal states {} word limits — {stated}. Your manuscript has \
                      {manuscript_words} words; which limit applies depends on the article type \
-                     you are submitting, which this analysis does not know.",
+                     you are submitting, which this analysis does not know, so this row is not \
+                     decided.",
                     word_limits.len()
                 ),
                 guideline_source: Some(word_limits[0].source_url.clone()),
                 source_span: Some(word_limits[0].source_span.clone()),
                 article_type: None,
                 checked_field: Some("manuscript word count".into()),
-                unevaluable: false,
+                unevaluable: true,
             });
         }
     }
