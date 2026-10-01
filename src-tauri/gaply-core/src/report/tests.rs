@@ -1653,6 +1653,79 @@ fn a_reference_title_is_not_an_ethics_statement() {
     assert!(e2.passed, "a real declaration must still be found: {:?}", e2.detail);
 }
 
+/// **§11 D264: a consent or ethics row scoped to a population the manuscript
+/// has not been shown to have is undecided, not failed.** Spans verbatim from
+/// the seed. The A3 negative control is kept: human subjects in the text and no
+/// statement is still a FAIL.
+mod population_scoped_statements {
+    use crate::report::{checklist_from_requirements, ChecklistItem};
+
+    fn req(value: &str, span: &str) -> crate::journal_store::StoredRequirement {
+        crate::journal_store::StoredRequirement { source_span: span.into(), ..super::stmt_req(value) }
+    }
+    fn row(text: &str, reqs: &[crate::journal_store::StoredRequirement], needle: &str) -> ChecklistItem {
+        let ex = crate::extract::extract_from_text(text);
+        checklist_from_requirements(&ex, text, 3000, reqs, &[])
+            .into_iter()
+            .find(|i| i.requirement.contains(needle))
+            .expect("the requirement raises its row")
+    }
+    const CLINICAL: &str = "For clinical studies, a statement of informed consent having been obtained from a patient or their legal representative, paired with ethical approval for the study from a suitable institution, as required by the policies of the journal, may be considered sufficient evidence, but the journal reserves the right to request additional evidence in cases where it feels this is not sufficient.";
+    const SUBJECTS: &str = "The manuscript should contain a statement that the work has been approved by the appropriate ethical committees related to the institution(s) in which it was performed and that subjects gave informed consent to the work.";
+    const HUMAN_OR_ANIMAL: &str = "For experiments reporting results on animal or human subject research, an ethics approval statement should be included in this section (for further information, see the 'Bioethics' section of our policies and publication ethics .";
+    const HUMAN_TISSUE: &str = "Manuscripts reporting studies involving human participants, human data or human tissue must: include a statement on ethics approval and consent (even where the need for approval was waived) include the name of the ethics committee that approved the study and the committee's reference number if appropriate All materials must adhere to high ethical and animal welfare standards.";
+    const EXEMPTION: &str = "If a study was granted exemption or did not require ethics approval, a statement detailing this should be included in the manuscript.";
+    const LAKE: &str = "Methods\n\nWater samples were collected monthly from three lakes and analysed for nitrate and phosphate.\n";
+    const FISH: &str = "Methods\n\nAfter exposure, the fish were euthanised, and the brain tissues were dissected.\n";
+    const CLINIC: &str = "Methods\n\nPatients were enrolled at two hospitals and followed for a year.\n";
+
+    #[test]
+    fn consent_on_a_study_with_no_shown_participants_is_undecided() {
+        for span in [CLINICAL, SUBJECTS] {
+            let it = row(LAKE, &[req("informed consent statement", span)], "consent");
+            assert!(it.unevaluable && !it.passed, "{it:?}");
+            assert!(it.detail.contains("not decided"), "{}", it.detail);
+            assert!(!it.detail.contains("  "), "{:?}", it.detail);
+        }
+    }
+
+    #[test]
+    fn consent_with_human_subjects_in_the_text_and_no_statement_still_fails() {
+        // A3's negative control: a clinical manuscript that omits consent.
+        let it = row(CLINIC, &[req("informed consent statement", CLINICAL)], "consent");
+        assert!(!it.passed && !it.unevaluable, "{it:?}");
+    }
+
+    #[test]
+    fn a_stated_consent_still_passes() {
+        let he = "Methods\n\nParticipant consent obtained prior to interview.\n";
+        let it = row(he, &[req("informed consent statement", CLINICAL)], "consent");
+        assert!(it.passed && !it.unevaluable, "{it:?}");
+    }
+
+    #[test]
+    fn ethics_scoped_to_humans_or_animals_decides_only_on_evidence() {
+        // Human-or-animal: fish in the text is evidence; nothing is not.
+        let it = row(FISH, &[req("ethics approval statement", HUMAN_OR_ANIMAL)], "ethics");
+        assert!(!it.passed && !it.unevaluable, "fish are animal subjects: {it:?}");
+        let it = row(LAKE, &[req("ethics approval statement", HUMAN_OR_ANIMAL)], "ethics");
+        assert!(it.unevaluable, "{it:?}");
+        // Human only: fish are not evidence for it.
+        let it = row(FISH, &[req("ethics approval statement", HUMAN_TISSUE)], "ethics");
+        assert!(it.unevaluable, "{it:?}");
+    }
+
+    #[test]
+    fn an_unscoped_ethics_row_still_fails_a_non_human_study() {
+        // The exemption clause asks every submission to say something (D264).
+        let it = row(LAKE, &[req("ethics approval statement", EXEMPTION)], "ethics");
+        assert!(!it.passed && !it.unevaluable, "{it:?}");
+        // One unscoped sentence in the group keeps the whole row decided.
+        let it = row(LAKE, &[req("ethics approval statement", HUMAN_OR_ANIMAL), req("ethics approval statement", EXEMPTION)], "ethics");
+        assert!(!it.passed && !it.unevaluable, "{it:?}");
+    }
+}
+
 /// **A row that judged nothing must not render as a pass.** §11 D182.
 /// `design_independent` removes the standard rows for the pipeline, but any
 /// caller passing bindings still sees these, and green on

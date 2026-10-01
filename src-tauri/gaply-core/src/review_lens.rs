@@ -682,7 +682,13 @@ pub static ETHICS_CHECK: StateCheck = StateCheck {
 /// a metaphor, a lake survey, a bacterium's habitat and somebody else's
 /// bibliography. A false BLOCKING finding is the worst output this system can
 /// produce, and the lexicon that produced it was one word wide.
-const SUBJECTS_PRESENT: &[&str] = &[
+///
+/// **Split in two by §11 D264**, because the checklist needs to know WHICH
+/// population a study shows: a consent row is scoped to humans, and fish
+/// "euthanised" are evidence for an animal-scoped ethics row but not for it.
+/// This lens still reads the union, unchanged; "clinical trial" moved to the
+/// human half, where it belongs.
+pub(crate) const HUMAN_SUBJECTS_PRESENT: &[&str] = &[
     // Human subjects, with the conduct that makes them this study's.
     "participants were",
     "participants gave",
@@ -700,6 +706,11 @@ const SUBJECTS_PRESENT: &[&str] = &[
     "interviews were conducted",
     "questionnaire was administered",
     "questionnaires were administered",
+    "clinical trial",
+];
+
+/// The animal half of the subjects lexicon. See [`HUMAN_SUBJECTS_PRESENT`].
+pub(crate) const ANIMAL_SUBJECTS_PRESENT: &[&str] = &[
     // Animal subjects, likewise.
     "animals were",
     "animal experiments",
@@ -710,7 +721,6 @@ const SUBJECTS_PRESENT: &[&str] = &[
     "rabbits were",
     "zebrafish were",
     "in vivo experiment",
-    "clinical trial",
     "were sacrificed",
     "were euthanised",
     "were euthanized",
@@ -2299,6 +2309,22 @@ type Refusal = (String, StateField, String);
 ///
 /// Reads the extracted sections rather than the raw text so the result is a
 /// SENTENCE a reader can check, not a character window cut mid-word.
+/// [`sentence_containing`] over several lists at once, so a split lexicon
+/// matches exactly as the single list it was split from did.
+fn sentence_containing_any(r: &ExtractionResult, lists: &[&[&str]]) -> Option<String> {
+    for section in &r.sections {
+        for para in &section.paragraphs {
+            for sent in crate::extract::sentence::sentences_in(para) {
+                let sl = sent.to_lowercase();
+                if lists.iter().any(|l| l.iter().any(|n| sl.contains(*n))) {
+                    return Some(sent.trim().to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
 fn sentence_containing(r: &ExtractionResult, needles: &[&str]) -> Option<String> {
     for section in &r.sections {
         for para in &section.paragraphs {
@@ -2442,7 +2468,8 @@ fn collect(input: &LensInput<'_>) -> Collected {
             // no gate, and every desk study is flagged for lacking an ethics
             // statement it never needed.
             let subject_sentence = if check.code == ETHICS_CHECK.code {
-                sentence_containing(input.extraction, SUBJECTS_PRESENT)
+                // The union, first match in text order, as before D264's split.
+                sentence_containing_any(input.extraction, &[HUMAN_SUBJECTS_PRESENT, ANIMAL_SUBJECTS_PRESENT])
             } else {
                 None
             };

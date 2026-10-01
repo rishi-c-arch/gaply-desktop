@@ -1995,6 +1995,66 @@ fn scoped(mut item: ChecklistItem, manuscript_type: Option<&str>) -> ChecklistIt
     item
 }
 
+/// Who a statement requirement is scoped to. §11 D264.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Population {
+    Human,
+    HumanOrAnimal,
+}
+
+impl Population {
+    fn who(self) -> &'static str {
+        match self {
+            Population::Human => "human participants",
+            Population::HumanOrAnimal => "human or animal subjects",
+        }
+    }
+}
+
+/// Phrases in a journal's sentence that scope a statement to human subjects.
+/// Read off the 46 consent and ethics rows in the seed (D264's table): every
+/// population-scoped ethics sentence names one of these, and none of the
+/// unscoped, exemption-clause or content sentences does.
+const HUMAN_SCOPE: &[&str] = &[
+    "human participant", "human subject", "human data", "human tissue", "humans",
+    "human research", "clinical stud", "donors of cells",
+];
+
+/// The population a statement group is scoped to, when EVERY sentence in it
+/// states one. **Consent is human-scoped by definition** (D264): informed
+/// consent is given by a person, so a sentence need not say "human" to be
+/// scoped, and the four seed sentences that do not ("subjects gave informed
+/// consent", verbal consent) are treated as the other 25 are.
+fn group_population(
+    needle: &str,
+    rows: &[&crate::journal_store::StoredRequirement],
+) -> Option<Population> {
+    if needle == "consent" {
+        return Some(Population::Human);
+    }
+    let mut out = Population::Human;
+    for r in rows {
+        let l = r.source_span.to_lowercase();
+        if l.contains("human or animal") || l.contains("animal or human") {
+            out = Population::HumanOrAnimal;
+        } else if !HUMAN_SCOPE.iter().any(|p| l.contains(p)) {
+            return None;
+        }
+    }
+    Some(out)
+}
+
+/// Does the manuscript show subjects of this population? One direction only:
+/// see the call site.
+fn shows_subjects(lower_text: &str, p: Population) -> bool {
+    use crate::review_lens::{ANIMAL_SUBJECTS_PRESENT, HUMAN_SUBJECTS_PRESENT};
+    let human = HUMAN_SUBJECTS_PRESENT.iter().any(|n| lower_text.contains(n));
+    match p {
+        Population::Human => human,
+        Population::HumanOrAnimal => human || ANIMAL_SUBJECTS_PRESENT.iter().any(|n| lower_text.contains(n)),
+    }
+}
+
 /// One stored requirement as a carried source. Kept beside the two grouping
 /// sites so both produce the same shape.
 fn source_of(r: &crate::journal_store::StoredRequirement) -> ChecklistSource {
@@ -2372,22 +2432,39 @@ pub fn checklist_from_requirements(
         let (first, rest) = rows.split_first().expect("a group exists only when a row made it");
         let names = synonyms_for(needle);
         let found = statement_in_text(&lower_text, manuscript_text, &names);
+        let missing = format!(
+            "none of {} phrasings ({}) was found anywhere in the manuscript",
+            names.len(),
+            names.join(", ")
+        );
+        // **A statement the journal asks only of studies with human (or animal)
+        // subjects decides nothing when the manuscript has not been shown to
+        // have them. §11 D264.** Every sentence in the group must state the
+        // scope; one unscoped sentence keeps the row decided. Evidence is the
+        // subjects lexicon, which is one-directional: a hit makes the absence a
+        // FAIL, and no hit is NOT evidence of no subjects (it missed Health
+        // Economics' "Participant consent obtained prior to interview").
+        let population = group_population(needle, rows);
+        let undecided = found.is_none()
+            && population.is_some_and(|p| !shows_subjects(&lower_text, p));
         items.push(scoped(ChecklistItem {
             requirement: first.value.clone(),
             passed: found.is_some(),
-            detail: match &found {
-                Some(sentence) => format!("found in the manuscript: {sentence}"),
-                None => format!(
-                    "none of {} phrasings ({}) was found anywhere in the manuscript",
-                    names.len(),
-                    names.join(", ")
+            detail: match (&found, population) {
+                (Some(sentence), _) => format!("found in the manuscript: {sentence}"),
+                (None, Some(p)) if undecided => format!(
+                    "{missing}. The journal asks for this statement from studies with {}, and \
+                     whether this study has them is not established here, so this row is not \
+                     decided.",
+                    p.who()
                 ),
+                (None, _) => missing,
             },
             guideline_source: Some(first.source_url.clone()),
             source_span: Some(first.source_span.clone()),
             article_type: first.article_type.clone(),
             checked_field: Some("manuscript full text".into()),
-            unevaluable: false,
+            unevaluable: undecided,
             also_from: rest.iter().map(|r| source_of(r)).collect(),
         }, manuscript_article_type));
     }

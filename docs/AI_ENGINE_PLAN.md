@@ -21473,3 +21473,153 @@ deletion, since it guards against duplication. Restore `cmp`-checked.
 * The quote's placement was read in the test DOM, not looked at in the app.
 * `ReportViewerPage.tsx:483-486`'s comment ("No row reaches this screen with
   the flag set today") is stale since D246/D259 and is still not changed here.
+
+### D264 — a consent or ethics row scoped to subjects the manuscript is not shown to have is undecided, not failed
+
+**A3's applicability question, for one population, resolved the way A3
+said it must be.** The silkworm paper (IJAS) and both lake studies failed
+"informed consent statement" on 27 journals, from sentences about human
+participants and clinical studies. A3 (22 Sep) found that the manuscript side is
+a missing input. Its rule: *condition stated and no manuscript evidence either
+way → UNKNOWN, never not-applicable*. Only its article-type half had shipped
+(`scoped()`).
+
+#### The journal side: every consent and ethics row in the 644-row seed, hand-read `[seed]`
+
+46 rows on 30 journals, behind 21 distinct sentences:
+
+| scope the sentence states | consent (29) | ethics (17) |
+|---|---:|---:|
+| human participants / subjects / data / tissue | 9 | 2 |
+| clinical studies or patients | 16 | 0 |
+| human OR animal | 0 | 3 |
+| animal only | 0 | 0 |
+| what the statement must contain, no population | 3 | 1 |
+| none ("subjects gave informed consent"; BMJ "All research studies…") | 1 | 1 |
+| exemption clause: *"If a study was granted exemption or did not require ethics approval, a statement detailing this should be included"* | 0 | 9 |
+| not a requirement: BJA's trial-registry field list | 0 | 1 |
+
+**Decisions (Rishi, 2 Oct):**
+
+* **All 27 consent journals are human-scoped.** Informed consent presupposes
+  human participants by definition, so a sentence need not say "human" to be
+  scoped. That covers the four that do not ("subjects gave informed consent",
+  verbal consent, study participants).
+* **The 9 exemption-clause ethics rows keep failing.** *"If a study did not
+  require ethics approval, a statement detailing this should be included"* is
+  literally a requirement on a non-human paper: Elsevier asks every submission
+  to say something, including "none needed".
+
+#### The manuscript side: no reliable human-participants signal `[probe]`
+
+Truth across the six papers:
+
+* **Human participants: 1** (Health Economics).
+* **Vertebrate animals: 2** (chapter3 and final-L, *"the fish were euthanised"*).
+* **Invertebrates: 1** (IJAS, silkworms).
+* **None: R PAPER and Lake.**
+
+| signal | the one human positive | false fires |
+|---|---|---|
+| `SUBJECTS_PRESENT`, human half | **missed** (A3's finding, re-measured on all six, PDFs included) | 0 |
+| `SUBJECTS_PRESENT`, animal half | — | 0; fires correctly on the fish sentence; misses silkworms |
+| a broad cue list (participant, interview, survey, patient…) | hit | "survey" 6× on Lake and 35× on final-L (lake surveys); "participants" on a metaphor; "patient" on in/outpatient benefits |
+| the statement matcher | **hit**: *"Participant consent obtained prior to interview."* | 0 |
+
+One positive cannot support a rate, and the curated lexicon scores 0 of 1 on
+it. **Correction made during measurement:** a naive substring scan for the
+"informed consent" synonym list said the checklist missed Health Economics'
+consent sentence. It does not. `heading_for_statement` maps the row to the
+needle **"consent"**, and that matches. The rendered rows showed it: Health
+Economics passes consent and ethics on every journal.
+
+#### The rule `[src]`
+
+In `checklist_from_requirements`, per statement group:
+
+* **A statement found → PASS**, unchanged.
+* **No statement, and every sentence in the group is scoped to a population**
+  (consent always; ethics when each sentence names human subjects
+  (`HUMAN_SCOPE`) or "human or animal") → **UNEVALUABLE**, unless the
+  manuscript shows that population:
+  * the human half of the lexicon for a human-scoped row;
+  * either half for a human-or-animal row.
+  With evidence it is a FAIL, as before.
+* **One unscoped sentence keeps the row decided.** Exemption-clause, content and
+  unscoped rows are unchanged.
+
+`SUBJECTS_PRESENT` is split into `HUMAN_SUBJECTS_PRESENT` and
+`ANIMAL_SUBJECTS_PRESENT` ("clinical trial" moved to the human half).
+`review_lens` reads the union through `sentence_containing_any`, first match in
+text order, exactly as before.
+
+**THE COST, stated because it is real:** a human study that omits its consent
+statement, and whose subjects the lexicon misses, now reads **UNDECIDED rather
+than FAIL**. That is weaker, not wrong: it says nothing was established, and
+it does not claim the requirement was met. **It will happen.** The lexicon
+missed Health Economics' participants; had that paper omitted its consent
+sentence, it would read UNDECIDED.
+
+#### The 106-journal control, prediction first (`~/gaply-b80-sample/nm/PREDICTION_D264.txt`) `[probe zz_verdict_control]`
+
+`build_checklist` × 106 journals × the six manuscripts' `parse_path` text,
+against D262's outputs. **Exactly as predicted:**
+
+| text | consent | ethics | other rows |
+|---|---|---|---|
+| Health Economics | unchanged (PASS, found) | unchanged | 0 |
+| R PAPER, IJAS, Lake | FAIL → UNDECIDED on 27 | FAIL → UNDECIDED on 3 (Frontiers Public Health, Synthetic and Systems Biotechnology, Nature Medicine); 12 stay FAIL | 0 |
+| chapter3, final-L | FAIL → UNDECIDED on 27 | → UNDECIDED on 2; **Frontiers' human-or-animal row stays FAIL on "the fish were euthanised"** | 0 |
+
+Only `unevaluable` and `detail` move. Nothing that failed now passes, and
+nothing that passed now fails. The rendered sentence was read back on chapter3:
+it has no whitespace runs and ends in a full stop.
+
+#### Tests
+
+`report::tests::population_scoped_statements`, with the spans verbatim from the
+seed:
+
+* consent on a study with no shown participants → undecided (clinical and
+  "subjects" sentences);
+* **A3's negative control:** a clinical text ("Patients were enrolled…") with no
+  statement → FAIL;
+* a stated consent (Health Economics' sentence) → PASS;
+* human-or-animal ethics: fish → FAIL, nothing → undecided; human-only ethics
+  with fish → undecided;
+* the exemption clause, alone or mixed into a scoped group → FAIL.
+
+Before the fix two were red: the consent-undecided test (predicted) and the
+ethics-evidence test, the second new-behaviour test, which I had not listed.
+The prediction undercounted by one. The other three pin behaviour that must not
+change, and were green before and after.
+
+#### Deletion tests, predicted first (`~/gaply-b80-sample/nm/DT_PREDICTION_D264.txt`)
+
+`--workspace --no-fail-fast`. `report.rs` was restored from a saved copy and
+`cmp`-checked after each run. 26 targets ran every time, with no compile errors.
+**All five reddened exactly the predicted tests:**
+
+| | deletion | predicted red | actual |
+|---|---|---|---|
+| DT-1 | consent's scope read from the sentence, not by definition | the consent-undecided test ("subjects gave informed consent" is unscoped) | **as predicted** (1) |
+| DT-2 | subjects evidence ignored | the A3 clinical control and the fish case | **as predicted** (2) |
+| DT-3 | human-or-animal reads only the human half | the fish case | **as predicted** (1) |
+| DT-4 | a group is scoped if ANY sentence is | the mixed-group test | **as predicted** (1) |
+| DT-5 | undecided never set | the consent-undecided and ethics tests | **as predicted** (2) |
+
+**Suites:** `cargo test --workspace` 26 targets, 2026 passed (2021 + 5). No
+existing test moved, as predicted. `cargo test -p app --features devtools`: 10
+targets, 500 passed. vitest: no frontend change (below).
+
+#### Recorded, NOT fixed
+
+* **BJA's "ethics approval statement" is a trial-registry field list**: *"The
+  registry must include … date of ethics approval, registration date…"*. It is
+  D261/D262's class (a requirement whose subject is not the manuscript), as a
+  `section_required` row instead of a limit. It is unscoped, so it still fails
+  every non-human paper.
+* **Health Economics' ethics row passes on a grant number.** *"Ethical Approval:
+  Ministry of Health, Oman (Grant MOH/CSR/24/29387)."* opens with the
+  statement's name, so the matcher accepts it. What follows is a grant
+  reference, not an approval, and nothing in the matcher can tell.
