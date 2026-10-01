@@ -20892,3 +20892,64 @@ sentence rather than a fragment". The stored span is *"Authors should make sure
 the key elements from the Reporting Guideline (eg. CONSORT, PRISMA, etc."*: the
 splitter still ends it at "etc.)". The row was already counted as not a
 requirement, so no count changes.
+
+### D258 — seventy-six more Elsevier journals ship in the seed, at 6.9% wrong on the audited sample
+
+**Stored at the rate D257's re-audit measured: 7 of 102 sample rows wrong, all
+singletons.** Another fix round would remove one row at a time, and these
+journals have nothing in the product today.
+
+#### The batch, re-run on current code `[probe]`
+
+The 30 Sep rows were built at `feb5a50`, before D253–D257, so all 80 journals
+were refetched at `b0cb0c4`. The list was rebuilt the same way: 60 Elsevier
+slugs from `src/data/scopusDirectory.json` not yet stored, plus the same 20
+OpenAlex picks. One guide fetch per journal through the pasted-URL gates, the
+real `store_requirements`, bindings de-duplicated on the table's key.
+
+**Rate.** On 30 Sep, 40 s spacing held for 77 requests and the next 3 got HTTP
+429. So this run was paced 40 s in two halves of 40 with a pause between:
+**0 of 80 requests got a 429.** The pause was planned at 20 minutes and lasted
+50, because the machine slept and a sleeping Mac does not advance `sleep`.
+
+| outcome | 30 Sep (`feb5a50`) | 1 Oct (`b0cb0c4`) |
+|---|---:|---:|
+| stored | 73 | **76** |
+| HTTP 429 | 3 | 0 |
+| HTTP 404 (BBA, Composites Part B) | 2 | 2 |
+| not a guideline page (CHEST, Biological Psychiatry) | 2 | 2 |
+
+**All 73 journals stored on 30 Sep still fetch**, and the 3 lost to the 429
+(Powder Technology, Marine Pollution Bulletin, J Biomechanics) now store. One
+request (Energy Conversion and Management) failed at the connection level after
+a wake and stored on one retry.
+
+**Rows.** The 73 journals give **361 requirements (was 358)** and **84 bindings
+(was 84)**. The 20-journal sample went 100 → 102, which is D253–D257. Its 102
+live rows are identical to the 102 hand-read for D257's audit. The other 53
+journals moved by net +1, not itemised. The 3 new journals add 16 requirements
+and 4 bindings. **Stored: 377 requirements (354 verified, 23 conflicted) and 88
+bindings over 76 journals**, none of them with zero rows.
+
+**Not measured in this round:** the 88 bindings were not hand-read (D252 read
+its 12: 11 real). The 3 new journals' 16 rows are outside the audited sample.
+
+#### Merge `[src]`
+
+The rows are appended to `journal-seed.json`. Every existing fingerprint,
+requirement and binding and every other table is asserted equal as data. Under
+git's patience diff, the seed change is 6213 lines added and none removed. 76
+`profiled_journals` entries are added to `journal-crawl.json`, named from the
+directory or, for the OpenAlex picks, from the page title.
+
+#### Controls
+
+* **The seed loads:** 106 fingerprints, 666 requirements (289 + 377), 146
+  bindings (58 + 88), all 106 `bundled`, after the startup reconciles (D225,
+  D238, D239, D240), which remove nothing.
+* **The existing 289 rows and every other table are identical**, asserted by the
+  merge.
+* **The thirty profiled journals' checklists are byte-identical, 30 of 30.** All
+  76 new journals produce a checklist.
+* The six pins counting journals or seed rows move by exactly the store's size:
+  30→106, 29→105, 28→104 journals, 289→666 rows.

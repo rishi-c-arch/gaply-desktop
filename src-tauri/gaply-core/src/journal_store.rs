@@ -1509,14 +1509,16 @@ mod seed_tests {
         let db = Database::in_memory().unwrap();
         let r = load_bundled_seed(&db).expect("seed loads");
 
-        // Ten profiled journals, plus twenty Elsevier journals (§11 D252).
-        assert_eq!(r.seeded.len(), 30, "thirty profiled journals: {:?}", r.seeded);
+        // Ten profiled journals, plus twenty Elsevier journals (§11 D252) and
+        // seventy-six more (§11 D258).
+        assert_eq!(r.seeded.len(), 106, "106 profiled journals: {:?}", r.seeded);
         assert!(r.skipped_already_present.is_empty());
         // 213 crawled, minus the 8 from pages the journal does not own (§11 D225),
         // minus BMJ's student Careers word limit (§11 D238), minus the five
         // Frontiers extension ceilings and four example-only CONSORT rows (§11 D240),
-        // plus 94 from the twenty Elsevier guide pages (§11 D252).
-        assert_eq!(r.requirements, 289, "the crawl's row count, not a round number");
+        // plus 94 from the twenty Elsevier guide pages (§11 D252), plus 377 from
+        // the seventy-six of the 80-journal Elsevier batch (§11 D258).
+        assert_eq!(r.requirements, 666, "the crawl's row count, not a round number");
 
         // The rows are READABLE through the real reader, not just present.
         let reqs = requirements_for(&db, "nature-medicine").unwrap();
@@ -1574,8 +1576,8 @@ mod seed_tests {
         assert_eq!(p.origin, "crawled", "the local crawl survives");
         assert_eq!(p.content_hash, "local-crawl");
         assert_eq!(p.version, 9);
-        // The OTHER 29 are still seeded — skipping is per journal, not global.
-        assert_eq!(r.seeded.len(), 29, "{:?}", r.seeded);
+        // The OTHER 105 are still seeded — skipping is per journal, not global.
+        assert_eq!(r.seeded.len(), 105, "{:?}", r.seeded);
     }
 
     /// Loading twice must not double the rows.
@@ -1584,9 +1586,9 @@ mod seed_tests {
         let db = Database::in_memory().unwrap();
         let first = load_bundled_seed(&db).unwrap();
         let second = load_bundled_seed(&db).unwrap();
-        assert_eq!(first.requirements, 289);
+        assert_eq!(first.requirements, 666);
         assert_eq!(second.requirements, 0, "nothing left to seed");
-        assert_eq!(second.skipped_already_present.len(), 30);
+        assert_eq!(second.skipped_already_present.len(), 106);
         assert_eq!(requirements_for(&db, "nature-medicine").unwrap().len(), 39);
     }
 
