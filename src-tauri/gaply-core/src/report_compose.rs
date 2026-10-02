@@ -827,16 +827,14 @@ mod checklist_mirror {
         assert!(lines.iter().any(|l| l.contains("[Matters Arising]")), "{lines:#?}");
     }
 
-    /// **`unevaluable` is LATENT and this test says so rather than pretending.**
+    /// **A UNIT test on the composer with a constructed item.**
     ///
-    /// No row reaches either exporter with the flag set today: the per-binding
-    /// rows need a non-empty `bindings` and `build_checklist` passes `&[]`, and
-    /// `unbound_standard_findings`' rows are filtered by `design_independent`
-    /// (§11 D188). So this is a UNIT test on the composer with a constructed
-    /// item — honest — and it must not be read as a claim that the export path
-    /// handles the third state end to end. It does not, because nothing
-    /// produces one. A test driven through `build_checklist` would pass because
-    /// nothing reaches it, which is the vacuous shape.
+    /// This comment used to say `unevaluable` was latent. It is not: rows reach
+    /// both exporters with the flag set from four producers (type-scoped
+    /// requirements via `scoped`, §11 D246, §11 D259, §11 D264). The standards
+    /// rows that first set it are still filtered (`design_independent`, D188).
+    /// This test checks the composer's wording for the state, not that
+    /// `build_checklist` produces it.
     #[test]
     fn an_undecidable_row_does_not_print_as_a_failure() {
         let mut item = fixture();

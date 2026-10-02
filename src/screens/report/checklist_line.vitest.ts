@@ -59,9 +59,9 @@ describe('checklist-line mirror — the two exporters carry the same fields', ()
     expect(lines.join('\n')).toContain('[Matters Arising]');
   });
 
-  // `unevaluable` is LATENT — no row reaches either exporter with it set today
-  // (see the Rust test's comment). This is a unit assertion on the TS function,
-  // not a claim that the export path handles the third state end to end.
+  // `unevaluable` reaches the exporter from four producers (D246, D259, D264
+  // and `scoped`). This is a unit assertion on the TS function; the composer's
+  // end-to-end coverage is the Rust test's business.
   it('an undecidable row does not print as a failure', () => {
     const lines = checklistLines({ ...itemFromMirror(), unevaluable: true, passed: false });
     expect(lines[0].startsWith('[not decided]')).toBe(true);

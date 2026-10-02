@@ -481,9 +481,10 @@ const ChecklistView: React.FC<{
         // **THREE STATES, THREE MARKS. §11 D188.** `passed` is a bool and
         // compliance is not: an item nobody could decide is neither met nor
         // failed, and `c.passed ? '✓' : '✗'` drew it as a red cross — a
-        // compliance failure on a check that was never run. No row reaches this
-        // screen with the flag set today, so this is the prerequisite for the
-        // conditions work rather than a repair of something visible.
+        // compliance failure on a check that was never run. Rows DO reach this
+        // screen with the flag set: type-scoped requirements (`scoped`), two
+        // stated abstract limits (D246), several word limits (D259), and
+        // consent/ethics rows scoped to unshown subjects (D264).
         const mark = c.unevaluable ? '–' : c.passed ? '✓' : '✗';
         // Every page the journal states this on. The first lives in
         // `source_span`; the rest are carried because the backend refuses to

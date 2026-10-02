@@ -71,9 +71,9 @@ export interface ChecklistItem {
    *  `ChecklistItem::unevaluable`. True means nobody could decide this item —
    *  NOT that the manuscript failed it. Serialized only when true.
    *
-   *  No row reaches this screen with the flag set today (both producers are
-   *  suppressed inside `build_checklist`), so this is read defensively: the
-   *  first row that sets it must not draw as a red cross. */
+   *  Live producers: type-scoped requirements (`scoped`), two stated abstract
+   *  limits (D246), several word limits (D259), consent/ethics rows scoped to
+   *  subjects the manuscript is not shown to have (D264). */
   unevaluable?: boolean;
 }
 
