@@ -21719,3 +21719,45 @@ D262 the record was written before the suite; here the deletion tests ran
 first. The guard caught a real missing citation, which was my sequencing error.
 It is constant across all four runs, so it does not affect which tests each
 deletion reddened. The suites below were run after this record was written.
+
+### D266 — Health Economics' ethics row passes on a line that names a grant: measured, and NOT decidable by a rule. Recorded.
+
+**From the audit's open items.** *"Ethical Approval: Ministry of Health, Oman
+(Grant MOH/CSR/24/29387)."* satisfies every ethics requirement on every journal.
+
+#### What the matcher requires today `[src]` (`statement_in_text`, `report.rs`)
+
+1. One of the statement's names ("ethic" here) within **40 characters of the
+   sentence start**: a declaration reads "Name: …".
+2. A sentence that is **not shaped like a contents line**: it does not end in a
+   page number.
+3. A sentence in the **body**: the caller searches the text without the
+   reference list (D182).
+
+**Nothing reads what follows the name.** "Ethical Approval:" followed by
+anything passes.
+
+#### Can a rule tell a statement from a label? `[probe]`
+
+* **The tell exists in this one case.** The ethics line and the funding line
+  have the SAME body: *"Funding: Ministry of Health, Oman (Grant
+  MOH/CSR/24/29387)."*
+* **A word rule on "grant" refuses real statements.** Over the six papers and
+  the 61 guide pages, every other sentence joining ethics and "grant" uses
+  **"granted"** in real ethics language: *"If a study was granted exemption…"*;
+  *"…where a study has been granted an exemption from an ethics committee…"*. A
+  real *"Ethical approval was granted by …"* would be refused.
+* **A narrower pattern ("Grant" + an identifier) has one instance and nothing
+  to test against.** No real ethics statement in the corpus carries one, so its
+  false-refusal rate is unmeasurable.
+* **And the truth is ambiguous to a human reader.** `MOH/CSR/24/29387` has the
+  shape of a reference from Oman's Ministry of Health Centre of Studies and
+  Research, which issues research approvals. So the line may be a real approval
+  mislabelled "Grant", or the funding line pasted under the wrong label. The
+  manuscript alone does not settle it.
+
+**Outcome: recorded, not fixed.** A rule here would be a guess fitted to one
+instance whose correct answer is itself unknown. If a fix is wanted, the
+evidence-shaped one is a cross-check — a statement whose body duplicates
+another declaration's body is not separate evidence — measured on more than one
+manuscript first. Nothing in the corpus beyond this paper exercises it.
