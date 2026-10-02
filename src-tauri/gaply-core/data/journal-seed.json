@@ -7004,7 +7004,7 @@
    "extracted_by": "pattern",
    "fetched_at": 1790835473,
    "journal_key": "environmental-pollution",
-   "kind": "abstract_limit",
+   "kind": "word_limit",
    "source_heading": "Perspective",
    "source_span": "Manuscript should include an Abstract, with flexible format and total length up to 4,000 words.",
    "source_url": "https://www.sciencedirect.com/journal/environmental-pollution/publish/guide-for-authors",

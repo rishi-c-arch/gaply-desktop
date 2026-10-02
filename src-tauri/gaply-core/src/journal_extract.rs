@@ -1225,8 +1225,13 @@ pub fn extract_requirements(blocks: &[GuidelineBlock]) -> Vec<ExtractedRequireme
                     let Some(kind) = limit_kind(&lower, at) else { continue };
                     // An abstract limit is a word limit under a different name,
                     // and conflating them loses which the journal meant.
+                    // ...unless the limit's own clause names the TOTAL length, which
+                    // is the manuscript's (§11 D267): "Manuscript should include an
+                    // Abstract, with flexible format and total length up to 4,000
+                    // words" limits the whole Perspective, not its abstract.
                     let kind = if kind == RequirementKind::WordLimit
                         && lower[..at].contains("abstract")
+                        && !lower[..lead_at].rsplit([',', ';', ':', '.']).next().unwrap_or("").contains("total length")
                     {
                         RequirementKind::AbstractLimit
                     } else {
@@ -1868,6 +1873,28 @@ mod tests {
         assert_eq!(stmts("Ethics", "The manuscript must include an ethics approval statement and the trial registry number."), vec!["ethics approval statement"]);
         assert_eq!(stmts("Ethics", "Registry The manuscript must include an ethics approval statement."), vec!["ethics approval statement"]);
         assert_eq!(stmts("Ethics", "For experiments reporting results on animal or human subject research, an ethics approval statement should be included in this section (for further information, see the 'Bioethics' section of our policies and publication ethics ."), vec!["ethics approval statement"]);
+    }
+
+    // ---- §11 D267: a total length is not an abstract's ------------------------
+
+    #[test]
+    fn a_total_length_is_a_word_limit_even_after_the_word_abstract() {
+        let limits = |h: &str, span: &str| -> Vec<(String, String)> {
+            extract_requirements(&[b(h, span)])
+                .into_iter()
+                .filter(|r| matches!(r.kind, RequirementKind::WordLimit | RequirementKind::AbstractLimit))
+                .map(|r| (r.kind.as_str().to_string(), r.value))
+                .collect()
+        };
+        let one = |k: &str, v: &str| vec![(k.to_string(), v.to_string())];
+        // Environmental Pollution, verbatim: the Abstract is named, then the
+        // total length is limited.
+        assert_eq!(limits("Perspective", "Manuscript should include an Abstract, with flexible format and total length up to 4,000 words."), one("word_limit", "4000"));
+        // Controls: the three seed rows that name "abstract" only earlier in
+        // the sentence and ARE abstract limits.
+        assert_eq!(limits("Abstract", "Components Description Example Abstract • Structured (objectives, methods, results, and conclusions) • No more than 250 words All submissions (except Letters to the Editor and Editorials) must include an abstract that summarizes the work reported in the manuscript."), one("abstract_limit", "250"));
+        assert_eq!(limits("Abstract", "The Abstract should: Describe the main objective(s) of the study Explain how the study was done, including any model organisms used, without methodological detail Summarize the most important results and their significance Not exceed 300 words Abstracts should not include: Citations Abbreviations, if possible"), one("abstract_limit", "300"));
+        assert_eq!(limits("Abstract", "PLOS Medicine prefers abstract submissions not exceed 300 words, with a maximum of 500 words allowed."), one("abstract_limit", "500"));
     }
 
     // ---- §11 D251: a listed type named anywhere in the limit's sentence -------

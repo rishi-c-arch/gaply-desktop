@@ -21761,3 +21761,100 @@ instance whose correct answer is itself unknown. If a fix is wanted, the
 evidence-shaped one is a cross-check — a statement whose body duplicates
 another declaration's body is not separate evidence — measured on more than one
 manuscript first. Nothing in the corpus beyond this paper exercises it.
+
+### D267 — a total length is not an abstract's: Environmental Pollution's 4000 re-kinded to the word limit it is
+
+**From the audit's open items.** Environmental Pollution carried *"abstract
+limit 4000 (Perspective)"* from *"Manuscript should include an Abstract, with
+flexible format and total length up to 4,000 words."* Every manuscript saw
+"4000 (Perspective)" listed among the journal's abstract limits.
+
+#### Cause `[src]`: not D261's subject question, a KIND question
+
+The lead "up to" yields 4000 words, which starts as a **word** limit. The
+subject ("total length", the manuscript) is right. Then the re-label rule in
+`extract_requirements` (*"An abstract limit is a word limit under a different
+name"*) applies `lower[..at].contains("abstract")`: "abstract" ANYWHERE earlier
+in the sentence makes it an abstract limit.
+
+#### Measured first `[seed, pages]`
+
+Every seed abstract row (112 rows, 30 distinct sentences), by where "abstract"
+sits relative to the limit phrase that yields its value:
+
+| where | rows |
+|---|---:|
+| in the limit's own clause | 100 |
+| in the lead itself ("abstract of …") | 7 |
+| **only earlier in the sentence** | **4** |
+| no lead found (BMJ's D238-corrected row) | 1 |
+
+The four "earlier only" rows:
+
+* Value in Health 250, *"Abstract • Structured (objectives, methods, results, and
+  conclusions) • No more than 250 words"*: a **real** abstract limit.
+* PLOS ONE 300, *"The Abstract should: … Not exceed 300 words"*: a **real**
+  abstract limit.
+* PLOS Medicine 500, *"prefers abstract submissions not exceed 300 words, with a
+  maximum of 500 words allowed"*: a **real** abstract limit.
+* **Environmental Pollution 4000**: total length.
+
+**A clause-scoped kind rule would break three real limits to fix one.** Only
+Environmental Pollution's limit clause names the WHOLE manuscript: *"total
+length"*. No other seed limit sentence contains "total length", and none of the
+61 saved pages does (the journal's page is not in the corpus). **The rule is
+fitted to one sentence.** That is stated because it is true, and it is
+justified on its meaning: a total length is never an abstract's.
+
+#### Fix `[src]`
+
+* **Extractor:** the re-label to an abstract limit is skipped when the limit's
+  own clause (back to `, ; : .`) names "total length".
+* **Installed databases:** D238's named-correction list gains
+  `CorrectionAction::SetKind("word_limit")` for this one row, counted in a new
+  `CorrectionReport::rekinded` and logged at startup.
+* **Seed:** that row's kind changes in place, a one-line diff.
+  `the_bundled_seed_already_carries_every_requirement_correction` now also checks
+  that a re-kinded row is present under its new kind.
+
+#### Controls, predictions first (`~/gaply-b80-sample/nm/PREDICTION_D267.txt`) `[probe]`
+
+| control | predicted | actual |
+|---|---|---|
+| Pre-D267 seed limit rows through the new extractor | gone: BMJ (D238) + Environmental Pollution's 4000 (re-read as a word limit) | **as predicted**; on the new seed only BMJ's, 200 rows |
+| The 61 saved pages | byte-identical | **as predicted**, 0 of 122 files differ |
+| `build_checklist`, 106 journals × 6 texts | only Environmental Pollution changes. Its depends-on-type word row gains 4000 (Perspective), sources 2 → 3. Its abstract "more than one" row loses it, 2 → 1, and stays undecided on 250 / 300. Lake: the word row only | **as predicted** on all six texts |
+
+#### Tests
+
+* `journal_extract::tests::a_total_length_is_a_word_limit_even_after_the_word_abstract`:
+  the sentence verbatim gives `word_limit 4000`. The controls are the three real
+  "earlier only" abstract limits, which must stay abstract.
+* `journal_store::seed_tests::a_database_seeded_before_d267_rekinds_the_total_length`:
+  the old row written back is re-kinded, Perspective kept, nothing else moves,
+  idempotent.
+* D238's installed-database test literal gains `rekinded: 0`.
+
+Both new tests were red before the fix at the predicted assertions
+(`abstract_limit 4000`; `AbstractLimit` vs `WordLimit`).
+
+#### Deletion tests, predicted first (`DT_PREDICTION_D267.txt`)
+
+`--workspace --no-fail-fast`. Three files were restored from saved copies and
+`cmp`-checked after each run, then SHA-256-checked once all four had finished.
+26 targets every run. **All four reddened exactly the predicted tests:**
+
+| | deletion | predicted | actual |
+|---|---|---|---|
+| DT-1 | the extractor's total-length exception | the extract test | as predicted (1) |
+| DT-2 | the `SetKind` correction entry (→ `Remove`) | the D267 store test | as predicted (1) |
+| DT-3 | the `SetKind` arm updates nothing | the D267 store test | as predicted (1) |
+| DT-4 | the seed row put back to `abstract_limit` | the seed-carries-every-correction test and D238's installed-database test (`rekinded` 1 ≠ 0) | as predicted (2) |
+
+**A process mistake, recorded.** Building this runner, I piped the D265 runner
+(with its path rewritten) into `python3`, meaning to read it as a template.
+zsh executed it, so the D265 deletion tests ran once more against the live tree.
+They restored every file from this item's saved copies, which held the correct
+state, and a `cmp` afterwards confirmed all three files were byte-identical.
+Nothing was lost. The D265 logs it wrote (timestamped 12:44–13:24) are not
+D267's results.

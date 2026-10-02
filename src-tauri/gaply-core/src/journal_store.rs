@@ -540,6 +540,10 @@ pub enum CorrectionAction {
     /// number out of it. The span is kept verbatim: it is what lets a reader
     /// check the corrected value.
     SetValue(&'static str),
+    /// The row's KIND is wrong and its value right. §11 D267: Environmental
+    /// Pollution's "total length up to 4,000 words" was read as an abstract
+    /// limit because the sentence names the Abstract first.
+    SetKind(&'static str),
 }
 
 /// **A requirement row the extractor read wrongly from a page the journal DOES
@@ -586,6 +590,15 @@ pub const REQUIREMENT_CORRECTIONS: &[RequirementCorrection] = &[
         reason: "the span says abstracts should be 250-300 words, and up to 400 only for a \
                  CONSORT or PRISMA style abstract; 400 passed a 350-word non-trial abstract",
     },
+    RequirementCorrection {
+        journal_key: "environmental-pollution",
+        kind: "abstract_limit",
+        value: "4000",
+        source_url: "https://www.sciencedirect.com/journal/environmental-pollution/publish/guide-for-authors",
+        action: CorrectionAction::SetKind("word_limit"),
+        reason: "\"…an Abstract, with flexible format and total length up to 4,000 words\" limits \
+                 the whole Perspective, not its abstract (§11 D267)",
+    },
 ];
 
 /// Rows changed by [`apply_requirement_corrections`].
@@ -593,6 +606,8 @@ pub const REQUIREMENT_CORRECTIONS: &[RequirementCorrection] = &[
 pub struct CorrectionReport {
     pub removed: usize,
     pub revalued: usize,
+    /// Rows whose kind changed (§11 D267).
+    pub rekinded: usize,
 }
 
 /// Apply [`REQUIREMENT_CORRECTIONS`] to `journal_requirements`, in one
@@ -614,6 +629,12 @@ pub fn apply_requirement_corrections(db: &Database) -> Result<CorrectionReport, 
                 out.revalued += tx.execute(
                     &format!("UPDATE journal_requirements SET value = ?5 WHERE {filter}"),
                     params![c.journal_key, c.kind, c.value, c.source_url, v],
+                )?;
+            }
+            CorrectionAction::SetKind(k) => {
+                out.rekinded += tx.execute(
+                    &format!("UPDATE journal_requirements SET kind = ?5 WHERE {filter}"),
+                    params![c.journal_key, c.kind, c.value, c.source_url, k],
                 )?;
             }
         }
@@ -1795,6 +1816,50 @@ mod seed_tests {
         assert_eq!(remove_misread_rows(&db).unwrap(), MisreadRemoval::default(), "idempotent");
     }
 
+    /// **§11 D267: an installed database's Environmental Pollution "abstract
+    /// limit 4000" — a total length — becomes the word limit it is.** The row
+    /// is written back as the old seed stored it; corrections re-kind it and
+    /// nothing else moves. Idempotent.
+    #[test]
+    fn a_database_seeded_before_d267_rekinds_the_total_length() {
+        let db = Database::in_memory().unwrap();
+        load_bundled_seed(&db).unwrap();
+        let url = "https://www.sciencedirect.com/journal/environmental-pollution/publish/guide-for-authors";
+        {
+            let conn = db.conn().unwrap();
+            conn.execute(
+                "DELETE FROM journal_requirements WHERE journal_key = 'environmental-pollution'
+                   AND value = '4000' AND article_type = 'Perspective'",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO journal_requirements (journal_key, kind, value, article_type, status,
+                   source_url, source_heading, source_span, extracted_by, fetched_at)
+                 VALUES ('environmental-pollution', 'abstract_limit', '4000', 'Perspective', 'verified',
+                   ?1, 'Perspective', 'Manuscript should include an Abstract, with flexible format and total length up to 4,000 words.',
+                   'pattern', 1)",
+                params![url],
+            )
+            .unwrap();
+        }
+        let others = |db: &Database| -> Vec<(String, String)> {
+            requirements_for(db, "environmental-pollution").unwrap().into_iter()
+                .filter(|q| q.value != "4000")
+                .map(|q| (q.kind.as_str().to_string(), q.value)).collect()
+        };
+        let before = others(&db);
+        apply_requirement_corrections(&db).unwrap();
+        let ep = requirements_for(&db, "environmental-pollution").unwrap();
+        let row: Vec<_> = ep.iter().filter(|q| q.value == "4000").collect();
+        assert_eq!(row.len(), 1, "{ep:#?}");
+        assert_eq!(row[0].kind, RequirementKind::WordLimit, "a total length is a word limit");
+        assert_eq!(row[0].article_type.as_deref(), Some("Perspective"));
+        assert_eq!(others(&db), before, "nothing else moves");
+        apply_requirement_corrections(&db).unwrap();
+        assert_eq!(requirements_for(&db, "environmental-pollution").unwrap().len(), ep.len(), "idempotent");
+    }
+
     // --- §11 D239: stored article types re-read with the current rule -----
 
     /// **The shipped seed is already reclassified.** Goes red when a seed built
@@ -1902,6 +1967,14 @@ mod seed_tests {
                     c.journal_key, c.kind
                 );
             }
+            if let CorrectionAction::SetKind(k) = c.action {
+                assert!(
+                    rows.iter().any(|r| r["journal_key"] == c.journal_key && r["kind"] == k
+                        && r["value"] == c.value && r["source_url"] == c.source_url),
+                    "the re-kinded row {} {k} = {} is missing from the seed",
+                    c.journal_key, c.value
+                );
+            }
         }
     }
 
@@ -1940,7 +2013,7 @@ mod seed_tests {
             .unwrap();
         }
         let r = apply_requirement_corrections(&db).unwrap();
-        assert_eq!(r, CorrectionReport { removed: 1, revalued: 1 });
+        assert_eq!(r, CorrectionReport { removed: 1, revalued: 1, rekinded: 0 });
         let after: Vec<usize> =
             keys.iter().map(|k| requirements_for(&db, k).unwrap().len()).collect();
         assert_eq!(before, after, "only the two BMJ rows change, and the counts come back");

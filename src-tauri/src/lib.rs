@@ -140,6 +140,7 @@ pub fn run() {
                 Ok(r) if r != Default::default() => tracing::info!(
                     removed = r.removed,
                     revalued = r.revalued,
+                    rekinded = r.rekinded,
                     "corrected journal requirement rows"
                 ),
                 Ok(_) => {}
