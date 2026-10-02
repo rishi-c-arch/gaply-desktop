@@ -21858,3 +21858,125 @@ They restored every file from this item's saved copies, which held the correct
 state, and a `cmp` afterwards confirmed all three files were byte-identical.
 Nothing was lost. The D265 logs it wrote (timestamped 12:44–13:24) are not
 D267's results.
+
+### D268 — a numbered "Summary" is a chapter's, not the paper's abstract: chapter3 has no Abstract, and final-L's abstract is 799 words, not 9,764
+
+**From the audit's open items.** chapter3's journal checklist passed *"required
+section: Abstract"* on every journal, and final-L counted its abstract at
+**9,764 words** against every journal's abstract limit. Both came from one
+classification: `"summary"` is an Abstract heading, so a thesis chapter's
+closing `3.10 Summary` became the paper's abstract.
+
+#### Measured first `[probe zz_section_dump, zz_abstract_bounds]`
+
+The splitter over the 61 documents on the Desktop. Seven Abstract sections
+have a numbered heading, in four files:
+
+| file | heading | words | opens |
+|---|---|---:|---|
+| CHAPTER 3 TO ALL | 3.18 Summary | 216 | *"This chapter has explained, step by step…"* |
+| CHAPTER 3 TO ALL | 4.13 Summary | 226 | *"This chapter navigates…"* |
+| CHAPTER 3 TO ALL | 5.21 Summary | 150 | *"This chapter analysed the survey data…"* |
+| chapter3 | 3.10 Summary | 212 | *"The present chapter states the materials and methods…"* |
+| final final L | 3.10 Summary | 8,965 | the same sentence |
+| part 1 | 2.9 Summary | 266 | *"This chapter has reviewed…"* |
+| part 1 | 3.18 Summary | 7,341 | *"This chapter has explained…"* |
+
+**7 of 7 open by naming the chapter.** None of the other 15 Abstract sections
+(14 files) carries a number. A thesis numbers its chapter sections; a paper
+does not number its abstract. No numbered "Abstract" heading occurs in the
+corpus, so the rule decides "Summary" only.
+
+final-L's 9,764 was its real `ABSTRACT` (799 words) plus that 8,965-word
+`3.10 Summary`, which runs on past the summary into Chapter 4's results
+because those headings go undetected (see the residual below).
+
+#### Fix `[src]`
+
+* **`sections::detect_heading`:** a heading whose phrase is exactly
+  `"summary"` and which carried leading numbering is `Conclusion`, not
+  `Abstract`. In `detect_heading`, so the line-heading path, the run-in path
+  and every consumer of `ExtractionResult::sections` see the same kind.
+  Conclusion keeps those sentences in the claim-strength scope Abstract shared
+  with it.
+* **`report::section_check`, a consumer that re-reads the raw text.** With the
+  splitter change alone, CONSORT 1b went on to report chapter3, CHAPTER 3 TO
+  ALL and part 1 as **Met**, quoting `"3.10 Summary"` as a heading *"the
+  heading vocabulary did not recognise"*. The vocabulary had recognised it and
+  classified it as Conclusion, and the journal checklist was saying *"Abstract
+  section missing"* for the same file. The fallback now sets aside a line the
+  classifier assigns to another kind. The NotFound row **names the line it set
+  aside**, because the reader can see `3.10 Summary` in the document, and
+  *"no heading-shaped line matching summary"* would be false.
+
+#### Controls, predictions first (`~/gaply-b80-sample/nm/PREDICTION_D268.txt`) `[probe]`
+
+| control | predicted | actual |
+|---|---|---|
+| P1: splitter, 61 Desktop documents vs HEAD | exactly the 7 sections above change Abstract → Conclusion; every other section identical (kind, heading, words) | **as predicted**: 7 of 244 rows; headings and word counts unchanged |
+| P2: `build_checklist`, 106 journals × 6 texts vs D267 (`zz_verdict_control`) | ijas, he, rpaper, lake byte-identical. chapter3: the Abstract row PASS → FAIL ("Abstract section missing") on every journal, every abstract-limit row gone. final-L: every abstract row's count 9,764 → 799, no verdict flips | **as predicted**: chapter3 106 rows flip and 95 limit rows go; final-L 95 rows change their detail only (9764 → 799), `passed` unchanged on all |
+| P4: CONSORT 1b / PRISMA 16a, 61 documents vs HEAD | exactly chapter3, CHAPTER 3 TO ALL and part 1 change, Met → NotFound naming the heading | **as predicted**, 3 of 122 rows |
+| P5: the 106-journal control with both changes vs the splitter change alone | all six texts byte-identical | **as predicted** |
+
+The four unaffected texts reproduce D267's control outputs byte for byte. The
+texts were regenerated from the Desktop originals for this item, so that is
+the check that the inputs are the same as D267's.
+
+#### What else moved: validation on final-L `[probe zz_validate_flags]`
+
+P3 predicted that final-L's findings *might* move: rule 4 (missing confidence
+interval) counts only p-values in Abstract or Results. Over all 61 documents,
+**only final-L changes**: 75 flags become 63. **12 MissingConfidenceInterval
+flags leave the rule's scope**. The other 11 flags in that section are the same
+flags with their location label changed from Abstract to Conclusion, and every
+flag outside it is byte-identical.
+
+**Those 12 are on real results paragraphs**: Kruskal–Wallis tests,
+`4.1.2.3 Electrical conductivity`, `4.2.4 Ecological succession`. They sit in
+`3.10 Summary` because the Chapter 4 sub-headings in that span are not detected
+as headings (`4.1.2.3 Electrical conductivity` opens a paragraph), so the
+section runs on for 70 paragraphs. At HEAD they were flagged only
+because that section was mislabelled Abstract: the right finding, for the wrong
+reason. **This is the named residual: a section-boundary defect**, and the fix
+belongs there. Keeping "Summary" as Abstract to keep these 12 would keep the
+9,764-word abstract and chapter3's false PASS.
+
+#### The Turnitin footer: recorded, not fixed
+
+final-L's 799 words include a 70-word final paragraph that is not the abstract:
+
+> *"232 Page 50 of 401 - Integrity Submission Submission ID trn:oid:::3117:616484955 Page 50 of 401 - …"*
+
+**355 lines of the parsed text are this footer**, all in `final final L.pdf`
+and none in the other five control texts. It is an artefact of a Turnitin
+export, not of the manuscript, and it is also what D165 found as `Method`
+objects. **Not fixed, deliberately.** A parser change tested on one file has
+produced defects before in this log. If a researcher sends a Turnitin export,
+that is the evidence to act on, and it will come with its own second file.
+
+#### Tests
+
+* `extract::sections::tests::a_numbered_summary_is_a_conclusion_not_an_abstract`:
+  the four numbered forms are Conclusion. The controls: un-numbered `Summary`
+  and `ABSTRACT` stay Abstract, and numbering on another heading changes
+  nothing. Through `split_document`, chapter3's shape has no Abstract.
+* `report::tests::a_numbered_summary_is_not_evidence_of_an_abstract`: CONSORT
+  1b is NotFound, with the exact detail naming `3.10 Summary` and no span. The
+  control is a heading the classifier does not know (`Synopsis Overview`), which
+  still reaches the fallback and is Met.
+
+#### Deletion tests, predicted first (`DT_PREDICTION_D268.txt`)
+
+`--workspace --no-fail-fast`, `CARGO_TERM_COLOR=never`, one log per run. Each
+file was restored from a saved copy and `cmp`-checked after its run, and both
+were SHA-256-checked once all three had finished. 26 targets every run. **All
+three reddened exactly the predicted tests, at the predicted assertions:**
+
+| | deletion | predicted | actual |
+|---|---|---|---|
+| DT-1 | the numbered-Summary rule in `detect_heading` | the sections test, and the report test (1b Met through a classified Abstract) | as predicted (2): `Some(Abstract)` ≠ `Some(Conclusion)`; `Met` ≠ `NotFound` |
+| DT-2 | the set-aside arm never matches | the report test, Met | as predicted (1): Met, quoting "3.10 Summary" as unrecognised |
+| DT-3 | the set-aside line skipped but not recorded | the report test, on the detail | as predicted (1): the generic "no heading-shaped line matching" detail |
+
+Suite at the fix: `cargo test --workspace` **2032 passed, 9 ignored, 26
+targets**; vitest **972 passed, 75 files**.

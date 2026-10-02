@@ -136,7 +136,19 @@ pub(crate) fn detect_heading(line: &str) -> Option<(SectionKind, String, Vec<Sec
     // For a heading whose other half names no section at all — "Experimental
     // Setup and Results" — there is only one candidate and the choice does not
     // arise.
-    let kind = kinds.remove(0);
+    let mut kind = kinds.remove(0);
+    // **A NUMBERED "Summary" is a chapter's summary, not the paper's abstract.
+    // §11 D268.** Measured over 61 documents: the 7 Abstract sections with a
+    // numbered heading, in 4 of them ("3.10 Summary", "2.9 Summary",
+    // "5.21 Summary"), all open "This chapter…" / "The present chapter…", and
+    // none of the other 15 Abstract sections (14 files) carries a number. A thesis numbers its
+    // chapter sections; a paper does not number its abstract. Conclusion is the
+    // role such a section plays, and keeps its sentences in the claim-strength
+    // scope Abstract shared with it. Only "summary": no numbered "Abstract"
+    // occurs in the corpus, so none is decided here.
+    if kind == SectionKind::Abstract && phrase == "summary" && stripped.trim() != trimmed {
+        kind = SectionKind::Conclusion;
+    }
     Some((kind, trimmed.to_string(), kinds))
 }
 
@@ -462,6 +474,30 @@ with five challenges.\n\nIntroduction\nPrior work exists.";
             "the parameter row must not open a second Methods section: {:?}",
             secs.iter().map(|s| (&s.kind, &s.heading)).collect::<Vec<_>>()
         );
+    }
+
+    /// §11 D268: a NUMBERED "Summary" is a chapter's summary, not the paper's
+    /// abstract. Measured over 61 documents: 7 of 7 numbered Summary sections
+    /// open "This chapter…"; 0 of the other 15 Abstract sections carry a number.
+    #[test]
+    fn a_numbered_summary_is_a_conclusion_not_an_abstract() {
+        let kind = |l: &str| detect_heading(l).map(|(k, _, _)| k);
+        for h in ["3.10 Summary", "2.9 Summary", "5.21 Summary", "IV. SUMMARY"] {
+            assert_eq!(kind(h), Some(SectionKind::Conclusion), "{h}");
+        }
+        // Controls: an un-numbered Summary or Abstract is still the abstract;
+        // numbering on any other heading changes nothing.
+        assert_eq!(kind("Summary"), Some(SectionKind::Abstract));
+        assert_eq!(kind("ABSTRACT"), Some(SectionKind::Abstract));
+        assert_eq!(kind("1. Introduction"), Some(SectionKind::Introduction));
+        assert_eq!(kind("3.10 Conclusion"), Some(SectionKind::Conclusion));
+
+        // Through split_document, chapter3's shape: a thesis chapter whose last
+        // section is "3.10 Summary" has no abstract.
+        let text = "MATERIALS AND METHODS\n\nWater was sampled monthly.\n\n3.10 Summary\n\nThe present chapter states the materials and methods used.\n";
+        let (_, secs) = split_document(text);
+        assert!(!secs.iter().any(|s| s.kind == SectionKind::Abstract), "{secs:#?}");
+        assert!(secs.iter().any(|s| s.kind == SectionKind::Conclusion && s.heading == "3.10 Summary"), "{secs:#?}");
     }
 
     /// §11 D189 rule 4: numbering glued to the word with no space.

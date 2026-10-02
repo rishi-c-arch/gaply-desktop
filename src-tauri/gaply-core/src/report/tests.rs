@@ -2966,6 +2966,42 @@ fn a_sentence_mentioning_results_is_not_a_heading() {
     }
 }
 
+/// **§11 D268: a heading the classifier RECOGNISED as another kind is not one
+/// it failed to recognise.** "3.10 Summary" is classified as a chapter's
+/// Conclusion, so the fallback must not quote it as an abstract "the heading
+/// vocabulary did not recognise". Measured on chapter3, CHAPTER 3 TO ALL and
+/// part 1: without the filter all three read Met on the chapter summary's
+/// heading while the journal checklist said "Abstract section missing".
+#[test]
+fn a_numbered_summary_is_not_evidence_of_an_abstract() {
+    use crate::journal_standards::Standard;
+    use crate::report::ItemStatus;
+    let text = "MATERIALS AND METHODS\n\nWater was sampled monthly.\n\n3.10 Summary\n\n\
+                The present chapter states the materials and methods used.\n";
+    let ex = crate::extract::extract_from_text(text);
+    let e = crate::report::evaluate(Standard::Consort, &ex, text);
+    let v = e.verdicts.iter().find(|v| v.item == "1b").expect("CONSORT 1b");
+    assert_eq!(v.status, ItemStatus::NotFound, "{}", v.detail);
+    // The row names the heading it set aside: a reader can see "3.10 Summary"
+    // in the document, so "no line matching summary" would be false.
+    assert_eq!(
+        v.detail,
+        "no Abstract section was classified. The heading \"3.10 Summary\" matches \
+         [\"abstract\", \"summary\", \"synopsis\"], and it was read as a Conclusion section, \
+         not as this one"
+    );
+    assert!(v.evidence_span.is_none());
+
+    // Control: a heading the classifier does NOT know still reaches the
+    // fallback, which is what the fallback is for.
+    let text = "Synopsis Overview\n\nWe sampled three lakes.\n\n1. Introduction\n\nLakes matter.\n";
+    let ex = crate::extract::extract_from_text(text);
+    let e = crate::report::evaluate(Standard::Consort, &ex, text);
+    let v = e.verdicts.iter().find(|v| v.item == "1b").expect("CONSORT 1b");
+    assert_eq!(v.status, ItemStatus::Met, "{}", v.detail);
+    assert!(v.detail.contains("did not recognise"), "{}", v.detail);
+}
+
 
 /// **§12.1's equation GAP, closed.** Equation findings shipped with
 /// `location: None`, marked GAP at the construction site: the engine works over

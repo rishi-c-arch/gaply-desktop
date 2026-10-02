@@ -3309,15 +3309,43 @@ fn section_check(
     // The classifier found nothing. Look for a HEADING-SHAPED line: short, not
     // a sentence, containing the word. "IV. EXPERIMENTS AND RESULTS" qualifies;
     // a sentence mentioning results does not.
-    if let Some(line) = heading_shaped_line(manuscript_text, words) {
+    //
+    // **A line the heading classifier RECOGNISED as another kind is not one it
+    // failed to recognise. §11 D268.** "3.10 Summary" names "summary", and the
+    // classifier reads it as a chapter's Conclusion, not the paper's Abstract.
+    // Without this, chapter3 and two other thesis chapters lost their Abstract
+    // section and CONSORT 1b reported it Met anyway, quoting that heading as one
+    // "the heading vocabulary did not recognise", while the journal checklist
+    // said "Abstract section missing" for the same file. The NotFound row names
+    // the heading it set aside, because a reader can see it in the document.
+    let mut set_aside: Option<(&str, SectionKind)> = None;
+    for line in heading_shaped_lines(manuscript_text, words) {
+        match crate::extract::sections::detect_heading(line) {
+            Some((k, _, also)) if k != kind && !also.contains(&kind) => {
+                set_aside.get_or_insert((line, k));
+            }
+            _ => {
+                return (
+                    ItemStatus::Met,
+                    Some(line.to_string()),
+                    None,
+                    format!(
+                        "no {kind:?} section was classified, but the manuscript carries the heading \
+                         \"{line}\" — the heading vocabulary did not recognise it, which is a fact \
+                         about the extractor and not about the manuscript"
+                    ),
+                );
+            }
+        }
+    }
+    if let Some((line, k)) = set_aside {
         return (
-            ItemStatus::Met,
-            Some(line.clone()),
+            ItemStatus::NotFound,
+            None,
             None,
             format!(
-                "no {kind:?} section was classified, but the manuscript carries the heading \
-                 \"{line}\" — the heading vocabulary did not recognise it, which is a fact \
-                 about the extractor and not about the manuscript"
+                "no {kind:?} section was classified. The heading \"{line}\" matches {words:?}, \
+                 and it was read as a {k:?} section, not as this one"
             ),
         );
     }
@@ -3337,15 +3365,14 @@ fn section_check(
 /// Heading-shaped: 60 characters or fewer, does not end in a sentence
 /// terminator, and is not a table-of-contents row (those end in a page number
 /// after a tab or a run of dots).
-fn heading_shaped_line(text: &str, words: &[&str]) -> Option<String> {
+fn heading_shaped_lines<'a>(text: &'a str, words: &'a [&str]) -> impl Iterator<Item = &'a str> + 'a {
     text.lines()
         .map(str::trim)
         .filter(|l| !l.is_empty() && l.chars().count() <= 60)
         .filter(|l| !l.ends_with(['.', '!', '?', ',', ';', ':']))
         .filter(|l| !l.contains('\t') && !l.contains("..."))
-        .find(|l| {
+        .filter(move |l| {
             let lower = l.to_lowercase();
             words.iter().any(|w| lower.split_whitespace().any(|t| t.trim_matches(|c: char| !c.is_alphanumeric()) == *w))
         })
-        .map(str::to_string)
 }
