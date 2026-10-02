@@ -21623,3 +21623,99 @@ targets, 500 passed. vitest: no frontend change (below).
   Ministry of Health, Oman (Grant MOH/CSR/24/29387)."* opens with the
   statement's name, so the matcher accepts it. What follows is a grant
   reference, not an approval, and nothing in the matcher can tell.
+
+### D265 — a trial registry's field list is not a required statement: BJA's ethics row removed
+
+**From the audit's open items (D264 "Recorded, NOT fixed").** British Journal
+of Anaesthesia's "ethics approval statement" row was this sentence, under the
+heading *Research in humans*: *"The registry must include the following
+information: a unique identifying number, a statement of the intervention(s),
+… target number of subjects, … key dates (date of ethics approval, registration
+date, …)."* It failed every non-human paper (D264 left it alone, since it is
+unscoped).
+
+#### Cause `[src]`
+
+`states_a_required_statement` needs three things, and this sentence supplies
+each from an unrelated word:
+
+* the needle: "ethics approval", from *"date of ethics approval"*;
+* "statement": from *"a statement of the intervention(s)"*;
+* a modal: from *"The registry must include"*.
+
+The subject of the modal is the registry.
+
+**The D261/D262 predicate does not reach it.** `remove_misread_rows` applied
+`stored_limit_is_not_on_the_manuscript` to `word_limit` and `abstract_limit`
+only, and that predicate reads a limit phrase and its number, which a statement
+row does not have. Statement kinds needed their own predicate.
+
+#### Measured first `[probe]`
+
+* **All 174 statement rows** (`section_required` + `data_policy`) re-read
+  through the current extractor over their own heading and sentence: **174 of
+  174 kept**. So a reconcile that re-runs the extractor's statement check can
+  remove only what a new rule refuses (`zz_stmt_reread`).
+* **The subject of every statement row's modal**, tabulated. **A general "the
+  modal's subject is not the manuscript" rule would also refuse 86 Elsevier
+  competing-interests rows**, whose modal belongs to *"The declarations tool
+  should always be completed"*, a submission-system form. Whether that template
+  is a manuscript requirement is a real question with an 86-journal blast
+  radius. It is **not decided here**; it is recorded as the next item of this
+  class.
+* **Only one statement row in the seed names a registry**: BJA's.
+
+#### Fix `[src]`
+
+* `STATEMENT_SUBJECTS = [["registry"]]`. `statement_is_required_of_a_registry`
+  reads the clause before the modal through D262's `names_a_subject`, so a
+  glued *"Registry"* label followed by *"The manuscript must include…"* is a
+  heading, not the subject. The extractor refuses the row.
+* `stored_statement_is_not_on_the_manuscript(value, span)` is the same
+  predicate over a stored row. `remove_misread_rows` applies it to
+  `section_required`.
+* The seed drops BJA's row: 13 lines removed, none added; every other row is
+  asserted identical and in order. **644 → 643**, and the two count pins say why.
+
+#### Controls, predictions first (`~/gaply-b80-sample/nm/PREDICTION_D265.txt`) `[probe]`
+
+| control | predicted | actual |
+|---|---|---|
+| The 174 pre-D265 statement rows through the new extractor | exactly 1 gone (BJA) | **as predicted**, 173 kept |
+| The 61 saved pages vs D262's output | only BJA's ethics row removed | **as predicted** |
+| `build_checklist`, 106 journals × 6 texts, vs D264's outputs | only BJA, only losing that row | **as predicted** on all six texts |
+
+On the unedited seed, the clean-seed guard reported exactly **1** misread row,
+and every other store test was off by exactly +1. The predicate reaches nothing
+else in 644 rows.
+
+#### Tests
+
+* `journal_extract::tests::a_registrys_field_list_is_not_a_required_statement`:
+  BJA's sentence verbatim. The controls are three ethics rows that must survive:
+  registry named after the modal; a glued "Registry" label followed by "The
+  manuscript must include…"; Frontiers' real ethics sentence.
+* `journal_store::seed_tests::a_database_seeded_before_d265_loses_the_registry_field_list`:
+  BJA's row written back, exactly 1 removed, BJA's 1000-word limit survives,
+  idempotent.
+
+Both were red before the fix, at the predicted assertions.
+
+#### Deletion tests, predicted first (`DT_PREDICTION_D265.txt`)
+
+**All four reddened exactly the predicted tests**, after one correction to the
+run:
+
+| | deletion | predicted | actual (excluding the constant below) |
+|---|---|---|---|
+| DT-1 | the extractor's call-site check | the extract test | as predicted (1) |
+| DT-2 | the reconcile hook | the D265 store test + the producer-has-a-caller guard | as predicted (2) |
+| DT-3 | `STATEMENT_SUBJECTS` empty | the extract and store tests | as predicted (2) |
+| DT-4 | BJA's seed row put back | no-misread seed, both count pins, and the D240, D261, D262 and D265 store tests | as predicted (7) |
+
+**`every_cited_decision_record_exists` failed in every run, unmutated tree
+included**: the code cited `§11 D265` before this record existed. For D261 and
+D262 the record was written before the suite; here the deletion tests ran
+first. The guard caught a real missing citation, which was my sequencing error.
+It is constant across all four runs, so it does not affect which tests each
+deletion reddened. The suites below were run after this record was written.

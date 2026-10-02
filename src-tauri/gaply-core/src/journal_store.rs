@@ -654,7 +654,10 @@ fn limit_is_only_an_extension(span: &str, value: &str) -> bool {
 /// * a WORD or ABSTRACT limit whose number counts authors, or whose subject is a
 ///   capsule or the highlights
 ///   ([`crate::journal_extract::stored_limit_is_not_on_the_manuscript`],
-///   §11 D261).
+///   §11 D261);
+/// * a STATEMENT requirement whose sentence requires it of a registry, not the
+///   manuscript ([`crate::journal_extract::stored_statement_is_not_on_the_manuscript`],
+///   §11 D265).
 ///
 /// Runs at startup after the seed (the seed loads only into a database without
 /// the journal). Idempotent.
@@ -677,6 +680,9 @@ pub fn remove_misread_rows(db: &Database) -> Result<MisreadRemoval, GaplyError> 
             }
             "figure_limit" | "reference_limit" => limit_is_only_an_extension(&span, &value),
             "reporting_standard" => crate::journal_extract::standard_named_as_example(&span, &value),
+            "section_required" => {
+                crate::journal_extract::stored_statement_is_not_on_the_manuscript(&value, &span)
+            }
             _ => false,
         };
         if misread {
@@ -1526,8 +1532,9 @@ mod seed_tests {
         // the seventy-six of the 80-journal Elsevier batch (§11 D258), minus
         // F&S's Capsule and "3 authors" and Value in Health's highlights (§11 D261),
         // minus 13 trial-registry abstracts, European Urology's four take-home
-        // messages and J Hepatology's two case summaries (§11 D262).
-        assert_eq!(r.requirements, 644, "the crawl's row count, not a round number");
+        // messages and J Hepatology's two case summaries (§11 D262), minus BJA's
+        // trial-registry field list read as an ethics statement (§11 D265).
+        assert_eq!(r.requirements, 643, "the crawl's row count, not a round number");
 
         // The rows are READABLE through the real reader, not just present.
         let reqs = requirements_for(&db, "nature-medicine").unwrap();
@@ -1595,7 +1602,7 @@ mod seed_tests {
         let db = Database::in_memory().unwrap();
         let first = load_bundled_seed(&db).unwrap();
         let second = load_bundled_seed(&db).unwrap();
-        assert_eq!(first.requirements, 644);
+        assert_eq!(first.requirements, 643);
         assert_eq!(second.requirements, 0, "nothing left to seed");
         assert_eq!(second.skipped_already_present.len(), 106);
         assert_eq!(requirements_for(&db, "nature-medicine").unwrap().len(), 39);
@@ -1761,6 +1768,30 @@ mod seed_tests {
         // Urology's 1000 and 500, Am J Medicine's abstract 250).
         let has = |i: usize, v: &str| after[i].iter().any(|(k, val, _)| k.ends_with("_limit") && val == v);
         assert!(has(0, "250") && has(1, "1000") && has(1, "500") && has(2, "6000"), "{after:?}");
+        assert_eq!(remove_misread_rows(&db).unwrap(), MisreadRemoval::default(), "idempotent");
+    }
+
+    /// **§11 D265: BJA's trial-registry field list, stored as an ethics
+    /// statement requirement, is removed from an installed database**, and
+    /// BJA's other rows survive. Idempotent.
+    #[test]
+    fn a_database_seeded_before_d265_loses_the_registry_field_list() {
+        let db = Database::in_memory().unwrap();
+        load_bundled_seed(&db).unwrap();
+        let before: Vec<(String, String)> = requirements_for(&db, "british-journal-of-anaesthesia").unwrap()
+            .into_iter().map(|q| (q.kind.as_str().to_string(), q.value)).collect();
+        db.conn().unwrap().execute(
+            "INSERT INTO journal_requirements (journal_key, kind, value, article_type, status,
+               source_url, source_heading, source_span, extracted_by, fetched_at)
+             VALUES ('british-journal-of-anaesthesia', 'section_required', 'ethics approval statement', NULL,
+               'verified', 'https://example.org/d265', 'Research in humans', ?1, 'pattern', 1)",
+            params!["The registry must include the following information: a unique identifying number, a statement of the intervention(s), study hypothesis, definition of primary and secondary outcome measurements, eligibility criteria, target number of subjects, funding source, contact information for the principal investigator, and key dates (date of ethics approval, registration date, start date/date of first subject enrolled, and completion date)."],
+        ).unwrap();
+        assert_eq!(remove_misread_rows(&db).unwrap(), MisreadRemoval { requirements: 1, bindings: 0 });
+        let after: Vec<(String, String)> = requirements_for(&db, "british-journal-of-anaesthesia").unwrap()
+            .into_iter().map(|q| (q.kind.as_str().to_string(), q.value)).collect();
+        assert_eq!(before, after, "only the row written back is removed");
+        assert!(after.iter().any(|(k, v)| k == "word_limit" && v == "1000"), "{after:?}");
         assert_eq!(remove_misread_rows(&db).unwrap(), MisreadRemoval::default(), "idempotent");
     }
 

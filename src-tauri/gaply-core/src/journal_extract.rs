@@ -1286,7 +1286,9 @@ pub fn extract_requirements(blocks: &[GuidelineBlock]) -> Vec<ExtractedRequireme
             // these ARE required manuscript elements, and the checklist checks
             // them the way it checks data availability — by heading presence.
             for (needle, value, _) in REQUIRED_STATEMENTS {
-                if states_a_required_statement(&lower, needle) {
+                if states_a_required_statement(&lower, needle)
+                    && !statement_is_required_of_a_registry(sentence, &lower)
+                {
                     push(&mut out, RequirementKind::SectionRequired, (*value).to_string(),
                          &article_type, block, sentence);
                     break;
@@ -1375,6 +1377,50 @@ const NEGATIONS: &[&str] = &[" not ", " never ", "n't ", " cannot ", " no longer
 /// dead code; do not remove it on the strength of one journal.
 const NEGATION_BEFORE: usize = 16;
 const NEGATION_AFTER: usize = 24;
+
+/// Subjects of a statement's modal that are not the manuscript. §11 D265.
+const STATEMENT_SUBJECTS: &[&[&str]] = &[&["registry"]];
+
+/// **Is the thing that "must include" this statement a registry? §11 D265.**
+/// BJA's *"The registry must include the following information: … a statement
+/// of the intervention(s) … date of ethics approval …"* satisfied
+/// [`states_a_required_statement`] on three unrelated words and was stored as an
+/// ethics-approval requirement. The subject of the modal is the registry.
+///
+/// Deliberately ONE subject. Measured over the 174 statement rows in the seed,
+/// the same question asked of any non-manuscript subject would also refuse the
+/// 86 Elsevier competing-interests rows whose modal belongs to *"The
+/// declarations tool should always be completed"*, a submission-system form.
+/// That is a separate decision, recorded in D265 and not taken here. The
+/// glued-label rule is D262's ([`names_a_subject`]).
+fn statement_is_required_of_a_registry(sentence: &str, lower: &str) -> bool {
+    let Some(at) = ["must", "required", "should", "are expected to", "need to"]
+        .iter()
+        .filter_map(|m| lower.find(m))
+        .min()
+    else {
+        return false;
+    };
+    let n = lower[..at].chars().count();
+    let prefix: String = if sentence.chars().count() == lower.chars().count() {
+        sentence.chars().take(n).collect()
+    } else {
+        lower[..at].to_string()
+    };
+    let clause = prefix.rsplit(['.', ';', ':']).next().unwrap_or("");
+    names_a_subject(clause, STATEMENT_SUBJECTS)
+}
+
+/// **Would the extractor refuse this stored statement row today? §11 D265.**
+/// For [`crate::journal_store::remove_misread_rows`]: the row's own sentence
+/// states the statement, and the thing required to state it is a registry.
+pub fn stored_statement_is_not_on_the_manuscript(value: &str, span: &str) -> bool {
+    let Some((needle, _, _)) = REQUIRED_STATEMENTS.iter().find(|(_, v, _)| *v == value) else {
+        return false;
+    };
+    let lower = span.to_lowercase();
+    states_a_required_statement(&lower, needle) && statement_is_required_of_a_registry(span, &lower)
+}
 
 fn states_a_required_statement(lower: &str, needle: &str) -> bool {
     if !lower.contains(needle) {
@@ -1801,6 +1847,27 @@ mod tests {
         // A subject named only AFTER a real limit leaves it alone.
         assert_eq!(limits("Abstract", "Abstracts should not exceed 250 words and must give the clinical trials registry number."), one("abstract_limit", "250"));
         assert_eq!(limits("Article types", "The main text should not exceed 3000 words, plus a take home message."), one("word_limit", "3000"));
+    }
+
+    // ---- §11 D265: a registry's required fields are not the manuscript's ------
+
+    #[test]
+    fn a_registrys_field_list_is_not_a_required_statement() {
+        let stmts = |h: &str, span: &str| -> Vec<String> {
+            extract_requirements(&[b(h, span)])
+                .into_iter()
+                .filter(|r| r.kind == RequirementKind::SectionRequired)
+                .map(|r| r.value)
+                .collect()
+        };
+        // BJA, verbatim: "statement", "ethics approval" and "must" are all
+        // there, and the thing that must include them is the registry.
+        assert_eq!(stmts("Research in humans", "The registry must include the following information: a unique identifying number, a statement of the intervention(s), study hypothesis, definition of primary and secondary outcome measurements, eligibility criteria, target number of subjects, funding source, contact information for the principal investigator, and key dates (date of ethics approval, registration date, start date/date of first subject enrolled, and completion date)."), Vec::<String>::new());
+        // Controls: a registry named after the modal, a glued "Registry" label
+        // followed by the manuscript, and a real ethics sentence from the seed.
+        assert_eq!(stmts("Ethics", "The manuscript must include an ethics approval statement and the trial registry number."), vec!["ethics approval statement"]);
+        assert_eq!(stmts("Ethics", "Registry The manuscript must include an ethics approval statement."), vec!["ethics approval statement"]);
+        assert_eq!(stmts("Ethics", "For experiments reporting results on animal or human subject research, an ethics approval statement should be included in this section (for further information, see the 'Bioethics' section of our policies and publication ethics ."), vec!["ethics approval statement"]);
     }
 
     // ---- §11 D251: a listed type named anywhere in the limit's sentence -------
