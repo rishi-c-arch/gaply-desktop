@@ -335,8 +335,16 @@ citation verdicts and Copilot need a proxy that is not deployed. None of the
 
 ## 15. Limitations
 
-* **Delegated reads.** Five read-only tracing passes produced most `[src]`
-  rows, each citing `file:line`. I re-checked these directly at HEAD:
+* **Delegated reads. All five returned, and no gap was filled by inference.**
+  Five read-only tracing passes covered the work:
+  1. ResearchState / agent graph / specialists;
+  2. lenses / editor / novelty;
+  3. `AnalysisRecord` / math engine;
+  4. markup / exports / chat;
+  5. the cloud path / SLMs.
+
+  Each delivered a full report, and together they produced most `[src]` rows,
+  each citing `file:line`. I re-checked these directly at HEAD:
   * `analysis: None` (`pipeline.rs:648`, the only hit);
   * `ResearchState` built after `compile_report` and read only in tests;
   * 9 agents in the graph;
