@@ -74,7 +74,9 @@ function survivingPolicies(sql: string, table: string): string[] {
     if (m[1].toLowerCase() === 'create') live.add(m[2]);
     else live.delete(m[2]);
   }
-  return [...live].sort();
+  // Array.from, not [...live]: the CRA build typechecks this file at an es5
+  // target, where spreading a Set is TS2802 (vitest's esbuild accepts it).
+  return Array.from(live).sort();
 }
 
 describe('RLS policy definitions (static; live enforcement needs a real Supabase)', () => {
