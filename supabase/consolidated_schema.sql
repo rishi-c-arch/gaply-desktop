@@ -1,5 +1,5 @@
 -- ============================================================================
--- Gaply — CONSOLIDATED, IDEMPOTENT schema (merges migrations 0001 + 0002 + 0003)
+-- Gaply — CONSOLIDATED, IDEMPOTENT schema (merges migrations 0001 + 0002 + 0003 + 0004)
 -- ============================================================================
 -- Run this ONCE in the Supabase Dashboard → SQL Editor (see PHASE-1 report for
 -- copy-paste steps). Safe to re-run: every statement is idempotent, so running
@@ -137,6 +137,26 @@ begin
 end;
 $$;
 
+-- Entitlement tables are written only by the server (0004). The proxy's
+-- entitlement gate reads subscriptions.tier and usage_counters to decide who may
+-- make paid calls, so a user who could write them could grant themselves
+-- premium or reset their quota. Same shape as lock_integrity_badge, extended to
+-- INSERT and DELETE, which an UPDATE-only lock would leave open.
+create or replace function public.lock_entitlement_writes()
+returns trigger language plpgsql
+set search_path = public
+as $$
+begin
+  if current_user in ('anon', 'authenticated') then
+    raise exception '% on %.% is server-only', tg_op, tg_table_schema, tg_table_name;
+  end if;
+  if tg_op = 'DELETE' then
+    return old;
+  end if;
+  return new;
+end;
+$$;
+
 -- ---------------------------------------------------------------------------
 -- 5. TRIGGERS
 -- ---------------------------------------------------------------------------
@@ -144,6 +164,16 @@ drop trigger if exists community_posts_lock_badge on public.community_posts;
 create trigger community_posts_lock_badge
   before update on public.community_posts
   for each row execute function public.lock_integrity_badge();
+
+drop trigger if exists subscriptions_lock_writes on public.subscriptions;
+create trigger subscriptions_lock_writes
+  before insert or update or delete on public.subscriptions
+  for each row execute function public.lock_entitlement_writes();
+
+drop trigger if exists usage_counters_lock_writes on public.usage_counters;
+create trigger usage_counters_lock_writes
+  before insert or update or delete on public.usage_counters
+  for each row execute function public.lock_entitlement_writes();
 
 -- ---------------------------------------------------------------------------
 -- 6. ENABLE ROW LEVEL SECURITY (idempotent; no-op if already enabled)
@@ -155,6 +185,11 @@ alter table public.citation_library   enable row level security;
 alter table public.usage_counters     enable row level security;
 alter table public.community_channels enable row level security;
 alter table public.community_posts    enable row level security;
+
+-- Entitlement tables: end-user API roles may read (via select-own) and never
+-- write. Revoking is idempotent. (0004)
+revoke insert, update, delete, truncate on public.subscriptions from anon, authenticated;
+revoke insert, update, delete, truncate on public.usage_counters from anon, authenticated;
 
 -- ---------------------------------------------------------------------------
 -- 7. POLICIES (drop-then-create so re-runs are idempotent)
@@ -173,19 +208,13 @@ drop policy if exists "profiles_delete_own" on public.profiles;
 create policy "profiles_delete_own" on public.profiles
   for delete using (auth.uid() = id);
 
--- subscriptions (owner-private)
+-- subscriptions (owner READ-ONLY; only the server writes — 0004)
 drop policy if exists "subscriptions_select_own" on public.subscriptions;
 create policy "subscriptions_select_own" on public.subscriptions
   for select using (auth.uid() = user_id);
 drop policy if exists "subscriptions_insert_own" on public.subscriptions;
-create policy "subscriptions_insert_own" on public.subscriptions
-  for insert with check (auth.uid() = user_id);
 drop policy if exists "subscriptions_update_own" on public.subscriptions;
-create policy "subscriptions_update_own" on public.subscriptions
-  for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
 drop policy if exists "subscriptions_delete_own" on public.subscriptions;
-create policy "subscriptions_delete_own" on public.subscriptions
-  for delete using (auth.uid() = user_id);
 
 -- analysis_history (owner-private)
 drop policy if exists "analysis_history_select_own" on public.analysis_history;
@@ -215,19 +244,13 @@ drop policy if exists "citation_library_delete_own" on public.citation_library;
 create policy "citation_library_delete_own" on public.citation_library
   for delete using (auth.uid() = user_id);
 
--- usage_counters (owner-private)
+-- usage_counters (owner READ-ONLY; only the server writes — 0004)
 drop policy if exists "usage_counters_select_own" on public.usage_counters;
 create policy "usage_counters_select_own" on public.usage_counters
   for select using (auth.uid() = user_id);
 drop policy if exists "usage_counters_insert_own" on public.usage_counters;
-create policy "usage_counters_insert_own" on public.usage_counters
-  for insert with check (auth.uid() = user_id);
 drop policy if exists "usage_counters_update_own" on public.usage_counters;
-create policy "usage_counters_update_own" on public.usage_counters
-  for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
 drop policy if exists "usage_counters_delete_own" on public.usage_counters;
-create policy "usage_counters_delete_own" on public.usage_counters
-  for delete using (auth.uid() = user_id);
 
 -- community_channels (authenticated-read, owner-write)
 drop policy if exists "community_channels_select_authenticated" on public.community_channels;

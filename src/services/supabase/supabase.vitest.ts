@@ -8,7 +8,7 @@
 //  * Auth-service tests run against a mocked client.
 //  * Offline-mode tests prove everything degrades safely with no session/config.
 
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -39,11 +39,43 @@ const ALL_TABLES = [
 /** Owner-private: another user's rows must be invisible on EVERY verb. */
 const PRIVATE_TABLES: Array<[table: string, ownerCol: string]> = [
   ['profiles', 'id'],
-  ['subscriptions', 'user_id'],
   ['analysis_history', 'user_id'],
   ['citation_library', 'user_id'],
-  ['usage_counters', 'user_id'],
 ];
+
+/** Entitlement tables: the owner may READ their row and never write it. The
+ *  proxy's entitlement gate reads them, so an owner write is a self-grant of
+ *  premium or a quota reset (migration 0004). */
+const ENTITLEMENT_TABLES = ['subscriptions', 'usage_counters'];
+
+const MIGRATIONS_DIR = join(__dirname, '../../../supabase/migrations');
+const stripComments = (s: string) => s.replace(/--[^\n]*/g, '');
+/** Every migration, in the order they apply. */
+const ALL_MIGRATIONS = stripComments(
+  readdirSync(MIGRATIONS_DIR)
+    .filter((f) => f.endsWith('.sql'))
+    .sort()
+    .map((f) => readFileSync(join(MIGRATIONS_DIR, f), 'utf8'))
+    .join('\n')
+);
+const CONSOLIDATED = stripComments(
+  readFileSync(join(__dirname, '../../../supabase/consolidated_schema.sql'), 'utf8')
+);
+
+/** The policies left on `table` after replaying every create/drop in order. */
+function survivingPolicies(sql: string, table: string): string[] {
+  const live = new Set<string>();
+  const re = new RegExp(
+    `(create|drop)\\s+policy\\s+(?:if\\s+exists\\s+)?"([^"]+)"\\s+on\\s+public\\.${table}\\b`,
+    'gi'
+  );
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(sql)) !== null) {
+    if (m[1].toLowerCase() === 'create') live.add(m[2]);
+    else live.delete(m[2]);
+  }
+  return [...live].sort();
+}
 
 describe('RLS policy definitions (static; live enforcement needs a real Supabase)', () => {
   it('every table has row-level security enabled', () => {
@@ -73,6 +105,42 @@ describe('RLS policy definitions (static; live enforcement needs a real Supabase
       // UPDATE + DELETE scoped too
       expect(SQL).toMatch(new RegExp(`"${table}_update_own"[\\s\\S]{0,200}auth\\.uid\\(\\)\\s*=\\s*${col}`, 'i'));
       expect(SQL).toMatch(new RegExp(`"${table}_delete_own"[\\s\\S]{0,200}auth\\.uid\\(\\)\\s*=\\s*${col}`, 'i'));
+    }
+  });
+
+  it('entitlement tables: the owner reads their own row, and only the server writes (0004)', () => {
+    // Asserted on the END STATE, in both files a project can be built from.
+    // Reading 0001 alone would stay green after a later migration changed the
+    // policies, which is how this test once required the owner-write hole.
+    for (const [label, sql] of [
+      ['migrations 0001..', ALL_MIGRATIONS],
+      ['consolidated_schema.sql', CONSOLIDATED],
+    ] as const) {
+      for (const table of ENTITLEMENT_TABLES) {
+        expect(survivingPolicies(sql, table), `${label}: ${table}`).toEqual([`${table}_select_own`]);
+        expect(sql, `${label}: ${table} select-own`).toMatch(
+          new RegExp(
+            `create\\s+policy\\s+"${table}_select_own"\\s+on\\s+public\\.${table}\\s+for\\s+select\\s+using\\s+\\(auth\\.uid\\(\\)\\s*=\\s*user_id\\)`,
+            'i'
+          )
+        );
+        expect(sql, `${label}: ${table} revoke`).toMatch(
+          new RegExp(
+            `revoke\\s+insert,\\s*update,\\s*delete,\\s*truncate\\s+on\\s+public\\.${table}\\s+from\\s+anon,\\s*authenticated`,
+            'i'
+          )
+        );
+        expect(sql, `${label}: ${table} trigger`).toMatch(
+          new RegExp(
+            `create\\s+trigger\\s+\\w+\\s+before\\s+insert\\s+or\\s+update\\s+or\\s+delete\\s+on\\s+public\\.${table}\\s+for\\s+each\\s+row\\s+execute\\s+function\\s+public\\.lock_entitlement_writes\\(\\)`,
+            'i'
+          )
+        );
+      }
+      // The trigger refuses exactly the end-user roles, and nothing else.
+      expect(sql, `${label}: trigger body`).toMatch(
+        /function\s+public\.lock_entitlement_writes\(\)[\s\S]{0,200}current_user\s+in\s+\('anon',\s*'authenticated'\)[\s\S]{0,120}raise\s+exception/i
+      );
     }
   });
 
