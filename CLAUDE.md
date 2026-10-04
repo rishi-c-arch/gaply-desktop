@@ -1184,6 +1184,29 @@ time injection.
   **`TSC_EXIT=0`, `BUILD_EXIT=0`, and `build/` present** — status AND artefact,
   for the real command a release runs rather than a proxy for it.
 
+  **VITEST PASSING DOES NOT MEAN THE FRONTEND BUILDS.** vitest compiles with
+  esbuild, which strips types and checks nothing. `npm run build` type-checks
+  the same files, `.vitest.ts` files included, at this project's es5 target,
+  and rejects constructs esbuild accepts. A Set spread (`[...set]`) is
+  `TS2802` there and green in vitest; so is `matchAll` above.
+
+  **Run `npm run build` before pushing any change to a `.vitest.ts` file.**
+  Read `BUILD_EXIT` and check that `build/index.html` exists. A test file
+  feels exempt from the build because it never ships, and that is exactly
+  why it gets skipped.
+
+  Measured twice, and the second time with this entry's predecessor in the
+  file:
+
+  | when | file | construct | vitest | `npm run build` |
+  |---|---|---|---|---|
+  | 14 Sep 2026 | a screen under `src/screens/publishready/` | `matchAll` | 929 green | `TS2802`, caught by CI |
+  | 4 Oct 2026, `6dedfb2` | `src/services/supabase/supabase.vitest.ts` | `[...live]` over a `Set` | 973 green | `TS2802`, caught by CI's Frontend build; fixed in `03e4e69` (`Array.from`) |
+
+  The first is the general case: any frontend `.ts`/`.tsx` change has the same
+  gap. The second is the one that motivates the rule, because a test file is
+  the change least likely to be built before a push.
+
   **This is the same shape as the two entries around it, which is why they sit
   together:** `|| true` swallowing a missing binary, a pipe reporting the wrong
   stage, and `pkill -f` matching the watcher instead of the target
