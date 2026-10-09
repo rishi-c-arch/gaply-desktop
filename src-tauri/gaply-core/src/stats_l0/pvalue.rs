@@ -18,6 +18,15 @@
 use statrs::distribution::{ChiSquared, ContinuousCDF, Normal, StudentsT};
 use statrs::function::beta::checked_beta_reg;
 
+/// The engine's version: this module's formula revision and the `statrs` it
+/// calls.
+///
+/// **The `pvalue` revision goes up whenever a formula in this file changes**
+/// (a tail, a guard, a conversion), so a stored check says which formulas made
+/// it. The statrs part must be the version `Cargo.lock` holds;
+/// `engine_version_names_the_locked_statrs` fails when the two differ.
+pub const ENGINE_VERSION: &str = "stats_l0 pvalue 2; statrs 0.18.0";
+
 /// How far a recomputed p may sit from the true p through engine error alone:
 /// ten times the 1e-9 relative gate in `tests/l0_p_reference.rs`. It covers
 /// the ENGINE only, not rounding in the manuscript. Step 5's `p_consistency`
@@ -72,6 +81,29 @@ pub fn f_upper(f: f64, df1: f64, df2: f64) -> Option<f64> {
     checked_beta_reg(df2 / 2.0, df1 / 2.0, df2 / (df1 * f + df2)).ok()
 }
 
+/// Lower-tail p of an F statistic: `P(F' <= F)`, as
+/// `beta_reg(df1/2, df2/2, df1·F/(df1·F + df2))`. Never `1 - f_upper`, which
+/// cancels for F far below 1. Same `None` as [`f_upper`]; F = 0 gives 0.
+pub fn f_lower(f: f64, df1: f64, df2: f64) -> Option<f64> {
+    let f = stat_ok(f)?;
+    let (df1, df2) = (df_ok(df1)?, df_ok(df2)?);
+    if f < 0.0 {
+        return None;
+    }
+    if f == 0.0 {
+        return Some(0.0);
+    }
+    checked_beta_reg(df1 / 2.0, df2 / 2.0, df1 * f / (df1 * f + df2)).ok()
+}
+
+/// Two-tailed p of an F statistic, as a variance-ratio test reports it:
+/// `2 × min(upper, lower)`, capped at 1. Both tails come from their own beta
+/// form ([`f_upper`], [`f_lower`]). F = 0 gives 0: it is the far lower tail.
+pub fn f_two_tailed(f: f64, df1: f64, df2: f64) -> Option<f64> {
+    let (u, l) = (f_upper(f, df1, df2)?, f_lower(f, df1, df2)?);
+    Some((2.0 * u.min(l)).min(1.0))
+}
+
 /// Upper-tail p of a chi-square statistic with `df` degrees of freedom.
 pub fn chi_square_upper(x: f64, df: f64) -> Option<f64> {
     let x = stat_ok(x)?;
@@ -109,6 +141,24 @@ mod tests {
     const NOT_A_NUMBER: [f64; 3] = [f64::NAN, f64::INFINITY, f64::NEG_INFINITY];
 
     #[test]
+    fn engine_version_names_the_locked_statrs() {
+        let lock = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../Cargo.lock")).expect("src-tauri/Cargo.lock");
+        // Each package block opens with `name = "…"` and `version = "…"` next.
+        let mut locked = Vec::new();
+        let mut lines = lock.lines();
+        while let Some(l) = lines.next() {
+            if l.trim() == r#"name = "statrs""# {
+                let v = lines.next().expect("a version line follows");
+                let v = v.trim().strip_prefix("version = \"").and_then(|v| v.strip_suffix('"')).expect("version = \"…\"");
+                locked.push(v.to_string());
+            }
+        }
+        assert_eq!(locked.len(), 1, "exactly one statrs in Cargo.lock: {locked:?}");
+        let named = ENGINE_VERSION.rsplit("statrs ").next().expect("ENGINE_VERSION names statrs");
+        assert_eq!(named, locked[0], "ENGINE_VERSION says statrs {named}, Cargo.lock holds {}", locked[0]);
+    }
+
+    #[test]
     fn a_df_at_or_below_zero_is_none_for_every_family() {
         for df in NON_POSITIVE_DF {
             assert_eq!(t_two_tailed(2.0, df), None, "t df {df}");
@@ -143,6 +193,26 @@ mod tests {
             assert_eq!(r_two_tailed(r, 10.0), None, "r {r}");
         }
         assert!(r_two_tailed(0.999, 10.0).is_some());
+    }
+
+    #[test]
+    fn the_two_tailed_f_is_twice_the_smaller_tail_and_shares_the_guards() {
+        // F(10, 10) = 3.20: upper .0402, so two-tailed .0805 (R: 0.080087 to
+        // 0.080861 over [3.195, 3.205]).
+        let p = f_two_tailed(3.20, 10.0, 10.0).unwrap();
+        assert!((p - 2.0 * f_upper(3.20, 10.0, 10.0).unwrap()).abs() < 1e-15, "{p}");
+        // Below the median the lower tail is the smaller: F and 1/F with the df
+        // swapped are the same test.
+        let below = f_two_tailed(1.0 / 3.20, 10.0, 10.0).unwrap();
+        assert!((below - p).abs() < 1e-12, "{below} vs {p}");
+        // Capped at 1, and F = 0 is the far lower tail.
+        assert!(f_two_tailed(1.0, 10.0, 10.0).unwrap() <= 1.0);
+        assert_eq!(f_two_tailed(0.0, 10.0, 10.0), Some(0.0));
+        assert_eq!(f_lower(0.0, 10.0, 10.0), Some(0.0));
+        for (f, d1, d2) in [(-0.1, 2.0, 20.0), (f64::NAN, 2.0, 20.0), (f64::INFINITY, 2.0, 20.0), (1.0, 0.0, 20.0), (1.0, 2.0, -1.0)] {
+            assert_eq!(f_two_tailed(f, d1, d2), None, "{f} {d1} {d2}");
+            assert_eq!(f_lower(f, d1, d2), None, "{f} {d1} {d2}");
+        }
     }
 
     #[test]

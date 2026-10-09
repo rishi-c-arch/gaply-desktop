@@ -1,7 +1,7 @@
 //! Level 0 result-reader counts over real manuscripts (Step 3).
 //!
 //! ```text
-//! cargo run -p gaply_core --example l0_result_counts -- [--explain | --mask] <file>...
+//! cargo run -p gaply_core --example l0_result_counts -- [--explain | --mask] [--verdicts] <file>...
 //! ```
 //!
 //! For each file: results read, not read by reason, the distinct stated
@@ -19,10 +19,20 @@
 //!   spans, and each PWithoutStatistic with the sentence before it, as MASKED
 //!   shapes: statistic symbols, brackets, punctuation and the letter p kept,
 //!   every digit 9, every other word `w`. For a researcher's own manuscript.
+//!
+//! `--verdicts` also runs every method in `MethodRegistry::LEVEL_0` on every
+//! result read, and prints per file and in total the count of each verdict and
+//! of each Concern and CouldNotCheck reason. With `--explain` it also lists every
+//! Inconsistent and Concern row: file, section, paragraph, the printed unit,
+//! the reported p, the compared (widened) range, alpha and conclusion_changes.
+//! With `--mask` it prints counts only.
 
 use std::collections::BTreeMap;
 
 use gaply_core::extract::{self, sentence::sentence_containing, stats::Stat};
+use gaply_core::stats_l0::input::{DocumentContext, L0Input};
+use gaply_core::stats_l0::method::{Applicability, Computed, L0Verdict, MethodCheck};
+use gaply_core::stats_l0::registry::MethodRegistry;
 use gaply_core::stats_l0::result::{coupling_violations, read_results, PValue, Reason, Source, TableStructure};
 
 /// Words a masked shape keeps: the statistic symbols and p.
@@ -57,17 +67,66 @@ fn mask(text: &str) -> String {
     out.trim().to_string()
 }
 
+/// The verdict as a count key: the four verdicts, the Consistent note and
+/// whether an Inconsistent changes the conclusion.
+fn verdict_key(v: &L0Verdict) -> String {
+    match v {
+        L0Verdict::Consistent(None) => "Consistent".into(),
+        L0Verdict::Consistent(Some(n)) => format!("Consistent+{n:?}"),
+        L0Verdict::Inconsistent { conclusion_changes } => format!("Inconsistent(conclusion_changes={conclusion_changes:?})"),
+        L0Verdict::Concern(_) => "Concern".into(),
+        L0Verdict::CouldNotCheck(_) => "CouldNotCheck".into(),
+    }
+}
+
+fn shown(c: &Computed) -> String {
+    match c {
+        Computed::Range { lo, hi } => format!("[{lo:.6}, {hi:.6}]"),
+        Computed::Exact(q) => q.to_string(),
+        Computed::ExactList(v) => v.iter().map(|q| q.to_string()).collect::<Vec<_>>().join("|"),
+        Computed::Flag(b) => b.to_string(),
+        Computed::Position(p) => format!("{p:?}"),
+    }
+}
+
+fn get<'c>(c: &'c MethodCheck, name: &str) -> Option<&'c Computed> {
+    c.computed.iter().find(|(n, _)| *n == name).map(|(_, v)| v)
+}
+
+#[derive(Default)]
+struct Tally {
+    results: usize,
+    verdicts: BTreeMap<String, usize>,
+    reasons: BTreeMap<String, usize>,
+}
+
+impl Tally {
+    fn print(&self, label: &str) {
+        println!("   {label}verdicts results={} {:?}", self.results, self.verdicts);
+        println!("   {label}reasons {:?}", self.reasons);
+    }
+}
+
 fn main() {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
-    let mode = match args.first().map(String::as_str) {
-        Some("--explain") | Some("--mask") => args.remove(0),
-        _ => String::new(),
-    };
-    let (explain, masked) = (mode == "--explain", mode == "--mask");
-    if args.is_empty() {
-        eprintln!("usage: l0_result_counts [--explain | --mask] <file>...");
+    let (mut explain, mut masked, mut verdicts) = (false, false, false);
+    while let Some(flag) = args.first().filter(|a| a.starts_with("--")).cloned() {
+        match flag.as_str() {
+            "--explain" => explain = true,
+            "--mask" => masked = true,
+            "--verdicts" => verdicts = true,
+            other => {
+                eprintln!("unknown flag {other}");
+                std::process::exit(2);
+            }
+        }
+        args.remove(0);
+    }
+    if args.is_empty() || (explain && masked) {
+        eprintln!("usage: l0_result_counts [--explain | --mask] [--verdicts] <file>...");
         std::process::exit(2);
     }
+    let mut total = Tally::default();
     let partial_eta = regex::Regex::new(r"(?i)partial\s*(?:η|eta)|η\s*[2²]?\s*p\b|ηp").unwrap();
     let mut failed = 0;
     for path in &args {
@@ -162,6 +221,52 @@ fn main() {
 
         let v = coupling_violations(&reading, &ex);
         println!("   coupling_violations={}", v.len());
+
+        if verdicts {
+            let ctx = DocumentContext::read(&ex, &reading);
+            let mut tally = Tally::default();
+            for r in &reading.results {
+                tally.results += 1;
+                for m in MethodRegistry::LEVEL_0 {
+                    let input = L0Input { result: r, context: &ctx };
+                    if let Applicability::NotApplicable(why) = m.method.applicability(&input) {
+                        *tally.verdicts.entry(format!("NotApplicable({why})")).or_default() += 1;
+                        continue;
+                    }
+                    let c = m.method.run(&input);
+                    *tally.verdicts.entry(verdict_key(&c.outcome)).or_default() += 1;
+                    match c.outcome {
+                        L0Verdict::Concern(why) => *tally.reasons.entry(format!("Concern({why:?})")).or_default() += 1,
+                        L0Verdict::CouldNotCheck(why) => {
+                            *tally.reasons.entry(format!("CouldNotCheck({why:?})")).or_default() += 1
+                        }
+                        _ => {}
+                    }
+                    let listed = matches!(c.outcome, L0Verdict::Inconsistent { .. } | L0Verdict::Concern(_));
+                    if explain && listed {
+                        let p = match &r.p {
+                            PValue::Reported(p) => format!("{:?} {}", p.relation(), p.raw()),
+                            PValue::NotSignificant => "ns".to_string(),
+                        };
+                        let alpha = get(&c, "alpha").or_else(|| get(&c, "alpha_values")).map_or("-".into(), shown);
+                        let defaulted = get(&c, "alpha_defaulted").map_or("-".into(), shown);
+                        let compared = get(&c, "compared_p").map_or("-".into(), shown);
+                        println!(
+                            "     VERDICT {name} section={:?}({:?}) paragraph={} {:?}: {}   reported p: {p}   compared: {compared}   alpha: {alpha} (defaulted={defaulted})",
+                            r.location.section_index, r.location.section, r.location.paragraph, c.outcome, r.raw
+                        );
+                    }
+                }
+            }
+            tally.print("");
+            total.results += tally.results;
+            for (k, n) in tally.verdicts {
+                *total.verdicts.entry(k).or_default() += n;
+            }
+            for (k, n) in tally.reasons {
+                *total.reasons.entry(k).or_default() += n;
+            }
+        }
         if masked {
             continue;
         }
@@ -176,6 +281,10 @@ fn main() {
             let tag = if r.source == Source::Unknown { "?" } else { "" };
             println!("     unit#{} [{:?}{tag}] {}   (p: {p})", r.id, r.source, r.raw);
         }
+    }
+    if verdicts {
+        println!("== TOTAL over {} file(s)", args.len());
+        total.print("total ");
     }
     if failed > 0 {
         std::process::exit(1);

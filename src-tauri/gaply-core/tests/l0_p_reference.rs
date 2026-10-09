@@ -70,6 +70,7 @@ fn engine(r: &Row) -> Option<f64> {
     match r.family.as_str() {
         "t" => pvalue::t_two_tailed(r.statistic, r.df1?),
         "F" => pvalue::f_upper(r.statistic, r.df1?, r.df2?),
+        "F2" => pvalue::f_two_tailed(r.statistic, r.df1?, r.df2?),
         "chi" => pvalue::chi_square_upper(r.statistic, r.df1?),
         "r" => pvalue::r_two_tailed(r.statistic, r.df1?),
         "z" => pvalue::z_two_tailed(r.statistic),
@@ -83,6 +84,10 @@ fn one_minus_cdf(r: &Row) -> f64 {
     match r.family.as_str() {
         "t" => t2(r.statistic, r.df1.unwrap()),
         "F" => 1.0 - FisherSnedecor::new(r.df1.unwrap(), r.df2.unwrap()).unwrap().cdf(r.statistic),
+        "F2" => {
+            let c = FisherSnedecor::new(r.df1.unwrap(), r.df2.unwrap()).unwrap().cdf(r.statistic);
+            (2.0 * c.min(1.0 - c)).min(1.0)
+        }
         "chi" => 1.0 - ChiSquared::new(r.df1.unwrap()).unwrap().cdf(r.statistic),
         "r" => {
             let df = r.df1.unwrap();
@@ -135,7 +140,7 @@ fn engine_p_values_against_r() {
     for r in &rows {
         *count.entry(r.family.as_str()).or_default() += 1;
     }
-    for fam in ["t", "F", "chi", "r", "z"] {
+    for fam in ["t", "F", "F2", "chi", "r", "z"] {
         assert!(count.get(fam).copied().unwrap_or(0) >= 400, "{fam}: {count:?}");
     }
 
@@ -147,7 +152,7 @@ fn engine_p_values_against_r() {
         assert!((0.0..=1.0).contains(&got), "row {i}: {}", describe(r, got));
         got_all.push(got);
         let band = if r.p < 1e-6 { "p<1e-6" } else { "p>=1e-6" };
-        worst.entry((r.family.clone(), band, "engine (sf)")).or_default().add(i, got, r.p);
+        worst.entry((r.family.clone(), band, "engine")).or_default().add(i, got, r.p);
         worst.entry((r.family.clone(), band, "1 - cdf")).or_default().add(i, one_minus_cdf(r), r.p);
     }
 
@@ -155,7 +160,7 @@ fn engine_p_values_against_r() {
     for ((fam, band, form), w) in &worst {
         let (ai, ri) = (w.abs.1.unwrap(), w.rel.1);
         println!("{fam:>3} {band:<8} {form:<12} n={:<4} worst_abs={:.3e}  worst_rel={:.3e}", w.n, w.abs.0, w.rel.0);
-        if *form == "engine (sf)" {
+        if *form == "engine" {
             println!("      abs at row {ai}: {}", describe(&rows[ai], got_all[ai]));
             if let Some(ri) = ri {
                 println!("      rel at row {ri}: {}", describe(&rows[ri], got_all[ri]));
