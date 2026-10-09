@@ -10,4 +10,5 @@
 //! float parser.
 
 pub mod number;
+pub mod pvalue;
 pub mod result;
