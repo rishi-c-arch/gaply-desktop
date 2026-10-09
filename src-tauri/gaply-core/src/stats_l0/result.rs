@@ -38,6 +38,14 @@
 //! p is not read. A statistic and a p-value that merely share a paragraph are
 //! never paired.
 //!
+//! For t and chi-square only, the df may instead be printed as a labelled
+//! item straight after the value and straight before the p:
+//! `χ² = 12.34, df = 2, p < .001` (also `d.f. = 2`, `df=2`, `DF = 2`). The labelled df
+//! is read exactly as a bracketed one. A labelled df on any other family
+//! (`F = 4.2, df = 2, 57`), or beside a bracketed df, is
+//! `MalformedDegreesOfFreedom`. A labelled df after the p is not part of the
+//! unit, so `χ² = 12.34, p < .001, df = 2` stays `MissingDegreesOfFreedom`.
+//!
 //! After the p, the same unit may carry an effect size and an interval it did
 //! not already have (`p < .001, η² = .245`), one of each in all, under the same
 //! rules. Anything else there simply ends the unit.
@@ -151,10 +159,12 @@ pub enum Reason {
     /// A p follows in the same sentence, but the unit was broken before it by
     /// something that is not a recognised item. Near is not linked.
     NotLinked,
-    /// t, F, r or chi-square with no `(df)`.
+    /// t, F, r or chi-square with no `(df)`, and t or chi-square with no
+    /// labelled `df =` between the value and the p either.
     MissingDegreesOfFreedom,
     /// The wrong number of df for the family, an empty part, an `N =` outside
-    /// a chi-square, or a df on z.
+    /// a chi-square, a df on z, or a labelled `df =` on a family other than t
+    /// and chi-square or beside a bracketed df.
     MalformedDegreesOfFreedom,
     /// A second effect size or a second interval in one unit.
     RepeatedItem,
@@ -195,6 +205,7 @@ struct Patterns {
     effect_tail: Regex,
     folded: Regex,
     n_part: Regex,
+    df_label: Regex,
 }
 
 fn patterns() -> &'static Patterns {
@@ -219,6 +230,8 @@ fn patterns() -> &'static Patterns {
         effect_tail: Regex::new(r"(?i)\s*(?:=|:|of)?\s*").unwrap(),
         folded: Regex::new(r"\s*(?:,\s*|\s(?:and|&)\s+)[-\u{2212}]?\.?\d").unwrap(),
         n_part: Regex::new(r"^[Nn]\s*=\s*(.*)$").unwrap(),
+        // `df =`, `df=`, `d.f. =`, `d. f. =`, in any case (`DF =`).
+        df_label: Regex::new(r"(?i)d(?:f|\.\s*f\.)\s*=").unwrap(),
     })
 }
 
@@ -283,7 +296,12 @@ fn df_number(tok: &str) -> Result<ReportedNumber, Reason> {
 fn parse_df(
     family: Family,
     inner: Option<&str>,
+    labelled: Option<&str>,
 ) -> Result<(Vec<ReportedNumber>, Option<ReportedNumber>), Reason> {
+    // `scan_unit` admits a labelled df only for t and chi-square with no `(df)`.
+    if let Some(tok) = labelled {
+        return Ok((vec![df_number(tok)?], None));
+    }
     let Some(inner) = inner else {
         return if family == Family::Z { Ok((Vec::new(), None)) } else { Err(Reason::MissingDegreesOfFreedom) };
     };
@@ -318,6 +336,8 @@ struct Unit<'h> {
     end: usize,
     family: Family,
     df_inner: Option<&'h str>,
+    /// The df token of `, df = 2`, printed between the value and the p.
+    df_labelled: Option<&'h str>,
     value: &'h str,
     p: Option<(Relation, &'h str)>, // None = ns
     effect: Option<(&'h str, &'h str)>,
@@ -402,6 +422,7 @@ fn scan_unit<'h>(s: &'h str, stat_start: usize, symbol: &str, df_inner: Option<&
         end: value_end,
         family,
         df_inner,
+        df_labelled: None,
         value,
         p: None,
         effect: None,
@@ -410,6 +431,27 @@ fn scan_unit<'h>(s: &'h str, stat_start: usize, symbol: &str, df_inner: Option<&
     };
     let p_re = &stats::regexes().p_value;
     let mut pos = value_end;
+
+    // A labelled df: only as the first item after the value, and the p must
+    // follow it directly (checked by `labelled_df_end` below).
+    let mut labelled_df_end = None;
+    if let Some(item) = at(&pt.sep, s, value_end).map(|m| m.end()) {
+        if let Some(m) = at(&pt.df_label, s, item) {
+            let allowed = matches!(family, Family::T | Family::ChiSquare) && df_inner.is_none();
+            let tok = scan_token(s, m.end());
+            let end = tok.map_or(m.end(), |(_, e)| e);
+            if !allowed {
+                let p = claimed_p(s, stat_start, end);
+                return Scan::Rejected { reason: Reason::MalformedDegreesOfFreedom, end, p };
+            }
+            if let Some((tok, end)) = tok {
+                unit.df_labelled = Some(tok);
+                pos = end;
+                labelled_df_end = Some(end);
+            }
+        }
+    }
+
     loop {
         let Some(sep) = at(&pt.sep, s, pos) else { break };
         let item = sep.end();
@@ -432,6 +474,10 @@ fn scan_unit<'h>(s: &'h str, stat_start: usize, symbol: &str, df_inner: Option<&
                 }
                 Err((reason, end)) => Scan::Rejected { reason, end, p: Some((item, p_end)) },
             };
+        }
+        // Nothing but the p may follow a labelled df.
+        if labelled_df_end == Some(pos) {
+            break;
         }
         if let Some(c) = pt.ci.captures_at(s, item).filter(|c| c.get(0).is_some_and(|m| m.start() == item)) {
             let whole = c.get(0).expect("group 0");
@@ -472,7 +518,7 @@ fn scan_unit<'h>(s: &'h str, stat_start: usize, symbol: &str, df_inner: Option<&
 
 /// Read every printed number of a scanned unit. The first refusal rejects it.
 fn build(unit: &Unit<'_>, s: &str, id: usize, location: &Location, source: Source) -> Result<ReportedResult, Reason> {
-    let (df, n) = parse_df(unit.family, unit.df_inner)?;
+    let (df, n) = parse_df(unit.family, unit.df_inner, unit.df_labelled)?;
     let num = |t: &str| ReportedNumber::measured(t).map_err(Reason::Number);
     let statistic = num(unit.value)?;
     if let Some(m) = unit.mse {
@@ -755,6 +801,87 @@ mod tests {
         // 28.4 printed with one decimal: [28.35, 28.45], not a point.
         assert_eq!(r.df[0].interval().lo, q("28.35"));
         assert_eq!(r.df[0].interval().hi, q("28.45"));
+    }
+
+    // ---- a labelled df (Step 3b) ----
+
+    #[test]
+    fn a_chi_square_with_a_labelled_df() {
+        let r = one("Uptake differed, χ² = 12.34, df = 2, p < .001.");
+        assert_eq!(r.family, Family::ChiSquare);
+        assert_eq!(r.raw, "χ² = 12.34, df = 2, p < .001");
+        // A labelled integer df is a count, exactly as in the bracket form.
+        assert_eq!(r.df.len(), 1);
+        assert_eq!(r.df[0].interval().lo, q("2"));
+        assert_eq!(r.df[0].interval().hi, q("2"));
+        assert!(r.n.is_none());
+        assert_eq!(r.statistic.value(), q("12.34"));
+        assert_eq!(p_of(&r).value(), q("0.001"));
+    }
+
+    #[test]
+    fn a_t_with_a_labelled_df() {
+        let r = one("Groups differed, t = 2.31, df=58, p = .024.");
+        assert_eq!(r.family, Family::T);
+        assert_eq!(r.raw, "t = 2.31, df=58, p = .024");
+        assert_eq!(r.df[0].interval().lo, q("58"));
+        assert_eq!(r.df[0].interval().hi, q("58"));
+        // A labelled df with decimals is measured, as a bracketed Welch df is.
+        let r = one("Variances differed, t = 2.10, df = 28.4, p = .045.");
+        assert_eq!(r.df[0].interval().lo, q("28.35"));
+        assert_eq!(r.df[0].interval().hi, q("28.45"));
+    }
+
+    #[test]
+    fn a_labelled_df_may_be_written_d_f() {
+        for (body, raw) in [
+            ("Uptake differed, χ2 = 6.90, d.f. = 1, p < .01.", "χ2 = 6.90, d.f. = 1, p < .01"),
+            ("Uptake differed, χ2 = 6.90, d. f. = 1, p < .01.", "χ2 = 6.90, d. f. = 1, p < .01"),
+        ] {
+            let r = one(body);
+            assert_eq!(r.raw, raw);
+            assert_eq!(r.df[0].value(), q("1"));
+        }
+    }
+
+    #[test]
+    fn a_labelled_df_may_be_uppercase_and_be_followed_by_ns() {
+        let r = one("Uptake differed, χ² = 12.34, DF = 2, p < .001.");
+        assert_eq!(r.raw, "χ² = 12.34, DF = 2, p < .001");
+        assert_eq!(r.df[0].value(), q("2"));
+        let r = one("No difference, t = 1.20, df = 58, ns.");
+        assert_eq!(r.p, PValue::NotSignificant);
+        assert_eq!(r.raw, "t = 1.20, df = 58, ns");
+    }
+
+    #[test]
+    fn an_f_with_a_labelled_df_pair_is_malformed() {
+        assert_eq!(reasons("Dose mattered, F = 4.2, df = 2, 57, p = .02."), vec![Reason::MalformedDegreesOfFreedom]);
+        // Not only the pair: the labelled form is t and chi-square only.
+        assert_eq!(reasons("Dose mattered, F = 4.2, df = 2, p = .02."), vec![Reason::MalformedDegreesOfFreedom]);
+        assert_eq!(reasons("Scores correlated, r = .31, df = 48, p = .03."), vec![Reason::MalformedDegreesOfFreedom]);
+    }
+
+    #[test]
+    fn a_labelled_df_beside_a_bracketed_df_is_malformed() {
+        assert_eq!(reasons("Groups differed, t(58) = 2.31, df = 58, p = .024."), vec![Reason::MalformedDegreesOfFreedom]);
+    }
+
+    #[test]
+    fn a_labelled_df_after_the_p_does_not_complete_a_unit() {
+        assert_eq!(reasons("Uptake differed, χ² = 12.34, p < .001, df = 2."), vec![Reason::MissingDegreesOfFreedom]);
+        assert_eq!(reasons("Groups differed, t = 2.31, p = .024, df = 58."), vec![Reason::MissingDegreesOfFreedom]);
+    }
+
+    #[test]
+    fn a_chi_square_with_neither_df_form_is_missing_its_df() {
+        assert_eq!(reasons("Uptake differed, χ² = 12.34, p < .001."), vec![Reason::MissingDegreesOfFreedom]);
+    }
+
+    #[test]
+    fn only_the_p_may_follow_a_labelled_df() {
+        // The order is value, df, p. An item between the df and the p breaks it.
+        assert_eq!(reasons("Groups differed, t = 2.31, df = 58, d = 0.60, p = .024."), vec![Reason::NotLinked]);
     }
 
     #[test]
