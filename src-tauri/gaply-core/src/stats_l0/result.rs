@@ -885,6 +885,19 @@ mod tests {
     }
 
     #[test]
+    fn a_word_ending_in_df_is_not_a_labelled_df() {
+        // The label is matched only where the item after the value starts. An
+        // unanchored search finds the `DF =` inside `PDF =` and reads df = 2.
+        for body in ["Groups differed, t = 2.31, PDF = 2, p = .024.", "Uptake differed, χ² = 12.34, PDF = 2, p < .001."] {
+            let (r, _) = read(body);
+            // No result, so no df was taken from `PDF = 2`.
+            assert!(r.results.is_empty(), "{body:?} was read: {:?}", r.results);
+            let why: Vec<Reason> = r.not_read.iter().map(|n| n.reason).collect();
+            assert_eq!(why, vec![Reason::NotLinked], "{body:?}");
+        }
+    }
+
+    #[test]
     fn ns_is_a_p_value() {
         let r = one("No difference, t(58) = 1.20, ns.");
         assert_eq!(r.p, PValue::NotSignificant);
