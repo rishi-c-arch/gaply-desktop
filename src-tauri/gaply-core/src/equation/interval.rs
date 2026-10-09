@@ -1,7 +1,9 @@
 //! **The `AsRounded` reading: what a manuscript's decimals could have been.**
 //!
 //! [`DecimalReading::AsRounded`](crate::epistemic::DecimalReading::AsRounded)
-//! says `0.108` stands for any value in `[0.1075, 0.1085)`. This evaluates an
+//! says `0.108` stands for any value in `[0.1075, 0.1085]`, closed at both
+//! ends, so every rounding convention an author might use (half up, half even,
+//! half down) lands inside it. This evaluates an
 //! expression over those intervals, so an arithmetic claim can be judged
 //! against every value the author might have rounded from.
 //!
@@ -56,6 +58,15 @@ impl Interval {
         if decimals == 0 {
             return Some(Interval::point(value));
         }
+        Interval::of_printed(value, decimals)
+    }
+
+    /// The interval a MEASURED value printed with `decimals` places stands for:
+    /// half a unit in the last printed place either side, closed at both ends.
+    /// Unlike [`Interval::of_literal`], an integer widens too: a statistic
+    /// printed as `3` is `[2.5, 3.5]`. `None` when the exact arithmetic would
+    /// overflow.
+    pub fn of_printed(value: Rational, decimals: u32) -> Option<Interval> {
         // ±5 × 10⁻⁽ᵈ⁺¹⁾ — half a unit in the last displayed place.
         let half_ulp = Rational::new(5, 10i128.checked_pow(decimals.checked_add(1)?)?)?;
         Some(Interval { lo: value.sub(half_ulp)?, hi: value.add(half_ulp)? })
