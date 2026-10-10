@@ -21,6 +21,7 @@ use regex::Regex;
 use super::method::TextPosition;
 use super::number::ReportedNumber;
 use super::result::{ReportedResult, ResultReading};
+use crate::equation::rational::Rational;
 use crate::extract::{ExtractionResult, SectionKind};
 
 /// The document-wide facts a Level 0 method may use.
@@ -41,6 +42,17 @@ impl DocumentContext {
     }
     pub fn correction_named(&self) -> bool {
         self.correction_at.is_some()
+    }
+
+    /// The alpha Level 0 judges against: every distinct stated threshold's
+    /// printed value, or .05 when none is stated, with `true` for defaulted.
+    /// The one definition: `p_consistency` and the outcome both read it.
+    pub fn alpha(&self) -> (Vec<Rational>, bool) {
+        if self.thresholds.is_empty() {
+            (vec![Rational::new(5, 100).expect("1/20")], true)
+        } else {
+            (self.thresholds.iter().map(ReportedNumber::value).collect(), false)
+        }
     }
 }
 

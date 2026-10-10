@@ -15,6 +15,7 @@ pub mod grim;
 pub mod input;
 pub mod method;
 pub mod number;
+pub mod outcome;
 pub mod p_consistency;
 pub mod percent_matches_count;
 pub mod pvalue;

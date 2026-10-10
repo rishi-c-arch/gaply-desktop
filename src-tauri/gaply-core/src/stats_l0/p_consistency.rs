@@ -114,25 +114,16 @@ enum Alpha {
 }
 
 fn alpha_of(ctx: &DocumentContext, computed: &mut Vec<(&'static str, Computed)>) -> Alpha {
-    let values: Vec<Rational> = ctx.thresholds.iter().map(ReportedNumber::value).collect();
-    match values.len() {
-        0 => {
-            let a = Rational::new(5, 100).expect("1/20");
-            computed.push(("alpha", Computed::Exact(a)));
-            computed.push(("alpha_defaulted", Computed::Flag(true)));
-            Alpha::One(a)
-        }
-        1 => {
-            computed.push(("alpha", Computed::Exact(values[0])));
-            computed.push(("alpha_defaulted", Computed::Flag(false)));
-            Alpha::One(values[0])
-        }
-        _ => {
-            computed.push(("alpha_values", Computed::ExactList(values.clone())));
-            computed.push(("alpha_defaulted", Computed::Flag(false)));
-            Alpha::Several(values)
-        }
-    }
+    let (values, defaulted) = ctx.alpha();
+    let alpha = if let [a] = values[..] {
+        computed.push(("alpha", Computed::Exact(a)));
+        Alpha::One(a)
+    } else {
+        computed.push(("alpha_values", Computed::ExactList(values.clone())));
+        Alpha::Several(values)
+    };
+    computed.push(("alpha_defaulted", Computed::Flag(defaulted)));
+    alpha
 }
 
 fn evaluate(r: &ReportedResult, ctx: &DocumentContext, computed: &mut Vec<(&'static str, Computed)>) -> L0Verdict {

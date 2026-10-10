@@ -136,7 +136,14 @@ pub struct MethodCheck {
     pub outcome: L0Verdict,
 }
 
-/// The closed verdict set.
+/// The closed verdict set: what one method says about one result, and what
+/// [`super::outcome::claim_verdict`] says about the whole claim.
+///
+/// Not [`crate::stats_verdict::Verdict`] (`Match` / `Mismatch`), because the two
+/// answer different questions. That one is Level 1: does the DATA reproduce the
+/// reported value? This one is Level 0: can the printed numbers all be right at
+/// once, judged from the manuscript alone? A Level 0 verdict has no data to
+/// match against, and a Level 1 verdict has no `Concern` or `CouldNotCheck`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum L0Verdict {
     Consistent(Option<CheckNote>),
@@ -184,4 +191,10 @@ pub enum CouldNotCheckReason {
     /// GRIM: every value at the printed precision is reachable with this many
     /// units, so a match says nothing.
     Uninformative,
+    /// A registered method did not judge this claim. Produced only by
+    /// [`super::outcome::claim_verdict`]; a method never returns it.
+    NotApplicable(NotApplicableReason),
+    /// No method ran on the claim at all: the check list was empty. Produced
+    /// only by [`super::outcome::claim_verdict`], so the rule is total.
+    NoMethodRan,
 }

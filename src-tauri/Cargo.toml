@@ -64,6 +64,12 @@ name = "label-cs"
 path = "src/bin/label-cs.rs"
 required-features = ["devtools"]
 
+# Level 0 corpus runner (Phase 1, Step 7). A measurement instrument over
+# manuscripts on this machine; never bundled.
+[[example]]
+name = "l0_corpus_run"
+required-features = ["devtools"]
+
 [lib]
 name = "app_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
