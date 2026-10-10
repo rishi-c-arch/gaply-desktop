@@ -303,6 +303,7 @@ pub fn run() {
             commands::run_stats_preview,
             commands::run_stats_verify,
             commands::run_stats_chat,
+            stats_consistency::run_stats_consistency,
             commands::build_gapfinder_corpus,
             commands::run_gap_finder,
             commands::run_gapfinder_qa,

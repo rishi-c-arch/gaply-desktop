@@ -26,15 +26,20 @@ export interface CheckScreenProps {
   tabs: ReportTab[];
   /** Run the agent for a selected file path → a scoped report. */
   run: (path: string, title?: string) => Promise<PublishReadyReport>;
+  /** Optional second section run on the same path, rendered after the report
+   *  as its own section (the Stats Check's Level 0). It must handle its own
+   *  errors: a rejection here fails the whole run. */
+  alongside?: (path: string) => Promise<React.ReactNode>;
   /** Optional extra panel (e.g. the plagiarism deep-check tease). */
   extra?: React.ReactNode;
   testid: string;
 }
 
-const CheckScreen: React.FC<CheckScreenProps> = ({ title, subtitle, tabs, run, extra, testid }) => {
+const CheckScreen: React.FC<CheckScreenProps> = ({ title, subtitle, tabs, run, alongside, extra, testid }) => {
   const navigate = useNavigate();
   const [selected, setSelected] = useState<{ name: string; path: string } | null>(null);
   const [report, setReport] = useState<PublishReadyReport | null>(null);
+  const [second, setSecond] = useState<React.ReactNode>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -80,7 +85,12 @@ const CheckScreen: React.FC<CheckScreenProps> = ({ title, subtitle, tabs, run, e
     setBusy(true);
     setError(null);
     try {
-      setReport(await run(selected.path, selected.name));
+      const [r, s] = await Promise.all([
+        run(selected.path, selected.name),
+        alongside ? alongside(selected.path) : Promise.resolve(null),
+      ]);
+      setSecond(s);
+      setReport(r);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'check failed');
     } finally {
@@ -142,6 +152,7 @@ const CheckScreen: React.FC<CheckScreenProps> = ({ title, subtitle, tabs, run, e
             ) : (
               <div data-testid="check-report">
                 <ReportViewerPage report={report} tabs={tabs} bare />
+                {second && <div style={{ marginTop: 16 }}>{second}</div>}
                 <div style={{ marginTop: 12 }}>
                   <Button variant="ghost" onClick={() => setReport(null)} data-testid="run-another">
                     ← Run another

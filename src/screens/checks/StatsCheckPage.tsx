@@ -8,6 +8,14 @@ import React, { useMemo } from 'react';
 import CheckScreen from './CheckScreen';
 import { CheckBridge, TauriCheckBridge } from './checkBridge';
 import { validationToReport } from './adapters';
+import StatsConsistencySection from './StatsConsistencySection';
+
+/** A Tauri command rejects with `{ code, message }`, not an `Error`. */
+function messageOf(e: unknown): string {
+  if (e instanceof Error) return e.message;
+  if (e && typeof e === 'object' && 'message' in e) return String((e as { message: unknown }).message);
+  return String(e);
+}
 
 export interface StatsCheckPageProps {
   bridge?: CheckBridge;
@@ -22,6 +30,13 @@ const StatsCheckPage: React.FC<StatsCheckPageProps> = ({ bridge }) => {
       subtitle="Deterministic pattern checks of statistical reporting — runs on device"
       tabs={['Overview', 'Statistics']}
       run={async (path, title) => validationToReport(await b.validation(path, title))}
+      alongside={async (path) => {
+        try {
+          return <StatsConsistencySection view={await b.consistency(path)} />;
+        } catch (e) {
+          return <StatsConsistencySection error={messageOf(e)} />;
+        }
+      }}
     />
   );
 };

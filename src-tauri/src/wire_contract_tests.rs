@@ -423,3 +423,81 @@ fn the_open_access_fetch_report_is_camel_case_key_by_key() {
     };
     assert_eq!(serde_json::to_value(&limited).unwrap()["retryAfterSecs"], 30);
 }
+
+/// The Level 0 section of the Stats Check screen branches on `verdict.kind`
+/// and reads `conclusionChanges`, `reportedP` and `recomputedP` by name. The
+/// coherence rule cannot see a renamed tag or a dropped field, so the shape is
+/// pinned key by key, and the command is required to be on the computed
+/// surface.
+#[test]
+fn the_level_0_view_is_camel_case_key_by_key() {
+    use crate::stats_consistency::{
+        L0AlphaView, L0CountsView, L0MethodCheckView, L0NotReadView, L0PRange, L0ReasonView, L0ResultView,
+        L0VerdictView, L0Words, StatsConsistencyView,
+    };
+    use gaply_core::extract::{Location, SectionKind};
+
+    assert!(command_surface().contains("StatsConsistencyView"), "run_stats_consistency is not on the surface");
+
+    let check = L0MethodCheckView {
+        method_id: "p_consistency",
+        method_name: "p",
+        engine_version: "v",
+        provenance: "ref".into(),
+    };
+    let card = |verdict| L0ResultView {
+        id: 3,
+        location: Location::in_section(SectionKind::Results, 2, 1),
+        raw: "t(28) = 2.10, p = .001".into(),
+        reported_p: Some(".001".into()),
+        reported_p_relation: Some("="),
+        recomputed_p: Some(L0PRange { lo: 0.04, hi: 0.05 }),
+        verdict,
+        check: check.clone(),
+    };
+    let view = StatsConsistencyView {
+        claims_read: 4,
+        verdict_counts: L0CountsView { inconsistent: 1, concern: 1, could_not_check: 1, consistent: 1 },
+        not_read_count: 2,
+        not_read: vec![L0NotReadView { code: "not_linked", text: "t.".into(), count: 2 }],
+        alpha: L0AlphaView { values: vec![".05".into()], assumed: true, note: Some("n.".into()) },
+        results: vec![
+            card(L0VerdictView::Inconsistent { conclusion_changes: None }),
+            card(L0VerdictView::Concern { reason: L0Words { code: "c", text: "c.".into() } }),
+            card(L0VerdictView::CouldNotCheck {
+                reasons: vec![L0ReasonView { method_name: "p", code: "invalid_input", text: "x.".into() }],
+            }),
+            card(L0VerdictView::Consistent { note: None }),
+        ],
+    };
+    let v = serde_json::to_value(&view).unwrap();
+    assert_eq!(v["claimsRead"], 4);
+    assert_eq!(
+        v["verdictCounts"],
+        serde_json::json!({ "inconsistent": 1, "concern": 1, "couldNotCheck": 1, "consistent": 1 })
+    );
+    assert_eq!(v["notReadCount"], 2);
+    assert_eq!(v["notRead"], serde_json::json!([{ "code": "not_linked", "text": "t.", "count": 2 }]));
+    assert_eq!(v["alpha"], serde_json::json!({ "values": [".05"], "assumed": true, "note": "n." }));
+    assert_eq!(
+        v["results"][0],
+        serde_json::json!({
+            "id": 3,
+            // `Location` declares no casing and is snake_case on both sides.
+            "location": { "section": "results", "paragraph": 1, "section_index": 2 },
+            "raw": "t(28) = 2.10, p = .001",
+            "reportedP": ".001",
+            "reportedPRelation": "=",
+            "recomputedP": { "lo": 0.04, "hi": 0.05 },
+            // `None` is null on the wire: the screen says "not assessed".
+            "verdict": { "kind": "inconsistent", "conclusionChanges": null },
+            "check": { "methodId": "p_consistency", "methodName": "p", "engineVersion": "v", "provenance": "ref" },
+        })
+    );
+    assert_eq!(v["results"][1]["verdict"], serde_json::json!({ "kind": "concern", "reason": { "code": "c", "text": "c." } }));
+    assert_eq!(
+        v["results"][2]["verdict"],
+        serde_json::json!({ "kind": "couldNotCheck", "reasons": [{ "methodName": "p", "code": "invalid_input", "text": "x." }] })
+    );
+    assert_eq!(v["results"][3]["verdict"], serde_json::json!({ "kind": "consistent", "note": null }));
+}
