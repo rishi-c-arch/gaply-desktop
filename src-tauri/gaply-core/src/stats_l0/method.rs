@@ -74,6 +74,10 @@ pub trait VerificationMethod<I: ?Sized> {
     fn id(&self) -> &'static str;
     fn level(&self) -> Level;
     fn provenance(&self) -> Provenance;
+    /// The tolerance every [`MethodCheck`] this method returns records. Part of
+    /// the contract so that the registry can see it: a method is registered
+    /// only with one (`tests/every_method_has_fixtures.rs`).
+    fn tolerance(&self) -> ToleranceRule;
     fn applicability(&self, input: &I) -> Applicability;
     fn run(&self, input: &I) -> MethodCheck;
 }

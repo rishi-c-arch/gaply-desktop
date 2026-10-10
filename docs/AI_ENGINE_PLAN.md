@@ -21980,3 +21980,269 @@ three reddened exactly the predicted tests, at the predicted assertions:**
 
 Suite at the fix: `cargo test --workspace` **2032 passed, 9 ignored, 26
 targets**; vitest **972 passed, 75 files**.
+
+### D269 — Level 0 of the Statistical Analysis Verifier: can a manuscript's printed numbers all be right at once, judged from the manuscript alone
+
+**Phase 1 of the verifier, built on `feat/stats-verifier-l0` in nine steps.**
+`gaply_core::stats_l0` reads each reported result (`t`, `F`, `r`, `χ²`, `z`
+with df and p) and runs a closed list of methods on it. The free Stats Check
+screen shows the result through one command, `run_stats_consistency`. There is
+no data file, model, proxy, network or database write.
+`stats_l0/mod.rs` states that, and since this record it is guarded (below).
+
+#### What was built `[src]`
+
+* **`ReportedNumber` (`number.rs`).** Each printed number becomes the interval
+  its digits allow, read exactly as a `Rational` from the printed string. It
+  never passes through a float parser. `p = .000` is read as `p < .0005`: an
+  inequality, half a unit in the last printed place.
+* **The result reader (`result.rs`).** A unit is read only when it holds a
+  statistic, its df and a p. Every attempt it does not read is counted by
+  reason. Labelled df (`χ² = 6.42, df = 8`) are read for t and χ².
+* **The method contract and registry (`method.rs`, `registry.rs`).** A method
+  has an id, a level, a provenance, a **tolerance rule** (part of the trait
+  since this step), an applicability test and a `run` that never panics.
+  `MethodRegistry::LEVEL_0` is the list the manuscript path runs.
+  `MethodRegistry::SUMMARY` holds the methods that need a mean, percentage or
+  count, which Phase 1 cannot read from a manuscript.
+* **The verdict rule (`outcome.rs`) and the app seam
+  (`src-tauri/src/stats_consistency.rs`).** The seam builds one serialisable
+  view, `StatsConsistencyView`, which the screen renders as counts and cards.
+
+**The verdict set is closed: four variants, no score.**
+
+| verdict | carries |
+|---|---|
+| `Consistent` | optionally a `CheckNote`: `OneTailedStated` or `FloorPrintedAsEquality`, always shown with its text |
+| `Inconsistent` | `conclusion_changes: Option<bool>` and nothing else. It never says which number is wrong |
+| `Concern` | `OneTailedUnstated`, `FTwoTailed` or `EstimateDirection` |
+| `CouldNotCheck` | a reason. **Never a pass** |
+
+#### The methods: two published, three Gaply arithmetic
+
+| method | provenance | applies when |
+|---|---|---|
+| `p_consistency` | **published**: Nuijten, Hartgerink, van Assen, Epskamp and Wicherts 2016, *Behavior Research Methods* 48(4) (statcheck) | every result the reader returns |
+| `grim_mean`, `grim_percent` | **published**: Brown and Heathers 2017, *Social Psychological and Personality Science* 8(4) | only when someone says the data are integer-valued. Never inferred from text, so on the manuscript path, never. `SUMMARY` list |
+| `estimate_in_interval` | Gaply arithmetic | one unit prints an effect size AND a confidence interval, and the interval follows the effect size directly. Never compared with the test statistic. A sign or reciprocal reading is `Concern(EstimateDirection)`, never `Inconsistent` |
+| `df_matches_n` | Gaply arithmetic | r only, with n printed inside the same unit and the sentence not saying partial, semi-partial or controlling. Consistent when n − 2 lies in the df's interval |
+| `percent_matches_count` | Gaply arithmetic | count, denominator and percentage printed together (`12 of 40 (30%)`). `SUMMARY` list |
+
+The arithmetic methods compare exact rationals (`ToleranceRule::RoundingOnly`).
+`p_consistency` widens the recomputed p range outward by a relative 1e-8
+(`ENGINE_P_RELATIVE_MARGIN`) for engine error only, because rounding is
+already in the printed intervals.
+
+#### Where Gaply departs from statcheck `[fixture]`
+
+Each departure is one invented sentence in
+`tests/fixtures/stats_l0/statcheck_diff_fixtures.csv`. statcheck 1.5.0
+produced its side, and `l0_statcheck_departures.rs`
+(`each_departure_from_statcheck_is_shown_on_both_sides`) asserts both sides.
+
+| sentence shape | statcheck 1.5.0 | Gaply |
+|---|---|---|
+| `t(28) = 4.20, p = .000` | reads p = 0, error | **reads `p < .0005`**: Consistent |
+| `F(1, 62) = 78.22, p = 0.0001` | exact value, error | **a software floor printed as an equality is read as that floor**: Consistent, noted `FloorPrintedAsEquality` |
+| `After Bonferroni correction … t(28) = 2.10, p = .27` | recomputed as raw, error and decision error | **adjusted p not flagged**: a reported p LARGER than recomputed, in a document that names a correction, is `CouldNotCheck(AdjustedP)` |
+| `t(28) = 2.10, p = .023`, nothing says one-tailed | error | **`Concern(OneTailedUnstated)`**. If the document says one-tailed it is Consistent, noted |
+| `F(10, 10) = 6.40, p = .01` | upper tail only, error | **two-tailed F with df1 ≥ 2 is `Concern(FTwoTailed)`**. F(1, ·) is a squared t and never a variance ratio |
+| `Significance was set at p < .01 … t(28) = 1.90, p = .02` | decision judged at .05 | **the stated alpha is used**: Inconsistent, `conclusion_changes: Some(false)` at .01 |
+| `t(28) = 2.10, d = 0.40, p = .045` | no result extracted | **read**, and checked: an item between the statistic and the p does not hide the result |
+
+#### The floor rule, and the objection to it
+
+**Rule.** The reported p is `=`, its printed value is a power of ten at .001
+or below, and the whole widened recomputed range lies below the printed
+interval. Then the result is `Consistent` noted `FloorPrintedAsEquality`.
+This rule is checked before the two-tailed-F rule. On the card it reads
+*"Printed as p = .0001; the exact p is smaller still. APA style is p < .001."*
+A noted Consistent is ordered with the findings on the screen, not with the
+plain passes.
+
+**The objection, raised in labelling.** The AI reviewer marked DEV-017,
+DEV-019 and DEV-021 (`F(1,62) = 78.22 / 31.67 / 23.75, p = .0001`) FALSE as
+Consistent. Its reasoning: the claims are written as exact equalities, the
+statistics imply p of about 1.4e-12, 4.7e-7 and 8.0e-6, and an equality is not
+literally true when the exact p is lower. *"Do not silently rewrite
+`p = .0001` as `p < .0001`."*
+
+**Why the note answers it.** The objection is to a SILENT rewrite, and this
+rewrite is not silent. The verdict carries the reading it took, and the reader
+is shown the printed equality, the fact that the exact p is smaller, and the
+APA form. Nothing is hidden that `Inconsistent` would have shown. Calling it
+`Inconsistent` would claim something false: that the numbers cannot all be
+right. In fact one convention, a display floor, explains every digit, and the
+conclusion cannot change, since the true p is below the printed one and the
+printed one is already ≤ .001. The author adjudicated all three TRUE under this
+rule on 10 Oct.
+
+#### Who labelled what
+
+**The sheets were drafted by an AI reviewer from public full text (the PMC
+article pages) and adjudicated by the author** (`~/gaply-corpus/l0/labels/`;
+`summary.md` holds the counts and every adjudication).
+
+There are 13 `Inconsistent` rows across the three sets, and all 13 are
+labelled TRUE.
+
+| rows | checked how |
+|---|---|
+| OWN-005, OWN-006 (`χ² = 6.42, df = 8, p = 0.45`; recomputed ≈ .600) | **by the author against the DOCX** |
+| DEV-004 (`F(10, 10) = 8.25, p = 0.01`) | **by the XML check, not a PDF view.** The unit is in the paper's XML (the runner's `in_xml`). Upper-tail p ≈ .0013 and two-tailed ≈ .0026, so .01 cannot be right either way |
+| DEV-001–003, DEV-005–007, HOLDOUT-001–004 | **by the AI reviewer against the public full-text page**, with the author's adjudication of the sheet. Every one is also present in its paper's XML (Step 7's `in_xml = yes`, re-checked by an independent implementation). The author did not check these ten against the PDFs |
+
+#### The Level 0 path and `import_guard`
+
+`run_stats_consistency_measured` calls `import_guard::preflight` first and
+**enforces its refusals**: a refused file is `Err(Validation)` with the
+preflight's own summary, as `ai_link_source_document` does. It **skips the
+preflight's confirmation**. That confirmation asks about indexing time, and
+Level 0 indexes nothing; it only reads the stored import rate.
+
+#### statcheck and the author's manuscripts
+
+**statcheck read none of the units Gaply read in the author's manuscripts.**
+All six claims come from one of the six, the Health Economics paper, which
+prints labelled df (`χ² = 6.42, df = 8, p = 0.45`): a form statcheck does not
+read and Gaply does (Step 3b). statcheck returned zero results for that
+manuscript, both as dumped and with whitespace collapsed, so all six claims
+are "read by Gaply only".
+
+#### The measured tolerance `[measured]`
+
+```
+cargo test -p gaply_core --test l0_p_reference -- --nocapture
+```
+
+The test runs against `p_fixtures.csv`: 3,788 rows written by
+`/usr/local/bin/Rscript make_p_fixtures.R` under R 4.6.1, over t, r, z, F
+(upper tail), F2 (two-tailed) and χ². The largest relative error of the engine
+against R is **9.95e-11** (z, row 3379). Measured afresh on 10 Oct 2026; no row
+is above 1e-9.
+The gate in the test is a relative 1e-9 on every row. The engine margin,
+1e-8, is ten times the gate. Toolchain from `~/gaply-corpus/l0/TOOLS.txt`
+(recorded 8 Oct 2026): **R 4.6.1 (2026-06-24)** at `/usr/local/bin/Rscript`,
+**statcheck 1.5.0**, **scrutiny 0.6.1** (the GRIM fixtures:
+`scrutiny::grim`, `rounding = "up_or_down"`).
+
+#### The corpus result `[measured]`
+
+**Counts, not rates.** Each `n` below is that set's own. The labelled rows are
+a SAMPLE of each set's claims, not all of them. Every Inconsistent and Concern
+row is labelled, and samples are drawn for Consistent and NotRead. No
+CouldNotCheck row is labelled (14 in DEV, 6 in HOLDOUT).
+
+| | DEV | HOLDOUT | OWN |
+|---|---:|---:|---:|
+| manuscripts run | 12 | 6 | 6 (all on `~/Desktop`) |
+| … with ≥ 1 claim read | 10 | 5 | 1 |
+| claims read | **238** | **142** | **6** |
+| attempts not read | 262 | 146 | 97 |
+| Consistent / Inconsistent / Concern / CouldNotCheck | 215 / 7 / 2 / 14 | 132 / 4 / 0 / 6 | 4 / 2 / 0 / 0 |
+| rows labelled | 39 | 34 | 6 |
+
+Labels (TRUE / FALSE; there were no MISREAD or NOT_ASSESSABLE labels after
+adjudication):
+
+| kind | DEV | HOLDOUT | OWN |
+|---|---|---|---|
+| Inconsistent | 7 TRUE of 7 | 4 TRUE of 4 | 2 TRUE of 2 |
+| Concern | **0 TRUE, 2 FALSE** of 2 | none | none |
+| Consistent (sampled) | 15 TRUE of 15 | 15 TRUE of 15 | 4 TRUE of 4 |
+| NotRead (sampled) | 14 TRUE, 1 FALSE of 15 | 8 TRUE, 7 FALSE of 15 | none |
+
+**Both DEV Concerns were wrong** (DEV-008, DEV-009, PMC13101904). Both are
+`Concern(FTwoTailed)` on F(10, 10). The paper tests variance ratios
+two-tailed, so the two-tailed p it printed is right. The rule has no "stated"
+upgrade on purpose: papers say "two-tailed" about their t-tests, so the phrase
+cannot license an F. The known cost listed in `p_consistency`'s header is now
+measured: 2 of 2 on this corpus, in one paper. **The NotRead FALSEs are
+coverage misses, not wrong verdicts:** DEV-033 (the glyph `l` for `1`) and
+HOLDOUT-026–031 and HOLDOUT-033 (results inside flattened PDF tables, one
+table repeated across six rows).
+
+**statcheck as a second opinion** (`compare_statcheck.R`, statcheck 1.5.0 at
+default arguments; re-run on copies on 10 Oct 2026, output byte-identical to
+the stored TSVs):
+
+| | DEV | HOLDOUT | OWN |
+|---|---:|---:|---:|
+| read by both, agreeing | 175 | 136 | 0 |
+| read by both, disagreeing | 60 | 6 | 0 |
+| read by Gaply only | 3 | 0 | 6 |
+| read by statcheck only | 1 | 1 | 0 |
+| disagreement reasons | FLOOR 45, ADJUSTED_P 14, TWO_TAILED_F 1 | ADJUSTED_P 6 | none |
+
+Every disagreement has a reason from the script's closed list, and none is
+UNEXPLAINED. The DEV statcheck-only unit is DEV-033's `F(l, 62)`, which
+statcheck reads and Gaply refuses. The HOLDOUT one is `F (1, 378) = 001`,
+which statcheck flags as an error.
+
+#### What Phase 1 does not do
+
+* **Tables.** A `.docx` is read with its declared tables. PDF tables are
+  flattened text, and results inside them are not read (HOLDOUT-026–031,
+  HOLDOUT-033).
+* **GRIM without user input.** Nothing in Phase 1 says the data are
+  integer-valued, so `grim_mean` and `grim_percent` never run on a manuscript.
+* **df against n for t and F.** Not applicable by design, because the df
+  depends on the design.
+* **The `12 of 40 (30%)` forms.** There is no reader for them, so
+  `percent_matches_count` has no manuscript input yet.
+* **n inside r's brackets.** `r(48, N = 50)` is refused as
+  `MalformedDegreesOfFreedom`, so `df_matches_n` has no manuscript input
+  either.
+* **An effect size with its interval.** No unit in any of the three sets printed
+  both an effect size and a confidence interval. `estimate_in_interval` was
+  `NotApplicable(NoEstimateAndInterval)` on all 386 claims.
+
+**So on manuscripts, Phase 1's verdicts come from `p_consistency` alone.**
+That is true of every one of the 386 claims above. The other methods are
+built, fixtured and guarded, but none of them judged a manuscript in this
+corpus.
+
+**The backlog after Phase 1:**
+1. results inside PDF tables (seen in the holdout set);
+2. the PDF glyph `l` printed for the digit `1` inside df (DEV-033). Phase 1
+   refuses it and never repairs it;
+3. the count/percent reader, which gives `percent_matches_count` its input;
+4. n inside r's brackets, which gives `df_matches_n` its input.
+
+#### Guards `[test]`, each broken once on purpose
+
+Four new targets in `gaply-core/tests/`. Each was mutated in the real tree,
+seen to fail, restored from a saved copy (`cmp`-identical) and seen to pass:
+
+| guard | mutation | failed with |
+|---|---|---|
+| `stats_l0_is_llm_free_and_offline.rs` | `use crate::verify_agent::ProxyClient;` in `pvalue.rs` | `pvalue.rs:20: ProxyClient — the cloud proxy` |
+| `reported_number_never_parses_f64.rs` | `let _approx: f64 = normalised.parse()…` in `Lexed::exact` | `number.rs … never through a float parser`, line 167 |
+| `every_method_has_fixtures.rs` | `DfMatchesN`'s fixtures emptied; then, separately, `p_consistency`'s margin set to 0 | `df_matches_n: names no fixture file`; `p_consistency: … margin 0 is not in (0, 1e-3)` |
+| `stats_outcome_has_no_score.rs` | `pub confidence: usize` on `VerdictCounts`; then, separately, `#[serde(rename = "percentConsistent")]` on the view's count | `VerdictCounts.confidence`; `L0CountsView.percentConsistent` |
+
+**Two of the four found something on their first run, and both findings were
+in the guard, not the tree:**
+
+* the import allowlist was missing `statrs`, which `pvalue.rs` uses for its
+  distribution tails;
+* the score scan, in a draft that also checked enum VARIANT names, failed on
+  `NumberNotRead::Percent`. That variant is the reason a number printed `12%`
+  is refused, not a percentage anyone is shown.
+
+The request was for field names, so the scan now checks fields (struct-like
+variants' fields included) and serde `rename` strings, and the header says
+why variant names are left out. The score scan follows every type reachable
+from `StatsConsistencyOutcome` (26 types) and from `StatsConsistencyView`
+(10). It also reads every property of the TypeScript mirror.
+
+#### Formatting `[measured]`
+
+The repository does not follow rustfmt's defaults, so the Phase 1 files were
+left as written. `rustfmt --edition 2021 --check` fails on three existing files
+this phase did not write: `gaply-core/src/stats_verify.rs` (30 diffs),
+`gaply-core/src/consistency.rs` (81) and `src/commands.rs` (70). Of the 21
+Rust files Steps 1 to 8 added, it fails on 20, all except `stats_l0/mod.rs`,
+and those 20 were not reformatted. There is no `rustfmt.toml`, and CI runs
+neither `cargo fmt` nor clippy. The four guard files of Step 9 were put
+through rustfmt and pass its check.

@@ -42,6 +42,9 @@ impl VerificationMethod<SummaryInput> for PercentMatchesCount {
     fn provenance(&self) -> Provenance {
         PROVENANCE
     }
+    fn tolerance(&self) -> ToleranceRule {
+        TOLERANCE
+    }
     fn applicability(&self, input: &SummaryInput) -> Applicability {
         match input {
             SummaryInput::CountWithPercent(_) => Applicability::Applicable,
@@ -60,7 +63,7 @@ impl VerificationMethod<SummaryInput> for PercentMatchesCount {
             engine_version: ENGINE_VERSION,
             inputs_digest,
             computed,
-            tolerance: TOLERANCE,
+            tolerance: self.tolerance(),
             outcome,
         }
     }

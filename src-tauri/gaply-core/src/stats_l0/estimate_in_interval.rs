@@ -59,6 +59,9 @@ impl<'a> VerificationMethod<L0Input<'a>> for EstimateInInterval {
     fn provenance(&self) -> Provenance {
         PROVENANCE
     }
+    fn tolerance(&self) -> ToleranceRule {
+        TOLERANCE
+    }
     fn applicability(&self, input: &L0Input<'a>) -> Applicability {
         let r = input.result;
         match (&r.effect_size, &r.ci) {
@@ -87,7 +90,7 @@ impl<'a> VerificationMethod<L0Input<'a>> for EstimateInInterval {
             engine_version: ENGINE_VERSION,
             inputs_digest,
             computed,
-            tolerance: TOLERANCE,
+            tolerance: self.tolerance(),
             outcome,
         }
     }

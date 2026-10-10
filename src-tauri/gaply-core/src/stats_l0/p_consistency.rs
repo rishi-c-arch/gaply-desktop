@@ -86,6 +86,9 @@ impl<'a> VerificationMethod<L0Input<'a>> for PConsistency {
     fn provenance(&self) -> Provenance {
         PROVENANCE
     }
+    fn tolerance(&self) -> ToleranceRule {
+        TOLERANCE
+    }
     fn applicability(&self, input: &L0Input<'a>) -> Applicability {
         match input.result.family {
             Family::T | Family::F | Family::ChiSquare | Family::R | Family::Z => Applicability::Applicable,
@@ -100,7 +103,7 @@ impl<'a> VerificationMethod<L0Input<'a>> for PConsistency {
             engine_version: ENGINE_VERSION,
             inputs_digest: digest(input.result, input.context),
             computed,
-            tolerance: TOLERANCE,
+            tolerance: self.tolerance(),
             outcome,
         }
     }

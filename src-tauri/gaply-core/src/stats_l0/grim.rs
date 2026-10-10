@@ -103,6 +103,7 @@ impl Kind {
             engine_version: ENGINE_VERSION,
             inputs_digest,
             computed,
+            // The constant both `GrimMean::tolerance` and `GrimPercent::tolerance` return.
             tolerance: TOLERANCE,
             outcome,
         }
@@ -118,6 +119,9 @@ impl VerificationMethod<SummaryInput> for GrimMean {
     }
     fn provenance(&self) -> Provenance {
         PROVENANCE
+    }
+    fn tolerance(&self) -> ToleranceRule {
+        TOLERANCE
     }
     fn applicability(&self, input: &SummaryInput) -> Applicability {
         Kind::Mean.applicability(input)
@@ -136,6 +140,9 @@ impl VerificationMethod<SummaryInput> for GrimPercent {
     }
     fn provenance(&self) -> Provenance {
         PROVENANCE
+    }
+    fn tolerance(&self) -> ToleranceRule {
+        TOLERANCE
     }
     fn applicability(&self, input: &SummaryInput) -> Applicability {
         Kind::Percent.applicability(input)
