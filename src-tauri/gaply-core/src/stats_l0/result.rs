@@ -50,6 +50,11 @@
 //! not already have (`p < .001, η² = .245`), one of each in all, under the same
 //! rules. Anything else there simply ends the unit.
 //!
+//! An accepted interval records the item it follows directly
+//! ([`CiFollows`]): only one straight after an effect size can be read as that
+//! effect size's interval. Each result also records whether its sentence says
+//! partial, semi-partial or controlling, for `df_matches_n`.
+//!
 //! Each attempted unit is counted once, with its first reason. A rejected
 //! attempt claims the first p-value after it in the same sentence unless
 //! another statistic is printed between them, and that p is not counted again
@@ -92,6 +97,20 @@ pub struct ConfidenceInterval {
     pub level: ReportedNumber,
     pub low: ReportedNumber,
     pub high: ReportedNumber,
+    /// The item printed straight before the interval in the unit.
+    pub follows: CiFollows,
+}
+
+/// What a confidence interval follows directly inside its unit. Only an
+/// interval straight after an effect size can be taken to be that effect
+/// size's interval; one anywhere else may belong to an estimate that is not
+/// printed (a mean difference).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CiFollows {
+    Statistic,
+    Mse,
+    EffectSize,
+    PValue,
 }
 
 /// Where the paragraph came from.
@@ -144,6 +163,9 @@ pub struct ReportedResult {
     pub p: PValue,
     pub effect_size: Option<EffectSize>,
     pub ci: Option<ConfidenceInterval>,
+    /// The sentence holding the unit says partial, semi-partial or
+    /// controlling, anywhere in it.
+    pub sentence_says_partial: bool,
     pub source: Source,
 }
 
@@ -206,6 +228,7 @@ struct Patterns {
     folded: Regex,
     n_part: Regex,
     df_label: Regex,
+    partial: Regex,
 }
 
 fn patterns() -> &'static Patterns {
@@ -232,6 +255,8 @@ fn patterns() -> &'static Patterns {
         n_part: Regex::new(r"^[Nn]\s*=\s*(.*)$").unwrap(),
         // `df =`, `df=`, `d.f. =`, `d. f. =`, in any case (`DF =`).
         df_label: Regex::new(r"(?i)d(?:f|\.\s*f\.)\s*=").unwrap(),
+        // `semi-partial` contains `partial` after a word boundary.
+        partial: Regex::new(r"(?i)\b(?:partial|controlling)\b").unwrap(),
     })
 }
 
@@ -341,8 +366,10 @@ struct Unit<'h> {
     value: &'h str,
     p: Option<(Relation, &'h str)>, // None = ns
     effect: Option<(&'h str, &'h str)>,
-    ci: Option<(&'h str, &'h str, &'h str)>,
+    ci: Option<(&'h str, &'h str, &'h str, CiFollows)>,
     mse: Option<&'h str>,
+    /// The item most recently accepted, for [`CiFollows`].
+    last: CiFollows,
 }
 
 enum Scan<'h> {
@@ -378,7 +405,12 @@ fn trailing_items<'h>(s: &'h str, unit: &mut Unit<'h>, mut pos: usize) -> Result
             if unit.ci.is_some() {
                 return Err((Reason::RepeatedItem, whole.end()));
             }
-            unit.ci = Some((c.get(1).unwrap().as_str(), c.get(2).unwrap().as_str(), c.get(3).unwrap().as_str()));
+            unit.ci = Some((
+                c.get(1).unwrap().as_str(),
+                c.get(2).unwrap().as_str(),
+                c.get(3).unwrap().as_str(),
+                unit.last,
+            ));
             pos = whole.end();
             continue;
         }
@@ -389,6 +421,7 @@ fn trailing_items<'h>(s: &'h str, unit: &mut Unit<'h>, mut pos: usize) -> Result
                 return Err((Reason::RepeatedItem, end));
             }
             unit.effect = Some((m.as_str(), tok));
+            unit.last = CiFollows::EffectSize;
             pos = end;
             continue;
         }
@@ -428,6 +461,7 @@ fn scan_unit<'h>(s: &'h str, stat_start: usize, symbol: &str, df_inner: Option<&
         effect: None,
         ci: None,
         mse: None,
+        last: CiFollows::Statistic,
     };
     let p_re = &stats::regexes().p_value;
     let mut pos = value_end;
@@ -467,6 +501,7 @@ fn scan_unit<'h>(s: &'h str, stat_start: usize, symbol: &str, df_inner: Option<&
             at(&pt.ns, s, item).map(|m| m.end())
         };
         if let Some(p_end) = p_end {
+            unit.last = CiFollows::PValue;
             return match trailing_items(s, &mut unit, p_end) {
                 Ok(end) => {
                     unit.end = end;
@@ -485,13 +520,19 @@ fn scan_unit<'h>(s: &'h str, stat_start: usize, symbol: &str, df_inner: Option<&
                 let p = claimed_p(s, stat_start, whole.end());
                 return Scan::Rejected { reason: Reason::RepeatedItem, end: whole.end(), p };
             }
-            unit.ci = Some((c.get(1).unwrap().as_str(), c.get(2).unwrap().as_str(), c.get(3).unwrap().as_str()));
+            unit.ci = Some((
+                c.get(1).unwrap().as_str(),
+                c.get(2).unwrap().as_str(),
+                c.get(3).unwrap().as_str(),
+                unit.last,
+            ));
             pos = whole.end();
             continue;
         }
         if let Some(m) = at(&pt.mse, s, item) {
             let Some((tok, end)) = scan_token(s, m.end()) else { break };
             unit.mse = Some(tok);
+            unit.last = CiFollows::Mse;
             pos = end;
             continue;
         }
@@ -503,6 +544,7 @@ fn scan_unit<'h>(s: &'h str, stat_start: usize, symbol: &str, df_inner: Option<&
                 return Scan::Rejected { reason: Reason::RepeatedItem, end, p };
             }
             unit.effect = Some((m.as_str(), tok));
+            unit.last = CiFollows::EffectSize;
             pos = end;
             continue;
         }
@@ -536,9 +578,12 @@ fn build(unit: &Unit<'_>, s: &str, id: usize, location: &Location, source: Sourc
         None => None,
     };
     let ci = match unit.ci {
-        Some((level, lo, hi)) => Some(ConfidenceInterval { level: num(level)?, low: num(lo)?, high: num(hi)? }),
+        Some((level, lo, hi, follows)) => {
+            Some(ConfidenceInterval { level: num(level)?, low: num(lo)?, high: num(hi)?, follows })
+        }
         None => None,
     };
+    let sentence = crate::extract::sentence::sentence_containing(s, unit.stat_start);
     Ok(ReportedResult {
         id,
         location: location.clone(),
@@ -550,6 +595,7 @@ fn build(unit: &Unit<'_>, s: &str, id: usize, location: &Location, source: Sourc
         p,
         effect_size,
         ci,
+        sentence_says_partial: patterns().partial.is_match(sentence),
         source,
     })
 }
@@ -916,6 +962,39 @@ mod tests {
         assert_eq!(ci.level.value(), q("95"));
         assert_eq!(ci.low.value(), q("0.10"));
         assert_eq!(ci.high.value(), q("0.80"));
+    }
+
+    #[test]
+    fn an_interval_records_the_item_it_follows() {
+        for (body, follows) in [
+            ("It worked, t(30) = 2.50, d = 0.45, 95% CI [0.10, 0.80], p = .018.", CiFollows::EffectSize),
+            ("It worked, t(30) = 2.50, 95% CI [0.10, 0.80], d = 0.45, p = .018.", CiFollows::Statistic),
+            ("It worked, F(1, 30) = 6.25, MSE = 1.20, 95% CI [0.10, 0.80], p = .018.", CiFollows::Mse),
+            ("It worked, t(30) = 2.50, p = .018, 95% CI [0.10, 0.80].", CiFollows::PValue),
+            ("It worked, t(30) = 2.50, p = .018, d = 0.45, 95% CI [0.10, 0.80].", CiFollows::EffectSize),
+            // An effect size before the p and the interval after it: the p is between.
+            ("It worked, t(30) = 2.50, d = 0.45, p = .018, 95% CI [0.10, 0.80].", CiFollows::PValue),
+        ] {
+            let r = one(body);
+            assert_eq!(r.ci.as_ref().expect("interval").follows, follows, "{body}");
+        }
+    }
+
+    #[test]
+    fn the_sentence_saying_partial_or_controlling_is_recorded() {
+        for (body, partial) in [
+            ("Scores correlated, r(48) = .31, p = .03.", false),
+            ("The partial correlation held, r(47) = .31, p = .03.", true),
+            ("A semi-partial correlation held, r(47) = .31, p = .03.", true),
+            ("Controlling for age, r(47) = .31, p = .03.", true),
+            ("After controlling for age, scores correlated, r(47) = .31, p = .03.", true),
+            // Another sentence of the same paragraph does not count.
+            ("We report partial correlations below. Scores correlated, r(48) = .31, p = .03.", false),
+            // Not inside a longer word.
+            ("Partiality was low, r(48) = .31, p = .03.", false),
+        ] {
+            assert_eq!(one(body).sentence_says_partial, partial, "{body}");
+        }
     }
 
     #[test]

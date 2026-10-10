@@ -249,6 +249,13 @@ impl ReportedNumber {
         self.interval
     }
 
+    /// The typed value for an inputs digest: relation and exact interval, as
+    /// `Eq[num/den,num/den]`. No printed text.
+    pub fn canonical(&self) -> String {
+        let q = |x: Rational| format!("{}/{}", x.numer(), x.denom());
+        format!("{:?}[{},{}]", self.relation, q(self.interval.lo), q(self.interval.hi))
+    }
+
     /// Could the computed value `x` be the reported number? `slack` is the
     /// caller's engine precision; it only ever widens. For `Lt`/`Le` only the
     /// upper side applies, for `Gt`/`Ge` only the lower, and a value exactly at
@@ -280,6 +287,14 @@ impl ReportedNumber {
             Relation::Gt | Relation::Ge => below_ok,
         })
     }
+}
+
+/// `a` against `b` exactly, on reduced fractions with positive denominators.
+/// `None` when the cross products overflow: never an f64 fallback.
+pub fn exact_cmp(a: Rational, b: Rational) -> Option<std::cmp::Ordering> {
+    let l = a.numer().checked_mul(b.denom())?;
+    let r = b.numer().checked_mul(a.denom())?;
+    Some(l.cmp(&r))
 }
 
 /// `Rational::to_f64` is `num as f64 / den as f64`: up to three roundings,

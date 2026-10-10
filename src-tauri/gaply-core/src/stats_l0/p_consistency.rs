@@ -48,14 +48,12 @@
 //! recorded as `alpha_defaulted`; more than one leaves `conclusion_changes`
 //! unassessed (`None`) and records every value.
 
-use sha2::{Digest, Sha256};
-
 use super::input::{DocumentContext, L0Input};
 use super::method::{
-    Applicability, CheckNote, Computed, ConcernReason, CouldNotCheckReason, L0Verdict, Level, MethodCheck,
-    ToleranceRule, VerificationMethod,
+    digest_hex, Applicability, CheckNote, Computed, ConcernReason, CouldNotCheckReason, L0Verdict, Level,
+    MethodCheck, Provenance, ToleranceRule, VerificationMethod,
 };
-use super::number::{ReportedNumber, Relation};
+use super::number::{exact_cmp, ReportedNumber, Relation};
 use super::pvalue::{self, ENGINE_P_RELATIVE_MARGIN};
 use super::result::{Family, PValue, ReportedResult};
 use crate::equation::rational::Rational;
@@ -66,6 +64,13 @@ pub const ID: &str = "p_consistency";
 pub const ENGINE_VERSION: &str = pvalue::ENGINE_VERSION;
 
 pub const TOLERANCE: ToleranceRule = ToleranceRule::RelativeOutward { margin: ENGINE_P_RELATIVE_MARGIN, cap: 1.0 };
+
+/// Recomputing p from the printed statistic and df is statcheck's method. The
+/// departures from statcheck are Gaply's and are pinned in
+/// `tests/l0_statcheck_departures.rs`.
+pub const PROVENANCE: Provenance = Provenance::Published {
+    reference: "Nuijten, Hartgerink, van Assen, Epskamp and Wicherts 2016, Behavior Research Methods 48(4)",
+};
 
 /// The p-consistency method. Applicable to every [`Family`] the reader reads.
 #[derive(Debug, Clone, Copy)]
@@ -78,6 +83,9 @@ impl<'a> VerificationMethod<L0Input<'a>> for PConsistency {
     fn level(&self) -> Level {
         Level::L0
     }
+    fn provenance(&self) -> Provenance {
+        PROVENANCE
+    }
     fn applicability(&self, input: &L0Input<'a>) -> Applicability {
         match input.result.family {
             Family::T | Family::F | Family::ChiSquare | Family::R | Family::Z => Applicability::Applicable,
@@ -88,6 +96,7 @@ impl<'a> VerificationMethod<L0Input<'a>> for PConsistency {
         let outcome = evaluate(input.result, input.context, &mut computed);
         MethodCheck {
             method_id: ID,
+            provenance: PROVENANCE,
             engine_version: ENGINE_VERSION,
             inputs_digest: digest(input.result, input.context),
             computed,
@@ -232,14 +241,6 @@ fn not_significant(hi: f64, alpha: &Alpha) -> L0Verdict {
 enum Side {
     Below,
     Above,
-}
-
-/// `a` against `b` exactly, on reduced fractions with positive denominators.
-/// `None` when the cross products overflow: never an f64 fallback.
-fn exact_cmp(a: Rational, b: Rational) -> Option<std::cmp::Ordering> {
-    let l = a.numer().checked_mul(b.denom())?;
-    let r = b.numer().checked_mul(a.denom())?;
-    Some(l.cmp(&r))
 }
 
 /// Which side of `a` the reported p lies on, if it lies wholly on one. A
@@ -397,7 +398,7 @@ fn f_two_tailed_range(r: &ReportedResult) -> Option<(f64, f64)> {
 /// relations and flags. No printed text enters it.
 fn digest(r: &ReportedResult, ctx: &DocumentContext) -> String {
     let q = |x: Rational| format!("{}/{}", x.numer(), x.denom());
-    let iv = |n: &ReportedNumber| format!("{:?}[{},{}]", n.relation(), q(n.interval().lo), q(n.interval().hi));
+    let iv = ReportedNumber::canonical;
     let mut s = format!("{ID}\nfamily={:?}\nstatistic={}\n", r.family, iv(&r.statistic));
     for d in &r.df {
         s.push_str(&format!("df={}\n", iv(d)));
@@ -410,7 +411,7 @@ fn digest(r: &ReportedResult, ctx: &DocumentContext) -> String {
         s.push_str(&format!("threshold={}\n", q(t.value())));
     }
     s.push_str(&format!("one_tailed_at={:?}\ncorrection_at={:?}\n", ctx.one_tailed_at, ctx.correction_at));
-    Sha256::digest(s.as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
+    digest_hex(&s)
 }
 
 #[cfg(test)]

@@ -1,0 +1,43 @@
+# Golden cases for gaply_core's estimate_in_interval (Phase 1, Step 6).
+# Hand-derived; no reference software. Each case's derivation is the comment
+# line above it. A printed number is its interval: 0.45 is [0.445, 0.455].
+# The interval's widest reading is [low end of the lower bound, high end of
+# the upper bound]. Columns: case, expected, sentence (read as Results text).
+case,expected,sentence
+# d [0.445, 0.455] inside [0.095, 0.805].
+inside,Consistent,"It worked, t(30) = 2.50, d = 0.45, 95% CI [0.10, 0.80], p = .018."
+# d [0.945, 0.955] above 0.805.
+above,Inconsistent,"It worked, t(30) = 2.50, d = 0.95, 95% CI [0.10, 0.80], p = .018."
+# d [0.045, 0.055] below 0.095.
+below,Inconsistent,"It worked, t(30) = 2.50, d = 0.05, 95% CI [0.10, 0.80], p = .018."
+# d [0.805, 0.815] touches 0.805: rounding, never Inconsistent.
+upper_touch,Consistent,"It worked, t(30) = 2.50, d = 0.81, 95% CI [0.10, 0.80], p = .018."
+# d [0.815, 0.825] starts above 0.805.
+upper_past,Inconsistent,"It worked, t(30) = 2.50, d = 0.82, 95% CI [0.10, 0.80], p = .018."
+# lower [0.795, 0.805] wholly above upper [0.095, 0.105].
+reversed,Inconsistent,"It worked, t(30) = 2.50, d = 0.45, 95% CI [0.80, 0.10], p = .018."
+# lower [0.115, 0.125] wholly above upper [0.095, 0.105], and the estimate
+# [0.05, 0.15] reaches both: only the reversal rule makes this Inconsistent.
+reversed_wide_estimate,Inconsistent,"It worked, t(30) = 2.50, d = 0.1, 95% CI [0.12, 0.10], p = .018."
+# eta2 [.2445, .2455] after the p, interval [0.095, 0.385] straight after it.
+after_p,Consistent,"Groups differed, F(3, 157) = 7.92, p < .001, η2 = .245, 95% CI [0.10, 0.38]."
+# −0.45 [−0.455, −0.445] inside [−0.805, −0.095]; the minus is U+2212.
+negative,Consistent,"It worked, t(30) = −2.50, d = −0.45, 95% CI [−0.80, −0.10], p = .018."
+# d [0.445, 0.455] misses [−0.805, −0.095]; negated, [−0.455, −0.445] is
+# inside: a magnitude printed beside a signed interval.
+magnitude,Concern(EstimateDirection),"It worked, t(30) = −2.50, d = 0.45, 95% CI [−0.80, −0.10], p = .018."
+# d [0.945, 0.955] misses; negated [−0.955, −0.945] is below −0.805 too.
+magnitude_wrong,Inconsistent,"It worked, t(30) = −2.50, d = 0.95, 95% CI [−0.80, −0.10], p = .018."
+# OR [2.495, 2.505] misses [0.245, 0.605]; reciprocal [0.39920, 0.40080] is
+# inside: a ratio printed the other way up.
+ratio_inverted,Concern(EstimateDirection),"Uptake differed, χ2(1, N = 226) = 6.90, p < .01, OR = 2.50, 95% CI [0.25, 0.60]."
+# OR [2.495, 2.505] misses [2.995, 4.005]; reciprocal [0.3992, 0.4008] too.
+ratio_wrong,Inconsistent,"Uptake differed, χ2(1, N = 226) = 6.90, p < .01, OR = 2.50, 95% CI [3.00, 4.00]."
+# The interval follows t, not d: it may be a mean difference's.
+after_statistic,NotApplicable(IntervalNotAfterEstimate),"It worked, t(30) = 2.50, 95% CI [0.10, 0.80], d = 0.95, p = .018."
+# d before the p, interval after it: the p is between them.
+p_between,NotApplicable(IntervalNotAfterEstimate),"It worked, t(30) = 2.50, d = 0.95, p = .018, 95% CI [0.10, 0.80]."
+# An interval with no effect size in the unit.
+no_estimate,NotApplicable(NoEstimateAndInterval),"It worked, t(30) = 2.50, 95% CI [0.10, 0.80], p = .018."
+# An effect size with no interval.
+no_interval,NotApplicable(NoEstimateAndInterval),"It worked, t(30) = 2.50, d = 0.45, p = .018."

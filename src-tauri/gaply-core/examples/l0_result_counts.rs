@@ -21,10 +21,12 @@
 //!   every digit 9, every other word `w`. For a researcher's own manuscript.
 //!
 //! `--verdicts` also runs every method in `MethodRegistry::LEVEL_0` on every
-//! result read, and prints per file and in total the count of each verdict and
-//! of each Concern and CouldNotCheck reason. With `--explain` it also lists every
-//! Inconsistent and Concern row: file, section, paragraph, the printed unit,
-//! the reported p, the compared (widened) range, alpha and conclusion_changes.
+//! result read, and prints per file and in total the count of each verdict,
+//! each NotApplicable reason and each Concern and CouldNotCheck reason, every
+//! key prefixed with the method's id. With `--explain` it also lists every
+//! Inconsistent and Concern row: file, method, section, paragraph, the printed
+//! unit, and for `p_consistency` the reported p, the compared (widened) range,
+//! alpha and conclusion_changes; for any other method, every value it computed.
 //! With `--mask` it prints counts only.
 
 use std::collections::BTreeMap;
@@ -82,6 +84,7 @@ fn verdict_key(v: &L0Verdict) -> String {
 fn shown(c: &Computed) -> String {
     match c {
         Computed::Range { lo, hi } => format!("[{lo:.6}, {hi:.6}]"),
+        Computed::ExactRange { lo, hi } => format!("[{lo}, {hi}]"),
         Computed::Exact(q) => q.to_string(),
         Computed::ExactList(v) => v.iter().map(|q| q.to_string()).collect::<Vec<_>>().join("|"),
         Computed::Flag(b) => b.to_string(),
@@ -229,21 +232,36 @@ fn main() {
                 tally.results += 1;
                 for m in MethodRegistry::LEVEL_0 {
                     let input = L0Input { result: r, context: &ctx };
+                    let id = m.method.id();
                     if let Applicability::NotApplicable(why) = m.method.applicability(&input) {
-                        *tally.verdicts.entry(format!("NotApplicable({why})")).or_default() += 1;
+                        *tally.verdicts.entry(format!("{id}: NotApplicable({why:?})")).or_default() += 1;
                         continue;
                     }
                     let c = m.method.run(&input);
-                    *tally.verdicts.entry(verdict_key(&c.outcome)).or_default() += 1;
+                    *tally.verdicts.entry(format!("{id}: {}", verdict_key(&c.outcome))).or_default() += 1;
                     match c.outcome {
-                        L0Verdict::Concern(why) => *tally.reasons.entry(format!("Concern({why:?})")).or_default() += 1,
+                        L0Verdict::Concern(why) => {
+                            *tally.reasons.entry(format!("{id}: Concern({why:?})")).or_default() += 1
+                        }
                         L0Verdict::CouldNotCheck(why) => {
-                            *tally.reasons.entry(format!("CouldNotCheck({why:?})")).or_default() += 1
+                            *tally.reasons.entry(format!("{id}: CouldNotCheck({why:?})")).or_default() += 1
                         }
                         _ => {}
                     }
                     let listed = matches!(c.outcome, L0Verdict::Inconsistent { .. } | L0Verdict::Concern(_));
-                    if explain && listed {
+                    if explain && listed && id != "p_consistency" {
+                        let values: Vec<String> =
+                            c.computed.iter().map(|(n, v)| format!("{n}={}", shown(v))).collect();
+                        println!(
+                            "     VERDICT {name} {id} section={:?}({:?}) paragraph={} {:?}: {}   computed: {}",
+                            r.location.section_index,
+                            r.location.section,
+                            r.location.paragraph,
+                            c.outcome,
+                            r.raw,
+                            values.join(" ")
+                        );
+                    } else if explain && listed {
                         let p = match &r.p {
                             PValue::Reported(p) => format!("{:?} {}", p.relation(), p.raw()),
                             PValue::NotSignificant => "ns".to_string(),
@@ -252,7 +270,7 @@ fn main() {
                         let defaulted = get(&c, "alpha_defaulted").map_or("-".into(), shown);
                         let compared = get(&c, "compared_p").map_or("-".into(), shown);
                         println!(
-                            "     VERDICT {name} section={:?}({:?}) paragraph={} {:?}: {}   reported p: {p}   compared: {compared}   alpha: {alpha} (defaulted={defaulted})",
+                            "     VERDICT {name} {id} section={:?}({:?}) paragraph={} {:?}: {}   reported p: {p}   compared: {compared}   alpha: {alpha} (defaulted={defaulted})",
                             r.location.section_index, r.location.section, r.location.paragraph, c.outcome, r.raw
                         );
                     }

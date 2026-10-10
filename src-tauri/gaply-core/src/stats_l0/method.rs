@@ -28,12 +28,44 @@ pub enum Level {
     L0,
 }
 
+/// Where a method's rule comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Provenance {
+    /// A published method; `reference` names the publication.
+    Published { reference: &'static str },
+    /// Arithmetic Gaply states for itself, with no publication behind it.
+    GaplyArithmetic,
+}
+
 /// Whether a method can judge an input at all. `NotApplicable` is not a
 /// verdict: the method is simply not run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Applicability {
     Applicable,
-    NotApplicable(&'static str),
+    NotApplicable(NotApplicableReason),
+}
+
+/// Why a method does not judge an input.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NotApplicableReason {
+    /// The input is of a kind this method does not judge (a mean given to a
+    /// percentage method).
+    OtherInputKind,
+    /// The unit prints no effect size, or no confidence interval.
+    NoEstimateAndInterval,
+    /// The interval does not follow the effect size directly, so it may belong
+    /// to an estimate that is not printed.
+    IntervalNotAfterEstimate,
+    /// The family's df is not fixed by n alone: t and F need the design, and a
+    /// chi-square's df does not depend on n.
+    DfNotFixedByN,
+    /// No n printed inside the unit.
+    NoSampleSizeInUnit,
+    /// The sentence says partial, semi-partial or controlling: the df of a
+    /// partial correlation is n - 2 - k.
+    PartialCorrelation,
+    /// Nobody has said the data are integer-valued. Never inferred from text.
+    GranularityUnknown,
 }
 
 /// A verification method. `run` is called only on input for which
@@ -41,6 +73,7 @@ pub enum Applicability {
 pub trait VerificationMethod<I: ?Sized> {
     fn id(&self) -> &'static str;
     fn level(&self) -> Level;
+    fn provenance(&self) -> Provenance;
     fn applicability(&self, input: &I) -> Applicability;
     fn run(&self, input: &I) -> MethodCheck;
 }
@@ -50,6 +83,9 @@ pub trait VerificationMethod<I: ?Sized> {
 pub enum Computed {
     /// A closed range of reals.
     Range { lo: f64, hi: f64 },
+    /// A closed range of exact values: a printed number's interval, or an
+    /// interval built from the ends of two.
+    ExactRange { lo: Rational, hi: Rational },
     /// An exact value.
     Exact(Rational),
     /// Several exact values, in the order they were found.
@@ -73,12 +109,23 @@ pub enum ToleranceRule {
     /// Each computed endpoint moved outward by `margin` times its own size;
     /// the upper endpoint is then capped at `cap`.
     RelativeOutward { margin: f64, cap: f64 },
+    /// No margin beyond the printed intervals themselves: every comparison is
+    /// made on exact rationals.
+    RoundingOnly,
+}
+
+/// SHA-256, hex, of a method's canonical encoding of its typed inputs: the
+/// form [`MethodCheck::inputs_digest`] holds.
+pub fn digest_hex(canonical: &str) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(canonical.as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
 }
 
 /// The record of one method run on one input.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MethodCheck {
     pub method_id: &'static str,
+    pub provenance: Provenance,
     pub engine_version: &'static str,
     /// SHA-256, hex, of the method's canonical encoding of its typed inputs.
     /// Never of manuscript text.
@@ -118,6 +165,10 @@ pub enum ConcernReason {
     OneTailedUnstated,
     /// An F consistent only as a two-tailed (variance-ratio) test.
     FTwoTailed,
+    /// An estimate outside its interval that would lie inside it with the
+    /// other direction: its negation (a magnitude printed beside a signed
+    /// interval), or for a ratio measure its reciprocal.
+    EstimateDirection,
 }
 
 /// Never a pass.
@@ -130,4 +181,7 @@ pub enum CouldNotCheckReason {
     /// The inputs do not define the computation, or a comparison could not be
     /// made honestly.
     InvalidInput,
+    /// GRIM: every value at the printed precision is reachable with this many
+    /// units, so a match says nothing.
+    Uninformative,
 }
