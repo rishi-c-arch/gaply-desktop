@@ -76,6 +76,7 @@ pub mod secrets;
 pub mod stage1_norms;
 pub mod stats_chat;
 pub mod stats_l0;
+pub mod stats_l1;
 pub mod stats_verdict;
 pub mod stats_verify;
 pub mod swarm;

@@ -28,6 +28,7 @@ pub mod report_build;
 pub mod reviewer_synthesis;
 pub mod state;
 pub mod stats_consistency;
+pub mod stats_l1_ingest;
 pub mod supplementary;
 
 use std::sync::Arc;

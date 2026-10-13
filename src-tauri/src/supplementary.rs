@@ -53,6 +53,12 @@ pub const MAX_CELL_LEN: usize = 512;
 /// aggregate memory bound. Exceeding it REJECTS the file.
 pub const MAX_TOTAL_CHARS: usize = 2 * 1024 * 1024;
 
+/// The version of this parser, recorded in every Level 1 data fingerprint
+/// beside the file's hash (Phase 2, Step 2). Bump it when a parse of the same
+/// bytes could change: the reader crates' exact versions are pinned in
+/// `Cargo.toml` (`ambers = "=0.4.4"`, `matfile = "=0.5.0"`) and `Cargo.lock`.
+pub const PARSER_VERSION: &str = "supplementary ingest 1; calamine 0.26, csv 1, ambers 0.4.4, matfile 0.5.0";
+
 /// The kind of supplementary source.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -84,6 +90,15 @@ pub struct VariableMeta {
     pub value_labels: Vec<(String, String)>,
     /// Codes/ranges the author declared user-missing, verbatim.
     pub user_missing: Vec<String>,
+    /// The same declarations, typed, for Level 1 (Phase 2, Step 2). Not
+    /// serialised: `SupplementaryEvidence` is serialised toward the
+    /// PublishReady reviewer, and that payload must not change.
+    #[serde(skip)]
+    pub user_missing_rules: Vec<gaply_core::stats_l1::dataset::MissingRule>,
+    /// `code -> label` with the code written as the cells print it (`1`, not
+    /// `Numeric(1.0)`), for Level 1's level labels. Not serialised, as above.
+    #[serde(skip)]
+    pub value_label_codes: Vec<(String, String)>,
 }
 
 /// A single extracted table (first row treated as headers).
@@ -106,6 +121,19 @@ pub struct SupplementaryEvidence {
     /// plain text, which have none to lose.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub variables: Vec<VariableMeta>,
+    /// The SPSS weight variable the file declares, if any (Phase 2, Step 2).
+    /// Not serialised: see `VariableMeta::user_missing_rules`.
+    #[serde(skip)]
+    pub weight_variable: Option<String>,
+    /// `true` when the source holds more than [`MAX_ROWS`] rows and only the
+    /// first [`MAX_ROWS`] are in `tables` (`.sav` and `.mat`; CSV and
+    /// spreadsheets refuse instead). Level 1 never computes on a truncated
+    /// table. Not serialised.
+    #[serde(skip)]
+    pub rows_truncated: bool,
+    /// The sheet a spreadsheet's table was read from. Not serialised.
+    #[serde(skip)]
+    pub sheet_name: Option<String>,
 }
 
 /// Parse a supplementary file into neutral evidence, memory-capped. Never
@@ -143,6 +171,51 @@ pub fn parse_supplementary(path: &Path) -> Result<SupplementaryEvidence, GaplyEr
             "unsupported supplementary format {other:?}; supported: xlsx, xls, ods, \
              csv, tsv, txt, md, sav, mat"
         ))),
+    }
+}
+
+/// **Level 1 only (Phase 2, Step 2): does the file's table hold more rows
+/// than [`MAX_ROWS`]?** A new function that [`parse_supplementary`] and its
+/// existing callers never call, so their refusals keep their exact text.
+///
+/// Level 1 calls it after a parse has FAILED, to tell the row-cap refusal
+/// apart from every other one without reading the message. It mirrors the
+/// parsers' own row checks: CSV/TSV count records with the same reader
+/// settings and stop where the parser would have stopped first (a malformed
+/// record, a row over the column cap); a spreadsheet reads its first sheet's
+/// height, as `parse_spreadsheet` does. `.sav` and `.mat` never refuse on
+/// rows (they truncate, and say so in `rows_truncated`), and every other
+/// format holds no table, so both answer `false`.
+pub fn exceeds_row_cap(path: &Path) -> Result<bool, GaplyError> {
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+    match ext.as_str() {
+        "csv" | "tsv" => {
+            let file = std::fs::File::open(path)
+                .map_err(|e| GaplyError::Validation(format!("cannot open csv: {e}")))?;
+            let mut rdr = csv::ReaderBuilder::new()
+                .has_headers(false)
+                .flexible(true)
+                .delimiter(if ext == "tsv" { b'\t' } else { b',' })
+                .from_reader(std::io::BufReader::new(file));
+            for (i, rec) in rdr.records().enumerate() {
+                if i >= MAX_ROWS {
+                    return Ok(true);
+                }
+                match rec {
+                    Ok(r) if r.len() <= MAX_COLS => {}
+                    _ => return Ok(false),
+                }
+            }
+            Ok(false)
+        }
+        "xlsx" | "xls" | "xlsb" | "ods" | "xlsm" => {
+            use calamine::{open_workbook_auto, Reader};
+            let Ok(mut wb) = open_workbook_auto(path) else { return Ok(false) };
+            let Some(sheet) = wb.sheet_names().first().cloned() else { return Ok(false) };
+            let Ok(range) = wb.worksheet_range(&sheet) else { return Ok(false) };
+            Ok(range.get_size().0 > MAX_ROWS)
+        }
+        _ => Ok(false),
     }
 }
 
@@ -232,6 +305,9 @@ fn parse_spreadsheet(path: &Path, file_name: String) -> Result<SupplementaryEvid
         text_summary: String::new(),
         notes,
         variables: Vec::new(),
+        weight_variable: None,
+        rows_truncated: false,
+        sheet_name: Some(sheet),
     })
 }
 
@@ -282,8 +358,10 @@ fn parse_mat(path: &Path, file_name: String) -> Result<SupplementaryEvidence, Ga
     let mut columns: Vec<Vec<String>> = Vec::new();
     let mut variables = Vec::new();
     let mut notes = Vec::new();
+    let mut rows_truncated = false;
     for arr in mat.arrays().iter().take(MAX_COLS) {
-        let (declared_type, cells) = matlab_cells(arr);
+        let (declared_type, cells, truncated) = matlab_cells(arr);
+        rows_truncated |= truncated;
         headers.push(arr.name().to_string());
         variables.push(VariableMeta {
             name: arr.name().to_string(),
@@ -295,6 +373,8 @@ fn parse_mat(path: &Path, file_name: String) -> Result<SupplementaryEvidence, Ga
             label: None,
             value_labels: Vec::new(),
             user_missing: Vec::new(),
+            user_missing_rules: Vec::new(),
+            value_label_codes: Vec::new(),
         });
         columns.push(cells);
     }
@@ -324,6 +404,9 @@ fn parse_mat(path: &Path, file_name: String) -> Result<SupplementaryEvidence, Ga
         tables: vec![Table { headers, rows }],
         notes,
         variables,
+        weight_variable: None,
+        rows_truncated,
+        sheet_name: None,
     })
 }
 
@@ -362,10 +445,12 @@ fn count_mat_variables(bytes: &[u8]) -> usize {
     n
 }
 
-/// One MATLAB array as `(declared_type, cells)`. Numeric data is rendered with
-/// `serde_json`-style shortest round-trip so a value is never re-formatted into
-/// something the author did not write (ONTOLOGY §4.20, TEXT).
-fn matlab_cells(arr: &matfile::Array) -> (String, Vec<String>) {
+/// One MATLAB array as `(declared_type, cells, truncated)`: `truncated` says
+/// the array held more than [`MAX_ROWS`] values and only the first are kept.
+/// Numeric data is rendered with `serde_json`-style shortest round-trip so a
+/// value is never re-formatted into something the author did not write
+/// (ONTOLOGY §4.20, TEXT).
+fn matlab_cells(arr: &matfile::Array) -> (String, Vec<String>, bool) {
     use matfile::NumericData;
     let dims = arr
         .size()
@@ -375,10 +460,10 @@ fn matlab_cells(arr: &matfile::Array) -> (String, Vec<String>) {
         .join("x");
     macro_rules! render {
         ($v:expr) => {
-            $v.iter().take(MAX_ROWS).map(|x| x.to_string()).collect::<Vec<_>>()
+            ($v.iter().take(MAX_ROWS).map(|x| x.to_string()).collect::<Vec<_>>(), $v.len() > MAX_ROWS)
         };
     }
-    let cells = match arr.data() {
+    let (cells, truncated) = match arr.data() {
         NumericData::Double { real, .. } => render!(real),
         NumericData::Single { real, .. } => render!(real),
         NumericData::Int8 { real, .. } => render!(real),
@@ -390,7 +475,7 @@ fn matlab_cells(arr: &matfile::Array) -> (String, Vec<String>) {
         NumericData::Int64 { real, .. } => render!(real),
         NumericData::UInt64 { real, .. } => render!(real),
     };
-    (format!("matlab:{dims}"), cells)
+    (format!("matlab:{dims}"), cells, truncated)
 }
 
 /// SPSS `.sav`, via `ambers` (pure Rust).
@@ -422,6 +507,16 @@ fn parse_sav(path: &Path, file_name: String) -> Result<SupplementaryEvidence, Ga
                 .get(name)
                 .map(|specs| specs.iter().map(|s| format!("{s:?}")).collect())
                 .unwrap_or_default(),
+            user_missing_rules: meta
+                .variable_missing_values
+                .get(name)
+                .map(|specs| specs.iter().map(missing_rule).collect())
+                .unwrap_or_default(),
+            value_label_codes: meta
+                .variable_value_labels
+                .get(name)
+                .map(|m| m.iter().map(|(v, l)| (value_code(v), l.clone())).collect())
+                .unwrap_or_default(),
         });
         headers.push(name.clone());
     }
@@ -452,7 +547,29 @@ fn parse_sav(path: &Path, file_name: String) -> Result<SupplementaryEvidence, Ga
         tables: vec![Table { headers, rows }],
         notes,
         variables,
+        weight_variable: meta.weight_variable.clone(),
+        rows_truncated: batch.num_rows() > MAX_ROWS,
+        sheet_name: None,
     })
+}
+
+/// An SPSS user-missing declaration, typed.
+fn missing_rule(spec: &ambers::MissingSpec) -> gaply_core::stats_l1::dataset::MissingRule {
+    use gaply_core::stats_l1::dataset::MissingRule;
+    match spec {
+        ambers::MissingSpec::Value(v) => MissingRule::Value(*v),
+        ambers::MissingSpec::Range { lo, hi } => MissingRule::Range { lo: *lo, hi: *hi },
+        ambers::MissingSpec::StringValue(s) => MissingRule::Text(s.clone()),
+    }
+}
+
+/// A value-label key as the cells print it: `1` for `Numeric(1.0)`, the
+/// string itself for a string code.
+fn value_code(v: &ambers::Value) -> String {
+    match v {
+        ambers::Value::Numeric(x) => gaply_core::stats_l1::dataset::number_code(*x),
+        ambers::Value::String(s) => s.clone(),
+    }
 }
 
 /// One Arrow cell as the string the file holds. A null is the empty string,
@@ -539,6 +656,9 @@ fn parse_csv(path: &Path, file_name: String, delim: u8) -> Result<SupplementaryE
         text_summary: String::new(),
         notes,
         variables: Vec::new(),
+        weight_variable: None,
+        rows_truncated: false,
+        sheet_name: None,
     })
 }
 
@@ -569,6 +689,9 @@ fn parse_text(path: &Path, file_name: String) -> Result<SupplementaryEvidence, G
         text_summary: text,
         notes,
         variables: Vec::new(),
+        weight_variable: None,
+        rows_truncated: false,
+        sheet_name: None,
     })
 }
 

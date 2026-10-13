@@ -55,7 +55,9 @@ pub struct NumericColumn {
     pub missing: usize,
 }
 
-fn is_missing(cell: &str) -> bool {
+/// The shared missing-value tokens. `pub` since Phase 2, Step 2: Level 1
+/// (`stats_l1::dataset`) reads cells by the same list rather than a copy.
+pub fn is_missing(cell: &str) -> bool {
     let t = cell.trim();
     t.is_empty()
         || matches!(
