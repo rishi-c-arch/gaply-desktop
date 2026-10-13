@@ -56,7 +56,8 @@ use super::run_state::{GateRejection, L1RunState};
 use super::token::ConfirmationToken;
 use super::ENGINE_VERSION;
 use crate::stats_l0::pvalue;
-use crate::stats_verify;
+use crate::error::GaplyError;
+use crate::stats_verify::{self, RangeFault};
 
 /* ------------------------------------------------------------------------ *
  *  The registry
@@ -152,14 +153,20 @@ pub enum L1Refusal {
     /// A cell in a numeric role is not a number (a categorical predictor
     /// whose column changed type, for one).
     NotNumeric { column: ColumnAlias },
-    /// A value that is not finite: in a bound cell, or in a result (an
-    /// overflow, or an infinite t from a perfect fit or |r| = 1).
+    /// A value that is not finite: in a bound cell, or in the computation
+    /// (an intermediate that overflowed, which `stats_verify` refuses on, or
+    /// an infinite t from a perfect fit or |r| = 1).
     NonFinite { at: NonFiniteAt },
+    /// A variance, sum of squares or Householder norm underflowed to zero
+    /// (or a subnormal) although the values differ. Not `NonFinite`: every
+    /// number involved is finite, and wrong.
+    Underflow,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NonFiniteAt {
     Input,
+    /// In the computation: an intermediate or the result.
     Result,
 }
 
@@ -389,6 +396,17 @@ fn split_by_group(d: &Dataset, group: ColumnAlias, levels: &[String], rows: &[us
     Ok(out)
 }
 
+/// A `stats_verify` error as a refusal: an overflow or underflow it refused
+/// on, typed; anything else is `otherwise`, the one condition the adapter
+/// had not already ruled out.
+fn refused(e: GaplyError, otherwise: L1Refusal) -> L1Refusal {
+    match RangeFault::of(&e) {
+        Some(RangeFault::Overflow) => L1Refusal::NonFinite { at: NonFiniteAt::Result },
+        Some(RangeFault::Underflow) => L1Refusal::Underflow,
+        None => otherwise,
+    }
+}
+
 fn constant(xs: &[f64]) -> bool {
     xs.windows(2).all(|w| w[0] == w[1])
 }
@@ -443,9 +461,9 @@ fn independent_t(b: &ConfirmedBinding, d: &Dataset, rows: &[usize]) -> Result<Ve
     }
     let n = a.len() + c.len();
     // The conditions stats_verify refuses on were checked above; any error
-    // left is its own zero-variance test.
-    let student = stats_verify::t_test_student(a, c).map_err(|_| L1Refusal::ZeroVariance)?;
-    let welch = stats_verify::t_test_welch(a, c).map_err(|_| L1Refusal::ZeroVariance)?;
+    // left is a range fault or its own zero-variance test.
+    let student = stats_verify::t_test_student(a, c).map_err(|e| refused(e, L1Refusal::ZeroVariance))?;
+    let welch = stats_verify::t_test_welch(a, c).map_err(|e| refused(e, L1Refusal::ZeroVariance))?;
     Ok(vec![t_result(ComputedVariant::StudentPooled, &student, n)?, t_result(ComputedVariant::Welch, &welch, n)?])
 }
 
@@ -456,10 +474,12 @@ fn paired_t(b: &ConfirmedBinding, d: &Dataset, rows: &[usize]) -> Result<Vec<Com
         return Err(L1Refusal::TooFewCompleteCases { n: first.len(), minimum: 2 });
     }
     let diffs: Vec<f64> = first.iter().zip(&second).map(|(x, y)| x - y).collect();
-    if constant(&diffs) {
+    // Differences that overflowed compare equal (inf == inf) and are not
+    // "no variation": stats_verify refuses them as an overflow.
+    if diffs.iter().all(|d| d.is_finite()) && constant(&diffs) {
         return Err(L1Refusal::ZeroVariance);
     }
-    let t = stats_verify::t_test_paired(&first, &second).map_err(|_| L1Refusal::ZeroVariance)?;
+    let t = stats_verify::t_test_paired(&first, &second).map_err(|e| refused(e, L1Refusal::ZeroVariance))?;
     Ok(vec![t_result(ComputedVariant::Paired, &t, first.len())?])
 }
 
@@ -480,7 +500,7 @@ fn one_way_anova(b: &ConfirmedBinding, d: &Dataset, rows: &[usize]) -> Result<Ve
         return Err(L1Refusal::ZeroVariance);
     }
     let refs: Vec<&[f64]> = samples.iter().map(Vec::as_slice).collect();
-    let a = stats_verify::one_way_anova(&refs).map_err(|_| L1Refusal::ZeroVariance)?;
+    let a = stats_verify::one_way_anova(&refs).map_err(|e| refused(e, L1Refusal::ZeroVariance))?;
     Ok(vec![ComputedResult {
         variant: ComputedVariant::OneWay,
         statistic: StatisticKind::F,
@@ -510,7 +530,7 @@ fn correlation(b: &ConfirmedBinding, d: &Dataset, rows: &[usize], spearman: bool
     } else {
         (stats_verify::pearson(&x, &y), ComputedVariant::Pearson, StatisticKind::R)
     };
-    let c = c.map_err(|_| L1Refusal::ZeroVariance)?;
+    let c = c.map_err(|e| refused(e, L1Refusal::ZeroVariance))?;
     Ok(vec![ComputedResult {
         variant,
         statistic,
@@ -562,10 +582,10 @@ fn chi_square(b: &ConfirmedBinding, d: &Dataset, rows: &[usize]) -> Result<Vec<C
     };
     // Every condition chi_square_independence refuses on (shape, negative
     // counts, an empty margin) was ruled out above.
-    let uncorrected = stats_verify::chi_square_independence(&table).map_err(|_| L1Refusal::EmptyRowOrColumn { empty_rows, empty_columns })?;
+    let uncorrected = stats_verify::chi_square_independence(&table).map_err(|e| refused(e, L1Refusal::EmptyRowOrColumn { empty_rows, empty_columns }))?;
     let mut out = vec![make(ComputedVariant::ChiSquareUncorrected, uncorrected)?];
     if table.len() == 2 && col_levels.len() == 2 {
-        let yates = stats_verify::chi_square_2x2_yates(&table).map_err(|_| L1Refusal::EmptyRowOrColumn { empty_rows, empty_columns })?;
+        let yates = stats_verify::chi_square_2x2_yates(&table).map_err(|e| refused(e, L1Refusal::EmptyRowOrColumn { empty_rows, empty_columns }))?;
         out.push(make(ComputedVariant::ChiSquareYatesR, yates)?);
     }
     Ok(out)
@@ -597,7 +617,7 @@ fn ols(b: &ConfirmedBinding, d: &Dataset, rows: &[usize]) -> Result<Vec<Computed
     // Every other condition stats_verify::ols_qr refuses on (n, lengths) was
     // ruled out above; what is left is a design rank-deficient at R's
     // tolerance.
-    let r = stats_verify::ols_qr(&y, &xs).map_err(|_| L1Refusal::SingularDesign)?;
+    let r = stats_verify::ols_qr(&y, &xs).map_err(|e| refused(e, L1Refusal::SingularDesign))?;
     let n = y.len();
     let mut out = vec![ComputedResult {
         variant: ComputedVariant::OlsOverallF,

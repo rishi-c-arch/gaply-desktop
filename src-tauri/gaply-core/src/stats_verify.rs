@@ -114,6 +114,55 @@ pub fn numeric_column(
 }
 
 // ---------------------------------------------------------------------------
+// Range: a computation that overflowed or underflowed is refused
+// ---------------------------------------------------------------------------
+
+/// The existing verifier's message when a computation overflowed. Plain, and
+/// exact: [`RangeFault::of`] recognises it by equality.
+pub const OVERFLOW_MESSAGE: &str =
+    "the values are too large for this computation: an intermediate result overflowed, so nothing was computed";
+
+/// The existing verifier's message when a computation underflowed.
+pub const UNDERFLOW_MESSAGE: &str =
+    "the values are too small for this computation: a variance or sum of squares underflowed to zero although the values differ, so nothing was computed";
+
+/// Why a computation was refused because a double could not hold one of its
+/// numbers. Added in Phase 2, Step 3 (fix): every function here refuses with
+/// one of these, as a [`GaplyError::Validation`] carrying the matching
+/// message, instead of computing through it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RangeFault {
+    /// A sum, product, square, quotient or square root was infinite or NaN.
+    Overflow,
+    /// A sum of squares (a variance, a model or residual sum of squares, a
+    /// Householder vector's squared norm, a cross-product's diagonal) or an
+    /// expected count came out zero or subnormal although a term in it was
+    /// not zero.
+    Underflow,
+}
+
+impl RangeFault {
+    /// The fault an error from this module carries, if it is one.
+    pub fn of(e: &GaplyError) -> Option<RangeFault> {
+        match e {
+            GaplyError::Validation(m) if m == OVERFLOW_MESSAGE => Some(RangeFault::Overflow),
+            GaplyError::Validation(m) if m == UNDERFLOW_MESSAGE => Some(RangeFault::Underflow),
+            _ => None,
+        }
+    }
+
+    fn error(self) -> GaplyError {
+        GaplyError::Validation(
+            match self {
+                RangeFault::Overflow => OVERFLOW_MESSAGE,
+                RangeFault::Underflow => UNDERFLOW_MESSAGE,
+            }
+            .into(),
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Small statistics helpers (deterministic arithmetic)
 // ---------------------------------------------------------------------------
 
@@ -121,14 +170,54 @@ fn mean(xs: &[f64]) -> f64 {
     xs.iter().sum::<f64>() / xs.len() as f64
 }
 
-/// Sample variance (n-1 denominator).
-fn sample_variance(xs: &[f64]) -> f64 {
+/// `v`, or an overflow refusal when it is infinite or NaN.
+fn finite(v: f64) -> Result<f64, GaplyError> {
+    if v.is_finite() {
+        Ok(v)
+    } else {
+        Err(RangeFault::Overflow.error())
+    }
+}
+
+/// The mean, refused when the sum overflowed.
+fn checked_mean(xs: &[f64]) -> Result<f64, GaplyError> {
+    finite(mean(xs))
+}
+
+/// `sum` of squares, refused as an underflow when it is zero or subnormal
+/// although a term in it was not zero: the squares fell below the smallest
+/// normal double and the sum lost them. A sum that is zero because every
+/// term is zero passes; that is the caller's own zero-variance case.
+fn underflow_unless_normal(sum: f64, any_term_nonzero: bool) -> Result<f64, GaplyError> {
+    if any_term_nonzero && sum < f64::MIN_POSITIVE {
+        Err(RangeFault::Underflow.error())
+    } else {
+        Ok(sum)
+    }
+}
+
+/// Σ t², in order, with every term and the sum checked: overflow when one
+/// is not finite, underflow as [`underflow_unless_normal`].
+fn sum_of_squares(terms: impl IntoIterator<Item = f64>) -> Result<f64, GaplyError> {
+    let mut sum = 0.0;
+    let mut any = false;
+    for t in terms {
+        finite(t)?;
+        any |= t != 0.0;
+        sum += t.powi(2);
+    }
+    underflow_unless_normal(finite(sum)?, any)
+}
+
+/// Sample variance (n-1 denominator), with the mean and every squared
+/// deviation range-checked.
+fn sample_variance(xs: &[f64]) -> Result<f64, GaplyError> {
     let n = xs.len();
     if n < 2 {
-        return 0.0;
+        return Ok(0.0);
     }
-    let m = mean(xs);
-    xs.iter().map(|x| (x - m).powi(2)).sum::<f64>() / (n - 1) as f64
+    let m = checked_mean(xs)?;
+    Ok(sum_of_squares(xs.iter().map(|x| x - m))? / (n - 1) as f64)
 }
 
 /// Two-sided p from a |t| and df, guarding the perfect-fit (|t| = ∞) case.
@@ -177,19 +266,22 @@ pub fn t_test_welch(a: &[f64], b: &[f64]) -> Result<TTestResult, GaplyError> {
     require_group("group A", a)?;
     require_group("group B", b)?;
     let (na, nb) = (a.len() as f64, b.len() as f64);
-    let (va, vb) = (sample_variance(a), sample_variance(b));
+    let (va, vb) = (sample_variance(a)?, sample_variance(b)?);
     let sa = va / na;
     let sb = vb / nb;
-    let se = (sa + sb).sqrt();
+    let se = finite((sa + sb).sqrt())?;
     if se == 0.0 {
         return Err(GaplyError::Validation(
             "both groups have zero variance — the t-statistic is undefined".into(),
         ));
     }
-    let (ma, mb) = (mean(a), mean(b));
-    let t = (ma - mb) / se;
-    // Welch–Satterthwaite degrees of freedom.
-    let df = (sa + sb).powi(2) / (sa.powi(2) / (na - 1.0) + sb.powi(2) / (nb - 1.0));
+    let (ma, mb) = (checked_mean(a)?, checked_mean(b)?);
+    let t = finite((ma - mb) / se)?;
+    // Welch–Satterthwaite degrees of freedom. Its squares of the variances
+    // underflow at cells near 1e-80, long before the variances do.
+    let numerator = underflow_unless_normal(finite((sa + sb).powi(2))?, true)?;
+    let denominator = underflow_unless_normal(finite(sa.powi(2) / (na - 1.0) + sb.powi(2) / (nb - 1.0))?, true)?;
+    let df = finite(numerator / denominator)?;
     Ok(TTestResult { t, df, p_two_sided: t_two_sided(t.abs(), df), mean_a: ma, mean_b: mb, method: "welch" })
 }
 
@@ -198,17 +290,17 @@ pub fn t_test_student(a: &[f64], b: &[f64]) -> Result<TTestResult, GaplyError> {
     require_group("group A", a)?;
     require_group("group B", b)?;
     let (na, nb) = (a.len() as f64, b.len() as f64);
-    let (va, vb) = (sample_variance(a), sample_variance(b));
+    let (va, vb) = (sample_variance(a)?, sample_variance(b)?);
     let df = na + nb - 2.0;
-    let sp2 = ((na - 1.0) * va + (nb - 1.0) * vb) / df;
-    let se = (sp2 * (1.0 / na + 1.0 / nb)).sqrt();
+    let sp2 = finite(((na - 1.0) * va + (nb - 1.0) * vb) / df)?;
+    let se = finite((sp2 * (1.0 / na + 1.0 / nb)).sqrt())?;
     if se == 0.0 {
         return Err(GaplyError::Validation(
             "pooled variance is zero — the t-statistic is undefined".into(),
         ));
     }
-    let (ma, mb) = (mean(a), mean(b));
-    let t = (ma - mb) / se;
+    let (ma, mb) = (checked_mean(a)?, checked_mean(b)?);
+    let t = finite((ma - mb) / se)?;
     Ok(TTestResult { t, df, p_two_sided: t_two_sided(t.abs(), df), mean_a: ma, mean_b: mb, method: "student" })
 }
 
@@ -223,15 +315,18 @@ pub fn t_test_paired(a: &[f64], b: &[f64]) -> Result<TTestResult, GaplyError> {
     require_group("pairs", a)?;
     let d: Vec<f64> = a.iter().zip(b).map(|(x, y)| x - y).collect();
     let n = d.len() as f64;
-    let se = (sample_variance(&d) / n).sqrt();
+    // A difference of two finite cells can itself overflow; the mean of the
+    // differences is then not finite.
+    let md = checked_mean(&d)?;
+    let se = finite((sample_variance(&d)? / n).sqrt())?;
     if se == 0.0 {
         return Err(GaplyError::Validation(
             "the differences have zero variance — the t-statistic is undefined".into(),
         ));
     }
-    let t = mean(&d) / se;
+    let t = finite(md / se)?;
     let df = n - 1.0;
-    Ok(TTestResult { t, df, p_two_sided: t_two_sided(t.abs(), df), mean_a: mean(a), mean_b: mean(b), method: "paired" })
+    Ok(TTestResult { t, df, p_two_sided: t_two_sided(t.abs(), df), mean_a: checked_mean(a)?, mean_b: checked_mean(b)?, method: "paired" })
 }
 
 // ---------------------------------------------------------------------------
@@ -260,17 +355,24 @@ pub fn one_way_anova(groups: &[&[f64]]) -> Result<AnovaResult, GaplyError> {
         )));
     }
     let all: Vec<f64> = groups.iter().flat_map(|g| g.iter().copied()).collect();
-    let grand = mean(&all);
+    let grand = checked_mean(&all)?;
     let mut ss_between = 0.0;
     let mut ss_within = 0.0;
+    let mut means_differ = false;
     for g in groups {
         if g.is_empty() {
             return Err(GaplyError::Validation("ANOVA groups must be non-empty".into()));
         }
-        let gm = mean(g);
-        ss_between += g.len() as f64 * (gm - grand).powi(2);
-        ss_within += g.iter().map(|x| (x - gm).powi(2)).sum::<f64>();
+        let gm = checked_mean(g)?;
+        let d = finite(gm - grand)?;
+        means_differ |= d != 0.0;
+        ss_between += g.len() as f64 * d.powi(2);
+        // Each group's own sum of squares is range-checked: a group whose
+        // values differ only below the smallest normal square is refused.
+        ss_within += sum_of_squares(g.iter().map(|x| x - gm))?;
     }
+    let ss_between = underflow_unless_normal(finite(ss_between)?, means_differ)?;
+    let ss_within = finite(ss_within)?;
     let df_b = (k - 1) as f64;
     let df_w = (n_total - k) as f64;
     let ms_within = ss_within / df_w;
@@ -279,7 +381,8 @@ pub fn one_way_anova(groups: &[&[f64]]) -> Result<AnovaResult, GaplyError> {
             "within-group variance is zero — the F-statistic is undefined".into(),
         ));
     }
-    let f = (ss_between / df_b) / ms_within;
+    // A NaN F used to reach statrs' beta function and panic there.
+    let f = finite((ss_between / df_b) / ms_within)?;
     let p = (1.0 - FisherSnedecor::new(df_b, df_w).expect("df > 0").cdf(f)).clamp(0.0, 1.0);
     Ok(AnovaResult { f, df_between: df_b, df_within: df_w, p })
 }
@@ -306,38 +409,47 @@ fn pearson_r(x: &[f64], y: &[f64]) -> Result<f64, GaplyError> {
     if x.len() < 3 {
         return Err(GaplyError::Validation("correlation needs at least 3 pairs".into()));
     }
-    let (mx, my) = (mean(x), mean(y));
+    let (mx, my) = (checked_mean(x)?, checked_mean(y)?);
     let mut sxy = 0.0;
     let mut sxx = 0.0;
     let mut syy = 0.0;
+    let (mut x_varies, mut y_varies) = (false, false);
     for (a, b) in x.iter().zip(y) {
-        sxy += (a - mx) * (b - my);
-        sxx += (a - mx).powi(2);
-        syy += (b - my).powi(2);
+        let (dx, dy) = (finite(a - mx)?, finite(b - my)?);
+        x_varies |= dx != 0.0;
+        y_varies |= dy != 0.0;
+        sxy += dx * dy;
+        sxx += dx.powi(2);
+        syy += dy.powi(2);
     }
+    let sxx = underflow_unless_normal(finite(sxx)?, x_varies)?;
+    let syy = underflow_unless_normal(finite(syy)?, y_varies)?;
+    let sxy = finite(sxy)?;
     if sxx == 0.0 || syy == 0.0 {
         return Err(GaplyError::Validation(
             "a column has zero variance — correlation is undefined".into(),
         ));
     }
-    Ok(sxy / (sxx.sqrt() * syy.sqrt()))
+    finite(sxy / (sxx.sqrt() * syy.sqrt()))
 }
 
-fn r_to_result(r: f64, n: usize, method: &'static str) -> CorrelationResult {
+fn r_to_result(r: f64, n: usize, method: &'static str) -> Result<CorrelationResult, GaplyError> {
     let df = (n - 2) as f64;
-    // t = r * sqrt(df / (1 - r^2)); |r| = 1 → t = ∞ → p = 0.
+    // t = r * sqrt(df / (1 - r^2)); |r| = 1 → t = ∞ → p = 0. That infinity
+    // is the exact boundary, not an overflow, and is kept; any other
+    // non-finite t is refused.
     let t = if (1.0 - r * r).abs() < f64::EPSILON {
         f64::INFINITY * r.signum()
     } else {
-        r * (df / (1.0 - r * r)).sqrt()
+        finite(r * (df / (1.0 - r * r)).sqrt())?
     };
-    CorrelationResult { coefficient: r, df, statistic: t, p_two_sided: t_two_sided(t.abs(), df), method }
+    Ok(CorrelationResult { coefficient: r, df, statistic: t, p_two_sided: t_two_sided(t.abs(), df), method })
 }
 
 /// Pearson product-moment correlation with its t-test p-value.
 pub fn pearson(x: &[f64], y: &[f64]) -> Result<CorrelationResult, GaplyError> {
     let r = pearson_r(x, y)?;
-    Ok(r_to_result(r, x.len(), "pearson"))
+    r_to_result(r, x.len(), "pearson")
 }
 
 /// Average ranks (ties share the mean of the ranks they'd occupy).
@@ -372,7 +484,7 @@ pub fn spearman(x: &[f64], y: &[f64]) -> Result<CorrelationResult, GaplyError> {
         return Err(GaplyError::Validation("correlation needs at least 3 pairs".into()));
     }
     let rho = pearson_r(&average_ranks(x), &average_ranks(y))?;
-    Ok(r_to_result(rho, x.len(), "spearman"))
+    r_to_result(rho, x.len(), "spearman")
 }
 
 // ---------------------------------------------------------------------------
@@ -428,22 +540,32 @@ fn chi_square_with(observed: &[Vec<f64>], term: impl Fn(f64, f64) -> f64) -> Res
             col_sums[j] += v;
         }
     }
-    let total: f64 = row_sums.iter().sum();
+    for &m in row_sums.iter().chain(&col_sums) {
+        finite(m)?;
+    }
+    let total: f64 = finite(row_sums.iter().sum())?;
     if total == 0.0 {
         return Err(GaplyError::Validation("chi-square table is all zeros".into()));
     }
     let mut chi2 = 0.0;
     for (i, row) in observed.iter().enumerate() {
         for (j, &o) in row.iter().enumerate() {
-            let e = row_sums[i] * col_sums[j] / total;
+            let product = finite(row_sums[i] * col_sums[j])?;
+            let e = product / total;
+            // Both margins non-zero and the expected count not a normal
+            // double: the product or the quotient underflowed.
+            if row_sums[i] > 0.0 && col_sums[j] > 0.0 && (product < f64::MIN_POSITIVE || e < f64::MIN_POSITIVE) {
+                return Err(RangeFault::Underflow.error());
+            }
             if e == 0.0 {
                 return Err(GaplyError::Validation(
                     "chi-square has a zero expected count (an empty row or column margin)".into(),
                 ));
             }
-            chi2 += term(o, e);
+            chi2 += finite(term(o, e))?;
         }
     }
+    let chi2 = finite(chi2)?;
     let df = ((r - 1) * (c - 1)) as f64;
     let p = (1.0 - ChiSquared::new(df).expect("df > 0").cdf(chi2)).clamp(0.0, 1.0);
     Ok(ChiSquareResult { chi_square: chi2, df, p })
@@ -561,38 +683,56 @@ pub fn ols(y: &[f64], predictors: &[Vec<f64>]) -> Result<RegressionResult, Gaply
             }
         }
     }
+    // X'X and X'y overflow at cells near 1e200. A diagonal entry of X'X is a
+    // column's sum of squares and underflows at cells near 1e-200.
+    for a in 0..p {
+        finite(xty[a])?;
+        for b in 0..p {
+            finite(xtx[a][b])?;
+        }
+        underflow_unless_normal(xtx[a][a], x.iter().any(|row| row[a] != 0.0))?;
+    }
     let xtx_inv = invert(&xtx).ok_or_else(|| {
         GaplyError::Validation(
             "the design matrix is singular (collinear predictors or no variation) — regression is undefined".into(),
         )
     })?;
+    for row in &xtx_inv {
+        for &v in row {
+            finite(v)?;
+        }
+    }
     // beta = (X'X)^-1 X'y
     let beta: Vec<f64> = (0..p).map(|a| (0..p).map(|b| xtx_inv[a][b] * xty[b]).sum()).collect();
-    // residuals, SSE, SST
-    let ybar = mean(y);
-    let mut sse = 0.0;
-    let mut sst = 0.0;
-    let mut ssm = 0.0;
-    for i in 0..n {
-        let yhat: f64 = (0..p).map(|a| beta[a] * x[i][a]).sum();
-        sse += (y[i] - yhat).powi(2);
-        sst += (y[i] - ybar).powi(2);
-        ssm += (yhat - ybar).powi(2);
+    for &b in &beta {
+        finite(b)?;
     }
+    // residuals, SSE, SST
+    let ybar = checked_mean(y)?;
+    let yhat: Vec<f64> = (0..n).map(|i| (0..p).map(|a| beta[a] * x[i][a]).sum()).collect();
+    let sse = sum_of_squares((0..n).map(|i| y[i] - yhat[i]))?;
+    let sst = sum_of_squares(y.iter().map(|v| v - ybar))?;
+    let ssm = sum_of_squares(yhat.iter().map(|v| v - ybar))?;
     let df_res = (n - p) as f64;
     let sigma2 = sse / df_res;
-    let coefficients: Vec<Coefficient> = (0..p)
+    let coefficients = (0..p)
         .map(|a| {
-            let se = (sigma2 * xtx_inv[a][a]).sqrt();
-            let t = if se == 0.0 { f64::INFINITY } else { beta[a] / se };
+            let se = finite((sigma2 * xtx_inv[a][a]).sqrt())?;
+            // A zero SE is a perfect fit (every residual exactly zero): the
+            // infinite t is that boundary, not an overflow, and is kept.
+            let t = if se == 0.0 { f64::INFINITY } else { finite(beta[a] / se)? };
             let name = if a == 0 { "(intercept)".to_string() } else { format!("x{a}") };
-            Coefficient { name, estimate: beta[a], std_error: se, t, p_two_sided: t_two_sided(t.abs(), df_res) }
+            Ok(Coefficient { name, estimate: beta[a], std_error: se, t, p_two_sided: t_two_sided(t.abs(), df_res) })
         })
-        .collect();
+        .collect::<Result<Vec<Coefficient>, GaplyError>>()?;
     let r_squared = if sst == 0.0 { 0.0 } else { 1.0 - sse / sst };
     let adj = 1.0 - (1.0 - r_squared) * (n as f64 - 1.0) / df_res;
     let df_model = k as f64;
+    // As above: only a perfect fit's F may be infinite.
     let f_statistic = (ssm / df_model) / sigma2;
+    if sigma2 != 0.0 {
+        finite(f_statistic)?;
+    }
     Ok(RegressionResult { coefficients, r_squared, adj_r_squared: adj, df_residual: df_res, f_statistic, df_model })
 }
 
@@ -657,17 +797,21 @@ pub fn ols_qr(y: &[f64], predictors: &[Vec<f64>]) -> Result<RegressionResult, Ga
         let alpha = if a[j][j] >= 0.0 { -remaining } else { remaining };
         let mut v = a[j][j..].to_vec();
         v[0] -= alpha;
-        let vv: f64 = v.iter().map(|x| x * x).sum();
-        let reflect = |col: &mut [f64]| {
-            let s: f64 = v.iter().zip(col.iter()).map(|(a, b)| a * b).sum::<f64>() * 2.0 / vv;
+        // The reflector's squared norm is a sum of squares: it overflows at
+        // cells near 1e200 and underflows at cells near 1e-200, although
+        // `norm2` (scaled) does neither.
+        let vv = sum_of_squares(v.iter().copied())?;
+        let reflect = |col: &mut [f64]| -> Result<(), GaplyError> {
+            let s = finite(v.iter().zip(col.iter()).map(|(a, b)| a * b).sum::<f64>() * 2.0 / vv)?;
             for (c, vi) in col.iter_mut().zip(&v) {
-                *c -= s * vi;
+                *c = finite(*c - s * vi)?;
             }
+            Ok(())
         };
         for col in a.iter_mut().skip(j + 1) {
-            reflect(&mut col[j..]);
+            reflect(&mut col[j..])?;
         }
-        reflect(&mut effects[j..]);
+        reflect(&mut effects[j..])?;
         a[j][j] = alpha;
         for x in a[j][j + 1..].iter_mut() {
             *x = 0.0;
@@ -687,36 +831,50 @@ pub fn ols_qr(y: &[f64], predictors: &[Vec<f64>]) -> Result<RegressionResult, Ga
             r_inv[i][col] = s / r(i, i);
         }
     }
+    for row in &r_inv {
+        for &v in row {
+            finite(v)?;
+        }
+    }
     let beta: Vec<f64> = (0..p).map(|i| (i..p).map(|m| r_inv[i][m] * effects[m]).sum()).collect();
+    for &b in &beta {
+        finite(b)?;
+    }
     // Residuals: Q (0, ..., 0, effects[p..]), applying the reflectors in reverse.
     let mut resid = vec![0.0; n];
     resid[p..].copy_from_slice(&effects[p..]);
     for (j, v) in reflectors.iter().enumerate().rev() {
-        let vv: f64 = v.iter().map(|x| x * x).sum();
-        let s: f64 = v.iter().zip(&resid[j..]).map(|(a, b)| a * b).sum::<f64>() * 2.0 / vv;
+        let vv = sum_of_squares(v.iter().copied())?;
+        let s = finite(v.iter().zip(&resid[j..]).map(|(a, b)| a * b).sum::<f64>() * 2.0 / vv)?;
         for (c, vi) in resid[j..].iter_mut().zip(v) {
             *c -= s * vi;
         }
     }
     let fitted: Vec<f64> = y.iter().zip(&resid).map(|(y, e)| y - e).collect();
-    let rss: f64 = resid.iter().map(|e| e * e).sum();
-    let fbar = mean(&fitted);
-    let mss: f64 = fitted.iter().map(|f| (f - fbar).powi(2)).sum();
+    let rss = sum_of_squares(resid.iter().copied())?;
+    let fbar = checked_mean(&fitted)?;
+    let mss = sum_of_squares(fitted.iter().map(|f| f - fbar))?;
     let df_res = (n - p) as f64;
     let sigma2 = rss / df_res;
-    let coefficients: Vec<Coefficient> = (0..p)
+    let coefficients = (0..p)
         .map(|i| {
-            let unscaled: f64 = r_inv[i][i..].iter().map(|x| x * x).sum();
-            let se = (sigma2 * unscaled).sqrt();
-            let t = if se == 0.0 { f64::INFINITY } else { beta[i] / se };
+            let unscaled = finite(r_inv[i][i..].iter().map(|x| x * x).sum::<f64>())?;
+            let se = finite((sigma2 * unscaled).sqrt())?;
+            // A zero SE is a perfect fit (every residual exactly zero): the
+            // infinite t is that boundary, not an overflow, and is kept.
+            let t = if se == 0.0 { f64::INFINITY } else { finite(beta[i] / se)? };
             let name = if i == 0 { "(intercept)".to_string() } else { format!("x{i}") };
-            Coefficient { name, estimate: beta[i], std_error: se, t, p_two_sided: t_two_sided(t.abs(), df_res) }
+            Ok(Coefficient { name, estimate: beta[i], std_error: se, t, p_two_sided: t_two_sided(t.abs(), df_res) })
         })
-        .collect();
+        .collect::<Result<Vec<Coefficient>, GaplyError>>()?;
     let r_squared = if mss + rss == 0.0 { 0.0 } else { mss / (mss + rss) };
     let adj = 1.0 - (1.0 - r_squared) * (n as f64 - 1.0) / df_res;
     let df_model = k as f64;
+    // As above: only a perfect fit's F may be infinite.
     let f_statistic = (mss / df_model) / sigma2;
+    if sigma2 != 0.0 {
+        finite(f_statistic)?;
+    }
     Ok(RegressionResult { coefficients, r_squared, adj_r_squared: adj, df_residual: df_res, f_statistic, df_model })
 }
 
@@ -829,10 +987,11 @@ mod tests {
     // ------------------------------ ANOVA ----------------------------------
 
     #[test]
-    fn an_overflowing_welch_df_gives_a_nan_p_not_a_panic() {
-        let r = t_test_welch(&[1e200, -1e200], &[3e200, -2e200]).unwrap();
-        assert!(r.df.is_nan(), "{r:?}");
-        assert!(r.p_two_sided.is_nan(), "{r:?}");
+    fn an_overflowing_welch_df_is_refused_not_a_panic() {
+        // Welch's df was inf / inf here, and `StudentsT::new` panicked on it;
+        // a NaN p replaced the panic, and a refusal replaced the NaN.
+        let e = t_test_welch(&[1e200, -1e200], &[3e200, -2e200]).unwrap_err();
+        assert_eq!(RangeFault::of(&e), Some(RangeFault::Overflow), "{e}");
     }
 
     #[test]
@@ -993,6 +1152,110 @@ mod tests {
         let y = [3.1, 2.4, 3.6, 2.2, 3.3, 2.0, 3.4];
         let r = ols_qr(&y, &[big, small]).expect("a full-rank design is fitted");
         assert!(r.f_statistic.is_finite() && r.coefficients.iter().all(|c| c.t.is_finite()));
+    }
+
+    // ------------------- range: overflow and underflow ---------------------
+    //
+    // Cells near ±1e200 overflow a square; cells near ±1e-200 underflow one.
+    // Every function refuses both, with the fault typed. Written before the
+    // checks (Phase 2, Step 3 fix) and run red first.
+
+    const OVER: f64 = 1e200;
+    const UNDER: f64 = 1e-200;
+    const A: [f64; 3] = [1.0, -1.0, 2.0];
+    const B: [f64; 3] = [-3.0, 1.5, -2.0];
+    const C3: [f64; 3] = [0.5, 2.5, -1.5];
+    const X: [f64; 5] = [1.0, -1.0, 2.0, -2.0, 0.5];
+    const Y: [f64; 5] = [2.0, -1.0, 1.0, -3.0, 0.0];
+
+    fn k(xs: &[f64], k: f64) -> Vec<f64> {
+        xs.iter().map(|v| v * k).collect()
+    }
+
+    /// What a function returned, in words a failure message can show.
+    fn fault<T: std::fmt::Debug>(r: Result<T, GaplyError>) -> String {
+        match r {
+            Ok(v) => format!("computed {v:?}"),
+            Err(e) => match RangeFault::of(&e) {
+                Some(RangeFault::Overflow) => "overflow".into(),
+                Some(RangeFault::Underflow) => "underflow".into(),
+                None => format!("another error: {e}"),
+            },
+        }
+    }
+
+    fn refuses_both(name: &str, run: impl Fn(f64) -> String) {
+        assert_eq!(run(OVER), "overflow", "{name}, cells near ±1e200");
+        assert_eq!(run(UNDER), "underflow", "{name}, cells near ±1e-200");
+    }
+
+    #[test]
+    fn welch_refuses_overflow_and_underflow() {
+        refuses_both("welch", |s| fault(t_test_welch(&k(&A, s), &k(&B, s))));
+    }
+
+    /// Welch's df squares the variances: at cells near 1e-80 the variances
+    /// are normal (1e-160) and their squares are not (1e-320). Added while
+    /// writing the checks, and run red against them before this test passed.
+    #[test]
+    fn welch_df_refuses_the_underflow_of_its_squared_variances() {
+        assert_eq!(fault(t_test_welch(&k(&A, 1e-80), &k(&B, 1e-80))), "underflow");
+        // Student's t has no such square and computes at that scale.
+        assert!(t_test_student(&k(&A, 1e-80), &k(&B, 1e-80)).is_ok());
+    }
+
+    #[test]
+    fn student_refuses_overflow_and_underflow() {
+        // The overflow used to compute: an infinite pooled variance, t = 0,
+        // df = 4, p = 1.
+        refuses_both("student", |s| fault(t_test_student(&k(&A, s), &k(&B, s))));
+    }
+
+    #[test]
+    fn paired_refuses_overflow_and_underflow() {
+        refuses_both("paired", |s| fault(t_test_paired(&k(&A, s), &k(&B, s))));
+        // Differences that overflow themselves.
+        assert_eq!(fault(t_test_paired(&[1.5e308, 1.6e308, 1.7e308], &[-1.5e308, -1.6e308, -1.7e308])), "overflow");
+    }
+
+    #[test]
+    fn anova_refuses_overflow_and_underflow() {
+        refuses_both("anova", |s| fault(one_way_anova(&[&k(&A, s), &k(&B, s), &k(&C3, s)])));
+    }
+
+    #[test]
+    fn pearson_refuses_overflow_and_underflow() {
+        refuses_both("pearson", |s| fault(pearson(&k(&X, s), &k(&Y, s))));
+    }
+
+    /// Unreachable: Spearman correlates ranks, which are 1..n at any scale.
+    #[test]
+    fn spearman_cannot_overflow_or_underflow_it_ranks() {
+        let unit = spearman(&X, &Y).unwrap();
+        assert_eq!(spearman(&k(&X, OVER), &k(&Y, OVER)).unwrap(), unit);
+        assert_eq!(spearman(&k(&X, UNDER), &k(&Y, UNDER)).unwrap(), unit);
+    }
+
+    #[test]
+    fn chi_square_refuses_overflow_and_underflow() {
+        let t = |s: f64| vec![k(&[12.0, 5.0], s), k(&[7.0, 15.0], s), k(&[4.0, 9.0], s)];
+        refuses_both("chi-square", |s| fault(chi_square_independence(&t(s))));
+    }
+
+    #[test]
+    fn yates_refuses_overflow_and_underflow() {
+        let t = |s: f64| vec![k(&[12.0, 5.0], s), k(&[7.0, 15.0], s)];
+        refuses_both("yates", |s| fault(chi_square_2x2_yates(&t(s))));
+    }
+
+    #[test]
+    fn ols_refuses_overflow_and_underflow() {
+        refuses_both("ols", |s| fault(ols(&k(&Y, s), &[k(&X, s)])));
+    }
+
+    #[test]
+    fn ols_qr_refuses_overflow_and_underflow() {
+        refuses_both("ols_qr", |s| fault(ols_qr(&k(&Y, s), &[k(&X, s)])));
     }
 
     // ------------------------- numeric typing ------------------------------
