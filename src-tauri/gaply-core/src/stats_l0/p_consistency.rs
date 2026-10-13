@@ -526,6 +526,31 @@ mod tests {
         assert_eq!(v, L0Verdict::Concern(ConcernReason::OneTailedUnstated));
     }
 
+    /// Evaluation finding 1: "directional" in another sense is not a one-tailed
+    /// statement, so the halved p stays a Concern and the card never says
+    /// "which the paper states".
+    #[test]
+    fn directional_in_another_sense_does_not_make_the_paper_one_tailed() {
+        for context in [
+            "The directional coupling of these regions is known.",
+            "The bi-directional arrow shows a moderate association.",
+            "A directional trend toward higher amplitudes was seen.",
+        ] {
+            let v = verdict(&results(&format!("{context}\n\nThe groups differed, t(28) = 2.10, p = .023.")));
+            assert_eq!(v, L0Verdict::Concern(ConcernReason::OneTailedUnstated), "{context}");
+        }
+    }
+
+    /// The only route to `OneTailedStated`, and so to the card's "which the
+    /// paper states", is explicit wording.
+    #[test]
+    fn explicit_one_tailed_wording_gives_the_stated_note() {
+        for context in ["One-tailed tests were used.", "All tests were 1-tailed.", "Tests were one sided."] {
+            let v = verdict(&results(&format!("{context}\n\nThe groups differed, t(28) = 2.10, p = .023.")));
+            assert_eq!(v, L0Verdict::Consistent(Some(CheckNote::OneTailedStated)), "{context}");
+        }
+    }
+
     #[test]
     fn rule_b_does_not_apply_to_an_upper_tail_family() {
         // F(1, 28) = 4.41 is t(28) = 2.10 squared: p near .045. Halved it
@@ -577,6 +602,24 @@ mod tests {
             verdict(&results("Old participants were slower, F(1,62) = 19.76, p = 0.0001.")),
             L0Verdict::Consistent(Some(CheckNote::FloorPrintedAsEquality))
         );
+    }
+
+    /// The order decides the verdict here, and the evaluation's mutation M5
+    /// showed the F(1, 62) test above cannot see it (df1 = 1 never reaches the
+    /// two-tailed rule). F(2, 57) = 12.27: upper p 3.69e-5 to 3.71e-5, below
+    /// ".0001" = [.00005, .00015], so the floor rule applies; two-tailed
+    /// 7.38e-5 to 7.43e-5, inside it, so the two-tailed rule applies too.
+    /// Floor first gives the noted Consistent; two-tailed first would give
+    /// Concern(FTwoTailed).
+    /// R: `pf(c(12.265, 12.27, 12.275), 2, 57, lower.tail = FALSE)` =
+    /// 3.714380e-05 3.701419e-05 3.688505e-05; two-tailed 2 * that =
+    /// 7.428759e-05 7.402838e-05 7.377010e-05.
+    #[test]
+    fn a_floor_on_an_f_with_two_numerator_df_is_read_before_the_two_tailed_rule() {
+        let c = check(&results("Dose mattered, F(2, 57) = 12.27, p = .0001."));
+        assert_eq!(c.outcome, L0Verdict::Consistent(Some(CheckNote::FloorPrintedAsEquality)));
+        // The two-tailed range was never computed: the floor rule returned first.
+        assert_eq!(computed(&c, "two_tailed_p"), None);
     }
 
     // ---- the two-tailed F rule (regressions from PMC13101904) ----
@@ -667,6 +710,28 @@ mod tests {
         assert!(matches!(c.outcome, L0Verdict::Inconsistent { .. }));
         assert_eq!(computed(&c, "correction_named_at"), None);
         assert_eq!(computed(&c, "one_tailed_stated_at"), None);
+    }
+
+    /// Evaluation finding 2: Greenhouse-Geisser is a sphericity correction, not
+    /// a correction for multiple testing. F(1.45, 40.60) = 5.20 has p from
+    /// .01695 to .01725 over its corners (R: pf(5.195..5.205, 1.445..1.455,
+    /// 40.595..40.605, lower.tail = FALSE)); ".018" is [.0175, .0185], so the
+    /// numbers disagree, and only a multiplicity correction may excuse that.
+    #[test]
+    fn a_sphericity_correction_does_not_make_a_larger_p_an_adjusted_p() {
+        let unit = "The interaction held, F(1.45, 40.60) = 5.20, p = .018.";
+        assert_eq!(
+            verdict(&results(&format!("Greenhouse-Geisser corrected degrees of freedom are reported.\n\n{unit}"))),
+            L0Verdict::Inconsistent { conclusion_changes: Some(false) }
+        );
+        assert_eq!(
+            verdict(&results(&format!("Sphericity was corrected with Huynh-Feldt.\n\n{unit}"))),
+            L0Verdict::Inconsistent { conclusion_changes: Some(false) }
+        );
+        assert_eq!(
+            verdict(&results(&format!("P-values were Bonferroni corrected.\n\n{unit}"))),
+            L0Verdict::CouldNotCheck(CouldNotCheckReason::AdjustedP)
+        );
     }
 
     #[test]

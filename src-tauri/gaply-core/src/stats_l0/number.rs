@@ -236,6 +236,24 @@ impl ReportedNumber {
     pub fn raw(&self) -> &str {
         &self.raw
     }
+    /// This number divided by a positive integer, exactly: the value and both
+    /// ends of the interval over `divisor`, the relation kept, and `raw`
+    /// extended with `/divisor` as a paper prints an adjusted threshold
+    /// (`.05/6`). `None` for a divisor at or below zero, or on overflow.
+    pub fn divided_by(&self, divisor: i128) -> Option<ReportedNumber> {
+        if divisor <= 0 {
+            return None;
+        }
+        let over = |x: Rational| Rational::new(x.numer(), x.denom().checked_mul(divisor)?);
+        Some(ReportedNumber {
+            raw: format!("{}/{divisor}", self.raw),
+            relation: self.relation,
+            decimals: self.decimals,
+            value: over(self.value)?,
+            interval: Interval { lo: over(self.interval.lo)?, hi: over(self.interval.hi)? },
+        })
+    }
+
     pub fn relation(&self) -> Relation {
         self.relation
     }
@@ -479,6 +497,25 @@ mod tests {
         assert_eq!(ReportedNumber::p_value("1.20", Relation::Eq), Err(NumberNotRead::PValueOutOfRange));
         assert_eq!(ReportedNumber::p_value("-0.01", Relation::Eq), Err(NumberNotRead::PValueOutOfRange));
         assert!(ReportedNumber::p_value("1.00", Relation::Eq).is_ok());
+    }
+
+    /// A threshold printed as a fraction, ".05/6", is that exact rational.
+    #[test]
+    fn a_threshold_divided_by_an_integer_is_the_exact_rational() {
+        let p = ReportedNumber::p_value(".05", Relation::Lt).unwrap().divided_by(6).unwrap();
+        assert_eq!(p.value(), Rational::new(1, 120).unwrap());
+        assert_eq!(p.interval(), Interval::point(Rational::new(1, 120).unwrap()));
+        assert_eq!(p.relation(), Relation::Lt);
+        assert_eq!(p.raw(), ".05/6");
+        let q = ReportedNumber::p_value("0.05", Relation::Lt).unwrap().divided_by(3).unwrap();
+        assert_eq!(q.value(), Rational::new(1, 60).unwrap());
+        // An Eq value keeps its widened interval, divided.
+        let e = ReportedNumber::p_value(".05", Relation::Eq).unwrap().divided_by(2).unwrap();
+        assert_eq!(e.interval().lo, r("0.0225"));
+        assert_eq!(e.interval().hi, r("0.0275"));
+        // Zero and a negative divisor are refused.
+        assert!(ReportedNumber::p_value(".05", Relation::Lt).unwrap().divided_by(0).is_none());
+        assert!(ReportedNumber::p_value(".05", Relation::Lt).unwrap().divided_by(-2).is_none());
     }
 
     #[test]

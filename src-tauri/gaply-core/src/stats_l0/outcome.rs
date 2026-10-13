@@ -104,6 +104,9 @@ pub struct StatsConsistencyOutcome {
     pub claims: Vec<ClaimOutcome>,
     /// What `p_consistency` judged against: [`DocumentContext::alpha`].
     pub alpha_used: Vec<Rational>,
+    /// `alpha_used` as the paper printed each value, in the same order:
+    /// [`DocumentContext::alpha_printed`].
+    pub alpha_printed: Vec<String>,
     /// No threshold is stated, so `alpha_used` is the default .05.
     pub alpha_defaulted: bool,
 }
@@ -166,6 +169,7 @@ pub fn claim_verdict(checks: &[CheckOutcome]) -> (L0Verdict, Vec<CouldNotCheckRe
 pub fn check_reading(ex: &ExtractionResult, reading: ResultReading) -> StatsConsistencyOutcome {
     let context = DocumentContext::read(ex, &reading);
     let (alpha_used, alpha_defaulted) = context.alpha();
+    let alpha_printed = context.alpha_printed();
 
     let ResultReading { results, not_read, .. } = reading;
     let mut not_read_by_reason: Vec<(Reason, usize)> = Vec::new();
@@ -203,6 +207,7 @@ pub fn check_reading(ex: &ExtractionResult, reading: ResultReading) -> StatsCons
         verdict_counts,
         claims,
         alpha_used,
+        alpha_printed,
         alpha_defaulted,
     }
 }
@@ -244,6 +249,17 @@ mod tests {
 
     #[test]
     fn not_applicable_and_uninformative_never_count_toward_consistent() {
+        // Every method not applicable: the case the evaluation's mutation M2
+        // showed this test did not reach (the list below mixes in a
+        // `CouldNotCheck`, which a rule that passed all-NotApplicable lists
+        // as Consistent would still refuse).
+        let (v, reasons) = claim_verdict(&[
+            na(NotApplicableReason::NoEstimateAndInterval),
+            na(NotApplicableReason::DfNotFixedByN),
+            na(NotApplicableReason::OtherInputKind),
+        ]);
+        assert_eq!(v, L0Verdict::CouldNotCheck(CouldNotCheckReason::NotApplicable(NotApplicableReason::NoEstimateAndInterval)));
+        assert_eq!(reasons.len(), 3);
         let (v, reasons) = claim_verdict(&[
             na(NotApplicableReason::NoEstimateAndInterval),
             ran(UNINFORMATIVE),

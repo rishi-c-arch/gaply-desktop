@@ -214,7 +214,9 @@ pub fn stats_consistency_view(o: &StatsConsistencyOutcome) -> Result<StatsConsis
         .collect();
     let not_read_count = not_read.iter().map(|r| r.count).sum();
 
-    let values: Vec<String> = o.alpha_used.iter().map(|a| apa_decimal(*a)).collect();
+    debug_assert_eq!(o.alpha_used.len(), o.alpha_printed.len());
+    let values: Vec<String> =
+        o.alpha_used.iter().zip(&o.alpha_printed).map(|(value, printed)| alpha_words(*value, printed)).collect();
     let note = if o.alpha_defaulted {
         Some("The paper states no significance threshold, so .05 was assumed.".to_string())
     } else if values.len() > 1 {
@@ -287,22 +289,37 @@ fn result_view(claim: &ClaimOutcome) -> Result<L0ResultView, GaplyError> {
             }),
         },
         L0Verdict::CouldNotCheck(_) => {
-            // One reason per check, in registry order (`claim_verdict`).
-            let reasons = claim
+            // The reasons that apply to this result: each method that RAN and
+            // declined, in registry order. A method that did not apply is not
+            // a reason the result could not be checked; those are listed only
+            // when no method ran at all, so the card is never empty.
+            let words = |c: &CheckOutcome, reason: CouldNotCheckReason| {
+                let (code, text) = could_not_check_words(reason);
+                L0ReasonView { method_name: method_name(c.method_id()), code, text }
+            };
+            let mut reasons: Vec<L0ReasonView> = claim
                 .checks
                 .iter()
-                .filter_map(|c| {
-                    let reason = match c {
-                        CheckOutcome::Ran(m) => match m.outcome {
-                            L0Verdict::CouldNotCheck(r) => r,
-                            _ => return None,
-                        },
-                        CheckOutcome::NotApplicable { reason, .. } => CouldNotCheckReason::NotApplicable(*reason),
-                    };
-                    let (code, text) = could_not_check_words(reason);
-                    Some(L0ReasonView { method_name: method_name(c.method_id()), code, text })
+                .filter_map(|c| match c {
+                    CheckOutcome::Ran(m) => match m.outcome {
+                        L0Verdict::CouldNotCheck(r) => Some(words(c, r)),
+                        _ => None,
+                    },
+                    CheckOutcome::NotApplicable { .. } => None,
                 })
                 .collect();
+            if reasons.is_empty() {
+                reasons = claim
+                    .checks
+                    .iter()
+                    .filter_map(|c| match c {
+                        CheckOutcome::NotApplicable { reason, .. } => {
+                            Some(words(c, CouldNotCheckReason::NotApplicable(*reason)))
+                        }
+                        CheckOutcome::Ran(_) => None,
+                    })
+                    .collect();
+            }
             L0VerdictView::CouldNotCheck { reasons }
         }
     };
@@ -325,6 +342,25 @@ fn result_view(claim: &ClaimOutcome) -> Result<L0ResultView, GaplyError> {
             },
         },
     })
+}
+
+/// The alpha as the card shows it: `.05` for a plain value, and a fraction
+/// as the paper wrote it followed by its decimal, `.05/6 (= .0083)`, so the
+/// reader sees both the adjustment and the number the conclusion was judged
+/// against. A non-terminating decimal is shown to four places, rounded.
+fn alpha_words(value: Rational, printed: &str) -> String {
+    if printed.contains('/') {
+        let decimal = if value.terminates() { apa_decimal(value) } else { apa_decimal_to(value, 4) };
+        format!("{printed} (= {decimal})")
+    } else {
+        apa_decimal(value)
+    }
+}
+
+/// `.0083` for 1/120: `decimals` places, rounded, without the leading zero.
+fn apa_decimal_to(r: Rational, decimals: u32) -> String {
+    let s = r.to_decimal_string(decimals);
+    s.strip_prefix("0.").map(|rest| format!(".{rest}")).unwrap_or(s)
 }
 
 /// `.05`, not `0.05`, as APA prints a value that cannot exceed 1.
@@ -520,6 +556,100 @@ mod tests {
         assert!(matches!(o.claims[1].verdict, L0Verdict::Inconsistent { .. }));
     }
 
+    /// A zip archive holding one STORED entry, built by hand: the app crate
+    /// has no zip dependency, and a .docx is a zip with `word/document.xml`.
+    fn stored_zip(name: &str, data: &[u8]) -> Vec<u8> {
+        fn crc32(bytes: &[u8]) -> u32 {
+            let mut c = 0xFFFF_FFFFu32;
+            for &b in bytes {
+                c ^= u32::from(b);
+                for _ in 0..8 {
+                    c = if c & 1 == 1 { (c >> 1) ^ 0xEDB8_8320 } else { c >> 1 };
+                }
+            }
+            !c
+        }
+        let (crc, len, n) = (crc32(data), data.len() as u32, name.len() as u16);
+        let mut out = Vec::new();
+        let w16 = |o: &mut Vec<u8>, v: u16| o.extend_from_slice(&v.to_le_bytes());
+        let w32 = |o: &mut Vec<u8>, v: u32| o.extend_from_slice(&v.to_le_bytes());
+        // Local file header.
+        w32(&mut out, 0x0403_4B50);
+        w16(&mut out, 20);
+        w16(&mut out, 0);
+        w16(&mut out, 0);
+        w16(&mut out, 0);
+        w16(&mut out, 0);
+        w32(&mut out, crc);
+        w32(&mut out, len);
+        w32(&mut out, len);
+        w16(&mut out, n);
+        w16(&mut out, 0);
+        out.extend_from_slice(name.as_bytes());
+        out.extend_from_slice(data);
+        let cd_offset = out.len() as u32;
+        // Central directory.
+        w32(&mut out, 0x0201_4B50);
+        w16(&mut out, 20);
+        w16(&mut out, 20);
+        w16(&mut out, 0);
+        w16(&mut out, 0);
+        w16(&mut out, 0);
+        w16(&mut out, 0);
+        w32(&mut out, crc);
+        w32(&mut out, len);
+        w32(&mut out, len);
+        w16(&mut out, n);
+        w16(&mut out, 0);
+        w16(&mut out, 0);
+        w16(&mut out, 0);
+        w16(&mut out, 0);
+        w32(&mut out, 0);
+        w32(&mut out, 0);
+        out.extend_from_slice(name.as_bytes());
+        let cd_size = out.len() as u32 - cd_offset;
+        // End of central directory.
+        w32(&mut out, 0x0605_4B50);
+        w16(&mut out, 0);
+        w16(&mut out, 0);
+        w16(&mut out, 1);
+        w16(&mut out, 1);
+        w32(&mut out, cd_size);
+        w32(&mut out, cd_offset);
+        w16(&mut out, 0);
+        out
+    }
+
+    /// A `.docx` goes through the seam with its declared tables: a unit in
+    /// prose reads as `Prose`, a unit inside a table cell as `TableCell`, and
+    /// both are judged. The ledger of the Phase 1 evaluation noted that no
+    /// test drove the `.docx` branch (`TableStructure::Declared`) end to end.
+    #[test]
+    fn a_docx_goes_through_the_seam_with_its_declared_tables() {
+        let body = concat!(
+            "<w:p><w:r><w:t>A Title</w:t></w:r></w:p>",
+            "<w:p><w:r><w:t>Results</w:t></w:r></w:p>",
+            "<w:p><w:r><w:t xml:space=\"preserve\">Scores rose, t(28) = 2.10, p = .045.</w:t></w:r></w:p>",
+            "<w:tbl><w:tr><w:tc><w:p><w:r><w:t>Group</w:t></w:r></w:p></w:tc>",
+            "<w:tc><w:p><w:r><w:t xml:space=\"preserve\">Scores fell, t(28) = 2.10, p = .001.</w:t></w:r></w:p></w:tc></w:tr></w:tbl>",
+        );
+        let doc = format!(
+            "<?xml version=\"1.0\"?><w:document xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"><w:body>{body}</w:body></w:document>"
+        );
+        let f = scratch("units.docx", &stored_zip("word/document.xml", doc.as_bytes()));
+        let db = Database::in_memory().unwrap();
+        let o = run_stats_consistency_measured(&db, &f.0).unwrap();
+        assert_eq!(o.claims_read, 2, "{:?}", o.not_read);
+        let sources: Vec<gaply_core::stats_l0::result::Source> = o.claims.iter().map(|c| c.result.source).collect();
+        assert_eq!(
+            sources,
+            vec![gaply_core::stats_l0::result::Source::Prose, gaply_core::stats_l0::result::Source::TableCell],
+            "the Declared branch labels prose and table cells"
+        );
+        assert!(matches!(o.claims[0].verdict, L0Verdict::Consistent(None)));
+        assert!(matches!(o.claims[1].verdict, L0Verdict::Inconsistent { .. }));
+    }
+
     #[test]
     fn a_refused_file_is_a_validation_error_and_nothing_is_read() {
         // Gaply's own audit-report markers make preflight refuse the file.
@@ -611,9 +741,13 @@ mod tests {
 
         let cannot = by_raw(&v, "r(28) = 1.50");
         let L0VerdictView::CouldNotCheck { reasons } = &cannot.verdict else { panic!("{:?}", cannot.verdict) };
-        assert_eq!(reasons.len(), MethodRegistry::LEVEL_0.len(), "one reason per registered method");
+        // Only the method that ran and declined is listed; the two methods
+        // that did not apply to this result are not reasons it could not be
+        // checked (evaluation finding 10).
+        assert_eq!(reasons.len(), 1, "{reasons:?}");
         assert_eq!(reasons[0].code, "invalid_input");
         assert_eq!(reasons[0].method_name, method_name(p_consistency::ID));
+        assert!(MethodRegistry::LEVEL_0.len() > 1, "the registry must hold methods that did not apply for this to mean anything");
 
         // The lone `t = 3.1` has no df: not read, counted, with its reason.
         assert_eq!(v.not_read_count, 1);
@@ -656,6 +790,23 @@ mod tests {
             "A Title\n\nMethods\nSignificance was set at p < .01.\n\nResults\nScores rose, t(28) = 2.10, p = .045.\n",
         );
         assert_eq!((one.alpha.values.clone(), one.alpha.assumed, one.alpha.note.clone()), (vec![".01".to_string()], false, None));
+    }
+
+    /// A fractional threshold is shown as the paper wrote it, followed by its
+    /// decimal, so a reader sees both the adjustment and the number the
+    /// conclusion was judged against (evaluation finding 5).
+    #[test]
+    fn a_fractional_threshold_shows_as_the_paper_wrote_it_with_its_decimal() {
+        let v = view_of(
+            "A Title\n\nMethods\nSignificance was set at p < .05/6.\n\n\
+             Results\nScores rose, t(28) = 2.10, p = .045.\n",
+        );
+        assert!(!v.alpha.assumed);
+        assert_eq!(v.alpha.values, vec![".05/6 (= .0083)".to_string()], "{:?}", v.alpha);
+        assert_eq!(v.alpha.note, None);
+        // The wording changes nothing the methods judge: this p is consistent
+        // as printed (R: .04439 to .04534), under any alpha.
+        assert_eq!(v.results[0].verdict, L0VerdictView::Consistent { note: None });
     }
 
     /// The card's props type requires a check; this is the Rust half: a claim

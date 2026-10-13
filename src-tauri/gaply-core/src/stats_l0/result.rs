@@ -21,8 +21,13 @@
 //! - **Where the p-values are.** It finds them with `stats::regexes().p_value`,
 //!   the pattern that produces `Stat::PValue`, and [`coupling_violations`]
 //!   checks every accepted p against a `Stat::PValue` at the same location.
-//! - **Which p-values are thresholds.** It reads `Stat::SignificanceThreshold`,
-//!   which `is_significance_criterion` produced. There is no second detector.
+//! - **Which p-values are thresholds.** The stated alpha is read HERE, by
+//!   [`ALPHA_WORDING`]: a closed list of alpha phrases with the value beside
+//!   them, never a value inside the span of a parsed result. The evaluation
+//!   found that `Stat::SignificanceThreshold` (a marker phrase anywhere in the
+//!   sentence) took a result's own p as the paper's alpha when the two shared
+//!   a sentence. Extraction's classification is still used for one thing: a
+//!   p it called a threshold is not counted as `PWithoutStatistic`.
 //! - **Which names are effect sizes.** [`stats::EFFECT_SIZE_ALTERNATION`].
 //!
 //! Every number goes through [`ReportedNumber`]; the regexes here only locate
@@ -212,8 +217,9 @@ pub struct NotRead {
 pub struct ResultReading {
     pub results: Vec<ReportedResult>,
     pub not_read: Vec<NotRead>,
-    /// The document's distinct stated significance thresholds, from
-    /// `Stat::SignificanceThreshold`, read through [`ReportedNumber::p_value`].
+    /// The document's distinct stated significance thresholds, read by
+    /// [`ALPHA_WORDING`] through [`ReportedNumber::p_value`] (and
+    /// [`ReportedNumber::divided_by`] for a fraction), in document order.
     pub thresholds: Vec<ReportedNumber>,
 }
 
@@ -229,7 +235,54 @@ struct Patterns {
     n_part: Regex,
     df_label: Regex,
     partial: Regex,
+    p_at: Regex,
+    /// Alpha wording, then the value: `α = .05`, `alpha of .05`, `significance
+    /// level of .05`, `criterion of .05`, `significance was set at p < .05`.
+    alpha_before: Regex,
+    /// The value, then the wording: `p < .05 was considered significant`.
+    alpha_after: Regex,
+    /// A further value in the same statement: `…p < .05, and at p < .01 for…`.
+    alpha_more: Regex,
 }
+
+/// The closed list of wordings that state a significance threshold. Group 1
+/// is the operator when a `p` precedes the value, group 2 the value, group 3 a
+/// divisor when the threshold is printed as a fraction (`.05/6`).
+///
+/// "alpha" and "criterion" take a value only through a connector written
+/// straight after them (`α = .05`, `alpha of .05`, `alpha level was .05`,
+/// `alpha was set at .05`, `criterion of .05`): "alpha" is also an EEG band
+/// and a power, and "criterion" a training target. The significance-level
+/// phrases allow a few words before their connector ("the significance level
+/// for all tests was set at .05"). A value above .2 is never a threshold (a
+/// reliability coefficient is the known collision), a sentence naming
+/// Cronbach is skipped outright, and a candidate the wording does not take
+/// is not a number at all: never an unread p.
+pub const ALPHA_WORDING: [&str; 3] = [
+    concat!(
+        r"(?i)(?:\b(?:α|alpha)(?:\s+(?:level|value|criterion))?\s*",
+        r"(?:was\s+set\s+(?:at|to)|were\s+set\s+(?:at|to)|is\s+set\s+(?:at|to)|set\s+(?:at|to)|was|were|is|=|:|of|at)",
+        r"|\b(?:significance\s+(?:level|threshold|criterion)|level\s+of\s+significance",
+        r"|criterion\s+(?:for|of)\s+(?:statistical\s+)?significance)[^\d;.]{0,30}?",
+        r"(?:was\s+set\s+(?:at|to)|were\s+set\s+(?:at|to)|is\s+set\s+(?:at|to)|set\s+(?:at|to)|was|were|is|=|:|of|at)",
+        r"|\bsignificance\s+was\s+(?:set|determined|defined|fixed)(?:\s+(?:at|to|as))?",
+        r"|\bcriterion\s+of",
+        r"|\b(?:statistically\s+)?significan(?:t|ce)\s+(?:at|when|if|as))",
+        r"\s*(?:\bp\s*(?:-?\s*values?)?\s*(<=|<|≤|=)\s*)?",
+        r"(\d*\.\d+|\d+(?:\.\d+)?)(?:\s*/\s*(\d+))?",
+    ),
+    concat!(
+        r"(?i)\bp\s*(?:-?\s*values?)?\s*(<=|<|≤)\s*",
+        r"(\d*\.\d+|\d+(?:\.\d+)?)(?:\s*/\s*(\d+))?",
+        r"\s+(?:was|were|is|are)\s+(?:considered|regarded|taken|deemed|defined|treated)(?:\s+as)?\s+(?:statistically\s+)?significant",
+    ),
+    // A continuation, matched only where the previous value ended.
+    concat!(
+        r"(?i)^\s*,?\s*(?:and|or)\s+(?:at\s+)?",
+        r"(?:\bp\s*(?:-?\s*values?)?\s*(<=|<|≤|=)\s*)?",
+        r"(\d*\.\d+|\d+(?:\.\d+)?)(?:\s*/\s*(\d+))?",
+    ),
+];
 
 fn patterns() -> &'static Patterns {
     static P: OnceLock<Patterns> = OnceLock::new();
@@ -241,28 +294,49 @@ fn patterns() -> &'static Patterns {
             r"(?:^|[^\p{L}\p{N}_'’])(t|F|r|z|Z|χ ?2|χ²|chi2|chi²)\s*(?:\(([^()]*)\))?\s*=",
         )
         .unwrap(),
-        sep: Regex::new(r"\s*,\s*").unwrap(),
+        // Every pattern below is anchored: see `at`.
+        sep: Regex::new(r"^\s*,\s*").unwrap(),
         // `n.s.` keeps its own final dot; bare `ns` does not take a full stop.
-        ns: Regex::new(r"(?i)n\.s\.|ns\b").unwrap(),
-        mse: Regex::new(r"MS[Ee]\s*=").unwrap(),
+        ns: Regex::new(r"^(?i:n\.s\.|ns\b)").unwrap(),
+        mse: Regex::new(r"^MS[Ee]\s*=").unwrap(),
         ci: Regex::new(
-            r"(?i)(\d{2}(?:\.\d+)?)\s*%\s*(?:CI|confidence\s+interval)\s*[:=]?\s*[\[(]\s*([^\s,;\[\]()]+)\s*[,;]\s*([^\s,;\[\]()]+)\s*[\])]",
+            r"^(?i)(\d{2}(?:\.\d+)?)\s*%\s*(?:CI|confidence\s+interval)\s*[:=]?\s*[\[(]\s*([^\s,;\[\]()]+)\s*[,;]\s*([^\s,;\[\]()]+)\s*[\])]",
         )
         .unwrap(),
-        effect: Regex::new(&format!("(?i){}", stats::EFFECT_SIZE_ALTERNATION)).unwrap(),
-        effect_tail: Regex::new(r"(?i)\s*(?:=|:|of)?\s*").unwrap(),
-        folded: Regex::new(r"\s*(?:,\s*|\s(?:and|&)\s+)[-\u{2212}]?\.?\d").unwrap(),
+        effect: Regex::new(&format!("^(?i:{})", stats::EFFECT_SIZE_ALTERNATION)).unwrap(),
+        effect_tail: Regex::new(r"^(?i)\s*(?:=|:|of)?\s*").unwrap(),
+        folded: Regex::new(r"^\s*(?:,\s*|\s(?:and|&)\s+)[-\u{2212}]?\.?\d").unwrap(),
         n_part: Regex::new(r"^[Nn]\s*=\s*(.*)$").unwrap(),
         // `df =`, `df=`, `d.f. =`, `d. f. =`, in any case (`DF =`).
-        df_label: Regex::new(r"(?i)d(?:f|\.\s*f\.)\s*=").unwrap(),
+        df_label: Regex::new(r"^(?i)d(?:f|\.\s*f\.)\s*=").unwrap(),
+        // `stats::regexes().p_value`, anchored, for the same reason.
+        p_at: Regex::new(&format!("^(?:{})", stats::regexes().p_value.as_str())).unwrap(),
         // `semi-partial` contains `partial` after a word boundary.
         partial: Regex::new(r"(?i)\b(?:partial|controlling)\b").unwrap(),
+        alpha_before: Regex::new(ALPHA_WORDING[0]).unwrap(),
+        alpha_after: Regex::new(ALPHA_WORDING[1]).unwrap(),
+        alpha_more: Regex::new(ALPHA_WORDING[2]).unwrap(),
     })
 }
 
-/// A match of `re` that starts exactly at `pos`.
-fn at<'h>(re: &Regex, s: &'h str, pos: usize) -> Option<regex::Match<'h>> {
-    re.find_at(s, pos).filter(|m| m.start() == pos)
+/// A match of `re` at exactly `pos`: `re` is anchored with `^` and run on
+/// `s[pos..]`, so a miss costs the length of the item, not of the paragraph.
+/// (`find_at(s, pos)` with a later filter searched to the end of the paragraph
+/// on every miss, which the Phase 1 evaluation measured as quadratic in the
+/// results per paragraph.) Returns the absolute end and the matched text.
+/// Every pattern given to this function is compiled with a leading `^`, and
+/// none starts with `\b`, so running it on the slice changes nothing but cost.
+fn at<'h>(re: &Regex, s: &'h str, pos: usize) -> Option<(usize, &'h str)> {
+    re.find(&s[pos..]).map(|m| (pos + m.end(), m.as_str()))
+}
+
+/// The captures of an anchored `re` at exactly `pos`, as absolute `(start,
+/// end)` of the whole match and of each numbered group.
+fn captures_at<'h>(re: &Regex, s: &'h str, pos: usize) -> Option<(usize, Vec<Option<(usize, usize)>>)> {
+    let c = re.captures(&s[pos..])?;
+    let whole = c.get(0).expect("group 0");
+    let groups = (1..c.len()).map(|i| c.get(i).map(|g| (pos + g.start(), pos + g.end()))).collect();
+    Some((pos + whole.end(), groups))
 }
 
 /// The printed number token starting at `from` (after optional spaces): the
@@ -387,7 +461,7 @@ fn claimed_p(s: &str, stat_start: usize, from: usize) -> Option<(usize, usize)> 
     let sentence = crate::extract::sentence::sentence_containing(s, stat_start);
     let sent_start = sentence.as_ptr() as usize - s.as_ptr() as usize;
     let sent_end = sent_start + sentence.len();
-    let m = stats::regexes().p_value.find_iter(&s[..sent_end]).find(|m| m.start() >= from)?;
+    let m = stats::regexes().p_value.find_at(&s[..sent_end], from)?;
     let between = patterns().head.find_at(&s[..m.start()], from).is_some();
     (!between).then(|| (m.start(), m.end()))
 }
@@ -398,29 +472,23 @@ fn claimed_p(s: &str, stat_start: usize, from: usize) -> Option<(usize, usize)> 
 fn trailing_items<'h>(s: &'h str, unit: &mut Unit<'h>, mut pos: usize) -> Result<usize, (Reason, usize)> {
     let pt = patterns();
     loop {
-        let Some(sep) = at(&pt.sep, s, pos) else { return Ok(pos) };
-        let item = sep.end();
-        if let Some(c) = pt.ci.captures_at(s, item).filter(|c| c.get(0).is_some_and(|m| m.start() == item)) {
-            let whole = c.get(0).expect("group 0");
+        let Some((item, _)) = at(&pt.sep, s, pos) else { return Ok(pos) };
+        if let Some((end, g)) = captures_at(&pt.ci, s, item) {
             if unit.ci.is_some() {
-                return Err((Reason::RepeatedItem, whole.end()));
+                return Err((Reason::RepeatedItem, end));
             }
-            unit.ci = Some((
-                c.get(1).unwrap().as_str(),
-                c.get(2).unwrap().as_str(),
-                c.get(3).unwrap().as_str(),
-                unit.last,
-            ));
-            pos = whole.end();
+            let text = |i: usize| g[i].map(|(a, b)| &s[a..b]).expect("ci group");
+            unit.ci = Some((text(0), text(1), text(2), unit.last));
+            pos = end;
             continue;
         }
-        if let Some(m) = at(&pt.effect, s, item) {
-            let tail = at(&pt.effect_tail, s, m.end()).map_or(m.end(), |t| t.end());
+        if let Some((m_end, name)) = at(&pt.effect, s, item) {
+            let tail = at(&pt.effect_tail, s, m_end).map_or(m_end, |(t, _)| t);
             let Some((tok, end)) = scan_token(s, tail) else { return Ok(pos) };
             if unit.effect.is_some() {
                 return Err((Reason::RepeatedItem, end));
             }
-            unit.effect = Some((m.as_str(), tok));
+            unit.effect = Some((name, tok));
             unit.last = CiFollows::EffectSize;
             pos = end;
             continue;
@@ -441,12 +509,12 @@ fn scan_unit<'h>(s: &'h str, stat_start: usize, symbol: &str, df_inner: Option<&
 
     // `F(1, 15) = 19.9 and 5.16`: a second value straight after the first. A
     // comma followed by a confidence interval is an item, not a second value.
-    if let Some(m) = at(&pt.folded, s, value_end) {
-        let after_comma = at(&pt.sep, s, value_end).map(|c| c.end());
+    if let Some((m_end, _)) = at(&pt.folded, s, value_end) {
+        let after_comma = at(&pt.sep, s, value_end).map(|(e, _)| e);
         let is_ci = after_comma.is_some_and(|p| at(&pt.ci, s, p).is_some());
         if !is_ci {
             let p = claimed_p(s, stat_start, value_end);
-            return Scan::Rejected { reason: Reason::TwoResultsInOneClause, end: m.end(), p };
+            return Scan::Rejected { reason: Reason::TwoResultsInOneClause, end: m_end, p };
         }
     }
 
@@ -463,17 +531,16 @@ fn scan_unit<'h>(s: &'h str, stat_start: usize, symbol: &str, df_inner: Option<&
         mse: None,
         last: CiFollows::Statistic,
     };
-    let p_re = &stats::regexes().p_value;
     let mut pos = value_end;
 
     // A labelled df: only as the first item after the value, and the p must
     // follow it directly (checked by `labelled_df_end` below).
     let mut labelled_df_end = None;
-    if let Some(item) = at(&pt.sep, s, value_end).map(|m| m.end()) {
-        if let Some(m) = at(&pt.df_label, s, item) {
+    if let Some((item, _)) = at(&pt.sep, s, value_end) {
+        if let Some((m_end, _)) = at(&pt.df_label, s, item) {
             let allowed = matches!(family, Family::T | Family::ChiSquare) && df_inner.is_none();
-            let tok = scan_token(s, m.end());
-            let end = tok.map_or(m.end(), |(_, e)| e);
+            let tok = scan_token(s, m_end);
+            let end = tok.map_or(m_end, |(_, e)| e);
             if !allowed {
                 let p = claimed_p(s, stat_start, end);
                 return Scan::Rejected { reason: Reason::MalformedDegreesOfFreedom, end, p };
@@ -487,18 +554,15 @@ fn scan_unit<'h>(s: &'h str, stat_start: usize, symbol: &str, df_inner: Option<&
     }
 
     loop {
-        let Some(sep) = at(&pt.sep, s, pos) else { break };
-        let item = sep.end();
+        let Some((item, _)) = at(&pt.sep, s, pos) else { break };
         // The p, or `ns`, ends the required part; trailing items may follow.
-        let p_end = if let Some(c) =
-            p_re.captures_at(s, item).filter(|c| c.get(0).is_some_and(|m| m.start() == item))
-        {
-            let op = c.get(1).expect("operator group");
-            let Some((tok, end)) = scan_token(s, op.end()) else { break };
-            unit.p = Some((relation_of(op.as_str()), tok));
+        let p_end = if let Some((_, g)) = captures_at(&pt.p_at, s, item) {
+            let (op_start, op_end) = g[0].expect("operator group");
+            let Some((tok, end)) = scan_token(s, op_end) else { break };
+            unit.p = Some((relation_of(&s[op_start..op_end]), tok));
             Some(end)
         } else {
-            at(&pt.ns, s, item).map(|m| m.end())
+            at(&pt.ns, s, item).map(|(e, _)| e)
         };
         if let Some(p_end) = p_end {
             unit.last = CiFollows::PValue;
@@ -514,36 +578,31 @@ fn scan_unit<'h>(s: &'h str, stat_start: usize, symbol: &str, df_inner: Option<&
         if labelled_df_end == Some(pos) {
             break;
         }
-        if let Some(c) = pt.ci.captures_at(s, item).filter(|c| c.get(0).is_some_and(|m| m.start() == item)) {
-            let whole = c.get(0).expect("group 0");
+        if let Some((end, g)) = captures_at(&pt.ci, s, item) {
             if unit.ci.is_some() {
-                let p = claimed_p(s, stat_start, whole.end());
-                return Scan::Rejected { reason: Reason::RepeatedItem, end: whole.end(), p };
+                let p = claimed_p(s, stat_start, end);
+                return Scan::Rejected { reason: Reason::RepeatedItem, end, p };
             }
-            unit.ci = Some((
-                c.get(1).unwrap().as_str(),
-                c.get(2).unwrap().as_str(),
-                c.get(3).unwrap().as_str(),
-                unit.last,
-            ));
-            pos = whole.end();
+            let text = |i: usize| g[i].map(|(a, b)| &s[a..b]).expect("ci group");
+            unit.ci = Some((text(0), text(1), text(2), unit.last));
+            pos = end;
             continue;
         }
-        if let Some(m) = at(&pt.mse, s, item) {
-            let Some((tok, end)) = scan_token(s, m.end()) else { break };
+        if let Some((m_end, _)) = at(&pt.mse, s, item) {
+            let Some((tok, end)) = scan_token(s, m_end) else { break };
             unit.mse = Some(tok);
             unit.last = CiFollows::Mse;
             pos = end;
             continue;
         }
-        if let Some(m) = at(&pt.effect, s, item) {
-            let tail = at(&pt.effect_tail, s, m.end()).map_or(m.end(), |t| t.end());
+        if let Some((m_end, name)) = at(&pt.effect, s, item) {
+            let tail = at(&pt.effect_tail, s, m_end).map_or(m_end, |(t, _)| t);
             let Some((tok, end)) = scan_token(s, tail) else { break };
             if unit.effect.is_some() {
                 let p = claimed_p(s, stat_start, end);
                 return Scan::Rejected { reason: Reason::RepeatedItem, end, p };
             }
-            unit.effect = Some((m.as_str(), tok));
+            unit.effect = Some((name, tok));
             unit.last = CiFollows::EffectSize;
             pos = end;
             continue;
@@ -627,6 +686,7 @@ pub fn read_results(ex: &ExtractionResult, tables: TableStructure) -> ResultRead
     let p_re = &stats::regexes().p_value;
     let mut results = Vec::new();
     let mut not_read = Vec::new();
+    let mut thresholds: Vec<ReportedNumber> = Vec::new();
 
     for (s_idx, section) in ex.sections.iter().enumerate() {
         // Reference lists are not scanned for statistics, as in extraction.
@@ -638,6 +698,8 @@ pub fn read_results(ex: &ExtractionResult, tables: TableStructure) -> ResultRead
             let s = para.as_str();
             // Spans whose p-value a unit already accounts for.
             let mut covered: Vec<(usize, usize)> = Vec::new();
+            // Spans of stated thresholds in this paragraph.
+            let mut threshold_spans: Vec<(usize, usize)> = Vec::new();
             let mut pos = 0;
             while let Some(c) = pt.head.captures_at(s, pos) {
                 let sym = c.get(1).expect("symbol group");
@@ -668,8 +730,58 @@ pub fn read_results(ex: &ExtractionResult, tables: TableStructure) -> ResultRead
                 }
             }
 
-            // A p-value no unit accounts for, unless extraction classified it a
-            // threshold. Thresholds are matched by raw text, once each.
+            // The stated alpha: alpha wording with its value, outside every
+            // unit's span. Found here so that a threshold is never a parsed
+            // result's own p, and so that a fraction (`.05/6`) is visible.
+            // (start, end, operator, value, divisor) of each stated value,
+            // continuations ("…, and at p < .01") included.
+            let mut stated: Vec<(usize, usize, Option<&str>, &str, Option<&str>)> = Vec::new();
+            for re in [&pt.alpha_before, &pt.alpha_after] {
+                for c in re.captures_iter(s) {
+                    let whole = c.get(0).expect("group 0");
+                    let value = c.get(2).expect("value group");
+                    stated.push((whole.start(), whole.end(), c.get(1).map(|m| m.as_str()), value.as_str(), c.get(3).map(|m| m.as_str())));
+                    let mut end = whole.end();
+                    while let Some(m) = pt.alpha_more.captures(&s[end..]) {
+                        let w = m.get(0).expect("group 0");
+                        let v = m.get(2).expect("value group");
+                        stated.push((end + w.start(), end + w.end(), m.get(1).map(|x| x.as_str()), v.as_str(), m.get(3).map(|x| x.as_str())));
+                        end += w.end();
+                    }
+                }
+            }
+            for (start, end, op, value, divisor) in stated {
+                {
+                    let value_at = s[start..end].find(value).map_or(start, |i| start + i);
+                    if covered.iter().any(|&(a, b)| value_at >= a && value_at < b) {
+                        continue;
+                    }
+                    let sentence = crate::extract::sentence::sentence_containing(s, start).to_lowercase();
+                    if sentence.contains("cronbach") {
+                        continue;
+                    }
+                    let relation = op.map_or(Relation::Eq, relation_of);
+                    let read = ReportedNumber::p_value(value, relation).and_then(|t| match divisor {
+                        Some(d) => d.parse::<i128>().ok().and_then(|d| t.divided_by(d)).ok_or(NumberNotRead::TooManyDigits),
+                        None => Ok(t),
+                    });
+                    match read {
+                        // Above .2 it is not a significance threshold.
+                        Ok(t) if exact_above_one_fifth(t.value()) => {}
+                        Ok(t) => {
+                            threshold_spans.push((start, end));
+                            if !thresholds.iter().any(|k: &ReportedNumber| k.value() == t.value()) {
+                                thresholds.push(t);
+                            }
+                        }
+                        // Not a p at all (`alpha (8–12 Hz)`): nothing to count.
+                        Err(_) => {}
+                    }
+                }
+            }
+
+            // A p-value no unit and no threshold accounts for, unless extraction
+            // classified it a threshold. Those are matched by raw text, once each.
             let mut thresholds_here: Vec<&str> = ex
                 .statistics
                 .iter()
@@ -680,7 +792,7 @@ pub fn read_results(ex: &ExtractionResult, tables: TableStructure) -> ResultRead
                 })
                 .collect();
             for m in p_re.find_iter(s) {
-                if covered.iter().any(|&(a, b)| m.start() >= a && m.start() < b) {
+                if covered.iter().chain(threshold_spans.iter()).any(|&(a, b)| m.start() >= a && m.start() < b) {
                     continue;
                 }
                 if let Some(i) = thresholds_here.iter().position(|t| *t == m.as_str().trim()) {
@@ -696,22 +808,12 @@ pub fn read_results(ex: &ExtractionResult, tables: TableStructure) -> ResultRead
         }
     }
 
-    let mut thresholds: Vec<ReportedNumber> = Vec::new();
-    for claim in &ex.statistics {
-        let Stat::SignificanceThreshold { raw, .. } = &claim.stat else { continue };
-        let Some(c) = p_re.captures(raw) else { continue };
-        let op = c.get(1).expect("operator group");
-        let read = scan_token(raw, op.end())
-            .ok_or(NumberNotRead::Empty)
-            .and_then(|(tok, _)| ReportedNumber::p_value(tok, relation_of(op.as_str())));
-        match read {
-            Ok(t) if !thresholds.iter().any(|k| k.value() == t.value()) => thresholds.push(t),
-            Ok(_) => {}
-            Err(e) => not_read.push(NotRead { location: claim.location.clone(), reason: Reason::Number(e), span: None }),
-        }
-    }
-
     ResultReading { results, not_read, thresholds }
+}
+
+/// `v > 1/5`, exactly. A stated significance level above .2 is not one.
+fn exact_above_one_fifth(v: crate::equation::rational::Rational) -> bool {
+    v.numer().checked_mul(5).is_some_and(|n| n > v.denom())
 }
 
 /// An accepted p-value with no `Stat::PValue` at the same location whose raw
@@ -1172,6 +1274,101 @@ mod tests {
         let vals: Vec<Rational> = r.thresholds.iter().map(|t| t.value()).collect();
         assert_eq!(vals, vec![q("0.05"), q("0.01")]);
         assert!(r.not_read.iter().all(|n| n.reason != Reason::PWithoutStatistic), "{:?}", r.not_read);
+    }
+
+    fn thresholds_of(body: &str) -> Vec<Rational> {
+        read(body).0.thresholds.iter().map(|t| t.value()).collect()
+    }
+
+    /// Evaluation finding 4: a result reported in the same sentence as a
+    /// threshold phrase used to donate its own p to the paper's alpha.
+    #[test]
+    fn a_threshold_phrase_in_a_result_sentence_does_not_take_the_result_p() {
+        let (r, _) = read("The significance level was set at p < .05, and the groups differed, t(28) = 2.10, p = .045.");
+        assert_eq!(r.results.len(), 1, "{:?}", r.not_read);
+        assert_eq!(r.thresholds.iter().map(|t| t.value()).collect::<Vec<_>>(), vec![q("0.05")]);
+        assert!(r.not_read.is_empty(), "{:?}", r.not_read);
+    }
+
+    #[test]
+    fn a_sentence_with_no_alpha_wording_states_no_threshold() {
+        assert_eq!(thresholds_of("Scores rose, t(28) = 2.10, p = .045."), vec![]);
+        // A lone p is not a threshold either; it is an unread p.
+        let (r, _) = read("The effect was reliable (p = .03).");
+        assert!(r.thresholds.is_empty());
+        assert_eq!(r.not_read.iter().map(|n| n.reason).collect::<Vec<_>>(), vec![Reason::PWithoutStatistic]);
+    }
+
+    /// The closed list of alpha wordings, one sentence each.
+    #[test]
+    fn every_alpha_wording_is_read() {
+        for body in [
+            "Tests used α = .05.",
+            "We used an alpha of .05.",
+            "The alpha level was .05.",
+            "Alpha was set at .05 for all tests.",
+            "We adopted a significance level of .05.",
+            "The significance threshold was .05.",
+            "A criterion of .05 was used.",
+            "p < .05 was considered significant.",
+            "P-values < .05 were regarded as statistically significant.",
+            "Significance was set at p < .05.",
+            "Results were considered significant at p < .05.",
+            "The level of significance was p \u{2264} .05.",
+            "Statistical significance was defined as p < 0.05.",
+        ] {
+            assert_eq!(thresholds_of(body), vec![q("0.05")], "{body:?}");
+            let (r, _) = read(body);
+            assert!(r.not_read.is_empty(), "{body:?}: {:?}", r.not_read);
+        }
+    }
+
+    /// Several thresholds in one statement.
+    #[test]
+    fn a_statement_with_several_thresholds_reads_each() {
+        assert_eq!(
+            thresholds_of("Significance was set at p < .05, and at p < .01 for the secondary outcomes."),
+            vec![q("0.05"), q("0.01")]
+        );
+        assert_eq!(thresholds_of("We used an alpha of .05 or .01 for follow-ups."), vec![q("0.05"), q("0.01")]);
+        let (r, _) = read("Significance was set at p < .05, and at p < .01 for the secondary outcomes.");
+        assert!(r.not_read.is_empty(), "{:?}", r.not_read);
+    }
+
+    #[test]
+    fn a_fractional_threshold_is_the_exact_rational() {
+        assert_eq!(thresholds_of("Significance was set at p < .05/6."), vec![Rational::new(1, 120).unwrap()]);
+        assert_eq!(thresholds_of("An alpha of 0.05/3 was used."), vec![Rational::new(1, 60).unwrap()]);
+        let (r, _) = read("Significance was set at p < .05/6.");
+        assert_eq!(r.thresholds[0].raw(), ".05/6");
+        assert!(r.not_read.is_empty(), "{:?}", r.not_read);
+    }
+
+    /// "alpha" is also an EEG band and a power, and "criterion" a training
+    /// target. None of these is a threshold, and none is an unread number
+    /// either: a candidate the wording does not take is simply not a p.
+    /// (Measured on the DEV corpus: a first draft turned "alpha (8–12 Hz)" into
+    /// fifteen `PValueOutOfRange` rows in one EEG paper.)
+    #[test]
+    fn alpha_in_another_sense_is_neither_a_threshold_nor_an_unread_number() {
+        for body in [
+            "Power in the alpha (8\u{2013}12 Hz) band fell during the task.",
+            "Mean alpha power = 0.12 over frontal sensors.",
+            "Training continued until criterion was met (>35 rewards).",
+            "The alpha values of 0.954 for attitude and 0.944 for knowledge were acceptable.",
+        ] {
+            let (r, _) = read(body);
+            assert!(r.thresholds.is_empty(), "{body:?}: {:?}", r.thresholds.iter().map(|t| t.raw()).collect::<Vec<_>>());
+            assert!(r.not_read.is_empty(), "{body:?}: {:?}", r.not_read);
+        }
+    }
+
+    /// Cronbach's alpha is a reliability coefficient, not a significance level.
+    #[test]
+    fn a_reliability_alpha_is_not_a_threshold() {
+        for body in ["Cronbach's alpha = .85 for the scale.", "The scale's alpha was .85.", "Cronbach's α = .05 was poor."] {
+            assert_eq!(thresholds_of(body), vec![], "{body:?}");
+        }
     }
 
     // ---- coupling ----

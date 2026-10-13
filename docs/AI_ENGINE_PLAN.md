@@ -22207,7 +22207,14 @@ corpus.
 2. the PDF glyph `l` printed for the digit `1` inside df (DEV-033). Phase 1
    refuses it and never repairs it;
 3. the count/percent reader, which gives `percent_matches_count` its input;
-4. n inside r's brackets, which gives `df_matches_n` its input.
+4. n inside r's brackets, which gives `df_matches_n` its input;
+5. an open question from the evaluation fixes (13 Oct 2026): when a paper
+   states a base alpha and an adjusted one, for instance "α = .05" and a
+   Bonferroni-adjusted "(α = .0125)" (HOLDOUT PMC12431125), which one a
+   result's conclusion uses. Level 0 reads both as stated thresholds, lists
+   both on the card and leaves `conclusion_changes` unassessed, as it does for
+   any paper with more than one; the behaviour was deliberately not changed
+   in that step.
 
 #### Guards `[test]`, each broken once on purpose
 
@@ -22242,7 +22249,64 @@ The repository does not follow rustfmt's defaults, so the Phase 1 files were
 left as written. `rustfmt --edition 2021 --check` fails on three existing files
 this phase did not write: `gaply-core/src/stats_verify.rs` (30 diffs),
 `gaply-core/src/consistency.rs` (81) and `src/commands.rs` (70). Of the 21
-Rust files Steps 1 to 8 added, it fails on 20, all except `stats_l0/mod.rs`,
-and those 20 were not reformatted. There is no `rustfmt.toml`, and CI runs
-neither `cargo fmt` nor clippy. The four guard files of Step 9 were put
-through rustfmt and pass its check.
+Rust files Steps 1 to 8 added, it fails on all 21 (the Step 9 audit found
+`stats_l0/mod.rs` fails too), and none was reformatted. There is no
+`rustfmt.toml`, and CI runs neither `cargo fmt` nor clippy. The four guard
+files of Step 9 were put through rustfmt and pass its check.
+
+#### Evaluation fixes (13 Oct 2026) `[src]` `[test]`
+
+An independent review of this phase (`~/gaply-corpus/l0/eval/phase1_evaluation.md`,
+read-only, at `ddca00a`) found no false Inconsistent and four Majors; this is
+the one change to Level 0 before Phase 2, and it changes only what the review
+listed:
+
+* **One-tailed wording** (`input.rs`): only "one-tailed", "one sided",
+  "1-tailed" and their hyphen and space forms count. "directional" on its own
+  no longer does: it appeared in 5 of 15 corpus papers ("directional coupling",
+  "bi- directional arrow", "directional trend"), none stating a one-tailed
+  test, and the card then said "which the paper states". The unused
+  `one_tailed_stated()` and `correction_named()` accessors were removed.
+* **Correction words** (`input.rs`): Greenhouse-Geisser and Huynh-Feldt are
+  sphericity corrections, not corrections for multiple testing; they are off
+  the `AdjustedP` list. With one of them named, a p larger than recomputed is
+  Inconsistent, as the numbers say.
+* **Floor before two-tailed F** (`p_consistency.rs`): a test on
+  `F(2, 57) = 12.27, p = .0001`, where both rules apply and the order decides
+  the verdict; the review's mutation M5 (the blocks swapped) was green against
+  the old F(1, 62) test and is red against this one.
+* **The stated alpha** (`result.rs`): Level 0 reads its thresholds by a closed
+  list of alpha wordings with the value beside them (`ALPHA_WORDING`), never
+  from inside a parsed result's span. The old route, `Stat::SignificanceThreshold`
+  with a marker anywhere in the sentence, took a result's own p as the paper's
+  alpha when the two shared a sentence. A fraction (`.05/6`) is read as the
+  exact rational (`ReportedNumber::divided_by`) and shown on the card as the
+  paper wrote it followed by its decimal, `.05/6 (= .0083)`
+  (`StatsConsistencyOutcome::alpha_printed`, from
+  `DocumentContext::alpha_printed`); a value above .2 or a sentence naming
+  Cronbach is never a threshold.
+* **The sentence splitter** (`extract/sentence.rs`): the abbreviation check
+  looks back 48 bytes instead of rebuilding the whole paragraph prefix at every
+  full stop, which was quadratic in the sentences per paragraph. Boundaries
+  are unchanged on every existing test and on the DEV corpus. That alone took
+  the 17,496-unit fuzz paragraph from 69 s to 17 s (release); the rest was the
+  reader's own position-bound searches (`result.rs` `at`), which searched to
+  the end of the paragraph on every miss and now run anchored on the slice:
+  0.26 s, and every fuzz document under 1.4 s.
+* **The Could-not-check card** (`src/stats_consistency.rs`) lists only the
+  methods that ran and declined; a method that did not apply is not a reason.
+* **Guards**: `not_applicable_and_uninformative_never_count_toward_consistent`
+  now reaches the all-NotApplicable case (the review's mutation M2 had shown it
+  did not); a `.docx` is driven through the seam and its `Prose`/`TableCell`
+  sources asserted.
+
+Recorded and deliberately left as they are:
+
+* **The .001 floor rule** admits a true p of .0004 printed `p = .001` as a
+  noted Consistent. A recorded design decision (the floor section above); the
+  note on the card shows the reading taken.
+* **The coupling check** (`result::coupling_violations`: every p a unit
+  accepted is also a `Stat::PValue` at the same location) runs in tests and
+  the probe, not on the seam. Phase 2 wires it.
+* **`ReportedResult::source`** is set and not yet read by any method or view.
+  Phase 2 needs it for data bindings.
