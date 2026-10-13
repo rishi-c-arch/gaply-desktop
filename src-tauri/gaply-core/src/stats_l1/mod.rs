@@ -1,12 +1,14 @@
 //! Level 1 of the Statistical Analysis Verifier: does a data file reproduce
 //! each result a manuscript reports, under a binding the user has confirmed?
 //!
-//! Phase 2, Step 2 builds the ground the computation stands on, and no
-//! computation: the dataset schema ([`dataset`]), the method catalogue
-//! ([`catalogue`]), claim identity ([`claim`]), bindings and their
-//! confirmation ([`binding`]), the confirmation token ([`token`]), a local
-//! proposer ([`propose`]) and the run state that holds them all
-//! ([`run_state`]).
+//! Phase 2, Step 2 built the ground the computation stands on: the dataset
+//! schema ([`dataset`]), the method catalogue ([`catalogue`]), claim identity
+//! ([`claim`]), bindings and their confirmation ([`binding`]), the
+//! confirmation token ([`token`]), a local proposer ([`propose`]) and the run
+//! state that holds them all ([`run_state`]). Step 3 adds the computation
+//! ([`compute`]): the registry, the typed refusals and the adapters over
+//! `stats_verify`, with every p from Level 0's engine. It computes and does
+//! not compare; Step 4 decides verdicts.
 //!
 //! No data file is parsed here: the app crate's ingest reads the file and
 //! hands this module a [`dataset::RawTable`] of strings, so there is one
@@ -31,12 +33,15 @@
 pub mod binding;
 pub mod catalogue;
 pub mod claim;
+pub mod compute;
 pub mod dataset;
 pub mod propose;
 pub mod run_state;
 pub mod token;
 
-/// The version of the Level 1 engine a confirmation token is bound to. Step 2
-/// computes nothing; the first method implementation (Step 3) changes this
-/// string, and every token issued under the old one dies with it.
-pub const ENGINE_VERSION: &str = "stats_l1 engine 0; no computation (Phase 2, Step 2)";
+/// The version of the Level 1 engine a confirmation token is bound to, and
+/// that every [`compute::L1Computation`] records. It names the p engine it
+/// computes with (`stats_l0::pvalue::ENGINE_VERSION`, checked by a test), so
+/// a change there kills every live token too. Bump the `engine` number when
+/// an adapter or a formula in `stats_verify` that Level 1 calls changes.
+pub const ENGINE_VERSION: &str = "stats_l1 engine 1 (Phase 2, Step 3); stats_l0 pvalue 2; statrs 0.18.0";

@@ -31,6 +31,10 @@
 //!
 //! Every refusal is a typed value with no path, no file name and no message
 //! text from the parser: the only things in it are a byte count or a row cap.
+//!
+//! Since Step 3, [`compute_from_path`] is the computation's seam: it reads the
+//! file again through [`load_dataset`] for every computation, so the bytes
+//! computed on are the bytes fingerprinted at that moment.
 
 use std::path::Path;
 
@@ -39,6 +43,11 @@ use gaply_core::import_guard::{self, EstimateBasis};
 use gaply_core::stats_l1::dataset::{
     build_dataset, DataFingerprint, Dataset, DatasetRefusal, RawTable, RawVariable, SourceMetadata, TableRef,
 };
+
+use gaply_core::stats_l1::claim::ClaimId;
+use gaply_core::stats_l1::compute::{self, L1Computation, L1Refusal};
+use gaply_core::stats_l1::run_state::L1RunState;
+use gaply_core::stats_l1::token::ConfirmationToken;
 
 use crate::supplementary::{self, SupplementaryKind, MAX_FILE_SIZE_BYTES, MAX_ROWS, PARSER_VERSION};
 
@@ -149,6 +158,28 @@ pub fn load_dataset(path: &Path) -> Result<Dataset, L1IngestRefusal> {
     let dataset = build_dataset(raw, fingerprint).map_err(L1IngestRefusal::Dataset)?;
     tracing::debug!(rows = dataset.rows(), columns = dataset.schema.columns.len(), "stats_l1: dataset loaded");
     Ok(dataset)
+}
+
+/// Why a Level 1 computation from a file produced nothing: the file could
+/// not be read again as a dataset, or the computation refused. Typed, with no
+/// path, name or parser text, like both halves.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum L1ComputeError {
+    Ingest(L1IngestRefusal),
+    Refused(L1Refusal),
+}
+
+/// Level 1's computation for one claim, with the data READ AGAIN from the
+/// file's bytes for this call (Phase 2, Step 3). The token is checked before
+/// the file is opened, so nothing is read without a live confirmation; the
+/// fresh dataset's fingerprint is then checked against the confirmed one by
+/// `compute`, so an edited file is refused rather than computed on.
+#[doc(hidden)]
+#[tracing::instrument(skip(state, token, path))]
+pub fn compute_from_path(state: &L1RunState, token: &ConfirmationToken, claim: ClaimId, path: &Path) -> Result<L1Computation, L1ComputeError> {
+    state.gate(token, claim).map_err(|g| L1ComputeError::Refused(L1Refusal::Gate(g)))?;
+    let reread = load_dataset(path).map_err(L1ComputeError::Ingest)?;
+    compute::compute(state, token, claim, &reread).map_err(L1ComputeError::Refused)
 }
 
 #[cfg(test)]
@@ -384,6 +415,95 @@ mod tests {
             assert!(!json.contains(key), "{key} reached the PublishReady payload: {json}");
         }
         assert!(json.contains("user_missing"), "the pre-existing field is still there");
+    }
+
+    /// A run with one user claim and `draft` confirmed against the file at
+    /// `path`: the state, the token and the claim.
+    fn confirmed_from_path(
+        path: &Path,
+        draft: impl FnOnce(&Dataset) -> gaply_core::stats_l1::binding::BindingDraft,
+    ) -> (L1RunState, ConfirmationToken, ClaimId) {
+        use gaply_core::extract::SectionKind;
+        use gaply_core::stats_l0::number::Relation;
+        use gaply_core::stats_l0::result::Family;
+        use gaply_core::stats_l1::binding::ProposalSource;
+        use gaply_core::stats_l1::claim::{ClaimLocation, UserClaim, UserP};
+        let data = load_dataset(path).unwrap();
+        let d = draft(&data);
+        let mut state = L1RunState::new();
+        state.load_dataset(data);
+        let claim = state
+            .add_claim(&UserClaim {
+                family: Family::T,
+                statistic: "2.00",
+                df: vec!["2"],
+                n: None,
+                p: UserP::Reported { raw: ".05", relation: Relation::Eq },
+                location: ClaimLocation { section_index: 0, section: SectionKind::Results, paragraph: 0, sentence: 0 },
+                sentence: None,
+            })
+            .unwrap();
+        let id = state.add_proposal(claim, d, ProposalSource::Manual { edited_from: None }).unwrap();
+        let token = state.confirm(id).unwrap().1;
+        (state, token, claim)
+    }
+
+    fn t_on(outcome: &str, group: &str) -> impl FnOnce(&Dataset) -> gaply_core::stats_l1::binding::BindingDraft {
+        use gaply_core::stats_l1::binding::BindingDraft;
+        use gaply_core::stats_l1::catalogue::{L1MethodId, RoleName, VariantChoice, VariantKind};
+        let (outcome, group) = (outcome.to_string(), group.to_string());
+        move |d: &Dataset| {
+            let alias = |h: &str| d.schema.columns.iter().find(|c| c.header == h).unwrap().alias;
+            BindingDraft::new(L1MethodId::IndependentT, VariantChoice::not_stated(VariantKind::T))
+                .role(RoleName::Outcome, &[alias(&outcome)])
+                .role(RoleName::Group, &[alias(&group)])
+        }
+    }
+
+    /// The file is read again for the computation, and the result is the
+    /// one the confirm pass counted for.
+    #[test]
+    fn a_confirmed_binding_computes_from_the_file_read_again() {
+        let p = write("compute.csv", b"score,group\n1.5,1\n2.5,1\n3.0,1\n4.5,2\n6.0,2\n,2\n");
+        let (state, token, claim) = confirmed_from_path(&p, t_on("score", "group"));
+        let c = compute_from_path(&state, &token, claim, &p).unwrap();
+        assert_eq!((c.counts.rows_read, c.counts.n_used), (6, 5));
+        assert_eq!(c.results.len(), 2, "Student and Welch");
+        let _ = std::fs::remove_file(&p);
+    }
+
+    /// One byte edited after the confirmation: the token is still live, and
+    /// the computation refuses because the bytes are not the confirmed bytes.
+    #[test]
+    fn a_file_edited_after_confirmation_is_refused_not_computed_on() {
+        let p = write("edited.csv", b"score,group\n1.5,1\n2.5,1\n3.0,1\n4.5,2\n6.0,2\n");
+        let (state, token, claim) = confirmed_from_path(&p, t_on("score", "group"));
+        std::fs::write(&p, b"score,group\n1.5,1\n2.5,1\n3.0,1\n4.5,2\n9.0,2\n").unwrap();
+        assert_eq!(compute_from_path(&state, &token, claim, &p).unwrap_err(), L1ComputeError::Refused(L1Refusal::FingerprintChanged));
+        let _ = std::fs::remove_file(&p);
+    }
+
+    /// A token that is not live is refused before the file is opened: a path
+    /// that does not exist gives the gate's refusal, not `NotReadable`.
+    #[test]
+    fn no_file_is_read_without_a_live_token() {
+        let p = write("gate.csv", b"score,group\n1.5,1\n2.5,1\n4.5,2\n6.0,2\n");
+        let (state, _token, claim) = confirmed_from_path(&p, t_on("score", "group"));
+        let forged = ConfirmationToken::presented(&"0".repeat(64));
+        let missing = dir().join("never_written.csv");
+        assert_eq!(
+            compute_from_path(&state, &forged, claim, &missing).unwrap_err(),
+            L1ComputeError::Refused(L1Refusal::Gate(gaply_core::stats_l1::run_state::GateRejection::Unknown))
+        );
+        let _ = std::fs::remove_file(&p);
+    }
+
+    /// `l1_weighted.sav` declares `wt` the weight: Level 1 refuses it.
+    #[test]
+    fn a_weighted_sav_is_refused_on_the_level_1_path() {
+        let p = fixture("l1_weighted.sav");
+        let (state, token, claim) = confirmed_from_path(&p, t_on("score", "group"));
+        assert_eq!(compute_from_path(&state, &token, claim, &p).unwrap_err(), L1ComputeError::Refused(L1Refusal::WeightedFile));
     }
 
     /// The generator for `tests/fixtures/l1_weighted.sav`. Ignored: run once

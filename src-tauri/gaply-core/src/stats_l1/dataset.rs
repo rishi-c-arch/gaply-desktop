@@ -442,6 +442,13 @@ impl Dataset {
     pub fn rows(&self) -> usize {
         self.schema.rows
     }
+
+    /// Tests only: put a cell the typing pass never produces (a non-finite
+    /// number) where a check that guards against it can be reached.
+    #[cfg(test)]
+    pub(crate) fn replace_cell_for_test(&mut self, alias: ColumnAlias, row: usize, cell: Cell) {
+        self.columns[alias.index()][row] = cell;
+    }
 }
 
 /* ------------------------------------------------------------------------ *

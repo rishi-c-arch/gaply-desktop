@@ -136,7 +136,13 @@ fn t_two_sided(t_abs: f64, df: f64) -> f64 {
     if !t_abs.is_finite() {
         return 0.0; // perfect separation / correlation
     }
-    let dist = StudentsT::new(0.0, 1.0, df).expect("df > 0 is guaranteed by callers");
+    // Not `expect`: Welch's df is `inf / inf = NaN` when a group's variance
+    // overflows (cells near 1e200), and that used to panic. A df that defines
+    // no distribution gives a NaN p. Found by Level 1's non-finite refusal
+    // test (Phase 2, Step 3).
+    let Ok(dist) = StudentsT::new(0.0, 1.0, df) else {
+        return f64::NAN;
+    };
     (2.0 * (1.0 - dist.cdf(t_abs))).clamp(0.0, 1.0)
 }
 
@@ -204,6 +210,28 @@ pub fn t_test_student(a: &[f64], b: &[f64]) -> Result<TTestResult, GaplyError> {
     let (ma, mb) = (mean(a), mean(b));
     let t = (ma - mb) / se;
     Ok(TTestResult { t, df, p_two_sided: t_two_sided(t.abs(), df), mean_a: ma, mean_b: mb, method: "student" })
+}
+
+/// Paired-samples t-test: `a[i]` and `b[i]` are one subject measured twice.
+/// t is the mean of the differences `a - b` over its standard error, on
+/// `n - 1` df, as R's `t.test(a, b, paired = TRUE)`. Added in Phase 2, Step 3
+/// for Level 1; the existing verifier does not call it.
+pub fn t_test_paired(a: &[f64], b: &[f64]) -> Result<TTestResult, GaplyError> {
+    if a.len() != b.len() {
+        return Err(GaplyError::Validation("a paired t-test needs equal-length columns".into()));
+    }
+    require_group("pairs", a)?;
+    let d: Vec<f64> = a.iter().zip(b).map(|(x, y)| x - y).collect();
+    let n = d.len() as f64;
+    let se = (sample_variance(&d) / n).sqrt();
+    if se == 0.0 {
+        return Err(GaplyError::Validation(
+            "the differences have zero variance — the t-statistic is undefined".into(),
+        ));
+    }
+    let t = mean(&d) / se;
+    let df = n - 1.0;
+    Ok(TTestResult { t, df, p_two_sided: t_two_sided(t.abs(), df), mean_a: mean(a), mean_b: mean(b), method: "paired" })
 }
 
 // ---------------------------------------------------------------------------
@@ -362,6 +390,26 @@ pub struct ChiSquareResult {
 /// observed counts. Any zero expected count (an empty margin) is an honest
 /// error, not a divide-by-zero.
 pub fn chi_square_independence(observed: &[Vec<f64>]) -> Result<ChiSquareResult, GaplyError> {
+    chi_square_with(observed, |o, e| (o - e).powi(2) / e)
+}
+
+/// R's `chisq.test(correct = TRUE)` on a 2×2 table, df 1: each cell's
+/// `|O - E|` is reduced by `min(0.5, |O - E|)`, so a cell never goes below
+/// zero. Added in Phase 2, Step 3 for Level 1; the existing verifier does not
+/// call it. Any other shape is an honest error: the correction is defined for
+/// a 2×2 table only.
+pub fn chi_square_2x2_yates(observed: &[Vec<f64>]) -> Result<ChiSquareResult, GaplyError> {
+    if observed.len() != 2 || observed.iter().any(|row| row.len() != 2) {
+        return Err(GaplyError::Validation("a continuity correction is defined for a 2×2 table only".into()));
+    }
+    chi_square_with(observed, |o, e| {
+        let d = (o - e).abs();
+        (d - d.min(0.5)).powi(2) / e
+    })
+}
+
+/// The table checks and the sum over cells, with the per-cell term supplied.
+fn chi_square_with(observed: &[Vec<f64>], term: impl Fn(f64, f64) -> f64) -> Result<ChiSquareResult, GaplyError> {
     let r = observed.len();
     if r < 2 {
         return Err(GaplyError::Validation("chi-square needs at least 2 rows".into()));
@@ -393,7 +441,7 @@ pub fn chi_square_independence(observed: &[Vec<f64>]) -> Result<ChiSquareResult,
                     "chi-square has a zero expected count (an empty row or column margin)".into(),
                 ));
             }
-            chi2 += (o - e).powi(2) / e;
+            chi2 += term(o, e);
         }
     }
     let df = ((r - 1) * (c - 1)) as f64;
@@ -422,6 +470,12 @@ pub struct RegressionResult {
     pub r_squared: f64,
     pub adj_r_squared: f64,
     pub df_residual: f64,
+    /// The overall F: `(SS_model / k) / (SS_residual / df_residual)`, with
+    /// `SS_model` summed from the fitted values as R's `summary.lm` does
+    /// (not `SS_total - SS_residual`). Added in Phase 2, Step 3.
+    pub f_statistic: f64,
+    /// `k`, the number of predictors: the overall F's first df.
+    pub df_model: f64,
 }
 
 /// Gauss-Jordan inverse of a small square matrix (partial pivoting). Returns
@@ -518,10 +572,12 @@ pub fn ols(y: &[f64], predictors: &[Vec<f64>]) -> Result<RegressionResult, Gaply
     let ybar = mean(y);
     let mut sse = 0.0;
     let mut sst = 0.0;
+    let mut ssm = 0.0;
     for i in 0..n {
         let yhat: f64 = (0..p).map(|a| beta[a] * x[i][a]).sum();
         sse += (y[i] - yhat).powi(2);
         sst += (y[i] - ybar).powi(2);
+        ssm += (yhat - ybar).powi(2);
     }
     let df_res = (n - p) as f64;
     let sigma2 = sse / df_res;
@@ -535,7 +591,143 @@ pub fn ols(y: &[f64], predictors: &[Vec<f64>]) -> Result<RegressionResult, Gaply
         .collect();
     let r_squared = if sst == 0.0 { 0.0 } else { 1.0 - sse / sst };
     let adj = 1.0 - (1.0 - r_squared) * (n as f64 - 1.0) / df_res;
-    Ok(RegressionResult { coefficients, r_squared, adj_r_squared: adj, df_residual: df_res })
+    let df_model = k as f64;
+    let f_statistic = (ssm / df_model) / sigma2;
+    Ok(RegressionResult { coefficients, r_squared, adj_r_squared: adj, df_residual: df_res, f_statistic, df_model })
+}
+
+/// R's rank tolerance for `lm`: `qr(tol = 1e-07)`.
+pub const QR_RANK_TOLERANCE: f64 = 1e-7;
+
+/// OLS with an intercept by Householder QR, the way R's `lm` fits it. Added in
+/// Phase 2, Step 3 for Level 1; [`ols`] and the existing verifier are
+/// unchanged and do not call it.
+///
+/// [`ols`] solves the normal equations, whose rounding error grows with the
+/// SQUARE of the design's condition number. QR works on the design itself,
+/// so its error grows with the condition number once.
+///
+/// The singular-design test is LINPACK `dqrdc2`'s, which `lm` calls with
+/// `tol = 1e-7`: a column is negligible when the norm left in it, after the
+/// reflections of the columns before it, is below `tol` times its OWN original
+/// norm. That makes the test scale-free: a predictor measured in millions and
+/// one measured in hundredths are each judged against themselves. R moves a
+/// negligible column to the end and reports its coefficient as `NA`; this
+/// refuses instead, so a design R would call rank-deficient is an error here.
+///
+/// The output follows `summary.lm`: residuals are `Q` applied to the effects
+/// beyond the rank, fitted values are `y` minus residuals, `SS_model` is summed
+/// from the fitted values about their mean, standard errors come from the
+/// diagonal of `R^-1 R^-T` times the residual variance.
+pub fn ols_qr(y: &[f64], predictors: &[Vec<f64>]) -> Result<RegressionResult, GaplyError> {
+    let n = y.len();
+    let k = predictors.len();
+    let p = k + 1;
+    if n <= p {
+        return Err(GaplyError::Validation(format!(
+            "regression needs more observations ({n}) than parameters ({p})"
+        )));
+    }
+    for (i, col) in predictors.iter().enumerate() {
+        if col.len() != n {
+            return Err(GaplyError::Validation(format!(
+                "predictor {i} has length {} but y has length {n}",
+                col.len()
+            )));
+        }
+    }
+    // The design by columns, column 0 the intercept. Reduced in place to R
+    // (upper triangle) with the Householder vectors kept separately.
+    let mut a: Vec<Vec<f64>> = Vec::with_capacity(p);
+    a.push(vec![1.0; n]);
+    a.extend(predictors.iter().cloned());
+    let original_norm: Vec<f64> = a.iter().map(|c| norm2(c)).collect();
+    let mut effects = y.to_vec();
+    let mut reflectors: Vec<Vec<f64>> = Vec::with_capacity(p);
+    for j in 0..p {
+        let remaining = norm2(&a[j][j..]);
+        // dqrdc2 treats an all-zero column's original norm as 1.
+        let reference = if original_norm[j] == 0.0 { 1.0 } else { original_norm[j] };
+        if !(remaining >= QR_RANK_TOLERANCE * reference) {
+            return Err(GaplyError::Validation(
+                "the design matrix is rank-deficient at R's tolerance (collinear predictors or no variation) — regression is undefined".into(),
+            ));
+        }
+        // v = x - alpha e1, alpha = -sign(x0) |x|: no cancellation in v0.
+        let alpha = if a[j][j] >= 0.0 { -remaining } else { remaining };
+        let mut v = a[j][j..].to_vec();
+        v[0] -= alpha;
+        let vv: f64 = v.iter().map(|x| x * x).sum();
+        let reflect = |col: &mut [f64]| {
+            let s: f64 = v.iter().zip(col.iter()).map(|(a, b)| a * b).sum::<f64>() * 2.0 / vv;
+            for (c, vi) in col.iter_mut().zip(&v) {
+                *c -= s * vi;
+            }
+        };
+        for col in a.iter_mut().skip(j + 1) {
+            reflect(&mut col[j..]);
+        }
+        reflect(&mut effects[j..]);
+        a[j][j] = alpha;
+        for x in a[j][j + 1..].iter_mut() {
+            *x = 0.0;
+        }
+        reflectors.push(v);
+    }
+    // R^-1 by back substitution (upper triangular, column j of `a` holds
+    // R[0..=j][j]).
+    let r = |i: usize, j: usize| a[j][i];
+    let mut r_inv = vec![vec![0.0; p]; p];
+    for col in 0..p {
+        for i in (0..=col).rev() {
+            let mut s = if i == col { 1.0 } else { 0.0 };
+            for m in (i + 1)..=col {
+                s -= r(i, m) * r_inv[m][col];
+            }
+            r_inv[i][col] = s / r(i, i);
+        }
+    }
+    let beta: Vec<f64> = (0..p).map(|i| (i..p).map(|m| r_inv[i][m] * effects[m]).sum()).collect();
+    // Residuals: Q (0, ..., 0, effects[p..]), applying the reflectors in reverse.
+    let mut resid = vec![0.0; n];
+    resid[p..].copy_from_slice(&effects[p..]);
+    for (j, v) in reflectors.iter().enumerate().rev() {
+        let vv: f64 = v.iter().map(|x| x * x).sum();
+        let s: f64 = v.iter().zip(&resid[j..]).map(|(a, b)| a * b).sum::<f64>() * 2.0 / vv;
+        for (c, vi) in resid[j..].iter_mut().zip(v) {
+            *c -= s * vi;
+        }
+    }
+    let fitted: Vec<f64> = y.iter().zip(&resid).map(|(y, e)| y - e).collect();
+    let rss: f64 = resid.iter().map(|e| e * e).sum();
+    let fbar = mean(&fitted);
+    let mss: f64 = fitted.iter().map(|f| (f - fbar).powi(2)).sum();
+    let df_res = (n - p) as f64;
+    let sigma2 = rss / df_res;
+    let coefficients: Vec<Coefficient> = (0..p)
+        .map(|i| {
+            let unscaled: f64 = r_inv[i][i..].iter().map(|x| x * x).sum();
+            let se = (sigma2 * unscaled).sqrt();
+            let t = if se == 0.0 { f64::INFINITY } else { beta[i] / se };
+            let name = if i == 0 { "(intercept)".to_string() } else { format!("x{i}") };
+            Coefficient { name, estimate: beta[i], std_error: se, t, p_two_sided: t_two_sided(t.abs(), df_res) }
+        })
+        .collect();
+    let r_squared = if mss + rss == 0.0 { 0.0 } else { mss / (mss + rss) };
+    let adj = 1.0 - (1.0 - r_squared) * (n as f64 - 1.0) / df_res;
+    let df_model = k as f64;
+    let f_statistic = (mss / df_model) / sigma2;
+    Ok(RegressionResult { coefficients, r_squared, adj_r_squared: adj, df_residual: df_res, f_statistic, df_model })
+}
+
+/// The Euclidean norm, scaled so a column of large values cannot overflow
+/// its sum of squares.
+fn norm2(x: &[f64]) -> f64 {
+    let scale = x.iter().fold(0.0f64, |m, v| m.max(v.abs()));
+    if scale == 0.0 || !scale.is_finite() {
+        return scale;
+    }
+    scale * x.iter().map(|v| (v / scale).powi(2)).sum::<f64>().sqrt()
 }
 
 // A standard-normal survival helper (kept for callers who want a z p-value;
@@ -635,6 +827,13 @@ mod tests {
     }
 
     // ------------------------------ ANOVA ----------------------------------
+
+    #[test]
+    fn an_overflowing_welch_df_gives_a_nan_p_not_a_panic() {
+        let r = t_test_welch(&[1e200, -1e200], &[3e200, -2e200]).unwrap();
+        assert!(r.df.is_nan(), "{r:?}");
+        assert!(r.p_two_sided.is_nan(), "{r:?}");
+    }
 
     #[test]
     fn anova_matches_hand_computed_f() {
@@ -754,6 +953,46 @@ mod tests {
         let y = [1.0, 2.0, 3.0, 4.0, 5.0];
         let x = vec![vec![1.0, 1.0, 1.0, 1.0, 1.0]];
         assert!(ols(&y, &x).is_err());
+    }
+
+    #[test]
+    fn ols_qr_matches_the_hand_computed_fit() {
+        // The same data as the hand-computed test above.
+        let y = [2.0, 4.0, 5.0, 4.0, 5.0];
+        let x = vec![vec![1.0, 2.0, 3.0, 4.0, 5.0]];
+        let r = ols_qr(&y, &x).unwrap();
+        assert!(close(r.coefficients[0].estimate, 2.2, 1e-12), "intercept {}", r.coefficients[0].estimate);
+        assert!(close(r.coefficients[1].estimate, 0.6, 1e-12), "slope {}", r.coefficients[1].estimate);
+        assert!(close(r.r_squared, 0.6, 1e-12), "R² {}", r.r_squared);
+        assert!(close(r.coefficients[1].std_error, 0.08f64.sqrt(), 1e-12), "slope SE {}", r.coefficients[1].std_error);
+        // F = t² for one predictor: 4.5.
+        assert!(close(r.f_statistic, 4.5, 1e-12), "F {}", r.f_statistic);
+        assert_eq!((r.df_model, r.df_residual), (1.0, 3.0));
+    }
+
+    #[test]
+    fn ols_qr_refuses_a_rank_deficient_design() {
+        let y = [1.0, 2.0, 3.0, 4.0, 6.0];
+        // Constant: a multiple of the intercept.
+        assert!(ols_qr(&y, &[vec![3.0; 5]]).is_err());
+        // x2 = 2 x1.
+        let x1 = vec![1.0, 2.0, 4.0, 3.0, 5.0];
+        let x2: Vec<f64> = x1.iter().map(|v| 2.0 * v).collect();
+        assert!(ols_qr(&y, &[x1, x2]).is_err());
+        // All zeros.
+        assert!(ols_qr(&y, &[vec![0.0; 5]]).is_err());
+    }
+
+    /// The tolerance is per column, as `dqrdc2`'s is. A predictor in the
+    /// hundredths beside one in the millions is judged against its own norm;
+    /// judged against the largest diagonal of R it would read as singular.
+    #[test]
+    fn ols_qr_tolerance_is_relative_to_each_columns_own_norm() {
+        let big = vec![1.02e6, 0.97e6, 1.05e6, 0.99e6, 1.01e6, 0.96e6, 1.04e6];
+        let small = vec![0.012, 0.009, 0.011, 0.008, 0.013, 0.010, 0.007];
+        let y = [3.1, 2.4, 3.6, 2.2, 3.3, 2.0, 3.4];
+        let r = ols_qr(&y, &[big, small]).expect("a full-rank design is fitted");
+        assert!(r.f_statistic.is_finite() && r.coefficients.iter().all(|c| c.t.is_finite()));
     }
 
     // ------------------------- numeric typing ------------------------------

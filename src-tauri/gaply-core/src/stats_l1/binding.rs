@@ -392,11 +392,7 @@ pub(super) fn confirm(proposal: &BindingProposal, dataset: &Dataset, claim: &L1C
             return Err(Rejection::FilterLevelNotInColumn(f.column));
         }
     }
-    let row_passes = |row: usize| -> bool {
-        draft.filters.iter().all(|f| {
-            dataset.column_cells(f.column).and_then(|cells| cells[row].level_code()).is_some_and(|code| f.levels.contains(&code))
-        })
-    };
+    let row_passes = |row: usize| -> bool { passes_filters(dataset, &draft.filters, row) };
 
     // Levels: the selection, when given, must name levels the column has
     // after filtering and must leave none unselected; the count must fit.
@@ -506,6 +502,16 @@ pub(super) fn confirm(proposal: &BindingProposal, dataset: &Dataset, claim: &L1C
         counts,
         suspect_codes,
         digest,
+    })
+}
+
+/// Whether `row` passes every include-filter: its cell in each filtered
+/// column is one of that filter's levels. A missing cell passes no filter.
+/// Shared by the confirm pass and Level 1's computation, so the rows counted
+/// at confirm time are the rows computed on.
+pub(super) fn passes_filters(dataset: &Dataset, filters: &[IncludeFilter], row: usize) -> bool {
+    filters.iter().all(|f| {
+        dataset.column_cells(f.column).and_then(|cells| cells[row].level_code()).is_some_and(|code| f.levels.contains(&code))
     })
 }
 

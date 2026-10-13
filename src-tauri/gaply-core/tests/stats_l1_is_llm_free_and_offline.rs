@@ -17,8 +17,15 @@
 //!    in this module is `AliasedSchema` (with its row type `AliasedColumn`),
 //!    the per-task outbound struct, and the scan names exactly those two.
 //!
+//! 4. Since Step 3, the code Level 1 COMPUTES THROUGH outside its directory,
+//!    `stats_verify.rs` and `stats_l0/pvalue.rs`, is scanned for the same
+//!    routes and held to an import allowlist of `std`, `serde` and `statrs`.
+//!    Only their production part is read (up to the first `#[cfg(test)]`):
+//!    `pvalue.rs`'s tests read `Cargo.lock`, which is not a route.
+//!
 //! The same gaps as the Level 0 guard apply: a route through a helper in
-//! another module, or a model type under a new name, is not caught.
+//! another module (a `crate::` import in either file is not followed), or a
+//! model type under a new name, is not caught.
 //!
 //! [`RawTable`]: gaply_core::stats_l1::dataset::RawTable
 
@@ -152,8 +159,9 @@ fn serialize_derives(code: &str) -> Vec<String> {
 #[test]
 fn stats_l1_is_llm_free_and_offline() {
     let files = rust_files(Path::new(SCANNED_DIR));
-    // 8 files on 13 Oct 2026. Fewer, and the scan is reading something else.
-    assert!(files.len() >= 8, "the scan found {} files — it would pass vacuously", files.len());
+    // 9 files on 14 Oct 2026 (Step 3 added compute.rs). Fewer, and the scan
+    // is reading something else.
+    assert!(files.len() >= 9, "the scan found {} files — it would pass vacuously", files.len());
 
     let mut found = Vec::new();
     for f in &files {
@@ -217,6 +225,57 @@ fn only_the_aliased_schema_derives_serialize() {
         );
         assert!(file.ends_with("dataset.rs"), "{file}: the outbound struct lives in dataset.rs");
     }
+}
+
+/// The files outside `src/stats_l1/` that Level 1's computation calls into.
+const COMPUTE_PATH: &[&str] = &["src/stats_verify.rs", "src/stats_l0/pvalue.rs"];
+
+/// Their import allowlist: the distribution library, and nothing else
+/// external.
+const COMPUTE_PATH_IMPORTS: &[&str] = &["std", "serde", "statrs"];
+
+/// A file's production code: everything before its first `#[cfg(test)]`.
+fn production_part(src: &str) -> &str {
+    match src.find("#[cfg(test)]") {
+        Some(i) => &src[..i],
+        None => src,
+    }
+}
+
+/// Step 3: every statistic and p Level 1 reports comes from these two files,
+/// so their production code is held to Level 1's rule. This also guards the
+/// purity claim in `stats_verify.rs`'s module header, which had no test.
+#[test]
+fn the_code_level_1_computes_through_is_llm_free_and_offline() {
+    // Level 1 must still call both, or this scan guards the wrong files.
+    let compute = std::fs::read_to_string("src/stats_l1/compute.rs").expect("compute.rs");
+    assert!(code_only(&compute).contains("stats_verify::"), "compute.rs no longer calls stats_verify");
+    assert!(code_only(&compute).contains("pvalue::"), "compute.rs no longer calls stats_l0::pvalue");
+
+    let mut found = Vec::new();
+    let mut imports = 0;
+    for path in COMPUTE_PATH {
+        let src = std::fs::read_to_string(path).unwrap_or_else(|_| panic!("{path} is not readable — has it moved?"));
+        let code = code_only(production_part(&src));
+        assert!(code.lines().count() > 50, "{path}: the production part is {} lines — the cut is wrong", code.lines().count());
+        found.extend(violations(path, &code));
+        for (n, line) in code.lines().enumerate() {
+            let Some(rest) = line.trim().strip_prefix("use ") else { continue };
+            imports += 1;
+            let root = rest.split(['{', ':', ';', ' ']).next().unwrap_or("").trim();
+            if matches!(root, "" | "crate" | "super" | "self") {
+                continue;
+            }
+            assert!(COMPUTE_PATH_IMPORTS.contains(&root), "{path}:{}: `{root}` is not on the compute-path import allowlist\n    {}", n + 1, line.trim());
+        }
+    }
+    assert!(imports > 0, "no `use` line found in the compute path — the import scan is inert");
+    assert!(
+        found.is_empty(),
+        "Level 1 computes through stats_verify and stats_l0::pvalue; neither may reach a proxy, HTTP, a model, \
+         the helper layer, a file, a database or a clock. Found:\n{}",
+        found.join("\n")
+    );
 }
 
 /// The predicates must catch the edits they exist for, and must not trip on
