@@ -223,13 +223,13 @@ time injection.
 
   - inner loop — `cargo check --workspace --all-targets` (~7s after a core edit, 0.3s warm)
   - before a commit — `cargo test --workspace`
-    - **2032 passed, 9 ignored, 26 targets**
+    - **2469 passed, 10 ignored, 49 targets**
     - macOS, no features, CARGO_TERM_COLOR=never
-    - at `382cb7c`, 2 Oct 2026
+    - at the Phase 2 Step 7 commit (parent `ff7666d`), 15 Oct 2026
     - "passed" sums `test result: ok` lines; "targets" counts `Running` lines
   - the frontend — `npx vitest run --config vitest.config.ts`
-    - **972 passed, 75 files**
-    - macOS, at `382cb7c`, 2 Oct 2026
+    - **1016 passed, 79 files**
+    - macOS, at the Phase 2 Step 7 commit (parent `ff7666d`), 15 Oct 2026
     - CI runs it in `frontend-build` since §11 D227
   - the app crate on Linux, as CI runs it — `cargo test -p app --features
     devtools`

@@ -14,7 +14,10 @@ export type FeatureName =
   // Analysis Check entirely (route + nav); plagiarismCheck OFF shows the
   // Plagiarism Check as an honest coming-soon (run disabled, library kept).
   | 'statsCheck'
-  | 'plagiarismCheck';
+  | 'plagiarismCheck'
+  // Level 1 of the premium Statistical Analysis Verifier, "Check a paper
+  // against its data" (Phase 2). Default OFF; behind the page's own gate too.
+  | 'statsL1';
 
 /** Parse a CRA env string as a boolean (default false). Only 'true'/'1' enable. */
 function envBool(v: string | undefined): boolean {
@@ -29,6 +32,7 @@ export const FEATURE_FLAGS: Record<FeatureName, boolean> = {
   fullAnalysis: envBool(process.env.REACT_APP_FEATURE_FULL_ANALYSIS),
   statsCheck: envBool(process.env.REACT_APP_FEATURE_STATS_CHECK),
   plagiarismCheck: envBool(process.env.REACT_APP_FEATURE_PLAGIARISM_CHECK),
+  statsL1: envBool(process.env.REACT_APP_FEATURE_STATS_L1),
 };
 
 export function isFeatureEnabled(name: FeatureName): boolean {

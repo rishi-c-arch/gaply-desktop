@@ -35,6 +35,9 @@ export interface StatsL1Bridge {
   helperSend(run: number, preview: L1Handle): Promise<L1HelperResultView>;
   helperRevoke(run: number, task: string): Promise<boolean>;
   helperCancel(run: number): Promise<void>;
+  /** The user's binding form as a proposal (Manual, edited from `from` when
+   *  given). Rust reads the variant; nothing is confirmed. No network. */
+  draftProposal(run: number, claimId: number, from: L1Handle | null, edits: BindingEdits): Promise<L1ProposalView>;
   confirmBinding(run: number, proposal: L1Handle, edits?: BindingEdits): Promise<L1ConfirmView>;
   compute(run: number, tokens: string[]): Promise<ReproductionView>;
   close(run: number): Promise<boolean>;
@@ -78,6 +81,9 @@ export class TauriStatsL1Bridge implements StatsL1Bridge {
   }
   helperCancel(run: number) {
     return this.invoke<void>('stats_l1_helper_cancel', { run });
+  }
+  draftProposal(run: number, claimId: number, from: L1Handle | null, edits: BindingEdits) {
+    return this.invoke<L1ProposalView>('stats_l1_draft_proposal', { run, claimId, from, edits });
   }
   confirmBinding(run: number, proposal: L1Handle, edits?: BindingEdits) {
     return this.invoke<L1ConfirmView>('stats_l1_confirm_binding', { run, proposal, edits: edits ?? null });
@@ -135,6 +141,7 @@ export function makeMockStatsL1Bridge(
     helperSend: (run, preview) => call('stats_l1_helper_send', { run, preview }),
     helperRevoke: (run, task) => call('stats_l1_helper_revoke', { run, task }),
     helperCancel: (run) => call('stats_l1_helper_cancel', { run }),
+    draftProposal: (run, claimId, from, edits) => call('stats_l1_draft_proposal', { run, claimId, from, edits }),
     confirmBinding: (run, proposal, edits) => call('stats_l1_confirm_binding', { run, proposal, edits: edits ?? null }),
     compute: (run, tokens) => call('stats_l1_compute', { run, tokens }),
     close: (run) => call('stats_l1_close', { run }),

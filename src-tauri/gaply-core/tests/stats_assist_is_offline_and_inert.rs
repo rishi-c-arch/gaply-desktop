@@ -103,8 +103,8 @@ const SERIALIZABLE: &[&str] = &[
     "ExclusionOut",
     "ResultExplanationOutbound",
     "WebContextOutbound",
-    "WireCode",
-    "Param",
+    // `WireCode` and `Param` moved to `stats_l1::codes` in Step 7 and are
+    // re-exported from `codes.rs` here; they are no longer declared here.
     "ReasoningParam",
     "JsonSchemaFormat",
     "TextParam",

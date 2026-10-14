@@ -13,10 +13,12 @@
 
 use std::path::Path;
 
+use gaply_core::stats_l0::method::Provenance;
 use gaply_core::stats_l1::claim::RevisionHash;
+use gaply_core::stats_l1::codes::{self, WireCode};
 use gaply_core::stats_l1::compute::InputCounts;
 use gaply_core::stats_l1::reproduce::{
-    reproduce, CandidateComparison, ClaimReproduction, DataRead, L1Verdict, NumberComparison, Printed, ReproductionOutcome,
+    reproduce, CandidateComparison, ClaimReproduction, DataRead, L1Record, L1Verdict, NumberComparison, Printed, ReproductionOutcome,
 };
 use gaply_core::stats_l1::run_state::L1RunState;
 use gaply_core::stats_l1::token::ConfirmationToken;
@@ -44,12 +46,15 @@ pub fn run_stats_reproduction_measured(
 // it. It carries manuscript text for display on this device: each printed
 // number exactly as printed. Never data: no cell, no level label, no header.
 //
-// The provenance record (`L1Record`) is left out: its wrapped `MethodCheck`'s
-// `outcome` is a p comparison, not a verdict on the claim, and the view has no
-// field that could be read as one.
+// The provenance record (`L1Record`) crosses as `ProvenanceView`, WITHOUT its
+// wrapped `MethodCheck`'s `outcome` or `computed`: the outcome is a p
+// comparison, not a verdict on the claim, and the view has no field that
+// could be read as one.
 //
-// Codes are the closed enums' own names (`Debug`), with numeric parameters
-// only. No ratio, percentage or score anywhere in it: counts only
+// Every reason, note, status, variant and number kind is a closed code from
+// `gaply_core::stats_l1::codes` (since Step 7; before, the enums' `Debug`
+// names), the one code set the screen's wording table is keyed by. No ratio,
+// percentage or score anywhere in it: counts only
 // (`tests/stats_l1_reproduction.rs` checks every key).
 
 /// Level 1 for one run, as a screen renders it.
@@ -57,8 +62,9 @@ pub fn run_stats_reproduction_measured(
 #[serde(rename_all = "camelCase")]
 pub struct ReproductionView {
     pub counts: ReproductionCountsView,
-    /// `not_needed`, `read`, or the code the file was refused with.
-    pub data: String,
+    /// `not_needed`, `read`, or `unreadable` with the code the file was
+    /// refused with.
+    pub data: WireCode,
     pub unmatched_pairs: usize,
     pub claims: Vec<ClaimReproductionView>,
 }
@@ -81,37 +87,55 @@ pub struct ClaimReproductionView {
     /// The Level 1 method id, when a binding was confirmed.
     pub method: Option<&'static str>,
     /// The binding's variant and who set it, as codes.
-    pub variant: Option<String>,
-    pub variant_set_by: Option<String>,
+    pub variant: Option<WireCode>,
+    pub variant_set_by: Option<WireCode>,
     pub verdict: L1VerdictView,
-    pub notes: Vec<String>,
+    pub notes: Vec<WireCode>,
     /// Every candidate variant, each printed number beside the computed one.
     pub candidates: Vec<CandidateView>,
     pub n_used: Option<usize>,
     pub rows_read: Option<usize>,
     pub exclusions: Vec<ExclusionView>,
+    /// Where the result came from; `None` when nothing was computed.
+    pub provenance: Option<ProvenanceView>,
+}
+
+/// The run's provenance: what computed it and from which binding. Never the
+/// method check's `outcome` or `computed`.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProvenanceView {
+    pub method_id: &'static str,
+    /// The publication a method follows; `None` for Gaply's own arithmetic.
+    pub reference: Option<&'static str>,
+    pub method_version: &'static str,
+    pub engine_version: &'static str,
+    /// SHA-256, hex, of the method's typed inputs. Never of text.
+    pub inputs_digest: String,
+    pub binding_source: WireCode,
+    pub variant_set_by: WireCode,
 }
 
 /// The closed verdict set. A `notReproduced` never says which number is wrong.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum L1VerdictView {
-    Reproduced { notes: Vec<String> },
+    Reproduced { notes: Vec<WireCode> },
     NotReproduced { conclusion_changes: Option<bool> },
-    CouldNotCheck { reason: String },
+    CouldNotCheck { reason: WireCode },
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CandidateView {
-    pub variant: String,
+    pub variant: WireCode,
     pub numbers: Vec<NumberView>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NumberView {
-    pub kind: String,
+    pub kind: WireCode,
     /// Exactly as printed; `ns` for a p printed only as not significant.
     pub printed: String,
     /// `=`, `<`, `≤`, `>` or `≥`.
@@ -120,18 +144,33 @@ pub struct NumberView {
     /// What the computed value had to fall in. `None` for an open end.
     pub accepted_lo: Option<f64>,
     pub accepted_hi: Option<f64>,
-    pub status: String,
+    pub status: WireCode,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExclusionView {
-    pub reason: String,
+    pub reason: WireCode,
     pub rows: usize,
 }
 
-fn code(v: impl std::fmt::Debug) -> String {
-    format!("{v:?}")
+fn word(code: &'static str) -> WireCode {
+    WireCode { code, params: Default::default() }
+}
+
+fn provenance_view(r: &L1Record) -> ProvenanceView {
+    ProvenanceView {
+        method_id: r.check.method_id,
+        reference: match r.check.provenance {
+            Provenance::Published { reference } => Some(reference),
+            Provenance::GaplyArithmetic => None,
+        },
+        method_version: r.method_version,
+        engine_version: r.check.engine_version,
+        inputs_digest: r.check.inputs_digest.clone(),
+        binding_source: codes::binding_source(r.binding_source),
+        variant_set_by: codes::variant_set_by(r.variant_set_by),
+    }
 }
 
 fn finite(v: f64) -> Option<f64> {
@@ -154,18 +193,18 @@ fn number_view(n: &NumberComparison) -> NumberView {
         Printed::NotSignificant => ("ns".to_string(), "="),
     };
     NumberView {
-        kind: code(n.kind),
+        kind: codes::number_kind(n.kind),
         printed,
         relation,
         computed: n.computed,
         accepted_lo: finite(n.accepted.0),
         accepted_hi: finite(n.accepted.1),
-        status: code(n.status),
+        status: codes::number_status(n.status),
     }
 }
 
 fn candidate_view(c: &CandidateComparison) -> CandidateView {
-    CandidateView { variant: code(c.variant), numbers: c.numbers.iter().map(number_view).collect() }
+    CandidateView { variant: codes::computed_variant(c.variant), numbers: c.numbers.iter().map(number_view).collect() }
 }
 
 fn counts_view(counts: Option<&InputCounts>) -> (Option<usize>, Option<usize>, Vec<ExclusionView>) {
@@ -173,7 +212,7 @@ fn counts_view(counts: Option<&InputCounts>) -> (Option<usize>, Option<usize>, V
         Some(c) => (
             Some(c.n_used),
             Some(c.rows_read),
-            c.excluded.iter().map(|e| ExclusionView { reason: code(e.reason), rows: e.rows }).collect(),
+            c.excluded.iter().map(|e| ExclusionView { reason: codes::exclusion_reason(e.reason), rows: e.rows }).collect(),
         ),
         None => (None, None, Vec::new()),
     }
@@ -181,9 +220,9 @@ fn counts_view(counts: Option<&InputCounts>) -> (Option<usize>, Option<usize>, V
 
 fn claim_view(c: &ClaimReproduction) -> ClaimReproductionView {
     let verdict = match &c.verdict {
-        L1Verdict::Reproduced(notes) => L1VerdictView::Reproduced { notes: notes.iter().map(code).collect() },
+        L1Verdict::Reproduced(notes) => L1VerdictView::Reproduced { notes: notes.iter().map(|n| codes::l1_note(*n)).collect() },
         L1Verdict::NotReproduced { conclusion_changes } => L1VerdictView::NotReproduced { conclusion_changes: *conclusion_changes },
-        L1Verdict::CouldNotCheck(why) => L1VerdictView::CouldNotCheck { reason: code(why) },
+        L1Verdict::CouldNotCheck(why) => L1VerdictView::CouldNotCheck { reason: codes::l1_could_not_check(*why) },
     };
     let (n_used, rows_read, exclusions) = counts_view(c.counts.as_ref());
     ClaimReproductionView {
@@ -192,14 +231,15 @@ fn claim_view(c: &ClaimReproduction) -> ClaimReproductionView {
         paragraph: c.location.paragraph,
         sentence: c.location.sentence,
         method: c.method.map(|m| m.id()),
-        variant: c.variant.map(|v| code(v.variant())),
-        variant_set_by: c.variant.map(|v| code(v.set_by())),
+        variant: c.variant.map(|v| codes::variant(v.variant())),
+        variant_set_by: c.variant.map(|v| codes::variant_set_by(v.set_by())),
         verdict,
-        notes: c.notes.iter().map(code).collect(),
+        notes: c.notes.iter().map(|n| codes::l1_note(*n)).collect(),
         candidates: c.candidates.iter().map(candidate_view).collect(),
         n_used,
         rows_read,
         exclusions,
+        provenance: c.record.as_ref().map(provenance_view),
     }
 }
 
@@ -212,9 +252,17 @@ pub fn reproduction_view(outcome: &ReproductionOutcome) -> ReproductionView {
             could_not_check: outcome.counts.could_not_check,
         },
         data: match outcome.data {
-            DataRead::NotNeeded => "not_needed".into(),
-            DataRead::Read => "read".into(),
-            DataRead::Unreadable(e) => code(e),
+            DataRead::NotNeeded => word("not_needed"),
+            DataRead::Read => word("read"),
+            DataRead::Unreadable(e) => {
+                let mut c = word("unreadable");
+                let inner = codes::l1_ingest_refusal(e);
+                // The codes' own convention: a nested code with no parameters
+                // is its bare word.
+                let p = if inner.params.is_empty() { codes::Param::Word(inner.code) } else { codes::Param::Code(Box::new(inner)) };
+                c.params.insert("refusal", p);
+                c
+            }
         },
         unmatched_pairs: outcome.unmatched_pairs,
         claims: outcome.claims.iter().map(claim_view).collect(),

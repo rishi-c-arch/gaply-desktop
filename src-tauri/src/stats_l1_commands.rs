@@ -44,7 +44,6 @@ use std::sync::{Arc, Mutex};
 use gaply_core::extract::{self, ExtractionResult, SectionKind};
 use gaply_core::import_guard;
 use gaply_core::stats_assist::citation::{host_is_allowed, https_host, parse_web_context, CitationDrop, RetrievedAt};
-use gaply_core::stats_assist::codes::{self, Param, WireCode};
 use gaply_core::stats_assist::consent::{DataCategory, HelperRunId, OptInRefusal, OptIns};
 use gaply_core::stats_assist::outbound::{
     build_binding_suggestion, build_claim_method, build_result_explanation, build_web_context, role_from_name, role_name, BuildRefusal,
@@ -64,9 +63,10 @@ use gaply_core::stats_l0::outcome::check_reading;
 use gaply_core::stats_l0::result::{read_results, Family, PValue, TableStructure};
 use gaply_core::stats_l1::binding::{BindingDraft, BindingProposal, OlsTarget, ProposalId, ProposalReason, ProposalSource, Rejection};
 use gaply_core::stats_l1::catalogue::{
-    ContinuityVariant, L1MethodId, LevelRule, MethodCatalogue, RoleName, SpearmanPVariant, TVariant, Variant, VariantChoice,
+    ContinuityVariant, L1MethodId, LevelRule, MethodCatalogue, RoleName, SlotKind, SpearmanPVariant, TVariant, Variant, VariantChoice,
 };
 use gaply_core::stats_l1::claim::{claims_from_reading, ClaimId, ClaimLocation, L1Claim, RevisionHash, UserClaim, UserP};
+use gaply_core::stats_l1::codes::{self, Param, WireCode};
 use gaply_core::stats_l1::dataset::{ColumnAlias, ColumnIssue, ColumnType, DatasetIssue, LevelBucket};
 use gaply_core::stats_l1::reproduce::ReproductionOutcome;
 use gaply_core::stats_l1::run_state::{ConfirmError, EditError, L1RunState, ProposalError};
@@ -332,19 +332,10 @@ fn dataset_issue_code(i: DatasetIssue) -> WireCode {
     }
 }
 
+/// The shared code's word (`stats_l1::codes::variant`), so a proposal and a
+/// finished result name a variant the same way.
 fn variant_word(v: Variant) -> &'static str {
-    match v {
-        Variant::None => "none",
-        Variant::T(TVariant::Student) => "student",
-        Variant::T(TVariant::Welch) => "welch",
-        Variant::Continuity(ContinuityVariant::Yes) => "continuity_correction",
-        Variant::Continuity(ContinuityVariant::No) => "no_continuity_correction",
-        Variant::SpearmanP(SpearmanPVariant::TApproximation) => "t_approximation",
-        Variant::SpearmanP(SpearmanPVariant::Exact) => "exact",
-        Variant::T(TVariant::NotStated)
-        | Variant::Continuity(ContinuityVariant::NotStated)
-        | Variant::SpearmanP(SpearmanPVariant::NotStated) => "not_stated",
-    }
+    codes::variant(v).code
 }
 
 fn variant_from_word(kind_of: L1MethodId, word: &str) -> Option<Variant> {
@@ -519,6 +510,32 @@ pub struct L1OpenView {
     pub schema: L1SchemaView,
     /// The local proposer's suggestions, per claim.
     pub proposals: Vec<L1ProposalView>,
+    /// The method catalogue, so the screen offers exactly its methods, slots
+    /// and variants rather than a copy that could drift.
+    pub catalogue: Vec<L1MethodView>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct L1MethodView {
+    pub method: &'static str,
+    pub slots: Vec<L1SlotView>,
+    /// The stated variants a user may tick; empty for a method without one.
+    pub variants: Vec<&'static str>,
+    /// OLS: the overall F or one predictor's coefficient must be chosen.
+    pub needs_target: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct L1SlotView {
+    pub role: &'static str,
+    /// `numeric`, `group` or `numeric_list`.
+    pub kind: &'static str,
+    /// A group slot's level rule (`exactly` or `at_least`, with `levels`).
+    pub levels: Option<WireCode>,
+    /// A list slot's minimum number of columns.
+    pub min: Option<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
@@ -582,6 +599,9 @@ pub struct L1ProposalView {
     pub roles: Vec<L1RoleView>,
     pub levels: Vec<L1LevelSelectionView>,
     pub variant: &'static str,
+    /// Who set the variant: `stated_in_paper` only under Step 2's word-list
+    /// rule, `user_ticked`, or `not_stated`.
+    pub variant_set_by: WireCode,
     /// `local`, `ai_suggestion` or `manual`.
     pub source: &'static str,
     /// The local proposer's closed reason, when local.
@@ -705,7 +725,10 @@ pub struct L1UsageView {
 #[serde(rename_all = "camelCase")]
 pub struct L1TaskUsageView {
     pub task: &'static str,
-    pub calls: u32,
+    /// Every request that left the device for this task: each attempt,
+    /// retries and failed calls included.
+    pub requests: u32,
+    /// What the replies reported; a failed call reports none.
     pub input_tokens: u64,
     pub output_tokens: u64,
 }
@@ -835,6 +858,7 @@ fn proposal_view(run: u64, p: &BindingProposal) -> L1ProposalView {
         roles: b.roles.iter().map(|r| L1RoleView { role: role_name(r.role), aliases: r.columns.iter().map(|a| a.name()).collect() }).collect(),
         levels: b.selected_levels.iter().map(|l| L1LevelSelectionView { role: role_name(l.role), levels: l.levels.clone() }).collect(),
         variant: variant_word(variant),
+        variant_set_by: codes::variant_set_by(b.variant.set_by()),
         source: source_word(&p.source),
         reason: match &p.source {
             ProposalSource::Local { reason: ProposalReason::HeaderMatchesSentence, .. } => Some("header_matches_sentence"),
@@ -842,6 +866,34 @@ fn proposal_view(run: u64, p: &BindingProposal) -> L1ProposalView {
             ProposalSource::AiSuggestion { .. } | ProposalSource::Manual { .. } => None,
         },
     }
+}
+
+fn catalogue_view() -> Vec<L1MethodView> {
+    const STATED: [Variant; 6] = [
+        Variant::T(TVariant::Student),
+        Variant::T(TVariant::Welch),
+        Variant::Continuity(ContinuityVariant::Yes),
+        Variant::Continuity(ContinuityVariant::No),
+        Variant::SpearmanP(SpearmanPVariant::TApproximation),
+        Variant::SpearmanP(SpearmanPVariant::Exact),
+    ];
+    MethodCatalogue::ENTRIES
+        .iter()
+        .map(|e| L1MethodView {
+            method: e.id.id(),
+            slots: e
+                .slots
+                .iter()
+                .map(|s| match s.kind {
+                    SlotKind::Numeric => L1SlotView { role: role_name(s.role), kind: "numeric", levels: None, min: None },
+                    SlotKind::Group { levels } => L1SlotView { role: role_name(s.role), kind: "group", levels: Some(level_rule_code(levels)), min: None },
+                    SlotKind::NumericList { min } => L1SlotView { role: role_name(s.role), kind: "numeric_list", levels: None, min: Some(min) },
+                })
+                .collect(),
+            variants: STATED.iter().filter(|v| v.kind() == e.variant_kind).map(|v| variant_word(*v)).collect(),
+            needs_target: e.needs_target,
+        })
+        .collect()
 }
 
 fn schema_view(state: &L1RunState) -> L1SchemaView {
@@ -876,7 +928,7 @@ fn usage_view(u: &UsageByTask) -> L1UsageView {
             .iter()
             .map(|t| {
                 let x = u.get(t).copied().unwrap_or_default();
-                L1TaskUsageView { task: t.id(), calls: x.calls, input_tokens: x.input_tokens, output_tokens: x.output_tokens }
+                L1TaskUsageView { task: t.id(), requests: x.requests, input_tokens: x.input_tokens, output_tokens: x.output_tokens }
             })
             .collect(),
     }
@@ -947,6 +999,7 @@ pub fn open(db: &Database, runs: &L1Runs, ai: &StatsAi, manuscript: &Path, data:
         not_located,
         schema: schema_view(&r.state),
         proposals: r.state.proposals().iter().map(|p| proposal_view(id, p)).collect(),
+        catalogue: catalogue_view(),
     })
 }
 
@@ -1088,21 +1141,27 @@ pub fn helper_preview(runs: &L1Runs, ai: &StatsAi, run: u64, input: &HelperTaskI
     Ok(L1PreviewView { preview: L1Handle { run, id: p.id.0 }, task: p.task.id(), body: p.body, sha256: p.sha256, categories: p.categories })
 }
 
-fn record_usage(r: &mut L1Run, sent: &Sent) {
-    let u = r.usage.entry(sent.task).or_insert_with(TaskUsage::default);
-    u.calls += 1;
-    u.input_tokens += sent.diagnostic.input_tokens.unwrap_or(0);
-    u.output_tokens += sent.diagnostic.output_tokens.unwrap_or(0);
+/// Count what left the device, whatever came back: `requests` is the number
+/// the transport put on the wire (each attempt, a retry and a failed one
+/// included), and the tokens are what a reply reported.
+fn record_usage(r: &mut L1Run, task: HelperTask, requests: u32, sent: Option<&Sent>) {
+    let u = r.usage.entry(task).or_insert_with(TaskUsage::default);
+    u.requests += requests;
+    if let Some(sent) = sent {
+        u.input_tokens += sent.diagnostic.input_tokens.unwrap_or(0);
+        u.output_tokens += sent.diagnostic.output_tokens.unwrap_or(0);
+    }
 }
 
 /// Prepare under the lock, transmit outside it, record under it again.
 fn transmit(run: &Arc<Mutex<L1Run>>, ai: &StatsAi, prepared: PreparedSend) -> Result<Sent, GaplyError> {
     let cancel = lock(run).cancel.clone();
     let transport = (ai.transport)(cancel);
+    let task = prepared.task();
+    let before = transport.requests_sent();
     let result = prepared.transmit(&*transport);
-    if let Ok(sent) = &result {
-        record_usage(&mut lock(run), sent);
-    }
+    let requests = transport.requests_sent().saturating_sub(before);
+    record_usage(&mut lock(run), task, requests, result.as_ref().ok());
     result.map_err(|e| refuse(send_refusal_code(e)))
 }
 
@@ -1267,6 +1326,34 @@ fn draft_from_edits(claim: &L1Claim, e: &BindingEdits) -> Result<BindingDraft, G
         d = d.target(OlsTarget::Coefficient { predictor: ColumnAlias(p) });
     }
     Ok(d)
+}
+
+/// The user's binding form as a proposal: an edit of `from` (recorded as
+/// Manual, edited from its source) or, with no proposal to start from (none
+/// was made, or an edit to the claim dropped it), a new Manual one. Rust reads
+/// the variant from the paper's words or the user's tick, as in Step 2, and
+/// the view says which. Nothing is confirmed. No network.
+#[tracing::instrument(skip_all)]
+pub fn draft_proposal(runs: &L1Runs, run: u64, claim: usize, from: Option<L1Handle>, edits: &BindingEdits) -> Result<L1ProposalView, GaplyError> {
+    let handle = runs.get(run)?;
+    let mut r = lock(&handle);
+    let c = r.state.claim(ClaimId(claim)).cloned().ok_or_else(|| refuse(w("unknown_claim")))?;
+    let draft = draft_from_edits(&c, edits)?;
+    let id = match from {
+        Some(h) => {
+            if h.run != run {
+                return Err(refuse(w("proposal_from_another_run")));
+            }
+            let original = r.state.proposal(ProposalId(h.id)).ok_or_else(|| refuse(w("unknown_proposal")))?;
+            if original.claim != c.id {
+                return Err(refuse(w("proposal_for_another_claim")));
+            }
+            r.state.edit_proposal(ProposalId(h.id), draft).map_err(|e| refuse(proposal_code(e)))?
+        }
+        None => r.state.add_proposal(c.id, draft, ProposalSource::Manual { edited_from: None }).map_err(|e| refuse(proposal_code(e)))?,
+    };
+    let p = r.state.proposal(id).ok_or_else(|| refuse(w("unknown_proposal")))?;
+    Ok(proposal_view(run, p))
 }
 
 /// Confirm a proposal, with the user's edits if any. Returns the token
@@ -1450,6 +1537,19 @@ pub async fn stats_l1_confirm_binding(
 ) -> Result<L1ConfirmView, GaplyError> {
     let runs = state.stats_l1.clone();
     blocking(move || confirm_binding(&runs, run, proposal, edits.as_ref())).await
+}
+
+#[tauri::command]
+#[tracing::instrument(skip_all)]
+pub async fn stats_l1_draft_proposal(
+    state: St<'_>,
+    run: u64,
+    claim_id: usize,
+    from: Option<L1Handle>,
+    edits: BindingEdits,
+) -> Result<L1ProposalView, GaplyError> {
+    let runs = state.stats_l1.clone();
+    blocking(move || draft_proposal(&runs, run, claim_id, from, &edits)).await
 }
 
 #[tauri::command]

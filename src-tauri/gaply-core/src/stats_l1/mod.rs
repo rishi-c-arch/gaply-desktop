@@ -24,15 +24,17 @@
 //!
 //! # What may be serialised
 //!
-//! Exactly one type in this module derives `Serialize`:
+//! Two kinds of type in this module derive `Serialize`:
 //! [`dataset::AliasedSchema`], the only form of the schema that may leave the
-//! device (alias, type, has-missing, level bucket). Every other type here holds
+//! device (alias, type, has-missing, level bucket), and [`codes::WireCode`]
+//! with its [`codes::Param`], which carry only static code words and numbers. Every other type here holds
 //! cell values, headers, level labels or manuscript text and does not. The
 //! guard `tests/stats_l1_is_llm_free_and_offline.rs` scans for both.
 
 pub mod binding;
 pub mod catalogue;
 pub mod claim;
+pub mod codes;
 pub mod compute;
 pub mod dataset;
 pub mod propose;

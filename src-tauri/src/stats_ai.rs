@@ -26,7 +26,7 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -171,6 +171,8 @@ pub struct ResponsesTransport {
     cancel: Arc<AtomicBool>,
     backoff: Duration,
     timeout: RequestTimeout,
+    /// Requests put on the wire, for the usage line.
+    requests: AtomicU32,
 }
 
 impl ResponsesTransport {
@@ -183,7 +185,7 @@ impl ResponsesTransport {
     ) -> Result<Self, TransportError> {
         // No global timeout: each request carries its own.
         let client = reqwest::blocking::Client::builder().build().map_err(|_| TransportError::Failed)?;
-        Ok(ResponsesTransport { client, base: base.trim_end_matches('/').to_string(), store, cancel, backoff, timeout })
+        Ok(ResponsesTransport { client, base: base.trim_end_matches('/').to_string(), store, cancel, backoff, timeout, requests: AtomicU32::new(0) })
     }
 
     fn cancelled(&self) -> bool {
@@ -234,6 +236,11 @@ impl HelperTransport for ResponsesTransport {
                 })
                 .body(request.body().to_vec())
                 .send();
+            // Counted unless the connection itself failed: then no byte of
+            // the body left the device.
+            if !matches!(&sent, Err(e) if e.is_connect()) {
+                self.requests.fetch_add(1, Ordering::SeqCst);
+            }
             let outcome = match sent {
                 Err(e) if e.is_timeout() => Attempt::Retryable(TransportError::Timeout),
                 Err(e) if e.is_connect() => Attempt::Final(TransportError::Offline),
@@ -271,6 +278,10 @@ impl HelperTransport for ResponsesTransport {
             }
         }
         Err(last)
+    }
+
+    fn requests_sent(&self) -> u32 {
+        self.requests.load(Ordering::SeqCst)
     }
 }
 
@@ -370,7 +381,8 @@ fn save_settings(path: &Path, s: &AiSettings) -> std::io::Result<()> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TaskUsage {
-    pub calls: u32,
+    /// Requests that left the device: each attempt, retries and failed calls.
+    pub requests: u32,
     pub input_tokens: u64,
     pub output_tokens: u64,
 }
@@ -443,6 +455,10 @@ struct Unavailable;
 impl HelperTransport for Unavailable {
     fn send(&self, _: &OutgoingRequest<'_>) -> Result<TransportReply, TransportError> {
         Err(TransportError::Failed)
+    }
+
+    fn requests_sent(&self) -> u32 {
+        0
     }
 }
 

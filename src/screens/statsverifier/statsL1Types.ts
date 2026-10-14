@@ -61,8 +61,26 @@ export interface L1ProposalView {
   roles: Array<{ role: string; aliases: string[] }>;
   levels: Array<{ role: string; levels: string[] }>;
   variant: string;
+  /** `stated_in_paper` only under Step 2's word-list rule. */
+  variantSetBy: WireCode;
   source: 'local' | 'ai_suggestion' | 'manual';
   reason: string | null;
+}
+
+export interface L1SlotView {
+  role: string;
+  kind: 'numeric' | 'group' | 'numeric_list';
+  /** A group slot's level rule: `exactly` or `at_least`, with `levels`. */
+  levels: WireCode | null;
+  min: number | null;
+}
+
+export interface L1MethodView {
+  method: string;
+  slots: L1SlotView[];
+  /** The stated variants a user may tick; empty when the method has none. */
+  variants: string[];
+  needsTarget: boolean;
 }
 
 export interface L1OpenView {
@@ -71,6 +89,7 @@ export interface L1OpenView {
   notLocated: number;
   schema: L1SchemaView;
   proposals: L1ProposalView[];
+  catalogue: L1MethodView[];
 }
 
 export interface L1RevisionView {
@@ -166,43 +185,63 @@ export interface L1ConfirmView {
   suspectMissingCodes: Array<{ alias: string; code: number; cells: number }>;
 }
 
+export interface L1NumberView {
+  kind: WireCode;
+  /** Exactly as printed; `ns` for a p printed only as not significant. */
+  printed: string;
+  relation: string;
+  computed: number;
+  acceptedLo: number | null;
+  acceptedHi: number | null;
+  status: WireCode;
+}
+
+export interface L1ProvenanceView {
+  methodId: string;
+  reference: string | null;
+  methodVersion: string;
+  engineVersion: string;
+  inputsDigest: string;
+  bindingSource: WireCode;
+  variantSetBy: WireCode;
+}
+
+export type L1VerdictView =
+  | { kind: 'reproduced'; notes: WireCode[] }
+  | { kind: 'notReproduced'; conclusionChanges: boolean | null }
+  | { kind: 'couldNotCheck'; reason: WireCode };
+
+export interface L1ClaimReproductionView {
+  claimId: number;
+  sectionIndex: number;
+  paragraph: number;
+  sentence: number;
+  method: string | null;
+  variant: WireCode | null;
+  variantSetBy: WireCode | null;
+  verdict: L1VerdictView;
+  notes: WireCode[];
+  candidates: Array<{ variant: WireCode; numbers: L1NumberView[] }>;
+  nUsed: number | null;
+  rowsRead: number | null;
+  exclusions: Array<{ reason: WireCode; rows: number }>;
+  provenance: L1ProvenanceView | null;
+}
+
+/** Every reason, note, status and variant is a closed code from
+ *  gaply_core::stats_l1::codes, worded by l1/l1Wording.ts. */
 export interface ReproductionView {
   counts: { reproduced: number; notReproduced: number; couldNotCheck: number };
-  data: string;
+  data: WireCode;
   unmatchedPairs: number;
-  claims: Array<{
-    claimId: number;
-    sectionIndex: number;
-    paragraph: number;
-    sentence: number;
-    method: string | null;
-    variant: string | null;
-    variantSetBy: string | null;
-    verdict:
-      | { kind: 'reproduced'; notes: string[] }
-      | { kind: 'notReproduced'; conclusionChanges: boolean | null }
-      | { kind: 'couldNotCheck'; reason: string };
-    notes: string[];
-    candidates: Array<{
-      variant: string;
-      numbers: Array<{
-        kind: string;
-        printed: string;
-        relation: string;
-        computed: number;
-        acceptedLo: number | null;
-        acceptedHi: number | null;
-        status: string;
-      }>;
-    }>;
-    nUsed: number | null;
-    rowsRead: number | null;
-    exclusions: Array<{ reason: string; rows: number }>;
-  }>;
+  claims: L1ClaimReproductionView[];
 }
 
 export interface L1UsageView {
-  tasks: Array<{ task: string; calls: number; inputTokens: number; outputTokens: number }>;
+  /** `requests`: every request that left the device for the task, each
+   *  attempt, retries and failed calls included; the tokens are what the
+   *  replies reported. */
+  tasks: Array<{ task: string; requests: number; inputTokens: number; outputTokens: number }>;
 }
 
 export interface AiSettings {

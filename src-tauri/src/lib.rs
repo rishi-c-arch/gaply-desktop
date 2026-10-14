@@ -317,6 +317,7 @@ pub fn run() {
             stats_l1_commands::stats_l1_helper_revoke,
             stats_l1_commands::stats_l1_helper_cancel,
             stats_l1_commands::stats_l1_confirm_binding,
+            stats_l1_commands::stats_l1_draft_proposal,
             stats_l1_commands::stats_l1_compute,
             stats_l1_commands::stats_l1_close,
             stats_l1_commands::stats_ai_usage,

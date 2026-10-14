@@ -27,6 +27,7 @@ describe('TauriStatsL1Bridge', () => {
     await b.helperSend(1, h);
     await b.helperRevoke(1, 'claim_method');
     await b.helperCancel(1);
+    await b.draftProposal(1, 0, null, { methodId: 'independent_t', roles: [], levels: [], filters: [] });
     await b.confirmBinding(1, h);
     await b.compute(1, ['a'.repeat(64)]);
     await b.close(1);
@@ -49,6 +50,7 @@ describe('TauriStatsL1Bridge', () => {
       ['stats_l1_helper_send', ['preview', 'run']],
       ['stats_l1_helper_revoke', ['run', 'task']],
       ['stats_l1_helper_cancel', ['run']],
+      ['stats_l1_draft_proposal', ['claimId', 'edits', 'from', 'run']],
       ['stats_l1_confirm_binding', ['edits', 'proposal', 'run']],
       ['stats_l1_compute', ['run', 'tokens']],
       ['stats_l1_close', ['run']],
@@ -63,8 +65,10 @@ describe('TauriStatsL1Bridge', () => {
     ]);
     // The helper input is the tagged enum Rust deserialises.
     expect(invoke.mock.calls[4][1].input).toEqual({ task: 'binding_suggestion', claimId: 0, methodId: 'independent_t' });
+    // A draft with nothing to start from sends an explicit null.
+    expect(invoke.mock.calls[8][1].from).toBeNull();
     // Confirming without edits sends an explicit null.
-    expect(invoke.mock.calls[8][1].edits).toBeNull();
+    expect(invoke.mock.calls[9][1].edits).toBeNull();
   });
 });
 

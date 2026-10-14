@@ -63,6 +63,11 @@ pub enum TransportError {
 
 pub trait HelperTransport: Send + Sync {
     fn send(&self, request: &OutgoingRequest<'_>) -> Result<TransportReply, TransportError>;
+
+    /// How many requests this transport has put on the wire so far: every
+    /// attempt, a retry and a failed one included. No default: a transport
+    /// must count what it sends, so the usage line can show it.
+    fn requests_sent(&self) -> u32;
 }
 
 /// A transport that never touches the network: it records every body it is
@@ -109,5 +114,9 @@ impl HelperTransport for MockTransport {
     fn send(&self, request: &OutgoingRequest<'_>) -> Result<TransportReply, TransportError> {
         self.sent.lock().unwrap().push((request.task(), request.body().to_vec()));
         self.replies.lock().unwrap().pop_front().unwrap_or(Err(TransportError::Failed))
+    }
+
+    fn requests_sent(&self) -> u32 {
+        self.sent_count() as u32
     }
 }

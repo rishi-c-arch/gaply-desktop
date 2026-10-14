@@ -214,3 +214,55 @@ fn neither_the_outcome_nor_its_view_has_a_score_percent_probability_confidence_o
         }
     }
 }
+
+/* ------------------------------------------------------------------------ *
+ *  Step 7: the view carries the shared closed codes, never Debug names.
+ * ------------------------------------------------------------------------ */
+
+fn strings_and_codes(v: &serde_json::Value, strings: &mut Vec<String>, codes: &mut Vec<String>) {
+    match v {
+        serde_json::Value::Object(m) => {
+            for (k, x) in m {
+                if k == "code" {
+                    codes.push(x.as_str().expect("a code is a string").to_string());
+                }
+                strings_and_codes(x, strings, codes);
+            }
+        }
+        serde_json::Value::Array(a) => a.iter().for_each(|x| strings_and_codes(x, strings, codes)),
+        serde_json::Value::String(s) => strings.push(s.clone()),
+        _ => {}
+    }
+}
+
+#[test]
+fn the_view_carries_closed_codes_and_provenance_without_the_p_outcome() {
+    let mut strings = Vec::new();
+    let mut codes = Vec::new();
+    let mut provenance = 0;
+    for manuscript in [fixture("exit_manuscript.txt"), changed("F(2, 37) = 7.37", "F(2, 37) = 7.57"), changed("F(2, 37) = 7.37", "F(2, 37.5) = 7.37")] {
+        let json = serde_json::to_value(reproduction_view(&run(&manuscript))).expect("serialises");
+        strings_and_codes(&json, &mut strings, &mut codes);
+        for c in json["claims"].as_array().unwrap() {
+            if let Some(p) = c["provenance"].as_object() {
+                provenance += 1;
+                assert!(!p.contains_key("outcome") && !p.contains_key("computed"), "{p:?}");
+                assert!(p["bindingSource"]["code"].is_string() && p["variantSetBy"]["code"].is_string(), "{p:?}");
+            }
+        }
+    }
+    // A positive count first: the walk saw codes, and computed claims.
+    assert!(codes.len() > 50, "only {} codes seen", codes.len());
+    assert!(provenance >= 12, "only {provenance} claims carried provenance");
+    for c in &codes {
+        assert!(c.chars().all(|x| x.is_ascii_lowercase() || x.is_ascii_digit() || x == '_'), "a code {c:?}");
+    }
+    for want in ["variant_matched", "student_pooled", "matched", "not_matched", "statistic"] {
+        assert!(codes.iter().any(|c| c == want), "{want} never reached the view");
+    }
+    // A Debug name is CamelCase; no string in the view is.
+    for s in &strings {
+        let camel = s.chars().next().is_some_and(|c| c.is_ascii_uppercase()) && s.chars().skip(1).any(|c| c.is_ascii_uppercase()) && !s.contains(' ');
+        assert!(!camel, "a Debug-shaped string in the view: {s:?}");
+    }
+}

@@ -85,7 +85,7 @@ fn preview_then_send_sends_the_previewed_bytes_and_makes_a_proposal() {
     assert_eq!(l1::compute(&w.runs, v.run, &[token]).unwrap().counts.reproduced, 1);
     let u = l1::usage(&w.runs, v.run).unwrap();
     let b = u.tasks.iter().find(|t| t.task == "binding_suggestion").unwrap();
-    assert_eq!((b.calls, b.input_tokens, b.output_tokens), (1, 300, 40));
+    assert_eq!((b.requests, b.input_tokens, b.output_tokens), (1, 300, 40));
 }
 
 #[test]
@@ -163,7 +163,7 @@ fn an_explanation_is_retried_once_then_refused_with_a_closed_code() {
     assert_eq!(code(&e), "reply_rejected");
     assert!(e.to_string().contains("wrong_verdict"), "{e}");
     assert_eq!(w.mock.sent_count(), 2, "one retry, no more");
-    assert_eq!(l1::usage(&w.runs, v.run).unwrap().tasks.iter().find(|t| t.task == "result_explanation").unwrap().calls, 2);
+    assert_eq!(l1::usage(&w.runs, v.run).unwrap().tasks.iter().find(|t| t.task == "result_explanation").unwrap().requests, 2);
 }
 
 /// The premise that makes `open`'s extraction-error branch unreachable:
@@ -193,8 +193,9 @@ fn an_edited_claim_kills_its_token() {
     assert_ne!(rev.revision, v.claims[0].revision);
     let out = l1::compute(&w.runs, v.run, &[token]).unwrap();
     assert_eq!(out.counts.could_not_check, 1, "{out:?}");
-    let reason = serde_json::to_string(&out.claims[0].verdict).unwrap();
-    assert!(reason.contains("ClaimRevised") || reason.contains("Stale") || reason.contains("NotBound"), "{reason}");
+    // The closed code (Step 7), not a Debug name.
+    let reason = serde_json::to_value(&out.claims[0].verdict).unwrap();
+    assert_eq!(reason, json!({"kind": "couldNotCheck", "reason": {"code": "token_stale", "rejection": {"code": "revoked", "because": "claim_revised"}}}));
     edit.family = "w".into();
     assert_eq!(code(&l1::edit_claim(&w.runs, v.run, 0, &edit).unwrap_err()), "unknown_family");
 }
@@ -210,8 +211,8 @@ fn changed_file_bytes_give_a_stale_could_not_check() {
     let out = l1::compute(&w.runs, v.run, &[token]).unwrap();
     assert_eq!(out.counts.could_not_check, 1, "{out:?}");
     assert_eq!(out.counts.reproduced + out.counts.not_reproduced, 0);
-    let reason = serde_json::to_string(&out.claims[0].verdict).unwrap();
-    assert!(reason.contains("Fingerprint"), "{reason}");
+    let reason = serde_json::to_value(&out.claims[0].verdict).unwrap();
+    assert_eq!(reason, json!({"kind": "couldNotCheck", "reason": {"code": "refused", "refusal": "fingerprint_changed"}}));
 }
 
 #[test]
@@ -451,8 +452,12 @@ fn a_second_stall_is_not_retried_again_and_gives_the_timeout_code() {
     assert_eq!(reason, json!({"code": "transport", "error": "timeout"}));
     std::thread::sleep(Duration::from_millis(200));
     assert_eq!(server.requests.lock().unwrap().len(), 2, "one retry, never a second");
-    // A call that returned nothing records no usage.
-    assert_eq!(l1::usage(&w.runs, run).unwrap().tasks.iter().map(|t| t.calls).sum::<u32>(), 0);
+    // Both stalled attempts left the device and count as requests; neither
+    // reply came back, so no tokens were reported.
+    let u = l1::usage(&w.runs, run).unwrap();
+    let b = u.tasks.iter().find(|t| t.task == "binding_suggestion").unwrap();
+    assert_eq!((b.requests, b.input_tokens, b.output_tokens), (2, 0, 0));
+    assert_eq!(u.tasks.iter().map(|t| t.requests).sum::<u32>(), 2, "no other task recorded a request");
 }
 
 #[test]
@@ -496,4 +501,102 @@ fn runs_are_bounded_and_closed() {
     assert!(w.runs.close(last));
     assert_eq!(code(&l1::usage(&w.runs, last).unwrap_err()), "unknown_run");
     let _: &Path = &w.files.root;
+}
+
+/* ---- Step 7: what the screens read from the open view --------------------- */
+
+#[test]
+fn the_open_view_carries_the_catalogue_and_who_set_each_variant() {
+    let w = world_with(MockTransport::new());
+    let v = open(&w);
+    let cat = serde_json::to_value(&v.catalogue).unwrap();
+    assert_eq!(
+        cat,
+        json!([
+            {"method": "independent_t", "slots": [
+                {"role": "outcome", "kind": "numeric", "levels": null, "min": null},
+                {"role": "group", "kind": "group", "levels": {"code": "exactly", "levels": 2}, "min": null}],
+             "variants": ["student", "welch"], "needsTarget": false},
+            {"method": "paired_t", "slots": [
+                {"role": "first", "kind": "numeric", "levels": null, "min": null},
+                {"role": "second", "kind": "numeric", "levels": null, "min": null}],
+             "variants": [], "needsTarget": false},
+            {"method": "one_way_anova", "slots": [
+                {"role": "outcome", "kind": "numeric", "levels": null, "min": null},
+                {"role": "group", "kind": "group", "levels": {"code": "at_least", "levels": 2}, "min": null}],
+             "variants": [], "needsTarget": false},
+            {"method": "pearson", "slots": [
+                {"role": "x", "kind": "numeric", "levels": null, "min": null},
+                {"role": "y", "kind": "numeric", "levels": null, "min": null}],
+             "variants": [], "needsTarget": false},
+            {"method": "spearman", "slots": [
+                {"role": "x", "kind": "numeric", "levels": null, "min": null},
+                {"role": "y", "kind": "numeric", "levels": null, "min": null}],
+             "variants": ["t_approximation", "exact"], "needsTarget": false},
+            {"method": "chi_square_independence", "slots": [
+                {"role": "row_variable", "kind": "group", "levels": {"code": "at_least", "levels": 2}, "min": null},
+                {"role": "column_variable", "kind": "group", "levels": {"code": "at_least", "levels": 2}, "min": null}],
+             "variants": ["continuity_correction", "no_continuity_correction"], "needsTarget": false},
+            {"method": "ols", "slots": [
+                {"role": "outcome", "kind": "numeric", "levels": null, "min": null},
+                {"role": "predictors", "kind": "numeric_list", "levels": null, "min": 1}],
+             "variants": [], "needsTarget": true}
+        ])
+    );
+    // Every proposal says who set its variant, as a closed code; a local
+    // proposal on a sentence that names no variant is not stated.
+    assert!(!v.proposals.is_empty());
+    for p in &v.proposals {
+        let set_by = serde_json::to_value(&p.variant_set_by).unwrap();
+        let code = set_by["code"].as_str().unwrap();
+        assert!(["not_stated", "stated_in_paper", "user_ticked"].contains(&code), "{set_by}");
+        assert_eq!(code == "not_stated", p.variant == "not_stated" || p.variant == "none", "{set_by} vs {}", p.variant);
+    }
+}
+
+/// An edit drops the claim's proposals (Step 2's rule), so the screen needs a
+/// way to turn its form into one: `draft_proposal`. Without a starting
+/// proposal it is Manual; from one, Manual edited from that source.
+#[test]
+fn a_draft_after_an_edit_is_the_only_way_back_to_a_confirmation_and_it_computes() {
+    let w = world_with(MockTransport::new().reply(&binding_reply()));
+    ai_on(&w, false);
+    let v = open(&w);
+    let c0 = &v.claims[0];
+    let same = L1ClaimInput {
+        family: c0.family.into(),
+        statistic: c0.statistic.clone(),
+        df: c0.df.clone(),
+        n: c0.n.clone(),
+        p: Some(c0.p.trim_start_matches(|c: char| "=<>".contains(c)).trim().to_string()),
+        p_relation: Some(c0.p.split_whitespace().next().unwrap().to_string()),
+        sentence: None,
+    };
+    l1::edit_claim(&w.runs, v.run, 0, &same).unwrap();
+    assert!(l1::proposals(&w.runs, v.run).unwrap().iter().all(|p| p.claim_id != 0), "an edit drops the claim's proposals");
+
+    let p = l1::draft_proposal(&w.runs, v.run, 0, None, &manual_edits()).unwrap();
+    assert_eq!((p.claim_id, p.source, p.method.as_str()), (0, "manual", "independent_t"));
+    assert_eq!(serde_json::to_value(&p.variant_set_by).unwrap()["code"], "not_stated");
+    let token = l1::confirm_binding(&w.runs, v.run, p.proposal, None).unwrap().token;
+    let out = l1::compute(&w.runs, v.run, &[token]).unwrap();
+    assert_eq!(out.counts.reproduced, 1, "{out:?}");
+    let prov = out.claims[0].provenance.as_ref().expect("a computed claim carries provenance");
+    assert_eq!(serde_json::to_value(&prov.binding_source).unwrap(), json!({"code": "manual"}));
+
+    // From an AI suggestion: recorded as edited from AI.
+    let input = HelperTaskInput::BindingSuggestion { claim_id: 0, method_id: "independent_t".into() };
+    let pv = l1::helper_preview(&w.runs, &w.ai, v.run, &input, &[]).unwrap();
+    let L1HelperResultView::BindingSuggestion { proposal, .. } = l1::helper_send(&w.runs, &w.ai, v.run, pv.preview, 0).unwrap() else { panic!() };
+    let edited = l1::draft_proposal(&w.runs, v.run, 0, Some(proposal), &manual_edits()).unwrap();
+    let token = l1::confirm_binding(&w.runs, v.run, edited.proposal, None).unwrap().token;
+    let out = l1::compute(&w.runs, v.run, &[token]).unwrap();
+    let prov = out.claims[0].provenance.as_ref().unwrap();
+    assert_eq!(serde_json::to_value(&prov.binding_source).unwrap(), json!({"code": "manual_edited_from_ai"}));
+
+    // A handle for another claim, or from another run, is refused.
+    let other = l1::add_claim(&w.runs, v.run, &same).unwrap().claim_id;
+    assert_eq!(code(&l1::draft_proposal(&w.runs, v.run, other, Some(edited.proposal), &manual_edits()).unwrap_err()), "proposal_for_another_claim");
+    let forged = L1Handle { run: v.run + 7, id: edited.proposal.id };
+    assert_eq!(code(&l1::draft_proposal(&w.runs, v.run, 0, Some(forged), &manual_edits()).unwrap_err()), "proposal_from_another_run");
 }

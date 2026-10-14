@@ -13,9 +13,11 @@
 //!    [`RawTable`] from the app crate's ingest and reads no file itself, and
 //!    its tokens must not be persisted.
 //! 3. A `Serialize` scan: types that hold rows, cell values, level labels,
-//!    manuscript text or a key do not derive `Serialize`. The one exception
-//!    in this module is `AliasedSchema` (with its row type `AliasedColumn`),
-//!    the per-task outbound struct, and the scan names exactly those two.
+//!    manuscript text or a key do not derive `Serialize`. The exceptions
+//!    are `AliasedSchema` (with its row type `AliasedColumn`), the per-task
+//!    outbound struct, in `dataset.rs`; and since Step 7 `WireCode` with its
+//!    `Param`, the closed codes, in `codes.rs`, which hold only `&'static str`
+//!    code words and numbers. The scan names exactly those four.
 //!
 //! 4. Since Step 3, the code Level 1 COMPUTES THROUGH outside its directory,
 //!    `stats_verify.rs` and `stats_l0/pvalue.rs`, is scanned for the same
@@ -89,7 +91,15 @@ const FORBIDDEN: &[(&str, &str)] = &[
 const ALLOWED_EXTERNAL_IMPORTS: &[&str] = &["std", "serde", "sha2"];
 
 /// The only types in the module that may derive `Serialize`.
-const SERIALIZABLE: &[&str] = &["AliasedSchema", "AliasedColumn"];
+const SERIALIZABLE: &[&str] = &["AliasedSchema", "AliasedColumn", "WireCode", "Param"];
+
+/// Where each of them may be declared.
+fn home_of(name: &str) -> &'static str {
+    match name {
+        "WireCode" | "Param" => "codes.rs",
+        _ => "dataset.rs",
+    }
+}
 
 fn rust_files(dir: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
@@ -221,9 +231,10 @@ fn only_the_aliased_schema_derives_serialize() {
         assert!(
             SERIALIZABLE.contains(&name.as_str()),
             "{file}: `{name}` derives Serialize. Types holding rows, cells, level labels, manuscript text or a key \
-             must not; only the outbound struct may"
+             must not; only the outbound struct and the closed codes may"
         );
-        assert!(file.ends_with("dataset.rs"), "{file}: the outbound struct lives in dataset.rs");
+        let home = home_of(name);
+        assert!(file.ends_with(home), "{file}: `{name}` lives in {home}");
     }
 }
 
