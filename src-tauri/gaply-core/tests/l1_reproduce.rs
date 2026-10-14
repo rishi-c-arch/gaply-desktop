@@ -154,6 +154,59 @@ fn a_stated_welch_variant_computes_welch_only() {
     assert_eq!(df.status, NumberStatus::Matched(Some(MatchNote::DfRounded)), "the df, as the comment says");
 }
 
+/// The same case as above on EXACT data: whole-number scores, so the cells'
+/// rounding gives no precision range (Step 8b, rule 1), and Student-printed
+/// numbers under a stated Welch variant must still be NotReproduced. Keeps
+/// the coverage the 1-decimal case above lost to rule 1.
+#[test]
+fn a_stated_welch_variant_refuses_students_numbers_on_exact_data() {
+    // Unequal sizes and spreads, so Welch and Student differ well beyond the
+    // second decimal.
+    let a = [10.0, 12.0, 11.0, 13.0, 12.0, 14.0];
+    let b = [15.0, 25.0, 9.0, 30.0, 12.0, 28.0, 20.0, 18.0];
+    let student = stats_verify::t_test_student(&a, &b).unwrap();
+    let welch = stats_verify::t_test_welch(&a, &b).unwrap();
+    let p = pvalue::t_two_tailed(student.t, student.df).unwrap();
+    let (t, df, p) = (format!("{:.2}", student.t), format!("{}", student.df), format!("{:.3}", p).trim_start_matches('0').to_string());
+    assert!((welch.t.abs() - student.t.abs()).abs() > 0.05, "the fixture separates the variants: {} vs {}", welch.t, student.t);
+
+    let rows: Vec<Vec<String>> = a
+        .iter()
+        .map(|v| vec![v.to_string(), "a".to_string()])
+        .chain(b.iter().map(|v| vec![v.to_string(), "b".to_string()]))
+        .collect();
+    let exact = |bytes: &[u8]| {
+        build_dataset(RawTable::from_rows(vec!["score".into(), "group".into()], rows.clone()), DataFingerprint::of_bytes(bytes, "in-memory", TableRef::FirstTable))
+            .expect("dataset")
+    };
+    let mut s = L1RunState::new();
+    s.load_dataset(exact(b"exact v1"));
+    s.add_claim(&UserClaim {
+        family: Family::T,
+        statistic: &t,
+        df: vec![df.as_str()],
+        n: None,
+        p: UserP::Reported { raw: &p, relation: Relation::Eq },
+        location: loc(0),
+        sentence: None,
+    })
+    .expect("claim");
+    let draft = BindingDraft::new(L1MethodId::IndependentT, VariantChoice::user_ticked(Variant::T(TVariant::Welch)))
+        .role(RoleName::Outcome, &[ColumnAlias(1)])
+        .role(RoleName::Group, &[ColumnAlias(2)])
+        .levels(RoleName::Group, &["a", "b"]);
+    let id = s.add_proposal(ClaimId(0), draft, ProposalSource::Manual { edited_from: None }).expect("proposal");
+    let token = s.confirm(id).expect("confirmed").1;
+    let out = reproduce(&s, &[(s.claim(ClaimId(0)).unwrap().revision.clone(), token)], || Ok(exact(b"exact v1")));
+    let c = &out.claims[0];
+    // The verdict first: if a stated Welch ever let Student's numbers match,
+    // this is the line that says so.
+    assert!(matches!(c.verdict, L1Verdict::NotReproduced { .. }), "{:?}", c.verdict);
+    assert_eq!(c.candidates.iter().map(|c| c.variant).collect::<Vec<_>>(), vec![ComputedVariant::Welch]);
+    // Exact cells: no range on any number, so nothing is excused by rule 1.
+    assert!(c.candidates[0].numbers.iter().all(|n| n.precision.is_none()), "{:?}", c.candidates[0].numbers);
+}
+
 #[test]
 fn an_ai_suggested_variant_left_unconfirmed_is_treated_as_not_stated() {
     let (t, df, p) = printed_a_vs_b();
