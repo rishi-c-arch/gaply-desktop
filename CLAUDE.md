@@ -3,7 +3,11 @@
 Gaply is a research-integrity desktop app: a CRA React frontend wrapped in a
 Tauri 2.0 shell (`src-tauri/`), with all business logic in the portable,
 Tauri-free Rust crate `src-tauri/gaply-core/`, plus a standalone FastAPI proxy
-(`gaply-proxy/`, Tailscale-hidden) that is the ONLY path to the cloud.
+(`gaply-proxy/`, Tailscale-hidden) through which cloud calls go, with one
+exception: the Statistical Analysis Verifier's AI help calls the OpenAI
+Responses API directly from Rust with the user's own key (T-BYOK,
+`src-tauri/src/stats_ai.rs`), only when AI help is on, after an exact preview
+and a Send click.
 
 ## Where this checkout lives — `~/dev/gaply-react-frontend`
 

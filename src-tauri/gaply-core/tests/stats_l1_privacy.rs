@@ -13,6 +13,11 @@
 //!
 //! The capture asserts a POSITIVE count of events first: a flow that emits
 //! nothing would pass the sentinel check vacuously.
+//!
+//! This binary holds ONE test on purpose. `tracing` caches callsite interest
+//! process-wide, so a callsite first hit on another test's thread can be
+//! skipped by this capture; alone, with `Interest::sometimes` and an interest
+//! rebuild once the capture is set, nothing else can hit a callsite first.
 
 use std::fmt::Write as _;
 use std::sync::{Arc, Mutex};
@@ -47,6 +52,11 @@ impl tracing::field::Visit for Visitor {
 }
 
 impl tracing::Subscriber for Capture {
+    /// `sometimes`, never a cached `always`/`never`, so a callsite first hit
+    /// elsewhere is still asked about this capture.
+    fn register_callsite(&self, _: &'static tracing::Metadata<'static>) -> tracing::subscriber::Interest {
+        tracing::subscriber::Interest::sometimes()
+    }
     fn enabled(&self, _: &tracing::Metadata<'_>) -> bool {
         true
     }
@@ -181,7 +191,12 @@ fn run_flow() -> Vec<String> {
 #[test]
 fn no_cell_value_or_level_label_reaches_the_aliased_schema_an_error_or_a_trace() {
     let lines = Arc::new(Mutex::new(Vec::new()));
-    let outputs = tracing::subscriber::with_default(Capture { lines: Arc::clone(&lines) }, run_flow);
+    let outputs = tracing::subscriber::with_default(Capture { lines: Arc::clone(&lines) }, || {
+        // Callsites cached as `never` before this subscriber existed are
+        // asked again now that it does.
+        tracing::callsite::rebuild_interest_cache();
+        run_flow()
+    });
     let traced: Vec<String> = lines.lock().unwrap().clone();
 
     assert!(outputs.len() >= 15, "the flow produced only {} outputs", outputs.len());
@@ -198,12 +213,10 @@ fn no_cell_value_or_level_label_reaches_the_aliased_schema_an_error_or_a_trace()
         outputs[0],
         r#"{"columns":[{"alias":"C1","type":"integer","has_missing":true,"levels":"three_to_ten"},{"alias":"C2","type":"categorical","has_missing":false,"levels":"three_to_ten"},{"alias":"C3","type":"categorical","has_missing":false,"levels":"three_to_ten"},{"alias":"C4","type":"categorical","has_missing":false,"levels":"two"}]}"#
     );
-}
 
-/// The check must be able to fail: a string that does carry the sentinel is
-/// caught by the same assertion.
-#[test]
-fn the_sentinel_check_fails_on_a_leak() {
+    // The check must be able to fail: a string that does carry the sentinel
+    // is caught by the same assertion. (Folded in here so this binary holds
+    // one test: see the header.)
     let leaked = format!("event stats_l1 levels=[{LEVEL:?}]");
     assert!(leaked.contains(LEVEL));
 }

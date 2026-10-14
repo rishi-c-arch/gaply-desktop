@@ -27,7 +27,9 @@ mod wire_contract_tests;
 pub mod report_build;
 pub mod reviewer_synthesis;
 pub mod state;
+pub mod stats_ai;
 pub mod stats_consistency;
+pub mod stats_l1_commands;
 pub mod stats_l1_ingest;
 pub mod stats_reproduction;
 pub mod supplementary;
@@ -306,6 +308,25 @@ pub fn run() {
             commands::run_stats_verify,
             commands::run_stats_chat,
             stats_consistency::run_stats_consistency,
+            stats_l1_commands::stats_l1_open,
+            stats_l1_commands::stats_l1_edit_claim,
+            stats_l1_commands::stats_l1_add_claim,
+            stats_l1_commands::stats_l1_proposals,
+            stats_l1_commands::stats_l1_helper_preview,
+            stats_l1_commands::stats_l1_helper_send,
+            stats_l1_commands::stats_l1_helper_revoke,
+            stats_l1_commands::stats_l1_helper_cancel,
+            stats_l1_commands::stats_l1_confirm_binding,
+            stats_l1_commands::stats_l1_compute,
+            stats_l1_commands::stats_l1_close,
+            stats_l1_commands::stats_ai_usage,
+            stats_l1_commands::stats_ai_setting_get,
+            stats_l1_commands::stats_ai_setting_set,
+            stats_l1_commands::stats_ai_key_status,
+            stats_l1_commands::stats_ai_key_save,
+            stats_l1_commands::stats_ai_key_test,
+            stats_l1_commands::stats_ai_key_remove,
+            stats_l1_commands::stats_open_source_link,
             commands::build_gapfinder_corpus,
             commands::run_gap_finder,
             commands::run_gapfinder_qa,

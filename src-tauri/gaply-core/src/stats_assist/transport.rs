@@ -56,6 +56,8 @@ pub enum TransportError {
     Offline,
     Timeout,
     Http { status: u16 },
+    /// The run cancelled the call; any reply is discarded.
+    Cancelled,
     Failed,
 }
 

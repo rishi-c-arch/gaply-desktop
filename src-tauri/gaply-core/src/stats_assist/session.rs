@@ -88,6 +88,67 @@ pub struct Sent {
     pub diagnostic: HelperDiagnostic,
 }
 
+/// A send that passed the gate, with its call already counted. Only
+/// [`HelperSession::prepare_send`] makes one; its bytes are the previewed
+/// bytes. Not `Clone`: one prepared send is one call.
+pub struct PreparedSend {
+    task: HelperTask,
+    preview: PreviewId,
+    body: Vec<u8>,
+    model: String,
+}
+
+impl std::fmt::Debug for PreparedSend {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Never the body.
+        f.debug_struct("PreparedSend").field("task", &self.task).field("preview", &self.preview).finish()
+    }
+}
+
+impl PreparedSend {
+    pub fn task(&self) -> HelperTask {
+        self.task
+    }
+
+    /// Hand the previewed bytes to `transport`, and record the diagnostic.
+    pub fn transmit(self, transport: &dyn HelperTransport) -> Result<Sent, SendRefusal> {
+        let task = self.task;
+        let spec = task.spec();
+        let result = transport.send(&OutgoingRequest::new(task, &self.body, spec.timeout_secs));
+        let reply = result.as_ref().ok();
+        let status = match &result {
+            Ok(_) => "ok",
+            Err(TransportError::Cancelled) => "cancelled",
+            Err(_) => "transport_error",
+        };
+        let usage = reply.map(|r| read_usage(&r.body)).unwrap_or_default();
+        let diagnostic = HelperDiagnostic {
+            task: task.id(),
+            prompt_version: spec.prompt_version,
+            schema_version: spec.schema_version,
+            model: self.model,
+            request_id: reply.and_then(|r| r.request_id.clone()),
+            latency_ms: reply.map_or(0, |r| r.latency_ms),
+            input_tokens: usage.input_tokens,
+            output_tokens: usage.output_tokens,
+            status,
+        };
+        tracing::info!(
+            task = diagnostic.task,
+            prompt_version = diagnostic.prompt_version,
+            schema_version = diagnostic.schema_version,
+            model = %diagnostic.model,
+            request_id = ?diagnostic.request_id,
+            latency_ms = diagnostic.latency_ms,
+            input_tokens = ?diagnostic.input_tokens,
+            output_tokens = ?diagnostic.output_tokens,
+            status = diagnostic.status,
+            "stats_assist: helper call"
+        );
+        result.map(|reply| Sent { task, preview: self.preview, reply, diagnostic }).map_err(SendRefusal::Transport)
+    }
+}
+
 pub struct HelperSession {
     run: HelperRunId,
     setting: AiHelpSetting,
@@ -215,6 +276,19 @@ impl HelperSession {
 
     /// Send `body`, which must be preview `id`'s body byte for byte.
     pub fn send_bytes(&mut self, id: PreviewId, body: &[u8], transport: &dyn HelperTransport) -> Result<Sent, SendRefusal> {
+        self.prepare_send_bytes(id, body)?.transmit(transport)
+    }
+
+    /// The gate for preview `id`'s stored body, and the call counted: what a
+    /// caller holding this session behind a lock takes OUT of the lock, so a
+    /// slow network call never blocks the run's other commands. Every check
+    /// [`Self::send`] makes is made here.
+    pub fn prepare_send(&mut self, id: PreviewId) -> Result<PreparedSend, SendRefusal> {
+        let body = self.previews.get(&id).ok_or(SendRefusal::UnknownPreview)?.body.clone();
+        self.prepare_send_bytes(id, body.as_bytes())
+    }
+
+    fn prepare_send_bytes(&mut self, id: PreviewId, body: &[u8]) -> Result<PreparedSend, SendRefusal> {
         let task = match self.authorize(id, body) {
             Ok(t) => t,
             Err(e) => {
@@ -223,37 +297,8 @@ impl HelperSession {
             }
         };
         *self.calls.entry(task).or_insert(0) += 1;
-        let spec = task.spec();
-        let result = transport.send(&OutgoingRequest::new(task, body, spec.timeout_secs));
-        let reply = result.as_ref().ok();
-        let status = if reply.is_some() { "ok" } else { "transport_error" };
-        let usage = reply.map(|r| read_usage(&r.body)).unwrap_or_default();
-        let diagnostic = HelperDiagnostic {
-            task: task.id(),
-            prompt_version: spec.prompt_version,
-            schema_version: spec.schema_version,
-            model: self.model.as_str().to_string(),
-            request_id: reply.and_then(|r| r.request_id.clone()),
-            latency_ms: reply.map_or(0, |r| r.latency_ms),
-            input_tokens: usage.input_tokens,
-            output_tokens: usage.output_tokens,
-            status,
-        };
-        tracing::info!(
-            task = diagnostic.task,
-            prompt_version = diagnostic.prompt_version,
-            schema_version = diagnostic.schema_version,
-            model = %diagnostic.model,
-            request_id = ?diagnostic.request_id,
-            latency_ms = diagnostic.latency_ms,
-            input_tokens = ?diagnostic.input_tokens,
-            output_tokens = ?diagnostic.output_tokens,
-            status = diagnostic.status,
-            "stats_assist: helper call"
-        );
-        result.map(|reply| Sent { task, preview: id, reply, diagnostic }).map_err(SendRefusal::Transport)
+        Ok(PreparedSend { task, preview: id, body: body.to_vec(), model: self.model.as_str().to_string() })
     }
-
     /// The user clicked Send: grant, then send.
     pub fn send_clicked(&mut self, id: PreviewId, transport: &dyn HelperTransport) -> Result<Sent, SendRefusal> {
         self.grant_from_preview(id)?;
