@@ -41,7 +41,7 @@ use std::path::Path;
 use gaply_core::extract::docparse::DocumentShape;
 use gaply_core::import_guard::{self, EstimateBasis};
 use gaply_core::stats_l1::dataset::{
-    build_dataset, DataFingerprint, Dataset, DatasetRefusal, RawTable, RawVariable, SourceMetadata, TableRef,
+    build_dataset, DataFingerprint, Dataset, RawTable, RawVariable, SourceMetadata, TableRef,
 };
 
 use gaply_core::stats_l1::claim::ClaimId;
@@ -51,27 +51,9 @@ use gaply_core::stats_l1::token::ConfirmationToken;
 
 use crate::supplementary::{self, SupplementaryKind, MAX_FILE_SIZE_BYTES, MAX_ROWS, PARSER_VERSION};
 
-/// Why a file did not become a dataset. No path, no name, no parser text.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum L1IngestRefusal {
-    /// The file could not be stat'ed or read.
-    NotReadable,
-    /// Over `import_guard`'s byte ceiling or the ingest's own size cap.
-    TooLarge { bytes: u64, limit: u64 },
-    /// Not a format the ingest turns into a table.
-    UnsupportedFormat,
-    /// The parser could not read the file.
-    Malformed,
-    /// The file parsed and holds no table.
-    NoTable,
-    /// More rows than the ingest cap. Level 1 does not compute on a
-    /// truncated table.
-    FileTooLarge { limit_rows: usize },
-    /// The bytes changed between the hash and the parse.
-    FileChangedWhileReading,
-    /// The parsed table could not become a schema.
-    Dataset(DatasetRefusal),
-}
+/// Defined in `gaply_core` since Phase 2, Step 4, so a Level 1 verdict can
+/// carry it as its "data unreadable" reason; re-exported here unchanged.
+pub use gaply_core::stats_l1::dataset::L1IngestRefusal;
 
 /// Extensions the ingest turns into a table. Text formats parse but hold no
 /// table and are refused before being read.
@@ -185,7 +167,7 @@ pub fn compute_from_path(state: &L1RunState, token: &ConfirmationToken, claim: C
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gaply_core::stats_l1::dataset::{Cell, ColumnAlias, ColumnType, DatasetIssue};
+    use gaply_core::stats_l1::dataset::{Cell, ColumnType, DatasetIssue, DatasetRefusal};
     use std::io::Write;
 
     /// A directory whose name carries a sentinel, so a path leaking into a

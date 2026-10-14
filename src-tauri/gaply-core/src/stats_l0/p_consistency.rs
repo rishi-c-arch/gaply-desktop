@@ -111,12 +111,17 @@ impl<'a> VerificationMethod<L0Input<'a>> for PConsistency {
 
 const INVALID: L0Verdict = L0Verdict::CouldNotCheck(CouldNotCheckReason::InvalidInput);
 
-enum Alpha {
+/// The decision threshold from the document's stated alphas: one value, or
+/// several (which leave `conclusion_changes` unassessed). Public since Phase
+/// 2, Step 4, so Level 1 reads alpha by the same rule.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Alpha {
     One(Rational),
     Several(Vec<Rational>),
 }
 
-fn alpha_of(ctx: &DocumentContext, computed: &mut Vec<(&'static str, Computed)>) -> Alpha {
+/// Alpha from `ctx`, recorded in `computed`. Public since Phase 2, Step 4.
+pub fn alpha_of(ctx: &DocumentContext, computed: &mut Vec<(&'static str, Computed)>) -> Alpha {
     let (values, defaulted) = ctx.alpha();
     let alpha = if let [a] = values[..] {
         computed.push(("alpha", Computed::Exact(a)));
@@ -132,19 +137,50 @@ fn alpha_of(ctx: &DocumentContext, computed: &mut Vec<(&'static str, Computed)>)
 fn evaluate(r: &ReportedResult, ctx: &DocumentContext, computed: &mut Vec<(&'static str, Computed)>) -> L0Verdict {
     let alpha = alpha_of(ctx, computed);
     let Some((p_lo, p_hi)) = recomputed_range(r) else { return INVALID };
+    let input = PComparison { p: &r.p, family: r.family, variance_ratio_candidate: is_variance_ratio_candidate(r) };
+    compare_p(&input, p_lo, p_hi, || f_two_tailed_range(r), ctx, &alpha, computed)
+}
+
+/// What [`compare_p`] needs of a result besides the recomputed range: the
+/// printed p, the family, and whether an F may be read as a variance ratio
+/// (df1 of 2 or more).
+#[derive(Debug, Clone, Copy)]
+pub struct PComparison<'a> {
+    pub p: &'a PValue,
+    pub family: Family,
+    pub variance_ratio_candidate: bool,
+}
+
+/// The p half of Level 0's rule, from rule (a) to rule (d): the printed p
+/// against a recomputed range `[p_lo, p_hi]`, widened here by the engine
+/// margin. `two_tailed_f` gives the two-tailed F range when the rule needs it.
+///
+/// Moved out of `evaluate` unchanged in Phase 2, Step 4 (decisions.md: a pure
+/// refactor), so that Level 1 compares its exact p, as a zero-width range,
+/// by the same function. Level 0's tests and the corpus runner's DEV, HOLDOUT
+/// and OWN outputs were byte-identical before and after.
+pub fn compare_p(
+    input: &PComparison<'_>,
+    p_lo: f64,
+    p_hi: f64,
+    two_tailed_f: impl Fn() -> Option<(f64, f64)>,
+    ctx: &DocumentContext,
+    alpha: &Alpha,
+    computed: &mut Vec<(&'static str, Computed)>,
+) -> L0Verdict {
     computed.push(("recomputed_p", Computed::Range { lo: p_lo, hi: p_hi }));
     let (lo, hi) = widen(p_lo, p_hi);
     computed.push(("compared_p", Computed::Range { lo, hi }));
 
-    let reported = match &r.p {
+    let reported = match input.p {
         PValue::Reported(p) => p,
         PValue::NotSignificant => {
-            let v = not_significant(hi, &alpha);
-            if is_variance_ratio_candidate(r) && matches!(v, L0Verdict::Inconsistent { .. }) {
-                let Some((t_lo, t_hi)) = f_two_tailed_range(r) else { return INVALID };
+            let v = not_significant(hi, alpha);
+            if input.variance_ratio_candidate && matches!(v, L0Verdict::Inconsistent { .. }) {
+                let Some((t_lo, t_hi)) = two_tailed_f() else { return INVALID };
                 let (w_lo, w_hi) = widen(t_lo, t_hi);
                 computed.push(("two_tailed_p", Computed::Range { lo: w_lo, hi: w_hi }));
-                if not_significant(w_hi, &alpha) == L0Verdict::Consistent(None) {
+                if not_significant(w_hi, alpha) == L0Verdict::Consistent(None) {
                     return L0Verdict::Concern(ConcernReason::FTwoTailed);
                 }
             }
@@ -160,7 +196,7 @@ fn evaluate(r: &ReportedResult, ctx: &DocumentContext, computed: &mut Vec<(&'sta
     }
 
     // b. Two-tailed families only: consistent as a one-tailed test.
-    if matches!(r.family, Family::T | Family::R | Family::Z) {
+    if matches!(input.family, Family::T | Family::R | Family::Z) {
         let (h_lo, h_hi) = widen(p_lo / 2.0, p_hi / 2.0);
         computed.push(("one_tailed_p", Computed::Range { lo: h_lo, hi: h_hi }));
         match reported.overlaps(h_lo, h_hi, 0.0) {
@@ -186,8 +222,8 @@ fn evaluate(r: &ReportedResult, ctx: &DocumentContext, computed: &mut Vec<(&'sta
     }
 
     // The two-tailed F rule: consistent as a variance-ratio test. df1 >= 2 only.
-    if is_variance_ratio_candidate(r) {
-        let Some((t_lo, t_hi)) = f_two_tailed_range(r) else { return INVALID };
+    if input.variance_ratio_candidate {
+        let Some((t_lo, t_hi)) = two_tailed_f() else { return INVALID };
         let (w_lo, w_hi) = widen(t_lo, t_hi);
         computed.push(("two_tailed_p", Computed::Range { lo: w_lo, hi: w_hi }));
         match reported.overlaps(w_lo, w_hi, 0.0) {
@@ -212,7 +248,7 @@ fn evaluate(r: &ReportedResult, ctx: &DocumentContext, computed: &mut Vec<(&'sta
     }
 
     // d.
-    L0Verdict::Inconsistent { conclusion_changes: conclusion_changes(reported, lo, hi, &alpha) }
+    L0Verdict::Inconsistent { conclusion_changes: conclusion_changes(reported, lo, hi, alpha) }
 }
 
 /// Rule 6: `ns` claims p above alpha. With several thresholds the smallest is
@@ -271,15 +307,31 @@ fn conclusion_changes(reported: &ReportedNumber, lo: f64, hi: f64, alpha: &Alpha
     Some(matches!((reported, recomputed), (Some(x), Some(y)) if x != y))
 }
 
-/// Widen outward by the engine margin; the upper end is capped at 1.
-fn widen(lo: f64, hi: f64) -> (f64, f64) {
+/// `conclusion_changes` for a printed p of either kind, by Level 0's own
+/// rules: rule 5 for a printed value, and [`not_significant`]'s for `ns`
+/// (which assesses it only against one alpha). `[lo, hi]` is already widened.
+/// Added in Phase 2, Step 4 for Level 1; Level 0 does not call it.
+pub fn conclusion_changes_of(p: &PValue, lo: f64, hi: f64, alpha: &Alpha) -> Option<bool> {
+    match p {
+        PValue::Reported(reported) => conclusion_changes(reported, lo, hi, alpha),
+        PValue::NotSignificant => match not_significant(hi, alpha) {
+            L0Verdict::Inconsistent { conclusion_changes } => conclusion_changes,
+            _ => matches!(alpha, Alpha::One(_)).then_some(false),
+        },
+    }
+}
+
+/// Widen outward by the engine margin; the upper end is capped at 1. Public
+/// since Phase 2, Step 4.
+pub fn widen(lo: f64, hi: f64) -> (f64, f64) {
     (lo * (1.0 - ENGINE_P_RELATIVE_MARGIN), (hi * (1.0 + ENGINE_P_RELATIVE_MARGIN)).min(1.0))
 }
 
 /// An F the two-tailed rule may read as a variance ratio: df1 of 2 or more,
 /// exactly. F(1, ·) is a squared t, the commonest ANOVA form, and a variance
-/// ratio with one numerator df would need a sample of two.
-fn is_variance_ratio_candidate(r: &ReportedResult) -> bool {
+/// ratio with one numerator df would need a sample of two. Public since Phase
+/// 2, Step 4.
+pub fn is_variance_ratio_candidate(r: &ReportedResult) -> bool {
     r.family == Family::F && r.df.first().is_some_and(|d| d.value().numer() >= 2 * d.value().denom())
 }
 

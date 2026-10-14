@@ -264,6 +264,11 @@ pub struct L1Computation {
     pub method: L1MethodId,
     pub counts: InputCounts,
     pub results: Vec<ComputedResult>,
+    /// Spearman only: whether either column holds a tie among the rows used.
+    /// R's `cor.test` uses its exact p when n < 1290 and there is none, and
+    /// Level 1 does not compute that p (Step 4 reads this). `None` for every
+    /// other method.
+    pub ties: Option<bool>,
     pub engine_version: &'static str,
 }
 
@@ -305,7 +310,8 @@ pub fn compute(state: &L1RunState, token: &ConfirmationToken, claim: ClaimId, re
         results = results.len(),
         "stats_l1: computed"
     );
-    Ok(L1Computation { claim, method: registered.method, counts, results, engine_version: ENGINE_VERSION })
+    let ties = if registered.method == L1MethodId::Spearman { Some(has_ties(binding, reread, &rows)?) } else { None };
+    Ok(L1Computation { claim, method: registered.method, counts, results, ties, engine_version: ENGINE_VERSION })
 }
 
 /* ------------------------------------------------------------------------ *
@@ -405,6 +411,15 @@ fn refused(e: GaplyError, otherwise: L1Refusal) -> L1Refusal {
         Some(RangeFault::Underflow) => L1Refusal::Underflow,
         None => otherwise,
     }
+}
+
+/// A tie in either correlated column, by exact equality, as ranking sees one.
+fn has_ties(b: &ConfirmedBinding, d: &Dataset, rows: &[usize]) -> Result<bool, L1Refusal> {
+    let tied = |mut v: Vec<f64>| {
+        v.sort_by(|a, b| a.total_cmp(b));
+        v.windows(2).any(|w| w[0] == w[1])
+    };
+    Ok(tied(numbers(d, column(b, RoleName::X)?, rows)?) || tied(numbers(d, column(b, RoleName::Y)?, rows)?))
 }
 
 fn constant(xs: &[f64]) -> bool {

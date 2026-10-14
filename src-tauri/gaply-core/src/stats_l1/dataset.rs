@@ -298,6 +298,30 @@ pub enum DatasetIssue {
     OverlongRows { rows: usize },
 }
 
+/// Why a file did not become a dataset. No path, no name, no parser text.
+/// Moved from the app crate's `stats_l1_ingest` in Phase 2, Step 4, so a
+/// Level 1 verdict can carry it; the app crate re-exports it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum L1IngestRefusal {
+    /// The file could not be stat'ed or read.
+    NotReadable,
+    /// Over `import_guard`'s byte ceiling or the ingest's own size cap.
+    TooLarge { bytes: u64, limit: u64 },
+    /// Not a format the ingest turns into a table.
+    UnsupportedFormat,
+    /// The parser could not read the file.
+    Malformed,
+    /// The file parsed and holds no table.
+    NoTable,
+    /// More rows than the ingest cap. Level 1 does not compute on a
+    /// truncated table.
+    FileTooLarge { limit_rows: usize },
+    /// The bytes changed between the hash and the parse.
+    FileChangedWhileReading,
+    /// The parsed table could not become a schema.
+    Dataset(DatasetRefusal),
+}
+
 /// Why no schema was built at all.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DatasetRefusal {

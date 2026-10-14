@@ -17,6 +17,7 @@ use super::dataset::Dataset;
 use super::propose::{propose_local, LocalProposal};
 use super::token::{ConfirmationToken, RevokedBecause, TokenRecord, TokenRejection, TokenStore};
 use super::ENGINE_VERSION;
+use crate::stats_l0::input::DocumentContext;
 use crate::stats_l0::number::NumberNotRead;
 
 /// Why a token did not open the gate.
@@ -59,6 +60,9 @@ pub struct L1RunState {
     next_proposal: u32,
     confirmed: Vec<(ConfirmedBinding, ConfirmationToken)>,
     tokens: TokenStore,
+    /// The manuscript's alpha, one-tailed and correction mentions (Level 0's
+    /// own reading), for comparing p. `None` for claims entered by hand.
+    context: Option<DocumentContext>,
 }
 
 impl L1RunState {
@@ -95,6 +99,16 @@ impl L1RunState {
 
     pub fn claims(&self) -> &[L1Claim] {
         &self.claims
+    }
+
+    /// The manuscript's context, read by Level 0 (`DocumentContext::read`).
+    /// Phase 2, Step 4: Level 1 compares p with it.
+    pub fn set_context(&mut self, context: DocumentContext) {
+        self.context = Some(context);
+    }
+
+    pub fn context(&self) -> Option<&DocumentContext> {
+        self.context.as_ref()
     }
 
     pub fn claim(&self, id: ClaimId) -> Option<&L1Claim> {
@@ -269,11 +283,6 @@ pub enum EditError {
     Number(NumberNotRead),
 }
 
-/// What Step 4 will replace: a stub that proves nothing reaches it without a
-/// live token. It computes nothing.
-pub fn compute_stub(state: &L1RunState, token: &ConfirmationToken, claim: ClaimId) -> Result<&'static str, GateRejection> {
-    state.gate(token, claim).map(|_| "reached the compute stub")
-}
 
 #[cfg(test)]
 mod tests {
@@ -341,9 +350,9 @@ mod tests {
         let (b, token) = s.confirm(ids[0]).unwrap();
         assert_eq!(b.claim(), ClaimId(0));
         assert!(matches!(b.source(), ProposalSource::Local { .. }));
-        assert_eq!(compute_stub(&s, &token, ClaimId(0)), Ok("reached the compute stub"));
+        assert_eq!(s.gate(&token, ClaimId(0)).map(|_| ()), Ok(()));
         // The same token for the other claim.
-        assert_eq!(compute_stub(&s, &token, ClaimId(1)), Err(GateRejection::ClaimMismatch));
+        assert_eq!(s.gate(&token, ClaimId(1)).map(|_| ()), Err(GateRejection::ClaimMismatch));
         assert_eq!(s.live_tokens(), 1);
     }
 
@@ -354,7 +363,7 @@ mod tests {
         assert!(s.proposal(id).is_some());
         assert_eq!(s.live_tokens(), 0, "proposing issues nothing");
         for forged in ["", "0", &"f".repeat(64), "ConfirmationToken(…)"] {
-            assert_eq!(compute_stub(&s, &ConfirmationToken::presented(forged), ClaimId(0)), Err(GateRejection::Unknown));
+            assert_eq!(s.gate(&ConfirmationToken::presented(forged), ClaimId(0)).map(|_| ()), Err(GateRejection::Unknown));
         }
         // Confirming an id that was never proposed.
         assert_eq!(s.confirm(ProposalId(99)).unwrap_err(), ConfirmError::UnknownProposal);
@@ -373,8 +382,8 @@ mod tests {
         assert_ne!(new_rev, before[1]);
         assert_eq!(s.claims()[0].revision, before[0], "the earlier claim's revision is unchanged");
         assert!(matches!(s.claims()[1].origin, ClaimOrigin::UserEdited { ref from } if *from == before[1]));
-        assert_eq!(compute_stub(&s, &ta, ClaimId(0)), Ok("reached the compute stub"), "the earlier claim's token lives");
-        assert_eq!(compute_stub(&s, &tb, ClaimId(1)), Err(GateRejection::Revoked(RevokedBecause::ClaimRevised)));
+        assert_eq!(s.gate(&ta, ClaimId(0)).map(|_| ()), Ok(()), "the earlier claim's token lives");
+        assert_eq!(s.gate(&tb, ClaimId(1)).map(|_| ()), Err(GateRejection::Revoked(RevokedBecause::ClaimRevised)));
         assert!(s.proposals().iter().all(|p| p.claim != ClaimId(1)));
         // A proposal made for the old revision cannot be confirmed later.
         let mut s2 = state();
@@ -404,9 +413,9 @@ mod tests {
         let mut s = state();
         let id = s.add_proposal(ClaimId(0), t_draft(), ProposalSource::Manual { edited_from: None }).unwrap();
         let (_, token) = s.confirm(id).unwrap();
-        assert!(compute_stub(&s, &token, ClaimId(0)).is_ok());
+        assert!(s.gate(&token, ClaimId(0)).is_ok());
         s.load_dataset(dataset(b"v2"));
-        assert_eq!(compute_stub(&s, &token, ClaimId(0)), Err(GateRejection::Revoked(RevokedBecause::DatasetReplaced)));
+        assert_eq!(s.gate(&token, ClaimId(0)).map(|_| ()), Err(GateRejection::Revoked(RevokedBecause::DatasetReplaced)));
         assert_eq!(s.live_tokens(), 0);
         assert!(s.proposals().is_empty());
     }
@@ -437,7 +446,7 @@ mod tests {
         let id = s.add_proposal(ClaimId(0), t_draft(), ProposalSource::Manual { edited_from: None }).unwrap();
         let (_, token) = s.confirm(id).unwrap();
         assert!(s.withdraw(&token));
-        assert_eq!(compute_stub(&s, &token, ClaimId(0)), Err(GateRejection::Revoked(RevokedBecause::Withdrawn)));
+        assert_eq!(s.gate(&token, ClaimId(0)).map(|_| ()), Err(GateRejection::Revoked(RevokedBecause::Withdrawn)));
         assert!(!s.withdraw(&token));
     }
 

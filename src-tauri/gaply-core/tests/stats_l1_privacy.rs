@@ -24,7 +24,9 @@ use gaply_core::stats_l1::binding::{BindingDraft, OlsTarget, ProposalSource, Tra
 use gaply_core::stats_l1::catalogue::{L1MethodId, RoleName, VariantChoice, VariantKind};
 use gaply_core::stats_l1::claim::{ClaimId, ClaimLocation, ClaimOrigin, L1Claim, UserClaim, UserP};
 use gaply_core::stats_l1::dataset::{build_dataset, ColumnAlias, DataFingerprint, RawTable, RawVariable, TableRef};
-use gaply_core::stats_l1::run_state::{compute_stub, L1RunState};
+use gaply_core::stats_l1::compute::compute;
+use gaply_core::stats_l1::reproduce::reproduce;
+use gaply_core::stats_l1::run_state::L1RunState;
 use gaply_core::stats_l1::token::ConfirmationToken;
 
 const CELL: &str = "CELL_SECRET_7d9";
@@ -132,9 +134,14 @@ fn run_flow() -> Vec<String> {
     let (confirmed, token) = s.confirm(id).unwrap();
     assert_eq!(confirmed.counts().rows_filtered_out, 1, "{:?}", confirmed.counts());
     out.push(format!("{token:?}"));
-    out.push(format!("{:?}", compute_stub(&s, &token, ClaimId(0))));
-    out.push(format!("{:?}", compute_stub(&s, &token, ClaimId(1))));
-    out.push(format!("{:?}", compute_stub(&s, &ConfirmationToken::presented("forged"), ClaimId(0))));
+    // The computation and the whole Level 1 outcome (Phase 2, Step 4; they
+    // replaced Step 2's compute stub), on the data read again.
+    let reread = s.dataset().expect("loaded").clone();
+    out.push(format!("{:?}", compute(&s, &token, ClaimId(0), &reread)));
+    out.push(format!("{:?}", compute(&s, &token, ClaimId(1), &reread)));
+    out.push(format!("{:?}", compute(&s, &ConfirmationToken::presented("forged"), ClaimId(0), &reread)));
+    let revision = s.claim(ClaimId(0)).expect("claim").revision.clone();
+    out.push(format!("{:?}", reproduce(&s, &[(revision, token.clone())], || Ok(reread.clone()))));
 
     // Every rejection a draft can draw, each as an error string.
     let t = || BindingDraft::new(L1MethodId::IndependentT, VariantChoice::not_stated(VariantKind::T));
@@ -165,7 +172,7 @@ fn run_flow() -> Vec<String> {
         sentence: Some(LEVEL),
     };
     out.push(format!("{:?}", s.edit_claim(ClaimId(0), &edited).map(|r| r.as_str().len())));
-    out.push(format!("{:?}", compute_stub(&s, &token, ClaimId(0))));
+    out.push(format!("{:?}", compute(&s, &token, ClaimId(0), &reread)));
     out.push(format!("{:?}", s.propose_local(ClaimId(7))));
     out.push(format!("{:?}", s.edit_claim(ClaimId(7), &edited)));
     out
