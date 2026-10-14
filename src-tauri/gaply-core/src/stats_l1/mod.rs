@@ -37,6 +37,7 @@ pub mod claim;
 pub mod codes;
 pub mod compute;
 pub mod dataset;
+pub mod precision;
 pub mod propose;
 pub mod reproduce;
 pub mod run_state;

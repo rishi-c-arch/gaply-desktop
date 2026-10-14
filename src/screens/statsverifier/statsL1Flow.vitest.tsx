@@ -97,9 +97,9 @@ function reproduction(tokens: string[]): ReproductionView {
       variant: { code: 'not_stated' }, variantSetBy: { code: 'not_stated' },
       verdict: { kind: 'reproduced', notes: [{ code: 'variant_matched', variant: 'student_pooled' }] },
       notes: [],
-      candidates: [{ variant: { code: 'student_pooled' }, numbers: [
-        { kind: { code: 'statistic' }, printed: '2.10', relation: '=', computed: 2.1034, acceptedLo: 2.095, acceptedHi: 2.105, status: { code: 'matched' } },
-        { kind: { code: 'p' }, printed: '.042', relation: '=', computed: 0.04221, acceptedLo: 0.0415, acceptedHi: 0.0425, status: { code: 'matched' } },
+      candidates: [{ variant: { code: 'student_pooled' }, storedDecimals: 2, numbers: [
+        { kind: { code: 'statistic' }, printed: '2.10', relation: '=', computed: 2.1034, acceptedLo: 2.095, acceptedHi: 2.105, status: { code: 'matched' }, precisionLo: 2.071, precisionHi: 2.1358 },
+        { kind: { code: 'p' }, printed: '.042', relation: '=', computed: 0.04221, acceptedLo: 0.0415, acceptedHi: 0.0425, status: { code: 'matched' }, precisionLo: null, precisionHi: null },
       ] }],
       nUsed: 36, rowsRead: 40, exclusions: [{ reason: { code: 'missing_in_bound_column' }, rows: 4 }],
       provenance: { methodId: 'independent_t', reference: null, methodVersion: '1', engineVersion: 'stats_l1 engine 1', inputsDigest: 'ab'.repeat(32), bindingSource: { code: 'local', reason: 'header_matches_sentence' }, variantSetBy: { code: 'not_stated' } },
@@ -133,11 +133,12 @@ interface Fake extends StatsL1Bridge {
 // reader can mistake it for a real OpenAI key.
 const FAKE_KEY = 'KEY_SECRET_a1b2';
 
-function fakeBridge(opts: { settings?: Partial<AiSettings>; replies?: Partial<Record<HelperTaskInput['task'], L1HelperResultView>>; extraProposals?: L1ProposalView[] } = {}): Fake {
+function fakeBridge(opts: { settings?: Partial<AiSettings>; replies?: Partial<Record<HelperTaskInput['task'], L1HelperResultView>>; extraProposals?: L1ProposalView[]; schemaIssues?: L1OpenView['schema']['issues'] } = {}): Fake {
   const calls: Array<[string, unknown]> = [];
   const sent: Array<{ task: string; body: string }> = [];
   const previews = new Map<number, L1PreviewView>();
   const v = openView();
+  if (opts.schemaIssues) v.schema.issues = opts.schemaIssues;
   let proposals = [...v.proposals];
   const claimOf = new Map<number, number>(proposals.map((p) => [p.proposal.id, p.claimId]));
   let next = 100;
@@ -263,6 +264,14 @@ describe('Level 1: the add screen', () => {
     expect(summary).toMatch(/2 claims read, 3 columns/);
     expect(b.names().filter((n) => n.startsWith('helper'))).toEqual([]);
     expect(b.calls.find(([n]) => n === 'open')?.[1]).toEqual({ manuscript: 'paper.docx', data: 'trial.csv' });
+  });
+
+  it('a data file that looks semicolon-separated says so and asks for a comma-separated file or .xlsx', async () => {
+    const b = fakeBridge({ schemaIssues: [{ code: 'looks_separated_by', separator: 'semicolon' }] });
+    await openBoth(b);
+    expect(screen.getByTestId('l1-dataset-issues').textContent).toBe(
+      'The data file looks semicolon-separated, so it was read as one column. Save it as a comma-separated file or as .xlsx and open that.'
+    );
   });
 
   it('review shows the sentence, the parsed values and the Level 0 verdict', async () => {
@@ -528,6 +537,10 @@ describe('Level 1: results', () => {
     expect(within(card).getByTestId('l1-result-0-verdict').textContent).toBe('Reproduced');
     const rows = within(card).getAllByRole('row');
     expect(rows[1].textContent).toMatch(/the test statistic.*2\.10.*2\.1034.*Matches\./);
+    // Step 8b, rule 1: the range the stored cells' rounding allows sits
+    // beside the computed value; a zero range shows nothing.
+    expect(rows[1].textContent).toContain('2.1034 (the file stores 2 decimals: 2.071 to 2.1358)');
+    expect(rows[2].textContent).not.toContain('the file stores');
     expect(within(card).getByTestId('l1-result-0-n').textContent).toMatch(/n used: 36 of 40 rows read\. 4 rows left out: a missing value in a chosen column\./);
     expect(within(card).getByTestId('l1-result-0-notes').textContent).toMatch(/Matched as Student's t-test \(pooled variance\)\./);
     expect(within(card).getByTestId('l1-result-0-provenance').textContent).toMatch(/Engine: stats_l1 engine 1/);

@@ -47,11 +47,19 @@
 //!
 //! No value is rounded anywhere here. Nothing here derives `Serialize`: a
 //! computed statistic is a statistic of the data and stays on the device.
+//!
+//! # The file's own precision (Step 8b)
+//!
+//! Every result also carries a [`Precision`]: how far the rounding of the
+//! cells as stored could move it ([`super::precision`]). Exact when every
+//! bound numeric column holds whole numbers (or none is bound, as for a
+//! contingency table of counts).
 
 use super::binding::{passes_filters, ConfirmedBinding};
 use super::catalogue::{L1MethodId, RoleName};
 use super::claim::ClaimId;
 use super::dataset::{Cell, ColumnAlias, Dataset, DatasetIssue};
+use super::precision::{self, Stored};
 use super::run_state::{GateRejection, L1RunState};
 use super::token::ConfirmationToken;
 use super::ENGINE_VERSION;
@@ -255,6 +263,78 @@ pub struct ComputedResult {
     pub p: f64,
     pub tail: Tail,
     pub n: usize,
+    /// How far the stored cells' rounding could move this result.
+    pub precision: Precision,
+}
+
+/// How far the rounding of the bound cells as stored could move a result
+/// (Step 8b, rule 1). First order, worst case: `[S - b, S + b]`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Precision {
+    /// Every bound numeric cell is a whole number, no numeric cell is bound,
+    /// or (Spearman) rounding cannot reorder or tie a value.
+    Exact,
+    /// The cells are stored to `decimals` (the most of any bound column).
+    Range {
+        decimals: u32,
+        statistic: (f64, f64),
+        /// Welch's df only.
+        df: Option<(f64, f64)>,
+        /// From the ends of the statistic (and df) range, with Level 0's
+        /// p engine.
+        p: (f64, f64),
+    },
+    /// Spearman: rounding could reorder or tie values, so rho has no
+    /// first-order range; any miss is not checked.
+    Unbounded { decimals: u32 },
+}
+
+/// The stored decimals of a bound numeric column, over all of its cells.
+fn stored_decimals(d: &Dataset, alias: ColumnAlias) -> Result<u32, L1Refusal> {
+    Ok(precision::column_decimals(cells(d, alias)?.iter().filter_map(|c| match c {
+        Cell::Number(v) if v.is_finite() => Some(*v),
+        _ => None,
+    })))
+}
+
+/// A t's range, two-sided p from its ends; `df` is `(df, df)` unless Welch.
+fn t_precision(t: f64, df: (f64, f64), b: f64, decimals: u32) -> Precision {
+    if decimals == 0 || (b == 0.0 && df.0 == df.1) {
+        return Precision::Exact;
+    }
+    let (lo, hi) = ((t.abs() - b).max(0.0), t.abs() + b);
+    let df_lo = df.0.max(f64::MIN_POSITIVE);
+    let p = |tt: f64, dd: f64| pvalue::t_two_tailed(tt, dd).unwrap_or(f64::NAN);
+    let (p_lo, p_hi) = (p(hi, df.1), p(lo, df_lo));
+    Precision::Range {
+        decimals,
+        statistic: (t - b, t + b),
+        df: (df.0 != df.1).then_some(df),
+        p: (p_lo.min(p_hi), p_lo.max(p_hi)),
+    }
+}
+
+/// An F's range, upper-tail p from its ends.
+fn f_precision(f: f64, df1: f64, df2: f64, b: f64, decimals: u32) -> Precision {
+    if decimals == 0 || b == 0.0 {
+        return Precision::Exact;
+    }
+    let (lo, hi) = ((f - b).max(0.0), f + b);
+    let p = |x: f64| pvalue::f_upper(x, df1, df2).unwrap_or(f64::NAN);
+    let (p_lo, p_hi) = (p(hi), if lo == 0.0 { 1.0 } else { p(lo) });
+    Precision::Range { decimals, statistic: (f - b, f + b), df: None, p: (p_lo.min(p_hi), p_lo.max(p_hi)) }
+}
+
+/// An r's range, inside [-1, 1], two-sided p from its ends.
+fn r_precision(r: f64, df: f64, b: f64, decimals: u32) -> Precision {
+    if decimals == 0 || b == 0.0 {
+        return Precision::Exact;
+    }
+    let (lo, hi) = ((r - b).max(-1.0), (r + b).min(1.0));
+    let (alo, ahi) = if lo <= 0.0 && hi >= 0.0 { (0.0, lo.abs().max(hi.abs())) } else { (lo.abs().min(hi.abs()), lo.abs().max(hi.abs())) };
+    let p = |x: f64| if x >= 1.0 { 0.0 } else { pvalue::r_two_tailed(x, df).unwrap_or(f64::NAN) };
+    let (p_lo, p_hi) = (p(ahi), p(alo));
+    Precision::Range { decimals, statistic: (lo, hi), df: None, p: (p_lo.min(p_hi), p_lo.max(p_hi)) }
 }
 
 /// Everything one computation produced. Local only.
@@ -448,7 +528,7 @@ fn check_groups(samples: &[Vec<f64>], minimum: usize) -> Result<(), L1Refusal> {
  *  Adapters
  * ------------------------------------------------------------------------ */
 
-fn t_result(variant: ComputedVariant, t: &stats_verify::TTestResult, n: usize) -> Result<ComputedResult, L1Refusal> {
+fn t_result(variant: ComputedVariant, t: &stats_verify::TTestResult, n: usize, precision: Precision) -> Result<ComputedResult, L1Refusal> {
     Ok(ComputedResult {
         variant,
         statistic: StatisticKind::T,
@@ -458,6 +538,7 @@ fn t_result(variant: ComputedVariant, t: &stats_verify::TTestResult, n: usize) -
         p: finite_p(pvalue::t_two_tailed(t.t, t.df))?,
         tail: Tail::TwoSided,
         n,
+        precision,
     })
 }
 
@@ -479,12 +560,21 @@ fn independent_t(b: &ConfirmedBinding, d: &Dataset, rows: &[usize]) -> Result<Ve
     // left is a range fault or its own zero-variance test.
     let student = stats_verify::t_test_student(a, c).map_err(|e| refused(e, L1Refusal::ZeroVariance))?;
     let welch = stats_verify::t_test_welch(a, c).map_err(|e| refused(e, L1Refusal::ZeroVariance))?;
-    Ok(vec![t_result(ComputedVariant::StudentPooled, &student, n)?, t_result(ComputedVariant::Welch, &welch, n)?])
+    let decimals = stored_decimals(d, outcome)?;
+    let delta = precision::half_unit(decimals);
+    let student_p = t_precision(student.t, (student.df, student.df), precision::student_t_bound(a, c, delta), decimals);
+    let (bt, bdf) = precision::welch_bounds(a, c, delta);
+    let welch_p = t_precision(welch.t, (welch.df - bdf, welch.df + bdf), bt, decimals);
+    Ok(vec![
+        t_result(ComputedVariant::StudentPooled, &student, n, student_p)?,
+        t_result(ComputedVariant::Welch, &welch, n, welch_p)?,
+    ])
 }
 
 fn paired_t(b: &ConfirmedBinding, d: &Dataset, rows: &[usize]) -> Result<Vec<ComputedResult>, L1Refusal> {
-    let first = numbers(d, column(b, RoleName::First)?, rows)?;
-    let second = numbers(d, column(b, RoleName::Second)?, rows)?;
+    let (first_col, second_col) = (column(b, RoleName::First)?, column(b, RoleName::Second)?);
+    let first = numbers(d, first_col, rows)?;
+    let second = numbers(d, second_col, rows)?;
     if first.len() < 2 {
         return Err(L1Refusal::TooFewCompleteCases { n: first.len(), minimum: 2 });
     }
@@ -495,7 +585,12 @@ fn paired_t(b: &ConfirmedBinding, d: &Dataset, rows: &[usize]) -> Result<Vec<Com
         return Err(L1Refusal::ZeroVariance);
     }
     let t = stats_verify::t_test_paired(&first, &second).map_err(|e| refused(e, L1Refusal::ZeroVariance))?;
-    Ok(vec![t_result(ComputedVariant::Paired, &t, first.len())?])
+    let (d1, d2) = (stored_decimals(d, first_col)?, stored_decimals(d, second_col)?);
+    let bound = precision::paired_t_bound(
+        Stored { values: &first, delta: precision::half_unit(d1) },
+        Stored { values: &second, delta: precision::half_unit(d2) },
+    );
+    Ok(vec![t_result(ComputedVariant::Paired, &t, first.len(), t_precision(t.t, (t.df, t.df), bound, d1.max(d2)))?])
 }
 
 fn one_way_anova(b: &ConfirmedBinding, d: &Dataset, rows: &[usize]) -> Result<Vec<ComputedResult>, L1Refusal> {
@@ -516,6 +611,9 @@ fn one_way_anova(b: &ConfirmedBinding, d: &Dataset, rows: &[usize]) -> Result<Ve
     }
     let refs: Vec<&[f64]> = samples.iter().map(Vec::as_slice).collect();
     let a = stats_verify::one_way_anova(&refs).map_err(|e| refused(e, L1Refusal::ZeroVariance))?;
+    let decimals = stored_decimals(d, outcome)?;
+    let bound = precision::one_way_f_bound(&refs, precision::half_unit(decimals));
+    let precision = f_precision(a.f, a.df_between, a.df_within, bound, decimals);
     Ok(vec![ComputedResult {
         variant: ComputedVariant::OneWay,
         statistic: StatisticKind::F,
@@ -525,6 +623,7 @@ fn one_way_anova(b: &ConfirmedBinding, d: &Dataset, rows: &[usize]) -> Result<Ve
         p: finite_p(pvalue::f_upper(a.f, a.df_between, a.df_within))?,
         tail: Tail::Upper,
         n: y.len(),
+        precision,
     }])
 }
 
@@ -532,8 +631,9 @@ fn one_way_anova(b: &ConfirmedBinding, d: &Dataset, rows: &[usize]) -> Result<Ve
 /// the two-sided p of `t = r √(df / (1 - r²))`. An |r| of 1 has no finite t
 /// and is refused as a non-finite result.
 fn correlation(b: &ConfirmedBinding, d: &Dataset, rows: &[usize], spearman: bool) -> Result<Vec<ComputedResult>, L1Refusal> {
-    let x = numbers(d, column(b, RoleName::X)?, rows)?;
-    let y = numbers(d, column(b, RoleName::Y)?, rows)?;
+    let (x_col, y_col) = (column(b, RoleName::X)?, column(b, RoleName::Y)?);
+    let x = numbers(d, x_col, rows)?;
+    let y = numbers(d, y_col, rows)?;
     if x.len() < 3 {
         return Err(L1Refusal::TooFewCompleteCases { n: x.len(), minimum: 3 });
     }
@@ -546,6 +646,19 @@ fn correlation(b: &ConfirmedBinding, d: &Dataset, rows: &[usize], spearman: bool
         (stats_verify::pearson(&x, &y), ComputedVariant::Pearson, StatisticKind::R)
     };
     let c = c.map_err(|e| refused(e, L1Refusal::ZeroVariance))?;
+    let (dx, dy) = (stored_decimals(d, x_col)?, stored_decimals(d, y_col)?);
+    let sx = Stored { values: &x, delta: precision::half_unit(dx) };
+    let sy = Stored { values: &y, delta: precision::half_unit(dy) };
+    let precision = if spearman {
+        // Ranks move only when rounding could reorder or tie two values.
+        if precision::could_reorder(sx) || precision::could_reorder(sy) {
+            Precision::Unbounded { decimals: dx.max(dy) }
+        } else {
+            Precision::Exact
+        }
+    } else {
+        r_precision(c.coefficient, c.df, precision::pearson_bound(sx, sy), dx.max(dy))
+    };
     Ok(vec![ComputedResult {
         variant,
         statistic,
@@ -555,6 +668,7 @@ fn correlation(b: &ConfirmedBinding, d: &Dataset, rows: &[usize], spearman: bool
         p: finite_p(pvalue::r_two_tailed(c.coefficient, c.df))?,
         tail: Tail::TwoSided,
         n: x.len(),
+        precision,
     }])
 }
 
@@ -593,6 +707,8 @@ fn chi_square(b: &ConfirmedBinding, d: &Dataset, rows: &[usize]) -> Result<Vec<C
             p: finite_p(pvalue::chi_square_upper(r.chi_square, r.df))?,
             tail: Tail::Upper,
             n,
+            // Counts of levels: nothing stored is rounded.
+            precision: Precision::Exact,
         })
     };
     // Every condition chi_square_independence refuses on (shape, negative
@@ -634,6 +750,15 @@ fn ols(b: &ConfirmedBinding, d: &Dataset, rows: &[usize]) -> Result<Vec<Computed
     // tolerance.
     let r = stats_verify::ols_qr(&y, &xs).map_err(|e| refused(e, L1Refusal::SingularDesign))?;
     let n = y.len();
+    let y_dec = stored_decimals(d, column(b, RoleName::Outcome)?)?;
+    let x_dec: Vec<u32> = predictors.iter().map(|&p| stored_decimals(d, p)).collect::<Result<_, _>>()?;
+    let decimals = x_dec.iter().copied().chain([y_dec]).max().unwrap_or(0);
+    let stored_xs: Vec<Stored<'_>> = xs.iter().zip(&x_dec).map(|(v, &dd)| Stored { values: v, delta: precision::half_unit(dd) }).collect();
+    let beta: Vec<f64> = r.coefficients.iter().map(|c| c.estimate).collect();
+    // A design that cannot be inverted here, though QR fitted it, gives no
+    // first-order range: any miss is then not checked.
+    let bounds = precision::ols_bounds(Stored { values: &y, delta: precision::half_unit(y_dec) }, &stored_xs, &beta);
+    let unbounded = || if decimals == 0 { Precision::Exact } else { Precision::Unbounded { decimals } };
     let mut out = vec![ComputedResult {
         variant: ComputedVariant::OlsOverallF,
         statistic: StatisticKind::F,
@@ -643,6 +768,10 @@ fn ols(b: &ConfirmedBinding, d: &Dataset, rows: &[usize]) -> Result<Vec<Computed
         p: finite_p(pvalue::f_upper(r.f_statistic, r.df_model, r.df_residual))?,
         tail: Tail::Upper,
         n,
+        precision: match &bounds {
+            Some((bf, _)) => f_precision(r.f_statistic, r.df_model, r.df_residual, *bf, decimals),
+            None => unbounded(),
+        },
     }];
     for (i, coef) in r.coefficients.iter().enumerate() {
         let term = if i == 0 { OlsTerm::Intercept } else { OlsTerm::Predictor(predictors[i - 1]) };
@@ -655,6 +784,10 @@ fn ols(b: &ConfirmedBinding, d: &Dataset, rows: &[usize]) -> Result<Vec<Computed
             p: finite_p(pvalue::t_two_tailed(coef.t, r.df_residual))?,
             tail: Tail::TwoSided,
             n,
+            precision: match &bounds {
+                Some((_, bt)) => t_precision(coef.t, (r.df_residual, r.df_residual), bt[i], decimals),
+                None => unbounded(),
+            },
         });
     }
     Ok(out)

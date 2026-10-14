@@ -130,6 +130,8 @@ pub enum L1VerdictView {
 pub struct CandidateView {
     pub variant: WireCode,
     pub numbers: Vec<NumberView>,
+    /// The decimals the bound cells are stored to, when not exact (Step 8b).
+    pub stored_decimals: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
@@ -145,6 +147,10 @@ pub struct NumberView {
     pub accepted_lo: Option<f64>,
     pub accepted_hi: Option<f64>,
     pub status: WireCode,
+    /// What the stored cells' rounding could make the computed value, when
+    /// that range is not zero (Step 8b, rule 1).
+    pub precision_lo: Option<f64>,
+    pub precision_hi: Option<f64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
@@ -200,11 +206,17 @@ fn number_view(n: &NumberComparison) -> NumberView {
         accepted_lo: finite(n.accepted.0),
         accepted_hi: finite(n.accepted.1),
         status: codes::number_status(n.status),
+        precision_lo: n.precision.filter(|(lo, hi)| hi > lo).and_then(|(lo, _)| finite(lo)),
+        precision_hi: n.precision.filter(|(lo, hi)| hi > lo).and_then(|(_, hi)| finite(hi)),
     }
 }
 
 fn candidate_view(c: &CandidateComparison) -> CandidateView {
-    CandidateView { variant: codes::computed_variant(c.variant), numbers: c.numbers.iter().map(number_view).collect() }
+    CandidateView {
+        variant: codes::computed_variant(c.variant),
+        numbers: c.numbers.iter().map(number_view).collect(),
+        stored_decimals: c.stored_decimals,
+    }
 }
 
 fn counts_view(counts: Option<&InputCounts>) -> (Option<usize>, Option<usize>, Vec<ExclusionView>) {

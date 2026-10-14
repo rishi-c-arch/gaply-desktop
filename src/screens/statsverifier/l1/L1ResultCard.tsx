@@ -33,6 +33,13 @@ export function shown(v: number): string {
   return String(Number(v.toPrecision(6)));
 }
 
+/** "(the file stores 2 decimals: 1.89 to 1.95)" beside a computed value
+ *  whose stored cells' rounding gives it a range (Step 8b). */
+export function storedRange(n: L1NumberView, decimals: number | null): string {
+  if (n.precisionLo === null || n.precisionHi === null || decimals === null) return '';
+  return ` (the file stores ${decimals} ${decimals === 1 ? 'decimal' : 'decimals'}: ${shown(n.precisionLo)} to ${shown(n.precisionHi)})`;
+}
+
 function accepted(n: L1NumberView): string {
   if (n.acceptedLo === null && n.acceptedHi === null) return '';
   const lo = n.acceptedLo === null ? '…' : shown(n.acceptedLo);
@@ -138,6 +145,7 @@ export const L1ResultCard: React.FC<L1ResultCardProps> = ({ bridge, run, claim, 
                 <td style={{ paddingRight: 12 }} className="gds-mono">{n.relation === '=' ? n.printed : `${n.relation} ${n.printed}`}</td>
                 <td style={{ paddingRight: 12 }} className="gds-mono" data-testid={`${id}-computed`}>
                   {shown(n.computed)}
+                  {storedRange(n, cand.storedDecimals)}
                   {accepted(n)}
                 </td>
                 <td>{sentenceFor(n.status, ctx)}</td>

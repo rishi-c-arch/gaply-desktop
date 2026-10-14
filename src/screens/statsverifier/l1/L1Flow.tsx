@@ -42,6 +42,7 @@ import { L1Settings, L1UsageLine } from './L1Settings';
 import {
   COLUMN_TYPE_NAMES,
   dataReadPhrase,
+  datasetIssueSentence,
   FAMILY_SYMBOL,
   level0Phrase,
   METHOD_NAMES,
@@ -545,6 +546,13 @@ export const L1Flow: React.FC<L1FlowProps> = ({ bridge, onExit }) => {
           {claims.length === 1 ? 'claim' : 'claims'} read, {view.schema.columns.length} {view.schema.columns.length === 1 ? 'column' : 'columns'}, {view.schema.rows} rows.
           {view.notLocated > 0 ? ` ${view.notLocated} more results could not be placed in a sentence and are not listed.` : ''}
         </p>
+      )}
+      {view && stage !== 'add' && view.schema.issues.length > 0 && (
+        <ul data-testid="l1-dataset-issues" style={{ margin: 0 }}>
+          {view.schema.issues.map((c, i) => (
+            <li key={i}>{datasetIssueSentence(c)}</li>
+          ))}
+        </ul>
       )}
 
       {stage === 'claims' && view && (

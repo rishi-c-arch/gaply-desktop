@@ -41,7 +41,7 @@ use std::path::Path;
 use gaply_core::extract::docparse::DocumentShape;
 use gaply_core::import_guard::{self, EstimateBasis};
 use gaply_core::stats_l1::dataset::{
-    build_dataset, DataFingerprint, Dataset, RawTable, RawVariable, SourceMetadata, TableRef,
+    build_dataset, DataFingerprint, Dataset, DatasetRefusal, RawTable, RawVariable, SourceMetadata, TableRef,
 };
 
 use gaply_core::stats_l1::claim::ClaimId;
@@ -88,6 +88,11 @@ pub fn load_dataset(path: &Path) -> Result<Dataset, L1IngestRefusal> {
     let evidence = supplementary::parse_supplementary(path).map_err(|_| {
         if supplementary::exceeds_row_cap(path).unwrap_or(false) {
             L1IngestRefusal::FileTooLarge { limit_rows: MAX_ROWS }
+        } else if let Ok(Some(columns)) = supplementary::exceeds_col_cap(path) {
+            // Step 8b, section 4's finding 1: too wide, not malformed.
+            L1IngestRefusal::Dataset(DatasetRefusal::TooWide { columns, limit: supplementary::MAX_COLS })
+        } else if supplementary::xls_not_compound_document(path) {
+            L1IngestRefusal::XlsNotReadable
         } else {
             L1IngestRefusal::Malformed
         }

@@ -13,6 +13,7 @@
   "conclusion_not_assessed",
   "continuity_correction",
   "continuity_does_not_apply",
+  "data_precision",
   "data_unreadable",
   "dataset",
   "dataset_replaced",
@@ -91,6 +92,7 @@
   "pearson",
   "predictor",
   "printed_out_of_range",
+  "printed_truncated",
   "refused",
   "result",
   "revoked",
@@ -113,6 +115,8 @@
   "too_few_complete_cases",
   "too_large",
   "too_wide",
+  "truncated",
+  "truncated_in_magnitude",
   "underflow",
   "uninformative",
   "unknown_token",
@@ -124,5 +128,6 @@
   "weighted_file",
   "welch",
   "withdrawn",
+  "xls_not_readable",
   "zero_variance"
 ]

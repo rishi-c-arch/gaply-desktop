@@ -94,6 +94,9 @@ export const WORDS: Record<string, Words> = {
     return number ? `${lead(w(number))} was not compared: ${why}.` : `Not compared: ${why}.`;
   },
   in_magnitude: () => 'Matched in magnitude; the sign was not compared.',
+  truncated: () => 'Matched once the computed value is cut off at the printed decimals rather than rounded.',
+  truncated_in_magnitude: () =>
+    'Matched in magnitude once the computed value is cut off at the printed decimals rather than rounded; the sign was not compared.',
   df_truncated: (c) => `${lead(dfName(c))} match once the computed value is truncated.`,
   df_rounded: (c) => `${lead(dfName(c))} match once the computed value is rounded.`,
   p_note: (c, w) => w(nested(c, 'note')),
@@ -104,6 +107,8 @@ export const WORDS: Record<string, Words> = {
   p_concern: (c, w) => `The p raises a concern: ${tail(w(nested(c, 'reason')))}.`,
   p_could_not_check: (c, w) => `The p could not be checked: ${tail(w(nested(c, 'reason')))}.`,
   spearman_exact_p_not_computed: () => "Gaply does not compute Spearman's exact p, so the printed p was not compared.",
+  data_precision: (c) =>
+    `The data file stores ${plural(num(c, 'decimals'), 'decimal', 'decimals')}, and that rounding alone could explain the difference, so this was not decided.`,
 
   /* ---- what was computed (names) ----------------------------------------- */
   student_pooled: () => "Student's t-test (pooled variance)",
@@ -128,6 +133,7 @@ export const WORDS: Record<string, Words> = {
   /* ---- Level 1's notes --------------------------------------------------- */
   variant_matched: (c, w) => `Matched as ${w(nested(c, 'variant'))}.`,
   sign_compared_in_magnitude: () => 'The statistic was compared in magnitude, because its sign depends on the order of the groups.',
+  printed_truncated: (c, w) => `${lead(w(nested(c, 'number')))} is printed cut off at its decimals rather than rounded.`,
   continuity_does_not_apply: () => 'A continuity correction applies only to a 2 by 2 table, so it was not used.',
   conclusion_not_assessed: (c, w) => w(nested(c, 'gap')),
 
@@ -179,6 +185,8 @@ export const WORDS: Record<string, Words> = {
   file_too_large: (c) =>
     `The file has more than ${num(c, 'limit_rows') ?? '?'} rows, and Level 1 never computes on part of a file.`,
   file_changed_while_reading: () => 'The data file changed while it was being read.',
+  xls_not_readable: () =>
+    'This .xls file is in a format Level 1 cannot read, such as an older Excel version. Save it as .xlsx and open that.',
   dataset: (c, w) => w(nested(c, 'refusal')),
 
   /* ---- why a claim could not be checked ---------------------------------- */
@@ -460,6 +468,28 @@ export function refusalSentence(e: unknown, ctx: WordContext = NO_COLUMNS): stri
       return 'That link is not on the list of sources Gaply opens, so it was not opened.';
     default:
       return `Refused: ${c.code}.`;
+  }
+}
+
+/** One sentence for a dataset-level issue the open view carries
+ *  (`stats_l1_commands.rs`'s `dataset_issue_code`). Command codes, kept apart
+ *  from the shared result code set like `REFUSALS`. */
+export function datasetIssueSentence(c: WireCode): string {
+  switch (c.code) {
+    case 'looks_separated_by': {
+      const sep = nested(c, 'separator')?.code === 'tab' ? 'tab' : 'semicolon';
+      return `The data file looks ${sep}-separated, so it was read as one column. Save it as a comma-separated file or as .xlsx and open that.`;
+    }
+    case 'weight_variable_declared':
+      return 'The file declares a weight variable; Level 1 does not compute weighted results, so claims on it cannot be checked.';
+    case 'weight_variable_unknown':
+      return 'The file declares a weight variable that is not among its columns; Level 1 does not compute weighted results.';
+    case 'source_metadata_not_known':
+      return "The file's variable information could not be read.";
+    case 'overlong_rows':
+      return `${plural(num(c, 'rows'), 'row is', 'rows are')} longer than the header; the extra cells were left out.`;
+    default:
+      return `Data file note: ${c.code}.`;
   }
 }
 

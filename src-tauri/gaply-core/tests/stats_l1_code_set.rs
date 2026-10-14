@@ -75,7 +75,7 @@ fn every_code() -> Vec<WireCode> {
     for k in [NumberKind::Statistic, NumberKind::Df { index: 0 }, NumberKind::P, NumberKind::N { source: NSource::Stated }, NumberKind::N { source: NSource::ImpliedByDf }] {
         all.push(codes::number_kind(k));
     }
-    for n in [MatchNote::InMagnitude, MatchNote::DfTruncated, MatchNote::DfRounded, MatchNote::P(CheckNote::OneTailedStated)] {
+    for n in [MatchNote::InMagnitude, MatchNote::DfTruncated, MatchNote::DfRounded, MatchNote::P(CheckNote::OneTailedStated), MatchNote::Truncated, MatchNote::TruncatedInMagnitude] {
         all.push(codes::match_note(n));
     }
     let not_checked = [
@@ -85,6 +85,7 @@ fn every_code() -> Vec<WireCode> {
         NotCheckedReason::PConcern(ConcernReason::OneTailedUnstated),
         NotCheckedReason::PCouldNotCheck(CouldNotCheckReason::InvalidInput),
         NotCheckedReason::SpearmanExactPNotComputed,
+        NotCheckedReason::DataPrecision { decimals: 2 },
     ];
     for r in not_checked {
         all.push(codes::not_checked_reason(r));
@@ -119,6 +120,7 @@ fn every_code() -> Vec<WireCode> {
         L1Note::NotChecked { number: NumberKind::P, why: NotCheckedReason::OneTailedUnstatedOnExactP },
         L1Note::ContinuityDoesNotApply,
         L1Note::ConclusionNotAssessed(ConclusionGap::SeveralAlphas),
+        L1Note::PrintedTruncated { number: NumberKind::P },
     ] {
         all.push(codes::l1_note(n));
     }
@@ -166,6 +168,7 @@ fn every_code() -> Vec<WireCode> {
         L1IngestRefusal::NoTable,
         L1IngestRefusal::FileTooLarge { limit_rows: 5000 },
         L1IngestRefusal::FileChangedWhileReading,
+        L1IngestRefusal::XlsNotReadable,
         L1IngestRefusal::Dataset(DatasetRefusal::TooWide { columns: 200, limit: 128 }),
         L1IngestRefusal::Dataset(DatasetRefusal::NoColumns),
     ];
@@ -182,6 +185,7 @@ fn every_code() -> Vec<WireCode> {
         L1CouldNotCheck::BindingInvalid(BindingGap::DfCountDoesNotFit { printed: 1, expected: 2 }),
         L1CouldNotCheck::StatisticNotCheckable(StatisticGap::PrintedOutOfRange),
         L1CouldNotCheck::StatisticNotCheckable(StatisticGap::NoComputedResult),
+        L1CouldNotCheck::DataPrecision { decimals: 2 },
     ] {
         all.push(codes::l1_could_not_check(r));
     }

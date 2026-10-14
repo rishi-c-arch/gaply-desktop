@@ -296,6 +296,35 @@ pub enum DatasetIssue {
     SourceMetadataNotKnown,
     /// Rows longer than the header: the extra cells were dropped.
     OverlongRows { rows: usize },
+    /// A CSV that read as ONE column whose cells hold `;` or a tab: most
+    /// likely separated by that character (a semicolon CSV, often with
+    /// decimal commas). Not parsed as such: the screen asks for a
+    /// comma-separated file or .xlsx (Step 8b, rule 3).
+    LooksSeparatedBy { separator: Separator },
+}
+
+/// The character a one-column CSV appears to be separated by.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Separator {
+    Semicolon,
+    Tab,
+}
+
+/// Rule 3: a CSV read as one column, whose header and most of whose lines
+/// hold `;` (or failing that a tab). A line is its fields joined with `,`
+/// again: a semicolon file with decimal commas (`-3,55;0,46`) splits at the
+/// commas into overlong rows, and the semicolons are in the line, not in its
+/// first field.
+fn looks_separated(raw: &RawTable, table: &TableRef) -> Option<Separator> {
+    if *table != TableRef::FirstTable || raw.headers.len() != 1 {
+        return None;
+    }
+    let lines: Vec<String> = raw.headers.iter().cloned().chain(raw.rows.iter().map(|r| r.join(","))).collect();
+    let filled: Vec<&str> = lines.iter().map(String::as_str).filter(|c| !c.trim().is_empty()).collect();
+    [(';', Separator::Semicolon), ('\t', Separator::Tab)].into_iter().find_map(|(ch, sep)| {
+        let with = filled.iter().filter(|c| c.contains(ch)).count();
+        (with > 0 && with * 2 >= filled.len()).then_some(sep)
+    })
 }
 
 /// Why a file did not become a dataset. No path, no name, no parser text.
@@ -318,6 +347,10 @@ pub enum L1IngestRefusal {
     FileTooLarge { limit_rows: usize },
     /// The bytes changed between the hash and the parse.
     FileChangedWhileReading,
+    /// A `.xls` that is not a readable compound document: an older Excel
+    /// format (BIFF2 to BIFF5) or a damaged file. The screen asks for .xlsx
+    /// (Step 8b). Told apart by the parser's typed error, never its text.
+    XlsNotReadable,
     /// The parsed table could not become a schema.
     Dataset(DatasetRefusal),
 }
@@ -716,6 +749,9 @@ pub fn build_dataset(raw: RawTable, fingerprint: DataFingerprint) -> Result<Data
     }
 
     let mut issues = Vec::new();
+    if let Some(separator) = looks_separated(&raw, &fingerprint.table) {
+        issues.push(DatasetIssue::LooksSeparatedBy { separator });
+    }
     if long_rows > 0 {
         issues.push(DatasetIssue::OverlongRows { rows: long_rows });
     }

@@ -219,6 +219,59 @@ pub fn exceeds_row_cap(path: &Path) -> Result<bool, GaplyError> {
     }
 }
 
+/// **Level 1 only (Phase 2, Step 8b): the column count of a table wider
+/// than [`MAX_COLS`].** Like [`exceeds_row_cap`], called only after a parse
+/// has FAILED, to tell the column-cap refusal apart without reading the
+/// message. It mirrors the parsers' order: CSV/TSV records are read with the
+/// same settings until the first that is malformed, past the row cap, or
+/// over the column cap; a spreadsheet's first sheet is too tall before it is
+/// too wide. `None` when the table is not too wide, or the parse failed for
+/// another reason first.
+pub fn exceeds_col_cap(path: &Path) -> Result<Option<usize>, GaplyError> {
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+    match ext.as_str() {
+        "csv" | "tsv" => {
+            let file = std::fs::File::open(path)
+                .map_err(|e| GaplyError::Validation(format!("cannot open csv: {e}")))?;
+            let mut rdr = csv::ReaderBuilder::new()
+                .has_headers(false)
+                .flexible(true)
+                .delimiter(if ext == "tsv" { b'\t' } else { b',' })
+                .from_reader(std::io::BufReader::new(file));
+            for (i, rec) in rdr.records().enumerate() {
+                if i >= MAX_ROWS {
+                    return Ok(None);
+                }
+                match rec {
+                    Ok(r) if r.len() > MAX_COLS => return Ok(Some(r.len())),
+                    Ok(_) => {}
+                    Err(_) => return Ok(None),
+                }
+            }
+            Ok(None)
+        }
+        "xlsx" | "xls" | "xlsb" | "ods" | "xlsm" => {
+            use calamine::{open_workbook_auto, Reader};
+            let Ok(mut wb) = open_workbook_auto(path) else { return Ok(None) };
+            let Some(sheet) = wb.sheet_names().first().cloned() else { return Ok(None) };
+            let Ok(range) = wb.worksheet_range(&sheet) else { return Ok(None) };
+            let (height, width) = range.get_size();
+            Ok((height <= MAX_ROWS && width > MAX_COLS).then_some(width))
+        }
+        _ => Ok(None),
+    }
+}
+
+/// **Level 1 only (Phase 2, Step 8b): a `.xls` that is not a readable
+/// compound document**, told apart by the parser's TYPED error
+/// (`XlsError::Cfb`), never its text: an Excel format older than BIFF8
+/// (BIFF2 to BIFF5 workbooks are not compound files) or a damaged file. The
+/// parser's error does not say which, so neither does the refusal.
+pub fn xls_not_compound_document(path: &Path) -> bool {
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+    ext == "xls" && matches!(calamine::open_workbook::<calamine::Xls<_>, _>(path), Err(calamine::XlsError::Cfb(_)))
+}
+
 /// Clamp a cell to [`MAX_CELL_LEN`] chars; returns (clamped, was_clamped).
 fn clamp_cell(s: &str) -> (String, bool) {
     if s.chars().count() <= MAX_CELL_LEN {

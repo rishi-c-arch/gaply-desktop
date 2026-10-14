@@ -29,6 +29,17 @@
 //! them, which the outcome names. Stated: that variant only. A variant Gaply
 //! does not compute is never assumed to match.
 //!
+//! **The file's own precision and truncated prints (Step 8b).** A number
+//! that misses its printed interval is first checked against TRUNCATION: a
+//! printed equality whose digits are the exact value truncated toward zero
+//! is matched, with a note (rule 2; Level 0 has no such rule). Otherwise,
+//! when the result carries a precision range ([`Precision`]) that the
+//! printed interval meets (for p, by Phase 1's comparison over the p range),
+//! the number is not checked, `DataPrecision`: the stored cells' rounding
+//! alone could explain the miss (rule 1). A statistic in that state makes
+//! the claim CouldNotCheck; a p in it leaves a matched claim Reproduced with
+//! the note.
+//!
 //! The outcome never says which number is wrong: it shows each printed number
 //! beside the computed one, with what it had to fall in and a status. No
 //! score, no percentage, no Concern.
@@ -36,7 +47,7 @@
 use super::binding::{ConfirmedBinding, OlsTarget, ProposalReason, ProposalSource};
 use super::catalogue::{ContinuityVariant, L1MethodId, SpearmanPVariant, TVariant, Variant, VariantChoice, VariantSetBy};
 use super::claim::{ClaimId, ClaimLocation, ClaimOrigin, L1Claim, RevisionHash};
-use super::compute::{self, ComputedResult, ComputedVariant, InputCounts, L1Computation, L1Refusal, L1Registry, OlsTerm};
+use super::compute::{self, ComputedResult, ComputedVariant, InputCounts, L1Computation, L1Refusal, L1Registry, OlsTerm, Precision};
 use super::dataset::{Dataset, L1IngestRefusal};
 use super::run_state::{GateRejection, L1RunState};
 use super::token::ConfirmationToken;
@@ -104,6 +115,11 @@ pub enum MatchNote {
     DfRounded,
     /// Phase 1's note on the p comparison.
     P(CheckNote),
+    /// A printed equality whose digits are the exact value truncated toward
+    /// zero, not rounded (Step 8b, rule 2).
+    Truncated,
+    /// The same for t, compared without its sign.
+    TruncatedInMagnitude,
 }
 
 /// Why a printed number was not checked. Closed.
@@ -127,6 +143,9 @@ pub enum NotCheckedReason {
     /// print its exact p, which Gaply does not compute, and the
     /// t-approximation p does not match.
     SpearmanExactPNotComputed,
+    /// The printed number misses the exact value only by what the rounding
+    /// of the stored cells (to `decimals`) could explain (Step 8b, rule 1).
+    DataPrecision { decimals: u32 },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -148,6 +167,9 @@ pub struct NumberComparison {
     /// interval by its relation (`<` from 0, `>` to 1), or the printed count.
     pub accepted: (f64, f64),
     pub status: NumberStatus,
+    /// What the stored cells' rounding could make the computed value, when
+    /// that range is not zero (Step 8b): signed, as computed.
+    pub precision: Option<(f64, f64)>,
 }
 
 /// Every number compared under one candidate variant.
@@ -160,6 +182,9 @@ pub struct CandidateComparison {
     pub p_outcome: Option<L0Verdict>,
     /// Phase 1's `conclusion_changes` for this variant's exact p.
     pub conclusion_changes: Option<bool>,
+    /// The decimals the bound cells are stored to, when that is not exact
+    /// (Step 8b): what the view says beside a precision range.
+    pub stored_decimals: Option<u32>,
 }
 
 impl CandidateComparison {
@@ -218,6 +243,8 @@ pub enum L1Note {
     ContinuityDoesNotApply,
     /// Why `conclusion_changes` is `None`.
     ConclusionNotAssessed(ConclusionGap),
+    /// A printed equality matched as the exact value truncated, not rounded.
+    PrintedTruncated { number: NumberKind },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -249,6 +276,9 @@ pub enum L1CouldNotCheck {
     /// The confirmed binding cannot produce the printed statistic.
     BindingInvalid(BindingGap),
     StatisticNotCheckable(StatisticGap),
+    /// The statistic misses only by what the rounding of the stored cells
+    /// could explain, under every candidate that does not fail outright.
+    DataPrecision { decimals: u32 },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -470,6 +500,41 @@ fn printed_range(n: &ReportedNumber, magnitude: bool, floor: f64, ceiling: f64) 
     }
 }
 
+/// A printed equality whose digits are `value` truncated toward zero at the
+/// printed decimals (Step 8b, rule 2): `|printed| <= |value| < |printed| +
+/// one unit in its last place`, the lower end widened by the gate. Signs
+/// must agree unless the comparison is in magnitude.
+pub fn truncated_match(printed: &ReportedNumber, value: f64, magnitude: bool, gate: f64) -> bool {
+    if printed.relation() != Relation::Eq {
+        return false;
+    }
+    let pv = printed.value().to_f64();
+    if !magnitude && pv != 0.0 && value != 0.0 && pv.signum() != value.signum() {
+        return false;
+    }
+    // In units of the last printed place: the print is the integer `k`, and
+    // the value truncates to it when `k <= scaled < k + 1` (the lower end
+    // widened by the gate).
+    let scale = 10f64.powi(printed.decimals() as i32);
+    let k = (pv.abs() * scale).round();
+    let scaled = value.abs() * scale;
+    scaled >= k - (k * (gate + 4.0 * f64::EPSILON) + f64::MIN_POSITIVE) && scaled < k + 1.0
+}
+
+/// Two closed intervals meet.
+fn meets(a: (f64, f64), b: (f64, f64)) -> bool {
+    a.0 <= b.1 && b.0 <= a.1
+}
+
+/// A signed range as magnitudes.
+fn magnitude_range((lo, hi): (f64, f64)) -> (f64, f64) {
+    if lo <= 0.0 && hi >= 0.0 {
+        (0.0, lo.abs().max(hi.abs()))
+    } else {
+        (lo.abs().min(hi.abs()), lo.abs().max(hi.abs()))
+    }
+}
+
 /// The statistic: inside the printed interval widened by the gate.
 pub fn compare_statistic(printed: &ReportedNumber, computed: f64, family: Family, gate: f64) -> NumberComparison {
     let magnitude = matches!(family, Family::T | Family::Z);
@@ -480,9 +545,11 @@ pub fn compare_statistic(printed: &ReportedNumber, computed: f64, family: Family
     let status = match (inside, magnitude) {
         (true, true) => NumberStatus::Matched(Some(MatchNote::InMagnitude)),
         (true, false) => NumberStatus::Matched(None),
+        (false, true) if truncated_match(printed, computed, true, gate) => NumberStatus::Matched(Some(MatchNote::TruncatedInMagnitude)),
+        (false, false) if truncated_match(printed, computed, false, gate) => NumberStatus::Matched(Some(MatchNote::Truncated)),
         (false, _) => NumberStatus::NotMatched,
     };
-    NumberComparison { kind: NumberKind::Statistic, printed: Printed::Number(printed.clone()), computed, accepted, status }
+    NumberComparison { kind: NumberKind::Statistic, printed: Printed::Number(printed.clone()), computed, accepted, status, precision: None }
 }
 
 /// Whether a printed df is a whole number: its value, not its digits (`45.0`
@@ -500,6 +567,7 @@ pub fn compare_df(printed: &ReportedNumber, index: usize, computed: f64, integer
         computed,
         accepted,
         status,
+        precision: None,
     };
     let value = printed.value().to_f64();
     if integer {
@@ -521,8 +589,13 @@ pub fn compare_df(printed: &ReportedNumber, index: usize, computed: f64, integer
     }
     let (lo, hi) = printed_range(printed, false, f64::NEG_INFINITY, f64::INFINITY);
     let accepted = widened(lo, hi, gate);
-    let status =
-        if computed >= accepted.0 && computed <= accepted.1 { NumberStatus::Matched(None) } else { NumberStatus::NotMatched };
+    let status = if computed >= accepted.0 && computed <= accepted.1 {
+        NumberStatus::Matched(None)
+    } else if truncated_match(printed, computed, false, gate) {
+        NumberStatus::Matched(Some(MatchNote::Truncated))
+    } else {
+        NumberStatus::NotMatched
+    };
     row(accepted, status)
 }
 
@@ -562,12 +635,44 @@ pub fn compare_p_exact(
     (p_row(result, computed.p, status), verdict)
 }
 
+/// Phase 1's comparison of the printed p with a RANGE of p, `[lo, hi]`: the
+/// p range the stored cells' rounding allows (Step 8b).
+fn compare_p_range(result: &ReportedResult, ctx: &DocumentContext, computed: &ComputedResult, (lo, hi): (f64, f64)) -> L0Verdict {
+    let mut trail = Vec::new();
+    let alpha = alpha_of(ctx, &mut trail);
+    let input = PComparison { p: &result.p, family: result.family, variance_ratio_candidate: is_variance_ratio_candidate(result) };
+    let two_tailed = || match (computed.statistic, computed.df2, computed.precision) {
+        (compute::StatisticKind::F, Some(df2), Precision::Range { statistic: (a, b), .. }) => {
+            let ends = [a.max(0.0), b.max(0.0)].map(|f| pvalue::f_two_tailed(f, computed.df1, df2));
+            let (Some(x), Some(y)) = (ends[0], ends[1]) else { return None };
+            // The two-tailed F p peaks at 1 where F crosses 1.
+            let top = if a <= 1.0 && b >= 1.0 { 1.0 } else { x.max(y) };
+            Some((x.min(y), top))
+        }
+        _ => None,
+    };
+    compare_p(&input, lo, hi, two_tailed, ctx, &alpha, &mut trail)
+}
+
+/// Rule 1 on one row still `NotMatched`: `DataPrecision` when `accepted`
+/// (the printed side, as compared) meets `range` (the computed side, as
+/// compared). The range is attached for the view either way.
+fn with_precision(mut row: NumberComparison, signed: Option<(f64, f64)>, compared: impl Fn((f64, f64)) -> bool, decimals: u32) -> NumberComparison {
+    if let Some(r) = signed {
+        row.precision = Some(r);
+        if row.status == NumberStatus::NotMatched && compared(r) {
+            row.status = NumberStatus::NotChecked(NotCheckedReason::DataPrecision { decimals });
+        }
+    }
+    row
+}
+
 fn p_row(result: &ReportedResult, computed: f64, status: NumberStatus) -> NumberComparison {
     let (printed, accepted) = match &result.p {
         PValue::Reported(p) => (Printed::Number(p.clone()), printed_range(p, false, 0.0, 1.0)),
         PValue::NotSignificant => (Printed::NotSignificant, (0.0, 1.0)),
     };
-    NumberComparison { kind: NumberKind::P, printed, computed, accepted, status }
+    NumberComparison { kind: NumberKind::P, printed, computed, accepted, status, precision: None }
 }
 
 /// n, printed or implied by r's df, against the n used.
@@ -585,6 +690,7 @@ fn compare_n(result: &ReportedResult, n_used: usize) -> Option<NumberComparison>
         computed: n_used as f64,
         accepted: (value, value),
         status,
+        precision: None,
     })
 }
 
@@ -618,6 +724,11 @@ fn notes_of(c: &CandidateComparison) -> Vec<L1Note> {
             (NumberKind::Df { index }, NumberStatus::Matched(Some(MatchNote::DfTruncated))) => notes.push(L1Note::DfTruncated { index }),
             (NumberKind::Df { index }, NumberStatus::Matched(Some(MatchNote::DfRounded))) => notes.push(L1Note::DfRounded { index }),
             (_, NumberStatus::Matched(Some(MatchNote::P(note)))) => notes.push(L1Note::P(note)),
+            (number, NumberStatus::Matched(Some(MatchNote::Truncated))) => notes.push(L1Note::PrintedTruncated { number }),
+            (number, NumberStatus::Matched(Some(MatchNote::TruncatedInMagnitude))) => {
+                notes.push(L1Note::SignComparedInMagnitude);
+                notes.push(L1Note::PrintedTruncated { number });
+            }
             (number, NumberStatus::NotChecked(why)) => notes.push(L1Note::NotChecked { number, why }),
             _ => {}
         }
@@ -639,6 +750,17 @@ pub fn decide(cands: &[CandidateComparison], alpha: &Alpha) -> (L1Verdict, Vec<L
         let (conclusion_changes, gap) = combined_conclusion(cands, alpha);
         let notes = gap.map(L1Note::ConclusionNotAssessed).into_iter().collect();
         return (L1Verdict::NotReproduced { conclusion_changes }, notes);
+    }
+    // Rule 1: a candidate that does not fail, whose statistic only the
+    // stored cells' rounding stands between.
+    let precision = cands.iter().filter(|c| !c.fails()).find_map(|c| {
+        c.numbers.iter().find_map(|n| match (n.kind, n.status) {
+            (NumberKind::Statistic, NumberStatus::NotChecked(NotCheckedReason::DataPrecision { decimals })) => Some(decimals),
+            _ => None,
+        })
+    });
+    if let Some(decimals) = precision {
+        return (L1Verdict::CouldNotCheck(L1CouldNotCheck::DataPrecision { decimals }), Vec::new());
     }
     (L1Verdict::CouldNotCheck(L1CouldNotCheck::StatisticNotCheckable(StatisticGap::NoComputedResult)), Vec::new())
 }
@@ -694,11 +816,32 @@ pub fn compare_claim(
 
     let mut cands = Vec::with_capacity(chosen.len());
     for c in chosen {
-        let mut numbers = vec![compare_statistic(&result.statistic, c.value, result.family, gate)];
+        let magnitude = matches!(result.family, Family::T | Family::Z);
+        let mut stat = compare_statistic(&result.statistic, c.value, result.family, gate);
+        match c.precision {
+            Precision::Range { decimals, statistic, .. } => {
+                let accepted = stat.accepted;
+                stat = with_precision(stat, Some(statistic), |r| meets(accepted, if magnitude { magnitude_range(r) } else { r }), decimals);
+            }
+            Precision::Unbounded { decimals } if stat.status == NumberStatus::NotMatched => {
+                stat.status = NumberStatus::NotChecked(NotCheckedReason::DataPrecision { decimals });
+            }
+            _ => {}
+        }
+        let mut numbers = vec![stat];
         let computed_df = [Some(c.df1), c.df2];
         for (index, printed) in result.df.iter().enumerate() {
             let df = computed_df[index].expect("df count checked above");
-            numbers.push(compare_df(printed, index, df, integer_df(c.variant), gate));
+            let mut row = compare_df(printed, index, df, integer_df(c.variant), gate);
+            if let Precision::Range { decimals, df: Some(range), .. } = c.precision {
+                // What the printed df stands for: its interval, or for a whole
+                // number printed against Welch's df, the values that round or
+                // truncate to it.
+                let v = printed.value().to_f64();
+                let printed_side = if is_whole(printed) && printed.decimals() == 0 { (v - 0.5, v + 1.0) } else { row.accepted };
+                row = with_precision(row, Some(range), |r| meets(printed_side, r), decimals);
+            }
+            numbers.push(row);
         }
         let (mut p, p_outcome) = match level0_gap {
             // Level 0's own verdict is what the record carries for this p.
@@ -711,6 +854,24 @@ pub fn compare_claim(
         if spearman_exact_applies && p.status == NumberStatus::NotMatched {
             p.status = NumberStatus::NotChecked(NotCheckedReason::SpearmanExactPNotComputed);
         }
+        // Rule 2: a printed equality that is the exact p truncated.
+        if p.status == NumberStatus::NotMatched {
+            if let PValue::Reported(printed) = &result.p {
+                if truncated_match(printed, c.p, false, 0.0) {
+                    p.status = NumberStatus::Matched(Some(MatchNote::Truncated));
+                }
+            }
+        }
+        // Rule 1: the p range the stored cells allow, by Phase 1's rule.
+        match c.precision {
+            Precision::Range { decimals, p: range, .. } if level0_gap.is_none() => {
+                p = with_precision(p, Some(range), |r| matches!(compare_p_range(result, ctx, c, r), L0Verdict::Consistent(_)), decimals);
+            }
+            Precision::Unbounded { decimals } if p.status == NumberStatus::NotMatched => {
+                p.status = NumberStatus::NotChecked(NotCheckedReason::DataPrecision { decimals });
+            }
+            _ => {}
+        }
         let conclusion_changes = match p.status {
             NumberStatus::NotChecked(_) => None,
             _ => {
@@ -720,7 +881,11 @@ pub fn compare_claim(
         };
         numbers.push(p);
         numbers.extend(compare_n(result, c.n));
-        cands.push(CandidateComparison { variant: c.variant, numbers, p_outcome, conclusion_changes });
+        let stored_decimals = match c.precision {
+            Precision::Range { decimals, .. } | Precision::Unbounded { decimals } => Some(decimals),
+            Precision::Exact => None,
+        };
+        cands.push(CandidateComparison { variant: c.variant, numbers, p_outcome, conclusion_changes, stored_decimals });
     }
     Ok((cands, notes))
 }
@@ -964,7 +1129,7 @@ mod tests {
     }
 
     fn t_res(variant: ComputedVariant, t: f64, df: f64, p: f64, n: usize) -> ComputedResult {
-        ComputedResult { variant, statistic: StatisticKind::T, value: t, df1: df, df2: None, p, tail: Tail::TwoSided, n }
+        ComputedResult { variant, statistic: StatisticKind::T, value: t, df1: df, df2: None, p, tail: Tail::TwoSided, n, precision: Precision::Exact }
     }
 
     fn t_exact(variant: ComputedVariant, t: f64, df: f64, n: usize) -> ComputedResult {
@@ -1013,17 +1178,87 @@ mod tests {
 
     #[test]
     fn a_statistic_on_each_side_of_each_rounding_boundary() {
-        // 2.10 prints [2.095, 2.105].
+        // 2.10 prints [2.095, 2.105] by rounding, and [2.10, 2.11) by
+        // truncation (Step 8b, rule 2): just above the rounding interval is a
+        // truncated print, matched with its note; at 2.11 it is neither.
         let p = ReportedNumber::measured("2.10").unwrap();
-        for (x, want) in [(2.105, true), (2.105_000_01, false), (2.095, true), (2.094_999_99, false), (2.1, true)] {
-            let got = compare_statistic(&p, x, Family::F, GATE).status;
-            assert_eq!(matches!(got, NumberStatus::Matched(_)), want, "{x}: {got:?}");
+        let truncated = NumberStatus::Matched(Some(MatchNote::Truncated));
+        for (x, want) in [
+            (2.105, NumberStatus::Matched(None)),
+            (2.105_000_01, truncated),
+            (2.109_999, truncated),
+            (2.11, NumberStatus::NotMatched),
+            (2.095, NumberStatus::Matched(None)),
+            (2.094_999_99, NumberStatus::NotMatched),
+            (2.1, NumberStatus::Matched(None)),
+        ] {
+            assert_eq!(compare_statistic(&p, x, Family::F, GATE).status, want, "{x}");
         }
-        // A negative printed r: [-0.455, -0.445].
+        // A negative printed r: [-0.455, -0.445]; truncated toward zero it
+        // covers (-0.46, -0.45].
         let r = ReportedNumber::measured("-.45").unwrap();
-        for (x, want) in [(-0.455, true), (-0.455_000_01, false), (-0.445, true), (-0.444_999_99, false)] {
-            assert_eq!(matches!(compare_statistic(&r, x, Family::R, GATE).status, NumberStatus::Matched(_)), want, "{x}");
+        for (x, want) in [
+            (-0.455, NumberStatus::Matched(None)),
+            (-0.455_000_01, truncated),
+            (-0.46, NumberStatus::NotMatched),
+            (-0.445, NumberStatus::Matched(None)),
+            (-0.444_999_99, NumberStatus::NotMatched),
+        ] {
+            assert_eq!(compare_statistic(&r, x, Family::R, GATE).status, want, "{x}");
         }
+    }
+
+    /// Step 8b, rule 2, on the case section 4 found (PLOS ONE 0256959,
+    /// claim 7): F = 22.0455 printed 22.04 is the exact value truncated.
+    fn f_verdict(statistic: &str, p: UserP<'_>, exact_p: f64) -> (L1Verdict, Vec<CandidateComparison>) {
+        let c = claim(Family::F, statistic, &["2", "183"], None, p);
+        let f = ComputedResult {
+            variant: ComputedVariant::OneWay,
+            statistic: StatisticKind::F,
+            value: 22.0455,
+            df1: 2.0,
+            df2: Some(183.0),
+            p: exact_p,
+            tail: Tail::Upper,
+            n: 186,
+            precision: Precision::Exact,
+        };
+        let (v, _, cands) = verdict(&c, &ctx(), &facts(L1MethodId::OneWayAnova, Variant::None), &comp(L1MethodId::OneWayAnova, vec![f], 186, None));
+        (v, cands)
+    }
+
+    #[test]
+    fn a_statistic_printed_truncated_matches_with_its_note_rounded_without_and_otherwise_not() {
+        let lt = UserP::Reported { raw: ".001", relation: Relation::Lt };
+        let exact = pvalue::f_upper(22.0455, 2.0, 183.0).unwrap();
+        let (v, cands) = f_verdict("22.04", lt, exact);
+        assert_eq!(status_of(&cands, ComputedVariant::OneWay, NumberKind::Statistic), NumberStatus::Matched(Some(MatchNote::Truncated)));
+        let L1Verdict::Reproduced(notes) = v else { panic!("{v:?}") };
+        assert!(notes.contains(&L1Note::PrintedTruncated { number: NumberKind::Statistic }), "{notes:?}");
+
+        let (v, _) = f_verdict("22.05", lt, exact);
+        let L1Verdict::Reproduced(notes) = v else { panic!("{v:?}") };
+        assert!(!notes.iter().any(|n| matches!(n, L1Note::PrintedTruncated { .. })), "rounded, no note: {notes:?}");
+
+        let (v, _) = f_verdict("22.03", lt, exact);
+        assert!(matches!(v, L1Verdict::NotReproduced { .. }), "{v:?}");
+    }
+
+    #[test]
+    fn a_p_printed_truncated_matches_with_its_note_and_an_inequality_is_unchanged() {
+        // 0256959, claim 15: the exact p .0253 printed "p = .02".
+        let (v, cands) = f_verdict("22.05", p_eq(".02"), 0.0253);
+        assert_eq!(status_of(&cands, ComputedVariant::OneWay, NumberKind::P), NumberStatus::Matched(Some(MatchNote::Truncated)));
+        let L1Verdict::Reproduced(notes) = v else { panic!("{v:?}") };
+        assert!(notes.contains(&L1Note::PrintedTruncated { number: NumberKind::P }), "{notes:?}");
+        // "p < .03" matched as before, with no truncation note.
+        let (_, cands) = f_verdict("22.05", UserP::Reported { raw: ".03", relation: Relation::Lt }, 0.0253);
+        assert_eq!(status_of(&cands, ComputedVariant::OneWay, NumberKind::P), NumberStatus::Matched(None));
+        // "p < .02" is not an equality: the rule does not touch it, and it is
+        // not matched (Phase 1 leaves it to its own F rule).
+        let (_, cands) = f_verdict("22.05", UserP::Reported { raw: ".02", relation: Relation::Lt }, 0.0253);
+        let got = status_of(&cands, ComputedVariant::OneWay, NumberKind::P);
+        assert!(!matches!(got, NumberStatus::Matched(_)), "{got:?}");
     }
 
     #[test]
@@ -1055,21 +1290,30 @@ mod tests {
     #[test]
     fn a_decimal_df_and_a_printed_p_on_each_side_of_each_rounding_boundary() {
         // Welch's df printed 27.6: [27.55, 27.65], widened by the gate.
+        // Truncated, 27.6 covers [27.6, 27.7) (Step 8b, rule 2).
         let df = ReportedNumber::measured("27.6").unwrap();
-        for (x, want) in [(27.65, true), (27.650_000_1, false), (27.55, true), (27.549_999_9, false)] {
-            let got = compare_df(&df, 0, x, false, GATE).status;
-            assert_eq!(matches!(got, NumberStatus::Matched(_)), want, "df {x}: {got:?}");
+        for (x, want) in [
+            (27.65, NumberStatus::Matched(None)),
+            (27.650_000_1, NumberStatus::Matched(Some(MatchNote::Truncated))),
+            (27.7, NumberStatus::NotMatched),
+            (27.55, NumberStatus::Matched(None)),
+            (27.549_999_9, NumberStatus::NotMatched),
+        ] {
+            assert_eq!(compare_df(&df, 0, x, false, GATE).status, want, "df {x}");
         }
         // p printed .045: [.0445, .0455], by Phase 1's comparison (engine
         // margin 1e-8 relative). Neither outside value is within one-tailed
         // reach, so each is not matched rather than not checked.
-        for (x, want) in [(0.0455, true), (0.045_500_2, false), (0.0445, true), (0.044_499_8, false)] {
+        // Above the interval, up to .046, the print is the exact p truncated.
+        for (x, want) in [
+            (0.0455, NumberStatus::Matched(None)),
+            (0.045_500_2, NumberStatus::Matched(Some(MatchNote::Truncated))),
+            (0.046, NumberStatus::NotMatched),
+            (0.0445, NumberStatus::Matched(None)),
+            (0.044_499_8, NumberStatus::NotMatched),
+        ] {
             let (_, _, cands) = t_claim_with_p(p_eq(".045"), x);
-            let got = status_of(&cands, ComputedVariant::Paired, NumberKind::P);
-            assert_eq!(got == NumberStatus::Matched(None), want, "p {x}: {got:?}");
-            if !want {
-                assert_eq!(got, NumberStatus::NotMatched, "p {x}");
-            }
+            assert_eq!(status_of(&cands, ComputedVariant::Paired, NumberKind::P), want, "p {x}");
         }
     }
 
@@ -1094,6 +1338,7 @@ mod tests {
             p: pvalue::f_upper(3.21, 2.0, 45.0).unwrap(),
             tail: Tail::Upper,
             n: 48,
+            precision: Precision::Exact,
         };
         let (v, _, _) = verdict(&c, &ctx(), &facts(L1MethodId::OneWayAnova, Variant::None), &comp(L1MethodId::OneWayAnova, vec![f], 48, None));
         assert_eq!(v, L1Verdict::CouldNotCheck(L1CouldNotCheck::VariantNotAvailable(VariantGap::FractionalDf { index: 1 })));
@@ -1159,6 +1404,7 @@ mod tests {
             p,
             tail: Tail::TwoSided,
             n: 20,
+            precision: Precision::Exact,
         };
         let f = facts(L1MethodId::Spearman, Variant::SpearmanP(SpearmanPVariant::NotStated));
         // n 20 < 1290, no ties, the t-approximation p does not match: not checked.
@@ -1294,6 +1540,7 @@ mod tests {
             p: pvalue::r_two_tailed(0.45, 28.0).unwrap(),
             tail: Tail::TwoSided,
             n: 30,
+            precision: Precision::Exact,
         };
         let f = facts(L1MethodId::Pearson, Variant::None);
         let implied = claim(Family::R, ".45", &["28"], None, p_eq(".013"));
@@ -1308,7 +1555,7 @@ mod tests {
     /* ---- the verdict table ----------------------------------------------------- */
 
     fn row(kind: NumberKind, status: NumberStatus) -> NumberComparison {
-        NumberComparison { kind, printed: Printed::NotSignificant, computed: 0.0, accepted: (0.0, 0.0), status }
+        NumberComparison { kind, printed: Printed::NotSignificant, computed: 0.0, accepted: (0.0, 0.0), status, precision: None }
     }
 
     /// Every combination of number statuses, one or two candidate variants,
@@ -1354,6 +1601,7 @@ mod tests {
             numbers: numbers.to_vec(),
             p_outcome: None,
             conclusion_changes: Some(false),
+            stored_decimals: None,
         };
         let mut table = std::collections::BTreeMap::<(usize, &str), usize>::new();
         for (a, ra) in &singles {

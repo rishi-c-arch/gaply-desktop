@@ -19,7 +19,9 @@ use gaply_core::stats_l1::catalogue::{L1MethodId, RoleName, TVariant, Variant, V
 use gaply_core::stats_l1::claim::{ClaimId, ClaimLocation, UserClaim, UserP};
 use gaply_core::stats_l1::compute::{ComputedVariant, Exclusion, ExclusionReason, L1Refusal};
 use gaply_core::stats_l1::dataset::{build_dataset, ColumnAlias, DataFingerprint, Dataset, L1IngestRefusal, RawTable, TableRef};
-use gaply_core::stats_l1::reproduce::{reproduce, BindingSourceKind, DataRead, L1CouldNotCheck, L1Note, L1Verdict, ReproductionOutcome};
+use gaply_core::stats_l1::reproduce::{
+    reproduce, BindingSourceKind, DataRead, L1CouldNotCheck, L1Note, L1Verdict, MatchNote, NumberKind, NumberStatus, ReproductionOutcome,
+};
 use gaply_core::stats_l1::run_state::{GateRejection, L1RunState};
 use gaply_core::stats_l1::token::{ConfirmationToken, RevokedBecause};
 use gaply_core::stats_verify;
@@ -142,9 +144,14 @@ fn a_stated_welch_variant_computes_welch_only() {
     let c = &out.claims[0];
     assert_eq!(c.candidates.iter().map(|c| c.variant).collect::<Vec<_>>(), vec![ComputedVariant::Welch]);
     assert_eq!(c.record.as_ref().unwrap().variant_set_by, VariantSetBy::UserTicked);
-    // The printed numbers are Student's (df 5); under Welch alone the df
-    // does not match.
-    assert!(matches!(c.verdict, L1Verdict::NotReproduced { .. }), "{:?}", c.verdict);
+    // The printed numbers are Student's (df 5). Under Welch alone, the df 5
+    // is Welch's df rounded (matched, noted), and Welch's t misses the
+    // printed Student t by less than the cells' rounding to 1 decimal could
+    // move it: since Step 8b (rule 1) that is CouldNotCheck, not
+    // NotReproduced. Still Welch only, as the candidates above show.
+    assert_eq!(c.verdict, L1Verdict::CouldNotCheck(L1CouldNotCheck::DataPrecision { decimals: 1 }));
+    let df = c.candidates[0].numbers.iter().find(|n| n.kind == NumberKind::Df { index: 0 }).unwrap();
+    assert_eq!(df.status, NumberStatus::Matched(Some(MatchNote::DfRounded)), "the df, as the comment says");
 }
 
 #[test]

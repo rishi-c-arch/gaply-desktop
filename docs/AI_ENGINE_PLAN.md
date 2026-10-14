@@ -22584,6 +22584,159 @@ They were not reformatted on purpose: the repository has never been
 rustfmt-formatted, and a sweeping reformat would collide with the other
 branch at merge.
 
+#### Step 8b: three rules from real papers `[src]` `[test]` `[measured]`
+
+Section 4 (below) ran Level 1 on open-data PLOS ONE papers. Of 12
+NotReproduced, five were explained by the deposited file's own rounding and
+two by truncated prints. Three rules followed, all at Level 1 only.
+
+**Rule 1, data precision** (`stats_l1/precision.rs`, `compute::Precision`).
+For each bound numeric column, `d` is the most decimals any cell shows in its
+shortest round-trip form, capped at 15. A column of whole numbers is exact;
+otherwise each cell is uncertain by `δ = 0.5 × 10^-d`. The range is the
+first-order worst case `[S − b, S + b]` with `b = Σ |∂S/∂x_i| δ_i`.
+
+- **Derivatives.** Analytic, in centred form, never from raw sums of squares,
+  for Student's and Welch's t, Welch's df, the paired t, the one-way F,
+  Pearson's r and OLS (overall F and each coefficient's t, through `(X'X)⁻¹`
+  and the residuals). Central differences check the analytic t and F in
+  `precision.rs`'s tests.
+- **p.** The p range comes from the ends of the statistic range (and, for
+  Welch, the df range).
+- **Spearman.** Exact unless rounding could reorder or tie values (a tie, or
+  a sorted gap ≤ 2δ); otherwise the range is unbounded.
+- **χ².** Exact, since it uses counts only.
+
+A number that misses its printed interval becomes not checked,
+`DataPrecision { decimals }`, when the printed interval meets the range. For
+p, the test is Phase 1's comparison over the p range. Step 4's verdict rules
+are unchanged: such a statistic gives `CouldNotCheck(data_precision)`; such a
+p leaves a matched claim Reproduced with the note. The view carries the range,
+and the card shows it beside the computed value: "1.92 (the file stores 2
+decimals: 1.89 to 1.95)".
+
+The bound was checked against draws:
+
+```
+cargo test -p gaply_core --test l1_precision -- --nocapture
+```
+
+On every golden row (30 of 43 carry a range) and on finding 2's pair, 1,000
+seeded draws moved each cell uniformly within ±δ. Worst `|ΔS| / b`:
+
+| method | worst \|ΔS\|/b |
+|---|---|
+| independent_t | 0.8525 (Welch's df: 0.7191) |
+| ols | 0.6953 |
+| finding 2's pair | 0.5822 |
+| one_way_anova | 0.5186 |
+| paired_t | 0.4371 |
+| pearson | 0.4084 |
+
+No draw's p fell outside its p range, so **no widening factor was needed
+(1.0)**.
+
+Timed in release, end to end through `compute`, including building the
+dataset twice:
+
+- the largest fixture (`data_chi_3x3.csv`, 67 rows): 0.25 ms;
+- 5,000 rows: independent t 12.2 ms, paired t 12.4, one-way 14.9,
+  Pearson 13.2, Spearman 11.8, χ² 11.2 (no range), OLS with 3 predictors 12.0.
+
+**Rule 2, truncation.** A printed equality (statistic, df or p) whose digits
+are the exact value truncated toward zero, `floor(|x| · 10^d) = printed ·
+10^d`, is matched with the note `printed_truncated`, as Welch's df already
+was. It is checked after the rounding interval and before rule 1. **Level 0
+is unchanged and has no such rule.** On the printed numbers alone Level 0
+compares rounding intervals only, so a claim Level 1 now matches as
+truncated can still be read by Level 0 as Inconsistent. The two levels may
+then disagree on one claim, and the screen shows both.
+
+**Rule 3, semicolon CSV.** Not parsed. A CSV that reads as one column, whose
+header and at least half of whose lines (fields joined with `,` again, so
+decimal commas count) hold `;` or a tab, carries
+`DatasetIssue::LooksSeparatedBy { separator }`. The screen says the file looks
+semicolon-separated and asks for a comma-separated file or .xlsx.
+
+**Ingest messages.**
+
+- A table over the 128-column cap is refused as `Dataset(TooWide { columns,
+  limit })`, not `Malformed` (finding 1; `supplementary::exceeds_col_cap`,
+  typed like the row cap).
+- A `.xls` the parser cannot open as a compound document is refused as
+  `XlsNotReadable`, worded "save it as .xlsx". It is told apart by the typed
+  error `XlsError::Cfb(_)`. That error does not tell an older Excel version
+  (BIFF2 to BIFF5) from a damaged file, so the wording says "such as an
+  older Excel version".
+
+**Existing tests that changed, and why:**
+
+- **The rounding-boundary tests.** A value just above a rounding interval is
+  now a truncated match. Cases just past the truncation band were added and
+  stay not matched.
+- **`a_stated_welch_variant_computes_welch_only`.** Its fixture is stored to
+  1 decimal. Welch's t is within that rounding of the printed Student t, so
+  the verdict is now `CouldNotCheck(data_precision, 1)` (it was NotReproduced).
+- **The planted-error test.** Rule 1 moved exactly two of its 55 cases, both
+  pinned in the test: `cor_pos_spearman` statistic and p. The golden data
+  there is 1-decimal with gaps ≤ 2δ, so Spearman's range is unbounded.
+- **The exit test.** No status changed.
+
+New tests: one planted ANOVA F just inside its range (`CouldNotCheck`) and
+one just beyond (`NotReproduced`); every truncation case listed in the step;
+a zero range for whole-number columns. Each new rule was broken once and seen
+to go red: truncation (4 tests), the separator check and the `.xls` mapping.
+
+#### Section 4: real papers with open data `[measured]`
+
+The papers are PLOS ONE, CC BY 4.0, with data from plos.figshare.com, CC BY
+4.0 (`~/gaply-corpus/l1/papers/MANIFEST.md`). Each was bound by hand
+following its Methods, with AI help off and 0 requests. Dryad refuses
+anonymous downloads (401, 403) and was not used.
+
+Counts as reproduced / not reproduced / could not check, before and after
+Step 8b, with the same bindings:
+
+| paper | read | bound | Step 8 | Step 8b |
+|---|---:|---:|---|---|
+| 0303785 (orienteering) | 16 | 10 | 9 / 1 / 6 | 9 / 0 / 7 |
+| 0106616 (working memory) | 13 | 9 | 3 / 6 / 4 | 5 / 2 / 6 |
+| 0256959 (eating disorders) | 21 | 19 | 15 / 4 / 2 | 17 / 1 / 3 |
+| 0260659 (engineering students) | 6 | 4 | 3 / 1 / 2 | 3 / 1 / 2 |
+
+The CouldNotCheck counts include claims left unbound because their methods
+(mixed ANOVA, Bartlett, SEM) are outside Level 1.
+
+**Claims whose verdict changed:**
+
+- To `CouldNotCheck(data_precision, 2)`: 0303785 claim 12; 0106616 claims 4
+  and 8; 0256959 claim 19.
+- To Reproduced with `printed_truncated`: 0256959 claim 7 (F) and claim 15
+  (p).
+- To Reproduced, though `CouldNotCheck` was expected:
+  - 0106616 claim 6: the printed t .49 is the computed .4977 truncated, so
+    rule 2 matches it first; its p is then within the precision range.
+  - 0106616 claim 9: its F always matched; only its p differed, and that p is
+    within the precision range.
+
+  Both follow the rules as written. They were not tuned.
+
+**NotReproduced that remain:**
+
+- 0106616 claim 1: t 1.8 printed for 1.58. Level 0 flags it too.
+- 0106616 claim 7: p .1247 printed .13. The precision p range is [.1246,
+  .1248].
+- 0256959 claim 18: F 4.5044 printed 4.53, with full-precision cells.
+- 0260659 claim 3: Welch t 3.0848 printed 3.09, with exact composite scores.
+
+**Five papers could not be bound as deposited:**
+
+- 0343995: presentation-layout sheets.
+- 0245226: 404 columns, now refused as `too_wide`.
+- 0286503: semicolon CSVs, now flagged `looks_separated_by`.
+- 0114578: BIFF2 `.xls`, now refused as `xls_not_readable`.
+- 0296841: mixed designs and one-sample tests.
+
 #### The backlog after Phase 2
 
 1. Level 2: assumptions (normality, equal variances, expected counts).
@@ -22601,3 +22754,8 @@ branch at merge.
 11. The PDF glyph `l` printed for `1` in a df (D269's DEV-033).
 12. Chat about a result.
 13. A repo-wide formatting policy.
+14. Files wider than 128 columns (0245226 had 404): bind a chosen subset.
+15. Semicolon and decimal-comma CSV: today flagged, never parsed.
+16. Old `.xls` (BIFF2 to BIFF5): today refused with "save it as .xlsx".
+17. Presentation-layout sheets (stacked blocks, merged headers).
+18. Mixed designs: repeated-measures and mixed-model ANOVA.

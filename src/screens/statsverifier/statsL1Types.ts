@@ -194,6 +194,10 @@ export interface L1NumberView {
   acceptedLo: number | null;
   acceptedHi: number | null;
   status: WireCode;
+  /** What the stored cells' rounding could make the computed value; null
+   *  when that range is zero (Step 8b). */
+  precisionLo: number | null;
+  precisionHi: number | null;
 }
 
 export interface L1ProvenanceView {
@@ -221,7 +225,7 @@ export interface L1ClaimReproductionView {
   variantSetBy: WireCode | null;
   verdict: L1VerdictView;
   notes: WireCode[];
-  candidates: Array<{ variant: WireCode; numbers: L1NumberView[] }>;
+  candidates: Array<{ variant: WireCode; numbers: L1NumberView[]; storedDecimals: number | null }>;
   nUsed: number | null;
   rowsRead: number | null;
   exclusions: Array<{ reason: WireCode; rows: number }>;

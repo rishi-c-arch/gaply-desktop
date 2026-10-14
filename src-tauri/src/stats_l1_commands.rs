@@ -67,7 +67,7 @@ use gaply_core::stats_l1::catalogue::{
 };
 use gaply_core::stats_l1::claim::{claims_from_reading, ClaimId, ClaimLocation, L1Claim, RevisionHash, UserClaim, UserP};
 use gaply_core::stats_l1::codes::{self, Param, WireCode};
-use gaply_core::stats_l1::dataset::{ColumnAlias, ColumnIssue, ColumnType, DatasetIssue, LevelBucket};
+use gaply_core::stats_l1::dataset::{ColumnAlias, ColumnIssue, ColumnType, DatasetIssue, LevelBucket, Separator};
 use gaply_core::stats_l1::reproduce::ReproductionOutcome;
 use gaply_core::stats_l1::run_state::{ConfirmError, EditError, L1RunState, ProposalError};
 use gaply_core::stats_l1::token::ConfirmationToken;
@@ -329,6 +329,14 @@ fn dataset_issue_code(i: DatasetIssue) -> WireCode {
         DatasetIssue::WeightVariableUnknown => w("weight_variable_unknown"),
         DatasetIssue::SourceMetadataNotKnown => w("source_metadata_not_known"),
         DatasetIssue::OverlongRows { rows } => with_num(w("overlong_rows"), "rows", rows as u64),
+        DatasetIssue::LooksSeparatedBy { separator } => with_code(
+            w("looks_separated_by"),
+            "separator",
+            w(match separator {
+                Separator::Semicolon => "semicolon",
+                Separator::Tab => "tab",
+            }),
+        ),
     }
 }
 
