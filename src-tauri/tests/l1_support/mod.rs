@@ -4,13 +4,16 @@
 #![allow(dead_code)]
 
 use std::fmt::Write as _;
+use std::io::{Read, Write as _};
+use std::net::TcpListener;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use serde_json::{json, Value};
 
-use app_lib::stats_ai::{AiSettings, CredentialStore, MemoryCredentialStore, StatsAi, TransportFactory};
+use app_lib::stats_ai::{AiSettings, CredentialStore, MemoryCredentialStore, RequestTimeout, ResponsesTransport, StatsAi, TransportFactory};
 use app_lib::stats_l1_commands::{self as l1, BindingEdits, L1OpenView, L1Runs, LevelEdit, RoleEdit};
 use gaply_core::stats_assist::transport::{HelperTransport, MockTransport};
 use gaply_core::stats_l0::pvalue;
@@ -198,3 +201,91 @@ impl tracing::Subscriber for Capture {
     fn exit(&self, _: &tracing::span::Id) {}
 }
 
+/* ---- the real transport against a capture server -------------------------- */
+
+/// One canned response per accepted connection; every raw request recorded.
+pub struct CaptureServer {
+    pub url: String,
+    pub requests: Arc<Mutex<Vec<Vec<u8>>>>,
+}
+
+pub fn read_request(stream: &mut std::net::TcpStream) -> Vec<u8> {
+    stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    let mut buf = Vec::new();
+    let mut chunk = [0u8; 4096];
+    loop {
+        let n = stream.read(&mut chunk).unwrap_or(0);
+        if n == 0 {
+            break;
+        }
+        buf.extend_from_slice(&chunk[..n]);
+        if let Some(end) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+            let head = String::from_utf8_lossy(&buf[..end]).to_lowercase();
+            let len = head.lines().find_map(|l| l.strip_prefix("content-length:")).map(|v| v.trim().parse::<usize>().unwrap()).unwrap_or(0);
+            if buf.len() >= end + 4 + len {
+                break;
+            }
+        }
+    }
+    buf
+}
+
+/// A status that means "stall": read the request, hold the connection past
+/// any client timeout, and close it without a reply.
+pub const STALL: u16 = 0;
+
+pub fn capture_server(responses: Vec<(u16, String)>) -> CaptureServer {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}/v1", listener.local_addr().unwrap());
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let r = requests.clone();
+    std::thread::spawn(move || {
+        // Each connection on its own thread, so a stall never holds up the
+        // next attempt; the n-th connection gets the n-th response.
+        for (n, conn) in listener.incoming().enumerate() {
+            let Ok(mut s) = conn else { return };
+            let r = r.clone();
+            let reply = responses.get(n).cloned();
+            std::thread::spawn(move || {
+                r.lock().unwrap().push(read_request(&mut s));
+                match reply {
+                    Some((STALL, _)) => std::thread::sleep(Duration::from_millis(1500)),
+                    Some((status, body)) => {
+                        let reason = if status == 200 { "OK" } else { "Error" };
+                        let resp = format!(
+                            "HTTP/1.1 {status} {reason}\r\ncontent-type: application/json\r\nx-request-id: req_capture\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                            body.len()
+                        );
+                        let _ = s.write_all(resp.as_bytes());
+                    }
+                    None => {}
+                }
+            });
+        }
+    });
+    CaptureServer { url, requests }
+}
+
+pub fn world_with_real_transport(server: &CaptureServer, cancel_flag: Option<Arc<AtomicBool>>, timeout: RequestTimeout) -> World {
+    let store = Arc::new(MemoryCredentialStore::default());
+    let base = server.url.clone();
+    let s2: Arc<dyn CredentialStore> = store.clone();
+    let factory: TransportFactory = Arc::new(move |cancel| {
+        let cancel = cancel_flag.clone().unwrap_or(cancel);
+        Arc::new(ResponsesTransport::new(&base, s2.clone(), cancel, Duration::from_millis(10), timeout).unwrap()) as Arc<dyn HelperTransport>
+    });
+    let ai = StatsAi::for_tests(store.clone(), factory, &server.url);
+    World { files: files(), db: Database::in_memory().unwrap(), runs: L1Runs::default(), ai, store, mock: Arc::new(MockTransport::new()) }
+}
+
+pub fn split(raw: &[u8]) -> (String, Vec<(String, String)>, Vec<u8>) {
+    let end = raw.windows(4).position(|w| w == b"\r\n\r\n").expect("a head");
+    let head = String::from_utf8(raw[..end].to_vec()).unwrap();
+    let mut lines = head.split("\r\n");
+    let request_line = lines.next().unwrap().to_string();
+    let headers = lines.map(|l| {
+        let (k, v) = l.split_once(':').unwrap();
+        (k.trim().to_lowercase(), v.trim().to_string())
+    });
+    (request_line, headers.collect(), raw[end + 4..].to_vec())
+}

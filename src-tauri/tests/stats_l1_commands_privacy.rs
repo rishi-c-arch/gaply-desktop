@@ -129,4 +129,3 @@ fn step_5s_sentinels_and_the_paths_appear_in_no_body_error_view_or_trace() {
     let cm = &bodies[0].1;
     assert!(cm.contains("assuming equal variances") && cm.contains("scored lower than control"));
 }
-

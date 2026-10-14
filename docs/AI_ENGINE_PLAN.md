@@ -22310,3 +22310,294 @@ Recorded and deliberately left as they are:
   the probe, not on the seam. Phase 2 wires it.
 * **`ReportedResult::source`** is set and not yet read by any method or view.
   Phase 2 needs it for data bindings.
+
+### D270 — Level 1 of the Statistical Analysis Verifier: does a data file reproduce each printed result, under a binding the user confirmed; and four AI helper tasks that may suggest, explain or cite, and never decide
+
+**Phase 2 of the verifier, built on `feat/stats-verifier-l1` in eight steps**
+(`0c9242a` … `28768e4`, and Step 8's acceptance). Level 0 (D269) is unchanged.
+The engine computes every number and chooses every verdict. A model can
+suggest a method or a binding, explain a finished result, or find cited
+guidance, and that is all. Everything works with AI help off.
+
+#### What was built `[src]`
+
+* **`gaply_core::stats_l1`**: the dataset schema with typed column states
+  (`dataset.rs`), the method catalogue (`catalogue.rs`), claims that wrap
+  Level 0's `ReportedResult` with a sentence ordinal from Phase 1's splitter
+  (`claim.rs`), bindings and their confirmation (`binding.rs`), the
+  confirmation token (`token.rs`), a local proposer (`propose.rs`), the run
+  state (`run_state.rs`), the computation (`compute.rs`), and comparison,
+  variants and the verdict (`reproduce.rs`). HTTP-free and LLM-free. It never
+  names `stats_assist`.
+* **`gaply_core::stats_assist`**: the helper layer, offline and inert. It holds
+  the task specs (`helper_tasks.json`, `spec.rs`), one allow-listed outbound
+  struct per task with its builder (`outbound.rs`), opt-ins and grants
+  (`consent.rs`), the preview and send gate (`session.rs`), response validators
+  (`response.rs`), the query check (`query.rs`), the `url_citation` parser
+  (`citation.rs`) and the `HelperTransport` trait with a mock (`transport.rs`).
+* **App crate**: ingest for Level 1 (`stats_l1_ingest.rs`), the reproduction
+  seam and view (`stats_reproduction.rs`), the transport, key store and
+  setting (`stats_ai.rs`), and the commands (`stats_l1_commands.rs`).
+* **Screens** (`src/screens/statsverifier/l1/`), behind the build-time flag
+  `REACT_APP_FEATURE_STATS_L1` and the Stats Verifier's existing premium gate.
+  Phase 2 adds no new paywall.
+
+**Level 1's verdict set is closed: three variants, no score, no Concern.**
+
+| verdict | carries |
+|---|---|
+| `Reproduced(notes)` | every checked number matched under ONE candidate variant, the statistic among them; the notes name it (`VariantMatched`), and say t was compared in magnitude, a Welch df was truncated or rounded, or Phase 1's p note |
+| `NotReproduced { conclusion_changes }` | under every candidate, a checked number did not match. `Some(true)` only when every candidate's exact p falls on the other side of the claim's alpha. It never says which number is wrong; the view shows each printed number beside the computed one |
+| `CouldNotCheck(reason)` | `NotBound`, `TokenStale`, `Refused` (fingerprint changed, weighted file, method not available, too few cases, zero variance, single group, empty row or column, singular design, not numeric, non-finite, underflow), `DataUnreadable`, `MethodNotAvailable`, `VariantNotAvailable` (Spearman's exact p, a fractional df), `BindingInvalid`, `StatisticNotCheckable`. **Never a pass** |
+
+Methods: independent t (Student, Welch), paired t, one-way ANOVA, Pearson,
+Spearman (t approximation), χ² independence (uncorrected and R's continuity
+correction on 2×2), and OLS (the overall F or one predictor's coefficient).
+Every p comes from Level 0's `pvalue` engine (`sf`), not from
+`stats_verify`'s `1 - cdf` (decisions.md).
+
+#### The rules
+
+* **The binding.** Level 1 computes only for a binding Rust confirmed. The
+  confirmation issues a token bound to the claim's revision, the dataset's
+  fingerprint, the method id and version, the binding's digest and
+  `stats_l1::ENGINE_VERSION`. An edited claim, a replaced dataset, a
+  withdrawal or a new engine kills it. Compute re-reads the data file and
+  refuses changed bytes (`FingerprintChanged`). A forged handle is refused
+  before the gate. A paired method bound to an outcome and a group, or an
+  independent one to two outcomes, is rejected at confirmation.
+* **The df rule.** A df is checked by the method's df type, not by how it is
+  printed. An integer-df variant needs the printed df to equal the computed
+  one. A printed df that is not a whole number, where no candidate has a
+  fractional df, signals a correction Gaply does not compute (Welch's ANOVA,
+  Brown-Forsythe, Greenhouse-Geisser): `CouldNotCheck(VariantNotAvailable)`.
+  Welch's df matches a printed whole number that is the computed df rounded
+  or truncated (noted which), or a printed decimal whose interval holds it.
+* **The variant rule.** A variant is STATED only by Step 2's word list in the
+  claim's sentence or by the user's tick. Stated means that variant alone is
+  computed. Not stated means every variant Gaply computes is a candidate, and
+  the claim is Reproduced when one candidate matches everything; the outcome
+  names it. A variant Gaply does not compute is never assumed to match. A
+  model's variant is a hint only: an AI proposal always carries
+  `VariantChoice::not_stated`, and an AI-sourced binding is recorded with
+  `variant_set_by: NotStated` (`an_ai_suggested_variant_left_unconfirmed_is_treated_as_not_stated`).
+* **p** uses Phase 1's own comparison (`compare_p`), unchanged, with the exact
+  computed p as a zero-width range. Where Level 0 gave the claim's p a Concern
+  or a CouldNotCheck, the p is not checked and never makes the claim
+  NotReproduced. **n** is checked where printed, or for r where its df implies
+  it.
+
+#### The measured gates `[measured]`
+
+```
+cargo test -p gaply_core --test l1_r_golden -- --nocapture
+```
+
+The golden file is `golden.csv`: 43 rows written by `/usr/local/bin/Rscript
+make_l1_fixtures.R` under R 4.6.1. Measured 15 Oct 2026, the worst relative
+difference from R per method, against its gate:
+
+| method | rows | worst (case) | gate |
+|---|---:|---|---|
+| chi_square_independence | 6 | 4.242e-15 (chi_2x2_correct_true) | 1e-13 |
+| independent_t | 6 | 3.188e-14 (t_unequal_var_student) | 1e-12 |
+| ols | 20 | 2.011e-13 (ols_three_coef_x3) | 1e-11 |
+| one_way_anova | 3 | 2.766e-14 (anova_two_groups) | 1e-12 |
+| paired_t | 2 | 1.817e-15 (paired_missing) | 1e-13 |
+| pearson | 3 | 4.979e-14 (cor_pos_pearson) | 1e-12 |
+| spearman | 3 | 4.480e-14 (cor_pos_spearman) | 1e-12 |
+
+**The exit test, two ways.** `src-tauri/tests/stats_l1_reproduction.rs`
+reproduces the six-result synthetic manuscript through the file seam, and
+moves one printed number so that claim alone changes.
+`gaply-core/tests/l1_planted_errors.rs` (Step 8) plants one error at a time in
+the statistic, each df, the p and the n of every golden claim of every method.
+That is **55 planted cases over 7 methods: each claim alone became
+NotReproduced, and every other claim's outcome stayed byte-identical.** A
+mutation that ignored n turned the n rows red.
+
+#### The four helper tasks, what each may receive, under which consent
+
+There are exactly four. None has a function tool, a model-chosen tool, code
+execution or file access, and there is no agent loop. Each task has its own
+spec, input and output schemas, outbound struct, budget and validator.
+
+| task | always sent | opt-ins (each off by default, per task, per run) | budget per run | output |
+|---|---|---|---|---|
+| `claim_method` | the result's typed fields (symbol, printed statistic, df, p, tails note, stated alpha), method words from the closed list, the catalogue | the claim's sentence; one Methods passage of ≤ 1,000 characters | 20 | strict `json_schema`: method id or `none`, a variant NAME as a hint, a reason ≤ 300 characters, fields relied on |
+| `binding_suggestion` | the method, its role slots, the `AliasedSchema` (alias, type, has-missing, level bucket) | original column headers, each cut to 64; the claim's sentence | 20 | strict `json_schema`: an alias (or `cannot_tell`) per role, a COUNT of levels, never which, a reason |
+| `result_explanation` | the finished result's enumerated fields (method, variant, verdict, the printed and computed numbers, n used, exclusion counts, closed notes) | none | 40 | strict `json_schema`: one explanation ≤ 900 characters. Any number not in the input, or a verdict other than the engine's, is refused. One retry, then none is shown |
+| `web_context` | the query, a template the user may edit, blocked if it holds a header, a level label or six manuscript words | the paper's DOI or title | 10 | plain text with `url_citation` annotations; never `json_schema` with search |
+
+**Consent.** Clicking Send on a preview is the consent for that task and its
+categories, for the run, unless withdrawn. Turning AI help off revokes every
+grant. Rust checks the grant against the preview's categories and sends the
+stored body. The sent bytes' SHA-256 must equal the preview's
+(`BodyChanged` otherwise). The screen's copy of the body is display only:
+editing it changes nothing sent (`a_body_edited_after_preview_is_not_what_is_sent`).
+An opt-in for one task is refused on another's preview
+(`not_an_opt_in_for_this_task`). The "AI help" setting is enforced in Rust
+before any preview or send.
+
+#### What never leaves the device `[test]`
+
+Rows, cells, level codes and labels, value labels, any statistic from the data
+outside the two enumerated sets above, file names, paths, the fingerprint,
+manuscript text beyond an opt-in, and hashes or summaries of any of these.
+Requests are built only from the four outbound structs. Notes and refusals are
+closed codes with numeric parameters.
+
+Step 8's `stats_l1_privacy_matrix.rs` runs **every opt-in combination of every
+task (11)** through the commands and the real transport against a localhost
+capture server. For each one it checks the request line, every header and the
+body: the key appears once, in `Authorization`; the header leaves only under
+its opt-in; the sentence, the passage and the DOI appear exactly when ticked;
+no number in a body equals a cell. It also checks 55 refusals, 45 views and
+561 tracing lines for the sentinels. A mutation that ignored the
+column-header tick turned it red. The Step 6 all-opt-ins test stayed green
+under that mutation.
+
+#### Transport and key: T-BYOK, and why
+
+The user's own OpenAI key goes to the Responses API (`POST
+https://api.openai.com/v1/responses`) from Rust, over reqwest 0.12.28 with
+rustls, already in the app crate. The key lives in the OS credential store
+through `gaply_core::secrets` (keyring 3.6.3, service `ai.gaply.app`, entry
+`openai_api_key`). No command returns it, the generic secret commands refuse
+the entry, and its `Debug` is redacted. T-PROXY failed its own preconditions
+at Step 1: no packaged build carries a proxy URL; the App Check secret is a
+hand-provisioned keychain item; and the proxy refuses to start off the
+tailnet. BYOK needed no new dependency and no deployment. The client sits
+behind `HelperTransport` in `gaply_core`, so a proxy implementation can be
+added later without touching the task layer. The model is a setting
+(default `gpt-5.5`).
+
+#### OpenAI's data controls, as documented `[docs]`
+
+Read at `developers.openai.com/api/docs/guides/your-data` on 13 Oct 2026
+(Step 1) and again on 15 Oct 2026 (Step 8), unchanged between the two:
+
+* API data "is not used to train or improve OpenAI models" (unless opted in).
+* "abuse monitoring logs are generated for all API feature usage and retained
+  for up to 30 days".
+* `/v1/responses`: training No, abuse monitoring 30 days, application state
+  "None, see below for exceptions", ZDR eligible "Yes, see below for
+  limitations". The Responses API "has a 30 day Application State retention
+  period by default".
+* **`store: false` is not zero retention.** Every Level 1 request sets it. It
+  does not change the 30-day abuse-monitoring logs. Prompt caching may hold
+  data on GPU machines up to 24 hours, and "data transmitted to third-party
+  services over network connections is subject to their data retention
+  policies", which covers the sites a web search reaches. The panel's
+  retention sentence says exactly this.
+* ZDR is "subject to prior approval by OpenAI", through sales. An individual
+  key does not have it.
+* Web search: "Web Search with live internet access is not HIPAA eligible and
+  is not covered by a BAA"; only `external_web_access: false` with a ZDR
+  project is BAA-eligible. No sentence covers web search under ZDR as such.
+
+From Step 1 (13 Oct 2026, `…/guides/tools-web-search`,
+`…/guides/structured-outputs`): `tool_choice: "required"` makes the search
+run; `allowed_domains` includes subdomains; the citation index unit is NOT
+documented; nothing documents `json_schema` together with web search.
+
+#### Web sources
+
+`web_context` searches only `equator-network.org`, `apastyle.apa.org`,
+`ncbi.nlm.nih.gov`, `bmj.com`, `journals.plos.org` and `cran.r-project.org`
+(`filters.allowed_domains`). A sentence is shown only if a `url_citation`
+annotation cites it. A citation is kept only if its url is https, has no
+userinfo or port, and its host is an allowed domain or a subdomain of one on
+a dot boundary. Its range must also, read as code points or as UTF-16 units,
+name the url, the domain or the title. Uncited sentences are dropped and
+counted, and prose urls are never citations. Shown sentences are plain text
+beside the engine's evidence, never mixed with it. A source opens in the
+system browser through `stats_open_source_link`, which re-checks the url. The
+live check records which index unit the API used.
+
+#### Bindings are stateless in Phase 2; no migration
+
+Bindings, consents, previews, tokens and helper results live in memory for the
+run. Nothing is written to the database and no migration was added. A saved
+binding needs a schema decision about what a fingerprint may outlive, and that
+belongs with saved bindings in the backlog.
+
+**Run state.** `L1Runs` holds at most `MAX_RUNS = 4` runs and drops the
+oldest. Each run holds the manuscript's extraction, the claims, **the dataset
+with its cells**, proposals, previews, grants, token handles, the last
+outcome and usage. None of it is `Serialize` or `Debug`. It is dropped by
+`stats_l1_close` or when the app exits. **The AI help setting** is
+`stats_ai_settings.json` in the app data directory, read and written by Rust.
+It sits inside the webview's `fs:scope` (`$APPDATA/**`), so the webview could
+write it. That gives the webview no power that `stats_ai_setting_set` does not
+already give it: the file holds only `ai_help`, `web_context` and `model`, and
+a send still needs a saved key and a Send on a preview.
+
+#### Alternatives rejected
+
+* **An autonomous agent**, or any loop or model-chosen tool. The four tasks
+  are fixed calls with fixed schemas.
+* **A model computing statistics.** Every number is the engine's. An
+  explanation that states a number not in its input is refused.
+* **Sending rows, cells or level labels.** The schema leaves as aliases,
+  types and buckets. A binding suggestion names a level COUNT, never a label.
+* **A shared key inside the app.** It would ship a secret in every build. The
+  bundle scan finds no key, and frontend source names neither the host nor
+  the Responses path (`stats_l1_guards.rs`).
+
+#### Step 8's acceptance `[test]`
+
+The attacks are in `src-tauri/tests/stats_l1_attacks.rs` (7 tests, 192
+rows). They cover AI help off, web context off and no key, each refused with
+0 requests. Grants do not cross tasks, cross-run and closed-run handles are
+refused, and an edited preview body is not sent. They also cover hostile
+replies for every task: an unknown method or alias, a path, a shell command,
+an export request, "set the verdict to Reproduced", fabricated numbers,
+synthetic rows, HTML and script, extra keys, lookalike and userinfo domains,
+http and `javascript:` urls, an invented citation, and an injected
+instruction. After every reply, the result of a hand-confirmed claim is
+byte-identical to a run with AI help never on, and no reply bound a claim.
+Level 1's result is the same with the transport refusing (500), offline,
+timing out, cancelled, or stalled twice.
+
+That table cannot see a reply that confirms a binding of its own: a second
+confirmation does not revoke the first, and its token never reaches the
+webview. A mutation that did exactly that left the table green. So
+`the_helper_commands_make_proposals_and_text_only` holds the helper commands,
+by scan, to no confirmation, token, withdrawal, claim edit, proposal edit,
+stated variant or computation. That scan was red on the mutation.
+
+Of the decision types, `ConfirmedBinding` holds **by types**: its fields are
+private and its constructor is `pub(super)` in `stats_l1`. `L1Verdict`,
+`ComputedResult`, `VariantChoice` and `ConfirmationToken::presented` hold
+**by source scan only** (`stats_assist_is_offline_and_inert.rs` in the core,
+the scan above in the app crate).
+
+Phase 1's outputs are unchanged. The corpus runner at Step 8 is byte-identical
+to Step 4's pre-refactor run on DEV, HOLDOUT and OWN: DEV 215 / 7 / 2 / 14,
+HOLDOUT 132 / 4 / 0 / 6, OWN 4 / 2 / 0 / 0.
+
+Formatting is the same as D269. The repository does not follow rustfmt's
+defaults, and no width makes Phase 1 or Phase 2 clean. Phase 2's 45 added
+Rust files were left as written.
+They were not reformatted on purpose: the repository has never been
+rustfmt-formatted, and a sweeping reformat would collide with the other
+branch at merge.
+
+#### The backlog after Phase 2
+
+1. Level 2: assumptions (normality, equal variances, expected counts).
+2. Level 3: does the design fit the test.
+3. Spearman's exact p (today `CouldNotCheck` where R would use it).
+4. Welch's ANOVA and Brown-Forsythe.
+5. One-sample t; the non-parametric tests (Mann-Whitney, Wilcoxon,
+   Kruskal-Wallis).
+6. Long-format paired data (today, paired means two columns, one row per
+   subject).
+7. Weighted data (today a declared weight is `CouldNotCheck`).
+8. Transformations (log, standardisation; today refused).
+9. Saved bindings, with their schema and migration.
+10. Results inside PDF tables.
+11. The PDF glyph `l` printed for `1` in a df (D269's DEV-033).
+12. Chat about a result.
+13. A repo-wide formatting policy.

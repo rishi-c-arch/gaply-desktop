@@ -44,7 +44,7 @@ export function notSent(task: HelperTaskInput['task'], ticked: OptInCategory[]):
 }
 
 export const RECIPIENT_TEXT =
-  'Sent to OpenAI (api.openai.com) over HTTPS, with your own API key. Gaply runs no server in between and sees nothing.';
+  'Sent to OpenAI over HTTPS, with your own API key. Gaply runs no server in between and sees nothing.';
 
 export const RETENTION_TEXT =
   "The request sets store to false, which asks OpenAI not to keep the response for later retrieval. That does not mean nothing is kept: OpenAI keeps abuse-monitoring logs of API requests for up to 30 days, and its prompt cache may hold data for up to 24 hours. OpenAI says API data is not used to train its models unless you opt in.";

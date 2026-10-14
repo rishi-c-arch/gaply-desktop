@@ -129,6 +129,10 @@ interface Fake extends StatsL1Bridge {
   names(): string[];
 }
 
+// Prompt 0's fake key sentinel. It does not start with "sk-", so no scanner or
+// reader can mistake it for a real OpenAI key.
+const FAKE_KEY = 'KEY_SECRET_a1b2';
+
 function fakeBridge(opts: { settings?: Partial<AiSettings>; replies?: Partial<Record<HelperTaskInput['task'], L1HelperResultView>>; extraProposals?: L1ProposalView[] } = {}): Fake {
   const calls: Array<[string, unknown]> = [];
   const sent: Array<{ task: string; body: string }> = [];
@@ -197,7 +201,7 @@ function fakeBridge(opts: { settings?: Partial<AiSettings>; replies?: Partial<Re
     settingGet: async () => { rec('settingGet'); return settings; },
     settingSet: async (s) => { rec('settingSet', s); settings = s; return s; },
     keyStatus: async () => { rec('keyStatus'); return { saved: true, provider: 'openai' }; },
-    keySave: async () => { rec('keySave', { key: '<redacted>' }); return { saved: true, provider: 'openai' }; },
+    keySave: async (key: string) => { rec('keySave', { key: key === FAKE_KEY ? '<the sentinel>' : '<another value>' }); return { saved: true, provider: 'openai' }; },
     keyTest: async () => { rec('keyTest'); return { result: 'accepted' }; },
     keyRemove: async () => { rec('keyRemove'); return { saved: false, provider: 'openai' }; },
     openSourceLink: async (url) => { rec('openSourceLink', { url }); },
@@ -625,10 +629,11 @@ describe('Level 1: settings and the run closing', () => {
     render(<L1Flow bridge={b} />);
     fireEvent.click(screen.getByTestId('l1-settings-toggle'));
     expect((await screen.findByTestId('l1-key-status')).textContent).toBe('Key saved');
-    fireEvent.change(screen.getByTestId('l1-key-input'), { target: { value: 'sk-test-SECRET' } });
+    fireEvent.change(screen.getByTestId('l1-key-input'), { target: { value: FAKE_KEY } });
     fireEvent.click(screen.getByTestId('l1-key-save'));
     await waitFor(() => expect((screen.getByTestId('l1-key-input') as HTMLInputElement).value).toBe(''));
-    expect(document.body.textContent).not.toContain('sk-test-SECRET');
+    expect(b.calls.find(([n]) => n === 'keySave')?.[1]).toEqual({ key: '<the sentinel>' });
+    expect(document.body.textContent).not.toContain(FAKE_KEY);
     fireEvent.click(screen.getByTestId('l1-key-test'));
     expect((await screen.findByTestId('l1-settings-message')).textContent).toBe('OpenAI accepted the key.');
     fireEvent.click(screen.getByTestId('l1-key-remove'));
