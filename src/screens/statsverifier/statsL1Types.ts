@@ -239,6 +239,9 @@ export interface ReproductionView {
   data: WireCode;
   unmatchedPairs: number;
   claims: L1ClaimReproductionView[];
+  /** The significance threshold p was compared with, as the paper printed
+   *  it, and whether the paper stated it (otherwise .05, the default). */
+  alpha: { printed: string[]; stated: boolean };
 }
 
 export interface L1UsageView {

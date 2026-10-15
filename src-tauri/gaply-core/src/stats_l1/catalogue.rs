@@ -21,11 +21,14 @@
 //! Where software differs, the binding records which variant the paper
 //! states: Student or Welch for an independent t; continuity correction or
 //! not for a 2×2 chi-square; the t approximation or an exact p for Spearman.
-//! A variant counts as STATED only when the closed word list below finds it in
-//! the claim's sentence or in a Methods passage the user selected, or when the
+//! A variant counts as STATED only when the closed phrase list below finds it,
+//! not negated by the shared rule ([`crate::stats_l0::negation`]), in the
+//! claim's sentence or in a Methods passage the user selected, or when the
 //! user ticks "the paper states this". Anything else, an AI suggestion
 //! included, stays not stated. [`VariantChoice`]'s private fields and its three
 //! constructors are what enforce that.
+
+use crate::stats_l0::negation::{negation_of, Negation};
 
 /// Every Level 1 method. Closed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -372,30 +375,59 @@ impl VariantChoice {
     }
 }
 
-/// The closed word list. Each entry: the words that name a variant (matched
-/// case-folded, on word boundaries), the variant, and the kind it belongs to.
-/// Order matters within a kind: a negated phrase is listed before the phrase
-/// it negates.
-const VARIANT_WORDS: &[(&str, Variant)] = &[
+/// One phrase that names a variant, as words (see [`phrase_words`]): each
+/// element lists the words allowed at that place, `""` makes it optional,
+/// and a trailing `*` matches any word starting with what precedes it.
+/// `label` is what the outcome records as the word the paper used.
+struct VariantPhrase {
+    label: &'static str,
+    words: &'static [&'static [&'static str]],
+    variant: Variant,
+    /// A phrase that names one variant by negating the other ("equal
+    /// variances were not assumed" states Welch). It wins over any phrase it
+    /// overlaps.
+    names_other_way: bool,
+}
+
+const fn phrase(label: &'static str, words: &'static [&'static [&'static str]], variant: Variant) -> VariantPhrase {
+    VariantPhrase { label, words, variant, names_other_way: false }
+}
+
+const fn other_way(label: &'static str, words: &'static [&'static [&'static str]], variant: Variant) -> VariantPhrase {
+    VariantPhrase { label, words, variant, names_other_way: true }
+}
+
+const WELCH: Variant = Variant::T(TVariant::Welch);
+const STUDENT: Variant = Variant::T(TVariant::Student);
+const UNCORRECTED: Variant = Variant::Continuity(ContinuityVariant::No);
+const YATES: Variant = Variant::Continuity(ContinuityVariant::Yes);
+const YATES_WORDS: &[&str] = &["yates", "yates'", "yates's"];
+const VARIANCES: &[&str] = &["variances", "variance"];
+
+/// The closed list (evaluation fixes, part A). A phrase counts only when the
+/// shared negation rule finds it not negated in its clause; a clearly
+/// negated phrase is dropped, and an unclear one leaves the variant not
+/// stated. "Student" counts only as "Student's t" or "Student t"; "pooled"
+/// only for a pooled-variance t-test.
+const VARIANT_PHRASES: &[VariantPhrase] = &[
     // Independent t.
-    ("welch", Variant::T(TVariant::Welch)),
-    ("unequal variances", Variant::T(TVariant::Welch)),
-    ("satterthwaite", Variant::T(TVariant::Welch)),
-    ("student", Variant::T(TVariant::Student)),
-    ("equal variances", Variant::T(TVariant::Student)),
-    ("pooled", Variant::T(TVariant::Student)),
-    // 2×2 chi-square.
-    ("without continuity correction", Variant::Continuity(ContinuityVariant::No)),
-    ("no continuity correction", Variant::Continuity(ContinuityVariant::No)),
-    ("uncorrected", Variant::Continuity(ContinuityVariant::No)),
-    ("yates", Variant::Continuity(ContinuityVariant::Yes)),
-    ("continuity correction", Variant::Continuity(ContinuityVariant::Yes)),
-    ("continuity corrected", Variant::Continuity(ContinuityVariant::Yes)),
-    ("continuity-corrected", Variant::Continuity(ContinuityVariant::Yes)),
+    other_way("equal variances not assumed", &[&["equal"], VARIANCES, &["were", "are", "was", "is", ""], &["not"], &["assumed"]], WELCH),
+    other_way("not assuming equal variances", &[&["not", "without"], &["assuming"], &["equal"], VARIANCES], WELCH),
+    phrase("welch", &[&["welch", "welch's"]], WELCH),
+    phrase("unequal variances", &[&["unequal"], &["variances"]], WELCH),
+    phrase("satterthwaite", &[&["satterthwaite", "satterthwaite's"]], WELCH),
+    phrase("student's t", &[&["student", "student's", "students'"], &["t"]], STUDENT),
+    phrase("equal variances", &[&["equal"], &["variances"]], STUDENT),
+    phrase("pooled-variance t", &[&["pooled"], &["variance", "variances", ""], &["t"]], STUDENT),
+    // 2x2 chi-square.
+    other_way("without yates' correction", &[&["without"], &["a", "the", ""], YATES_WORDS, &["continuity", ""], &["correction", "corrections"]], UNCORRECTED),
+    other_way("without continuity correction", &[&["without"], &["a", "the", ""], &["continuity"], &["correction", "corrections"]], UNCORRECTED),
+    other_way("uncorrected chi-square", &[&["uncorrected"], &["chi*", "\u{3c7}*"]], UNCORRECTED),
+    phrase("yates", &[YATES_WORDS], YATES),
+    phrase("continuity correction", &[&["continuity"], &["correction", "corrected"]], YATES),
     // Spearman's p.
-    ("t approximation", Variant::SpearmanP(SpearmanPVariant::TApproximation)),
-    ("t-approximation", Variant::SpearmanP(SpearmanPVariant::TApproximation)),
-    ("exact", Variant::SpearmanP(SpearmanPVariant::Exact)),
+    phrase("t approximation", &[&["t"], &["approximation"]], Variant::SpearmanP(SpearmanPVariant::TApproximation)),
+    phrase("exact", &[&["exact"]], Variant::SpearmanP(SpearmanPVariant::Exact)),
 ];
 
 /// Words that name a METHOD rather than a variant, for the local proposer:
@@ -436,8 +468,84 @@ pub fn contains_word(text: &str, word: &str) -> bool {
     false
 }
 
+/// Words for phrase matching: runs of letters, digits and apostrophes
+/// (`\u{2019}` read as `'`), lower case, with their byte ranges. A hyphen
+/// separates words, so "t-test" is `t`, `test`.
+fn phrase_words(text: &str) -> Vec<(String, usize, usize)> {
+    let mut out: Vec<(String, usize, usize)> = Vec::new();
+    let mut cur: Option<(String, usize)> = None;
+    for (i, c) in text.char_indices() {
+        if c.is_alphanumeric() || c == '\'' || c == '\u{2019}' {
+            let c = if c == '\u{2019}' { '\'' } else { c };
+            match &mut cur {
+                Some((w, _)) => w.extend(c.to_lowercase()),
+                None => cur = Some((c.to_lowercase().collect(), i)),
+            }
+        } else if let Some((w, at)) = cur.take() {
+            out.push((w, at, i));
+        }
+    }
+    if let Some((w, at)) = cur {
+        out.push((w, at, text.len()));
+    }
+    out
+}
+
+fn word_fits(word: &str, allowed: &str) -> bool {
+    match allowed.strip_suffix('*') {
+        Some(prefix) => word.starts_with(prefix),
+        None => word == allowed,
+    }
+}
+
+/// Every occurrence of `p` in `words`, as byte ranges of `text`.
+fn phrase_spans(p: &VariantPhrase, words: &[(String, usize, usize)]) -> Vec<(usize, usize)> {
+    fn from(elems: &[&[&str]], words: &[(String, usize, usize)], at: usize) -> Option<usize> {
+        let Some((first, rest)) = elems.split_first() else { return Some(at) };
+        if let Some(w) = words.get(at) {
+            if first.iter().any(|a| !a.is_empty() && word_fits(&w.0, a)) {
+                if let Some(end) = from(rest, words, at + 1) {
+                    return Some(end);
+                }
+            }
+        }
+        if first.contains(&"") {
+            return from(rest, words, at);
+        }
+        None
+    }
+    (0..words.len())
+        .filter_map(|i| from(p.words, words, i).filter(|&end| end > i).map(|end| (words[i].1, words[end - 1].2)))
+        .collect()
+}
+
+/// The variant `text` states, by [`VARIANT_PHRASES`] and the shared negation
+/// rule: phrases naming the other way first, then the rest unless they
+/// overlap one. A clearly negated phrase is dropped; an unclear one, or two
+/// phrases naming different variants, leaves the variant not stated.
 fn variant_in_text(kind: VariantKind, text: &str) -> Option<(Variant, &'static str)> {
-    VARIANT_WORDS.iter().find(|(w, v)| v.kind() == kind && contains_word(text, w)).map(|(w, v)| (*v, *w))
+    let words = phrase_words(text);
+    let mut found: Vec<(&VariantPhrase, usize, usize)> = Vec::new();
+    for p in VARIANT_PHRASES.iter().filter(|p| p.variant.kind() == kind) {
+        for (s, e) in phrase_spans(p, &words) {
+            found.push((p, s, e));
+        }
+    }
+    let specials: Vec<(usize, usize)> = found.iter().filter(|(p, _, _)| p.names_other_way).map(|&(_, s, e)| (s, e)).collect();
+    found.retain(|(p, s, e)| p.names_other_way || !specials.iter().any(|&(a, b)| *s < b && a < *e));
+    let mut stated: Option<(Variant, &'static str)> = None;
+    for (p, s, e) in found {
+        match negation_of(text, s, e) {
+            Negation::Clearly => continue,
+            Negation::Unclear => return None,
+            Negation::Not => match stated {
+                Some((v, _)) if v != p.variant => return None,
+                Some(_) => {}
+                None => stated = Some((p.variant, p.label)),
+            },
+        }
+    }
+    stated
 }
 
 #[cfg(test)]

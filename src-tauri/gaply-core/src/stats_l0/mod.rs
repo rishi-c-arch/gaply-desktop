@@ -14,6 +14,7 @@ pub mod estimate_in_interval;
 pub mod grim;
 pub mod input;
 pub mod method;
+pub mod negation;
 pub mod number;
 pub mod outcome;
 pub mod p_consistency;

@@ -19,6 +19,7 @@ use std::sync::OnceLock;
 use regex::Regex;
 
 use super::method::TextPosition;
+use super::negation::{negation_of, Negation};
 use super::number::ReportedNumber;
 use super::result::{ReportedResult, ResultReading};
 use crate::equation::rational::Rational;
@@ -86,16 +87,63 @@ fn patterns() -> &'static Patterns {
         // Explicit wording only. `1-tailed` is the digit form some journals
         // print; `\b` keeps "someone sided" and "one-tailored" out.
         one_tailed: Regex::new(r"(?i)\b(?:one|1)[\s\-\u{2010}\u{2011}\u{2013}]?(?:tailed|sided)\b").unwrap(),
-        // The closed list of corrections for multiple testing.
-        correction: Regex::new(
-            r"(?i)\b(?:bonferroni|holm|[sš]id[aá]k|tukey|scheff[eé]|dunnett|benjamini|false[\s\-]discovery)\b",
-        )
+        // The closed list of corrections for MULTIPLE TESTING (evaluation
+        // fixes, part A). Terms: FDR, false discovery rate, corrected or
+        // adjusted for multiple comparisons or testing, a multiple-comparison
+        // correction, familywise error, adjusted p, p-adj, padj, q values,
+        // Bonferroni. A surname counts only beside a qualifier (test,
+        // correction, corrected, adjusted, procedure, method, step-up,
+        // step-down, HSD, post hoc), joined by a space or a hyphen, or in the
+        // pairs Benjamini-Hochberg, Benjamini and Hochberg,
+        // Benjamini-Yekutieli and Holm-Bonferroni: a surname alone, as in a
+        // citation, never counts. Greenhouse-Geisser, Huynh-Feldt, Welch,
+        // Satterthwaite, Yates, continuity, Brown-Forsythe and bias-corrected
+        // are not on it.
+        correction: Regex::new(concat!(
+            r"(?i)",
+            r"\bfdr\b|\bfalse[\s\-\u{2010}\u{2011}]discovery[\s\-\u{2010}\u{2011}]rates?\b",
+            r"|\b(?:corrected|adjusted)\s+for\s+multiple\s+(?:comparisons?|testing|tests)\b",
+            r"|\bmultiple[\s\-\u{2010}\u{2011}]comparisons?[\s\-\u{2010}\u{2011}]corrections?\b",
+            r"|\bfamily[\s\-\u{2010}\u{2011}]?wise\s+error\b",
+            r"|\badjusted\s+p\b|\bp[\-_]adj\b|\bpadj\b|\bq[\s\-\u{2010}\u{2011}]values?\b",
+            r"|\bbonferroni\b",
+            r"|\bbenjamini(?:[\s\-\u{2010}\u{2011}\u{2013}\u{2014}]+|\s+and\s+)hochberg\b",
+            r"|\bbenjamini[\s\-\u{2010}\u{2011}\u{2013}\u{2014}]+yekutieli\b",
+            r"|\b(?:hochberg|hommel|holm|[sš]id[aá]k|tukey|scheff[eé]|games[\s\-\u{2010}\u{2011}\u{2013}\u{2014}]+howell|dunnett|dunn)",
+            r"(?:['\u{2019}]s)?[\s\-\u{2010}\u{2011}]+",
+            r"(?:tests?|corrections?|corrected|adjusted|procedures?|methods?|step[\s\-\u{2010}\u{2011}]?(?:up|down)|hsd|post[\s\-\u{2010}\u{2011}]?hoc)\b",
+            r"|\bpost[\s\-\u{2010}\u{2011}]?hoc\s+(?:hochberg|hommel|holm|[sš]id[aá]k|tukey|scheff[eé]|games[\s\-\u{2010}\u{2011}\u{2013}\u{2014}]+howell|dunnett|dunn)\b",
+        ))
         .unwrap(),
     })
 }
 
-fn states_one_tailed(text: &str) -> bool {
-    patterns().one_tailed.is_match(text)
+/// Whether `text` states a one-tailed test: some match the shared negation
+/// rule finds not negated. Clearly negated and unclear mentions are not a
+/// statement, so a halved p stays `Concern(OneTailedUnstated)`.
+pub(crate) fn states_one_tailed(text: &str) -> bool {
+    patterns()
+        .one_tailed
+        .find_iter(text)
+        .any(|m| !describes_an_interval(&text[m.end()..]) && negation_of(text, m.start(), m.end()) == Negation::Not)
+}
+
+/// "one-sided" or "one-tailed" followed within three words by an interval
+/// word describes an interval, not a test (review follow-up, item 2; the
+/// evaluation's B09).
+fn describes_an_interval(rest: &str) -> bool {
+    rest.split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .take(3)
+        .any(|w| matches!(w.to_lowercase().as_str(), "interval" | "intervals" | "ci" | "cis" | "bound" | "bounds" | "confidence"))
+}
+
+/// Whether `text` names a correction for multiple testing: some match that
+/// is not CLEARLY negated. An unclear negation keeps the p values adjusted,
+/// so `CouldNotCheck(AdjustedP)` stays; only "not corrected for multiple
+/// comparisons" and the like make them raw.
+pub(crate) fn names_correction(text: &str) -> bool {
+    patterns().correction.find_iter(text).any(|m| negation_of(text, m.start(), m.end()) != Negation::Clearly)
 }
 
 impl DocumentContext {
@@ -114,7 +162,7 @@ impl DocumentContext {
         DocumentContext {
             thresholds: reading.thresholds.clone(),
             one_tailed_at: texts().find(|(_, t)| states_one_tailed(t)).map(|(at, _)| at),
-            correction_at: texts().find(|(_, t)| patterns().correction.is_match(t)).map(|(at, _)| at),
+            correction_at: texts().find(|(_, t)| names_correction(t)).map(|(at, _)| at),
         }
     }
 }
@@ -179,10 +227,15 @@ mod tests {
     #[test]
     fn every_named_correction_is_recognised_and_lookalikes_are_not() {
         for s in [
-            "Bonferroni", "Holm", "Šidák", "Sidak", "Tukey HSD", "Scheffé", "Scheffe", "Dunnett", "Benjamini-Hochberg",
-            "false discovery rate",
+            "Bonferroni", "Holm procedure", "Šidák correction", "Sidak-adjusted", "Tukey HSD", "Scheffé test", "Scheffe post hoc",
+            "Dunnett's test", "Benjamini-Hochberg", "false discovery rate",
         ] {
             assert!(patterns().correction.is_match(s), "{s:?}");
+        }
+        // A surname alone, as in a citation, never counts (evaluation fixes,
+        // part A); "Holm", "Šidák", "Scheffé" and "Dunnett" alone did before.
+        for s in ["Holm", "Šidák", "Scheffé", "Dunnett", "(Benjamini & Hochberg, 1995)"] {
+            assert!(!patterns().correction.is_match(s), "{s:?}");
         }
         // Sphericity and variance corrections adjust df or the statistic, not
         // the p for multiple testing; none of them makes a larger p an

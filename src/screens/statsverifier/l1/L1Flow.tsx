@@ -47,11 +47,17 @@ import {
   level0Phrase,
   METHOD_NAMES,
   methodPhrase,
+  notCompared,
   refusalSentence,
   ROLE_NAMES,
   sentenceFor,
   WordContext,
 } from './l1Wording';
+
+/** Reproduced claims with a printed number that was not compared. */
+function partlyReproduced(view: ReproductionView): number {
+  return view.claims.filter((c) => c.verdict.kind === 'reproduced' && notCompared(c.verdict.notes).length > 0).length;
+}
 
 type Stage = 'add' | 'claims' | 'bind' | 'confirm' | 'results';
 const STAGES: Array<{ id: Stage; label: string }> = [
@@ -710,7 +716,9 @@ export const L1Flow: React.FC<L1FlowProps> = ({ bridge, onExit }) => {
       {stage === 'results' && result && view && (
         <section aria-label="Results" data-testid="l1-results" style={{ display: 'grid', gap: 8 }}>
           <p style={{ margin: 0 }} data-testid="l1-results-counts">
-            {result.counts.reproduced} reproduced, {result.counts.notReproduced} not reproduced, {result.counts.couldNotCheck} could not be checked.{' '}
+            {result.counts.reproduced} reproduced
+            {partlyReproduced(result) > 0 ? ` (${partlyReproduced(result)} of them with a number that could not be checked)` : ''},{' '}
+            {result.counts.notReproduced} not reproduced, {result.counts.couldNotCheck} could not be checked.{' '}
             {dataReadPhrase(result.data)}
           </p>
           {result.claims.map((r) => (
@@ -720,6 +728,7 @@ export const L1Flow: React.FC<L1FlowProps> = ({ bridge, onExit }) => {
               run={view.run}
               claim={claims.find((c) => c.claimId === r.claimId)}
               result={r}
+              alpha={result.alpha}
               ctx={ctx}
               aiHelp={settings.aiHelp}
               webContext={settings.webContext}

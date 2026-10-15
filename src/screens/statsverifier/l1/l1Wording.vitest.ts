@@ -29,7 +29,7 @@ function sample(code: string) {
     expected: 2,
     note: 'one_tailed_stated',
     reason: 'invalid_input',
-    why: 'spearman_exact_p_not_computed',
+    why: 'spearman_p_may_be_exact',
     number: 'p',
     variant: 'welch',
     term: 'intercept',

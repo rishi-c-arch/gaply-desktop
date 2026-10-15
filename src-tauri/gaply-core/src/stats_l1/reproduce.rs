@@ -65,10 +65,6 @@ use crate::stats_l0::pvalue;
 use crate::equation::rational::Rational;
 use crate::stats_l0::result::{Family, PValue, ReportedResult};
 
-/// R's `cor.test` uses its exact Spearman p below this n when there are no
-/// ties (`exact = NULL`, the default).
-pub const SPEARMAN_EXACT_BELOW_N: usize = 1290;
-
 /// The record's provenance: the methods are R's, measured against it in
 /// `tests/l1_r_golden.rs`.
 pub const PROVENANCE: Provenance =
@@ -139,10 +135,12 @@ pub enum NotCheckedReason {
     PConcern(ConcernReason),
     /// Phase 1's comparison of the exact p could not be made.
     PCouldNotCheck(CouldNotCheckReason),
-    /// Spearman with no variant stated, n below 1290 and no ties: R would
-    /// print its exact p, which Gaply does not compute, and the
-    /// t-approximation p does not match.
-    SpearmanExactPNotComputed,
+    /// Spearman with no variant stated: the printed p does not match the t
+    /// approximation (R's `cor.test(exact = FALSE)`, what SPSS reports). The
+    /// paper may have used the exact p, which Level 1 does not compute yet,
+    /// so the p alone does not make the claim NotReproduced. A stated t
+    /// approximation compares the p normally.
+    SpearmanPMayBeExact,
     /// The printed number misses the exact value only by what the rounding
     /// of the stored cells (to `decimals`) could explain (Step 8b, rule 1).
     DataPrecision { decimals: u32 },
@@ -245,6 +243,9 @@ pub enum L1Note {
     ConclusionNotAssessed(ConclusionGap),
     /// A printed equality matched as the exact value truncated, not rounded.
     PrintedTruncated { number: NumberKind },
+    /// Spearman's p matched the t approximation, the method named here
+    /// (R's `cor.test(exact = FALSE)`, SPSS).
+    SpearmanPByTApproximation,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -732,6 +733,9 @@ fn notes_of(c: &CandidateComparison) -> Vec<L1Note> {
             (number, NumberStatus::NotChecked(why)) => notes.push(L1Note::NotChecked { number, why }),
             _ => {}
         }
+        if c.variant == ComputedVariant::SpearmanTApproximation && n.kind == NumberKind::P && matches!(n.status, NumberStatus::Matched(_)) {
+            notes.push(L1Note::SpearmanPByTApproximation);
+        }
     }
     notes
 }
@@ -809,10 +813,6 @@ pub fn compare_claim(
     let level0_gap = level0_p_gap(result, ctx);
     let mut trail = Vec::new();
     let alpha = alpha_of(ctx, &mut trail);
-    let spearman_exact_applies = facts.method == L1MethodId::Spearman
-        && !facts.variant.is_stated()
-        && computation.counts.n_used < SPEARMAN_EXACT_BELOW_N
-        && computation.ties == Some(false);
 
     let mut cands = Vec::with_capacity(chosen.len());
     for c in chosen {
@@ -851,9 +851,6 @@ pub fn compare_claim(
                 (row, Some(verdict))
             }
         };
-        if spearman_exact_applies && p.status == NumberStatus::NotMatched {
-            p.status = NumberStatus::NotChecked(NotCheckedReason::SpearmanExactPNotComputed);
-        }
         // Rule 2: a printed equality that is the exact p truncated.
         if p.status == NumberStatus::NotMatched {
             if let PValue::Reported(printed) = &result.p {
@@ -871,6 +868,16 @@ pub fn compare_claim(
                 p.status = NumberStatus::NotChecked(NotCheckedReason::DataPrecision { decimals });
             }
             _ => {}
+        }
+        // Spearman with no variant stated: the p is the t approximation's. A
+        // printed p that misses it may be the exact p, which Level 1 does not
+        // compute, so it is not checked, with or without ties (evaluation
+        // fixes, part A). When the paper's words or the user's tick state the
+        // t approximation, the exact p is not a candidate and the p is
+        // compared normally (review follow-up, item 3); a stated exact p is
+        // refused earlier, as a variant not available.
+        if facts.method == L1MethodId::Spearman && !facts.variant.is_stated() && p.status == NumberStatus::NotMatched {
+            p.status = NumberStatus::NotChecked(NotCheckedReason::SpearmanPMayBeExact);
         }
         let conclusion_changes = match p.status {
             NumberStatus::NotChecked(_) => None,
@@ -992,6 +999,15 @@ pub struct L1VerdictCounts {
     pub could_not_check: usize,
 }
 
+/// The significance threshold a run compares p with: as the paper printed
+/// it, and whether the paper stated it (otherwise `.05`, the default). The
+/// screen says which, every time it mentions the threshold.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AlphaUsed {
+    pub printed: Vec<String>,
+    pub stated: bool,
+}
+
 /// Level 1 for every claim in a run.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReproductionOutcome {
@@ -1000,6 +1016,7 @@ pub struct ReproductionOutcome {
     pub data: DataRead,
     /// Pairs whose revision names no live claim and no claim's previous one.
     pub unmatched_pairs: usize,
+    pub alpha: AlphaUsed,
 }
 
 /// The document context a run compares p with: the manuscript's, or the
@@ -1099,7 +1116,8 @@ pub fn reproduce(
         Some(Ok(_)) => DataRead::Read,
         Some(Err(e)) => DataRead::Unreadable(*e),
     };
-    ReproductionOutcome { claims, counts, data, unmatched_pairs: used.iter().filter(|u| !**u).count() }
+    let alpha = AlphaUsed { printed: ctx.alpha_printed(), stated: !ctx.alpha().1 };
+    ReproductionOutcome { claims, counts, data, unmatched_pairs: used.iter().filter(|u| !**u).count(), alpha }
 }
 
 #[cfg(test)]
@@ -1393,7 +1411,7 @@ mod tests {
     }
 
     #[test]
-    fn spearmans_exact_p_is_not_checked_only_when_r_would_have_used_it() {
+    fn spearmans_p_is_not_checked_when_it_misses_unless_the_t_approximation_is_stated() {
         let c = claim(Family::R, ".45", &["18"], None, p_eq(".041"));
         let rho = |p: f64| ComputedResult {
             variant: ComputedVariant::SpearmanTApproximation,
@@ -1407,17 +1425,23 @@ mod tests {
             precision: Precision::Exact,
         };
         let f = facts(L1MethodId::Spearman, Variant::SpearmanP(SpearmanPVariant::NotStated));
-        // n 20 < 1290, no ties, the t-approximation p does not match: not checked.
-        let (v, _, cands) = verdict(&c, &ctx(), &f, &comp(L1MethodId::Spearman, vec![rho(0.0464)], 20, Some(false)));
-        assert_eq!(status_of(&cands, ComputedVariant::SpearmanTApproximation, NumberKind::P), NumberStatus::NotChecked(NotCheckedReason::SpearmanExactPNotComputed));
-        assert!(matches!(v, L1Verdict::Reproduced(_)), "{v:?}");
-        // With ties R uses the t-approximation too: not matched.
-        let (v, _, _) = verdict(&c, &ctx(), &f, &comp(L1MethodId::Spearman, vec![rho(0.0464)], 20, Some(true)));
-        assert!(matches!(v, L1Verdict::NotReproduced { .. }), "{v:?}");
-        // Stated t-approximation: compared.
+        // No variant stated: the t-approximation p does not match, and the
+        // paper may have used the exact p, so it is not checked, with or
+        // without ties (evaluation fixes, part A).
+        for ties in [Some(false), Some(true)] {
+            let (v, _, cands) = verdict(&c, &ctx(), &f, &comp(L1MethodId::Spearman, vec![rho(0.0464)], 20, ties));
+            assert_eq!(status_of(&cands, ComputedVariant::SpearmanTApproximation, NumberKind::P), NumberStatus::NotChecked(NotCheckedReason::SpearmanPMayBeExact));
+            assert!(matches!(v, L1Verdict::Reproduced(_)), "ties {ties:?}: {v:?}");
+        }
+        // The t approximation stated: the exact p is not a candidate, so the p
+        // is compared and the mismatch makes the claim NotReproduced, with or
+        // without ties (review follow-up, item 3).
         let stated = facts(L1MethodId::Spearman, Variant::SpearmanP(SpearmanPVariant::TApproximation));
-        let (v, _, _) = verdict(&c, &ctx(), &stated, &comp(L1MethodId::Spearman, vec![rho(0.0464)], 20, Some(false)));
-        assert!(matches!(v, L1Verdict::NotReproduced { .. }), "{v:?}");
+        for ties in [Some(false), Some(true)] {
+            let (v, _, cands) = verdict(&c, &ctx(), &stated, &comp(L1MethodId::Spearman, vec![rho(0.0464)], 20, ties));
+            assert_eq!(status_of(&cands, ComputedVariant::SpearmanTApproximation, NumberKind::P), NumberStatus::NotMatched);
+            assert!(matches!(v, L1Verdict::NotReproduced { .. }), "ties {ties:?}: {v:?}");
+        }
         // Stated exact: not computed, never assumed to match.
         let exact = facts(L1MethodId::Spearman, Variant::SpearmanP(SpearmanPVariant::Exact));
         let (v, _, _) = verdict(&c, &ctx(), &exact, &comp(L1MethodId::Spearman, vec![rho(0.041)], 20, Some(false)));
@@ -1577,7 +1601,7 @@ mod tests {
             NotChecked(NotCheckedReason::PConcernAtLevel0(ConcernReason::FTwoTailed)),
             NotChecked(NotCheckedReason::PCouldNotCheckAtLevel0(CouldNotCheckReason::AdjustedP)),
             NotChecked(NotCheckedReason::OneTailedUnstatedOnExactP),
-            NotChecked(NotCheckedReason::SpearmanExactPNotComputed),
+            NotChecked(NotCheckedReason::SpearmanPMayBeExact),
         ];
         let n = [None, Some(Matched(None)), Some(NotMatched)];
         let mut singles = Vec::new();

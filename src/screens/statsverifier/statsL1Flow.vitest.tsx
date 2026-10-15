@@ -115,6 +115,7 @@ function reproduction(tokens: string[]): ReproductionView {
   return {
     counts: { reproduced: claims.filter((c) => c.verdict.kind === 'reproduced').length, notReproduced: 0, couldNotCheck: claims.filter((c) => c.verdict.kind === 'couldNotCheck').length },
     data: { code: 'read' }, unmatchedPairs: 0, claims,
+    alpha: { printed: ['.05'], stated: false },
   };
 }
 
@@ -562,6 +563,7 @@ describe('Level 1: results', () => {
         run={7}
         claim={openView().claims[0]}
         result={{ ...reproduction(['t:0']).claims[0], verdict: { kind: 'notReproduced', conclusionChanges: true } }}
+        alpha={{ printed: ['.05'], stated: false }}
         ctx={{ column: (a) => `C${a}` }}
         aiHelp={false}
         webContext={false}

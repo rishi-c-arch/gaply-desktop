@@ -59,7 +59,7 @@ use super::binding::{passes_filters, ConfirmedBinding};
 use super::catalogue::{L1MethodId, RoleName};
 use super::claim::ClaimId;
 use super::dataset::{Cell, ColumnAlias, Dataset, DatasetIssue};
-use super::precision::{self, Stored};
+use super::precision::{self, StatRange, Stored};
 use super::run_state::{GateRejection, L1RunState};
 use super::token::ConfirmationToken;
 use super::ENGINE_VERSION;
@@ -297,41 +297,65 @@ fn stored_decimals(d: &Dataset, alias: ColumnAlias) -> Result<u32, L1Refusal> {
     })))
 }
 
-/// A t's range, two-sided p from its ends; `df` is `(df, df)` unless Welch.
-fn t_precision(t: f64, df: (f64, f64), b: f64, decimals: u32) -> Precision {
-    if decimals == 0 || (b == 0.0 && df.0 == df.1) {
-        return Precision::Exact;
-    }
-    let (lo, hi) = ((t.abs() - b).max(0.0), t.abs() + b);
-    let df_lo = df.0.max(f64::MIN_POSITIVE);
-    let p = |tt: f64, dd: f64| pvalue::t_two_tailed(tt, dd).unwrap_or(f64::NAN);
-    let (p_lo, p_hi) = (p(hi, df.1), p(lo, df_lo));
-    Precision::Range {
-        decimals,
-        statistic: (t - b, t + b),
-        df: (df.0 != df.1).then_some(df),
-        p: (p_lo.min(p_hi), p_lo.max(p_hi)),
+/// The ends of a signed range as magnitudes.
+fn magnitudes(lo: f64, hi: f64) -> (f64, f64) {
+    if lo <= 0.0 && hi >= 0.0 {
+        (0.0, lo.abs().max(hi.abs()))
+    } else {
+        (lo.abs().min(hi.abs()), lo.abs().max(hi.abs()))
     }
 }
 
-/// An F's range, upper-tail p from its ends.
-fn f_precision(f: f64, df1: f64, df2: f64, b: f64, decimals: u32) -> Precision {
-    if decimals == 0 || b == 0.0 {
+/// A t's precision from its range (and, for Welch, its df's range); the
+/// two-sided p from the ends.
+fn t_precision(df: f64, range: StatRange, df_range: Option<StatRange>, decimals: u32) -> Precision {
+    if decimals == 0 {
         return Precision::Exact;
     }
-    let (lo, hi) = ((f - b).max(0.0), f + b);
+    let (lo, hi) = match range {
+        StatRange::Exact => return Precision::Exact,
+        StatRange::Unbounded => return Precision::Unbounded { decimals },
+        StatRange::Range(lo, hi) => (lo, hi),
+    };
+    let df_ends = match df_range {
+        None | Some(StatRange::Exact) => None,
+        Some(StatRange::Unbounded) => return Precision::Unbounded { decimals },
+        Some(StatRange::Range(a, b)) => Some((a.max(f64::MIN_POSITIVE), b)),
+    };
+    let (dlo, dhi) = df_ends.unwrap_or((df, df));
+    let (alo, ahi) = magnitudes(lo, hi);
+    let p = |tt: f64, dd: f64| pvalue::t_two_tailed(tt, dd).unwrap_or(f64::NAN);
+    let (p_lo, p_hi) = (p(ahi, dhi), p(alo, dlo));
+    Precision::Range { decimals, statistic: (lo, hi), df: df_ends, p: (p_lo.min(p_hi), p_lo.max(p_hi)) }
+}
+
+/// An F's precision from its range; the upper-tail p from the ends.
+fn f_precision(df1: f64, df2: f64, range: StatRange, decimals: u32) -> Precision {
+    if decimals == 0 {
+        return Precision::Exact;
+    }
+    let (lo, hi) = match range {
+        StatRange::Exact => return Precision::Exact,
+        StatRange::Unbounded => return Precision::Unbounded { decimals },
+        StatRange::Range(lo, hi) => (lo.max(0.0), hi.max(0.0)),
+    };
     let p = |x: f64| pvalue::f_upper(x, df1, df2).unwrap_or(f64::NAN);
     let (p_lo, p_hi) = (p(hi), if lo == 0.0 { 1.0 } else { p(lo) });
-    Precision::Range { decimals, statistic: (f - b, f + b), df: None, p: (p_lo.min(p_hi), p_lo.max(p_hi)) }
+    Precision::Range { decimals, statistic: (lo, hi), df: None, p: (p_lo.min(p_hi), p_lo.max(p_hi)) }
 }
 
-/// An r's range, inside [-1, 1], two-sided p from its ends.
-fn r_precision(r: f64, df: f64, b: f64, decimals: u32) -> Precision {
-    if decimals == 0 || b == 0.0 {
+/// An r's precision from its range, inside [-1, 1]; the two-sided p from the
+/// ends.
+fn r_precision(df: f64, range: StatRange, decimals: u32) -> Precision {
+    if decimals == 0 {
         return Precision::Exact;
     }
-    let (lo, hi) = ((r - b).max(-1.0), (r + b).min(1.0));
-    let (alo, ahi) = if lo <= 0.0 && hi >= 0.0 { (0.0, lo.abs().max(hi.abs())) } else { (lo.abs().min(hi.abs()), lo.abs().max(hi.abs())) };
+    let (lo, hi) = match range {
+        StatRange::Exact => return Precision::Exact,
+        StatRange::Unbounded => return Precision::Unbounded { decimals },
+        StatRange::Range(lo, hi) => (lo.max(-1.0), hi.min(1.0)),
+    };
+    let (alo, ahi) = magnitudes(lo, hi);
     let p = |x: f64| if x >= 1.0 { 0.0 } else { pvalue::r_two_tailed(x, df).unwrap_or(f64::NAN) };
     let (p_lo, p_hi) = (p(ahi), p(alo));
     Precision::Range { decimals, statistic: (lo, hi), df: None, p: (p_lo.min(p_hi), p_lo.max(p_hi)) }
@@ -562,9 +586,9 @@ fn independent_t(b: &ConfirmedBinding, d: &Dataset, rows: &[usize]) -> Result<Ve
     let welch = stats_verify::t_test_welch(a, c).map_err(|e| refused(e, L1Refusal::ZeroVariance))?;
     let decimals = stored_decimals(d, outcome)?;
     let delta = precision::half_unit(decimals);
-    let student_p = t_precision(student.t, (student.df, student.df), precision::student_t_bound(a, c, delta), decimals);
-    let (bt, bdf) = precision::welch_bounds(a, c, delta);
-    let welch_p = t_precision(welch.t, (welch.df - bdf, welch.df + bdf), bt, decimals);
+    let ranges = precision::independent_t_parts(a, c, delta);
+    let student_p = t_precision(student.df, ranges.student.range(), None, decimals);
+    let welch_p = t_precision(welch.df, ranges.welch.range(), Some(ranges.welch_df.range()), decimals);
     Ok(vec![
         t_result(ComputedVariant::StudentPooled, &student, n, student_p)?,
         t_result(ComputedVariant::Welch, &welch, n, welch_p)?,
@@ -586,11 +610,12 @@ fn paired_t(b: &ConfirmedBinding, d: &Dataset, rows: &[usize]) -> Result<Vec<Com
     }
     let t = stats_verify::t_test_paired(&first, &second).map_err(|e| refused(e, L1Refusal::ZeroVariance))?;
     let (d1, d2) = (stored_decimals(d, first_col)?, stored_decimals(d, second_col)?);
-    let bound = precision::paired_t_bound(
+    let range = precision::paired_t_parts(
         Stored { values: &first, delta: precision::half_unit(d1) },
         Stored { values: &second, delta: precision::half_unit(d2) },
-    );
-    Ok(vec![t_result(ComputedVariant::Paired, &t, first.len(), t_precision(t.t, (t.df, t.df), bound, d1.max(d2)))?])
+    )
+    .range();
+    Ok(vec![t_result(ComputedVariant::Paired, &t, first.len(), t_precision(t.df, range, None, d1.max(d2)))?])
 }
 
 fn one_way_anova(b: &ConfirmedBinding, d: &Dataset, rows: &[usize]) -> Result<Vec<ComputedResult>, L1Refusal> {
@@ -612,8 +637,8 @@ fn one_way_anova(b: &ConfirmedBinding, d: &Dataset, rows: &[usize]) -> Result<Ve
     let refs: Vec<&[f64]> = samples.iter().map(Vec::as_slice).collect();
     let a = stats_verify::one_way_anova(&refs).map_err(|e| refused(e, L1Refusal::ZeroVariance))?;
     let decimals = stored_decimals(d, outcome)?;
-    let bound = precision::one_way_f_bound(&refs, precision::half_unit(decimals));
-    let precision = f_precision(a.f, a.df_between, a.df_within, bound, decimals);
+    let range = precision::one_way_f_parts(&refs, precision::half_unit(decimals)).range();
+    let precision = f_precision(a.df_between, a.df_within, range, decimals);
     Ok(vec![ComputedResult {
         variant: ComputedVariant::OneWay,
         statistic: StatisticKind::F,
@@ -657,7 +682,7 @@ fn correlation(b: &ConfirmedBinding, d: &Dataset, rows: &[usize], spearman: bool
             Precision::Exact
         }
     } else {
-        r_precision(c.coefficient, c.df, precision::pearson_bound(sx, sy), dx.max(dy))
+        r_precision(c.df, precision::pearson_parts(sx, sy).range(), dx.max(dy))
     };
     Ok(vec![ComputedResult {
         variant,
@@ -757,7 +782,7 @@ fn ols(b: &ConfirmedBinding, d: &Dataset, rows: &[usize]) -> Result<Vec<Computed
     let beta: Vec<f64> = r.coefficients.iter().map(|c| c.estimate).collect();
     // A design that cannot be inverted here, though QR fitted it, gives no
     // first-order range: any miss is then not checked.
-    let bounds = precision::ols_bounds(Stored { values: &y, delta: precision::half_unit(y_dec) }, &stored_xs, &beta);
+    let bounds = precision::ols_parts(Stored { values: &y, delta: precision::half_unit(y_dec) }, &stored_xs, &beta);
     let unbounded = || if decimals == 0 { Precision::Exact } else { Precision::Unbounded { decimals } };
     let mut out = vec![ComputedResult {
         variant: ComputedVariant::OlsOverallF,
@@ -769,7 +794,7 @@ fn ols(b: &ConfirmedBinding, d: &Dataset, rows: &[usize]) -> Result<Vec<Computed
         tail: Tail::Upper,
         n,
         precision: match &bounds {
-            Some((bf, _)) => f_precision(r.f_statistic, r.df_model, r.df_residual, *bf, decimals),
+            Some((f, _)) => f_precision(r.df_model, r.df_residual, f.range(), decimals),
             None => unbounded(),
         },
     }];
@@ -785,7 +810,7 @@ fn ols(b: &ConfirmedBinding, d: &Dataset, rows: &[usize]) -> Result<Vec<Computed
             tail: Tail::TwoSided,
             n,
             precision: match &bounds {
-                Some((_, bt)) => t_precision(coef.t, (r.df_residual, r.df_residual), bt[i], decimals),
+                Some((_, ts)) => t_precision(r.df_residual, ts[i].range(), None, decimals),
                 None => unbounded(),
             },
         });

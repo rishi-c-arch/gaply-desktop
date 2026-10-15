@@ -85,6 +85,8 @@ export const WORDS: Record<string, Words> = {
   /* ---- a number's status, and its notes ---------------------------------- */
   matched: (c, w) => {
     const note = nested(c, 'note');
+    // A truncation note is its own sentence: "Matches if the paper cut ...".
+    if (note && (note.code === 'truncated' || note.code === 'truncated_in_magnitude')) return w(note);
     return note ? `Matches. ${w(note)}` : 'Matches.';
   },
   not_matched: () => 'Differs from the value computed from the data under this binding.',
@@ -94,9 +96,9 @@ export const WORDS: Record<string, Words> = {
     return number ? `${lead(w(number))} was not compared: ${why}.` : `Not compared: ${why}.`;
   },
   in_magnitude: () => 'Matched in magnitude; the sign was not compared.',
-  truncated: () => 'Matched once the computed value is cut off at the printed decimals rather than rounded.',
+  truncated: () => 'Matches if the paper cut this number off instead of rounding it.',
   truncated_in_magnitude: () =>
-    'Matched in magnitude once the computed value is cut off at the printed decimals rather than rounded; the sign was not compared.',
+    'Matches in magnitude if the paper cut this number off instead of rounding it; the sign was not compared.',
   df_truncated: (c) => `${lead(dfName(c))} match once the computed value is truncated.`,
   df_rounded: (c) => `${lead(dfName(c))} match once the computed value is rounded.`,
   p_note: (c, w) => w(nested(c, 'note')),
@@ -106,7 +108,8 @@ export const WORDS: Record<string, Words> = {
     'The p agrees only as a one-tailed test, and the paper does not say the test was one-tailed.',
   p_concern: (c, w) => `The p raises a concern: ${tail(w(nested(c, 'reason')))}.`,
   p_could_not_check: (c, w) => `The p could not be checked: ${tail(w(nested(c, 'reason')))}.`,
-  spearman_exact_p_not_computed: () => "Gaply does not compute Spearman's exact p, so the printed p was not compared.",
+  spearman_p_may_be_exact: () =>
+    "The printed p does not match the t approximation, and the paper may have used Spearman's exact p, which Gaply does not compute yet, so it was not compared.",
   data_precision: (c) =>
     `The data file stores ${plural(num(c, 'decimals'), 'decimal', 'decimals')}, and that rounding alone could explain the difference, so this was not decided.`,
 
@@ -133,7 +136,8 @@ export const WORDS: Record<string, Words> = {
   /* ---- Level 1's notes --------------------------------------------------- */
   variant_matched: (c, w) => `Matched as ${w(nested(c, 'variant'))}.`,
   sign_compared_in_magnitude: () => 'The statistic was compared in magnitude, because its sign depends on the order of the groups.',
-  printed_truncated: (c, w) => `${lead(w(nested(c, 'number')))} is printed cut off at its decimals rather than rounded.`,
+  printed_truncated: (c, w) => `${lead(w(nested(c, 'number')))} matches only if the paper cut it off instead of rounding it.`,
+  spearman_p_t_approximation: () => "The p matches Spearman's p by the t approximation, as R (exact = FALSE) and SPSS compute it.",
   continuity_does_not_apply: () => 'A continuity correction applies only to a 2 by 2 table, so it was not used.',
   conclusion_not_assessed: (c, w) => w(nested(c, 'gap')),
 
@@ -312,6 +316,38 @@ export function level0Phrase(v: WireCode | null): string {
       return `Level 0: ${v.code}`;
   }
 }
+
+/** The numbers a Reproduced claim did not compare, from its verdict's
+ *  `not_checked` notes, in order. Empty when every printed number matched. */
+export function notCompared(notes: WireCode[]): WireCode[] {
+  return notes.filter((n) => n.code === 'not_checked');
+}
+
+function joinNames(names: string[]): string {
+  return names.length <= 1 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
+
+/** The label for a Reproduced claim: plain only when every printed number
+ *  matched; otherwise it names what was not compared. */
+export function reproducedLabel(notes: WireCode[]): string {
+  const missing = notCompared(notes);
+  if (missing.length === 0) return 'Reproduced';
+  const names = missing.map((n) => sentenceFor(nested(n, 'number')));
+  return `Reproduced, except ${joinNames(names)}, which could not be checked`;
+}
+
+/** The threshold a conclusion is judged at, with where it came from. */
+export function thresholdPhrase(alpha: { printed: string[]; stated: boolean }): string {
+  if (!alpha.stated) return 'the usual threshold of .05, because the paper states none';
+  return alpha.printed.length === 1
+    ? `the paper's stated threshold (\u03b1 = ${alpha.printed[0]})`
+    : `the paper's stated thresholds (\u03b1 = ${alpha.printed.join(', ')})`;
+}
+
+/** Why Level 0 and the check against the data differ on a claim the data
+ *  matches only as a truncated print (Step 8b, rule 2, accepted in D270). */
+export const LEVELS_DIFFER_ON_TRUNCATION =
+  'Level 0 found these printed numbers inconsistent because it assumes every printed number was rounded; checked against the data, they match if the paper cut a number off instead.';
 
 /** A NotReproduced result, worded the one way it may be. Never "wrong". */
 export const NOT_REPRODUCED_TEXT =

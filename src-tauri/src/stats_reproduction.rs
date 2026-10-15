@@ -67,6 +67,19 @@ pub struct ReproductionView {
     pub data: WireCode,
     pub unmatched_pairs: usize,
     pub claims: Vec<ClaimReproductionView>,
+    /// The significance threshold p was compared with, and whether the paper
+    /// stated it (Phase 2 evaluation fixes, part A): the screen names the
+    /// source every time it mentions it.
+    pub alpha: AlphaView,
+}
+
+/// The threshold as the paper printed it (`.05`, `.05/6`), or `.05` when the
+/// paper states none (`stated: false`).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AlphaView {
+    pub printed: Vec<String>,
+    pub stated: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
@@ -277,6 +290,7 @@ pub fn reproduction_view(outcome: &ReproductionOutcome) -> ReproductionView {
             }
         },
         unmatched_pairs: outcome.unmatched_pairs,
+        alpha: AlphaView { printed: outcome.alpha.printed.clone(), stated: outcome.alpha.stated },
         claims: outcome.claims.iter().map(claim_view).collect(),
     }
 }

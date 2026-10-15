@@ -22737,11 +22737,114 @@ The CouldNotCheck counts include claims left unbound because their methods
 - 0114578: BIFF2 `.xls`, now refused as `xls_not_readable`.
 - 0296841: mixed designs and one-sample tests.
 
+#### Evaluation fixes, part A (15 Oct 2026) `[src]` `[test]` `[measured]`
+
+The joint evaluation (`~/gaply-corpus/eval2/joint_evaluation.md`, read-only
+at `9d10ae0`) found three Blockers and five Majors about verdicts and how the
+screen words them. This step is the one change to Level 0 since D269, and it
+changes only what the evaluation listed.
+
+* **One negation rule** (`stats_l0/negation.rs`, `negation_of`), three
+  answers: clearly negated, unclear, not negated. The clause ends at `.`
+  `;` `:` `?` `!` (a `.` between digits is a decimal point) and at a comma
+  followed by a conjunction or relative word (`and`, `but`, `or`, `nor`,
+  `while`, `whereas`, `although`, `though`, `yet`, `so`, `because`, `since`,
+  `which`, `who`, `whom`, `whose`, `where`, `when`) or a new subject (`we`,
+  `i`, `they`, `he`, `she`, `it`, `this`, `these`, `those`, `there`, `our`,
+  `their`, `all`, `each`). Negators: `not`, `no`, `never`, `without`,
+  `neither`, `nor`, `cannot`, any `n't`, `rather than`, `instead of`.
+  Clearly negated: a negator among the three words before the phrase
+  ("with and without" and "with or without" are unclear), or, anywhere
+  after the phrase in its clause, a negator that negates a listed verb (use,
+  apply, perform, conduct, make, assume, adjust, correct, employ, in any
+  tense; the verb within two words of the negator), so "was not applied"
+  and "a Bonferroni correction, as planned, was not applied" are clear.
+  Unclear: any other negator earlier in the clause, any other negator in
+  the first four words after the phrase ("Bonferroni correction did not
+  change the results"), or an auxiliary plus negator later on. After the
+  phrase, `rather than` and `instead of` never count, and a bare negator
+  past a comma negates something else ("one-tailed, not two-tailed").
+  The listed-verb rule came from review: without it, any negator after a
+  correction word made the p values raw, the unsafe direction. One-tailed
+  wording followed within three words by interval, CI, bound or confidence
+  describes an interval, not a test (the evaluation's B09). Each use maps the answers in its own safe direction: variant
+  words, clearly negated dropped and unclear giving "not stated"; tails
+  words, both giving "one-tailed not stated"; multiple-testing words, only
+  clearly negated making the p values raw.
+* **Variant phrases** (`stats_l1/catalogue.rs`, `VARIANT_PHRASES`). "Student"
+  counts only as "Student's t" or "Student t"; "pooled" only for a
+  pooled-variance t-test. "Equal variances (were) not assumed" and "not
+  assuming equal variances" state Welch; "without Yates' correction",
+  "without continuity correction" and "uncorrected chi-square" state the
+  uncorrected test. A bare "uncorrected" and "no continuity correction" no
+  longer state anything. Two phrases naming different variants leave it not
+  stated. 92 phrases with expected answers written first
+  (`stats_l1/negation_phrases.rs`); 42 of the first 84 were wrong before this step, and of the 8 added in review, 6 were wrong before the review's changes (2 were already right).
+* **Multiple-testing words** (`stats_l0/input.rs`). Added FDR, false
+  discovery rate, corrected or adjusted for multiple comparisons or testing,
+  multiple-comparison correction, familywise error, adjusted p, p-adj, padj
+  and q values. A surname (Hochberg, Hommel, Holm, Šidák, Tukey, Scheffé,
+  Games-Howell, Dunnett, Dunn) counts only next to a qualifier or in the
+  pairs Benjamini-Hochberg, Benjamini and Hochberg, Benjamini-Yekutieli and
+  Holm-Bonferroni; a citation alone never counts. Level 1 inherits it: an
+  adjusted p is `NotChecked(p_could_not_check_at_level_0, adjusted_p)`.
+* **The precision range** (`stats_l1/precision.rs`). The first-order range
+  was not a bound when the rounding step is large against the data's spread
+  (the evaluation's witness: `F(2, 6) = 17.66` from cells that round to a
+  file giving 4.20). The ratio r is δ over the smallest standard deviation
+  among the bound groups or columns (for a paired t also the differences;
+  for OLS the part of each column the rest of the model does not explain,
+  since column SDs did not see collinearity). Above L the range is
+  unbounded; below it, the hull of the first-order range and the two sign
+  corners, widened by F. **L = 0.10, F = 1.1, measured:**
+
+  ```
+  SWEEP_OUT=… cargo test --release -p gaply_core --test l1_precision_sweep -- --ignored --nocapture
+  ```
+
+  1,677 statistics over 8 kinds (≥ 205 each, r from 0.005 to 1, plus the
+  witness and the evaluation's five section-3 datasets), true extremes by an
+  adversarial coordinate search from both sign corners. The needed widening
+  first exceeds 2.0 at r = 0.2033 (an OLS F), so L = 0.2031 / 2 = 0.1016,
+  shipped as 0.10. The most any statistic at or below L needed was 1.0439
+  (an OLS F, r = 0.101), shipped as 1.1. Setting F to 1.0 leaves 157
+  statistics uncontained (the guard is red). Re-timed in release: at most
+  17 ms per method at 5,000 rows. The witness is now
+  `CouldNotCheck(data_precision)`.
+* **Spearman's p.** Compared with the t approximation (R's `cor.test(exact =
+  FALSE)`, SPSS); a match carries `spearman_p_t_approximation`, a miss is
+  `NotChecked(spearman_p_may_be_exact)`, with or without ties, when no
+  variant is stated: the p alone then never makes a Spearman claim
+  NotReproduced. When the paper's words or the user's tick state the t
+  approximation, the exact p is not a candidate, and the p is compared
+  normally, so a mismatch can make the claim NotReproduced. A stated exact p
+  is `CouldNotCheck(variant_not_available)`.
+* **The screen.** A Reproduced claim with any printed number not compared is
+  labelled "Reproduced, except …, which could not be checked", without the
+  "certain" badge, with the reason. Every conclusion sentence names its
+  threshold's source: the paper's stated threshold with its value, or "the
+  usual threshold of .05, because the paper states none".
+
+#### Accepted findings
+
+* Level 1 keeps Step 8b's truncation rule, so it can accept a printed
+  equality one unit below the rounded value (p = .0493 printed ".04") while
+  Level 0 calls the same result Inconsistent. (Accepted by the author, 15 Oct
+  2026.) The card says "Matches if the paper cut this number off instead of
+  rounding it" beside such a number, and, when Level 0 called the claim
+  inconsistent, that the two differ because Level 0 assumes rounding.
+* A bare "uncorrected" no longer states the uncorrected chi-square. The
+  evaluation's case V11 ("An uncorrected test showed, χ2(1) = 3.06, p =
+  .080.", Yates numbers) was NotReproduced and is now Reproduced under Yates,
+  because both candidates are computed. The word can mean uncorrected for
+  multiple comparisons, so it states nothing about the continuity
+  correction. (Accepted by the author, 16 Oct 2026.)
+
 #### The backlog after Phase 2
 
 1. Level 2: assumptions (normality, equal variances, expected counts).
 2. Level 3: does the design fit the test.
-3. Spearman's exact p (today `CouldNotCheck` where R would use it).
+3. Spearman's exact p (today a p that misses the t approximation is not checked).
 4. Welch's ANOVA and Brown-Forsythe.
 5. One-sample t; the non-parametric tests (Mann-Whitney, Wilcoxon,
    Kruskal-Wallis).

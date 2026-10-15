@@ -37,6 +37,8 @@ pub mod claim;
 pub mod codes;
 pub mod compute;
 pub mod dataset;
+#[cfg(test)]
+mod negation_phrases;
 pub mod precision;
 pub mod propose;
 pub mod reproduce;

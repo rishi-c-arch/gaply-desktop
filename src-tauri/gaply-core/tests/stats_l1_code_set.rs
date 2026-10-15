@@ -84,13 +84,13 @@ fn every_code() -> Vec<WireCode> {
         NotCheckedReason::OneTailedUnstatedOnExactP,
         NotCheckedReason::PConcern(ConcernReason::OneTailedUnstated),
         NotCheckedReason::PCouldNotCheck(CouldNotCheckReason::InvalidInput),
-        NotCheckedReason::SpearmanExactPNotComputed,
+        NotCheckedReason::SpearmanPMayBeExact,
         NotCheckedReason::DataPrecision { decimals: 2 },
     ];
     for r in not_checked {
         all.push(codes::not_checked_reason(r));
     }
-    for s in [NumberStatus::Matched(None), NumberStatus::Matched(Some(MatchNote::InMagnitude)), NumberStatus::NotMatched, NumberStatus::NotChecked(NotCheckedReason::SpearmanExactPNotComputed)] {
+    for s in [NumberStatus::Matched(None), NumberStatus::Matched(Some(MatchNote::InMagnitude)), NumberStatus::NotMatched, NumberStatus::NotChecked(NotCheckedReason::SpearmanPMayBeExact)] {
         all.push(codes::number_status(s));
     }
     for v in [
@@ -121,6 +121,7 @@ fn every_code() -> Vec<WireCode> {
         L1Note::ContinuityDoesNotApply,
         L1Note::ConclusionNotAssessed(ConclusionGap::SeveralAlphas),
         L1Note::PrintedTruncated { number: NumberKind::P },
+        L1Note::SpearmanPByTApproximation,
     ] {
         all.push(codes::l1_note(n));
     }

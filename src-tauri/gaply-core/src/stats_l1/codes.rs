@@ -149,7 +149,7 @@ pub fn not_checked_reason(r: NotCheckedReason) -> WireCode {
         NotCheckedReason::OneTailedUnstatedOnExactP => c("one_tailed_unstated_on_exact_p"),
         NotCheckedReason::PConcern(why) => c("p_concern").with("reason", concern_reason(why)),
         NotCheckedReason::PCouldNotCheck(why) => c("p_could_not_check").with("reason", l0_could_not_check_reason(why)),
-        NotCheckedReason::SpearmanExactPNotComputed => c("spearman_exact_p_not_computed"),
+        NotCheckedReason::SpearmanPMayBeExact => c("spearman_p_may_be_exact"),
         NotCheckedReason::DataPrecision { decimals } => c("data_precision").num("decimals", decimals as usize),
     }
 }
@@ -258,6 +258,7 @@ pub fn l1_note(n: L1Note) -> WireCode {
         L1Note::ContinuityDoesNotApply => c("continuity_does_not_apply"),
         L1Note::ConclusionNotAssessed(gap) => c("conclusion_not_assessed").with("gap", conclusion_gap(gap)),
         L1Note::PrintedTruncated { number } => c("printed_truncated").with("number", number_kind(number)),
+        L1Note::SpearmanPByTApproximation => c("spearman_p_t_approximation"),
     }
 }
 
@@ -433,7 +434,7 @@ mod tests {
             NotCheckedReason::OneTailedUnstatedOnExactP,
             NotCheckedReason::PConcern(ConcernReason::OneTailedUnstated),
             NotCheckedReason::PCouldNotCheck(CouldNotCheckReason::InvalidInput),
-            NotCheckedReason::SpearmanExactPNotComputed,
+            NotCheckedReason::SpearmanPMayBeExact,
             NotCheckedReason::DataPrecision { decimals: 2 },
         ] {
             got.push(j(not_checked_reason(r)));
@@ -442,7 +443,7 @@ mod tests {
             NumberStatus::Matched(None),
             NumberStatus::Matched(Some(MatchNote::InMagnitude)),
             NumberStatus::NotMatched,
-            NumberStatus::NotChecked(NotCheckedReason::SpearmanExactPNotComputed),
+            NumberStatus::NotChecked(NotCheckedReason::SpearmanPMayBeExact),
         ] {
             got.push(j(number_status(s)));
         }
@@ -474,6 +475,7 @@ mod tests {
             L1Note::ContinuityDoesNotApply,
             L1Note::ConclusionNotAssessed(ConclusionGap::SeveralAlphas),
             L1Note::PrintedTruncated { number: NumberKind::P },
+            L1Note::SpearmanPByTApproximation,
         ] {
             got.push(j(l1_note(n)));
         }
@@ -577,12 +579,12 @@ mod tests {
             r#"{"code":"one_tailed_unstated_on_exact_p"}"#,
             r#"{"code":"p_concern","reason":"one_tailed_unstated"}"#,
             r#"{"code":"p_could_not_check","reason":"invalid_input"}"#,
-            r#"{"code":"spearman_exact_p_not_computed"}"#,
+            r#"{"code":"spearman_p_may_be_exact"}"#,
             r#"{"code":"data_precision","decimals":2}"#,
             r#"{"code":"matched"}"#,
             r#"{"code":"matched","note":"in_magnitude"}"#,
             r#"{"code":"not_matched"}"#,
-            r#"{"code":"not_checked","why":"spearman_exact_p_not_computed"}"#,
+            r#"{"code":"not_checked","why":"spearman_p_may_be_exact"}"#,
             r#"{"code":"student_pooled"}"#,
             r#"{"code":"welch"}"#,
             r#"{"code":"paired"}"#,
@@ -607,6 +609,7 @@ mod tests {
             r#"{"code":"continuity_does_not_apply"}"#,
             r#"{"code":"conclusion_not_assessed","gap":"several_alphas"}"#,
             r#"{"code":"printed_truncated","number":"p"}"#,
+            r#"{"code":"spearman_p_t_approximation"}"#,
             r#"{"code":"filtered_out"}"#,
             r#"{"code":"missing_in_bound_column"}"#,
             r#"{"code":"level_not_selected"}"#,

@@ -1,0 +1,15 @@
+# The precision sweep's dataset c06_paired_2dec (synthetic, seed 20261015),
+# written by /usr/local/bin/Rscript make_eval_datasets.R (src-tauri/gaply-core/tests/fixtures/stats_l1/precision_sweep/).
+pre,post
+45.11,49.92
+45.15,47.93
+50.37,53.31
+52.48,54.81
+43.73,
+52.00,49.78
+50.17,54.08
+55.03,56.55
+49.00,54.75
+53.50,54.69
+46.45,45.43
+50.84,55.72

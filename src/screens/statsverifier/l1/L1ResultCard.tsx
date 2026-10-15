@@ -8,10 +8,19 @@
 import React, { useMemo, useState } from 'react';
 import { Badge, Button } from '../../../design-system';
 import type { StatsL1Bridge } from '../statsL1Bridge';
-import type { L1ClaimReproductionView, L1ClaimView, L1ContextItemView, L1HelperResultView, L1NumberView, L1PreviewView } from '../statsL1Types';
+import type { L1ClaimReproductionView, L1ClaimView, L1ContextItemView, L1HelperResultView, L1NumberView, L1PreviewView, ReproductionView } from '../statsL1Types';
 import { FocusButton } from './FocusButton';
 import { L1AiPanel, queryFromPreview } from './L1AiPanel';
-import { methodPhrase, NOT_REPRODUCED_TEXT, sentenceFor, WordContext } from './l1Wording';
+import {
+  LEVELS_DIFFER_ON_TRUNCATION,
+  methodPhrase,
+  NOT_REPRODUCED_TEXT,
+  notCompared,
+  reproducedLabel,
+  sentenceFor,
+  thresholdPhrase,
+  WordContext,
+} from './l1Wording';
 
 const VERDICT: Record<L1ClaimReproductionView['verdict']['kind'], { label: string; status: 'certain' | 'assessed' | 'neutral' }> = {
   reproduced: { label: 'Reproduced', status: 'certain' },
@@ -59,13 +68,15 @@ export interface L1ResultCardProps {
   run: number;
   claim: L1ClaimView | undefined;
   result: L1ClaimReproductionView;
+  /** The run's significance threshold and whether the paper stated it. */
+  alpha: ReproductionView['alpha'];
   ctx: WordContext;
   aiHelp: boolean;
   webContext: boolean;
   onUsage: () => void;
 }
 
-export const L1ResultCard: React.FC<L1ResultCardProps> = ({ bridge, run, claim, result, ctx, aiHelp, webContext, onUsage }) => {
+export const L1ResultCard: React.FC<L1ResultCardProps> = ({ bridge, run, claim, result, alpha, ctx, aiHelp, webContext, onUsage }) => {
   const [explainOpen, setExplainOpen] = useState(false);
   const [explanation, setExplanation] = useState<string | null>(null);
   const [contextOpen, setContextOpen] = useState(false);
@@ -76,7 +87,17 @@ export const L1ResultCard: React.FC<L1ResultCardProps> = ({ bridge, run, claim, 
   const [linkError, setLinkError] = useState<string | null>(null);
   const explainButton = React.useRef<HTMLButtonElement>(null);
   const contextButton = React.useRef<HTMLButtonElement>(null);
-  const v = VERDICT[result.verdict.kind];
+  const missing = result.verdict.kind === 'reproduced' ? notCompared(result.verdict.notes) : [];
+  // Only a claim whose every printed number matched gets the plain label
+  // and the "certain" badge (evaluation fixes, part A, section 5).
+  const v =
+    result.verdict.kind === 'reproduced'
+      ? { label: reproducedLabel(result.verdict.notes), status: missing.length === 0 ? ('certain' as const) : ('assessed' as const) }
+      : VERDICT[result.verdict.kind];
+  const levelsDiffer =
+    result.verdict.kind === 'reproduced' &&
+    claim?.level0?.code === 'inconsistent' &&
+    result.verdict.notes.some((n) => n.code === 'printed_truncated');
   const id = `l1-result-${result.claimId}`;
 
   const contextInput = useMemo(
@@ -91,9 +112,9 @@ export const L1ResultCard: React.FC<L1ResultCardProps> = ({ bridge, run, claim, 
   const conclusion =
     result.verdict.kind === 'notReproduced'
       ? result.verdict.conclusionChanges === true
-        ? "At the paper's significance threshold, the conclusion would change."
+        ? `At ${thresholdPhrase(alpha)}, the conclusion would change.`
         : result.verdict.conclusionChanges === false
-          ? "At the paper's significance threshold, the conclusion would not change."
+          ? `At ${thresholdPhrase(alpha)}, the conclusion would not change.`
           : 'A change in conclusion was not assessed.'
       : null;
   const notes = result.verdict.kind === 'reproduced' ? [...result.verdict.notes, ...result.notes] : result.notes;
@@ -114,6 +135,12 @@ export const L1ResultCard: React.FC<L1ResultCardProps> = ({ bridge, run, claim, 
         <span>{claim ? claim.sentence : `Claim ${result.claimId + 1}`}</span>
       </h4>
 
+      {missing.length > 0 && (
+        <p data-testid={`${id}-not-compared`} style={{ margin: 0 }}>
+          {missing.map((n) => sentenceFor(n, ctx)).join(' ')}
+        </p>
+      )}
+      {levelsDiffer && <p data-testid={`${id}-levels-differ`} style={{ margin: 0 }}>{LEVELS_DIFFER_ON_TRUNCATION}</p>}
       {result.verdict.kind === 'notReproduced' && <p data-testid={`${id}-not-reproduced`}>{NOT_REPRODUCED_TEXT}</p>}
       {result.verdict.kind === 'couldNotCheck' && (
         <p data-testid={`${id}-reason`}>{sentenceFor(result.verdict.reason, ctx)}</p>
