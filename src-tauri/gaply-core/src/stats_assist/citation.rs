@@ -9,6 +9,12 @@
 //! `([bmj.com](https://…))` a model appends after a full stop) is not shown on
 //! its own: its citations go to the sentence before it.
 //!
+//! **Where a citation attaches (evaluation fixes, part B).** To the ONE
+//! sentence where its range ends, not to every sentence it overlaps. A range
+//! that covers more than two sentences attaches to none and is dropped and
+//! counted (`range_spans_sentences`): one annotation over a whole answer used
+//! to cite every sentence in it.
+//!
 //! **The index unit is not documented** (Step 1, section D: only
 //! "character"). decisions.md settles it: a range is read both as Unicode
 //! code points and as UTF-16 code units, the end exclusive, and the citation
@@ -75,7 +81,13 @@ pub enum CitationDrop {
     /// In range, but the text there names neither the url, the domain nor
     /// the title, in either unit.
     RangeDoesNotNameSource,
+    /// The range covers more than two sentences, so no one sentence is the
+    /// one it cites.
+    RangeSpansSentences,
 }
+
+/// The most sentences one citation's range may cover.
+pub const MAX_SENTENCES_PER_CITATION: usize = 2;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ContextEvidence {
@@ -196,26 +208,38 @@ pub fn parse_web_context(out: &ModelOutput, query_sent: &str, retrieved_at: Retr
         })
         .collect();
 
-    // Each citation's sentences: those its range overlaps. A citation that
-    // LEADS its sentence (nothing alphanumeric before it there) was written
-    // after the previous sentence's full stop, so it belongs to that one.
+    // A range over more than two sentences cites none of them.
+    let placed: Vec<Placed> = placed
+        .into_iter()
+        .filter(|p| {
+            let covered = sentences.iter().filter(|&&(s0, s1, _)| p.start < s1 && p.end > s0).count();
+            let keep = covered <= MAX_SENTENCES_PER_CITATION;
+            if !keep {
+                dropped.push(CitationDrop::RangeSpansSentences);
+            }
+            keep
+        })
+        .collect();
+
+    // Each citation's sentence: the one where its range ends. A citation in
+    // a sentence that is nothing but cited link text (written after the
+    // previous sentence's full stop) belongs to the sentence before.
     let mut sources: Vec<Vec<CitedSource>> = vec![Vec::new(); sentences.len()];
     for p in &placed {
-        let mut targets: Vec<usize> =
-            sentences.iter().enumerate().filter(|(_, &(s0, s1, _))| p.start < s1 && p.end > s0).map(|(i, _)| i).collect();
-        if targets.is_empty() {
+        let last = p.end.saturating_sub(1).max(p.start);
+        let mut target = sentences
+            .iter()
+            .position(|&(s0, s1, _)| s0 <= last && last < s1)
             // On whitespace between sentences or after the last one: the
             // sentence before it.
-            targets.extend(sentences.iter().rposition(|&(_, s1, _)| s1 <= p.start));
-        }
-        if let Some(&first) = targets.first() {
-            let s0 = sentences[first].0;
-            let leads = p.start >= s0 && !text[s0..p.start].chars().any(char::is_alphanumeric);
-            if leads && first > 0 {
-                targets[0] = first - 1;
+            .or_else(|| sentences.iter().rposition(|&(_, s1, _)| s1 <= p.start));
+        if let Some(t) = target {
+            let (s0, _, sentence) = sentences[t];
+            if t > 0 && here_is_link_only(sentence, s0, &placed) {
+                target = Some(t - 1);
             }
         }
-        for t in targets {
+        if let Some(t) = target {
             if !sources[t].iter().any(|x| x.url == p.source.url) {
                 sources[t].push(p.source.clone());
             }
@@ -241,12 +265,16 @@ pub fn parse_web_context(out: &ModelOutput, query_sent: &str, retrieved_at: Retr
     ContextEvidence { items, uncited_sentences: uncited, dropped_citations: dropped }
 }
 
-/// The sentence holds no letter outside cited ranges.
+/// The sentence holds no letter outside the cited ranges that START in it:
+/// link text written after the previous sentence's full stop. A range that
+/// began in an earlier sentence does not make this one link text.
 fn here_is_link_only(sentence: &str, s0: usize, placed: &[Placed]) -> bool {
+    let s1 = s0 + sentence.len();
+    let local: Vec<&Placed> = placed.iter().filter(|p| p.start >= s0 && p.start < s1).collect();
     let mut any_cited = false;
     for (off, ch) in sentence.char_indices() {
         let at = s0 + off;
-        let cited = placed.iter().any(|p| p.start <= at && at < p.end);
+        let cited = local.iter().any(|p| p.start <= at && at < p.end);
         any_cited |= cited;
         if ch.is_alphabetic() && !cited {
             return false;

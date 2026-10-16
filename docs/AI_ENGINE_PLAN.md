@@ -22825,6 +22825,79 @@ changes only what the evaluation listed.
   threshold's source: the paper's stated threshold with its value, or "the
   usual threshold of .05, because the paper states none".
 
+#### Evaluation fixes, part B (16 Oct 2026) `[src]` `[test]` `[measured]`
+
+The deep evaluation (`~/gaply-corpus/eval3/deep_evaluation.md`) left the AI
+helper layer with one Blocker (B-3) and four Majors (M-6, M-7, M-8, M-12).
+This step changes only that layer and its screens.
+
+* **The web query is built from closed parts only.** `query::web_query`
+  takes a method, a variant or none, and a topic, and nothing else; the free
+  text edit, `check_query` and its scanner are gone. The screen shows the
+  query read-only, under pickers for the three parts, with one sentence: the
+  query is built only from these choices. `HelperTaskInput` denies unknown
+  fields, so an `editedQuery` or `paper` field from an older screen is
+  refused at the command boundary rather than ignored.
+* **The DOI field takes a DOI only.** Trimmed, a leading `https://doi.org/`
+  or `doi:` stripped, ASCII only, `^10\.\d{4,9}/\S+$`, at most 200
+  characters (`doi_malformed`). Before the preview the DOI, every header,
+  level label, text cell and the data file's name are NFKC-folded,
+  case-folded and stripped of format characters, and any of those values of
+  4 or more characters found inside the DOI refuses it
+  (`doi_contains_data`).
+* **The title option is removed.** A title is free text, so the only way to
+  keep data out of it is a scanner, and a scanner is what B-3 showed cannot
+  know every cell, header or sentence (a numeric cell and a 3-letter header
+  passed it). A title is also usually the manuscript's own words, which the
+  manuscript categories promise to send only when ticked. A DOI names the
+  paper as well, and its shape can be checked against a closed rule.
+* **The claim sentence must be text of this manuscript**
+  (`sentence_not_in_manuscript`): an added claim's typed sentence is no
+  longer sent as "the sentence in your manuscript". The Methods passage
+  keeps its rule (inside a Methods paragraph, at most 1,000 characters).
+* **One wire gate before every attempt**, the first and each retry, read
+  where the commands write: AI help (and web context for `web_context`),
+  the grant, its cover, the body's hash, the budget and the run's cancel
+  flag. A failed gate sends nothing and returns its closed reason. Redirects
+  are off (`Policy::none`): a 3xx is a failed call, `redirect_refused`,
+  counted once and never retried. A cancel reads `cancelled` whether the gate
+  or the retry wait saw it.
+* **The explanation check** (`response::validate_explanation`) refuses
+  digits outside ASCII 0-9 (on the text and its NFKC form), numbers written
+  as words (zero, one and two alone are allowed), a number attached to a
+  quantity within 3 tokens that is not that quantity's sent value, the
+  allowlist (0, 1, 2, 100, 95 and alpha) for unattached numbers only, a sign
+  or "positive"/"negative" that disagrees with the computed statistic, any
+  verdict class other than the engine's (with part A's negation; "confirm"
+  or "verify" about the binding itself is not a verdict), and misconduct
+  words always. The instructions say the same; `result_explanation` now
+  sends `alpha_defaulted` and the not-checked notes of the shown candidate.
+* **A citation attaches to the sentence where its range ends**, and a range
+  over more than 2 sentences is dropped (`range_spans_sentences`), so one
+  citation over the whole answer gives "No cited sources found".
+* **The key test** is refused with AI help off and sends nothing; the
+  Settings screen says "Turn AI help on to test the key." Each answer has
+  its own closed result, and "accepted" only for a model list.
+* **The privacy matrix reads the payload**: it parses the request's `input`
+  string and the numbers inside strings. A probe that put a cell value in
+  the explanation payload turned it red.
+* **Spec**: `result_explanation` and `web_context` at prompt and schema
+  version 2 (claim_method and binding_suggestion stay at 1; the file's
+  `spec_version` stays 1). `helper_tasks.json` SHA-256
+  `825699ad3043d3df4917112e2e674fee317fdfd27daa1ed4bd0f7a624938080e`
+  (was `d06be823…`). `unicode-normalization` 0.1 is now a direct dependency
+  of `gaply_core`; it was already compiled in through pdf-extract. Rishi
+  approved unicode-normalization 0.1 as a direct dependency of gaply_core
+  (MIT/Apache-2.0, already compiled in through pdf-extract, so no new code).
+
+Measured: the explanation check's 56 cases pass, 17 of 17 honest
+explanations of real results among them
+(`the_explanation_check_matches_its_forty_cases`); the privacy matrix's 11
+opt-in combinations, 55 refusals and 45 views carry no sentinel; 301, 302,
+307 and 308 each reach the first host once and the second host never; eval3's
+10 web replies whose citation ranges cover the claim text keep 0 sources, as
+before (`range_does_not_name_source`).
+
 #### Accepted findings
 
 * Level 1 keeps Step 8b's truncation rule, so it can accept a printed

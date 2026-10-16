@@ -7,24 +7,67 @@
 //! [`OutgoingRequest`], which only the session can make, and only after the
 //! send gate has passed: there is no way to call a transport with a body that
 //! was not previewed and granted.
+//!
+//! **The wire gate (evaluation fixes, part B).** A request also carries the
+//! caller's gate, which [`OutgoingRequest::pass_gate`] runs. The session runs
+//! it before handing the request over, and a transport runs it again
+//! immediately before EVERY attempt it puts on the wire, a retry included. A
+//! failed gate sends nothing: [`TransportError::Gated`] with a closed reason.
 
 use std::collections::VecDeque;
 use std::sync::Mutex;
 
 use super::spec::HelperTask;
 
+/// Why the wire gate stopped an attempt. Closed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WireGate {
+    AiHelpOff,
+    WebContextOff,
+    /// No grant for this task in this run (never given, or revoked).
+    NoGrant,
+    GrantDoesNotCover,
+    /// The bytes are not the previewed ones.
+    BodyChanged,
+    BudgetSpent { max: u32 },
+    Cancelled,
+    /// The run is no longer open.
+    RunClosed,
+}
+
+/// The check run immediately before each attempt goes out.
+pub type Gate<'a> = &'a (dyn Fn() -> Result<(), WireGate> + Sync);
+
 /// A request that passed the gate. Private fields: only the session makes
 /// one.
-#[derive(Debug)]
 pub struct OutgoingRequest<'a> {
     task: HelperTask,
     body: &'a [u8],
     timeout_secs: u32,
+    gate: Option<Gate<'a>>,
+}
+
+impl std::fmt::Debug for OutgoingRequest<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Never the body.
+        f.debug_struct("OutgoingRequest").field("task", &self.task).field("bytes", &self.body.len()).finish()
+    }
 }
 
 impl<'a> OutgoingRequest<'a> {
     pub(crate) fn new(task: HelperTask, body: &'a [u8], timeout_secs: u32) -> OutgoingRequest<'a> {
-        OutgoingRequest { task, body, timeout_secs }
+        OutgoingRequest { task, body, timeout_secs, gate: None }
+    }
+    pub(crate) fn with_gate(task: HelperTask, body: &'a [u8], timeout_secs: u32, gate: Gate<'a>) -> OutgoingRequest<'a> {
+        OutgoingRequest { task, body, timeout_secs, gate: Some(gate) }
+    }
+    /// The caller's wire gate. A transport calls this immediately before
+    /// every attempt, and puts nothing on the wire when it fails.
+    pub fn pass_gate(&self) -> Result<(), TransportError> {
+        match self.gate {
+            Some(g) => g().map_err(TransportError::Gated),
+            None => Ok(()),
+        }
     }
     pub fn task(&self) -> HelperTask {
         self.task
@@ -58,6 +101,11 @@ pub enum TransportError {
     Http { status: u16 },
     /// The run cancelled the call; any reply is discarded.
     Cancelled,
+    /// The server answered with a redirect (3xx). Redirects are never
+    /// followed and never retried: nothing goes to the Location.
+    Redirect { status: u16 },
+    /// The wire gate stopped the attempt before anything was sent.
+    Gated(WireGate),
     Failed,
 }
 
@@ -112,6 +160,7 @@ impl MockTransport {
 
 impl HelperTransport for MockTransport {
     fn send(&self, request: &OutgoingRequest<'_>) -> Result<TransportReply, TransportError> {
+        request.pass_gate()?;
         self.sent.lock().unwrap().push((request.task(), request.body().to_vec()));
         self.replies.lock().unwrap().pop_front().unwrap_or(Err(TransportError::Failed))
     }

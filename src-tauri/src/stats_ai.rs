@@ -183,8 +183,13 @@ impl ResponsesTransport {
         backoff: Duration,
         timeout: RequestTimeout,
     ) -> Result<Self, TransportError> {
-        // No global timeout: each request carries its own.
-        let client = reqwest::blocking::Client::builder().build().map_err(|_| TransportError::Failed)?;
+        // No global timeout: each request carries its own. Redirects are never
+        // followed (evaluation fixes, part B): a 307/308 would re-send the
+        // previewed body to another host.
+        let client = reqwest::blocking::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .map_err(|_| TransportError::Failed)?;
         Ok(ResponsesTransport { client, base: base.trim_end_matches('/').to_string(), store, cancel, backoff, timeout, requests: AtomicU32::new(0) })
     }
 
@@ -219,11 +224,15 @@ impl HelperTransport for ResponsesTransport {
         let started = Instant::now();
         let mut last = TransportError::Failed;
         for attempt in 0..2 {
-            if self.cancelled() {
-                return Err(TransportError::Cancelled);
-            }
             if attempt == 1 {
                 self.backoff()?;
+            }
+            // The wire gate, immediately before every attempt: AI help, the
+            // grant, the hash, the budget and cancel, read where the commands
+            // write them. A failed gate sends nothing.
+            request.pass_gate()?;
+            if self.cancelled() {
+                return Err(TransportError::Cancelled);
             }
             let sent = self
                 .client
@@ -258,6 +267,10 @@ impl HelperTransport for ResponsesTransport {
                             Err(e) if e.is_timeout() => Attempt::Retryable(TransportError::Timeout),
                             Err(_) => Attempt::Final(TransportError::Failed),
                         }
+                    } else if status.is_redirection() {
+                        // Never followed, never retried: nothing goes to the
+                        // Location.
+                        Attempt::Final(TransportError::Redirect { status: status.as_u16() })
                     } else if status.as_u16() == 429 || status.is_server_error() {
                         Attempt::Retryable(TransportError::Http { status: status.as_u16() })
                     } else {
@@ -285,13 +298,26 @@ impl HelperTransport for ResponsesTransport {
     }
 }
 
-/// What the key test found. Closed.
+/// What the key test found. Closed; each answer its own (evaluation fixes,
+/// part B): "accepted" only for a 2xx from the base host with a model list.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeyTest {
     Accepted,
+    /// AI help is off: nothing was sent.
+    AiHelpOff,
     NoKey,
+    /// 401.
     Rejected,
-    Http { status: u16 },
+    /// 403.
+    Forbidden,
+    /// Any other 4xx (429 included).
+    ClientError,
+    /// 5xx.
+    ServerError,
+    /// A 3xx: never followed.
+    RedirectRefused,
+    /// A 2xx whose body is not a model list.
+    UnexpectedReply,
     Offline,
     Timeout,
     Failed,
@@ -300,19 +326,30 @@ pub enum KeyTest {
 impl KeyTest {
     pub fn code(self) -> String {
         match self {
-            KeyTest::Accepted => "accepted".into(),
-            KeyTest::NoKey => "no_key".into(),
-            KeyTest::Rejected => "rejected".into(),
-            KeyTest::Http { status } => format!("http_{status}"),
-            KeyTest::Offline => "offline".into(),
-            KeyTest::Timeout => "timeout".into(),
-            KeyTest::Failed => "failed".into(),
+            KeyTest::Accepted => "accepted",
+            KeyTest::AiHelpOff => "ai_help_off",
+            KeyTest::NoKey => "no_key",
+            KeyTest::Rejected => "rejected",
+            KeyTest::Forbidden => "forbidden",
+            KeyTest::ClientError => "client_error",
+            KeyTest::ServerError => "server_error",
+            KeyTest::RedirectRefused => "redirect_refused",
+            KeyTest::UnexpectedReply => "unexpected_reply",
+            KeyTest::Offline => "offline",
+            KeyTest::Timeout => "timeout",
+            KeyTest::Failed => "failed",
         }
+        .into()
     }
 }
 
+/// A `GET /models` body: a JSON object with a `data` array.
+fn is_model_list(body: &[u8]) -> bool {
+    serde_json::from_slice::<serde_json::Value>(body).ok().is_some_and(|v| v.get("data").is_some_and(serde_json::Value::is_array))
+}
+
 /// Test the saved key with a request that carries no user data: `GET
-/// {base}/models`.
+/// {base}/models`, redirects off. The caller refuses it with AI help off.
 pub fn test_key(base: &str, store: &dyn CredentialStore) -> KeyTest {
     let key = match store.load_key() {
         Ok(Some(k)) => k,
@@ -320,11 +357,33 @@ pub fn test_key(base: &str, store: &dyn CredentialStore) -> KeyTest {
         Err(_) => return KeyTest::Failed,
     };
     let Ok(bearer) = key.bearer() else { return KeyTest::Failed };
-    let Ok(client) = reqwest::blocking::Client::builder().timeout(KEY_TEST_TIMEOUT).build() else { return KeyTest::Failed };
+    let Ok(client) = reqwest::blocking::Client::builder().timeout(KEY_TEST_TIMEOUT).redirect(reqwest::redirect::Policy::none()).build() else {
+        return KeyTest::Failed;
+    };
     match client.get(format!("{}/models", base.trim_end_matches('/'))).header(reqwest::header::AUTHORIZATION, bearer).send() {
-        Ok(r) if r.status().is_success() => KeyTest::Accepted,
-        Ok(r) if r.status().as_u16() == 401 => KeyTest::Rejected,
-        Ok(r) => KeyTest::Http { status: r.status().as_u16() },
+        Ok(r) => {
+            let status = r.status();
+            if status.is_success() {
+                match r.bytes() {
+                    Ok(b) if is_model_list(&b) => KeyTest::Accepted,
+                    Ok(_) => KeyTest::UnexpectedReply,
+                    Err(e) if e.is_timeout() => KeyTest::Timeout,
+                    Err(_) => KeyTest::Failed,
+                }
+            } else if status.is_redirection() {
+                KeyTest::RedirectRefused
+            } else if status.as_u16() == 401 {
+                KeyTest::Rejected
+            } else if status.as_u16() == 403 {
+                KeyTest::Forbidden
+            } else if status.is_client_error() {
+                KeyTest::ClientError
+            } else if status.is_server_error() {
+                KeyTest::ServerError
+            } else {
+                KeyTest::UnexpectedReply
+            }
+        }
         Err(e) if e.is_timeout() => KeyTest::Timeout,
         Err(e) if e.is_connect() => KeyTest::Offline,
         Err(_) => KeyTest::Failed,

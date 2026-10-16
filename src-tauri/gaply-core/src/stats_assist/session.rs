@@ -23,7 +23,7 @@ use super::consent::{AiHelpSetting, CategorySet, ConsentGrant, HelperRunId};
 use super::outbound::{request_body, Outbound};
 use super::response::{read_response, read_usage, validate_explanation, ModelText, Rejection};
 use super::spec::{HelperTask, ModelId};
-use super::transport::{HelperTransport, OutgoingRequest, TransportError, TransportReply};
+use super::transport::{Gate, HelperTransport, OutgoingRequest, TransportError, TransportReply, WireGate};
 use crate::stats_l1::dataset::sha256_hex;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -110,15 +110,49 @@ impl PreparedSend {
         self.task
     }
 
+    /// The SHA-256 of the bytes this send will put on the wire, for a
+    /// caller's wire gate to compare with the preview's.
+    pub fn body_sha256(&self) -> String {
+        sha256_hex(&self.body)
+    }
+
+    /// The preview this send came from.
+    pub fn preview(&self) -> PreviewId {
+        self.preview
+    }
+
     /// Hand the previewed bytes to `transport`, and record the diagnostic.
+    /// No wire gate: for callers that hold no state a gate could read.
     pub fn transmit(self, transport: &dyn HelperTransport) -> Result<Sent, SendRefusal> {
+        let request_task = self.task;
+        let timeout = request_task.spec().timeout_secs;
+        let body = self.body.clone();
+        self.finish(transport.send(&OutgoingRequest::new(request_task, &body, timeout)))
+    }
+
+    /// The same, with `gate` run immediately before the request is handed
+    /// over and again by the transport before every attempt, a retry
+    /// included (evaluation fixes, part B). A failed gate sends nothing.
+    pub fn transmit_gated(self, transport: &dyn HelperTransport, gate: Gate<'_>) -> Result<Sent, SendRefusal> {
+        if let Err(g) = gate() {
+            tracing::info!(task = self.task.id(), status = ?g, "stats_assist: wire gate refused");
+            return Err(SendRefusal::Transport(TransportError::Gated(g)));
+        }
+        let request_task = self.task;
+        let timeout = request_task.spec().timeout_secs;
+        let body = self.body.clone();
+        self.finish(transport.send(&OutgoingRequest::with_gate(request_task, &body, timeout, gate)))
+    }
+
+    fn finish(self, result: Result<TransportReply, TransportError>) -> Result<Sent, SendRefusal> {
         let task = self.task;
         let spec = task.spec();
-        let result = transport.send(&OutgoingRequest::new(task, &self.body, spec.timeout_secs));
         let reply = result.as_ref().ok();
         let status = match &result {
             Ok(_) => "ok",
             Err(TransportError::Cancelled) => "cancelled",
+            Err(TransportError::Gated(_)) => "gated",
+            Err(TransportError::Redirect { .. }) => "redirect_refused",
             Err(_) => "transport_error",
         };
         let usage = reply.map(|r| read_usage(&r.body)).unwrap_or_default();
@@ -266,6 +300,27 @@ impl HelperSession {
             return Err(SendRefusal::BudgetSpent { max });
         }
         Ok(p.task)
+    }
+
+    /// The wire gate's part that lives in the session, for a call already
+    /// prepared: a grant for this run and task still covers the preview's
+    /// categories, `body` has the preview's hash, and the task's calls (this
+    /// one counted) are within budget. The caller adds the AI help setting
+    /// and the cancel flag, which live outside the session.
+    pub fn wire_check(&self, id: PreviewId, body_sha256: &str) -> Result<(), WireGate> {
+        let p = self.previews.get(&id).ok_or(WireGate::BodyChanged)?;
+        let grant = self.grants.get(&p.task).ok_or(WireGate::NoGrant)?;
+        if !grant.covers(self.run, p.task, &p.categories) {
+            return Err(WireGate::GrantDoesNotCover);
+        }
+        if body_sha256 != p.sha256 {
+            return Err(WireGate::BodyChanged);
+        }
+        let max = p.task.spec().max_calls_per_run;
+        if self.calls.get(&p.task).copied().unwrap_or(0) > max {
+            return Err(WireGate::BudgetSpent { max });
+        }
+        Ok(())
     }
 
     /// Send preview `id`'s stored body.

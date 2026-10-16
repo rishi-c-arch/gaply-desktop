@@ -116,12 +116,14 @@ export type HelperTaskInput =
       task: 'web_context';
       claimId: number;
       methodId: string;
+      /** A variant word from the method's catalogue entry, or null for none. */
+      variant?: string | null;
       topic: 'assumptions' | 'reporting_guidance' | 'effect_size_reporting' | 'choosing_a_variant';
-      editedQuery?: string | null;
-      paper?: string | null;
+      /** Only a DOI (evaluation fixes, part B): the query is never typed. */
+      doi?: string | null;
     };
 
-export type OptInCategory = 'column_headers' | 'claim_sentence' | 'methods_passage' | 'paper_doi_or_title';
+export type OptInCategory = 'column_headers' | 'claim_sentence' | 'methods_passage' | 'paper_doi';
 
 export interface L1PreviewView {
   preview: L1Handle;

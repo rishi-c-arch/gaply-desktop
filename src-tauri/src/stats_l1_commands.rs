@@ -44,18 +44,18 @@ use std::sync::{Arc, Mutex};
 use gaply_core::extract::{self, ExtractionResult, SectionKind};
 use gaply_core::import_guard;
 use gaply_core::stats_assist::citation::{host_is_allowed, https_host, parse_web_context, CitationDrop, RetrievedAt};
-use gaply_core::stats_assist::consent::{DataCategory, HelperRunId, OptInRefusal, OptIns};
+use gaply_core::stats_assist::consent::{DataCategory, DoiScan, HelperRunId, OptInRefusal, OptIns};
 use gaply_core::stats_assist::outbound::{
     build_binding_suggestion, build_claim_method, build_result_explanation, build_web_context, role_from_name, role_name, BuildRefusal,
     Outbound,
 };
-use gaply_core::stats_assist::query::{check_query, template_query, ContextTopic, QueryBlocked, QueryScan};
+use gaply_core::stats_assist::query::{web_query, ContextTopic};
 use gaply_core::stats_assist::response::{
     read_response, validate_binding_suggestion, validate_claim_method, validate_explanation, Rejection as ReplyRejection,
 };
 use gaply_core::stats_assist::session::{HelperSession, PreparedSend, PreviewId, SendRefusal, Sent};
 use gaply_core::stats_assist::spec::{allowed_web_domains, HelperTask};
-use gaply_core::stats_assist::transport::TransportError;
+use gaply_core::stats_assist::transport::{TransportError, WireGate};
 use gaply_core::stats_l0::input::DocumentContext;
 use gaply_core::stats_l0::method::L0Verdict;
 use gaply_core::stats_l0::number::{NumberNotRead, Relation};
@@ -112,7 +112,23 @@ fn transport_code(e: TransportError) -> WireCode {
         TransportError::Timeout => w("timeout"),
         TransportError::Http { status } => with_num(w("http"), "status", u64::from(status)),
         TransportError::Cancelled => w("cancelled"),
+        TransportError::Redirect { status } => with_num(w("redirect_refused"), "status", u64::from(status)),
+        TransportError::Gated(g) => gate_code(g),
         TransportError::Failed => w("transport_failed"),
+    }
+}
+
+/// The wire gate's reason, as the same top-level code a refused send gives.
+fn gate_code(g: WireGate) -> WireCode {
+    match g {
+        WireGate::AiHelpOff => w("ai_help_off"),
+        WireGate::WebContextOff => w("web_context_off"),
+        WireGate::NoGrant => w("no_grant"),
+        WireGate::GrantDoesNotCover => w("grant_does_not_cover"),
+        WireGate::BodyChanged => w("body_changed"),
+        WireGate::BudgetSpent { max } => with_num(w("budget_spent"), "max", u64::from(max)),
+        WireGate::Cancelled => w("cancelled"),
+        WireGate::RunClosed => w("unknown_run"),
     }
 }
 
@@ -125,6 +141,12 @@ fn send_refusal_code(r: SendRefusal) -> WireCode {
         SendRefusal::GrantDoesNotCover => w("grant_does_not_cover"),
         SendRefusal::BodyChanged => w("body_changed"),
         SendRefusal::BudgetSpent { max } => with_num(w("budget_spent"), "max", u64::from(max)),
+        // A gated attempt, a cancel and a redirect are top-level codes: the
+        // screen says what stopped the call, not that the network failed. A
+        // cancel reads the same whether the gate or the retry wait saw it.
+        SendRefusal::Transport(e @ (TransportError::Gated(_) | TransportError::Cancelled | TransportError::Redirect { .. })) => {
+            transport_code(e)
+        }
         SendRefusal::Transport(e) => with_code(w("transport"), "error", transport_code(e)),
     }
 }
@@ -149,6 +171,10 @@ fn reply_rejection_code(r: ReplyRejection) -> WireCode {
         ReplyRejection::TextTooLong { chars, max } => with_num(with_num(w("text_too_long"), "chars", chars as u64), "max", max as u64),
         ReplyRejection::NumberNotInInput => w("number_not_in_input"),
         ReplyRejection::WrongVerdict => w("wrong_verdict"),
+        ReplyRejection::NonAsciiDigit => w("non_ascii_digit"),
+        ReplyRejection::NumberWord => w("number_word"),
+        ReplyRejection::SignDisagrees => w("sign_disagrees"),
+        ReplyRejection::MisconductWord => w("misconduct_word"),
     };
     with_code(w("reply_rejected"), "reason", inner)
 }
@@ -158,22 +184,13 @@ fn opt_in_code(r: OptInRefusal) -> WireCode {
         OptInRefusal::NotAnOptInFor { .. } => w("not_an_opt_in_for_this_task"),
         OptInRefusal::PassageTooLong { chars, max } => with_num(with_num(w("passage_too_long"), "chars", chars as u64), "max", max as u64),
         OptInRefusal::PassageNotInMethods => w("passage_not_in_methods"),
-        OptInRefusal::PaperRefTooLong { chars, max } => with_num(with_num(w("paper_ref_too_long"), "chars", chars as u64), "max", max as u64),
+        OptInRefusal::DoiMalformed => w("doi_malformed"),
+        OptInRefusal::DoiContainsData => w("doi_contains_data"),
+        OptInRefusal::SentenceNotInManuscript => w("sentence_not_in_manuscript"),
         OptInRefusal::Empty => w("opt_in_empty"),
         OptInRefusal::NoSentence => w("no_sentence"),
         OptInRefusal::SentenceTooLong { chars, max } => with_num(with_num(w("sentence_too_long"), "chars", chars as u64), "max", max as u64),
     }
-}
-
-fn query_code(q: QueryBlocked) -> WireCode {
-    let inner = match q {
-        QueryBlocked::Empty => w("empty"),
-        QueryBlocked::TooLong { chars, max } => with_num(with_num(w("too_long"), "chars", chars as u64), "max", max as u64),
-        QueryBlocked::ContainsColumnHeader => w("contains_column_header"),
-        QueryBlocked::ContainsLevelLabel => w("contains_level_label"),
-        QueryBlocked::CopiesManuscriptWords { words } => with_num(w("copies_manuscript_words"), "words", words as u64),
-    };
-    with_code(w("query_blocked"), "reason", inner)
 }
 
 fn build_code(b: BuildRefusal) -> WireCode {
@@ -289,6 +306,7 @@ fn citation_drop_word(d: CitationDrop) -> &'static str {
         CitationDrop::DomainNotAllowed => "domain_not_allowed",
         CitationDrop::RangeOutsideText => "range_outside_text",
         CitationDrop::RangeDoesNotNameSource => "range_does_not_name_source",
+        CitationDrop::RangeSpansSentences => "range_spans_sentences",
     }
 }
 
@@ -414,7 +432,7 @@ fn category_from_word(s: &str) -> Option<DataCategory> {
         "column_headers" => Some(DataCategory::ColumnHeaders),
         "claim_sentence" => Some(DataCategory::ClaimSentence),
         "methods_passage" => Some(DataCategory::MethodsPassage),
-        "paper_doi_or_title" => Some(DataCategory::PaperDoiOrTitle),
+        "paper_doi" => Some(DataCategory::PaperDoi),
         _ => None,
     }
 }
@@ -775,13 +793,27 @@ pub struct L1ClaimInput {
 }
 
 /// One helper task's input. Each variant carries only what its task needs.
+///
+/// Unknown fields are refused (evaluation fixes, part B): the web query has
+/// no free-text edit and the DOI field holds a DOI only, so an `editedQuery`
+/// or a `paper` field from an older screen never reaches a request.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
-#[serde(tag = "task", rename_all = "snake_case", rename_all_fields = "camelCase")]
+#[serde(tag = "task", rename_all = "snake_case", rename_all_fields = "camelCase", deny_unknown_fields)]
 pub enum HelperTaskInput {
     ClaimMethod { claim_id: usize, methods_passage: Option<String> },
     BindingSuggestion { claim_id: usize, method_id: String },
     ResultExplanation { claim_id: usize },
-    WebContext { claim_id: usize, method_id: String, topic: String, edited_query: Option<String>, paper: Option<String> },
+    /// The query's three closed parts: a method, a variant word or none
+    /// (`None` names no variant), and a topic; and an optional DOI.
+    WebContext {
+        claim_id: usize,
+        method_id: String,
+        #[serde(default)]
+        variant: Option<String>,
+        topic: String,
+        #[serde(default)]
+        doi: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
@@ -1094,7 +1126,7 @@ pub fn helper_preview(runs: &L1Runs, ai: &StatsAi, run: u64, input: &HelperTaskI
     let (outbound, claim, query_sent) = match input {
         HelperTaskInput::ClaimMethod { claim_id, methods_passage } => {
             let claim = claim_of(&r, *claim_id)?;
-            let sentence = opt.claim_sentence(&claim).map_err(|e| refuse(opt_in_code(e)))?;
+            let sentence = opt.claim_sentence(&claim, &r.ex).map_err(|e| refuse(opt_in_code(e)))?;
             let passage = match (opt.is_ticked(DataCategory::MethodsPassage), methods_passage) {
                 (true, Some(p)) => opt.methods_passage(&r.ex, p).map_err(|e| refuse(opt_in_code(e)))?,
                 (true, None) => return Err(refuse(opt_in_code(OptInRefusal::Empty))),
@@ -1107,7 +1139,7 @@ pub fn helper_preview(runs: &L1Runs, ai: &StatsAi, run: u64, input: &HelperTaskI
             let method = method_of(method_id)?;
             let schema = &r.state.dataset().ok_or_else(|| refuse(w("no_dataset")))?.schema;
             let headers = opt.column_headers(schema);
-            let sentence = opt.claim_sentence(&claim).map_err(|e| refuse(opt_in_code(e)))?;
+            let sentence = opt.claim_sentence(&claim, &r.ex).map_err(|e| refuse(opt_in_code(e)))?;
             (
                 Outbound::BindingSuggestion(build_binding_suggestion(method, schema, headers, sentence).map_err(|e| refuse(build_code(e)))?),
                 claim.id,
@@ -1122,25 +1154,30 @@ pub fn helper_preview(runs: &L1Runs, ai: &StatsAi, run: u64, input: &HelperTaskI
                 .ok_or_else(|| refuse(w("no_finished_result")))?;
             (Outbound::ResultExplanation(build_result_explanation(rep, &r.ctx)), ClaimId(*claim_id), None)
         }
-        HelperTaskInput::WebContext { claim_id, method_id, topic, edited_query, paper } => {
+        HelperTaskInput::WebContext { claim_id, method_id, variant, topic, doi } => {
             let claim = claim_of(&r, *claim_id)?;
             let method = method_of(method_id)?;
             let topic = topic_from_word(topic).ok_or_else(|| refuse(w("unknown_topic")))?;
             let kind = MethodCatalogue::entry(method).variant_kind;
-            let variant = VariantChoice::from_wording(kind, &claim.sentence, None).variant();
-            let template = template_query(method, variant, topic);
-            let edited = edited_query.clone().unwrap_or_else(|| template.clone());
-            let schema = &r.state.dataset().ok_or_else(|| refuse(w("no_dataset")))?.schema;
-            let extra: Vec<&str> = r.state.claims().iter().map(|c| c.sentence.as_str()).collect();
-            let scan = QueryScan::new(schema, Some(&r.ex), &extra);
-            let checked = check_query(&template, &edited, &scan).map_err(|q| refuse(query_code(q)))?;
-            let paper = match (opt.is_ticked(DataCategory::PaperDoiOrTitle), paper) {
-                (true, Some(p)) => opt.paper(p).map_err(|e| refuse(opt_in_code(e)))?,
+            // The variant is a closed word picked on the screen, or none.
+            let variant = match variant {
+                Some(word) => variant_from_word(method, word).ok_or_else(|| refuse(w("unknown_variant")))?,
+                None => Variant::not_stated(kind),
+            };
+            // Built only from the three closed parts: nothing typed enters.
+            let query = web_query(method, variant, topic);
+            let doi = match (opt.is_ticked(DataCategory::PaperDoi), doi) {
+                (true, Some(d)) => {
+                    let dataset = r.state.dataset().ok_or_else(|| refuse(w("no_dataset")))?;
+                    let file_name = r.data_path.file_name().and_then(|f| f.to_str());
+                    let scan = DoiScan::new(dataset, file_name);
+                    opt.doi(d, &scan).map_err(|e| refuse(opt_in_code(e)))?
+                }
                 (true, None) => return Err(refuse(opt_in_code(OptInRefusal::Empty))),
                 (false, _) => None,
             };
-            let query_sent = checked.as_str().to_string();
-            (Outbound::WebContext(build_web_context(&checked, paper).map_err(|e| refuse(build_code(e)))?), claim.id, Some(query_sent))
+            let query_sent = query.as_str().to_string();
+            (Outbound::WebContext(build_web_context(&query, doi).map_err(|e| refuse(build_code(e)))?), claim.id, Some(query_sent))
         }
     };
     let p = r.helper.preview(outbound).map_err(|e| refuse(send_refusal_code(e)))?;
@@ -1162,12 +1199,31 @@ fn record_usage(r: &mut L1Run, task: HelperTask, requests: u32, sent: Option<&Se
 }
 
 /// Prepare under the lock, transmit outside it, record under it again.
+///
+/// **The wire gate** (evaluation fixes, part B) runs immediately before the
+/// request is handed over and again before every attempt the transport puts
+/// on the wire, a retry included: AI help (read from `StatsAi`, which
+/// `stats_ai_setting_set` writes), then under the run's lock the cancel flag
+/// (`stats_l1_helper_cancel`) and the session's grant, hash and budget
+/// (`stats_l1_helper_revoke`). A failed gate sends nothing.
 fn transmit(run: &Arc<Mutex<L1Run>>, ai: &StatsAi, prepared: PreparedSend) -> Result<Sent, GaplyError> {
     let cancel = lock(run).cancel.clone();
     let transport = (ai.transport)(cancel);
     let task = prepared.task();
+    let (preview, body_sha256) = (prepared.preview(), prepared.body_sha256());
+    let gate = || -> Result<(), WireGate> {
+        let help = ai.settings().help();
+        if !help.allows(task) {
+            return Err(if help.ai_help { WireGate::WebContextOff } else { WireGate::AiHelpOff });
+        }
+        let r = lock(run);
+        if r.cancel.load(Ordering::SeqCst) {
+            return Err(WireGate::Cancelled);
+        }
+        r.helper.wire_check(preview, &body_sha256)
+    };
     let before = transport.requests_sent();
-    let result = prepared.transmit(&*transport);
+    let result = prepared.transmit_gated(&*transport, &gate);
     let requests = transport.requests_sent().saturating_sub(before);
     record_usage(&mut lock(run), task, requests, result.as_ref().ok());
     result.map_err(|e| refuse(send_refusal_code(e)))
@@ -1447,6 +1503,12 @@ pub fn key_remove(ai: &StatsAi) -> Result<AiKeyStatusView, GaplyError> {
 
 /// Test the key with a request that carries no user data.
 pub fn key_test(ai: &StatsAi) -> AiKeyTestView {
+    // With AI help off this feature makes no network request at all, the
+    // key test included (evaluation fixes, part B).
+    if !ai.settings().ai_help {
+        tracing::info!(result = "ai_help_off", "stats_ai: key test refused");
+        return AiKeyTestView { result: crate::stats_ai::KeyTest::AiHelpOff.code() };
+    }
     let result = test_key(&ai.base, ai.credentials.as_ref()).code();
     tracing::info!(result = %result, "stats_ai: key tested");
     AiKeyTestView { result }

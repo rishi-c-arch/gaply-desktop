@@ -17,6 +17,10 @@ sha2 = "0.10"
 hmac = "0.12"
 base64 = "0.22"
 regex = "1"
+# NFKC folding for the AI helper layer's DOI scan and explanation check
+# (Phase 2 fixes, part B). Already in Cargo.lock at 0.1.25 and already
+# compiled into this crate through pdf-extract: no new code is shipped.
+unicode-normalization = "0.1"
 pdf-extract = "0.7"
 zip = "2.2"
 quick-xml = "0.36"

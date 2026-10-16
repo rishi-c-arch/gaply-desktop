@@ -17,8 +17,8 @@ use serde::Serialize;
 use serde_json::Value;
 
 use super::codes::{self, WireCode};
-use super::consent::{base_category, Allowed, CategorySet, ClaimSentence, ColumnHeaders, DataCategory, MethodsPassage, PaperRef};
-use super::query::CheckedQuery;
+use super::consent::{base_category, Allowed, CategorySet, ClaimSentence, ColumnHeaders, DataCategory, Doi, MethodsPassage};
+use super::query::WebQuery;
 use super::spec::{allowed_web_domains, method_description, variant_names, HelperTask, ModelId, OutputFormat};
 use crate::stats_l0::input::DocumentContext;
 use crate::stats_l0::result::{Family, PValue};
@@ -30,7 +30,7 @@ use crate::stats_l1::claim::L1Claim;
 use crate::stats_l1::dataset::{AliasedSchema, SchemaSummary};
 use crate::equation::rational::Rational;
 use crate::stats_l0::number::{Relation, ReportedNumber};
-use crate::stats_l1::reproduce::{ClaimReproduction, L1Verdict, NumberKind, Printed};
+use crate::stats_l1::reproduce::{ClaimReproduction, L1Note, L1Verdict, NumberKind, NumberStatus, Printed};
 
 /// Why a builder refused. Closed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -327,6 +327,10 @@ pub struct ResultExplanationOutbound {
     pub conclusion_changes: Option<bool>,
     pub could_not_check_reason: Option<WireCode>,
     pub stated_alpha: Vec<String>,
+    /// True when the paper states no threshold and `.05` is the default
+    /// (evaluation fixes, part B): an explanation must not call it the
+    /// paper's.
+    pub alpha_defaulted: bool,
     pub tails: &'static str,
     pub numbers: Vec<NumberOut>,
     pub n_used: Option<usize>,
@@ -347,11 +351,23 @@ pub fn verdict_wire(v: &L1Verdict) -> &'static str {
 /// no group mean or other statistic.
 pub fn build_result_explanation(rep: &ClaimReproduction, ctx: &DocumentContext) -> ResultExplanationOutbound {
     let shown = rep.shown();
-    let (conclusion_changes, could_not_check_reason, verdict_notes) = match &rep.verdict {
+    let (conclusion_changes, could_not_check_reason, mut verdict_notes) = match &rep.verdict {
         L1Verdict::Reproduced(notes) => (None, None, notes.clone()),
         L1Verdict::NotReproduced { conclusion_changes } => (*conclusion_changes, None, Vec::new()),
         L1Verdict::CouldNotCheck(why) => (None, Some(codes::l1_could_not_check(*why)), Vec::new()),
     };
+    // Part A's "not checked" notes, for every verdict: a number the engine did
+    // not compare is named, so an explanation can say so instead of guessing.
+    if let Some(c) = shown {
+        for n in &c.numbers {
+            if let NumberStatus::NotChecked(why) = n.status {
+                let note = L1Note::NotChecked { number: n.kind, why };
+                if !verdict_notes.contains(&note) && !rep.notes.contains(&note) {
+                    verdict_notes.push(note);
+                }
+            }
+        }
+    }
     let numbers = shown
         .map(|c| {
             c.numbers
@@ -385,6 +401,7 @@ pub fn build_result_explanation(rep: &ClaimReproduction, ctx: &DocumentContext) 
         conclusion_changes,
         could_not_check_reason,
         stated_alpha: ctx.alpha_printed(),
+        alpha_defaulted: ctx.alpha().1,
         tails: tails(ctx),
         numbers,
         n_used: rep.counts.as_ref().map(|c| c.n_used),
@@ -406,18 +423,18 @@ pub struct WebContextOutbound {
     pub task: &'static str,
     pub query: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub paper: Option<String>,
+    pub doi: Option<String>,
 }
 
-/// The query must have passed the local scan; the DOI or title must have been
-/// ticked. Nothing else enters: never the schema, headers, rows, results or
-/// manuscript text.
-pub fn build_web_context(query: &CheckedQuery, paper: Option<Allowed<PaperRef>>) -> Result<WebContextOutbound, BuildRefusal> {
-    check_task(&paper, HelperTask::WebContext)?;
+/// The query is built from closed parts only; the DOI must have been ticked,
+/// normalised and scanned. Nothing else enters: never the schema, headers,
+/// rows, results or manuscript text.
+pub fn build_web_context(query: &WebQuery, doi: Option<Allowed<Doi>>) -> Result<WebContextOutbound, BuildRefusal> {
+    check_task(&doi, HelperTask::WebContext)?;
     Ok(WebContextOutbound {
         task: HelperTask::WebContext.id(),
         query: query.as_str().to_string(),
-        paper: paper.map(|p| p.value().0.clone()),
+        doi: doi.map(|p| p.value().0.clone()),
     })
 }
 
@@ -466,8 +483,8 @@ impl Outbound {
             }
             Outbound::ResultExplanation(_) => {}
             Outbound::WebContext(o) => {
-                if o.paper.is_some() {
-                    cats.push(DataCategory::PaperDoiOrTitle);
+                if o.doi.is_some() {
+                    cats.push(DataCategory::PaperDoi);
                 }
             }
         }

@@ -730,6 +730,7 @@ export const L1Flow: React.FC<L1FlowProps> = ({ bridge, onExit }) => {
               result={r}
               alpha={result.alpha}
               ctx={ctx}
+              catalogue={catalogue}
               aiHelp={settings.aiHelp}
               webContext={settings.webContext}
               onUsage={refreshUsage}

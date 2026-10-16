@@ -58,11 +58,11 @@ fn step_5s_sentinels_and_the_paths_appear_in_no_body_error_view_or_trace() {
         let web = HelperTaskInput::WebContext {
             claim_id: 0,
             method_id: "independent_t".into(),
+            variant: None,
             topic: "assumptions".into(),
-            edited_query: None,
-            paper: Some("10.5555/example.2026.01".into()),
+            doi: Some("10.5555/example.2026.01".into()),
         };
-        let p4 = l1::helper_preview(&w.runs, &w.ai, v.run, &web, &["paper_doi_or_title".into()]).unwrap();
+        let p4 = l1::helper_preview(&w.runs, &w.ai, v.run, &web, &["paper_doi".into()]).unwrap();
         views.push(serde_json::to_string(&l1::helper_send(&w.runs, &w.ai, v.run, p4.preview, 1).unwrap()).unwrap());
         for p in [&p1, &p2, &p3, &p4] {
             views.push(serde_json::to_string(p).unwrap());
@@ -85,9 +85,9 @@ fn step_5s_sentinels_and_the_paths_appear_in_no_body_error_view_or_trace() {
         let bad_ext = w.files.data.with_extension("exe");
         std::fs::write(&bad_ext, b"x").unwrap();
         errors.push(format!("{:?}", l1::open(&w.db, &w.runs, &w.ai, &w.files.manuscript, &bad_ext).err()));
-        for edit in [format!("t-test {HEADER}"), format!("t-test {LEVEL}"), format!("t-test {LEVEL}_solo")] {
-            let q = HelperTaskInput::WebContext { claim_id: 0, method_id: "independent_t".into(), topic: "assumptions".into(), edited_query: Some(edit), paper: None };
-            errors.push(format!("{:?}", l1::helper_preview(&w.runs, &w.ai, v.run, &q, &[]).unwrap_err()));
+        for typed in [format!("10.1234/{HEADER}"), format!("10.1234/{LEVEL}"), format!("10.1234/{LEVEL}_solo")] {
+            let q = HelperTaskInput::WebContext { claim_id: 0, method_id: "independent_t".into(), variant: None, topic: "assumptions".into(), doi: Some(typed) };
+            errors.push(format!("{:?}", l1::helper_preview(&w.runs, &w.ai, v.run, &q, &["paper_doi".into()]).unwrap_err()));
         }
         let mut bad = manual_edits();
         bad.levels[0].levels = vec![LEVEL.into(), CELL.into()];

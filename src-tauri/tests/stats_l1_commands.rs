@@ -100,7 +100,7 @@ fn send_with_ai_help_off_or_no_key_is_refused_before_any_network() {
     assert_eq!(code(&l1::helper_send(&w.runs, &w.ai, v.run, p.preview, 0).unwrap_err()), "no_key");
     // Web context needs its own switch.
     w.store.save_key(KEY).unwrap();
-    let web = HelperTaskInput::WebContext { claim_id: 0, method_id: "independent_t".into(), topic: "assumptions".into(), edited_query: None, paper: None };
+    let web = HelperTaskInput::WebContext { claim_id: 0, method_id: "independent_t".into(), variant: None, topic: "assumptions".into(), doi: None };
     assert_eq!(code(&l1::helper_preview(&w.runs, &w.ai, v.run, &web, &[]).unwrap_err()), "web_context_off");
     assert_eq!(w.mock.sent_count(), 0);
     // Every other command still works.
@@ -388,6 +388,10 @@ fn a_cancelled_run_sends_nothing_and_no_key_sends_nothing() {
 fn the_key_test_sends_no_user_data() {
     let server = capture_server(vec![(200, "{\"data\":[]}".into()), (401, "{}".into())]);
     let w = world_with_real_transport(&server, None, RequestTimeout::FromSpec);
+    // With AI help off the key test sends nothing (evaluation fixes, part B).
+    w.ai.set_settings(AiSettings::default()).unwrap();
+    assert_eq!(l1::key_test(&w.ai).result, "ai_help_off");
+    w.ai.set_settings(AiSettings { ai_help: true, web_context: false, model: "gpt-5.5".into() }).unwrap();
     assert_eq!(l1::key_test(&w.ai).result, "no_key");
     w.store.save_key(KEY).unwrap();
     assert_eq!(l1::key_test(&w.ai).result, "accepted");

@@ -17,11 +17,11 @@ pub use serde_json::{json, Value};
 
 pub use gaply_core::extract::{ExtractionResult, Section, SectionKind};
 pub use gaply_core::stats_assist::citation::{parse_web_context, CitationDrop, IndexUnit, RetrievedAt, NO_CITED_SOURCES};
-pub use gaply_core::stats_assist::consent::{AiHelpSetting, DataCategory, HelperRunId, OptIns};
+pub use gaply_core::stats_assist::consent::{AiHelpSetting, DataCategory, DoiScan, HelperRunId, OptInRefusal, OptIns};
 pub use gaply_core::stats_assist::outbound::{
     build_binding_suggestion, build_claim_method, build_result_explanation, build_web_context, BuildRefusal, Outbound,
 };
-pub use gaply_core::stats_assist::query::{check_query, template_query, ContextTopic, QueryBlocked, QueryScan};
+pub use gaply_core::stats_assist::query::{template_query, web_query, ContextTopic, WebQuery};
 pub use gaply_core::stats_assist::response::{
     read_response, validate_binding_suggestion, validate_claim_method, validate_explanation, Rejection,
 };
@@ -32,7 +32,7 @@ pub use gaply_core::stats_l0::input::DocumentContext;
 pub use gaply_core::stats_l0::pvalue;
 pub use gaply_core::stats_l0::result::{read_results, TableStructure};
 pub use gaply_core::stats_l1::binding::{BindingDraft, ProposalSource};
-pub use gaply_core::stats_l1::catalogue::{L1MethodId, RoleName, Variant, VariantChoice, VariantKind};
+pub use gaply_core::stats_l1::catalogue::{L1MethodId, RoleName, TVariant, Variant, VariantChoice, VariantKind};
 pub use gaply_core::stats_l1::claim::{claims_from_reading, ClaimId, L1Claim};
 pub use gaply_core::stats_l1::dataset::{build_dataset, ColumnAlias, DataFingerprint, Dataset, RawTable, TableRef};
 pub use gaply_core::stats_l1::reproduce::{reproduce, ClaimReproduction, L1Verdict};
@@ -177,21 +177,20 @@ pub fn outbounds(w: &World, all_opt_ins: bool, headers: bool) -> Vec<Outbound> {
         bs_ticks.push(DataCategory::ClaimSentence);
     }
     let bs = OptIns::new(HelperTask::BindingSuggestion, &bs_ticks).unwrap();
-    let web = if all_opt_ins { OptIns::new(HelperTask::WebContext, &[DataCategory::PaperDoiOrTitle]).unwrap() } else { OptIns::none(HelperTask::WebContext) };
+    let web = if all_opt_ins { OptIns::new(HelperTask::WebContext, &[DataCategory::PaperDoi]).unwrap() } else { OptIns::none(HelperTask::WebContext) };
 
-    let template = template_query(L1MethodId::IndependentT, Variant::None, ContextTopic::Assumptions);
-    let scan = QueryScan::new(&w.dataset.schema, Some(&w.ex), &[]);
-    let query = check_query(&template, &template, &scan).expect("the template passes");
+    let query = web_query(L1MethodId::IndependentT, Variant::None, ContextTopic::Assumptions);
+    let scan = DoiScan::new(&w.dataset, Some("data.csv"));
     vec![
         Outbound::ClaimMethod(
-            build_claim_method(&w.claim, &w.ctx, cm.claim_sentence(&w.claim).unwrap(), cm.methods_passage(&w.ex, METHODS_PASSAGE).unwrap()).unwrap(),
+            build_claim_method(&w.claim, &w.ctx, cm.claim_sentence(&w.claim, &w.ex).unwrap(), cm.methods_passage(&w.ex, METHODS_PASSAGE).unwrap()).unwrap(),
         ),
         Outbound::BindingSuggestion(
-            build_binding_suggestion(L1MethodId::IndependentT, &w.dataset.schema, bs.column_headers(&w.dataset.schema), bs.claim_sentence(&w.claim).unwrap())
+            build_binding_suggestion(L1MethodId::IndependentT, &w.dataset.schema, bs.column_headers(&w.dataset.schema), bs.claim_sentence(&w.claim, &w.ex).unwrap())
                 .unwrap(),
         ),
         Outbound::ResultExplanation(build_result_explanation(&w.reproduced, &w.ctx)),
-        Outbound::WebContext(build_web_context(&query, web.paper("10.5555/example.2026.01").unwrap()).unwrap()),
+        Outbound::WebContext(build_web_context(&query, web.doi("10.5555/example.2026.01", &scan).unwrap()).unwrap()),
     ]
 }
 
@@ -282,9 +281,12 @@ pub fn flow(all_opt_ins: bool, headers: bool) -> (Vec<(HelperTask, String)>, Vec
         errors.push(format!("{:?}", OptIns::new(HelperTask::ClaimMethod, &[DataCategory::ColumnHeaders])));
         let o = OptIns::new(HelperTask::ClaimMethod, &[DataCategory::MethodsPassage]).unwrap();
         errors.push(format!("{:?}", o.methods_passage(&w.ex, &format!("{MS} {CELL}"))));
-        let scan = QueryScan::new(&w.dataset.schema, Some(&w.ex), &[]);
-        for edit in [format!("t-test {HEADER}"), format!("t-test {LEVEL}"), format!("t-test {LEVEL}_solo"), format!("t-test {COPIED}")] {
-            errors.push(format!("{:?}", check_query("t-test", &edit, &scan)));
+        // The DOI field's refusals, each fed a sentinel: the error names a
+        // closed reason and never echoes what was typed.
+        let scan = DoiScan::new(&w.dataset, Some(&format!("{PATH}.csv")));
+        let web = OptIns::new(HelperTask::WebContext, &[DataCategory::PaperDoi]).unwrap();
+        for typed in [format!("10.1234/{HEADER}"), format!("10.1234/{LEVEL}"), format!("10.1234/{CELL}"), format!("10.1234/{PATH}"), format!("{COPIED} {MS}")] {
+            errors.push(format!("{:?}", web.doi(&typed, &scan)));
         }
         errors.push(format!("{:?}", MockTransport::new().fail(TransportError::Http { status: 401 })));
         errors.push(format!("{:?}", s));

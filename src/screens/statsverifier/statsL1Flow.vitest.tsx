@@ -10,6 +10,7 @@ import { GaplySessionProvider } from '../session/SessionProvider';
 import type { AuthService } from '../../services/supabase';
 import StatsVerifierPage from './StatsVerifierPage';
 import L1Flow from './l1/L1Flow';
+import { QUERY_BUILT_TEXT } from './l1/L1ResultCard';
 import { makeMockStatsVerifierBridge } from './statsVerifierBridge';
 import type { StatsL1Bridge } from './statsL1Bridge';
 import type {
@@ -160,7 +161,7 @@ function fakeBridge(opts: { settings?: Partial<AiSettings>; replies?: Partial<Re
     helperPreview: async (run, input: HelperTaskInput, categories: OptInCategory[]) => {
       rec('helperPreview', { run, input, categories });
       const id = next++;
-      const body = JSON.stringify({ model: settings.model, store: false, input: JSON.stringify({ ...input, optIns: categories, query: input.task === 'web_context' ? (input.editedQuery ?? 'welch t test assumptions') : undefined }) });
+      const body = JSON.stringify({ model: settings.model, store: false, input: JSON.stringify({ ...input, optIns: categories, query: input.task === 'web_context' ? [input.methodId, input.variant, input.topic].filter(Boolean).join(' ') : undefined }) });
       const p: L1PreviewView = { preview: { run, id }, task: input.task, body, sha256: 'f'.repeat(64), categories: [`Base fields for ${input.task}`, ...categories.map((c) => `Ticked ${c}`)] };
       previews.set(id, p);
       return p;
@@ -565,6 +566,7 @@ describe('Level 1: results', () => {
         result={{ ...reproduction(['t:0']).claims[0], verdict: { kind: 'notReproduced', conclusionChanges: true } }}
         alpha={{ printed: ['.05'], stated: false }}
         ctx={{ column: (a) => `C${a}` }}
+        catalogue={openView().catalogue}
         aiHelp={false}
         webContext={false}
         onUsage={() => undefined}
@@ -604,13 +606,29 @@ describe('Level 1: results', () => {
     await toResults(b);
     fireEvent.click(screen.getByTestId('l1-result-0-context-open'));
     const panel = await screen.findByTestId('l1-ai-panel-web_context');
-    // The query field shows the query the request carries, and an edit
-    // rebuilds the preview with it.
-    await waitFor(() => expect((screen.getByTestId('l1-result-0-query') as HTMLInputElement).value).toBe('welch t test assumptions'));
-    expect((within(panel).getByTestId('l1-optin-paper_doi_or_title') as HTMLInputElement).checked).toBe(false);
-    fireEvent.change(screen.getByTestId('l1-result-0-query'), { target: { value: 'welch test unequal variances' } });
-    fireEvent.click(screen.getByTestId('l1-result-0-query-apply'));
-    await waitFor(() => expect(preText(panel)).toContain('welch test unequal variances'));
+    // The query is read-only text taken from the request, built only from
+    // the three pickers (evaluation fixes, part B): no field to type in.
+    await waitFor(() => expect(screen.getByTestId('l1-result-0-query').textContent).toBe('independent_t assumptions'));
+    expect(screen.getByTestId('l1-result-0-query').tagName).toBe('SPAN');
+    expect(screen.queryByTestId('l1-result-0-query-apply')).toBeNull();
+    expect(screen.getByTestId('l1-result-0-query-built').textContent).toBe(QUERY_BUILT_TEXT);
+    expect(document.querySelectorAll('[data-testid="l1-ai-panel-web_context"] input[type="text"], [data-testid="l1-ai-panel-web_context"] input:not([type])').length).toBe(0);
+    expect((within(panel).getByTestId('l1-optin-paper_doi') as HTMLInputElement).checked).toBe(false);
+    // The variant picker offers none and the method's variants; picking one
+    // rebuilds the preview with that closed word.
+    const variant = screen.getByTestId('l1-result-0-variant') as HTMLSelectElement;
+    expect(Array.from(variant.options).map((o) => o.value)).toEqual(['', 'student', 'welch']);
+    fireEvent.change(variant, { target: { value: 'welch' } });
+    await waitFor(() => expect(screen.getByTestId('l1-result-0-query').textContent).toBe('independent_t welch assumptions'));
+    expect(b.calls.filter(([n]) => n === 'helperPreview').slice(-1)[0]?.[1]).toMatchObject({ input: { task: 'web_context', methodId: 'independent_t', variant: 'welch', topic: 'assumptions' } });
+    // The DOI box is a DOI field: a label of DOI, at most 200 characters.
+    fireEvent.click(within(panel).getByTestId('l1-optin-paper_doi'));
+    const doi = (await within(panel).findByTestId('l1-doi')) as HTMLInputElement;
+    expect(doi.maxLength).toBe(200);
+    expect(within(panel).getByText('DOI')).toBeTruthy();
+    fireEvent.change(doi, { target: { value: '10.5555/example' } });
+    fireEvent.click(within(panel).getByTestId('l1-doi-apply'));
+    await waitFor(() => expect(b.calls.filter(([n]) => n === 'helperPreview').slice(-1)[0]?.[1]).toMatchObject({ input: { doi: '10.5555/example' }, categories: ['paper_doi'] }));
     fireEvent.click(within(panel).getByTestId('l1-ai-send'));
     const ctx = await screen.findByTestId('l1-result-0-context');
     expect(ctx.textContent).toContain('Method context from the web');
@@ -649,12 +667,18 @@ describe('Level 1: settings and the run closing', () => {
     await waitFor(() => expect((screen.getByTestId('l1-key-input') as HTMLInputElement).value).toBe(''));
     expect(b.calls.find(([n]) => n === 'keySave')?.[1]).toEqual({ key: '<the sentinel>' });
     expect(document.body.textContent).not.toContain(FAKE_KEY);
+    // With AI help off the key test is not offered, and the screen says why
+    // (evaluation fixes, part B): nothing is sent.
+    expect((screen.getByTestId('l1-key-test') as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId('l1-key-test-needs-ai').textContent).toBe('Turn AI help on to test the key.');
+    fireEvent.click(screen.getByTestId('l1-ai-help-switch'));
+    await waitFor(() => expect(b.calls.find(([n]) => n === 'settingSet')?.[1]).toMatchObject({ aiHelp: true }));
+    await waitFor(() => expect((screen.getByTestId('l1-key-test') as HTMLButtonElement).disabled).toBe(false));
+    expect(screen.queryByTestId('l1-key-test-needs-ai')).toBeNull();
     fireEvent.click(screen.getByTestId('l1-key-test'));
     expect((await screen.findByTestId('l1-settings-message')).textContent).toBe('OpenAI accepted the key.');
     fireEvent.click(screen.getByTestId('l1-key-remove'));
     await waitFor(() => expect(screen.getByTestId('l1-key-status').textContent).toBe('No key'));
-    fireEvent.click(screen.getByTestId('l1-ai-help-switch'));
-    await waitFor(() => expect(b.calls.find(([n]) => n === 'settingSet')?.[1]).toMatchObject({ aiHelp: true }));
   });
 
   it('closing the check closes the Rust run and clears the headers and labels from the screen', async () => {

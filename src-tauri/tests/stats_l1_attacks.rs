@@ -129,7 +129,7 @@ fn binding() -> HelperTaskInput {
 }
 
 fn web() -> HelperTaskInput {
-    HelperTaskInput::WebContext { claim_id: 0, method_id: "independent_t".into(), topic: "assumptions".into(), edited_query: None, paper: None }
+    HelperTaskInput::WebContext { claim_id: 0, method_id: "independent_t".into(), variant: None, topic: "assumptions".into(), doi: None }
 }
 
 fn cm_reply(method: &str, variant: &str, reason: &str) -> String {
@@ -202,7 +202,7 @@ fn consent_and_gate_attacks_through_the_commands() {
     // An opt-in that belongs to another task is refused at preview.
     let r = l1::helper_preview(&w.runs, &w.ai, v.run, &web(), &["column_headers".into()]);
     t.row("web_context preview with binding_suggestion's opt-in", &refused(json!({"code": "not_an_opt_in_for_this_task"})), &r.err().map(|e| format!("refused {}", msg(&e))).unwrap_or_default());
-    let r = l1::helper_preview(&w.runs, &w.ai, v.run, &claim_method(), &["paper_doi_or_title".into()]);
+    let r = l1::helper_preview(&w.runs, &w.ai, v.run, &claim_method(), &["paper_doi".into()]);
     t.row("claim_method preview with web_context's opt-in", &refused(json!({"code": "not_an_opt_in_for_this_task"})), &r.err().map(|e| format!("refused {}", msg(&e))).unwrap_or_default());
     // Revoke, then the same task: the grant is gone until a new Send.
     assert!(l1::helper_revoke(&w.runs, v.run, "binding_suggestion").unwrap());
@@ -425,7 +425,7 @@ fn level_1_gives_the_same_result_with_the_transport_disabled_failing_or_slow() {
         ("a 500", MockTransport::new().fail(TransportError::Http { status: 500 }), refused(json!({"code": "transport", "error": {"code": "http", "status": 500}}))),
         ("offline", MockTransport::new().fail(TransportError::Offline), refused(json!({"code": "transport", "error": "offline"}))),
         ("a timeout", MockTransport::new().fail(TransportError::Timeout), refused(json!({"code": "transport", "error": "timeout"}))),
-        ("cancelled", MockTransport::new().fail(TransportError::Cancelled), refused(json!({"code": "transport", "error": "cancelled"}))),
+        ("cancelled", MockTransport::new().fail(TransportError::Cancelled), refused(json!({"code": "cancelled"}))),
     ] {
         let w = world_with(mock);
         let v = open(&w);

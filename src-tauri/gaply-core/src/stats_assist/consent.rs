@@ -8,7 +8,7 @@
 //! | `claim_method` | the result's typed fields | the claim's sentence; a Methods passage |
 //! | `binding_suggestion` | the aliased schema | original column headers; the claim's sentence |
 //! | `result_explanation` | the finished result's enumerated fields | none |
-//! | `web_context` | the search query | the paper's DOI or title |
+//! | `web_context` | the search query | the paper's DOI (a DOI only) |
 //!
 //! An opt-in reaches a builder only as an [`Allowed`] value, and the only way
 //! to make one is through [`OptIns`], which hands it out only when the user
@@ -18,20 +18,34 @@
 //!
 //! A [`ConsentGrant`] is made by the session when the user sends a preview,
 //! and lasts for the run unless revoked. It is never persisted.
+//!
+//! **Evaluation fixes, part B.** The DOI-or-title opt-in became DOI only: a
+//! title is free text, and free text can carry anything a scanner cannot
+//! know. [`OptIns::doi`] accepts only `10.NNNN/…` (ASCII, at most 200
+//! characters, after trimming a leading `https://doi.org/` or `doi:`), and
+//! blocks it when, after folding both sides (NFKC, case-folded, zero-width
+//! and other format characters removed), any header, level label, text cell
+//! or the file name of 4 or more characters appears inside it. The claim
+//! sentence opt-in carries only a sentence that is in the manuscript.
 
 use std::collections::BTreeSet;
 
+use unicode_normalization::UnicodeNormalization;
+
 use super::spec::HelperTask;
+use crate::extract::sentence::sentences_in;
 use crate::extract::{ExtractionResult, SectionKind};
 use crate::stats_l1::claim::L1Claim;
-use crate::stats_l1::dataset::SchemaSummary;
+use crate::stats_l1::dataset::{Cell, Dataset, SchemaSummary};
 
 /// The longest Methods passage a user may select, in characters.
 pub const MAX_PASSAGE_CHARS: usize = 1_000;
 /// Each original header is cut to this many characters.
 pub const MAX_HEADER_CHARS: usize = 64;
-/// The longest DOI or title a user may type, in characters.
-pub const MAX_PAPER_REF_CHARS: usize = 300;
+/// The longest DOI a user may type, in characters, after trimming.
+pub const MAX_DOI_CHARS: usize = 200;
+/// A value shorter than this is not looked for inside a DOI.
+pub const MIN_SCANNED_CHARS: usize = 4;
 /// The longest claim sentence that may be sent, in characters.
 pub const MAX_SENTENCE_CHARS: usize = 2_000;
 
@@ -56,8 +70,8 @@ pub enum DataCategory {
     ClaimSentence,
     /// Opt-in: one passage of at most 1,000 characters from the Methods.
     MethodsPassage,
-    /// Opt-in: the paper's DOI or title, as the user typed it.
-    PaperDoiOrTitle,
+    /// Opt-in: the paper's DOI, normalised; a DOI only.
+    PaperDoi,
 }
 
 impl DataCategory {
@@ -77,7 +91,7 @@ impl DataCategory {
             DataCategory::ColumnHeaders => "Your original column headers, each cut to 64 characters",
             DataCategory::ClaimSentence => "The sentence in your manuscript that reports this result",
             DataCategory::MethodsPassage => "The Methods passage you selected (at most 1,000 characters)",
-            DataCategory::PaperDoiOrTitle => "The DOI or title you typed",
+            DataCategory::PaperDoi => "The paper's DOI you typed (a DOI only, checked to hold nothing from your data)",
         }
     }
 }
@@ -98,7 +112,7 @@ pub fn opt_in_categories(task: HelperTask) -> &'static [DataCategory] {
         HelperTask::ClaimMethod => &[DataCategory::ClaimSentence, DataCategory::MethodsPassage],
         HelperTask::BindingSuggestion => &[DataCategory::ColumnHeaders, DataCategory::ClaimSentence],
         HelperTask::ResultExplanation => &[],
-        HelperTask::WebContext => &[DataCategory::PaperDoiOrTitle],
+        HelperTask::WebContext => &[DataCategory::PaperDoi],
     }
 }
 
@@ -139,8 +153,13 @@ pub enum OptInRefusal {
     PassageTooLong { chars: usize, max: usize },
     /// The passage is not text from a Methods section of this manuscript.
     PassageNotInMethods,
-    /// The DOI or title is longer than the limit.
-    PaperRefTooLong { chars: usize, max: usize },
+    /// The text is not a DOI (`10.NNNN/…`, ASCII, at most 200 characters).
+    DoiMalformed,
+    /// The DOI holds a header, a level label, a text cell or the file name.
+    DoiContainsData,
+    /// The claim's sentence is not a sentence of the manuscript (a sentence
+    /// typed with an added claim).
+    SentenceNotInManuscript,
     /// Empty text where text was opted in.
     Empty,
     /// The claim has no sentence to send.
@@ -185,7 +204,78 @@ pub struct ClaimSentence(pub(crate) String);
 pub struct MethodsPassage(pub(crate) String);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PaperRef(pub(crate) String);
+pub struct Doi(pub(crate) String);
+
+/// Fold text for the DOI scan: NFKC, case-folded, zero-width and other
+/// format characters removed.
+pub fn fold(text: &str) -> String {
+    text.nfkc().filter(|c| !is_format_char(*c)).flat_map(char::to_lowercase).collect()
+}
+
+/// Zero-width and other invisible format characters (Unicode Cf and the
+/// joiners): never part of a value a user can see.
+fn is_format_char(c: char) -> bool {
+    matches!(c,
+        '\u{00AD}' | '\u{061C}' | '\u{180E}' | '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2060}'..='\u{2064}'
+        | '\u{2066}'..='\u{206F}' | '\u{FEFF}' | '\u{FFF9}'..='\u{FFFB}')
+}
+
+/// What a DOI is scanned against: every header, level code and label, text
+/// cell and the file name, folded, of 4 or more characters. Local only.
+pub struct DoiScan {
+    values: Vec<String>,
+}
+
+impl DoiScan {
+    pub fn new(dataset: &Dataset, file_name: Option<&str>) -> DoiScan {
+        let mut values: Vec<String> = Vec::new();
+        for c in &dataset.schema.columns {
+            values.push(c.header.clone());
+            if let Some(levels) = &c.levels {
+                for l in &levels.levels {
+                    values.push(l.code.clone());
+                    values.extend(l.label.clone());
+                }
+            }
+            if let Some(cells) = dataset.column_cells(c.alias) {
+                for cell in cells {
+                    if let Cell::Text(t) = cell {
+                        values.push(t.clone());
+                    }
+                }
+            }
+        }
+        if let Some(f) = file_name {
+            values.push(f.to_string());
+            if let Some((stem, _)) = f.rsplit_once('.') {
+                values.push(stem.to_string());
+            }
+        }
+        let mut values: Vec<String> = values.iter().map(|v| fold(v.trim())).filter(|v| v.chars().count() >= MIN_SCANNED_CHARS).collect();
+        values.sort();
+        values.dedup();
+        DoiScan { values }
+    }
+}
+
+/// The DOI in `typed`, normalised, if it is one: a leading `https://doi.org/`
+/// or `doi:` and surrounding spaces trimmed, ASCII only, `^10\.\d{4,9}/\S+$`,
+/// at most [`MAX_DOI_CHARS`].
+pub fn normalise_doi(typed: &str) -> Option<String> {
+    let t = typed.trim();
+    let lower = t.to_ascii_lowercase();
+    let t = ["https://doi.org/", "doi:"].iter().find(|p| lower.starts_with(*p)).map_or(t, |p| t[p.len()..].trim_start());
+    if t.is_empty() || !t.is_ascii() || t.chars().count() > MAX_DOI_CHARS {
+        return None;
+    }
+    let rest = t.strip_prefix("10.")?;
+    let (registrant, suffix) = rest.split_once('/')?;
+    let ok = (4..=9).contains(&registrant.len())
+        && registrant.bytes().all(|b| b.is_ascii_digit())
+        && !suffix.is_empty()
+        && !suffix.chars().any(char::is_whitespace);
+    ok.then(|| t.to_string())
+}
 
 impl OptIns {
     /// No opt-in: the default.
@@ -224,14 +314,21 @@ impl OptIns {
         self.allow(DataCategory::ColumnHeaders, ColumnHeaders(headers))
     }
 
-    /// The claim's own sentence, if ticked.
-    pub fn claim_sentence(&self, claim: &L1Claim) -> Result<Option<Allowed<ClaimSentence>>, OptInRefusal> {
+    /// The claim's own sentence, if ticked: a sentence of a paragraph of
+    /// `ex`, the manuscript, and nothing else (a sentence typed with an added
+    /// claim is not the manuscript's).
+    pub fn claim_sentence(&self, claim: &L1Claim, ex: &ExtractionResult) -> Result<Option<Allowed<ClaimSentence>>, OptInRefusal> {
         if !self.is_ticked(DataCategory::ClaimSentence) {
             return Ok(None);
         }
         let s = claim.sentence.trim();
         if s.is_empty() {
             return Err(OptInRefusal::NoSentence);
+        }
+        let in_manuscript =
+            ex.sections.iter().any(|sec| sec.paragraphs.iter().any(|p| sentences_in(p).into_iter().any(|x| x.trim() == s)));
+        if !in_manuscript {
+            return Err(OptInRefusal::SentenceNotInManuscript);
         }
         let chars = s.chars().count();
         if chars > MAX_SENTENCE_CHARS {
@@ -265,20 +362,21 @@ impl OptIns {
         Ok(self.allow(DataCategory::MethodsPassage, MethodsPassage(p.to_string())))
     }
 
-    /// The DOI or title as typed, if ticked.
-    pub fn paper(&self, typed: &str) -> Result<Option<Allowed<PaperRef>>, OptInRefusal> {
-        if !self.is_ticked(DataCategory::PaperDoiOrTitle) {
+    /// The DOI, if ticked: normalised by [`normalise_doi`], and blocked when
+    /// any value of `scan` appears inside it once both are folded.
+    pub fn doi(&self, typed: &str, scan: &DoiScan) -> Result<Option<Allowed<Doi>>, OptInRefusal> {
+        if !self.is_ticked(DataCategory::PaperDoi) {
             return Ok(None);
         }
-        let t = typed.trim();
-        if t.is_empty() {
+        if typed.trim().is_empty() {
             return Err(OptInRefusal::Empty);
         }
-        let chars = t.chars().count();
-        if chars > MAX_PAPER_REF_CHARS {
-            return Err(OptInRefusal::PaperRefTooLong { chars, max: MAX_PAPER_REF_CHARS });
+        let doi = normalise_doi(typed).ok_or(OptInRefusal::DoiMalformed)?;
+        let folded = fold(&doi);
+        if scan.values.iter().any(|v| folded.contains(v.as_str())) {
+            return Err(OptInRefusal::DoiContainsData);
         }
-        Ok(self.allow(DataCategory::PaperDoiOrTitle, PaperRef(t.to_string())))
+        Ok(self.allow(DataCategory::PaperDoi, Doi(doi)))
     }
 }
 
@@ -351,7 +449,7 @@ mod tests {
         );
         let o = OptIns::none(HelperTask::BindingSuggestion);
         assert!(!o.is_ticked(DataCategory::ColumnHeaders));
-        assert!(o.paper("10.1000/x").unwrap().is_none());
+        assert!(normalise_doi("https://doi.org/10.1000/x1").is_some());
         for t in HelperTask::ALL {
             assert!(!opt_in_categories(t).contains(&base_category(t)));
         }

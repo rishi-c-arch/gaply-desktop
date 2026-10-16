@@ -260,7 +260,7 @@ fn the_budget_per_run_is_enforced() {
 fn an_opt_in_ticked_for_one_task_cannot_be_used_by_another() {
     let w = world();
     let bs = OptIns::new(HelperTask::BindingSuggestion, &[DataCategory::ClaimSentence]).unwrap();
-    let r = build_claim_method(&w.claim, &w.ctx, bs.claim_sentence(&w.claim).unwrap(), None);
+    let r = build_claim_method(&w.claim, &w.ctx, bs.claim_sentence(&w.claim, &w.ex).unwrap(), None);
     assert_eq!(r.unwrap_err(), BuildRefusal::OptInForAnotherTask { ticked_for: HelperTask::BindingSuggestion, used_for: HelperTask::ClaimMethod });
     // A passage must come from the Methods section, at most 1,000 characters.
     let cm = OptIns::new(HelperTask::ClaimMethod, &[DataCategory::MethodsPassage]).unwrap();
@@ -268,78 +268,62 @@ fn an_opt_in_ticked_for_one_task_cannot_be_used_by_another() {
     assert!(cm.methods_passage(&w.ex, &"a".repeat(1001)).is_err());
 }
 
-/* ---- the web query ------------------------------------------------------ */
+/* ---- the web query: closed parts only (evaluation fixes, part B) -------- */
 
 #[test]
-fn the_edited_query_is_the_one_previewed_and_the_one_sent() {
+fn the_query_is_built_only_from_the_method_the_variant_and_the_topic() {
+    // Every combination of the three closed parts gives a template made only
+    // of Gaply's own words: nothing from a dataset or a manuscript can enter.
     let w = world();
-    let scan = QueryScan::new(&w.dataset.schema, Some(&w.ex), &[]);
-    let template = template_query(L1MethodId::IndependentT, Variant::None, ContextTopic::ReportingGuidance);
-    let edited = format!("{template} in clinical trials — CONSORT “items”");
-    let q = check_query(&template, &edited, &scan).unwrap();
+    for m in L1MethodId::ALL {
+        for v in [Variant::None, Variant::T(TVariant::Welch), Variant::T(TVariant::Student)] {
+            for t in ContextTopic::ALL {
+                let q = web_query(m, v, t);
+                assert_eq!(q.as_str(), template_query(m, v, t));
+                for n in SENTINELS {
+                    assert!(!q.as_str().contains(n));
+                }
+            }
+        }
+    }
+    let q = web_query(L1MethodId::IndependentT, Variant::None, ContextTopic::ReportingGuidance);
     let o = build_web_context(&q, None).unwrap();
     let t = MockTransport::new().reply(&envelope("x.", json!([])));
     let mut s = session();
     let p = s.preview(Outbound::WebContext(o)).unwrap();
     let v: Value = serde_json::from_str(&p.body).unwrap();
     let input: Value = serde_json::from_str(v["input"].as_str().unwrap()).unwrap();
-    assert_eq!(input["query"], edited.as_str());
+    assert_eq!(input["query"], "independent samples t-test reporting guidelines");
+    assert!(input.get("doi").is_none() && input.get("paper").is_none());
     s.send_clicked(p.id, &t).unwrap();
     assert_eq!(t.sent()[0].1, p.body.as_bytes(), "byte for byte");
+    let _ = w;
 }
 
 #[test]
-fn an_edit_adding_a_header_a_level_label_or_six_manuscript_words_is_blocked() {
+fn the_doi_field_is_a_doi_and_never_holds_data() {
     let w = world();
-    let scan = QueryScan::new(&w.dataset.schema, Some(&w.ex), &[]);
-    let template = template_query(L1MethodId::IndependentT, Variant::None, ContextTopic::Assumptions);
-    let block = |edit: String| check_query(&template, &edit, &scan).unwrap_err();
-    assert_eq!(block(format!("{template} {HEADER}")), QueryBlocked::ContainsColumnHeader);
-    assert_eq!(block(format!("{template} {}", HEADER.to_lowercase())), QueryBlocked::ContainsColumnHeader, "case-folded");
-    assert_eq!(block(format!("{template} {LEVEL}")), QueryBlocked::ContainsLevelLabel);
-    assert_eq!(block(format!("{template} {LEVEL}_solo")), QueryBlocked::ContainsLevelLabel, "the degenerate single-level column's label");
-    assert_eq!(
-        block(format!("{template} readings of the cohort were stable across")),
-        QueryBlocked::CopiesManuscriptWords { words: 6 }
-    );
-    // Five copied words, a header as part of a longer word, and a 3-letter
-    // header are not blocked.
-    assert!(check_query(&template, &format!("{template} readings of the cohort were"), &scan).is_ok());
-    assert!(check_query(&template, &format!("{template} {HEADER}x"), &scan).is_ok());
-    assert!(check_query(&template, &format!("{template} arm"), &scan).is_ok());
-}
-
-#[test]
-fn the_unedited_one_way_anova_template_is_not_blocked() {
-    // A dataset whose headers and levels are the template's own words, and a
-    // manuscript that repeats the template.
-    let raw = RawTable::from_rows(
-        vec!["ANOVA".into(), "assumptions".into()],
-        vec![vec!["1".into(), "one-way".into()], vec!["2".into(), "ANOVA".into()], vec!["3".into(), "one-way".into()]],
-    );
-    let ds = build_dataset(raw, DataFingerprint::of_bytes(b"x", "in-memory", TableRef::FirstTable)).unwrap();
-    let template = template_query(L1MethodId::OneWayAnova, Variant::None, ContextTopic::Assumptions);
-    assert_eq!(template, "one-way ANOVA assumptions");
-    let sentence = "We checked the one-way ANOVA assumptions one-way ANOVA assumptions before analysis.";
-    let scan = QueryScan::new(&ds.schema, None, &[sentence]);
-    let q = check_query(&template, &template, &scan).expect("the unedited template passes");
-    assert_eq!(q.as_str(), "one-way ANOVA assumptions");
-    for topic in ContextTopic::ALL {
-        let t = template_query(L1MethodId::OneWayAnova, Variant::None, topic);
-        assert!(check_query(&t, &t, &scan).is_ok(), "{t}");
+    let scan = DoiScan::new(&w.dataset, Some("FILE_SECRET_9a3_data.csv"));
+    let web = OptIns::new(HelperTask::WebContext, &[DataCategory::PaperDoi]).unwrap();
+    let doi = |t: &str| web.doi(t, &scan).map(|d| d.is_some());
+    assert_eq!(doi(" https://doi.org/10.1371/journal.pone.0106616"), Ok(true));
+    assert_eq!(doi("doi:10.1000/xyz123"), Ok(true));
+    for bad in ["A title of a paper", "10.12/x", "10.1234/", "10.1234/a b", "10.1234/é", "11.1234/x"] {
+        assert_eq!(doi(bad), Err(OptInRefusal::DoiMalformed), "{bad}");
     }
-    // An addition of the user's own is still scanned.
-    assert_eq!(
-        check_query(&template, &format!("{template} we checked the one-way ANOVA"), &scan).unwrap_err(),
-        QueryBlocked::CopiesManuscriptWords { words: 6 }
-    );
+    for leak in [format!("10.1234/{HEADER}"), format!("10.1234/x{LEVEL}"), format!("10.1234/{}", CELL.to_lowercase()), "10.1234/FILE_SECRET_9a3_data".to_string()] {
+        assert_eq!(doi(&leak), Err(OptInRefusal::DoiContainsData), "{leak}");
+    }
+    // The fold: zero-width characters do not hide a header.
+    let zw: String = HEADER.chars().flat_map(|c| [c, '\u{200b}']).collect();
+    assert!(doi(&format!("10.1234/{zw}")).is_err());
 }
 
 /* ---- hostile replies ---------------------------------------------------- */
 
 fn sent_claim_method(w: &World, sentence: bool) -> gaply_core::stats_assist::outbound::ClaimMethodOutbound {
     let o = if sentence { OptIns::new(HelperTask::ClaimMethod, &[DataCategory::ClaimSentence]).unwrap() } else { OptIns::none(HelperTask::ClaimMethod) };
-    build_claim_method(&w.claim, &w.ctx, o.claim_sentence(&w.claim).unwrap(), None).unwrap()
+    build_claim_method(&w.claim, &w.ctx, o.claim_sentence(&w.claim, &w.ex).unwrap(), None).unwrap()
 }
 
 fn cm(w: &World, v: Value) -> Result<gaply_core::stats_assist::response::ClaimMethodSuggestion, Rejection> {

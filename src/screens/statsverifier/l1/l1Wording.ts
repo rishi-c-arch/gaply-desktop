@@ -376,6 +376,10 @@ const REPLY_REASONS: Record<string, string> = {
   text_too_long: 'it was longer than allowed',
   number_not_in_input: 'it stated a number that was not in the request',
   wrong_verdict: "it described a verdict other than the engine's",
+  non_ascii_digit: 'it wrote a number in digits other than 0 to 9',
+  number_word: 'it wrote a number in words',
+  sign_disagrees: "it gave a sign that disagrees with the engine's result",
+  misconduct_word: 'it used a word that suggests misconduct',
 };
 
 const BINDING_REASONS: Record<string, (c: WireCode, ctx: WordContext) => string> = {
@@ -418,6 +422,7 @@ const SIMPLE_REFUSALS: Record<string, string> = {
   offline: 'The request could not reach OpenAI; this device appears to be offline.',
   timeout: 'The request timed out.',
   cancelled: 'The request was cancelled, and any reply is discarded.',
+  redirect_refused: 'OpenAI answered with a redirect, and Gaply does not follow redirects, so no reply was used and nothing went to the other address.',
   transport_failed: 'The request failed.',
   manuscript_unreadable: 'The manuscript could not be read.',
   manuscript_refused: 'The manuscript was refused by the import check.',
@@ -443,6 +448,9 @@ const SIMPLE_REFUSALS: Record<string, string> = {
   opt_in_for_another_task: 'That item was ticked for another request.',
   passage_not_in_methods: 'The passage is not text from the Methods section of this manuscript.',
   opt_in_empty: 'A ticked item is empty.',
+  doi_malformed: 'That is not a DOI. Type a DOI only, such as 10.1234/abcd, with nothing else.',
+  doi_contains_data: 'That DOI contains a column name, a level name, a cell or the file name from your data, so nothing was sent.',
+  sentence_not_in_manuscript: "The result's sentence is not text from this manuscript, so it was not sent.",
   no_sentence: 'This claim has no sentence to send.',
   link_malformed: 'That link is malformed, so it was not opened.',
   link_not_opened: 'The link could not be opened.',
@@ -485,19 +493,7 @@ export function refusalSentence(e: unknown, ctx: WordContext = NO_COLUMNS): stri
       return sentenceFor(inner('reason'), ctx);
     case 'number_not_read':
       return 'A number in the claim could not be read; type it as it is printed, with a dot for decimals.';
-    case 'query_blocked': {
-      const r = inner('reason');
-      const why: Record<string, string> = {
-        empty: 'it is empty',
-        too_long: 'it is too long',
-        contains_column_header: 'it contains one of your column names',
-        contains_level_label: 'it contains one of your level names',
-        copies_manuscript_words: 'it copies words from your manuscript',
-      };
-      return `The search query was not sent: ${why[r?.code ?? ''] ?? 'it did not pass the check'}.`;
-    }
     case 'passage_too_long':
-    case 'paper_ref_too_long':
     case 'sentence_too_long':
       return `That text is ${num(c, 'chars') ?? '?'} characters, over the ${num(c, 'max') ?? '?'} allowed.`;
     case 'link_refused':

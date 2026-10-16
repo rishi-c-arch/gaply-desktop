@@ -8,7 +8,7 @@
 import React, { useMemo, useState } from 'react';
 import { Badge, Button } from '../../../design-system';
 import type { StatsL1Bridge } from '../statsL1Bridge';
-import type { L1ClaimReproductionView, L1ClaimView, L1ContextItemView, L1HelperResultView, L1NumberView, L1PreviewView, ReproductionView } from '../statsL1Types';
+import type { L1ClaimReproductionView, L1ClaimView, L1ContextItemView, L1HelperResultView, L1MethodView, L1NumberView, L1PreviewView, ReproductionView } from '../statsL1Types';
 import { FocusButton } from './FocusButton';
 import { L1AiPanel, queryFromPreview } from './L1AiPanel';
 import {
@@ -34,6 +34,9 @@ const TOPICS: Array<{ id: 'assumptions' | 'reporting_guidance' | 'effect_size_re
   { id: 'effect_size_reporting', label: 'Reporting an effect size' },
   { id: 'choosing_a_variant', label: 'Choosing a variant' },
 ];
+
+/** The one sentence under the read-only query (evaluation fixes, part B). */
+export const QUERY_BUILT_TEXT = 'The search query is built only from the method, the variant and the topic you pick here; nothing you type goes into it.';
 
 /** A computed value, shown at a precision that can be compared by eye. */
 export function shown(v: number): string {
@@ -71,18 +74,23 @@ export interface L1ResultCardProps {
   /** The run's significance threshold and whether the paper stated it. */
   alpha: ReproductionView['alpha'];
   ctx: WordContext;
+  /** The methods and their variant words, for the query's pickers. */
+  catalogue: L1MethodView[];
   aiHelp: boolean;
   webContext: boolean;
   onUsage: () => void;
 }
 
-export const L1ResultCard: React.FC<L1ResultCardProps> = ({ bridge, run, claim, result, alpha, ctx, aiHelp, webContext, onUsage }) => {
+export const L1ResultCard: React.FC<L1ResultCardProps> = ({ bridge, run, claim, result, alpha, ctx, catalogue, aiHelp, webContext, onUsage }) => {
   const [explainOpen, setExplainOpen] = useState(false);
   const [explanation, setExplanation] = useState<string | null>(null);
   const [contextOpen, setContextOpen] = useState(false);
   const [topic, setTopic] = useState<(typeof TOPICS)[number]['id']>('assumptions');
-  const [queryField, setQueryField] = useState('');
-  const [editedQuery, setEditedQuery] = useState<string | null>(null);
+  // The query's three closed parts. The query itself is read from each
+  // preview and shown read-only: there is no free-text edit.
+  const [queryMethod, setQueryMethod] = useState<string | null>(result.method);
+  const [queryVariant, setQueryVariant] = useState<string | null>(null);
+  const [queryShown, setQueryShown] = useState('');
   const [context, setContext] = useState<Extract<L1HelperResultView, { kind: 'context' }> | null>(null);
   const [linkError, setLinkError] = useState<string | null>(null);
   const explainButton = React.useRef<HTMLButtonElement>(null);
@@ -100,12 +108,13 @@ export const L1ResultCard: React.FC<L1ResultCardProps> = ({ bridge, run, claim, 
     result.verdict.notes.some((n) => n.code === 'printed_truncated');
   const id = `l1-result-${result.claimId}`;
 
+  const queryVariants = catalogue.find((m) => m.method === queryMethod)?.variants ?? [];
   const contextInput = useMemo(
     () =>
-      result.method
-        ? ({ task: 'web_context', claimId: result.claimId, methodId: result.method, topic, editedQuery } as const)
+      queryMethod
+        ? ({ task: 'web_context', claimId: result.claimId, methodId: queryMethod, variant: queryVariant, topic } as const)
         : null,
-    [result.claimId, result.method, topic, editedQuery]
+    [result.claimId, queryMethod, queryVariant, topic]
   );
   const explainInput = useMemo(() => ({ task: 'result_explanation', claimId: result.claimId } as const), [result.claimId]);
 
@@ -250,7 +259,7 @@ export const L1ResultCard: React.FC<L1ResultCardProps> = ({ bridge, run, claim, 
           run={run}
           input={contextInput}
           title="Method context (web)"
-          onPreview={(p: L1PreviewView) => setQueryField(queryFromPreview(p.body) ?? '')}
+          onPreview={(p: L1PreviewView) => setQueryShown(queryFromPreview(p.body) ?? '')}
           onResult={(r) => r.kind === 'context' && setContext(r)}
           onSettled={onUsage}
           onClose={() => {
@@ -259,19 +268,44 @@ export const L1ResultCard: React.FC<L1ResultCardProps> = ({ bridge, run, claim, 
           }}
         >
           <div style={{ display: 'grid', gap: 4 }}>
+            <label htmlFor={`${id}-method`}>Method</label>
+            <select
+              id={`${id}-method`}
+              data-testid={`${id}-method`}
+              value={queryMethod ?? ''}
+              onChange={(e) => {
+                setQueryMethod(e.target.value);
+                setQueryVariant(null);
+              }}
+            >
+              {catalogue.map((m) => (
+                <option key={m.method} value={m.method}>{methodPhrase(m.method, null)}</option>
+              ))}
+            </select>
+            <label htmlFor={`${id}-variant`}>Variant</label>
+            <select
+              id={`${id}-variant`}
+              data-testid={`${id}-variant`}
+              value={queryVariant ?? ''}
+              disabled={queryVariants.length === 0}
+              onChange={(e) => setQueryVariant(e.target.value === '' ? null : e.target.value)}
+            >
+              <option value="">{sentenceFor({ code: 'none' })}</option>
+              {queryVariants.map((v) => (
+                <option key={v} value={v}>{sentenceFor({ code: v })}</option>
+              ))}
+            </select>
             <label htmlFor={`${id}-topic`}>Topic</label>
-            <select id={`${id}-topic`} data-testid={`${id}-topic`} value={topic} onChange={(e) => { setEditedQuery(null); setTopic(e.target.value as typeof topic); }}>
+            <select id={`${id}-topic`} data-testid={`${id}-topic`} value={topic} onChange={(e) => setTopic(e.target.value as typeof topic)}>
               {TOPICS.map((t) => (
                 <option key={t.id} value={t.id}>{t.label}</option>
               ))}
             </select>
-            <label htmlFor={`${id}-query`}>Search query (what will be sent; you can edit it)</label>
-            <input id={`${id}-query`} data-testid={`${id}-query`} value={queryField} maxLength={300} onChange={(e) => setQueryField(e.target.value)} />
-            <div>
-              <Button variant="secondary" onClick={() => setEditedQuery(queryField)} data-testid={`${id}-query-apply`}>
-                Use this query
-              </Button>
-            </div>
+            <p style={{ margin: 0 }}>
+              <strong>Search query (what will be sent):</strong>{' '}
+              <span data-testid={`${id}-query`}>{queryShown || 'shown with the preview below'}</span>
+            </p>
+            <p className="gds-jc__disclaimer" data-testid={`${id}-query-built`} style={{ margin: 0 }}>{QUERY_BUILT_TEXT}</p>
           </div>
         </L1AiPanel>
       )}

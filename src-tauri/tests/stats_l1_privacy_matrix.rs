@@ -12,7 +12,10 @@
 //! - The claim sentence, the methods passage, the paper's DOI: only in a body
 //!   whose task and opt-in allow it, and in each such body (so the test is
 //!   not vacuous).
-//! - No number in any body equals a cell value.
+//! - No number in any body equals a cell value: the walk parses the
+//!   `input` string (the payload is a JSON string inside the body) and reads
+//!   every number and every number written in a string, at every depth
+//!   (evaluation fixes, part B: the first version saw only the outer body).
 //!
 //! Alone in its binary on purpose: it captures tracing, and `tracing` caches
 //! callsite interest process-wide (see `stats_l1_commands_privacy.rs`).
@@ -57,9 +60,9 @@ fn input(task: &str, cats: &[&str]) -> HelperTaskInput {
         "web_context" => HelperTaskInput::WebContext {
             claim_id: 0,
             method_id: "independent_t".into(),
+            variant: None,
             topic: "assumptions".into(),
-            edited_query: None,
-            paper: cats.contains(&"paper_doi_or_title").then(|| DOI.to_string()),
+            doi: cats.contains(&"paper_doi").then(|| DOI.to_string()),
         },
         other => panic!("{other}"),
     }
@@ -75,7 +78,7 @@ fn combinations() -> Vec<(&'static str, Vec<&'static str>)> {
         ("claim_method", vec!["claim_sentence", "methods_passage"]),
         ("binding_suggestion", vec!["column_headers", "claim_sentence"]),
         ("result_explanation", vec![]),
-        ("web_context", vec!["paper_doi_or_title"]),
+        ("web_context", vec!["paper_doi"]),
     ] {
         for s in subsets(&opts) {
             out.push((task, s));
@@ -84,14 +87,38 @@ fn combinations() -> Vec<(&'static str, Vec<&'static str>)> {
     out
 }
 
-/// Every number anywhere in a JSON value, strings excluded.
+/// Every number anywhere in a JSON value, at every depth: JSON numbers, a
+/// string that is itself JSON (the request's `input`) parsed and walked, and
+/// every number written inside any other string.
 fn numbers(v: &Value, out: &mut Vec<f64>) {
     match v {
         Value::Number(n) => out.extend(n.as_f64()),
+        Value::String(s) => match serde_json::from_str::<Value>(s) {
+            Ok(inner @ (Value::Object(_) | Value::Array(_))) => numbers(&inner, out),
+            _ => out.extend(written_numbers(s)),
+        },
         Value::Array(a) => a.iter().for_each(|x| numbers(x, out)),
         Value::Object(o) => o.values().for_each(|x| numbers(x, out)),
         _ => {}
     }
+}
+
+/// Numbers written in text: runs of digits with one optional decimal point.
+fn written_numbers(s: &str) -> Vec<f64> {
+    let mut out = Vec::new();
+    let mut cur = String::new();
+    for c in s.chars().chain(std::iter::once(' ')) {
+        if c.is_ascii_digit() || (c == '.' && !cur.contains('.')) {
+            cur.push(c);
+        } else {
+            let t = cur.trim_matches('.');
+            if let Ok(x) = t.parse::<f64>() {
+                out.push(x);
+            }
+            cur.clear();
+        }
+    }
+    out
 }
 
 #[test]
@@ -122,10 +149,17 @@ fn every_opt_in_combination_of_every_task_leaks_no_sentinel_anywhere() {
             let r = l1::helper_send(&w.runs, &w.ai, v.run, p.preview, 1_792_000_000).unwrap();
             views.push(serde_json::to_string(&r).unwrap());
             views.push(serde_json::to_string(&l1::usage(&w.runs, v.run).unwrap()).unwrap());
-            // Refusals that could carry a path, a header, a level or a cell.
-            for edit in [format!("t-test {HEADER}"), format!("t-test {LEVEL}"), format!("t-test {CELL}")] {
-                let q = HelperTaskInput::WebContext { claim_id: 0, method_id: "independent_t".into(), topic: "assumptions".into(), edited_query: Some(edit), paper: None };
-                if let Err(e) = l1::helper_preview(&w.runs, &w.ai, v.run, &q, &[]) {
+            // Refusals that could carry a header, a level or a cell: a DOI
+            // field holding each.
+            for typed in [format!("10.1234/{HEADER}"), format!("10.1234/{LEVEL}"), format!("10.1234/{CELL}")] {
+                let q = HelperTaskInput::WebContext {
+                    claim_id: 0,
+                    method_id: "independent_t".into(),
+                    variant: None,
+                    topic: "assumptions".into(),
+                    doi: Some(typed),
+                };
+                if let Err(e) = l1::helper_preview(&w.runs, &w.ai, v.run, &q, &["paper_doi".to_string()]) {
                     errors.push(format!("{e:?}"));
                 }
             }
@@ -142,8 +176,8 @@ fn every_opt_in_combination_of_every_task_leaks_no_sentinel_anywhere() {
 
     // Positive counts first: every combination sent, and tracing ran.
     assert_eq!(sent.len(), 11, "4 + 4 + 1 + 2 combinations");
-    // Per combination: AI help off, three blocked query edits (a header, a
-    // level label, a text cell), one refused level selection.
+    // Per combination: AI help off, three blocked DOIs (a header, a level
+    // label, a text cell), one refused level selection.
     assert_eq!(errors.len(), 11 * 5, "every refusal happened");
     assert!(lines.iter().filter(|l| l.contains("stats_")).count() >= 50, "tracing ran: {} lines", lines.len());
 
@@ -171,9 +205,13 @@ fn every_opt_in_combination_of_every_task_leaks_no_sentinel_anywhere() {
         let sentence_allowed = cats.contains(&"claim_sentence");
         assert_eq!(body_s.contains(SENTENCE_WORDS), sentence_allowed, "{label}: the claim sentence");
         assert_eq!(body_s.contains(PASSAGE_WORDS), cats.contains(&"methods_passage"), "{label}: the methods passage");
-        assert_eq!(body_s.contains(DOI), cats.contains(&"paper_doi_or_title"), "{label}: the paper");
+        assert_eq!(body_s.contains(DOI), cats.contains(&"paper_doi"), "{label}: the DOI");
         let mut nums = Vec::new();
         numbers(&serde_json::from_str(&body_s).unwrap(), &mut nums);
+        if *task == "result_explanation" {
+            // The walk reached the payload: the n used (8) is only in there.
+            assert!(nums.contains(&8.0), "{label}: the payload was not walked: {nums:?}");
+        }
         for x in &nums {
             assert!(!cells.iter().any(|c| (c - x).abs() < 1e-12), "{label}: a cell value {x} in the body");
         }

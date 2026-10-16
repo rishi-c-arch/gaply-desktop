@@ -20,7 +20,7 @@ export const OPT_IN_LABELS: Record<OptInCategory, string> = {
   column_headers: 'Also send my original column names (each cut to 64 characters)',
   claim_sentence: "Also send the result's sentence from my manuscript",
   methods_passage: 'Also send a Methods passage I select (up to 1,000 characters)',
-  paper_doi_or_title: "Also send the paper's DOI or title I type",
+  paper_doi: "Also send the paper's DOI I type (a DOI only, such as 10.1234/abcd)",
 };
 
 /** The opt-ins each task offers, in the order Rust lists them. */
@@ -28,7 +28,7 @@ export const TASK_OPT_INS: Record<HelperTaskInput['task'], OptInCategory[]> = {
   claim_method: ['claim_sentence', 'methods_passage'],
   binding_suggestion: ['column_headers', 'claim_sentence'],
   result_explanation: [],
-  web_context: ['paper_doi_or_title'],
+  web_context: ['paper_doi'],
 };
 
 /** What the request does NOT carry, given what is ticked. */
@@ -39,7 +39,7 @@ export function notSent(task: HelperTaskInput['task'], ticked: OptInCategory[]):
   if (!has('claim_sentence') && !has('methods_passage')) out.push("your manuscript's text");
   else if (task === 'claim_method' && !has('methods_passage')) out.push('any other manuscript text');
   else if (task === 'binding_suggestion') out.push('any other manuscript text');
-  if (task === 'web_context' && !has('paper_doi_or_title')) out.push("the paper's DOI or title");
+  if (task === 'web_context' && !has('paper_doi')) out.push("the paper's DOI");
   return out;
 }
 
@@ -71,11 +71,11 @@ export interface L1AiPanelProps {
   bridge: StatsL1Bridge;
   run: number;
   /** The request's input without the opt-in text; the panel adds the passage
-   *  or paper the user types. */
+   *  or the DOI the user types. */
   input: HelperTaskInput;
   title?: string;
   /** Rendered above the request, for a panel with its own controls (the
-   *  method context's topic and query). */
+   *  method context's pickers and read-only query). */
   children?: React.ReactNode;
   onResult: (r: L1HelperResultView) => void;
   /** Each preview built, so a panel's own controls can show what it holds. */
@@ -90,7 +90,7 @@ type Phase = 'preview' | 'sending' | 'sent';
 export const L1AiPanel: React.FC<L1AiPanelProps> = ({ bridge, run, input, title, children, onResult, onPreview, onSettled, onClose }) => {
   const [ticked, setTicked] = useState<OptInCategory[]>([]);
   const [passage, setPassage] = useState('');
-  const [paper, setPaper] = useState('');
+  const [doi, setDoi] = useState('');
   const [preview, setPreview] = useState<L1PreviewView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [phase, setPhase] = useState<Phase>('preview');
@@ -102,23 +102,23 @@ export const L1AiPanel: React.FC<L1AiPanelProps> = ({ bridge, run, input, title,
     headingRef.current?.focus();
   }, []);
 
-  // The request with the user's opt-in text in it: the passage or the paper
+  // The request with the user's opt-in text in it: the passage or the DOI
   // goes in only when its box is ticked.
   const fullInput = useCallback((): HelperTaskInput => {
     if (input.task === 'claim_method') {
       return { ...input, methodsPassage: ticked.includes('methods_passage') ? passage : null };
     }
     if (input.task === 'web_context') {
-      return { ...input, paper: ticked.includes('paper_doi_or_title') ? paper : null };
+      return { ...input, doi: ticked.includes('paper_doi') ? doi : null };
     }
     return input;
-  }, [input, ticked, passage, paper]);
+  }, [input, ticked, passage, doi]);
 
   const rebuild = useCallback(async () => {
     setError(null);
     setPreview(null);
     // A ticked text box that is still empty has nothing to preview yet.
-    if ((ticked.includes('methods_passage') && !passage.trim()) || (ticked.includes('paper_doi_or_title') && !paper.trim())) {
+    if ((ticked.includes('methods_passage') && !passage.trim()) || (ticked.includes('paper_doi') && !doi.trim())) {
       setError('Type the text for the ticked item, then update the preview.');
       return;
     }
@@ -129,8 +129,8 @@ export const L1AiPanel: React.FC<L1AiPanelProps> = ({ bridge, run, input, title,
     } catch (e) {
       setError(refusalSentence(e));
     }
-    // fullInput captures ticked, passage and paper.
-  }, [bridge, run, fullInput, ticked, passage, paper, onPreview]);
+    // fullInput captures ticked, passage and doi.
+  }, [bridge, run, fullInput, ticked, passage, doi, onPreview]);
 
   // The preview is rebuilt whenever a box is ticked or the input changes.
   // Text in a box is applied with its own button, so typing does not call
@@ -209,11 +209,11 @@ export const L1AiPanel: React.FC<L1AiPanelProps> = ({ bridge, run, input, title,
                   </Button>
                 </div>
               )}
-              {c === 'paper_doi_or_title' && ticked.includes(c) && (
+              {c === 'paper_doi' && ticked.includes(c) && (
                 <div style={{ marginTop: 4 }}>
-                  <label htmlFor={`${id}-paper`}>DOI or title</label>{' '}
-                  <input id={`${id}-paper`} data-testid="l1-paper" value={paper} maxLength={300} onChange={(e) => setPaper(e.target.value)} />{' '}
-                  <Button variant="secondary" onClick={() => void rebuild()} data-testid="l1-paper-apply">
+                  <label htmlFor={`${id}-doi`}>DOI</label>{' '}
+                  <input id={`${id}-doi`} data-testid="l1-doi" value={doi} maxLength={200} onChange={(e) => setDoi(e.target.value)} />{' '}
+                  <Button variant="secondary" onClick={() => void rebuild()} data-testid="l1-doi-apply">
                     Update the preview
                   </Button>
                 </div>

@@ -33,7 +33,7 @@ function result(verdict: L1ClaimReproductionView['verdict'], numbers = [STAT, DF
 
 function card(r: L1ClaimReproductionView, alpha: ReproductionView['alpha'] = { printed: ['.05'], stated: false }, level0: WireCode | null = { code: 'consistent' }) {
   render(
-    <L1ResultCard bridge={bridge} run={7} claim={claim(level0)} result={r} alpha={alpha} ctx={{ column: (a) => `C${a}` }} aiHelp={false} webContext={false} onUsage={() => undefined} />
+    <L1ResultCard bridge={bridge} run={7} claim={claim(level0)} result={r} alpha={alpha} ctx={{ column: (a) => `C${a}` }} catalogue={[]} aiHelp={false} webContext={false} onUsage={() => undefined} />
   );
   return {
     label: screen.getByTestId('l1-result-0-verdict'),

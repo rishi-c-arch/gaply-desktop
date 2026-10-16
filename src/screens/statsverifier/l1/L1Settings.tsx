@@ -12,19 +12,28 @@ import type { StatsL1Bridge } from '../statsL1Bridge';
 import type { AiSettings, L1UsageView } from '../statsL1Types';
 import { refusalSentence, TASK_NAMES } from './l1Wording';
 
+/** One sentence per closed key-test answer (evaluation fixes, part B):
+ *  "accepted" only when OpenAI answered with its model list. */
 const KEY_TEST_WORDS: Record<string, string> = {
   accepted: 'OpenAI accepted the key.',
+  ai_help_off: 'AI help is off, so nothing was sent. Turn AI help on to test the key.',
   no_key: 'No key is saved.',
   rejected: 'OpenAI rejected the key.',
+  forbidden: 'OpenAI refused this key access to the models list.',
+  client_error: 'OpenAI did not accept the test request; the key was not confirmed.',
+  server_error: "OpenAI's servers had a problem; the key was not confirmed.",
+  redirect_refused: 'The test was redirected, and Gaply does not follow redirects; the key was not confirmed.',
+  unexpected_reply: 'The reply was not what OpenAI sends for a key test; the key was not confirmed.',
   offline: 'OpenAI could not be reached; this device appears to be offline.',
   timeout: 'The test timed out.',
   failed: 'The test failed.',
 };
 
+/** The sentence under the Test key button while AI help is off. */
+export const KEY_TEST_NEEDS_AI_HELP = 'Turn AI help on to test the key.';
+
 export function keyTestSentence(result: string): string {
-  if (KEY_TEST_WORDS[result]) return KEY_TEST_WORDS[result];
-  const m = /^http_(\d+)$/.exec(result);
-  return m ? `OpenAI answered the test with status ${m[1]}.` : 'The test failed.';
+  return KEY_TEST_WORDS[result] ?? 'The test failed.';
 }
 
 export interface L1SettingsProps {
@@ -131,8 +140,11 @@ export const L1Settings: React.FC<L1SettingsProps> = ({ bridge, settings, onSett
           onChange={(e) => setTyped(e.target.value)}
         />{' '}
         <Button variant="secondary" onClick={() => void save()} disabled={!typed.trim()} data-testid="l1-key-save">Save key</Button>{' '}
-        <Button variant="secondary" onClick={() => void test()} disabled={!saved} data-testid="l1-key-test">Test key</Button>{' '}
+        <Button variant="secondary" onClick={() => void test()} disabled={!saved || !settings.aiHelp} data-testid="l1-key-test">Test key</Button>{' '}
         <Button variant="ghost" onClick={() => void remove()} disabled={!saved} data-testid="l1-key-remove">Remove key</Button>
+        {saved && !settings.aiHelp && (
+          <p className="gds-jc__disclaimer" data-testid="l1-key-test-needs-ai">{KEY_TEST_NEEDS_AI_HELP}</p>
+        )}
         <p className="gds-jc__disclaimer">
           The key goes to your operating system's keychain and is never shown again. You pay OpenAI for what you send.
         </p>

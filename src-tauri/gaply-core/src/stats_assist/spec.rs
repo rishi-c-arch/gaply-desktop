@@ -169,7 +169,11 @@ mod tests {
 
     /// Pinned: a change to any instruction, schema, budget or domain is a
     /// deliberate edit with a new pin.
-    const SPEC_SHA256: &str = "d06be82351d12dc25489bdb61258a5c3839896fc66cef3b83fba147a5e8b0ab2";
+    // Part B (evaluation fixes): result_explanation prompt and input schema
+    // v2 (digits only, the verdict in its own words only, no misconduct
+    // words, alpha_defaulted); web_context v2 (a DOI only, the title opt-in
+    // removed, the query built from closed parts).
+    const SPEC_SHA256: &str = "825699ad3043d3df4917112e2e674fee317fdfd27daa1ed4bd0f7a624938080e";
 
     #[test]
     fn the_spec_file_is_pinned() {

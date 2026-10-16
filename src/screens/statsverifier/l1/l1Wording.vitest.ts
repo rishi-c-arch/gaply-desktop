@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 
 import CODES from './l1Codes.json';
 import { NOT_REPRODUCED_TEXT, refusalSentence, sentenceFor, WORDS } from './l1Wording';
+import { keyTestSentence } from './L1Settings';
 
 const ctx = { column: (a: number) => `C${a} anxiety_post` };
 
@@ -87,5 +88,32 @@ describe('the Level 1 wording table', () => {
     );
     expect(refusalSentence(new Error('{"code":"transport","error":"timeout"}'))).toBe('The request timed out.');
     expect(refusalSentence(new Error('not json'))).toBe('Something went wrong, and nothing was changed.');
+  });
+
+  it('every code part B added has its own sentence, and none falls through to "Refused:"', () => {
+    const top = ['cancelled', 'redirect_refused', 'doi_malformed', 'doi_contains_data', 'sentence_not_in_manuscript'];
+    for (const code of top) {
+      const t = refusalSentence(new Error(JSON.stringify({ code, status: 301 })));
+      expect(t, code).not.toMatch(/^Refused:|did not pass the check|Something went wrong/);
+      expect(t, code).toMatch(/\.$/);
+    }
+    for (const reason of ['non_ascii_digit', 'number_word', 'sign_disagrees', 'misconduct_word']) {
+      const t = refusalSentence(new Error(JSON.stringify({ code: 'reply_rejected', reason })));
+      expect(t, reason).toMatch(/^The reply was not used: /);
+      expect(t, reason).not.toContain('did not pass the check');
+    }
+  });
+
+  it('the key test has one truthful sentence per answer, and only "accepted" says the key was accepted', () => {
+    const answers = ['accepted', 'ai_help_off', 'no_key', 'rejected', 'forbidden', 'client_error', 'server_error', 'redirect_refused', 'unexpected_reply', 'offline', 'timeout', 'failed'];
+    const seen = new Set<string>();
+    for (const a of answers) {
+      const t = keyTestSentence(a);
+      seen.add(t);
+      expect(/accepted the key/.test(t), a).toBe(a === 'accepted');
+    }
+    expect(seen.size).toBe(answers.length);
+    expect(keyTestSentence('ai_help_off')).toContain('Turn AI help on to test the key.');
+    expect(keyTestSentence('something_new')).toBe('The test failed.');
   });
 });

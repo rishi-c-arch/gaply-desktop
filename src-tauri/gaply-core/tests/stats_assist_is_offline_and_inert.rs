@@ -89,7 +89,9 @@ const FORBIDDEN: &[(&str, &str)] = &[
 /// explanation's input is built; making one is not allowed.
 const READ_ONLY_IN_MATCH_ARMS: &[&str] = &["L1Verdict::", "ClaimReproduction {"];
 
-const ALLOWED_EXTERNAL_IMPORTS: &[&str] = &["std", "serde", "serde_json"];
+/// `unicode_normalization` is pure Unicode tables (NFKC folding for the DOI
+/// scan and the explanation check): no I/O, no network, no clock, no entropy.
+const ALLOWED_EXTERNAL_IMPORTS: &[&str] = &["std", "serde", "serde_json", "unicode_normalization"];
 
 /// The outbound structs and their row types, and the request body types.
 const SERIALIZABLE: &[&str] = &[
