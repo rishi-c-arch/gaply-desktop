@@ -65,6 +65,16 @@ export interface L1ProposalView {
   variantSetBy: WireCode;
   source: 'local' | 'ai_suggestion' | 'manual';
   reason: string | null;
+  /** The bound whole-number columns and the answer this proposal carries
+   *  (evaluation fixes, part C, B-1): the Confirm step asks about these. */
+  wholeNumbers: L1WholeNumberView[];
+}
+
+/** A bound column whose cells are all whole numbers, and the user's answer:
+ *  `rounded` ("Rounded, or not sure", the default) or `exact`. */
+export interface L1WholeNumberView {
+  alias: string;
+  answer: 'rounded' | 'exact';
 }
 
 export interface L1SlotView {
@@ -174,6 +184,8 @@ export interface BindingEdits {
   variantTicked?: string | null;
   olsOverallF?: boolean | null;
   olsPredictor?: number | null;
+  /** Bound whole-number columns the user says hold exact whole numbers. */
+  exactWholeNumbers?: number[];
 }
 
 export interface L1ConfirmView {
@@ -185,6 +197,8 @@ export interface L1ConfirmView {
   rowsExcludedMissing: number;
   nUsed: number;
   suspectMissingCodes: Array<{ alias: string; code: number; cells: number }>;
+  /** The whole-number answers the binding was confirmed with. */
+  wholeNumbers: L1WholeNumberView[];
 }
 
 export interface L1NumberView {
@@ -232,6 +246,8 @@ export interface L1ClaimReproductionView {
   rowsRead: number | null;
   exclusions: Array<{ reason: WireCode; rows: number }>;
   provenance: L1ProvenanceView | null;
+  /** The whole-number answers the binding was confirmed with. */
+  wholeNumbers: L1WholeNumberView[];
 }
 
 /** Every reason, note, status and variant is a closed code from
@@ -240,6 +256,9 @@ export interface ReproductionView {
   counts: { reproduced: number; notReproduced: number; couldNotCheck: number };
   data: WireCode;
   unmatchedPairs: number;
+  /** Claims the user skipped: counted here, in neither `claims` nor
+   *  `counts` (part C, M-4). */
+  skipped: number;
   claims: L1ClaimReproductionView[];
   /** The significance threshold p was compared with, as the paper printed
    *  it, and whether the paper stated it (otherwise .05, the default). */

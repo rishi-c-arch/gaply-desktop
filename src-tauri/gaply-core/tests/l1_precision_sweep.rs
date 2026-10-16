@@ -613,3 +613,99 @@ fn the_shipped_limit_and_widening_contain_every_extreme_found() {
     );
     let _ = StatRange::Exact;
 }
+
+/// **The fast guard on L and F, in the default run** (evaluation fixes,
+/// part C, M-11). The deep evaluation changed L to 1000 and F to 1.0 and
+/// every test CI runs stayed green: only the two `#[ignore]`d tests above
+/// could see it. This test holds the sweep's worst cases as a fixture
+/// (`precision_sweep/witnesses.tsv`, copied from the sweep's own output) and
+/// rebuilds just their ranges, which takes no adversarial search:
+///
+/// - each "F" row lies at or below L and needed more than 1.0, so a smaller
+///   widening leaves its true extremes outside the range;
+/// - each "L" row lies above L and needed more than F, so a larger limit
+///   turns it into a range that misses its true extremes.
+///
+/// The constants are also pinned to the values D270 records: any change,
+/// even a safe-looking one, must re-run the sweep and update the fixture.
+#[test]
+fn the_sweeps_worst_cases_hold_under_the_shipped_limit_and_widening() {
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/stats_l1/precision_sweep/witnesses.tsv"
+    );
+    let text = std::fs::read_to_string(path).expect("witnesses");
+    let witnesses: Vec<Vec<&str>> = text
+        .lines()
+        .filter(|l| !l.starts_with('#') && !l.starts_with("guard\t"))
+        .map(|l| l.split('\t').collect())
+        .collect();
+    assert!(
+        witnesses.iter().filter(|w| w[0] == "F").count() >= 3
+            && witnesses.iter().filter(|w| w[0] == "L").count() >= 3,
+        "the fixture holds its rows"
+    );
+    let mut items = generated(210);
+    items.extend(fixtures());
+    let mut checked = 0;
+    for w in &witnesses {
+        let (guard, method, case) = (w[0], w[1], w[2]);
+        let num = |i: usize| w[i].parse::<f64>().unwrap();
+        let (ratio, needed, value, true_lo, true_hi) = (num(3), num(4), num(5), num(6), num(7));
+        let it = items
+            .iter()
+            .find(|it| it.method == method && it.case == case)
+            .unwrap_or_else(|| panic!("{method} {case}: the generator changed"));
+        // The same dataset as the sweep's: the generator has not moved.
+        assert!(
+            (it.parts.value - value).abs() <= 1e-9 * value.abs().max(1.0),
+            "{method} {case}: {} vs {value}",
+            it.parts.value
+        );
+        assert!(
+            (it.parts.ratio - ratio).abs() <= 1e-6,
+            "{method} {case}: ratio {} vs {ratio}",
+            it.parts.ratio
+        );
+        // The safety property under the SHIPPED constants.
+        let contains = |r: StatRange| match r {
+            StatRange::Unbounded => true,
+            StatRange::Range(lo, hi) => lo <= true_lo && hi >= true_hi,
+            StatRange::Exact => false,
+        };
+        assert!(
+            contains(it.parts.range()),
+            "{method} {case} (r = {ratio}, needs {needed}): the range under L = {}, F = {} misses its true extremes [{true_lo}, {true_hi}]",
+            precision::VALIDITY_LIMIT,
+            precision::WIDENING
+        );
+        // And the row is a witness for its constant.
+        match guard {
+            "F" => {
+                assert!(
+                    ratio <= precision::VALIDITY_LIMIT && needed > 1.0,
+                    "{method} {case}"
+                );
+                assert!(
+                    !contains(it.parts.range_with(precision::VALIDITY_LIMIT, 1.0)),
+                    "{method} {case}: F = 1.0 must miss it"
+                );
+            }
+            "L" => {
+                assert!(
+                    ratio > precision::VALIDITY_LIMIT && needed > precision::WIDENING,
+                    "{method} {case}"
+                );
+                assert!(
+                    !contains(it.parts.range_with(f64::INFINITY, precision::WIDENING)),
+                    "{method} {case}: no limit must miss it"
+                );
+            }
+            other => panic!("guard {other}"),
+        }
+        checked += 1;
+    }
+    assert_eq!(checked, witnesses.len());
+    assert!(checked >= 6, "only {checked} witnesses: the guard is inert");
+    assert_eq!((precision::VALIDITY_LIMIT, precision::WIDENING), (0.10, 1.1), "L and F are measured by the sweep above; change them only with a new run and new witnesses (D270)");
+}

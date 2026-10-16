@@ -37,6 +37,10 @@ struct Bind {
     ols_overall_f: Option<bool>,
     #[serde(default)]
     ols_predictor: Option<String>,
+    /// Headers of bound whole-number columns to confirm as "Exact whole
+    /// numbers" (evaluation fixes, part C); absent, every one is rounded.
+    #[serde(default)]
+    exact_whole_numbers: Vec<String>,
 }
 
 fn main() {
@@ -89,6 +93,7 @@ fn main() {
             variant_ticked: b.variant.clone(),
             ols_overall_f: b.ols_overall_f,
             ols_predictor: b.ols_predictor.as_deref().map(alias_of),
+            exact_whole_numbers: b.exact_whole_numbers.iter().map(|h| alias_of(h)).collect(),
         };
         let draft = match l1::draft_proposal(&runs, v.run, b.claim, None, &edits) {
             Ok(d) => d,

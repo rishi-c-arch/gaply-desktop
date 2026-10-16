@@ -9,6 +9,9 @@
 //! module path, so this file names the module by its file name instead.
 //!
 //! In order:
+//! 0. The path must be a REGULAR file, judged on the opened handle
+//!    ([`import_guard::open_regular_file`]; evaluation fixes, part C, M-10):
+//!    a FIFO, a device or a socket is refused at once, before a byte is read.
 //! 1. `import_guard`'s byte ceiling, from metadata alone. **Not its
 //!    `preflight`**: that parses the file as a manuscript, and a data file is
 //!    not one — measured, `preflight` refuses every `.csv` with "unsupported
@@ -21,7 +24,12 @@
 //!    [`supplementary::parse_supplementary`], the one parser.
 //! 3. SHA-256 over the exact file bytes, read before the parse and again
 //!    after it: a file that changed between the two is refused rather than
-//!    fingerprinted as something it no longer is.
+//!    fingerprinted as something it no longer is. Both reads go through the
+//!    opened handle with a bound. A zip-based workbook whose central
+//!    directory declares more than [`MAX_WORKBOOK_UNCOMPRESSED_BYTES`] is
+//!    refused here, before any part is inflated (part C, M-9): a 1.5 MB
+//!    file that inflated to 1.5 GB peaked at 1.4 GB in memory, and an
+//!    allocation failure aborts the process.
 //! 4. [`build_dataset`] in `gaply_core`.
 //!
 //! A file over the ingest row cap is [`L1IngestRefusal::FileTooLarge`]: CSV
@@ -39,7 +47,9 @@
 use std::path::Path;
 
 use gaply_core::extract::docparse::DocumentShape;
-use gaply_core::import_guard::{self, EstimateBasis};
+use std::io::Read;
+
+use gaply_core::import_guard::{self, EstimateBasis, NotOpened};
 use gaply_core::stats_l1::dataset::{
     build_dataset, DataFingerprint, Dataset, DatasetRefusal, RawTable, RawVariable, SourceMetadata, TableRef,
 };
@@ -59,11 +69,29 @@ pub use gaply_core::stats_l1::dataset::L1IngestRefusal;
 /// table and are refused before being read.
 const TABLE_EXTENSIONS: &[&str] = &["sav", "mat", "xlsx", "xls", "xlsb", "ods", "xlsm", "csv", "tsv"];
 
+/// The workbook formats that are zip archives (`.xls` is a compound
+/// document, not a zip).
+const ZIP_EXTENSIONS: &[&str] = &["xlsx", "xlsm", "xlsb", "ods"];
+
+/// The most uncompressed bytes a workbook's parts may declare, in all
+/// (evaluation fixes, part C, M-9). Measured 17 Oct 2026 on every real
+/// workbook in `~/gaply-corpus/l1/papers/` and `~/gaply-corpus/eval2/fresh/`
+/// (27 files, `partc/xlsx/declared.py`, central directories only): the
+/// largest declares 13,248,850 bytes (a 2.26 MB file). 64 MiB is about five
+/// times that. The deep evaluation's bomb declares 1,572,865,485.
+///
+/// What it does not catch: an archive that declares small sizes and inflates
+/// to more. The reader (zip 2.4.2, through calamine) bounds the compressed
+/// bytes it reads, not the inflated output, and checks the CRC only at the
+/// end of an entry.
+pub const MAX_WORKBOOK_UNCOMPRESSED_BYTES: u64 = 64 * 1024 * 1024;
+
 /// The file at `path` as a Level 1 dataset.
 #[doc(hidden)]
 #[tracing::instrument(skip(path))]
 pub fn load_dataset(path: &Path) -> Result<Dataset, L1IngestRefusal> {
-    let bytes_len = std::fs::metadata(path).map_err(|_| L1IngestRefusal::NotReadable)?.len();
+    // 0. A regular file, judged on the opened handle; read through it.
+    let (file, bytes_len) = open_regular(path)?;
 
     // 1. import_guard's byte rule, from metadata, through the pure decision.
     let shape = DocumentShape { pages: None, page_equivalents: 0, bytes: bytes_len, text_chars: 0 };
@@ -81,7 +109,14 @@ pub fn load_dataset(path: &Path) -> Result<Dataset, L1IngestRefusal> {
     }
 
     // 3. Hash the exact bytes, parse, hash again.
-    let before = std::fs::read(path).map_err(|_| L1IngestRefusal::NotReadable)?;
+    let before = read_bounded(file)?;
+    if ZIP_EXTENSIONS.contains(&ext.as_str()) {
+        if let Some(declared) = declared_uncompressed_total(&before) {
+            if declared > MAX_WORKBOOK_UNCOMPRESSED_BYTES {
+                return Err(L1IngestRefusal::ArchiveTooLarge { declared, limit: MAX_WORKBOOK_UNCOMPRESSED_BYTES });
+            }
+        }
+    }
     // A failed parse is classified by a typed check of its own
     // (`exceeds_row_cap`), never by reading the parser's message, which the
     // existing Stats Verifier shows unchanged.
@@ -97,7 +132,7 @@ pub fn load_dataset(path: &Path) -> Result<Dataset, L1IngestRefusal> {
             L1IngestRefusal::Malformed
         }
     })?;
-    let after = std::fs::read(path).map_err(|_| L1IngestRefusal::NotReadable)?;
+    let after = read_bounded(open_regular(path)?.0)?;
     if before != after {
         return Err(L1IngestRefusal::FileChangedWhileReading);
     }
@@ -145,6 +180,81 @@ pub fn load_dataset(path: &Path) -> Result<Dataset, L1IngestRefusal> {
     let dataset = build_dataset(raw, fingerprint).map_err(L1IngestRefusal::Dataset)?;
     tracing::debug!(rows = dataset.rows(), columns = dataset.schema.columns.len(), "stats_l1: dataset loaded");
     Ok(dataset)
+}
+
+/// The path opened as a regular file, and its length, as a refusal code.
+fn open_regular(path: &Path) -> Result<(std::fs::File, u64), L1IngestRefusal> {
+    import_guard::open_regular_file(path).map_err(|e| match e {
+        NotOpened::NotRegular => L1IngestRefusal::NotARegularFile,
+        NotOpened::Unreadable => L1IngestRefusal::NotReadable,
+    })
+}
+
+/// Every byte of an opened file, but never more than the ingest's size cap:
+/// a file that grew past it since its `stat` is refused as too large.
+fn read_bounded(file: std::fs::File) -> Result<Vec<u8>, L1IngestRefusal> {
+    let mut bytes = Vec::new();
+    file.take(MAX_FILE_SIZE_BYTES + 1).read_to_end(&mut bytes).map_err(|_| L1IngestRefusal::NotReadable)?;
+    if bytes.len() as u64 > MAX_FILE_SIZE_BYTES {
+        return Err(L1IngestRefusal::TooLarge { bytes: bytes.len() as u64, limit: MAX_FILE_SIZE_BYTES });
+    }
+    Ok(bytes)
+}
+
+/// The sum of the uncompressed sizes a zip's central directory declares,
+/// ZIP64 included; `None` when the bytes are not a zip this can read, which
+/// is left to the parser to refuse. Reads the directory only: nothing is
+/// inflated.
+pub fn declared_uncompressed_total(bytes: &[u8]) -> Option<u64> {
+    let u16_at = |i: usize| -> Option<u64> { Some(u64::from(u16::from_le_bytes(bytes.get(i..i + 2)?.try_into().ok()?))) };
+    let u32_at = |i: usize| -> Option<u64> { Some(u64::from(u32::from_le_bytes(bytes.get(i..i + 4)?.try_into().ok()?))) };
+    let u64_at = |i: usize| -> Option<u64> { Some(u64::from_le_bytes(bytes.get(i..i + 8)?.try_into().ok()?)) };
+    let sig = |i: usize, s: [u8; 4]| bytes.get(i..i + 4) == Some(&s[..]);
+    // The end-of-central-directory record: 22 bytes and a comment of up to
+    // 65,535, so it starts in the last 65,557 bytes.
+    let last = bytes.len().checked_sub(22)?;
+    let eocd = (last.saturating_sub(65_535)..=last).rev().find(|&i| sig(i, [0x50, 0x4b, 0x05, 0x06]))?;
+    let (mut entries, mut directory) = (u16_at(eocd + 10)?, u32_at(eocd + 16)?);
+    if entries == 0xFFFF || directory == 0xFFFF_FFFF {
+        // ZIP64: the locator sits just before the record and points at the
+        // ZIP64 end-of-central-directory record.
+        let locator = eocd.checked_sub(20)?;
+        if !sig(locator, [0x50, 0x4b, 0x06, 0x07]) {
+            return None;
+        }
+        let z = usize::try_from(u64_at(locator + 8)?).ok()?;
+        if !sig(z, [0x50, 0x4b, 0x06, 0x06]) {
+            return None;
+        }
+        entries = u64_at(z + 32)?;
+        directory = u64_at(z + 48)?;
+    }
+    let mut at = usize::try_from(directory).ok()?;
+    let mut total: u64 = 0;
+    for _ in 0..entries {
+        if !sig(at, [0x50, 0x4b, 0x01, 0x02]) {
+            return None;
+        }
+        let (name, extra, comment) = (u16_at(at + 28)? as usize, u16_at(at + 30)? as usize, u16_at(at + 32)? as usize);
+        let mut size = u32_at(at + 24)?;
+        if size == 0xFFFF_FFFF {
+            // The ZIP64 extra field (id 1) holds the real size first.
+            let field = bytes.get(at + 46 + name..at + 46 + name + extra)?;
+            let mut i = 0;
+            let mut found = None;
+            while i + 4 <= field.len() {
+                let (id, len) = (u16::from_le_bytes([field[i], field[i + 1]]), usize::from(u16::from_le_bytes([field[i + 2], field[i + 3]])));
+                if id == 1 {
+                    found = Some(u64::from_le_bytes(field.get(i + 4..i + 12)?.try_into().ok()?));
+                }
+                i += 4 + len;
+            }
+            size = found?;
+        }
+        total = total.saturating_add(size);
+        at = at.checked_add(46 + name + extra + comment)?;
+    }
+    Some(total)
 }
 
 /// Why a Level 1 computation from a file produced nothing: the file could
@@ -287,6 +397,157 @@ mod tests {
         assert!(!supplementary::exceeds_row_cap(&q).unwrap());
         let _ = std::fs::remove_file(&p);
         let _ = std::fs::remove_file(&q);
+    }
+
+    /* ---- evaluation fixes, part C: files ---------------------------------- */
+
+    fn crc32(data: &[u8]) -> u32 {
+        let mut c = 0xFFFF_FFFFu32;
+        for &b in data {
+            c ^= u32::from(b);
+            for _ in 0..8 {
+                c = if c & 1 != 0 { (c >> 1) ^ 0xEDB8_8320 } else { c >> 1 };
+            }
+        }
+        !c
+    }
+
+    /// A zip of stored (uncompressed) parts. `declare` overrides, in the
+    /// central directory only, one part's declared uncompressed size; with a
+    /// size of 0xFFFFFFFF or more it is written the ZIP64 way, in an extra
+    /// field, as Python's `force_zip64` does.
+    fn stored_zip(parts: &[(&str, Vec<u8>)], declare: Option<(usize, u64)>) -> Vec<u8> {
+        let mut out = Vec::new();
+        let mut central = Vec::new();
+        for (i, (name, data)) in parts.iter().enumerate() {
+            let offset = out.len() as u32;
+            let crc = crc32(data);
+            let size = data.len() as u32;
+            out.extend_from_slice(&[0x50, 0x4b, 0x03, 0x04, 20, 0, 0, 0, 0, 0, 0, 0, 0x21, 0]);
+            for v in [crc, size, size] {
+                out.extend_from_slice(&v.to_le_bytes());
+            }
+            out.extend_from_slice(&(name.len() as u16).to_le_bytes());
+            out.extend_from_slice(&0u16.to_le_bytes());
+            out.extend_from_slice(name.as_bytes());
+            out.extend_from_slice(data);
+            let declared = declare.filter(|(at, _)| *at == i).map_or(u64::from(size), |(_, d)| d);
+            let zip64 = declared >= 0xFFFF_FFFF;
+            let extra: Vec<u8> = if zip64 { [1u16.to_le_bytes().to_vec(), 8u16.to_le_bytes().to_vec(), declared.to_le_bytes().to_vec()].concat() } else { Vec::new() };
+            central.extend_from_slice(&[0x50, 0x4b, 0x01, 0x02, 45, 0, 45, 0, 0, 0, 0, 0, 0, 0, 0x21, 0]);
+            central.extend_from_slice(&crc.to_le_bytes());
+            central.extend_from_slice(&size.to_le_bytes());
+            central.extend_from_slice(&(if zip64 { 0xFFFF_FFFF } else { declared as u32 }).to_le_bytes());
+            central.extend_from_slice(&(name.len() as u16).to_le_bytes());
+            central.extend_from_slice(&(extra.len() as u16).to_le_bytes());
+            // Comment length, disk, internal and external attributes.
+            central.extend_from_slice(&[0; 10]);
+            central.extend_from_slice(&offset.to_le_bytes());
+            central.extend_from_slice(name.as_bytes());
+            central.extend_from_slice(&extra);
+        }
+        let start = out.len() as u32;
+        out.extend_from_slice(&central);
+        out.extend_from_slice(&[0x50, 0x4b, 0x05, 0x06, 0, 0, 0, 0]);
+        out.extend_from_slice(&(parts.len() as u16).to_le_bytes());
+        out.extend_from_slice(&(parts.len() as u16).to_le_bytes());
+        out.extend_from_slice(&(central.len() as u32).to_le_bytes());
+        out.extend_from_slice(&start.to_le_bytes());
+        out.extend_from_slice(&0u16.to_le_bytes());
+        out
+    }
+
+    /// A minimal workbook: one sheet, a header row and `rows` data rows.
+    fn xlsx(rows: usize, declare_sheet: Option<u64>) -> Vec<u8> {
+        let mut sheet = String::from(r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>id</t></is></c></row>"#);
+        for i in 0..rows {
+            sheet.push_str(&format!(r#"<row r="{r}"><c r="A{r}"><v>{i}</v></c></row>"#, r = i + 2));
+        }
+        sheet.push_str("</sheetData></worksheet>");
+        let parts: Vec<(&str, Vec<u8>)> = vec![
+            ("[Content_Types].xml", br#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>"#.to_vec()),
+            ("_rels/.rels", br#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>"#.to_vec()),
+            ("xl/workbook.xml", br#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets></workbook>"#.to_vec()),
+            ("xl/_rels/workbook.xml.rels", br#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>"#.to_vec()),
+            ("xl/worksheets/sheet1.xml", sheet.into_bytes()),
+        ];
+        stored_zip(&parts, declare_sheet.map(|d| (4, d)))
+    }
+
+    /// M-10: a FIFO named as the data file used to block `open` forever (the
+    /// deep evaluation's probe: still blocked 5 s after a writer appeared).
+    /// Now it is refused at once with a closed code, and so is a device and
+    /// a directory; the manuscript's preflight refuses a FIFO too.
+    #[cfg(unix)]
+    #[test]
+    fn a_fifo_a_device_or_a_directory_is_refused_at_once_as_not_a_regular_file() {
+        let fifo = dir().join("PATH_SECRET_fifo.csv");
+        let _ = std::fs::remove_file(&fifo);
+        assert!(std::process::Command::new("mkfifo").arg(&fifo).status().unwrap().success());
+        let (tx, rx) = std::sync::mpsc::channel();
+        let f = fifo.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send(load_dataset(&f).map(|_| ()));
+        });
+        let got = rx.recv_timeout(std::time::Duration::from_secs(5)).expect("load_dataset returned within 5 s");
+        assert_eq!(got, Err(L1IngestRefusal::NotARegularFile));
+        let (tx, rx) = std::sync::mpsc::channel();
+        let f = fifo.clone();
+        std::thread::spawn(move || {
+            let db = gaply_core::Database::in_memory().unwrap();
+            let _ = tx.send(import_guard::preflight(&db, &f, 0).map(|p| p.is_refused()));
+        });
+        assert!(matches!(rx.recv_timeout(std::time::Duration::from_secs(5)), Ok(Ok(true))), "a FIFO manuscript is refused at once");
+        assert_eq!(load_dataset(std::path::Path::new("/dev/null")).map(|_| ()), Err(L1IngestRefusal::NotARegularFile));
+        assert_eq!(load_dataset(&dir()).map(|_| ()), Err(L1IngestRefusal::NotARegularFile));
+        let _ = std::fs::remove_file(&fifo);
+    }
+
+    /// M-9: a workbook whose parts declare more than the limit is refused
+    /// before any part is inflated, ZIP64 sizes included. The declared size
+    /// is read from the central directory, so the stored part here is small.
+    #[test]
+    fn a_workbook_declaring_more_than_the_limit_is_refused_before_parsing() {
+        let over = MAX_WORKBOOK_UNCOMPRESSED_BYTES + 1;
+        for (name, declared) in [("bomb.xlsx", over), ("bomb64.xlsx", 0x1_0000_0000)] {
+            let bytes = xlsx(3, Some(declared));
+            let total = declared_uncompressed_total(&bytes).expect("a zip");
+            assert!(total > MAX_WORKBOOK_UNCOMPRESSED_BYTES);
+            let p = write(name, &bytes);
+            assert_eq!(load_dataset(&p).map(|_| ()), Err(L1IngestRefusal::ArchiveTooLarge { declared: total, limit: MAX_WORKBOOK_UNCOMPRESSED_BYTES }), "{name}");
+            let _ = std::fs::remove_file(&p);
+        }
+        // Not a zip: left to the parser.
+        assert_eq!(declared_uncompressed_total(b"not a zip at all"), None);
+        // The workbook fixture declares far less, and still opens.
+        let real = std::fs::read(fixture("sample.xlsx")).unwrap();
+        assert!(declared_uncompressed_total(&real).unwrap() < MAX_WORKBOOK_UNCOMPRESSED_BYTES);
+        assert!(load_dataset(&fixture("sample.xlsx")).is_ok());
+    }
+
+    /// m-7: the header is not a row. A file with exactly 5,000 data rows was
+    /// refused as "over the 5,000-row limit" (the deep evaluation's
+    /// `narrow_5000.csv`); 5,001 data rows are still refused.
+    #[test]
+    fn exactly_5000_data_rows_are_accepted_and_5001_are_not() {
+        let csv = |n: usize| {
+            let mut s = String::from("id\n");
+            for i in 0..n {
+                s.push_str(&format!("{i}\n"));
+            }
+            s
+        };
+        let p = write("rows_5000.csv", csv(MAX_ROWS).as_bytes());
+        assert_eq!(load_dataset(&p).map(|d| d.rows()), Ok(MAX_ROWS));
+        let q = write("rows_5001.csv", csv(MAX_ROWS + 1).as_bytes());
+        assert_eq!(load_dataset(&q).map(|_| ()), Err(L1IngestRefusal::FileTooLarge { limit_rows: MAX_ROWS }));
+        let x = write("rows_5000.xlsx", &xlsx(MAX_ROWS, None));
+        assert_eq!(load_dataset(&x).map(|d| d.rows()), Ok(MAX_ROWS));
+        let y = write("rows_5001.xlsx", &xlsx(MAX_ROWS + 1, None));
+        assert_eq!(load_dataset(&y).map(|_| ()), Err(L1IngestRefusal::FileTooLarge { limit_rows: MAX_ROWS }));
+        for f in [p, q, x, y] {
+            let _ = std::fs::remove_file(f);
+        }
     }
 
     #[test]

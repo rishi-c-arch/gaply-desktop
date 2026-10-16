@@ -3,10 +3,10 @@
 // optional opt-ins, who receives it and what they keep, then Cancel or Send.
 //
 // Nothing is sent until Send is clicked. Cancel sends nothing. Each Send is
-// the consent for this task and these categories for this check (Rust makes a
-// fresh grant from the previewed request on every Send). Withdraw ends that
-// consent and cancels any call or retry in flight; the panel says exactly
-// that.
+// the consent for this task and these categories (Rust makes a fresh grant
+// from the previewed request on every Send). Withdraw revokes the task's
+// grant and cancels every call or retry of this check in flight; the next
+// Send gives consent again. The panel says exactly that (part C, M-S2).
 //
 // Every string from the model or the web is rendered as a React text child:
 // no dangerouslySetInnerHTML, no markdown or HTML renderer, no link.
@@ -31,14 +31,17 @@ export const TASK_OPT_INS: Record<HelperTaskInput['task'], OptInCategory[]> = {
   web_context: ['paper_doi'],
 };
 
-/** What the request does NOT carry, given what is ticked. */
+/** What the request does NOT carry, given what is ticked (evaluation
+ *  fixes, part C, M-S7). "Any row or cell", not "your data": the
+ *  explanation's request carries values computed from the data. */
 export function notSent(task: HelperTaskInput['task'], ticked: OptInCategory[]): string[] {
   const has = (c: OptInCategory) => ticked.includes(c);
-  const out = ['your data', 'file names', 'level names'];
-  if (task !== 'binding_suggestion' || !has('column_headers')) out.splice(1, 0, 'column names');
-  if (!has('claim_sentence') && !has('methods_passage')) out.push("your manuscript's text");
-  else if (task === 'claim_method' && !has('methods_passage')) out.push('any other manuscript text');
-  else if (task === 'binding_suggestion') out.push('any other manuscript text');
+  const out = ['any row or cell of your data', 'file names', 'level names'];
+  // Ticking the headers sends every column's name (each cut to 64
+  // characters), so then no column name is "not sent".
+  if (task !== 'binding_suggestion' || !has('column_headers')) out.push('column names (unless ticked)');
+  if (!has('claim_sentence') && !has('methods_passage')) out.push('any manuscript sentence or passage (unless ticked)');
+  else out.push('any other manuscript text');
   if (task === 'web_context' && !has('paper_doi')) out.push("the paper's DOI");
   return out;
 }
@@ -52,8 +55,12 @@ export const RETENTION_TEXT =
 export const WEB_RETENTION_TEXT =
   "Web search sends the query on to the sites searched, whose own retention policies apply.";
 
+/** What Withdraw does (evaluation fixes, part C, M-S2): every Send makes a
+ *  new consent, and the cancel stops every request of this check. */
 export const WITHDRAW_TEXT =
-  'Each Send is your consent for this task and these categories for this check. Withdrawing ends that consent for the rest of this check and stops any call or retry in flight.';
+  'Withdrawing stops any request still in flight in this check. Nothing more is sent unless you click Send again, which gives consent again.';
+
+export const WITHDRAWN_TEXT = 'Withdrawn: any request in flight was stopped. Nothing more is sent unless you click Send again.';
 
 /** The search query inside a web-context preview: read from the request
  *  itself, so the field shows what will be sent. */
@@ -268,7 +275,7 @@ export const L1AiPanel: React.FC<L1AiPanelProps> = ({ bridge, run, input, title,
       </div>
       {phase !== 'preview' && (
         <p className="gds-jc__disclaimer" data-testid="l1-ai-withdraw-text">
-          {withdrawn ? 'Consent withdrawn for this check.' : WITHDRAW_TEXT}
+          {withdrawn ? WITHDRAWN_TEXT : WITHDRAW_TEXT}
         </p>
       )}
     </section>

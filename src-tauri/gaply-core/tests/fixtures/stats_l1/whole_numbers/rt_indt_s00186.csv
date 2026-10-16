@@ -1,0 +1,24 @@
+# /usr/local/bin/Rscript (R 4.6.1), make_whole_numbers.R
+# eval3 scale case s00186 (indt); printed, from R on the unrounded values: t(18) = 0.73, p = .477
+# R on the stored whole numbers: t = 0.729428, df = 18, p = 0.475126
+y,g
+667,a
+534,a
+789,a
+512,a
+639,a
+633,a
+490,a
+720,a
+342,a
+705,a
+874,b
+428,b
+465,b
+628,b
+641,b
+465,b
+391,b
+592,b
+685,b
+389,b

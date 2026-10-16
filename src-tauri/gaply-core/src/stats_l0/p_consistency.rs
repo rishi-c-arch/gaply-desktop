@@ -195,6 +195,16 @@ pub fn compare_p(
         Some(false) => {}
     }
 
+    // a2. Double rounding (Phase 2 evaluation fixes, part C, B-2): the printed
+    // equality is a number the software had already rounded, rounded again.
+    // Plain rounding was tried first and wins with no note.
+    if let Some((d_lo, d_hi)) = double_rounded_reach(reported) {
+        if d_lo <= hi && lo < d_hi {
+            computed.push(("double_rounded_p", Computed::Range { lo: d_lo, hi: d_hi }));
+            return L0Verdict::Consistent(Some(CheckNote::DoubleRounded));
+        }
+    }
+
     // b. Two-tailed families only: consistent as a one-tailed test.
     if matches!(input.family, Family::T | Family::R | Family::Z) {
         let (h_lo, h_hi) = widen(p_lo / 2.0, p_hi / 2.0);
@@ -249,6 +259,37 @@ pub fn compare_p(
 
     // d.
     L0Verdict::Inconsistent { conclusion_changes: conclusion_changes(reported, lo, hi, alpha) }
+}
+
+/// The values a printed equality could have come from by DOUBLE rounding
+/// that its own interval does not already hold: `[lo, hi)`, magnitudes.
+///
+/// Software shows a number rounded to 3 decimals, or to some places; the
+/// paper rounds that again to fewer (`.1249` shown as `.125`, printed `.13`).
+/// The rule: the exact value, rounded half up first to 3 decimals or to one
+/// more decimal than printed, then to the printed decimals, gives the printed
+/// digits. Half up at both stages only ever moves a value UP, so the only new
+/// values lie just below the printed interval: rounding first to `m` decimals
+/// reaches down by half a unit of the `m`-th place, and the coarser of the
+/// two intermediates (`m = d + 1` whenever `d < 3`; `d + 1` alone otherwise)
+/// reaches furthest, so the union is `[P - u/2 - u/20, P - u/2)` with `u` one
+/// unit of the printed place. `None` for anything but an equality, and for a
+/// printed zero (nothing rounds up to it). Shared with Level 1, which applies
+/// the same rule to the statistic and a fractional df
+/// (`stats_l1::reproduce::double_rounded_match`).
+pub fn double_rounded_reach(reported: &ReportedNumber) -> Option<(f64, f64)> {
+    if reported.relation() != Relation::Eq {
+        return None;
+    }
+    let d = reported.decimals() as i32;
+    let v = reported.value().to_f64().abs();
+    if v == 0.0 {
+        return None;
+    }
+    let unit = 10f64.powi(-d);
+    let intermediates: &[i32] = if d < 3 { &[3, d + 1] } else { &[d + 1] };
+    let reach = intermediates.iter().map(|m| 0.5 * 10f64.powi(-m)).fold(0.0, f64::max);
+    Some((v - unit / 2.0 - reach, v - unit / 2.0))
 }
 
 /// Rule 6: `ns` claims p above alpha. With several thresholds the smallest is

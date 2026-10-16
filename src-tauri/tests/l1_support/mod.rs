@@ -134,6 +134,7 @@ pub fn manual_edits() -> BindingEdits {
         variant_ticked: None,
         ols_overall_f: None,
         ols_predictor: None,
+        exact_whole_numbers: vec![],
     }
 }
 

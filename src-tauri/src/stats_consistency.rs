@@ -408,6 +408,11 @@ fn note_words(n: CheckNote, reported_p: Option<&str>) -> (&'static str, String) 
                 reported_p.unwrap_or("the printed value")
             ),
         ),
+        // Phase 2 evaluation fixes, part C (B-2).
+        CheckNote::DoubleRounded => (
+            "double_rounded",
+            "Matches if the paper rounded a number the software had already rounded (for example .1249 shown as .125, printed .13).".to_string(),
+        ),
     }
 }
 
@@ -871,6 +876,7 @@ mod tests {
         let mut all: Vec<(&str, String)> = vec![
             note_words(CheckNote::OneTailedStated, None),
             note_words(CheckNote::FloorPrintedAsEquality, Some(".0001")),
+            note_words(CheckNote::DoubleRounded, Some(".13")),
             concern_words(ConcernReason::OneTailedUnstated),
             concern_words(ConcernReason::FTwoTailed),
             concern_words(ConcernReason::EstimateDirection),
@@ -900,7 +906,9 @@ mod tests {
             assert!(!text.contains("  ") && !text.contains('\u{2014}'), "{code}: {text:?}");
             assert!(codes.insert(*code), "duplicate code {code}");
         }
-        assert_eq!(all.len(), 9 + 7 + 7 + 11);
+        // Notes 3 (part C added `double_rounded`), concerns 3, could-not-check 4;
+        // 7 not-applicable reasons, 7 not-read reasons, 11 number refusals.
+        assert_eq!(all.len(), 10 + 7 + 7 + 11);
         // Inconsistent's words live in the screen and must never blame the p.
         for (_, text) in &all {
             assert!(!text.to_lowercase().contains("p-value is wrong"), "{text}");

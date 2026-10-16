@@ -166,8 +166,20 @@ impl RangeFault {
 // Small statistics helpers (deterministic arithmetic)
 // ---------------------------------------------------------------------------
 
+/// The mean as R's `mean` computes it: the sum over n, then refined by the
+/// mean of the residuals from it (a second pass). A plain `sum / n` carries
+/// about one unit in the last place of the SUM: on values near 1e9 with an
+/// SD of 10 that is ~1e-7 absolute, which the centred variance and t then
+/// inherit, and Level 1 missed R by up to 1.5e-6 (evaluation fixes, part C,
+/// m-10). R on this machine (aarch64) accumulates in double, as here.
 fn mean(xs: &[f64]) -> f64 {
-    xs.iter().sum::<f64>() / xs.len() as f64
+    let n = xs.len() as f64;
+    let m = xs.iter().sum::<f64>() / n;
+    if !m.is_finite() {
+        return m;
+    }
+    let residual: f64 = xs.iter().map(|x| x - m).sum();
+    m + residual / n
 }
 
 /// `v`, or an overflow refusal when it is infinite or NaN.

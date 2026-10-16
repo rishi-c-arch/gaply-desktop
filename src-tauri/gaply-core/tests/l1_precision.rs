@@ -276,8 +276,11 @@ fn the_precision_range_contains_1000_seeded_draws_on_every_golden_row_and_findin
     assert_eq!(per_method.values().map(|w| w.p_outside).sum::<usize>(), 0, "a draw's p fell outside the p range");
 }
 
+/// Whole-number columns have a zero range only when the user says they hold
+/// exact whole numbers; by default they are rounded to whole numbers and get
+/// a range (evaluation fixes, part C, B-1; until then always zero).
 #[test]
-fn a_binding_on_whole_number_columns_only_has_a_zero_range() {
+fn a_binding_on_whole_number_columns_has_a_zero_range_only_when_said_exact() {
     let raw = RawTable::from_rows(
         vec!["pre".into(), "post".into()],
         [(3, 5), (4, 7), (5, 6), (6, 8), (2, 2), (7, 9)].iter().map(|(a, b)| vec![a.to_string(), b.to_string()]).collect(),
@@ -285,8 +288,10 @@ fn a_binding_on_whole_number_columns_only_has_a_zero_range() {
     let draft = BindingDraft::new(L1MethodId::PairedT, VariantChoice::not_stated(MethodCatalogue::entry(L1MethodId::PairedT).variant_kind))
         .role(RoleName::First, &[ColumnAlias(1)])
         .role(RoleName::Second, &[ColumnAlias(2)]);
-    let r = results(b"integers", &raw, draft)[0];
+    let r = results(b"integers", &raw, draft.clone().exact_whole_numbers(&[ColumnAlias(1), ColumnAlias(2)]))[0];
     assert_eq!(r.precision, Precision::Exact);
+    let r = results(b"integers", &raw, draft)[0];
+    assert!(matches!(r.precision, Precision::Range { decimals: 0, .. } | Precision::Unbounded { decimals: 0 }), "{:?}", r.precision);
 }
 
 /* ---- timings ------------------------------------------------------------------ */

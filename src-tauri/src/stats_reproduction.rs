@@ -66,6 +66,9 @@ pub struct ReproductionView {
     /// refused with.
     pub data: WireCode,
     pub unmatched_pairs: usize,
+    /// Claims the user skipped (part C, M-4): counted here, and neither in
+    /// `claims` nor in `counts`.
+    pub skipped: usize,
     pub claims: Vec<ClaimReproductionView>,
     /// The significance threshold p was compared with, and whether the paper
     /// stated it (Phase 2 evaluation fixes, part A): the screen names the
@@ -111,6 +114,9 @@ pub struct ClaimReproductionView {
     pub exclusions: Vec<ExclusionView>,
     /// Where the result came from; `None` when nothing was computed.
     pub provenance: Option<ProvenanceView>,
+    /// The bound whole-number columns and the answer each was confirmed
+    /// with: `rounded` or `exact` (part C, B-1). The card says which.
+    pub whole_numbers: Vec<crate::stats_l1_commands::L1WholeNumberView>,
 }
 
 /// The run's provenance: what computed it and from which binding. Never the
@@ -265,6 +271,7 @@ fn claim_view(c: &ClaimReproduction) -> ClaimReproductionView {
         rows_read,
         exclusions,
         provenance: c.record.as_ref().map(provenance_view),
+        whole_numbers: crate::stats_l1_commands::whole_number_views(&c.whole_numbers),
     }
 }
 
@@ -290,6 +297,7 @@ pub fn reproduction_view(outcome: &ReproductionOutcome) -> ReproductionView {
             }
         },
         unmatched_pairs: outcome.unmatched_pairs,
+        skipped: outcome.skipped,
         alpha: AlphaView { printed: outcome.alpha.printed.clone(), stated: outcome.alpha.stated },
         claims: outcome.claims.iter().map(claim_view).collect(),
     }

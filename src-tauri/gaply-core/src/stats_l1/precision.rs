@@ -7,9 +7,17 @@
 //!
 //! - **Stored precision.** Per bound numeric column, `d` is the most decimals
 //!   any of its cells shows in its shortest round-trip decimal form (Rust's
-//!   `Display` for `f64`), capped at [`MAX_DECIMALS`]. A column whose every
-//!   cell is a whole number is exact; otherwise each of its cells is
-//!   uncertain by `δ = 0.5 × 10^-d`.
+//!   `Display` for `f64`), capped at [`MAX_DECIMALS`]. Each of its cells is
+//!   uncertain by `δ = 0.5 × 10^-d`, so a column of whole numbers by
+//!   `δ = 0.5`: data deposited as whole numbers (ms, %, ages) were often
+//!   analysed unrounded (evaluation fixes, part C, B-1). Until part C a
+//!   whole-number column was exact, and the deep evaluation measured 527
+//!   false "Not reproduced" of 600 at 0 decimals, 74 of 200 even for
+//!   reaction times in ms. A column is exact only when the user says it
+//!   holds exact whole numbers (counts, rating-scale points): the binding
+//!   carries that answer, and the caller passes `δ = 0`. The same L and F
+//!   apply: t, F and r are scale-free, so whole numbers at `δ = 0.5` are the
+//!   sweep's decimal data at another scale.
 //! - **The range** (evaluation fixes, part A). The ratio r is δ over the
 //!   smallest standard deviation among the bound groups or columns (see
 //!   [`RangeParts::ratio`]). Above [`VALIDITY_LIMIT`] the range is
@@ -52,14 +60,11 @@ pub fn column_decimals(values: impl IntoIterator<Item = f64>) -> u32 {
     values.into_iter().map(decimals).max().unwrap_or(0)
 }
 
-/// The uncertainty of one cell stored to `d` decimals: zero for a column of
-/// whole numbers.
+/// The uncertainty of one cell stored to `d` decimals: half a unit of its
+/// last place, so 0.5 for whole numbers. A column the user says holds exact
+/// whole numbers is not passed through here; its `δ` is 0 (part C, B-1).
 pub fn half_unit(d: u32) -> f64 {
-    if d == 0 {
-        0.0
-    } else {
-        0.5 * 10f64.powi(-(d as i32))
-    }
+    0.5 * 10f64.powi(-(d as i32))
 }
 
 /// One bound column's numbers, as they enter a computation, with the
@@ -575,7 +580,7 @@ mod tests {
         assert_eq!(decimals(1.0 / 3.0), MAX_DECIMALS);
         assert_eq!(column_decimals([1.0, 2.5, 3.25]), 2);
         assert_eq!(column_decimals([1.0, 2.0, 30.0]), 0);
-        assert_eq!(half_unit(0), 0.0);
+        assert_eq!(half_unit(0), 0.5);
         assert!((half_unit(2) - 0.005).abs() < 1e-18);
     }
 
@@ -631,14 +636,19 @@ mod tests {
         assert!((analytic - brute).abs() < 1e-5 * brute, "{analytic} vs {brute}");
     }
 
+    /// Part C, B-1: a whole-number column is rounded to whole numbers (δ =
+    /// 0.5) unless the user says the numbers are exact (δ = 0, passed by the
+    /// caller), where until part C it was always exact.
     #[test]
-    fn whole_number_columns_are_exact() {
+    fn whole_number_columns_are_rounded_unless_said_to_be_exact() {
         let a = [3.0, 4.0, 5.0, 6.0];
         let c = [5.0, 7.0, 6.0, 8.0];
         let d = column_decimals(a.iter().chain(&c).copied());
         assert_eq!(d, 0);
-        assert_eq!(student_t_bound(&a, &c, half_unit(d)), 0.0);
-        assert_eq!(welch_bounds(&a, &c, half_unit(d)), (0.0, 0.0));
+        assert_eq!(half_unit(d), 0.5);
+        assert!(student_t_bound(&a, &c, half_unit(d)) > 0.0);
+        assert_eq!(student_t_bound(&a, &c, 0.0), 0.0);
+        assert_eq!(welch_bounds(&a, &c, 0.0), (0.0, 0.0));
     }
 
     #[test]

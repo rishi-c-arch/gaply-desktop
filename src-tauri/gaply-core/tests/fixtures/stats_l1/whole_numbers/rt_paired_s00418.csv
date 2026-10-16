@@ -1,0 +1,14 @@
+# /usr/local/bin/Rscript (R 4.6.1), make_whole_numbers.R
+# eval3 scale case s00418 (paired); printed, from R on the unrounded values: t(9) = -0.35, p = .732
+# R on the stored whole numbers: t = -0.351518, df = 9, p = 0.733289
+pre,post
+755,658
+744,743
+425,345
+633,734
+461,540
+566,586
+508,437
+588,596
+577,643
+402,455

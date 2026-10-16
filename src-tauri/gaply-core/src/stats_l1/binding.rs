@@ -34,6 +34,18 @@
 //! in a bound column (listwise, on the bound columns only), and the n that
 //! would be used. It also flags, and never recodes, values in bound numeric
 //! columns that look like missing-value codes.
+//!
+//! # Whole-number columns (evaluation fixes, part C, B-1)
+//!
+//! A bound numeric column whose every cell is a whole number may hold exact
+//! counts or scale points, or values rounded to whole numbers on deposit
+//! (milliseconds, percentages, ages). The data cannot say which, so the
+//! binding carries the user's answer for each such column:
+//! [`WholeNumbers::RoundedOrNotSure`] unless the draft names the column in
+//! [`BindingDraft::exact_whole_numbers`]. The answer is part of the digest a
+//! token is bound to, so changing it is a new binding; an AI suggestion
+//! never carries one ([`super::run_state::L1RunState::add_proposal`] clears
+//! it), and no outbound struct has a field for it.
 
 use super::catalogue::{L1MethodId, LevelRule, MethodCatalogue, RoleName, SlotKind, VariantChoice};
 use super::claim::{ClaimId, L1Claim, RevisionHash};
@@ -97,6 +109,24 @@ pub enum OlsTarget {
     Coefficient { predictor: ColumnAlias },
 }
 
+/// The user's answer for one bound whole-number column (part C, B-1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum WholeNumbers {
+    /// "Rounded, or not sure": the default. Each cell may be off by up to
+    /// half a unit, through the same range as a decimal column.
+    RoundedOrNotSure,
+    /// "Exact whole numbers": counts or points on a rating scale. No range.
+    Exact,
+}
+
+/// One bound whole-number column and the answer the binding was confirmed
+/// with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WholeNumberAnswer {
+    pub column: ColumnAlias,
+    pub answer: WholeNumbers,
+}
+
 /// Listwise on the bound columns only: the only rule in Phase 2.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MissingDataRule {
@@ -125,6 +155,9 @@ pub struct BindingDraft {
     pub variant: VariantChoice,
     pub target: Option<OlsTarget>,
     pub transformations: Vec<TransformationRequest>,
+    /// Bound whole-number columns the user says hold EXACT whole numbers.
+    /// Every other bound whole-number column is rounded, or not sure.
+    pub exact_whole_numbers: Vec<ColumnAlias>,
 }
 
 impl BindingDraft {
@@ -138,6 +171,7 @@ impl BindingDraft {
             variant,
             target: None,
             transformations: Vec::new(),
+            exact_whole_numbers: Vec::new(),
         }
     }
     pub fn role(mut self, role: RoleName, columns: &[ColumnAlias]) -> BindingDraft {
@@ -155,6 +189,34 @@ impl BindingDraft {
     pub fn target(mut self, target: OlsTarget) -> BindingDraft {
         self.target = Some(target);
         self
+    }
+    /// The user's "Exact whole numbers" answer for these columns.
+    pub fn exact_whole_numbers(mut self, columns: &[ColumnAlias]) -> BindingDraft {
+        self.exact_whole_numbers = columns.to_vec();
+        self
+    }
+
+    /// The columns this draft binds to a numeric slot that hold only whole
+    /// numbers in `dataset`, each with the answer it would be confirmed
+    /// with, by alias: the columns the Confirm step asks about. Empty for a
+    /// method not in the catalogue. [`confirm`] records exactly these.
+    pub fn whole_number_answers(&self, dataset: &Dataset) -> Vec<WholeNumberAnswer> {
+        let Some(entry) = MethodCatalogue::by_id(&self.method_id) else { return Vec::new() };
+        let mut out: Vec<WholeNumberAnswer> = Vec::new();
+        for r in &self.roles {
+            if !entry.slot(r.role).is_some_and(|slot| !matches!(slot.kind, SlotKind::Group { .. })) {
+                continue;
+            }
+            for &c in &r.columns {
+                if out.iter().any(|w| w.column == c) || !dataset.column_cells(c).is_some_and(holds_only_whole_numbers) {
+                    continue;
+                }
+                let answer = if self.exact_whole_numbers.contains(&c) { WholeNumbers::Exact } else { WholeNumbers::RoundedOrNotSure };
+                out.push(WholeNumberAnswer { column: c, answer });
+            }
+        }
+        out.sort_by_key(|w| w.column);
+        out
     }
 }
 
@@ -216,6 +278,9 @@ pub enum Rejection {
     TargetMissing,
     TargetNotAPredictor,
     TargetNotApplicable,
+    /// "Exact whole numbers" was given for a column that is not a bound
+    /// numeric column holding only whole numbers.
+    WholeNumberAnswerNotApplicable(ColumnAlias),
 }
 
 /// A binding the user confirmed. Private fields; built only by [`confirm`].
@@ -236,6 +301,9 @@ pub struct ConfirmedBinding {
     target: Option<OlsTarget>,
     counts: BindingCounts,
     suspect_codes: Vec<SuspectMissingCode>,
+    /// Every bound numeric column whose cells are all whole numbers, with the
+    /// answer it was confirmed with, by alias.
+    whole_numbers: Vec<WholeNumberAnswer>,
     digest: String,
 }
 
@@ -284,6 +352,14 @@ impl ConfirmedBinding {
     }
     pub fn suspect_codes(&self) -> &[SuspectMissingCode] {
         &self.suspect_codes
+    }
+    /// The bound whole-number columns and the answer for each.
+    pub fn whole_numbers(&self) -> &[WholeNumberAnswer] {
+        &self.whole_numbers
+    }
+    /// The answer for `column`, when it is a bound whole-number column.
+    pub fn whole_number_answer(&self, column: ColumnAlias) -> Option<WholeNumbers> {
+        self.whole_numbers.iter().find(|w| w.column == column).map(|w| w.answer)
     }
     /// SHA-256 of the normalised binding: what a token is bound to.
     pub fn digest(&self) -> &str {
@@ -442,6 +518,12 @@ pub(super) fn confirm(proposal: &BindingProposal, dataset: &Dataset, claim: &L1C
         (false, None) => {}
     }
 
+    // Whole-number columns among the numeric slots, and the user's answers.
+    let whole_numbers = draft.whole_number_answers(dataset);
+    if let Some(&c) = draft.exact_whole_numbers.iter().find(|c| !whole_numbers.iter().any(|w| w.column == **c)) {
+        return Err(Rejection::WholeNumberAnswerNotApplicable(c));
+    }
+
     // The counts pass.
     let bound: Vec<ColumnAlias> = roles.iter().flat_map(|r| r.columns.iter().copied()).collect();
     let mut counts = BindingCounts { rows_read: dataset.rows(), rows_filtered_out: 0, rows_excluded_missing: 0, n_used: 0 };
@@ -475,7 +557,7 @@ pub(super) fn confirm(proposal: &BindingProposal, dataset: &Dataset, claim: &L1C
         f.levels.sort_unstable();
         f.levels.dedup();
     }
-    let digest = normalised_digest(entry.id, &roles, &levels, &filters, draft.missing, draft.variant, draft.target);
+    let digest = normalised_digest(entry.id, &roles, &levels, &filters, draft.missing, draft.variant, draft.target, &whole_numbers);
 
     tracing::debug!(
         rows_read = counts.rows_read,
@@ -501,8 +583,24 @@ pub(super) fn confirm(proposal: &BindingProposal, dataset: &Dataset, claim: &L1C
         target: draft.target,
         counts,
         suspect_codes,
+        whole_numbers,
         digest,
     })
+}
+
+/// Every number in the column is a whole number, and there is at least one.
+/// Missing and text cells are not numbers and do not count either way.
+pub fn holds_only_whole_numbers(cells: &[Cell]) -> bool {
+    let mut any = false;
+    for c in cells {
+        if let Cell::Number(v) = c {
+            if !(v.is_finite() && *v == v.trunc()) {
+                return false;
+            }
+            any = true;
+        }
+    }
+    any
 }
 
 /// Whether `row` passes every include-filter: its cell in each filtered
@@ -547,6 +645,7 @@ fn normalised_digest(
     missing: MissingDataRule,
     variant: VariantChoice,
     target: Option<OlsTarget>,
+    whole_numbers: &[WholeNumberAnswer],
 ) -> String {
     let mut s = format!("method={};", method.id());
     let mut rs: Vec<&RoleBinding> = roles.iter().collect();
@@ -563,6 +662,9 @@ fn normalised_digest(
         s.push_str(&format!("filter {}:[{}];", f.column.name(), f.levels.join("\u{1f}")));
     }
     s.push_str(&format!("missing={missing:?};variant={};target={target:?}", variant.variant().canonical()));
+    for w in whole_numbers {
+        s.push_str(&format!(";whole {}={:?}", w.column.name(), w.answer));
+    }
     sha256_hex(s.as_bytes())
 }
 

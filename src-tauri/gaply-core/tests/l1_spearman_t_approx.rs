@@ -8,10 +8,16 @@
 //!
 //! - A printed p that matches the t approximation is matched, and the claim
 //!   carries a note naming the method.
-//! - A printed p that does not match is NOT CHECKED (`spearman_p_may_be_exact`):
-//!   the paper may have used the exact p, which Level 1 does not compute yet.
-//!   A p alone never makes a Spearman claim NotReproduced, with or without
-//!   ties (before this step, a tied sample's mismatched p did).
+//! - A printed p that does not match is NOT CHECKED (`spearman_p_may_be_exact`)
+//!   only where it could be R's exact p: inside the band measured to hold it
+//!   (evaluation fixes, part C, M-2). Outside the band it is not matched, and
+//!   the claim is NotReproduced, as the report's own case
+//!   (`no_ties_report_a01`, p = .200 where R's exact p is about 0) shows.
+//!   With ties R gives the t approximation itself; a miss stays not checked,
+//!   for its own reason (`spearman_p_with_ties`), because other software's
+//!   exact p with ties is not bounded. Part A left every miss not checked.
+//! - The fixture's integer columns are values R used as they are, so the
+//!   bindings here say "Exact whole numbers" for them (part C, B-1).
 
 use gaply_core::extract::SectionKind;
 use gaply_core::stats_l0::number::Relation;
@@ -25,8 +31,8 @@ use gaply_core::stats_l1::dataset::{
     build_dataset, ColumnAlias, DataFingerprint, Dataset, RawTable, TableRef,
 };
 use gaply_core::stats_l1::reproduce::{
-    reproduce, ClaimReproduction, L1CouldNotCheck, L1Note, L1Verdict, NotCheckedReason, NumberKind,
-    NumberStatus, VariantGap,
+    reproduce, spearman_exact_band, ClaimReproduction, L1CouldNotCheck, L1Note, L1Verdict,
+    NotCheckedReason, NumberKind, NumberStatus, VariantGap,
 };
 use gaply_core::stats_l1::run_state::L1RunState;
 
@@ -130,7 +136,8 @@ fn run_with(
         .unwrap();
     let draft = BindingDraft::new(L1MethodId::Spearman, variant)
         .role(RoleName::X, &[ColumnAlias(1)])
-        .role(RoleName::Y, &[ColumnAlias(2)]);
+        .role(RoleName::Y, &[ColumnAlias(2)])
+        .exact_whole_numbers(&whole_columns(c));
     let pid = s
         .add_proposal(claim, draft, ProposalSource::Manual { edited_from: None })
         .unwrap();
@@ -143,6 +150,16 @@ fn run_with(
     )
     .claims
     .remove(0)
+}
+
+/// The columns of the case that hold integers, which R used as they are.
+fn whole_columns(c: &Case) -> Vec<ColumnAlias> {
+    let whole = |v: &[String]| v.iter().all(|x| x.trim().parse::<i64>().is_ok());
+    [(&c.x, 1), (&c.y, 2)]
+        .into_iter()
+        .filter(|(v, _)| whole(v))
+        .map(|(_, a)| ColumnAlias(a))
+        .collect()
 }
 
 fn p_status(r: &ClaimReproduction) -> NumberStatus {
@@ -186,42 +203,83 @@ fn a_p_that_matches_the_t_approximation_is_matched_and_named() {
     }
 }
 
-/// A p that matches neither: not checked, never NotReproduced. The report's
-/// own case is `no_ties_report_a01`: r(10) = -.97 printed with p = .200,
-/// where R's t-approximation p is 3.88e-7 and its exact p 0.
+/// A p that misses the t approximation. Without ties: not checked inside the
+/// band that holds R's exact p, not matched outside it. The report's case is
+/// `no_ties_report_a01`: r(10) = -.97 printed with p = .200, where R's
+/// t-approximation p is 3.88e-7 and its exact p about 0: Not reproduced.
+/// With ties: not checked, for its own reason.
 #[test]
-fn a_p_that_does_not_match_is_not_checked_with_or_without_ties() {
+fn a_p_that_does_not_match_is_not_checked_only_inside_the_exact_band_or_with_ties() {
+    let mut outside = 0;
     for c in cases() {
-        let r = run(&c, ".200", Relation::Eq);
         assert!(
             c.p < 0.15 || c.p > 0.25,
             "{}: .200 must really miss R's {}",
             c.name,
             c.p
         );
-        assert_eq!(
-            p_status(&r),
-            NumberStatus::NotChecked(NotCheckedReason::SpearmanPMayBeExact),
-            "{}",
-            c.name
-        );
-        let L1Verdict::Reproduced(notes) = &r.verdict else {
-            panic!("{} (ties {}): {:?}", c.name, c.ties, r.verdict)
-        };
-        assert!(
-            notes.contains(&L1Note::NotChecked {
-                number: NumberKind::P,
-                why: NotCheckedReason::SpearmanPMayBeExact
-            }),
-            "{}: {notes:?}",
-            c.name
-        );
-        assert!(
-            !notes.contains(&L1Note::SpearmanPByTApproximation),
-            "{}: an unmatched p names no method",
-            c.name
-        );
+        let r = run(&c, ".200", Relation::Eq);
+        let (lo, hi) = spearman_exact_band(c.p);
+        if c.ties {
+            assert_eq!(
+                p_status(&r),
+                NumberStatus::NotChecked(NotCheckedReason::SpearmanPWithTies),
+                "{}",
+                c.name
+            );
+            let L1Verdict::Reproduced(notes) = &r.verdict else {
+                panic!("{}: {:?}", c.name, r.verdict)
+            };
+            assert!(
+                !notes.contains(&L1Note::SpearmanPByTApproximation),
+                "{}: an unmatched p names no method",
+                c.name
+            );
+        } else if (lo..=hi).contains(&0.2) {
+            assert_eq!(
+                p_status(&r),
+                NumberStatus::NotChecked(NotCheckedReason::SpearmanPMayBeExact),
+                "{}",
+                c.name
+            );
+        } else {
+            outside += 1;
+            assert_eq!(
+                p_status(&r),
+                NumberStatus::NotMatched,
+                "{}: .200 is outside [{lo}, {hi}]",
+                c.name
+            );
+            assert!(
+                matches!(r.verdict, L1Verdict::NotReproduced { .. }),
+                "{}: {:?}",
+                c.name,
+                r.verdict
+            );
+        }
+        // Inside the band, without ties: twice the t-approximation p.
+        if !c.ties {
+            let (p, rel) = printed(2.0 * c.p);
+            let r = run(&c, &p, rel);
+            assert!(
+                matches!(
+                    p_status(&r),
+                    NumberStatus::NotChecked(NotCheckedReason::SpearmanPMayBeExact)
+                        | NumberStatus::Matched(_)
+                ),
+                "{}: {p} {:?}",
+                c.name,
+                p_status(&r)
+            );
+            assert!(
+                matches!(r.verdict, L1Verdict::Reproduced(_)),
+                "{}: {:?}",
+                c.name,
+                r.verdict
+            );
+        }
     }
+    assert!(outside >= 1, "the report's case lies outside the band");
 }
 
 /// Review follow-up, item 3: when the paper's words or the user's tick state

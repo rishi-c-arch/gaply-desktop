@@ -194,7 +194,10 @@ fn a_stated_welch_variant_refuses_students_numbers_on_exact_data() {
     let draft = BindingDraft::new(L1MethodId::IndependentT, VariantChoice::user_ticked(Variant::T(TVariant::Welch)))
         .role(RoleName::Outcome, &[ColumnAlias(1)])
         .role(RoleName::Group, &[ColumnAlias(2)])
-        .levels(RoleName::Group, &["a", "b"]);
+        .levels(RoleName::Group, &["a", "b"])
+        // Whole-number cells are rounded unless the user says otherwise
+        // (part C, B-1); this test is about exact data, so it says so.
+        .exact_whole_numbers(&[ColumnAlias(1)]);
     let id = s.add_proposal(ClaimId(0), draft, ProposalSource::Manual { edited_from: None }).expect("proposal");
     let token = s.confirm(id).expect("confirmed").1;
     let out = reproduce(&s, &[(s.claim(ClaimId(0)).unwrap().revision.clone(), token)], || Ok(exact(b"exact v1")));
@@ -264,15 +267,20 @@ fn a_claim_edited_after_confirmation_is_stale_not_unbound() {
     assert_eq!(reads.get(), 0);
 }
 
+/// A claim no pair names was skipped by the user: counted as skipped, with
+/// no result and no "could not check" (evaluation fixes, part C, M-4; it was
+/// `CouldNotCheck(NotBound)` before). A pair naming nothing is still counted.
 #[test]
-fn a_claim_without_a_pair_is_not_bound_and_a_pair_naming_nothing_is_counted() {
+fn a_claim_without_a_pair_is_skipped_and_a_pair_naming_nothing_is_counted() {
     let (t, df, p) = printed_a_vs_b();
     let mut s = run_with_claim(&t, &df, &p);
     let (_, token) = confirm(&mut s, a_vs_b(VariantChoice::not_stated(VariantKind::T)), manual());
     let other = run_with_claim("1.00", "5", ".363");
     let foreign = (other.claim(ClaimId(0)).unwrap().revision.clone(), token);
     let out = run(&s, &[foreign], &Cell::new(0));
-    assert_eq!(out.claims[0].verdict, L1Verdict::CouldNotCheck(L1CouldNotCheck::NotBound));
+    assert!(out.claims.is_empty());
+    assert_eq!(out.skipped, 1);
+    assert_eq!(out.counts.could_not_check, 0);
     assert_eq!(out.unmatched_pairs, 1);
 }
 

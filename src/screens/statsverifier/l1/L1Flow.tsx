@@ -32,6 +32,7 @@ import type {
   L1OpenView,
   L1ProposalView,
   L1UsageView,
+  L1WholeNumberView,
   ReproductionView,
   WireCode,
 } from '../statsL1Types';
@@ -41,8 +42,10 @@ import { L1ResultCard } from './L1ResultCard';
 import { L1Settings, L1UsageLine } from './L1Settings';
 import {
   COLUMN_TYPE_NAMES,
+  columnIssueSentence,
   dataReadPhrase,
   datasetIssueSentence,
+  ENTRY_TEXT,
   FAMILY_SYMBOL,
   level0Phrase,
   METHOD_NAMES,
@@ -51,6 +54,9 @@ import {
   refusalSentence,
   ROLE_NAMES,
   sentenceFor,
+  skippedPhrase,
+  WHOLE_NUMBER_ANSWERS,
+  WHOLE_NUMBER_QUESTION,
   WordContext,
 } from './l1Wording';
 
@@ -84,7 +90,15 @@ export interface Draft {
   /** The variant picked in the list, before or without the tick. */
   variantPick: string | null;
   olsTarget: 'overall_f' | number | null;
-  /** The proposal this draft started from, and what Rust said about it. */
+  /** Bound whole-number columns the user says hold exact whole numbers
+   *  (evaluation fixes, part C, B-1); every other one is rounded. */
+  exactWholeNumbers: number[];
+  /** The bound whole-number columns of the proposal on screen, as Rust
+   *  listed them: the Confirm step asks about each. */
+  wholeNumbers: L1WholeNumberView[];
+  /** The proposal this draft started from, and what Rust said about it.
+   *  Confirm sends this handle only while `dirty` is false: a changed or
+   *  refused draft is not what Rust holds (part C, M-S1). */
   from: L1Handle | null;
   source: L1ProposalView['source'];
   variant: string;
@@ -115,6 +129,8 @@ export function draftFrom(p: L1ProposalView, schema: L1ColumnView[]): Draft {
     variantTicked: null,
     variantPick: p.variant !== 'not_stated' && p.variant !== 'none' ? p.variant : null,
     olsTarget: null,
+    exactWholeNumbers: p.wholeNumbers.filter((w) => w.answer === 'exact').map((w) => alias(w.alias)),
+    wholeNumbers: p.wholeNumbers,
     from: p.proposal,
     source: p.source,
     variant: p.variant,
@@ -132,6 +148,8 @@ function emptyDraft(method: string): Draft {
     variantTicked: null,
     variantPick: null,
     olsTarget: null,
+    exactWholeNumbers: [],
+    wholeNumbers: [],
     from: null,
     source: 'manual',
     variant: 'not_stated',
@@ -164,6 +182,7 @@ export function editsOf(d: Draft, schema: L1ColumnView[], catalogue: L1MethodVie
     variantTicked: d.variantTicked,
     olsOverallF: d.olsTarget === 'overall_f' ? true : null,
     olsPredictor: typeof d.olsTarget === 'number' ? d.olsTarget : null,
+    exactWholeNumbers: d.exactWholeNumbers,
   };
 }
 
@@ -209,6 +228,13 @@ export const L1Flow: React.FC<L1FlowProps> = ({ bridge, onExit }) => {
   const [usage, setUsage] = useState<L1UsageView | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Focus between stages (evaluation fixes, part C, M-S9): each stage's
+  // heading takes focus when the stage changes, and a form or panel gives
+  // focus back to the control that opened it when it closes.
+  const stageHeading = useRef<HTMLHeadingElement>(null);
+  const shownStage = useRef<Stage>(stage);
+  const editButtons = useRef<Record<string, HTMLButtonElement | null>>({});
+  const addClaimButton = useRef<HTMLButtonElement>(null);
   const manuscriptInput = useRef<HTMLInputElement>(null);
   const dataInput = useRef<HTMLInputElement>(null);
   const run = view?.run ?? null;
@@ -218,6 +244,26 @@ export const L1Flow: React.FC<L1FlowProps> = ({ bridge, onExit }) => {
   useEffect(() => {
     bridge.settingGet().then(setSettings).catch(() => undefined);
   }, [bridge]);
+
+  useEffect(() => {
+    if (shownStage.current === stage) return;
+    shownStage.current = stage;
+    stageHeading.current?.focus();
+  }, [stage]);
+
+  // The control a closed form gives focus back to. Focused after the
+  // re-render: "Add a claim" is not mounted while its form is open.
+  const refocus = useRef<number | 'new' | null>(null);
+  const closeEditor = (claimId: number | 'new') => {
+    refocus.current = claimId;
+    setEditing(null);
+  };
+  useEffect(() => {
+    if (editing !== null || refocus.current === null) return;
+    const to = refocus.current;
+    refocus.current = null;
+    (to === 'new' ? addClaimButton.current : editButtons.current[String(to)])?.focus();
+  }, [editing]);
 
   // Closing the screen closes the Rust run, and with it everything held.
   useEffect(
@@ -372,7 +418,7 @@ export const L1Flow: React.FC<L1FlowProps> = ({ bridge, onExit }) => {
         setProposals((ps) => ps.filter((p) => p.claimId !== claimId));
         setDrafts((d) => (d[claimId] ? { ...d, [claimId]: { ...d[claimId], from: null, dirty: true, source: 'manual' } } : d));
       }
-      setEditing(null);
+      closeEditor(claimId);
     } catch (e) {
       setError(refusalSentence(e));
     }
@@ -432,9 +478,35 @@ export const L1Flow: React.FC<L1FlowProps> = ({ bridge, onExit }) => {
     setBusy(false);
   };
 
+  // An answer to the whole-number question is part of the binding: the
+  // draft is sent to Rust again at once, and Confirm waits for the new
+  // handle, so it always confirms the draft on screen.
+  const answerWholeNumber = async (claimId: number, column: number, exact: boolean) => {
+    const d = drafts[claimId];
+    if (run === null || !d) return;
+    const exactWholeNumbers = exact ? [...d.exactWholeNumbers.filter((a) => a !== column), column] : d.exactWholeNumbers.filter((a) => a !== column);
+    const changed: Draft = {
+      ...d,
+      exactWholeNumbers,
+      wholeNumbers: d.wholeNumbers.map((w) => (alias(w.alias) === column ? { ...w, answer: exact ? 'exact' : 'rounded' } : w)),
+      dirty: true,
+    };
+    setDrafts((ds) => ({ ...ds, [claimId]: changed }));
+    invalidate(claimId);
+    setClaimErrors((e) => ({ ...e, [claimId]: '' }));
+    try {
+      const p = await bridge.draftProposal(run, claimId, d.from, editsOf(changed, schema, catalogue));
+      setProposals((ps) => [...ps, p]);
+      setDrafts((ds) => ({ ...ds, [claimId]: { ...draftFrom(p, schema), levels: changed.levels, filter: changed.filter, olsTarget: changed.olsTarget, variantTicked: changed.variantTicked, variantPick: changed.variantPick } }));
+    } catch (e) {
+      setClaimErrors((x) => ({ ...x, [claimId]: refusalSentence(e, ctx) }));
+    }
+  };
+
   const confirmOne = async (claimId: number) => {
     const d = drafts[claimId];
-    if (run === null || !d?.from) return;
+    // A draft Rust has not accepted is never confirmed (part C, M-S1).
+    if (run === null || !d?.from || d.dirty) return;
     setClaimErrors((e) => ({ ...e, [claimId]: '' }));
     try {
       const v = await bridge.confirmBinding(run, d.from);
@@ -448,6 +520,7 @@ export const L1Flow: React.FC<L1FlowProps> = ({ bridge, onExit }) => {
         variantSetBy: d.variantSetBy,
         source: d.source,
         reason: null,
+        wholeNumbers: d.wholeNumbers,
       };
       setConfirmed((c) => ({ ...c, [claimId]: { view: v, proposal: p, missingCodeAnswer: null } }));
     } catch (e) {
@@ -517,11 +590,9 @@ export const L1Flow: React.FC<L1FlowProps> = ({ bridge, onExit }) => {
       {error && <p role="alert" style={{ color: 'var(--g-flagged)' }} data-testid="l1-error">{error}</p>}
 
       {stage === 'add' && (
-        <Card title="Check a paper against its data">
-          <p className="gds-jc__disclaimer">
-            Gaply reads each result your manuscript prints and recomputes it from your data under a binding you confirm.
-            Both files stay on this device.
-          </p>
+        <Card>
+          <h3 className="gds-card__title" ref={stageHeading} tabIndex={-1} data-testid="l1-stage-heading">Check a paper against its data</h3>
+          <p className="gds-jc__disclaimer" data-testid="l1-entry-text">{ENTRY_TEXT}</p>
           <div style={{ display: 'grid', gap: 6 }}>
             <div>
               <Button variant="secondary" onClick={() => (isTauri ? void pickManuscript() : manuscriptInput.current?.click())} data-testid="l1-pick-manuscript">
@@ -560,9 +631,15 @@ export const L1Flow: React.FC<L1FlowProps> = ({ bridge, onExit }) => {
           ))}
         </ul>
       )}
+      {view && stage !== 'add' && schema.some((col) => col.issues.length > 0) && (
+        <ul data-testid="l1-column-issues" style={{ margin: 0 }}>
+          {schema.flatMap((col) => col.issues.map((c, i) => <li key={`${col.alias}-${i}`}>{columnIssueSentence(c, `${col.alias} ${col.header}`)}</li>))}
+        </ul>
+      )}
 
       {stage === 'claims' && view && (
-        <Card title="Review the claims">
+        <Card>
+          <h3 className="gds-card__title" ref={stageHeading} tabIndex={-1} data-testid="l1-stage-heading">Review the claims</h3>
           <p className="gds-jc__disclaimer">One row per result Gaply read. Edit a value that was read wrongly, skip a claim, or add one Gaply missed.</p>
           <ol style={{ display: 'grid', gap: 8, paddingLeft: 18 }} data-testid="l1-claims">
             {claims.map((c) => (
@@ -574,7 +651,7 @@ export const L1Flow: React.FC<L1FlowProps> = ({ bridge, onExit }) => {
                   <p style={{ margin: 0 }} data-testid={`l1-claim-${c.claimId}-reconfirm`}>Edited by you: its binding needs confirming again.</p>
                 )}
                 <div style={{ display: 'flex', gap: 6 }}>
-                  <Button variant="ghost" onClick={() => setEditing(c.claimId)} data-testid={`l1-claim-${c.claimId}-edit`}>Edit</Button>
+                  <FocusButton variant="ghost" ref={(el) => { editButtons.current[String(c.claimId)] = el; }} onClick={() => setEditing(c.claimId)} data-testid={`l1-claim-${c.claimId}-edit`}>Edit</FocusButton>
                   <Button
                     variant="ghost"
                     aria-pressed={skipped.has(c.claimId)}
@@ -591,14 +668,14 @@ export const L1Flow: React.FC<L1FlowProps> = ({ bridge, onExit }) => {
                     {skipped.has(c.claimId) ? 'Include' : 'Skip'}
                   </Button>
                 </div>
-                {editing === c.claimId && <ClaimForm initial={c} onSave={(i) => void saveClaim(c.claimId, i)} onCancel={() => setEditing(null)} />}
+                {editing === c.claimId && <ClaimForm initial={c} onSave={(i) => void saveClaim(c.claimId, i)} onCancel={() => closeEditor(c.claimId)} />}
               </li>
             ))}
           </ol>
           {editing === 'new' ? (
-            <ClaimForm initial={null} onSave={(i) => void saveClaim('new', i)} onCancel={() => setEditing(null)} />
+            <ClaimForm initial={null} onSave={(i) => void saveClaim('new', i)} onCancel={() => closeEditor('new')} />
           ) : (
-            <Button variant="secondary" onClick={() => setEditing('new')} data-testid="l1-claim-add">Add a claim</Button>
+            <FocusButton variant="secondary" ref={addClaimButton} onClick={() => setEditing('new')} data-testid="l1-claim-add">Add a claim</FocusButton>
           )}
           <div style={{ marginTop: 8 }}>
             <Button onClick={() => setStage('bind')} disabled={included.length === 0} data-testid="l1-to-bind">Continue to binding</Button>
@@ -607,10 +684,11 @@ export const L1Flow: React.FC<L1FlowProps> = ({ bridge, onExit }) => {
       )}
 
       {stage === 'bind' && view && (
-        <Card title="Bind each claim to the data">
-          <p className="gds-jc__disclaimer">
-            Choose the method and the columns for each claim. Column names and level names are shown here from your file
-            and never leave this device unless you tick that box in an AI request.
+        <Card>
+          <h3 className="gds-card__title" ref={stageHeading} tabIndex={-1} data-testid="l1-stage-heading">Bind each claim to the data</h3>
+          <p className="gds-jc__disclaimer" data-testid="l1-bind-text">
+            Choose the method and the columns for each claim. Column names leave this device only if you tick &lsquo;Also send
+            my original column names&rsquo;. Level names never leave it.
           </p>
           {included.map((c) => {
             const d = drafts[c.claimId];
@@ -660,7 +738,8 @@ export const L1Flow: React.FC<L1FlowProps> = ({ bridge, onExit }) => {
       )}
 
       {stage === 'confirm' && view && (
-        <Card title="Confirm each binding">
+        <Card>
+          <h3 className="gds-card__title" ref={stageHeading} tabIndex={-1} data-testid="l1-stage-heading">Confirm each binding</h3>
           {included.map((c) => {
             const d = drafts[c.claimId];
             const k = confirmed[c.claimId];
@@ -693,13 +772,37 @@ export const L1Flow: React.FC<L1FlowProps> = ({ bridge, onExit }) => {
                     )}
                   </fieldset>
                 ))}
+                {d?.wholeNumbers.map((wn) => (
+                  <fieldset key={wn.alias} data-testid={`l1-whole-${c.claimId}-${wn.alias}`} style={{ border: 'none', padding: 0, margin: '4px 0' }}>
+                    <legend>
+                      Column {ctx.column(alias(wn.alias))}: {WHOLE_NUMBER_QUESTION}
+                    </legend>
+                    {WHOLE_NUMBER_ANSWERS.map((a) => (
+                      <label key={a.answer} style={{ marginRight: 12 }}>
+                        <input
+                          type="radio"
+                          name={`whole-${c.claimId}-${wn.alias}`}
+                          checked={wn.answer === a.answer}
+                          onChange={() => void answerWholeNumber(c.claimId, alias(wn.alias), a.answer === 'exact')}
+                          data-testid={`l1-whole-${c.claimId}-${wn.alias}-${a.answer}`}
+                        />{' '}
+                        {a.label}
+                      </label>
+                    ))}
+                  </fieldset>
+                ))}
                 {claimErrors[c.claimId] && <p role="alert" style={{ color: 'var(--g-flagged)' }}>{claimErrors[c.claimId]}</p>}
                 {k ? (
                   <Badge status="certain" data-testid={`l1-confirmed-${c.claimId}`}>Confirmed</Badge>
                 ) : (
-                  <Button onClick={() => void confirmOne(c.claimId)} disabled={!d?.from} data-testid={`l1-confirm-btn-${c.claimId}`}>
+                  <Button onClick={() => void confirmOne(c.claimId)} disabled={!d?.from || d.dirty} data-testid={`l1-confirm-btn-${c.claimId}`}>
                     Confirm this binding
                   </Button>
+                )}
+                {!k && d && (!d.from || d.dirty) && (
+                  <p className="gds-jc__disclaimer" data-testid={`l1-confirm-wait-${c.claimId}`} style={{ margin: 0 }}>
+                    Confirm is available once this binding is accepted as shown. Go back to binding to change it.
+                  </p>
                 )}
               </section>
             );
@@ -714,13 +817,25 @@ export const L1Flow: React.FC<L1FlowProps> = ({ bridge, onExit }) => {
       )}
 
       {stage === 'results' && result && view && (
-        <section aria-label="Results" data-testid="l1-results" style={{ display: 'grid', gap: 8 }}>
-          <p style={{ margin: 0 }} data-testid="l1-results-counts">
+        <section aria-labelledby="l1-results-h" data-testid="l1-results" style={{ display: 'grid', gap: 8 }}>
+          <h3 id="l1-results-h" className="gds-card__title" ref={stageHeading} tabIndex={-1} data-testid="l1-stage-heading" style={{ margin: 0 }}>Results</h3>
+          <p style={{ margin: 0 }} role="status" data-testid="l1-results-counts">
             {result.counts.reproduced} reproduced
-            {partlyReproduced(result) > 0 ? ` (${partlyReproduced(result)} of them with a number that could not be checked)` : ''},{' '}
+            {partlyReproduced(result) > 0 ? ` (${partlyReproduced(result)} of them with a number that was not decided)` : ''},{' '}
             {result.counts.notReproduced} not reproduced, {result.counts.couldNotCheck} could not be checked.{' '}
+            {skippedPhrase(result.skipped)}
+            {result.skipped > 0 ? ' ' : ''}
             {dataReadPhrase(result.data)}
           </p>
+          {result.skipped > 0 && (
+            <ul data-testid="l1-results-skipped" style={{ margin: 0 }}>
+              {claims
+                .filter((c) => !result.claims.some((r) => r.claimId === c.claimId))
+                .map((c) => (
+                  <li key={c.claimId}>Skipped by you: {c.sentence}</li>
+                ))}
+            </ul>
+          )}
           {result.claims.map((r) => (
             <L1ResultCard
               key={r.claimId}

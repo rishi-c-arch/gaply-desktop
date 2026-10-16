@@ -263,7 +263,9 @@ pub const ALPHA_WORDING: [&str; 3] = [
         r"(?i)(?:\b(?:α|alpha)(?:\s+(?:level|value|criterion))?\s*",
         r"(?:was\s+set\s+(?:at|to)|were\s+set\s+(?:at|to)|is\s+set\s+(?:at|to)|set\s+(?:at|to)|was|were|is|=|:|of|at)",
         r"|\b(?:significance\s+(?:level|threshold|criterion)|level\s+of\s+significance",
-        r"|criterion\s+(?:for|of)\s+(?:statistical\s+)?significance)[^\d;.]{0,30}?",
+        r"|criterion\s+(?:for|of)\s+(?:statistical\s+)?significance",
+        // "The Bonferroni-corrected threshold was .05/6" (part C, m-3).
+        r"|(?:corrected|adjusted)\s+(?:significance\s+)?(?:threshold|alpha|α|level))[^\d;.]{0,30}?",
         r"(?:was\s+set\s+(?:at|to)|were\s+set\s+(?:at|to)|is\s+set\s+(?:at|to)|set\s+(?:at|to)|was|were|is|=|:|of|at)",
         r"|\bsignificance\s+was\s+(?:set|determined|defined|fixed)(?:\s+(?:at|to|as))?",
         r"|\bcriterion\s+of",
@@ -272,13 +274,16 @@ pub const ALPHA_WORDING: [&str; 3] = [
         r"(\d*\.\d+|\d+(?:\.\d+)?)(?:\s*/\s*(\d+))?",
     ),
     concat!(
-        r"(?i)\bp\s*(?:-?\s*values?)?\s*(<=|<|≤)\s*",
+        // "below .01" and "less than .01" read as `<` (part C, m-3).
+        r"(?i)\bp\s*(?:-?\s*values?)?\s*(<=|<|≤|below|less\s+than|under)\s*",
         r"(\d*\.\d+|\d+(?:\.\d+)?)(?:\s*/\s*(\d+))?",
         r"\s+(?:was|were|is|are)\s+(?:considered|regarded|taken|deemed|defined|treated)(?:\s+as)?\s+(?:statistically\s+)?significant",
     ),
-    // A continuation, matched only where the previous value ended.
+    // A continuation, matched only where the previous value ended; a short
+    // scope may come between ("p < .05 for main effects and p < .01 for
+    // interactions", part C, m-3).
     concat!(
-        r"(?i)^\s*,?\s*(?:and|or)\s+(?:at\s+)?",
+        r"(?i)^(?:\s+for\s+[^\d;.,]{1,40}?)?\s*,?\s*(?:and|or)\s+(?:at\s+)?",
         r"(?:\bp\s*(?:-?\s*values?)?\s*(<=|<|≤|=)\s*)?",
         r"(\d*\.\d+|\d+(?:\.\d+)?)(?:\s*/\s*(\d+))?",
     ),
@@ -369,6 +374,8 @@ fn relation_of(op: &str) -> Relation {
         "<=" | "≤" => Relation::Le,
         ">" => Relation::Gt,
         ">=" | "≥" => Relation::Ge,
+        // The alpha wording's "below .01", "less than .01", "under .01".
+        w if ["below", "less", "under"].iter().any(|x| w.to_ascii_lowercase().starts_with(x)) => Relation::Lt,
         _ => Relation::Eq,
     }
 }
@@ -457,13 +464,60 @@ enum Scan<'h> {
 /// The first p-value after `from` in the sentence holding `stat_start`, if no
 /// other statistic is printed between them. That p belongs to this attempt;
 /// with a statistic in between it belongs to that one.
-fn claimed_p(s: &str, stat_start: usize, from: usize) -> Option<(usize, usize)> {
-    let sentence = crate::extract::sentence::sentence_containing(s, stat_start);
+fn claimed_p(cache: &ScanCache, s: &str, stat_start: usize, from: usize) -> Option<(usize, usize)> {
+    let sentence = cache.sentence(s, stat_start);
     let sent_start = sentence.as_ptr() as usize - s.as_ptr() as usize;
     let sent_end = sent_start + sentence.len();
-    let m = stats::regexes().p_value.find_at(&s[..sent_end], from)?;
-    let between = patterns().head.find_at(&s[..m.start()], from).is_some();
-    (!between).then(|| (m.start(), m.end()))
+    let (m_start, m_end) = cache.next_p(s, sent_end, from)?;
+    let between = patterns().head.find_at(&s[..m_start], from).is_some();
+    (!between).then_some((m_start, m_end))
+}
+
+/// One paragraph's memo for the two searches that made a long clause
+/// quadratic: 70,000 statistics with no p in one clause took 58.5 s, because
+/// every unit found its sentence again and searched to the sentence's end
+/// for a p (phase 2 evaluation fixes, part C, m-6). Both answers are reused
+/// only where they are provably the same:
+///
+/// - a sentence's bounds are the same for every position inside them
+///   ([`crate::extract::sentence::sentence_bounds`]);
+/// - the leftmost p found searching from `f0` within one sentence is also the
+///   leftmost from any later start up to it (the haystack is the same, and
+///   no p starts between the two starts), and when there is none from `f0`
+///   there is none from later.
+#[derive(Default)]
+struct ScanCache {
+    sentence: std::cell::Cell<Option<(usize, usize)>>,
+    next_p: std::cell::Cell<Option<(usize, usize, Option<(usize, usize)>)>>,
+}
+
+impl ScanCache {
+    fn sentence<'h>(&self, s: &'h str, at: usize) -> &'h str {
+        if let Some((a, b)) = self.sentence.get() {
+            if a <= at && at < b && s.is_char_boundary(at) {
+                return s[a..b].trim();
+            }
+        }
+        match crate::extract::sentence::sentence_bounds(s, at) {
+            Some((a, b)) => {
+                self.sentence.set(Some((a, b)));
+                s[a..b].trim()
+            }
+            None => s.trim(),
+        }
+    }
+
+    /// The first p at or after `from` in `s[..sent_end]`.
+    fn next_p(&self, s: &str, sent_end: usize, from: usize) -> Option<(usize, usize)> {
+        if let Some((end, f0, found)) = self.next_p.get() {
+            if end == sent_end && from >= f0 && found.map_or(true, |(start, _)| start >= from) {
+                return found;
+            }
+        }
+        let found = stats::regexes().p_value.find_at(&s[..sent_end], from).map(|m| (m.start(), m.end()));
+        self.next_p.set(Some((sent_end, from, found)));
+        found
+    }
 }
 
 /// The items allowed straight after the p: one effect size and one interval
@@ -498,11 +552,11 @@ fn trailing_items<'h>(s: &'h str, unit: &mut Unit<'h>, mut pos: usize) -> Result
 }
 
 /// Scan one unit whose statistic head ends (after `=`) at `eq_end`.
-fn scan_unit<'h>(s: &'h str, stat_start: usize, symbol: &str, df_inner: Option<&'h str>, eq_end: usize) -> Scan<'h> {
+fn scan_unit<'h>(cache: &ScanCache, s: &'h str, stat_start: usize, symbol: &str, df_inner: Option<&'h str>, eq_end: usize) -> Scan<'h> {
     let pt = patterns();
     let family = family_of(symbol);
     let Some((value, value_end)) = scan_token(s, eq_end) else {
-        let p = claimed_p(s, stat_start, eq_end);
+        let p = claimed_p(cache, s, stat_start, eq_end);
         let reason = if p.is_some() { Reason::NotLinked } else { Reason::StatisticWithoutP };
         return Scan::Rejected { reason, end: eq_end, p };
     };
@@ -513,7 +567,7 @@ fn scan_unit<'h>(s: &'h str, stat_start: usize, symbol: &str, df_inner: Option<&
         let after_comma = at(&pt.sep, s, value_end).map(|(e, _)| e);
         let is_ci = after_comma.is_some_and(|p| at(&pt.ci, s, p).is_some());
         if !is_ci {
-            let p = claimed_p(s, stat_start, value_end);
+            let p = claimed_p(cache, s, stat_start, value_end);
             return Scan::Rejected { reason: Reason::TwoResultsInOneClause, end: m_end, p };
         }
     }
@@ -542,7 +596,7 @@ fn scan_unit<'h>(s: &'h str, stat_start: usize, symbol: &str, df_inner: Option<&
             let tok = scan_token(s, m_end);
             let end = tok.map_or(m_end, |(_, e)| e);
             if !allowed {
-                let p = claimed_p(s, stat_start, end);
+                let p = claimed_p(cache, s, stat_start, end);
                 return Scan::Rejected { reason: Reason::MalformedDegreesOfFreedom, end, p };
             }
             if let Some((tok, end)) = tok {
@@ -580,7 +634,7 @@ fn scan_unit<'h>(s: &'h str, stat_start: usize, symbol: &str, df_inner: Option<&
         }
         if let Some((end, g)) = captures_at(&pt.ci, s, item) {
             if unit.ci.is_some() {
-                let p = claimed_p(s, stat_start, end);
+                let p = claimed_p(cache, s, stat_start, end);
                 return Scan::Rejected { reason: Reason::RepeatedItem, end, p };
             }
             let text = |i: usize| g[i].map(|(a, b)| &s[a..b]).expect("ci group");
@@ -599,7 +653,7 @@ fn scan_unit<'h>(s: &'h str, stat_start: usize, symbol: &str, df_inner: Option<&
             let tail = at(&pt.effect_tail, s, m_end).map_or(m_end, |(t, _)| t);
             let Some((tok, end)) = scan_token(s, tail) else { break };
             if unit.effect.is_some() {
-                let p = claimed_p(s, stat_start, end);
+                let p = claimed_p(cache, s, stat_start, end);
                 return Scan::Rejected { reason: Reason::RepeatedItem, end, p };
             }
             unit.effect = Some((name, tok));
@@ -612,13 +666,13 @@ fn scan_unit<'h>(s: &'h str, stat_start: usize, symbol: &str, df_inner: Option<&
 
     // The unit ended before a p. A p later in the same sentence, with no other
     // statistic before it, makes this NotLinked, and is this attempt's p.
-    let p = claimed_p(s, stat_start, value_end);
+    let p = claimed_p(cache, s, stat_start, value_end);
     let reason = if p.is_some() { Reason::NotLinked } else { Reason::StatisticWithoutP };
     Scan::Rejected { reason, end: value_end, p }
 }
 
 /// Read every printed number of a scanned unit. The first refusal rejects it.
-fn build(unit: &Unit<'_>, s: &str, id: usize, location: &Location, source: Source) -> Result<ReportedResult, Reason> {
+fn build(cache: &ScanCache, unit: &Unit<'_>, s: &str, id: usize, location: &Location, source: Source) -> Result<ReportedResult, Reason> {
     let (df, n) = parse_df(unit.family, unit.df_inner, unit.df_labelled)?;
     let num = |t: &str| ReportedNumber::measured(t).map_err(Reason::Number);
     let statistic = num(unit.value)?;
@@ -642,7 +696,7 @@ fn build(unit: &Unit<'_>, s: &str, id: usize, location: &Location, source: Sourc
         }
         None => None,
     };
-    let sentence = crate::extract::sentence::sentence_containing(s, unit.stat_start);
+    let sentence = cache.sentence(s, unit.stat_start);
     Ok(ReportedResult {
         id,
         location: location.clone(),
@@ -698,6 +752,7 @@ pub fn read_results(ex: &ExtractionResult, tables: TableStructure) -> ResultRead
             let s = para.as_str();
             // Spans whose p-value a unit already accounts for.
             let mut covered: Vec<(usize, usize)> = Vec::new();
+            let cache = ScanCache::default();
             // Spans of stated thresholds in this paragraph.
             let mut threshold_spans: Vec<(usize, usize)> = Vec::new();
             let mut pos = 0;
@@ -705,11 +760,11 @@ pub fn read_results(ex: &ExtractionResult, tables: TableStructure) -> ResultRead
                 let sym = c.get(1).expect("symbol group");
                 let eq_end = c.get(0).expect("group 0").end();
                 let df_inner = c.get(2).map(|m| m.as_str());
-                match scan_unit(s, sym.start(), sym.as_str(), df_inner, eq_end) {
+                match scan_unit(&cache, s, sym.start(), sym.as_str(), df_inner, eq_end) {
                     Scan::Complete(unit) => {
                         covered.push((unit.stat_start, unit.end));
                         let source = source_of(ex, tables, s);
-                        match build(&unit, s, results.len(), &location, source) {
+                        match build(&cache, &unit, s, results.len(), &location, source) {
                             Ok(r) => results.push(r),
                             Err(reason) => not_read.push(NotRead {
                                 location: location.clone(),

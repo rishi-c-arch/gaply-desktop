@@ -1,0 +1,15 @@
+# /usr/local/bin/Rscript (R 4.6.1), make_whole_numbers.R
+# eval3 scale case s00234 (pearson); printed, from R on the unrounded values: r(9) = -.06, p = .852
+# R on the stored whole numbers: r = -0.062420, df = 9, p = 0.855333
+x,y
+626,798
+383,651
+448,494
+596,637
+557,360
+675,614
+456,762
+666,599
+527,536
+664,515
+490,654

@@ -168,6 +168,12 @@ pub enum CheckNote {
     /// equality while the true p is smaller still. A software display floor;
     /// the conclusion cannot change.
     FloorPrintedAsEquality,
+    /// The printed p is a number the software had already rounded, rounded
+    /// again: the exact p rounded first to 3 decimals, or to one more decimal
+    /// than printed, then to the printed decimals, gives the printed digits
+    /// (`.1249` shown as `.125`, printed `.13`). Phase 2 evaluation fixes,
+    /// part C (B-2).
+    DoubleRounded,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -19,6 +19,7 @@ import {
   reproducedLabel,
   sentenceFor,
   thresholdPhrase,
+  wholeNumberLine,
   WordContext,
 } from './l1Wording';
 
@@ -49,7 +50,8 @@ export function shown(v: number): string {
  *  whose stored cells' rounding gives it a range (Step 8b). */
 export function storedRange(n: L1NumberView, decimals: number | null): string {
   if (n.precisionLo === null || n.precisionHi === null || decimals === null) return '';
-  return ` (the file stores ${decimals} ${decimals === 1 ? 'decimal' : 'decimals'}: ${shown(n.precisionLo)} to ${shown(n.precisionHi)})`;
+  const stores = decimals === 0 ? 'whole numbers' : `${decimals} ${decimals === 1 ? 'decimal' : 'decimals'}`;
+  return ` (the file stores ${stores}: ${shown(n.precisionLo)} to ${shown(n.precisionHi)})`;
 }
 
 function accepted(n: L1NumberView): string {
@@ -191,6 +193,13 @@ export const L1ResultCard: React.FC<L1ResultCardProps> = ({ bridge, run, claim, 
         </table>
       ))}
 
+      {result.wholeNumbers.length > 0 && (
+        <ul style={{ margin: 0 }} data-testid={`${id}-whole-numbers`}>
+          {result.wholeNumbers.map((w) => (
+            <li key={w.alias}>{wholeNumberLine(w, ctx)}</li>
+          ))}
+        </ul>
+      )}
       {result.nUsed !== null && (
         <p style={{ margin: 0 }} data-testid={`${id}-n`}>
           n used: {result.nUsed} of {result.rowsRead} rows read.

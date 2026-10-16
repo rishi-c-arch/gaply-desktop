@@ -226,10 +226,77 @@ pub fn current_rate(db: &Database, now: i64) -> (f64, EstimateBasis) {
     }
 }
 
+/// Why [`open_regular_file`] did not open a path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NotOpened {
+    /// It could not be stat'ed or opened.
+    Unreadable,
+    /// It is not a regular file: a FIFO, a device, a socket, a directory.
+    NotRegular,
+}
+
+/// `O_NONBLOCK`, so that opening a FIFO for reading returns at once instead
+/// of waiting for a writer. It changes nothing for a regular file. The values
+/// are the platforms' ABI constants (`<fcntl.h>`), defined here because the
+/// crate takes no `libc` dependency.
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd"))]
+const O_NONBLOCK: i32 = 0x0004;
+#[cfg(any(target_os = "linux", target_os = "android"))]
+const O_NONBLOCK: i32 = 0o4000;
+
+/// Open `path` for reading only if it is a REGULAR file, and return it with
+/// its length (phase 2 evaluation fixes, part C, M-10). A FIFO named as a
+/// data file used to block `std::fs::read` forever, and a symlink to
+/// `/dev/zero` would have been read without bound.
+///
+/// In order: a `stat` of the path, which never blocks (a socket, which
+/// cannot be opened, is caught here); an open that does not wait for a FIFO's
+/// writer (`O_NONBLOCK` where the platform is known); and the OPENED file's
+/// own metadata, so a path swapped after the `stat` is judged by what was
+/// actually opened. Read from the returned handle: re-opening the path would
+/// undo the check.
+pub fn open_regular_file(path: &std::path::Path) -> Result<(std::fs::File, u64), NotOpened> {
+    match std::fs::metadata(path) {
+        Ok(m) if !m.is_file() => return Err(NotOpened::NotRegular),
+        Ok(_) => {}
+        Err(_) => return Err(NotOpened::Unreadable),
+    }
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(any(target_os = "macos", target_os = "ios", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd", target_os = "linux", target_os = "android"))]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(O_NONBLOCK);
+    }
+    let file = options.open(path).map_err(|_| NotOpened::Unreadable)?;
+    let meta = file.metadata().map_err(|_| NotOpened::Unreadable)?;
+    if !meta.is_file() {
+        return Err(NotOpened::NotRegular);
+    }
+    Ok((file, meta.len()))
+}
+
+/// The refusal [`preflight`] gives a path that is not a regular file.
+const NOT_A_REGULAR_FILE: &str = "This is not a regular file (it may be a pipe, a device or a socket), so it was not read.";
+
 /// Read a file and decide, in the cheap-first order that matters:
 /// size (a `stat`) before parsing, and the scanned check before any indexing.
+/// A path that is not a regular file is refused before anything reads it
+/// ([`open_regular_file`]).
 pub fn preflight(db: &Database, path: &std::path::Path, now: i64) -> Result<ImportPreflight, GaplyError> {
     let (rate, basis) = current_rate(db, now);
+
+    if matches!(open_regular_file(path), Err(NotOpened::NotRegular)) {
+        return Ok(ImportPreflight {
+            pages: None,
+            page_equivalents: 0,
+            bytes: 0,
+            estimated_seconds: 0.0,
+            estimate_basis: basis,
+            verdict: PreflightVerdict::Refused { reason: NOT_A_REGULAR_FILE.to_string() },
+            summary: NOT_A_REGULAR_FILE.to_string(),
+        });
+    }
 
     // The byte ceiling FIRST, from metadata alone. Parsing a 400 MB PDF to
     // discover it is too big spends exactly the time this is meant to save.

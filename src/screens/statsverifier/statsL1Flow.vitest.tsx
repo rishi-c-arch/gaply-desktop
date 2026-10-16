@@ -75,12 +75,14 @@ function openView(): L1OpenView {
       {
         proposal: { run: 7, id: 1 }, claimId: 0, method: 'independent_t',
         roles: [{ role: 'outcome', aliases: ['C1'] }, { role: 'group', aliases: ['C2'] }], levels: [],
-        variant: 'not_stated', variantSetBy: { code: 'not_stated' }, source: 'local', reason: 'header_matches_sentence',
+        variant: 'not_stated', variantSetBy: { code: 'not_stated' }, source: 'local', reason: 'header_matches_sentence', wholeNumbers: [],
       },
       {
         proposal: { run: 7, id: 2 }, claimId: 1, method: 'pearson',
         roles: [{ role: 'x', aliases: ['C3'] }, { role: 'y', aliases: ['C1'] }], levels: [],
         variant: 'none', variantSetBy: { code: 'not_stated' }, source: 'local', reason: 'first_eligible_columns',
+        // C3 age holds whole numbers: the Confirm step asks about it.
+        wholeNumbers: [{ alias: 'C3', answer: 'rounded' }],
       },
     ],
     catalogue: [
@@ -90,8 +92,15 @@ function openView(): L1OpenView {
   };
 }
 
-function reproduction(tokens: string[]): ReproductionView {
+/** What Rust returns for these tokens: only claims a token names have a
+ *  result; every other claim is counted as skipped (part C, M-4). `exact`
+ *  maps a token to the whole-number columns it was confirmed exact for. */
+function reproduction(tokens: string[], exact: Map<string, string[]> = new Map()): ReproductionView {
   const claims: ReproductionView['claims'] = [];
+  const answers = (claimId: number, aliases: string[]) => {
+    const tok = tokens.find((t) => t.endsWith(`:${claimId}`)) ?? '';
+    return aliases.map((a) => ({ alias: a, answer: (exact.get(tok) ?? []).includes(a) ? ('exact' as const) : ('rounded' as const) }));
+  };
   if (tokens.some((t) => t.endsWith(':0'))) {
     claims.push({
       claimId: 0, sectionIndex: 2, paragraph: 1, sentence: 0, method: 'independent_t',
@@ -104,6 +113,7 @@ function reproduction(tokens: string[]): ReproductionView {
       ] }],
       nUsed: 36, rowsRead: 40, exclusions: [{ reason: { code: 'missing_in_bound_column' }, rows: 4 }],
       provenance: { methodId: 'independent_t', reference: null, methodVersion: '1', engineVersion: 'stats_l1 engine 1', inputsDigest: 'ab'.repeat(32), bindingSource: { code: 'local', reason: 'header_matches_sentence' }, variantSetBy: { code: 'not_stated' } },
+      wholeNumbers: answers(0, []),
     });
   }
   if (tokens.some((t) => t.endsWith(':1'))) {
@@ -111,11 +121,12 @@ function reproduction(tokens: string[]): ReproductionView {
       claimId: 1, sectionIndex: 2, paragraph: 1, sentence: 1, method: 'pearson', variant: { code: 'none' }, variantSetBy: { code: 'not_stated' },
       verdict: { kind: 'couldNotCheck', reason: { code: 'refused', refusal: 'zero_variance' } },
       notes: [], candidates: [], nUsed: null, rowsRead: null, exclusions: [], provenance: null,
+      wholeNumbers: answers(1, ['C3']),
     });
   }
   return {
     counts: { reproduced: claims.filter((c) => c.verdict.kind === 'reproduced').length, notReproduced: 0, couldNotCheck: claims.filter((c) => c.verdict.kind === 'couldNotCheck').length },
-    data: { code: 'read' }, unmatchedPairs: 0, claims,
+    data: { code: 'read' }, unmatchedPairs: 0, skipped: 2 - claims.length, claims,
     alpha: { printed: ['.05'], stated: false },
   };
 }
@@ -135,12 +146,18 @@ interface Fake extends StatsL1Bridge {
 // reader can mistake it for a real OpenAI key.
 const FAKE_KEY = 'KEY_SECRET_a1b2';
 
-function fakeBridge(opts: { settings?: Partial<AiSettings>; replies?: Partial<Record<HelperTaskInput['task'], L1HelperResultView>>; extraProposals?: L1ProposalView[]; schemaIssues?: L1OpenView['schema']['issues'] } = {}): Fake {
+function fakeBridge(opts: { settings?: Partial<AiSettings>; replies?: Partial<Record<HelperTaskInput['task'], L1HelperResultView>>; extraProposals?: L1ProposalView[]; schemaIssues?: L1OpenView['schema']['issues']; columnIssues?: Record<string, L1OpenView['schema']['issues']>; draftRejects?: (edits: BindingEdits) => boolean } = {}): Fake {
   const calls: Array<[string, unknown]> = [];
   const sent: Array<{ task: string; body: string }> = [];
   const previews = new Map<number, L1PreviewView>();
   const v = openView();
   if (opts.schemaIssues) v.schema.issues = opts.schemaIssues;
+  for (const col of v.schema.columns) col.issues = opts.columnIssues?.[col.alias] ?? [];
+  // What each proposal carries for the whole-number question, and each
+  // token's confirmed answers, as Rust keeps them.
+  const exactOf = new Map<number, string[]>();
+  const exactByToken = new Map<string, string[]>();
+  const integerColumns = v.schema.columns.filter((c) => c.columnType === 'integer').map((c) => c.alias);
   let proposals = [...v.proposals];
   const claimOf = new Map<number, number>(proposals.map((p) => [p.proposal.id, p.claimId]));
   let next = 100;
@@ -178,22 +195,29 @@ function fakeBridge(opts: { settings?: Partial<AiSettings>; replies?: Partial<Re
     helperCancel: async (run) => { rec('helperCancel', { run }); },
     draftProposal: async (run, claimId, from, edits: BindingEdits) => {
       rec('draftProposal', { run, claimId, from, edits });
+      if (opts.draftRejects?.(edits)) throw new Error('{"code":"binding_rejected","reason":{"code":"missing_role","role":"outcome"}}');
       const id = next++;
       claimOf.set(id, claimId);
+      const exact = (edits.exactWholeNumbers ?? []).map((a) => `C${a}`);
+      exactOf.set(id, exact);
+      const bound = edits.roles.flatMap((r) => r.aliases.map((a) => `C${a}`)).filter((a) => integerColumns.includes(a));
       return {
         proposal: { run, id }, claimId, method: edits.methodId,
         roles: edits.roles.map((r) => ({ role: r.role, aliases: r.aliases.map((a) => `C${a}`) })), levels: edits.levels,
         variant: edits.variantTicked ?? 'not_stated', variantSetBy: { code: edits.variantTicked ? 'user_ticked' : 'not_stated' },
         source: 'manual', reason: null,
+        wholeNumbers: bound.map((a) => ({ alias: a, answer: exact.includes(a) ? 'exact' : 'rounded' })),
       };
     },
     confirmBinding: async (run, proposal) => {
       rec('confirmBinding', { run, proposal });
       const claimId = claimOf.get(proposal.id) ?? -1;
-      const out: L1ConfirmView = { token: `tok${proposal.id}:${claimId}`, claimId, rowsRead: 40, rowsFilteredOut: 0, rowsExcludedMissing: 4, nUsed: 36, suspectMissingCodes: [] };
+      const token = `tok${proposal.id}:${claimId}`;
+      exactByToken.set(token, exactOf.get(proposal.id) ?? []);
+      const out: L1ConfirmView = { token, claimId, rowsRead: 40, rowsFilteredOut: 0, rowsExcludedMissing: 4, nUsed: 36, suspectMissingCodes: [], wholeNumbers: [] };
       return out;
     },
-    compute: async (run, tokens) => { rec('compute', { run, tokens }); return reproduction(tokens); },
+    compute: async (run, tokens) => { rec('compute', { run, tokens }); return reproduction(tokens, exactByToken); },
     close: async (run) => { rec('close', { run }); return true; },
     usage: async (run) => {
       rec('usage', { run });
@@ -370,7 +394,7 @@ describe('Level 1: the AI panels', () => {
   };
   const aiProposal: L1ProposalView = {
     proposal: { run: 7, id: 50 }, claimId: 0, method: 'independent_t', roles: [], levels: [],
-    variant: 'not_stated', variantSetBy: { code: 'not_stated' }, source: 'ai_suggestion', reason: null,
+    variant: 'not_stated', variantSetBy: { code: 'not_stated' }, source: 'ai_suggestion', reason: null, wholeNumbers: [],
   };
   const columnsReply: L1HelperResultView = {
     kind: 'bindingSuggestion', proposal: { run: 7, id: 51 }, roles: [{ role: 'outcome', alias: 'C1', levelsToSelect: null }], modelReason: 'C1 is numeric.', reliedOn: [],
@@ -389,12 +413,14 @@ describe('Level 1: the AI panels', () => {
     expect(b.sent[0]).toEqual({ task: 'claim_method', body: shown });
     // The panel names what is sent and what is not, who gets it and what they keep.
     expect(within(panel).getByTestId('l1-ai-sent').textContent).toContain('Base fields for claim_method');
-    expect(within(panel).getByTestId('l1-ai-not-sent').textContent).toBe("Not sent: your data, column names, file names, level names, your manuscript's text.");
+    expect(within(panel).getByTestId('l1-ai-not-sent').textContent).toBe(
+      'Not sent: any row or cell of your data, file names, level names, column names (unless ticked), any manuscript sentence or passage (unless ticked).'
+    );
     expect(within(panel).getByTestId('l1-ai-recipient').textContent).toMatch(/OpenAI/);
     expect(within(panel).getByTestId('l1-ai-retention').textContent).toMatch(/store to false.*does not mean nothing is kept.*30 days/);
     expect(await within(panel).findByTestId('l1-ai-withdraw-text')).toHaveProperty(
       'textContent',
-      'Each Send is your consent for this task and these categories for this check. Withdrawing ends that consent for the rest of this check and stops any call or retry in flight.'
+      'Withdrawing stops any request still in flight in this check. Nothing more is sent unless you click Send again, which gives consent again.'
     );
     // Withdraw revokes the grant and cancels anything in flight.
     fireEvent.click(within(panel).getByTestId('l1-ai-withdraw'));
@@ -492,7 +518,7 @@ describe('Level 1: model and web text is plain text', () => {
           uncitedSentences: 0, droppedCitations: [], emptyMessage: null,
         },
       },
-      extraProposals: [{ proposal: { run: 7, id: 50 }, claimId: 0, method: 'independent_t', roles: [], levels: [], variant: 'not_stated', variantSetBy: { code: 'not_stated' }, source: 'ai_suggestion', reason: null }],
+      extraProposals: [{ proposal: { run: 7, id: 50 }, claimId: 0, method: 'independent_t', roles: [], levels: [], variant: 'not_stated', variantSetBy: { code: 'not_stated' }, source: 'ai_suggestion', reason: null, wholeNumbers: [] }],
     });
     const { container } = await toBind(b);
     fireEvent.click(screen.getByTestId('l1-bind-0-ai-method'));
@@ -722,6 +748,132 @@ const renderPage = (props: Record<string, unknown>) =>
       </GaplySessionProvider>
     </MemoryRouter>
   );
+
+describe('Level 1: evaluation fixes, part C', () => {
+  const heading = () => (document.activeElement as HTMLElement | null)?.textContent;
+
+  it('after a refused draft, Confirm stays disabled until a valid draft is on screen, and confirms that draft (M-S1)', async () => {
+    // Rust refuses a draft with no outcome column.
+    const b = fakeBridge({ draftRejects: (e) => !e.roles.some((r) => r.role === 'outcome') });
+    await toBind(b);
+    fireEvent.change(screen.getByTestId('l1-bind-0-outcome'), { target: { value: '' } });
+    fireEvent.click(screen.getByTestId('l1-to-confirm'));
+    await screen.findByTestId('l1-confirm-0');
+    await waitFor(() => expect(within(screen.getByTestId('l1-confirm-0')).getByRole('alert').textContent).toMatch(/cannot be confirmed/));
+    // The summary shows the refused edits; Confirm must not confirm proposal 1.
+    const btn = screen.getByTestId('l1-confirm-btn-0') as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+    fireEvent.click(btn);
+    expect(b.calls.filter(([n]) => n === 'confirmBinding')).toEqual([]);
+    expect(screen.queryByTestId('l1-confirmed-0')).toBeNull();
+    expect(screen.getByTestId('l1-confirm-wait-0')).toBeTruthy();
+    // A valid draft on screen: Confirm sends ITS handle.
+    fireEvent.click(screen.getByTestId('l1-back-bind'));
+    fireEvent.change(await screen.findByTestId('l1-bind-0-outcome'), { target: { value: '1' } });
+    fireEvent.click(screen.getByTestId('l1-to-confirm'));
+    await waitFor(() => expect((screen.getByTestId('l1-confirm-btn-0') as HTMLButtonElement).disabled).toBe(false));
+    const drafts = b.calls.filter(([n]) => n === 'draftProposal');
+    fireEvent.click(screen.getByTestId('l1-confirm-btn-0'));
+    await screen.findByTestId('l1-confirmed-0');
+    const confirmed = b.calls.filter(([n]) => n === 'confirmBinding').map(([, a]) => (a as { proposal: { id: number } }).proposal.id);
+    expect(confirmed).toHaveLength(1);
+    expect(confirmed[0]).not.toBe(1);
+    expect(confirmed[0]).toBeGreaterThanOrEqual(100);
+    expect(drafts.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('a skipped claim is counted and listed as skipped by you, never as could not be checked (M-4)', async () => {
+    const b = fakeBridge();
+    await openBoth(b);
+    fireEvent.click(screen.getByTestId('l1-claim-1-skip'));
+    fireEvent.click(screen.getByTestId('l1-to-bind'));
+    fireEvent.click(await screen.findByTestId('l1-to-confirm'));
+    fireEvent.click(await screen.findByTestId('l1-confirm-btn-0'));
+    await screen.findByTestId('l1-confirmed-0');
+    fireEvent.click(screen.getByTestId('l1-run'));
+    await screen.findByTestId('l1-results');
+    const counts = screen.getByTestId('l1-results-counts');
+    expect(counts.textContent).toMatch(/^1 reproduced, 0 not reproduced, 0 could not be checked\. 1 claim was skipped by you and not run\./);
+    expect(counts.getAttribute('role')).toBe('status');
+    expect(screen.getByTestId('l1-results-skipped').textContent).toBe(`Skipped by you: ${SENTENCE_1}`);
+    expect(screen.queryByTestId('l1-result-1')).toBeNull();
+  });
+
+  it('asks once for each bound whole-number column; the answer is a new draft that Confirm sends, and the card says which answer was used (B-1)', async () => {
+    const b = fakeBridge();
+    await toBind(b);
+    fireEvent.click(screen.getByTestId('l1-to-confirm'));
+    const q = await screen.findByTestId('l1-whole-1-C3');
+    expect(q.querySelector('legend')?.textContent).toBe(
+      'Column C3 age: Does this column hold exact whole numbers, such as counts or points on a rating scale, or values rounded to whole numbers, such as times, percentages or ages?'
+    );
+    expect((screen.getByTestId('l1-whole-1-C3-rounded') as HTMLInputElement).checked).toBe(true);
+    expect(screen.queryByTestId('l1-whole-0-C1')).toBeNull();
+    fireEvent.click(screen.getByTestId('l1-whole-1-C3-exact'));
+    await waitFor(() => expect(b.calls.some(([n, a]) => n === 'draftProposal' && (a as { edits: BindingEdits }).edits.exactWholeNumbers?.includes(3))).toBe(true));
+    await waitFor(() => expect((screen.getByTestId('l1-confirm-btn-1') as HTMLButtonElement).disabled).toBe(false));
+    expect((screen.getByTestId('l1-whole-1-C3-exact') as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(screen.getByTestId('l1-confirm-btn-0'));
+    await screen.findByTestId('l1-confirmed-0');
+    fireEvent.click(screen.getByTestId('l1-confirm-btn-1'));
+    await screen.findByTestId('l1-confirmed-1');
+    const sent = b.calls.filter(([n]) => n === 'confirmBinding').map(([, a]) => (a as { proposal: { id: number } }).proposal.id);
+    expect(sent).not.toContain(2);
+    fireEvent.click(screen.getByTestId('l1-run'));
+    await screen.findByTestId('l1-results');
+    expect(screen.getByTestId('l1-result-1-whole-numbers').textContent).toBe(
+      'Column C3 age was treated as exact whole numbers, as you answered, so its values were taken as they are.'
+    );
+    // No helper request carries it: none was made.
+    expect(b.names().filter((n) => n.startsWith('helper'))).toEqual([]);
+  });
+
+  it('focus moves to each stage heading, and back to the control that opened a form when it closes (M-S9)', async () => {
+    const b = fakeBridge();
+    await openBoth(b);
+    await waitFor(() => expect(heading()).toBe('Review the claims'));
+    // A claim's edit form gives focus back to its Edit button.
+    fireEvent.click(screen.getByTestId('l1-claim-0-edit'));
+    await screen.findByTestId('l1-edit-0-form');
+    fireEvent.click(within(screen.getByTestId('l1-edit-0-form')).getByText('Cancel'));
+    expect(document.activeElement).toBe(screen.getByTestId('l1-claim-0-edit'));
+    fireEvent.click(screen.getByTestId('l1-claim-add'));
+    await screen.findByTestId('l1-add-form');
+    fireEvent.click(within(screen.getByTestId('l1-add-form')).getByText('Cancel'));
+    expect(document.activeElement).toBe(screen.getByTestId('l1-claim-add'));
+    fireEvent.click(screen.getByTestId('l1-to-bind'));
+    await waitFor(() => expect(heading()).toBe('Bind each claim to the data'));
+    await confirmAll();
+    expect(screen.getByTestId('l1-stage-heading').textContent).toBe('Confirm each binding');
+    fireEvent.click(screen.getByTestId('l1-run'));
+    await screen.findByTestId('l1-results');
+    await waitFor(() => expect(heading()).toBe('Results'));
+    fireEvent.click(screen.getByTestId('l1-results-back'));
+    await waitFor(() => expect(heading()).toBe('Bind each claim to the data'));
+    fireEvent.click(screen.getByTestId('l1-to-confirm'));
+    await waitFor(() => expect(heading()).toBe('Confirm each binding'));
+    fireEvent.click(screen.getByTestId('l1-close'));
+    await waitFor(() => expect(heading()).toBe('Check a paper against its data'));
+  });
+
+  it('the Major wording rewrites: what Gaply reads, where names go, and the column notes (M-S3, M-S6, M-S8)', async () => {
+    const b = fakeBridge({ columnIssues: { C3: [{ code: 'user_missing_applied', cells: 2 }] } });
+    const r = render(<L1Flow bridge={b} />);
+    await waitFor(() => expect(b.names()).toContain('settingGet'));
+    expect(screen.getByTestId('l1-entry-text').textContent).toBe(
+      'Gaply reads the t, F, χ², r and z results it can find and recomputes those it has a method for, from your data, under a binding you confirm. Both files stay on this device.'
+    );
+    expect(screen.getByTestId('l1-entry-text').textContent).not.toMatch(/every printed result/);
+    r.unmount();
+    await toBind(b);
+    expect(screen.getByTestId('l1-column-issues').textContent).toBe(
+      'Column C3 age: the file marks 2 cells as missing with its own missing-value codes, and Gaply treats them as missing.'
+    );
+    expect(screen.getByTestId('l1-bind-text').textContent?.replace(/\s+/g, ' ').trim()).toBe(
+      'Choose the method and the columns for each claim. Column names leave this device only if you tick ‘Also send my original column names’. Level names never leave it.'
+    );
+  });
+});
 
 describe('Level 1 on the Stats Verifier page', () => {
   it('the flag off hides the flow', async () => {

@@ -42,7 +42,9 @@ use gaply_core::GaplyError;
 /// comfortably covers real supplementary tables while bounding the eager Excel
 /// load and any single read.
 pub const MAX_FILE_SIZE_BYTES: u64 = 10 * 1024 * 1024;
-/// Max data rows extracted (excess -> rejected).
+/// Max data rows extracted (excess -> rejected). DATA rows: the header row
+/// is not counted, so a table of exactly 5,000 rows is read (evaluation
+/// fixes, part C, m-7; it was refused before, the header counted as a row).
 pub const MAX_ROWS: usize = 5_000;
 /// Max columns per row (excess -> rejected).
 pub const MAX_COLS: usize = 128;
@@ -198,7 +200,7 @@ pub fn exceeds_row_cap(path: &Path) -> Result<bool, GaplyError> {
                 .delimiter(if ext == "tsv" { b'\t' } else { b',' })
                 .from_reader(std::io::BufReader::new(file));
             for (i, rec) in rdr.records().enumerate() {
-                if i >= MAX_ROWS {
+                if i > MAX_ROWS {
                     return Ok(true);
                 }
                 match rec {
@@ -213,7 +215,7 @@ pub fn exceeds_row_cap(path: &Path) -> Result<bool, GaplyError> {
             let Ok(mut wb) = open_workbook_auto(path) else { return Ok(false) };
             let Some(sheet) = wb.sheet_names().first().cloned() else { return Ok(false) };
             let Ok(range) = wb.worksheet_range(&sheet) else { return Ok(false) };
-            Ok(range.get_size().0 > MAX_ROWS)
+            Ok(range.get_size().0 > MAX_ROWS + 1)
         }
         _ => Ok(false),
     }
@@ -239,7 +241,7 @@ pub fn exceeds_col_cap(path: &Path) -> Result<Option<usize>, GaplyError> {
                 .delimiter(if ext == "tsv" { b'\t' } else { b',' })
                 .from_reader(std::io::BufReader::new(file));
             for (i, rec) in rdr.records().enumerate() {
-                if i >= MAX_ROWS {
+                if i > MAX_ROWS {
                     return Ok(None);
                 }
                 match rec {
@@ -256,7 +258,7 @@ pub fn exceeds_col_cap(path: &Path) -> Result<Option<usize>, GaplyError> {
             let Some(sheet) = wb.sheet_names().first().cloned() else { return Ok(None) };
             let Ok(range) = wb.worksheet_range(&sheet) else { return Ok(None) };
             let (height, width) = range.get_size();
-            Ok((height <= MAX_ROWS && width > MAX_COLS).then_some(width))
+            Ok((height <= MAX_ROWS + 1 && width > MAX_COLS).then_some(width))
         }
         _ => Ok(None),
     }
@@ -309,7 +311,8 @@ fn parse_spreadsheet(path: &Path, file_name: String) -> Result<SupplementaryEvid
         .map_err(|e| GaplyError::Validation(format!("cannot read sheet {sheet:?}: {e}")))?;
 
     let (height, width) = range.get_size();
-    if height > MAX_ROWS {
+    // The header row is not a data row (evaluation fixes, part C, m-7).
+    if height > MAX_ROWS + 1 {
         return Err(GaplyError::Validation(format!(
             "spreadsheet has {height} rows; cap is {MAX_ROWS}"
         )));
@@ -666,7 +669,7 @@ fn parse_csv(path: &Path, file_name: String, delim: u8) -> Result<SupplementaryE
 
     // Streaming: only ever one record + our capped output is resident.
     for (i, rec) in rdr.records().enumerate() {
-        if i >= MAX_ROWS {
+        if i > MAX_ROWS {
             return Err(GaplyError::Validation(format!(
                 "csv has more than {MAX_ROWS} rows; cap is {MAX_ROWS}"
             )));

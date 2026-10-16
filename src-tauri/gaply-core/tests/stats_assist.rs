@@ -135,7 +135,7 @@ fn explanation_numbers_are_six_significant_figures_and_printed_bounds_written_ex
     assert_eq!(v["notes"][0], json!({"code": "variant_matched", "variant": "student_pooled"}));
     assert!(!v.to_string().contains("StudentPooled") && !v.to_string().contains("Df {"));
     let unbound = serde_json::to_value(build_result_explanation(&w.unbound, &w.ctx)).unwrap();
-    assert_eq!(unbound["could_not_check_reason"], json!({"code": "not_bound"}));
+    assert_eq!(unbound["could_not_check_reason"], json!({"code": "token_stale", "rejection": "unknown_token"}));
 }
 
 #[test]

@@ -61,13 +61,15 @@ use gaply_core::stats_l0::method::L0Verdict;
 use gaply_core::stats_l0::number::{NumberNotRead, Relation};
 use gaply_core::stats_l0::outcome::check_reading;
 use gaply_core::stats_l0::result::{read_results, Family, PValue, TableStructure};
-use gaply_core::stats_l1::binding::{BindingDraft, BindingProposal, OlsTarget, ProposalId, ProposalReason, ProposalSource, Rejection};
+use gaply_core::stats_l1::binding::{
+    BindingDraft, BindingProposal, OlsTarget, ProposalId, ProposalReason, ProposalSource, Rejection, WholeNumberAnswer, WholeNumbers,
+};
 use gaply_core::stats_l1::catalogue::{
     ContinuityVariant, L1MethodId, LevelRule, MethodCatalogue, RoleName, SlotKind, SpearmanPVariant, TVariant, Variant, VariantChoice,
 };
 use gaply_core::stats_l1::claim::{claims_from_reading, ClaimId, ClaimLocation, L1Claim, RevisionHash, UserClaim, UserP};
 use gaply_core::stats_l1::codes::{self, Param, WireCode};
-use gaply_core::stats_l1::dataset::{ColumnAlias, ColumnIssue, ColumnType, DatasetIssue, LevelBucket, Separator};
+use gaply_core::stats_l1::dataset::{ColumnAlias, ColumnIssue, ColumnType, Dataset, DatasetIssue, LevelBucket, Separator};
 use gaply_core::stats_l1::reproduce::ReproductionOutcome;
 use gaply_core::stats_l1::run_state::{ConfirmError, EditError, L1RunState, ProposalError};
 use gaply_core::stats_l1::token::ConfirmationToken;
@@ -252,6 +254,7 @@ fn binding_rejection_code(r: Rejection) -> WireCode {
         Rejection::TargetMissing => w("target_missing"),
         Rejection::TargetNotAPredictor => w("target_not_a_predictor"),
         Rejection::TargetNotApplicable => w("target_not_applicable"),
+        Rejection::WholeNumberAnswerNotApplicable(a) => col(w("whole_number_answer_not_applicable"), a),
     };
     with_code(w("binding_rejected"), "reason", inner)
 }
@@ -632,6 +635,31 @@ pub struct L1ProposalView {
     pub source: &'static str,
     /// The local proposer's closed reason, when local.
     pub reason: Option<&'static str>,
+    /// The bound whole-number columns and the answer this proposal carries
+    /// for each (evaluation fixes, part C, B-1): the Confirm step asks about
+    /// exactly these. Display on this device only; never in a request.
+    pub whole_numbers: Vec<L1WholeNumberView>,
+}
+
+/// One bound whole-number column and its answer: `rounded` ("Rounded, or not
+/// sure", the default) or `exact` ("Exact whole numbers").
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct L1WholeNumberView {
+    pub alias: String,
+    pub answer: &'static str,
+}
+
+/// The wire word of an answer.
+pub fn whole_number_word(a: WholeNumbers) -> &'static str {
+    match a {
+        WholeNumbers::RoundedOrNotSure => "rounded",
+        WholeNumbers::Exact => "exact",
+    }
+}
+
+pub fn whole_number_views(answers: &[WholeNumberAnswer]) -> Vec<L1WholeNumberView> {
+    answers.iter().map(|w| L1WholeNumberView { alias: w.column.name(), answer: whole_number_word(w.answer) }).collect()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
@@ -731,6 +759,8 @@ pub struct L1ConfirmView {
     pub rows_excluded_missing: usize,
     pub n_used: usize,
     pub suspect_missing_codes: Vec<L1SuspectCodeView>,
+    /// The whole-number answers the binding was confirmed with.
+    pub whole_numbers: Vec<L1WholeNumberView>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
@@ -852,6 +882,11 @@ pub struct BindingEdits {
     /// `overall_f`, or a predictor's alias number.
     pub ols_overall_f: Option<bool>,
     pub ols_predictor: Option<u32>,
+    /// Bound whole-number columns the user says hold EXACT whole numbers
+    /// (part C, B-1); every other one is rounded, or not sure. Absent means
+    /// none, the default.
+    #[serde(default)]
+    pub exact_whole_numbers: Vec<u32>,
 }
 
 /* ------------------------------------------------------------------------ *
@@ -888,7 +923,7 @@ fn source_word(s: &ProposalSource) -> &'static str {
     }
 }
 
-fn proposal_view(run: u64, p: &BindingProposal) -> L1ProposalView {
+fn proposal_view(run: u64, p: &BindingProposal, dataset: Option<&Dataset>) -> L1ProposalView {
     let b = &p.binding;
     let variant = b.variant.variant();
     L1ProposalView {
@@ -905,6 +940,7 @@ fn proposal_view(run: u64, p: &BindingProposal) -> L1ProposalView {
             ProposalSource::Local { reason: ProposalReason::FirstEligibleColumns, .. } => Some("first_eligible_columns"),
             ProposalSource::AiSuggestion { .. } | ProposalSource::Manual { .. } => None,
         },
+        whole_numbers: dataset.map(|d| whole_number_views(&b.whole_number_answers(d))).unwrap_or_default(),
     }
 }
 
@@ -1038,7 +1074,7 @@ pub fn open(db: &Database, runs: &L1Runs, ai: &StatsAi, manuscript: &Path, data:
         claims: r.state.claims().iter().map(|c| claim_view(c, r.level0.get(&c.id))).collect(),
         not_located,
         schema: schema_view(&r.state),
-        proposals: r.state.proposals().iter().map(|p| proposal_view(id, p)).collect(),
+        proposals: r.state.proposals().iter().map(|p| proposal_view(id, p, r.state.dataset())).collect(),
         catalogue: catalogue_view(),
     })
 }
@@ -1095,7 +1131,7 @@ pub fn add_claim(runs: &L1Runs, run: u64, input: &L1ClaimInput) -> Result<L1Revi
 pub fn proposals(runs: &L1Runs, run: u64) -> Result<Vec<L1ProposalView>, GaplyError> {
     let r = runs.get(run)?;
     let r = lock(&r);
-    Ok(r.state.proposals().iter().map(|p| proposal_view(run, p)).collect())
+    Ok(r.state.proposals().iter().map(|p| proposal_view(run, p, r.state.dataset())).collect())
 }
 
 fn sync_helper(r: &mut L1Run, ai: &StatsAi) {
@@ -1389,7 +1425,8 @@ fn draft_from_edits(claim: &L1Claim, e: &BindingEdits) -> Result<BindingDraft, G
     } else if let Some(p) = e.ols_predictor {
         d = d.target(OlsTarget::Coefficient { predictor: ColumnAlias(p) });
     }
-    Ok(d)
+    let exact: Vec<ColumnAlias> = e.exact_whole_numbers.iter().map(|a| ColumnAlias(*a)).collect();
+    Ok(d.exact_whole_numbers(&exact))
 }
 
 /// The user's binding form as a proposal: an edit of `from` (recorded as
@@ -1417,7 +1454,7 @@ pub fn draft_proposal(runs: &L1Runs, run: u64, claim: usize, from: Option<L1Hand
         None => r.state.add_proposal(c.id, draft, ProposalSource::Manual { edited_from: None }).map_err(|e| refuse(proposal_code(e)))?,
     };
     let p = r.state.proposal(id).ok_or_else(|| refuse(w("unknown_proposal")))?;
-    Ok(proposal_view(run, p))
+    Ok(proposal_view(run, p, r.state.dataset()))
 }
 
 /// Confirm a proposal, with the user's edits if any. Returns the token
@@ -1452,6 +1489,7 @@ pub fn confirm_binding(runs: &L1Runs, run: u64, proposal: L1Handle, edits: Optio
             .iter()
             .map(|s| L1SuspectCodeView { alias: s.column.name(), code: s.code, cells: s.cells })
             .collect(),
+        whole_numbers: whole_number_views(binding.whole_numbers()),
     };
     let entry = (binding.claim(), binding.claim_revision().clone(), token.clone());
     r.tokens.insert(token.as_str().to_string(), entry);

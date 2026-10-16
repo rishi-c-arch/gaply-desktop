@@ -1,6 +1,7 @@
 //! Fixtures shared by `stats_assist.rs` and the three sentinel binaries
 //! (`stats_assist_privacy_*.rs`): a dataset and a manuscript carrying Step 5's
-//! sentinels, a world with a confirmed and an unbound result, every task's
+//! sentinels, a world with a confirmed result and one that could not be
+//! checked (`unbound`: its token is unknown), every task's
 //! outbound, and the tracing capture the sentinel tests read.
 //!
 //! Each test that asserts something is ABSENT from captured tracing lives
@@ -128,7 +129,10 @@ pub fn world() -> World {
     let out = reproduce(&s, &[(rev, token)], || Ok(dataset()));
     let reproduced = out.claims[0].clone();
     assert!(matches!(reproduced.verdict, L1Verdict::Reproduced(_)), "{:?}", reproduced.verdict);
-    let unbound = reproduce(&s, &[], || Ok(dataset())).claims[0].clone();
+    // A result that could not be checked: a token the run never issued
+    // (a skipped claim has no result at all since part C, M-4).
+    let unknown = gaply_core::stats_l1::token::ConfirmationToken::presented(&"0".repeat(64));
+    let unbound = reproduce(&s, &[(s.claims()[0].revision.clone(), unknown)], || Ok(dataset())).claims[0].clone();
     assert!(matches!(unbound.verdict, L1Verdict::CouldNotCheck(_)));
     World { ex, ctx, claim, dataset: dataset(), reproduced, unbound }
 }

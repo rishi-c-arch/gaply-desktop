@@ -199,8 +199,20 @@ pub(crate) fn closes_sentence(text: &str, i: usize) -> bool {
 /// whole trimmed text rather than panicking, because the caller's offset comes
 /// from a regex match and a panic here would take down extraction.
 pub fn sentence_containing(text: &str, at: usize) -> &str {
+    match sentence_bounds(text, at) {
+        Some((start, end)) => text[start..end].trim(),
+        None => text.trim(),
+    }
+}
+
+/// The untrimmed byte range of the sentence [`sentence_containing`] returns
+/// for `at`, or `None` where it returns the whole text (`at` past the end or
+/// not on a character boundary). Every `at` inside the range on a character
+/// boundary gives the same range, so a caller scanning forward can reuse it
+/// (Level 0's reader does: phase 2 evaluation fixes, part C, m-6).
+pub fn sentence_bounds(text: &str, at: usize) -> Option<(usize, usize)> {
     if at >= text.len() || !text.is_char_boundary(at) {
-        return text.trim();
+        return None;
     }
 
     let start = text[..at]
@@ -216,7 +228,7 @@ pub fn sentence_containing(text: &str, at: usize) -> &str {
         .map(|(i, c)| at + i + c.len_utf8())
         .unwrap_or(text.len());
 
-    text[start..end].trim()
+    Some((start, end))
 }
 
 /// Split a paragraph into sentences.

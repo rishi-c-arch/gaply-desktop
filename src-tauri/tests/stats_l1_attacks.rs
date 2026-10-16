@@ -116,7 +116,10 @@ fn exchange(input: &HelperTaskInput, categories: &[&str], replies: &[String]) ->
     let p = l1::helper_preview(&w.runs, &w.ai, v.run, input, &cats).expect("preview");
     let result = l1::helper_send(&w.runs, &w.ai, v.run, p.preview, 1_792_000_000);
     let recomputed = serde_json::to_string(&l1::compute(&w.runs, v.run, &[token]).unwrap()).unwrap();
-    let unbound = serde_json::to_string(&l1::compute(&w.runs, v.run, &[]).unwrap().claims[0].verdict).unwrap();
+    // With no token every claim is skipped: no result, counted as skipped
+    // (part C, M-4; before, a Could-not-check "not bound" result).
+    let none = l1::compute(&w.runs, v.run, &[]).unwrap();
+    let unbound = format!("results {}, skipped {} of {}", none.claims.len(), none.skipped, v.claims.len());
     Exchange { result, recomputed, requests: w.mock.sent_count(), unbound }
 }
 
@@ -305,7 +308,8 @@ fn envelope_refusal() -> String {
 fn invariants(t: &mut Table, attack: &str, x: &Exchange, base: &str, requests: usize) {
     t.row(&format!("{attack}: result of the hand-confirmed claim"), "identical to AI never on", if x.recomputed == base { "identical to AI never on" } else { "CHANGED" });
     t.row(&format!("{attack}: requests that left"), &requests.to_string(), &x.requests.to_string());
-    t.row(&format!("{attack}: the claim with no token"), r#"{"kind":"couldNotCheck","reason":{"code":"not_bound"}}"#, &x.unbound);
+    let skipped = x.unbound.rsplit(" of ").next().unwrap_or("?").to_string();
+    t.row(&format!("{attack}: the claim with no token"), &format!("results 0, skipped {skipped} of {skipped}"), &x.unbound);
 }
 
 #[test]

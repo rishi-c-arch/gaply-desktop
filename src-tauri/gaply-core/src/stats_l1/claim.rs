@@ -118,6 +118,13 @@ fn sentence_of(ex: &ExtractionResult, location: &Location, raw: &str, occurrence
     Ok((idx, sentences[idx].to_string()))
 }
 
+/// The revision of `result` at `location`: what [`L1Claim::from_result`] and
+/// [`L1Claim::user_entered`] compute, for a caller that changed a result's
+/// carried-over fields after building it (an edit, `run_state`).
+pub(super) fn revision_of(result: &ReportedResult, location: &ClaimLocation) -> RevisionHash {
+    revision(result, location)
+}
+
 fn revision(result: &ReportedResult, location: &ClaimLocation) -> RevisionHash {
     let mut s = String::new();
     s.push_str(&format!("{:?}|", result.family));

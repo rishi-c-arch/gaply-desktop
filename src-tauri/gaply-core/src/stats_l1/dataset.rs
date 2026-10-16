@@ -353,6 +353,14 @@ pub enum L1IngestRefusal {
     XlsNotReadable,
     /// The parsed table could not become a schema.
     Dataset(DatasetRefusal),
+    /// Not a regular file: a FIFO, a device, a socket or a directory, judged
+    /// by the opened file's own metadata (evaluation fixes, part C). Refused
+    /// before a byte is read, so nothing can block on it.
+    NotARegularFile,
+    /// A zip-based workbook whose parts declare more uncompressed bytes than
+    /// `limit` (evaluation fixes, part C): refused before any part is
+    /// inflated. `declared` is the sum of the central directory's sizes.
+    ArchiveTooLarge { declared: u64, limit: u64 },
 }
 
 /// Why no schema was built at all.

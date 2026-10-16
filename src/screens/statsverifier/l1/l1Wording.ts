@@ -51,10 +51,22 @@ function dfName(c: WireCode): string {
 const lead = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 const tail = (s: string) => (s.endsWith('.') ? s.slice(0, -1) : s);
 
+/** The stored cells' rounding a data-precision code names: whole numbers
+ *  for 0 decimals (evaluation fixes, part C, B-1). */
+function roundingOf(c: WireCode | undefined): string {
+  const d = c ? num(c, 'decimals') : undefined;
+  if (d === 0) return 'rounding to whole numbers';
+  return d === undefined ? 'rounding' : `rounding to ${plural(d, 'decimal', 'decimals')}`;
+}
+
+/** Bytes as megabytes, for a reader. */
+const megabytes = (b: number | undefined) => (b === undefined ? '?' : `${Math.round(b / (1024 * 1024))} MB`);
+
 export const WORDS: Record<string, Words> = {
   /* ---- Level 0's notes and reasons, carried into Level 1 ----------------- */
   one_tailed_stated: () => 'Consistent as a one-tailed test, which the paper states.',
   floor_printed_as_equality: () => 'The p is printed as an equality at a floor such as .001; the exact p is smaller still.',
+  double_rounded: () => 'Matches if the paper rounded a number the software had already rounded (for example .1249 shown as .125, printed .13).',
   one_tailed_unstated: () => 'These numbers agree only if the test was one-tailed, and the paper does not say it was.',
   f_two_tailed: () =>
     'These numbers agree only if the p was taken from both tails of the F distribution, and an F test uses the upper tail only.',
@@ -85,20 +97,30 @@ export const WORDS: Record<string, Words> = {
   /* ---- a number's status, and its notes ---------------------------------- */
   matched: (c, w) => {
     const note = nested(c, 'note');
-    // A truncation note is its own sentence: "Matches if the paper cut ...".
-    if (note && (note.code === 'truncated' || note.code === 'truncated_in_magnitude')) return w(note);
+    // A truncation or double-rounding note is its own sentence: "Matches if
+    // the paper ...". A p's note comes nested: "Matches if the paper rounded".
+    const own = ['truncated', 'truncated_in_magnitude', 'double_rounded', 'double_rounded_in_magnitude'];
+    if (note && (own.includes(note.code) || (note.code === 'p_note' && nested(note, 'note')?.code === 'double_rounded'))) return w(note);
     return note ? `Matches. ${w(note)}` : 'Matches.';
   },
   not_matched: () => 'Differs from the value computed from the data under this binding.',
+  // One term per idea (part C, M-S5): a number left undecided is "not
+  // decided", in its own sentence, never "not compared: The ...".
   not_checked: (c, w) => {
     const number = nested(c, 'number');
-    const why = tail(w(nested(c, 'why')));
-    return number ? `${lead(w(number))} was not compared: ${why}.` : `Not compared: ${why}.`;
+    const why = nested(c, 'why');
+    const name = number ? lead(w(number)) : 'This number';
+    if (why?.code === 'data_precision') {
+      return `${name} differs from the value computed from the data by no more than the file's ${roundingOf(why)} could explain, so it was not decided.`;
+    }
+    return `${name} was not decided. ${w(why)}`;
   },
   in_magnitude: () => 'Matched in magnitude; the sign was not compared.',
   truncated: () => 'Matches if the paper cut this number off instead of rounding it.',
   truncated_in_magnitude: () =>
     'Matches in magnitude if the paper cut this number off instead of rounding it; the sign was not compared.',
+  double_rounded_in_magnitude: () =>
+    'Matches in magnitude if the paper rounded a number the software had already rounded; the sign was not compared.',
   df_truncated: (c) => `${lead(dfName(c))} match once the computed value is truncated.`,
   df_rounded: (c) => `${lead(dfName(c))} match once the computed value is rounded.`,
   p_note: (c, w) => w(nested(c, 'note')),
@@ -109,9 +131,11 @@ export const WORDS: Record<string, Words> = {
   p_concern: (c, w) => `The p raises a concern: ${tail(w(nested(c, 'reason')))}.`,
   p_could_not_check: (c, w) => `The p could not be checked: ${tail(w(nested(c, 'reason')))}.`,
   spearman_p_may_be_exact: () =>
-    "The printed p does not match the t approximation, and the paper may have used Spearman's exact p, which Gaply does not compute yet, so it was not compared.",
+    "The printed p does not match the t approximation, but it lies where Spearman's exact p could be, and Gaply does not compute the exact p yet.",
+  spearman_p_with_ties: () =>
+    "The printed p does not match the t approximation, and with tied values some software gives an exact p that Gaply cannot bound.",
   data_precision: (c) =>
-    `The data file stores ${plural(num(c, 'decimals'), 'decimal', 'decimals')}, and that rounding alone could explain the difference, so this was not decided.`,
+    `The printed statistic differs from the value computed from the data by no more than the file's ${roundingOf(c)} could explain, so it was not decided.`,
 
   /* ---- what was computed (names) ----------------------------------------- */
   student_pooled: () => "Student's t-test (pooled variance)",
@@ -137,6 +161,7 @@ export const WORDS: Record<string, Words> = {
   variant_matched: (c, w) => `Matched as ${w(nested(c, 'variant'))}.`,
   sign_compared_in_magnitude: () => 'The statistic was compared in magnitude, because its sign depends on the order of the groups.',
   printed_truncated: (c, w) => `${lead(w(nested(c, 'number')))} matches only if the paper cut it off instead of rounding it.`,
+  printed_double_rounded: (c, w) => `${lead(w(nested(c, 'number')))} matches if the paper rounded a number the software had already rounded.`,
   spearman_p_t_approximation: () => "The p matches Spearman's p by the t approximation, as R (exact = FALSE) and SPSS compute it.",
   continuity_does_not_apply: () => 'A continuity correction applies only to a 2 by 2 table, so it was not used.',
   conclusion_not_assessed: (c, w) => w(nested(c, 'gap')),
@@ -192,17 +217,21 @@ export const WORDS: Record<string, Words> = {
   xls_not_readable: () =>
     'This .xls file is in a format Level 1 cannot read, such as an older Excel version. Save it as .xlsx and open that.',
   dataset: (c, w) => w(nested(c, 'refusal')),
+  not_a_regular_file: () => 'The chosen data file is not a regular file (it may be a pipe, a device or a socket), so it was not read.',
+  archive_too_large: (c) =>
+    `This workbook would take ${megabytes(num(c, 'declared'))} once unpacked, more than the ${megabytes(num(c, 'limit'))} Level 1 opens, so it was not opened.`,
 
   /* ---- why a claim could not be checked ---------------------------------- */
   spearman_exact_p: () => "Gaply does not compute Spearman's exact p.",
   fractional_df: (c) => `${lead(dfName(c))} is printed as a fraction, which this method cannot produce.`,
+  df_contradicts_stated_variant: (c) =>
+    `${lead(dfName(c))} is printed as a fraction, which contradicts the stated Student variant: Student's t has whole-number degrees of freedom.`,
   family_does_not_fit_method: () => 'The printed statistic is not the kind this method produces.',
   ols_target_does_not_fit_family: () => 'The regression target you chose does not produce the kind of statistic printed.',
   df_count_does_not_fit: (c) =>
     `The paper prints ${plural(num(c, 'printed'), 'degree of freedom', 'degrees of freedom')} and this method has ${num(c, 'expected') ?? '?'}.`,
   printed_out_of_range: () => 'The printed statistic lies outside the range this statistic can take.',
   no_computed_result: () => 'No computed value exists to compare with the printed statistic.',
-  not_bound: () => 'No binding was confirmed for this claim.',
   token_stale: (c, w) => w(nested(c, 'rejection')),
   refused: (c, w) => w(nested(c, 'refusal')),
   data_unreadable: (c, w) => w(nested(c, 'refusal')),
@@ -333,7 +362,7 @@ export function reproducedLabel(notes: WireCode[]): string {
   const missing = notCompared(notes);
   if (missing.length === 0) return 'Reproduced';
   const names = missing.map((n) => sentenceFor(nested(n, 'number')));
-  return `Reproduced, except ${joinNames(names)}, which could not be checked`;
+  return `Reproduced, except ${joinNames(names)}, which ${names.length === 1 ? 'was' : 'were'} not decided`;
 }
 
 /** The threshold a conclusion is judged at, with where it came from. */
@@ -409,6 +438,8 @@ const BINDING_REASONS: Record<string, (c: WireCode, ctx: WordContext) => string>
   target_missing: () => 'a regression needs the overall F or one coefficient chosen',
   target_not_a_predictor: () => 'the chosen coefficient is not one of the predictors',
   target_not_applicable: () => 'this method has no regression target',
+  whole_number_answer_not_applicable: (c, ctx) =>
+    `column ${ctx.column(num(c, 'column') ?? 0)} is not a bound column of whole numbers, so "Exact whole numbers" does not apply to it`,
 };
 
 const SIMPLE_REFUSALS: Record<string, string> = {
@@ -530,4 +561,61 @@ export function dataReadPhrase(c: WireCode): string {
   if (c.code === 'read') return 'The data file was read again for this run.';
   if (c.code === 'not_needed') return 'No claim was confirmed, so the data file was not read.';
   return sentenceFor(nested(c, 'refusal'));
+}
+
+/* ------------------------------------------------------------------------ *
+ *  Evaluation fixes, part C
+ * ------------------------------------------------------------------------ */
+
+/** The entry card's one line on what Gaply reads (M-S3). */
+export const ENTRY_TEXT =
+  'Gaply reads the t, F, χ², r and z results it can find and recomputes those it has a method for, from your data, under a binding you confirm. Both files stay on this device.';
+
+/** The Confirm step's question, asked once for each bound column whose
+ *  cells are all whole numbers (B-1). The first answer is the default. */
+export const WHOLE_NUMBER_QUESTION =
+  'Does this column hold exact whole numbers, such as counts or points on a rating scale, or values rounded to whole numbers, such as times, percentages or ages?';
+export const WHOLE_NUMBER_ANSWERS: Array<{ answer: 'rounded' | 'exact'; label: string }> = [
+  { answer: 'rounded', label: 'Rounded, or not sure' },
+  { answer: 'exact', label: 'Exact whole numbers' },
+];
+
+/** What the result card says about one bound whole-number column. */
+export function wholeNumberLine(w: { alias: string; answer: 'rounded' | 'exact' }, ctx: WordContext): string {
+  const column = ctx.column(Number(w.alias.replace(/^C/, '')));
+  return w.answer === 'exact'
+    ? `Column ${column} was treated as exact whole numbers, as you answered, so its values were taken as they are.`
+    : `Column ${column} holds whole numbers and was treated as rounded to whole numbers (your answer: rounded, or not sure), so each value may be off by up to half a unit.`;
+}
+
+/** Skipped claims after a run (M-4): counted apart, never "could not be
+ *  checked". */
+export function skippedPhrase(n: number): string {
+  if (n === 0) return '';
+  return `${n} ${n === 1 ? 'claim was' : 'claims were'} skipped by you and not run.`;
+}
+
+/** One sentence for a per-column issue the open view carries
+ *  (`stats_l1_commands.rs`'s `column_issue_code`; M-S6). */
+export function columnIssueSentence(c: WireCode, column: string): string {
+  switch (c.code) {
+    case 'empty_header':
+      return `Column ${column} has no header.`;
+    case 'duplicate_header':
+      return `Column ${column} has the same header as column C${num(c, 'first') ?? '?'}.`;
+    case 'all_missing':
+      return `Column ${column} has no values: every cell is missing.`;
+    case 'mixed_types':
+      return `Column ${column} holds ${plural(num(c, 'numbers'), 'number', 'numbers')} and ${plural(num(c, 'texts'), 'text value', 'text values')}, so it is read as text and cannot be bound as numbers.`;
+    case 'non_finite':
+      return `Column ${column} has ${plural(num(c, 'cells'), 'cell', 'cells')} reading NaN or infinity, so it cannot be bound as numbers.`;
+    case 'category_explosion':
+      return `Column ${column} has ${num(c, 'distinct') ?? '?'} different text values, too many to use as groups.`;
+    case 'ragged_rows':
+      return `Column ${column} is missing in ${plural(num(c, 'short_rows'), 'row', 'rows')} shorter than the header; those cells were read as missing.`;
+    case 'user_missing_applied':
+      return `Column ${column}: the file marks ${plural(num(c, 'cells'), 'cell', 'cells')} as missing with its own missing-value codes, and Gaply treats them as missing.`;
+    default:
+      return `Column ${column}: ${c.code}.`;
+  }
 }

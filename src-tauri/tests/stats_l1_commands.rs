@@ -40,7 +40,9 @@ fn the_manual_path_works_with_ai_help_off_no_key_and_no_network() {
     // A helper preview with AI help off is refused, and the run still works.
     let e = l1::helper_preview(&w.runs, &w.ai, v.run, &HelperTaskInput::ClaimMethod { claim_id: 0, methods_passage: None }, &[]).unwrap_err();
     assert_eq!(code(&e), "ai_help_off");
-    assert_eq!(l1::compute(&w.runs, v.run, &[]).unwrap().claims.len(), 1);
+    // With no token the claim is skipped (part C, M-4): no result, counted.
+    let none = l1::compute(&w.runs, v.run, &[]).unwrap();
+    assert_eq!((none.claims.len(), none.skipped), (0, 1));
     assert_eq!(l1::key_status(&w.ai).unwrap().saved, false);
 }
 
@@ -104,7 +106,9 @@ fn send_with_ai_help_off_or_no_key_is_refused_before_any_network() {
     assert_eq!(code(&l1::helper_preview(&w.runs, &w.ai, v.run, &web, &[]).unwrap_err()), "web_context_off");
     assert_eq!(w.mock.sent_count(), 0);
     // Every other command still works.
-    assert_eq!(l1::compute(&w.runs, v.run, &[]).unwrap().claims.len(), 1);
+    // With no token the claim is skipped (part C, M-4): no result, counted.
+    let none = l1::compute(&w.runs, v.run, &[]).unwrap();
+    assert_eq!((none.claims.len(), none.skipped), (0, 1));
 }
 
 #[test]

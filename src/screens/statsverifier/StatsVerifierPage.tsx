@@ -20,6 +20,7 @@ import StatsChatDock from './StatsChatDock';
 import { isFeatureEnabled } from '../../config/featureFlags';
 import { StatsL1Bridge, TauriStatsL1Bridge } from './statsL1Bridge';
 import L1Flow from './l1/L1Flow';
+import { ENTRY_TEXT } from './l1/l1Wording';
 
 export interface StatsVerifierPageProps {
   bridge?: StatsVerifierBridge;
@@ -252,10 +253,7 @@ const StatsVerifierPage: React.FC<StatsVerifierPageProps> = ({ bridge, subscript
       <div style={{ display: 'grid', gap: 12 }} data-testid="sv-entry">
         {l1On && (
           <Card title="Check a paper against its data">
-            <p className="gds-jc__disclaimer">
-              Open a manuscript and its data file; Gaply reads every printed result and recomputes each one from the
-              data under a binding you confirm. Everything is computed on this device.
-            </p>
+            <p className="gds-jc__disclaimer" data-testid="sv-l1-entry-text">{ENTRY_TEXT}</p>
             <Button data-testid="sv-l1-start" onClick={() => setMode('l1')}>Check a paper against its data</Button>
           </Card>
         )}

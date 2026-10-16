@@ -125,10 +125,27 @@ impl L1RunState {
 
     /// Edit one claim: a new revision; only that claim's proposals,
     /// confirmations and tokens die.
+    ///
+    /// The edit form sends the numbers a reader can retype (family,
+    /// statistic, df, n, p) and no sentence. Everything else carries over
+    /// unchanged (evaluation fixes, part C, M-3): the sentence, and with it
+    /// any variant it states, and the printed unit's effect size, interval,
+    /// "partial" wording and source. So an edit that changes no number
+    /// changes nothing the comparison reads, and its revision is the claim's
+    /// own (the alpha and the tails are the document's, read once at open).
     pub fn edit_claim(&mut self, id: ClaimId, claim: &UserClaim<'_>) -> Result<RevisionHash, EditError> {
         let pos = self.claims.iter().position(|c| c.id == id).ok_or(EditError::UnknownClaim)?;
-        let from = self.claims[pos].revision.clone();
-        let edited = L1Claim::user_entered(id, claim, ClaimOrigin::UserEdited { from }).map_err(EditError::Number)?;
+        let old = self.claims[pos].clone();
+        let from = old.revision.clone();
+        let mut edited = L1Claim::user_entered(id, claim, ClaimOrigin::UserEdited { from }).map_err(EditError::Number)?;
+        if claim.sentence.is_none() {
+            edited.sentence = old.sentence.clone();
+        }
+        edited.result.effect_size = old.result.effect_size.clone();
+        edited.result.ci = old.result.ci.clone();
+        edited.result.sentence_says_partial = old.result.sentence_says_partial;
+        edited.result.source = old.result.source;
+        edited.revision = super::claim::revision_of(&edited.result, &edited.location);
         let revision = edited.revision.clone();
         self.claims[pos] = edited;
         self.tokens.revoke_where(RevokedBecause::ClaimRevised, |r| r.claim == id);
@@ -164,7 +181,8 @@ impl L1RunState {
 
     /// A proposal from the user or from an AI helper task. An AI suggestion's
     /// variant is ALWAYS reset to not stated: a model's choice is not the
-    /// paper's statement.
+    /// paper's statement. Its whole-number answers are ALWAYS cleared too
+    /// (part C, B-1): only the user says a column holds exact whole numbers.
     pub fn add_proposal(&mut self, claim: ClaimId, mut binding: BindingDraft, source: ProposalSource) -> Result<ProposalId, ProposalError> {
         if self.dataset.is_none() {
             return Err(ProposalError::NoDataset);
@@ -173,6 +191,7 @@ impl L1RunState {
         if matches!(source, ProposalSource::AiSuggestion { .. }) {
             let kind = MethodCatalogue::by_id(&binding.method_id).ok_or(ProposalError::MethodNotInCatalogue)?.variant_kind;
             binding.variant = VariantChoice::not_stated(kind);
+            binding.exact_whole_numbers.clear();
         }
         Ok(self.push_proposal(&c, binding, source))
     }

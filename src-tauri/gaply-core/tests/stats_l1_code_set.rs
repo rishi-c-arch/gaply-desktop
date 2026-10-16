@@ -50,7 +50,7 @@ fn words(v: &serde_json::Value, out: &mut BTreeSet<String>) {
 
 fn every_code() -> Vec<WireCode> {
     let mut all = Vec::new();
-    for n in [CheckNote::OneTailedStated, CheckNote::FloorPrintedAsEquality] {
+    for n in [CheckNote::OneTailedStated, CheckNote::FloorPrintedAsEquality, CheckNote::DoubleRounded] {
         all.push(codes::check_note(n));
     }
     for r in [ConcernReason::OneTailedUnstated, ConcernReason::FTwoTailed, ConcernReason::EstimateDirection] {
@@ -75,7 +75,7 @@ fn every_code() -> Vec<WireCode> {
     for k in [NumberKind::Statistic, NumberKind::Df { index: 0 }, NumberKind::P, NumberKind::N { source: NSource::Stated }, NumberKind::N { source: NSource::ImpliedByDf }] {
         all.push(codes::number_kind(k));
     }
-    for n in [MatchNote::InMagnitude, MatchNote::DfTruncated, MatchNote::DfRounded, MatchNote::P(CheckNote::OneTailedStated), MatchNote::Truncated, MatchNote::TruncatedInMagnitude] {
+    for n in [MatchNote::InMagnitude, MatchNote::DfTruncated, MatchNote::DfRounded, MatchNote::P(CheckNote::OneTailedStated), MatchNote::Truncated, MatchNote::TruncatedInMagnitude, MatchNote::DoubleRounded, MatchNote::DoubleRoundedInMagnitude] {
         all.push(codes::match_note(n));
     }
     let not_checked = [
@@ -85,6 +85,7 @@ fn every_code() -> Vec<WireCode> {
         NotCheckedReason::PConcern(ConcernReason::OneTailedUnstated),
         NotCheckedReason::PCouldNotCheck(CouldNotCheckReason::InvalidInput),
         NotCheckedReason::SpearmanPMayBeExact,
+        NotCheckedReason::SpearmanPWithTies,
         NotCheckedReason::DataPrecision { decimals: 2 },
     ];
     for r in not_checked {
@@ -122,6 +123,7 @@ fn every_code() -> Vec<WireCode> {
         L1Note::ConclusionNotAssessed(ConclusionGap::SeveralAlphas),
         L1Note::PrintedTruncated { number: NumberKind::P },
         L1Note::SpearmanPByTApproximation,
+        L1Note::PrintedDoubleRounded { number: NumberKind::Statistic },
     ] {
         all.push(codes::l1_note(n));
     }
@@ -172,15 +174,17 @@ fn every_code() -> Vec<WireCode> {
         L1IngestRefusal::XlsNotReadable,
         L1IngestRefusal::Dataset(DatasetRefusal::TooWide { columns: 200, limit: 128 }),
         L1IngestRefusal::Dataset(DatasetRefusal::NoColumns),
+        L1IngestRefusal::NotARegularFile,
+        L1IngestRefusal::ArchiveTooLarge { declared: 2, limit: 1 },
     ];
     for r in ingest {
         all.push(codes::l1_ingest_refusal(r));
     }
     for r in [
-        L1CouldNotCheck::NotBound,
         L1CouldNotCheck::MethodNotAvailable,
         L1CouldNotCheck::VariantNotAvailable(VariantGap::SpearmanExactP),
         L1CouldNotCheck::VariantNotAvailable(VariantGap::FractionalDf { index: 1 }),
+        L1CouldNotCheck::VariantNotAvailable(VariantGap::DfContradictsStatedVariant { index: 0 }),
         L1CouldNotCheck::BindingInvalid(BindingGap::FamilyDoesNotFitMethod),
         L1CouldNotCheck::BindingInvalid(BindingGap::OlsTargetDoesNotFitFamily),
         L1CouldNotCheck::BindingInvalid(BindingGap::DfCountDoesNotFit { printed: 1, expected: 2 }),

@@ -22314,7 +22314,10 @@ Recorded and deliberately left as they are:
 ### D270 — Level 1 of the Statistical Analysis Verifier: does a data file reproduce each printed result, under a binding the user confirmed; and four AI helper tasks that may suggest, explain or cite, and never decide
 
 **Phase 2 of the verifier, built on `feat/stats-verifier-l1` in eight steps**
-(`0c9242a` … `28768e4`, and Step 8's acceptance). Level 0 (D269) is unchanged.
+(`0c9242a` … `28768e4`, and Step 8's acceptance). Level 0 (D269) was
+unchanged by the eight steps; the evaluation fixes changed it where they
+say so (part A: one-tailed and correction negation, `compare_p` made public;
+part C: the double-rounding rule, two alpha phrasings, a linear reader).
 The engine computes every number and chooses every verdict. A model can
 suggest a method or a binding, explain a finished result, or find cited
 guidance, and that is all. Everything works with AI help off.
@@ -22348,7 +22351,7 @@ guidance, and that is all. Everything works with AI help off.
 |---|---|
 | `Reproduced(notes)` | every checked number matched under ONE candidate variant, the statistic among them; the notes name it (`VariantMatched`), and say t was compared in magnitude, a Welch df was truncated or rounded, or Phase 1's p note |
 | `NotReproduced { conclusion_changes }` | under every candidate, a checked number did not match. `Some(true)` only when every candidate's exact p falls on the other side of the claim's alpha. It never says which number is wrong; the view shows each printed number beside the computed one |
-| `CouldNotCheck(reason)` | `NotBound`, `TokenStale`, `Refused` (fingerprint changed, weighted file, method not available, too few cases, zero variance, single group, empty row or column, singular design, not numeric, non-finite, underflow), `DataUnreadable`, `MethodNotAvailable`, `VariantNotAvailable` (Spearman's exact p, a fractional df), `BindingInvalid`, `StatisticNotCheckable`. **Never a pass** |
+| `CouldNotCheck(reason)` | `TokenStale`, `Refused` (fingerprint changed, weighted file, method not available, too few cases, zero variance, single group, empty row or column, singular design, not numeric, non-finite, underflow), `DataUnreadable` (among them, since part C, not a regular file and a workbook declaring too much when unpacked), `MethodNotAvailable`, `VariantNotAvailable` (Spearman's exact p, a fractional df, and since part C a fractional df that contradicts a stated Student), `BindingInvalid`, `StatisticNotCheckable`, `DataPrecision` (Step 8b: only the stored cells' rounding stands between the print and the data). **Never a pass.** A claim no pair names was `NotBound` until part C; it is now skipped, counted apart and never a result |
 
 Methods: independent t (Student, Welch), paired t, one-way ANOVA, Pearson,
 Spearman (t approximation), χ² independence (uncorrected and R's continuity
@@ -22413,7 +22416,8 @@ moves one printed number so that claim alone changes.
 `gaply-core/tests/l1_planted_errors.rs` (Step 8) plants one error at a time in
 the statistic, each df, the p and the n of every golden claim of every method.
 That is **55 planted cases over 7 methods: each claim alone became
-NotReproduced, and every other claim's outcome stayed byte-identical.** A
+NotReproduced, and every other claim's outcome stayed byte-identical.** (55 is
+the measured count; the test pins a floor of 50.) A
 mutation that ignored n turned the n rows red.
 
 #### The four helper tasks, what each may receive, under which consent
@@ -22427,11 +22431,14 @@ spec, input and output schemas, outbound struct, budget and validator.
 | `claim_method` | the result's typed fields (symbol, printed statistic, df, p, tails note, stated alpha), method words from the closed list, the catalogue | the claim's sentence; one Methods passage of ≤ 1,000 characters | 20 | strict `json_schema`: method id or `none`, a variant NAME as a hint, a reason ≤ 300 characters, fields relied on |
 | `binding_suggestion` | the method, its role slots, the `AliasedSchema` (alias, type, has-missing, level bucket) | original column headers, each cut to 64; the claim's sentence | 20 | strict `json_schema`: an alias (or `cannot_tell`) per role, a COUNT of levels, never which, a reason |
 | `result_explanation` | the finished result's enumerated fields (method, variant, verdict, the printed and computed numbers, n used, exclusion counts, closed notes) | none | 40 | strict `json_schema`: one explanation ≤ 900 characters. Any number not in the input, or a verdict other than the engine's, is refused. One retry, then none is shown |
-| `web_context` | the query, a template the user may edit, blocked if it holds a header, a level label or six manuscript words | the paper's DOI or title | 10 | plain text with `url_citation` annotations; never `json_schema` with search |
+| `web_context` | the query, built only from a method, a variant or none, and a topic (part B; the free-text edit and its scanner are gone) | the paper's DOI, checked as a DOI (part B; the title option is removed) | 10 | plain text with `url_citation` annotations; never `json_schema` with search |
 
 **Consent.** Clicking Send on a preview is the consent for that task and its
-categories, for the run, unless withdrawn. Turning AI help off revokes every
-grant. Rust checks the grant against the preview's categories and sends the
+categories; every Send makes a fresh grant from its preview. Withdraw revokes
+the task's grant and cancels every request of the run still in flight, and
+nothing more is sent until the next Send, which consents again (the panel
+says so since part C). Turning AI help off revokes every grant, and part B's
+wire gate checks it before every attempt, retries included. Rust checks the grant against the preview's categories and sends the
 stored body. The sent bytes' SHA-256 must equal the preview's
 (`BodyChanged` otherwise). The screen's copy of the body is display only:
 editing it changes nothing sent (`a_body_edited_after_preview_is_not_what_is_sent`).
@@ -22452,8 +22459,9 @@ task (11)** through the commands and the real transport against a localhost
 capture server. For each one it checks the request line, every header and the
 body: the key appears once, in `Authorization`; the header leaves only under
 its opt-in; the sentence, the passage and the DOI appear exactly when ticked;
-no number in a body equals a cell. It also checks 55 refusals, 45 views and
-561 tracing lines for the sentinels. A mutation that ignored the
+no number in a body equals a cell (since part B, inside the `input` payload
+too). It also checks 55 refusals, 45 views and 561 tracing lines for the
+sentinels (measured counts; the tests pin floors of 50, 44 and 50). A mutation that ignored the
 column-header tick turned it red. The Step 6 all-opt-ins test stayed green
 under that mutation.
 
@@ -22489,7 +22497,10 @@ Read at `developers.openai.com/api/docs/guides/your-data` on 13 Oct 2026
   data on GPU machines up to 24 hours, and "data transmitted to third-party
   services over network connections is subject to their data retention
   policies", which covers the sites a web search reaches. The panel's
-  retention sentence says exactly this.
+  retention sentence states the 30 days, the 24 hours and the training
+  default; its web sentence ("sends the query on to the sites searched")
+  says more than the documentation does (a Minor wording finding, part C's
+  list).
 * ZDR is "subject to prior approval by OpenAI", through sales. An individual
   key does not have it.
 * Web search: "Web Search with live internet access is not HIPAA eligible and
@@ -22525,8 +22536,13 @@ belongs with saved bindings in the backlog.
 **Run state.** `L1Runs` holds at most `MAX_RUNS = 4` runs and drops the
 oldest. Each run holds the manuscript's extraction, the claims, **the dataset
 with its cells**, proposals, previews, grants, token handles, the last
-outcome and usage. None of it is `Serialize` or `Debug`. It is dropped by
-`stats_l1_close` or when the app exits. **The AI help setting** is
+outcome and usage. None of it is `Serialize`. Several of its types derive
+`Debug` (`L1RunState`, `Dataset`, `RawTable`, `L1Claim`); no formatting call
+reaches them and the sentinel runs' tracing is clean, but no guard forbids
+one yet. It is dropped by `stats_l1_close` or when the app exits. **Limits**:
+a data file of at most 10 MiB and 5,000 data rows (the header row is not
+counted since part C) and 128 columns; a manuscript of at most 100 MiB and
+1,500 pages (`import_guard`). **The AI help setting** is
 `stats_ai_settings.json` in the app data directory, read and written by Rust.
 It sits inside the webview's `fs:scope` (`$APPDATA/**`), so the webview could
 write it. That gives the webview no power that `stats_ai_setting_set` does not
@@ -22898,6 +22914,137 @@ opt-in combinations, 55 refusals and 45 views carry no sentinel; 301, 302,
 10 web replies whose citation ranges cover the claim text keep 0 sources, as
 before (`range_does_not_name_source`).
 
+#### Evaluation fixes, part C (17 Oct 2026) `[src]` `[test]` `[measured]`
+
+The deep evaluation's findings outside the AI layer: Blockers B-1 and B-2,
+and the Majors about Level 1, files, tests and the screens. Level 0 changed
+only where an item says so.
+
+* **Whole-number columns (B-1).** A bound numeric column whose cells are all
+  whole numbers is rounded to whole numbers by default (δ = 0.5), through the
+  same L and F (t, F and r are scale-free, so whole numbers at δ = 0.5 are
+  the sweep's decimal data at another scale). The Confirm step asks once for
+  each such column a binding uses: "Does this column hold exact whole
+  numbers, such as counts or points on a rating scale, or values rounded to
+  whole numbers, such as times, percentages or ages?", answered "Rounded, or
+  not sure" (the default) or "Exact whole numbers". The answer is part of
+  the confirmed binding and its digest (`BindingDraft::exact_whole_numbers`,
+  `ConfirmedBinding::whole_numbers`), so an edit or a changed file kills it
+  like any other part; an AI proposal's answer is cleared in
+  `add_proposal`; no outbound struct carries it. "Exact" keeps the zero
+  range. The result card says which answer was used. An answer for a column
+  that is not a bound whole-number column is refused
+  (`whole_number_answer_not_applicable`).
+* **Double rounding (B-2).** A printed equality that misses by plain
+  rounding is matched, with a note, when the exact value rounded half up
+  first to 3 decimals, or to one more decimal than printed, then to the
+  printed decimals gives the printed digits. Half up at both stages only
+  moves a value up, so the new values are `[P − u/2 − u/20, P − u/2)`
+  (`stats_l0::p_consistency::double_rounded_reach`). Plain rounding wins with
+  no note. Level 1 applies it to the statistic and a fractional df
+  (`MatchNote::DoubleRounded`, `L1Note::PrintedDoubleRounded`). **Level 0:**
+  the report's 144 cases, printed as Level 0 reads them, gave 20 false
+  Inconsistent, so the rule is also Level 0's rule a2, right after the
+  overlap rule, with the note `CheckNote::DoubleRounded` ("Matches if the
+  paper rounded a number the software had already rounded"); Level 1's p
+  inherits it through `compare_p`.
+* **Signs (M-1).** Only a t whose sign follows the order of two groups or two
+  measurements is compared in magnitude: Student's and Welch's t (group
+  order) and the paired t (which column is First). An OLS coefficient's t
+  keeps its sign (the sign is the finding); r and rho keep theirs; F and χ²
+  have none (`reproduce::in_magnitude`).
+* **Spearman's p with no variant stated (M-2).** A printed p that misses the
+  t approximation is not checked only inside a band that surely holds R's
+  exact p; outside it, it is not matched. Measured with `/usr/local/bin/Rscript
+  ~/gaply-corpus/eval3/partc/spearman/band.R` (R 4.6.1's own `C_pRho`, as
+  `cor.test.default` calls it; every n from 4 to 1290, every S for n ≤ 60 and
+  4,001 values of rho above; exact p from .001 to 1; 3,952,249 points): the
+  exact p is at most 6.116444 times the t-approximation p (n = 7, rho =
+  .964) and at least 1/1.004814 of it (n = 23, rho = .221). Rounded up and
+  widened by 2: `[p_t / 2.0098, min(1, 12.233 × p_t)]`. R uses the exact p
+  for n ≤ 1290 (not 1289: R 4.6.1's `pspearman` tests `n <= 1290`); above,
+  the p is compared normally. The report's `rho = −.77, n = 18, p = 1.000`
+  is now Not reproduced. With ties R gives the t approximation itself, but
+  other software gives an exact or permutation p with ties, which the band
+  does not cover, so a miss stays not checked, with its own reason
+  (`spearman_p_with_ties`). A |rho| within 4 units in the last place of 1
+  counts as 1 for the refusal.
+* **Claims (M-3, M-4).** An edit carries over everything it does not
+  change: the sentence (and with it a stated variant), the unit's effect
+  size, interval, "partial" wording and source; an edit that changes no
+  number keeps the claim's revision and verdict. A claim no pair names is
+  skipped: left out of the results and the counts, counted apart
+  (`ReproductionOutcome::skipped`), never "could not check"; `NotBound` is
+  gone.
+* **Confirm (M-S1).** Confirm is enabled only while the draft on screen is
+  the one Rust accepted (`dirty` false); after a refused draft it stays
+  disabled until a valid draft is on screen, and it sends that draft's
+  handle. An answer to the whole-number question is drafted at once.
+* **Files (M-9, M-10).** `import_guard::open_regular_file` stats the path
+  (never blocks), opens it with `O_NONBLOCK` where the platform is known, and
+  judges the OPENED file's own metadata: a FIFO, a device, a socket or a
+  directory is refused at once (`not_a_regular_file`), for the manuscript's
+  preflight and for the data file. The data file is read through the opened
+  handle with a bound. A zip-based workbook (.xlsx .xlsm .xlsb .ods) whose
+  central directory declares more than **64 MiB** uncompressed is refused
+  before any part is inflated (`archive_too_large`). The limit: the 27 real
+  workbooks in `~/gaply-corpus/l1/papers/` and `~/gaply-corpus/eval2/fresh/`
+  declare at most 13,248,850 bytes (`python3 -I
+  ~/gaply-corpus/eval3/partc/xlsx/declared.py ~/gaply-corpus/l1/papers
+  ~/gaply-corpus/eval2/fresh`, central directories only); 64 MiB is about
+  five times that. Residual: an archive that declares small sizes and
+  inflates to more is not caught (zip 2.4.2 bounds compressed bytes and
+  checks the CRC at the end).
+* **L and F (M-11).** `the_sweeps_worst_cases_hold_under_the_shipped_limit_and_widening`
+  runs in the default suite on seven of the sweep's worst rows
+  (`precision_sweep/witnesses.tsv`): four at or below L that need F > 1 and
+  three above L that only the limit holds. The evaluation's M06 (L → 1000)
+  and M07 (F → 1.0) now turn `cargo test --workspace` red.
+* **Screens.** The Majors' rewrites only. Withdraw now says what it
+  does: "Withdrawing stops any request still in flight in this check.
+  Nothing more is sent unless you click Send again, which gives consent
+  again." The entry card no longer promises every printed result: "Gaply
+  reads the t, F, χ², r and z results it can find and recomputes those it
+  has a method for, from your data, under a binding you confirm. Both files
+  stay on this device." The AI panel's "not sent" list names what is
+  withheld and drops column names from it only when they are ticked. The
+  bind step says level names never leave the device. Focus moves to each
+  stage's heading on a stage change, and back to the Edit or "Add a claim"
+  button when the claim form closes. Skipped claims are shown as "N claims
+  were skipped by you and not run." The Minor wording findings are listed
+  in the part C report, not changed.
+* **Minors.** A file with exactly 5,000 data rows is accepted (the header
+  is no longer counted). `stats_verify::mean` is two-pass, as R's `mean`
+  is, so 1e9-offset data meet the gates. A |rho| within 4 units in the last
+  place of 1 is refused as 1. Level 0's reader keeps one sentence and
+  next-p cache per paragraph, so a clause of statistics without p is
+  linear: 70,000 units took 58.04 s at 5163aec and 0.09 s after, in
+  release. The Welch-under-Student reason is `df_contradicts_stated_variant`.
+  Level 0's alpha reader reads "P values below .01 were considered
+  significant", "p < .05 for main effects and p < .01 for interactions" and
+  "The Bonferroni-corrected threshold was .05/6". An unbounded fractional df
+  that misses is not decided rather than not matched (14 Welch cases at 0
+  decimals were false Not reproduced under the rounded default without it).
+  The section-16 corrections to this record were made in place.
+
+Measured with the evaluation's own generators, seeds and drivers
+(`~/gaply-corpus/eval3/partc/`), 5163aec against this change: scenario B
+(honest, scale-free data) 7,366 / 527 / 207 Reproduced / Not reproduced /
+Could not check became 7,464 / 0 / 636; the reaction-time scenarios lost
+all 1,760 false Not reproduced; the report's 144 double-rounded p cases went
+from 68 / 76 / 0 to 144 / 0 / 0, and their 238 statistic cases from
+0 / 155 / 83 to 238 / 0 / 0. The cost: of 1,100 planted +1% errors, 19 are
+newly accepted by double rounding, and 2 of 1,100 typos; at 0 decimals 138
+(+1%), 96 (−1%) and 189 (typos) became Could not check under the rounded
+default. On 6,300 genuinely discrete cases answered "Exact" the verdicts
+equal 5163aec's on 6,237; 62 upward plants are newly accepted, all by
+double rounding, and 1 is newly caught. The 1.5 MB bomb is refused in
+21 ms at 25 MB maximum RSS (`/usr/bin/time -l`; 2.10 s and 2.0 GB at
+5163aec); all 27 real workbooks behave as before. The Phase 1 corpus
+changed one row (DEV, `F(1,62) = 9.96, p = 0.003`, Inconsistent to
+Consistent with the double-rounding note; R [.002463, .002475]); HOLDOUT
+and OWN are unchanged, and no row became Inconsistent.
+
 #### Accepted findings
 
 * Level 1 keeps Step 8b's truncation rule, so it can accept a printed
@@ -22917,7 +23064,8 @@ before (`range_does_not_name_source`).
 
 1. Level 2: assumptions (normality, equal variances, expected counts).
 2. Level 3: does the design fit the test.
-3. Spearman's exact p (today a p that misses the t approximation is not checked).
+3. Spearman's exact p (since part C a p that misses the t approximation is
+   bounded by a measured band; computing it would remove the band).
 4. Welch's ANOVA and Brown-Forsythe.
 5. One-sample t; the non-parametric tests (Mann-Whitney, Wilcoxon,
    Kruskal-Wallis).

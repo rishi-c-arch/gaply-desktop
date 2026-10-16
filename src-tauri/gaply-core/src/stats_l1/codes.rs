@@ -78,6 +78,7 @@ pub fn check_note(n: CheckNote) -> WireCode {
     match n {
         CheckNote::OneTailedStated => c("one_tailed_stated"),
         CheckNote::FloorPrintedAsEquality => c("floor_printed_as_equality"),
+        CheckNote::DoubleRounded => c("double_rounded"),
     }
 }
 
@@ -137,6 +138,8 @@ pub fn match_note(n: MatchNote) -> WireCode {
         MatchNote::P(note) => c("p_note").with("note", check_note(note)),
         MatchNote::Truncated => c("truncated"),
         MatchNote::TruncatedInMagnitude => c("truncated_in_magnitude"),
+        MatchNote::DoubleRounded => c("double_rounded"),
+        MatchNote::DoubleRoundedInMagnitude => c("double_rounded_in_magnitude"),
     }
 }
 
@@ -150,6 +153,7 @@ pub fn not_checked_reason(r: NotCheckedReason) -> WireCode {
         NotCheckedReason::PConcern(why) => c("p_concern").with("reason", concern_reason(why)),
         NotCheckedReason::PCouldNotCheck(why) => c("p_could_not_check").with("reason", l0_could_not_check_reason(why)),
         NotCheckedReason::SpearmanPMayBeExact => c("spearman_p_may_be_exact"),
+        NotCheckedReason::SpearmanPWithTies => c("spearman_p_with_ties"),
         NotCheckedReason::DataPrecision { decimals } => c("data_precision").num("decimals", decimals as usize),
     }
 }
@@ -259,6 +263,7 @@ pub fn l1_note(n: L1Note) -> WireCode {
         L1Note::ConclusionNotAssessed(gap) => c("conclusion_not_assessed").with("gap", conclusion_gap(gap)),
         L1Note::PrintedTruncated { number } => c("printed_truncated").with("number", number_kind(number)),
         L1Note::SpearmanPByTApproximation => c("spearman_p_t_approximation"),
+        L1Note::PrintedDoubleRounded { number } => c("printed_double_rounded").with("number", number_kind(number)),
     }
 }
 
@@ -343,6 +348,8 @@ pub fn l1_ingest_refusal(r: L1IngestRefusal) -> WireCode {
         L1IngestRefusal::FileChangedWhileReading => c("file_changed_while_reading"),
         L1IngestRefusal::XlsNotReadable => c("xls_not_readable"),
         L1IngestRefusal::Dataset(d) => c("dataset").with("refusal", dataset_refusal(d)),
+        L1IngestRefusal::NotARegularFile => c("not_a_regular_file"),
+        L1IngestRefusal::ArchiveTooLarge { declared, limit } => c("archive_too_large").num64("declared", declared).num64("limit", limit),
     }
 }
 
@@ -350,6 +357,7 @@ pub fn variant_gap(g: VariantGap) -> WireCode {
     match g {
         VariantGap::SpearmanExactP => c("spearman_exact_p"),
         VariantGap::FractionalDf { index } => c("fractional_df").num("index", index),
+        VariantGap::DfContradictsStatedVariant { index } => c("df_contradicts_stated_variant").num("index", index),
     }
 }
 
@@ -370,7 +378,6 @@ pub fn statistic_gap(g: StatisticGap) -> WireCode {
 
 pub fn l1_could_not_check(r: L1CouldNotCheck) -> WireCode {
     match r {
-        L1CouldNotCheck::NotBound => c("not_bound"),
         L1CouldNotCheck::TokenStale(g) => c("token_stale").with("rejection", gate_rejection(g)),
         L1CouldNotCheck::Refused(r) => c("refused").with("refusal", l1_refusal(r)),
         L1CouldNotCheck::DataUnreadable(r) => c("data_unreadable").with("refusal", l1_ingest_refusal(r)),
@@ -396,7 +403,7 @@ mod tests {
     #[test]
     fn every_code_is_listed() {
         let mut got: Vec<String> = Vec::new();
-        for n in [CheckNote::OneTailedStated, CheckNote::FloorPrintedAsEquality] {
+        for n in [CheckNote::OneTailedStated, CheckNote::FloorPrintedAsEquality, CheckNote::DoubleRounded] {
             got.push(j(check_note(n)));
         }
         for r in [ConcernReason::OneTailedUnstated, ConcernReason::FTwoTailed, ConcernReason::EstimateDirection] {
@@ -425,7 +432,7 @@ mod tests {
         for k in [NumberKind::Statistic, NumberKind::Df { index: 1 }, NumberKind::P, NumberKind::N { source: NSource::Stated }, NumberKind::N { source: NSource::ImpliedByDf }] {
             got.push(j(number_kind(k)));
         }
-        for n in [MatchNote::InMagnitude, MatchNote::DfTruncated, MatchNote::DfRounded, MatchNote::P(CheckNote::OneTailedStated), MatchNote::Truncated, MatchNote::TruncatedInMagnitude] {
+        for n in [MatchNote::InMagnitude, MatchNote::DfTruncated, MatchNote::DfRounded, MatchNote::P(CheckNote::OneTailedStated), MatchNote::Truncated, MatchNote::TruncatedInMagnitude, MatchNote::DoubleRounded, MatchNote::DoubleRoundedInMagnitude] {
             got.push(j(match_note(n)));
         }
         for r in [
@@ -435,6 +442,7 @@ mod tests {
             NotCheckedReason::PConcern(ConcernReason::OneTailedUnstated),
             NotCheckedReason::PCouldNotCheck(CouldNotCheckReason::InvalidInput),
             NotCheckedReason::SpearmanPMayBeExact,
+            NotCheckedReason::SpearmanPWithTies,
             NotCheckedReason::DataPrecision { decimals: 2 },
         ] {
             got.push(j(not_checked_reason(r)));
@@ -476,6 +484,7 @@ mod tests {
             L1Note::ConclusionNotAssessed(ConclusionGap::SeveralAlphas),
             L1Note::PrintedTruncated { number: NumberKind::P },
             L1Note::SpearmanPByTApproximation,
+            L1Note::PrintedDoubleRounded { number: NumberKind::Statistic },
         ] {
             got.push(j(l1_note(n)));
         }
@@ -524,17 +533,19 @@ mod tests {
             L1IngestRefusal::XlsNotReadable,
             L1IngestRefusal::Dataset(DatasetRefusal::TooWide { columns: 200, limit: 128 }),
             L1IngestRefusal::Dataset(DatasetRefusal::NoColumns),
+            L1IngestRefusal::NotARegularFile,
+            L1IngestRefusal::ArchiveTooLarge { declared: 1_572_865_485, limit: 67_108_864 },
         ] {
             got.push(j(l1_ingest_refusal(r)));
         }
         for r in [
-            L1CouldNotCheck::NotBound,
             L1CouldNotCheck::TokenStale(GateRejection::ClaimMismatch),
             L1CouldNotCheck::Refused(L1Refusal::ZeroVariance),
             L1CouldNotCheck::DataUnreadable(L1IngestRefusal::NoTable),
             L1CouldNotCheck::MethodNotAvailable,
             L1CouldNotCheck::VariantNotAvailable(VariantGap::SpearmanExactP),
             L1CouldNotCheck::VariantNotAvailable(VariantGap::FractionalDf { index: 1 }),
+            L1CouldNotCheck::VariantNotAvailable(VariantGap::DfContradictsStatedVariant { index: 0 }),
             L1CouldNotCheck::BindingInvalid(BindingGap::FamilyDoesNotFitMethod),
             L1CouldNotCheck::BindingInvalid(BindingGap::OlsTargetDoesNotFitFamily),
             L1CouldNotCheck::BindingInvalid(BindingGap::DfCountDoesNotFit { printed: 1, expected: 2 }),
@@ -548,6 +559,7 @@ mod tests {
         let expect = [
             r#"{"code":"one_tailed_stated"}"#,
             r#"{"code":"floor_printed_as_equality"}"#,
+            r#"{"code":"double_rounded"}"#,
             r#"{"code":"one_tailed_unstated"}"#,
             r#"{"code":"f_two_tailed"}"#,
             r#"{"code":"estimate_direction"}"#,
@@ -574,12 +586,15 @@ mod tests {
             r#"{"code":"p_note","note":"one_tailed_stated"}"#,
             r#"{"code":"truncated"}"#,
             r#"{"code":"truncated_in_magnitude"}"#,
+            r#"{"code":"double_rounded"}"#,
+            r#"{"code":"double_rounded_in_magnitude"}"#,
             r#"{"code":"p_concern_at_level_0","reason":"f_two_tailed"}"#,
             r#"{"code":"p_could_not_check_at_level_0","reason":"adjusted_p"}"#,
             r#"{"code":"one_tailed_unstated_on_exact_p"}"#,
             r#"{"code":"p_concern","reason":"one_tailed_unstated"}"#,
             r#"{"code":"p_could_not_check","reason":"invalid_input"}"#,
             r#"{"code":"spearman_p_may_be_exact"}"#,
+            r#"{"code":"spearman_p_with_ties"}"#,
             r#"{"code":"data_precision","decimals":2}"#,
             r#"{"code":"matched"}"#,
             r#"{"code":"matched","note":"in_magnitude"}"#,
@@ -610,6 +625,7 @@ mod tests {
             r#"{"code":"conclusion_not_assessed","gap":"several_alphas"}"#,
             r#"{"code":"printed_truncated","number":"p"}"#,
             r#"{"code":"spearman_p_t_approximation"}"#,
+            r#"{"code":"printed_double_rounded","number":"statistic"}"#,
             r#"{"code":"filtered_out"}"#,
             r#"{"code":"missing_in_bound_column"}"#,
             r#"{"code":"level_not_selected"}"#,
@@ -646,13 +662,15 @@ mod tests {
             r#"{"code":"xls_not_readable"}"#,
             r#"{"code":"dataset","refusal":{"code":"too_wide","columns":200,"limit":128}}"#,
             r#"{"code":"dataset","refusal":"no_columns"}"#,
-            r#"{"code":"not_bound"}"#,
+            r#"{"code":"not_a_regular_file"}"#,
+            r#"{"code":"archive_too_large","declared":1572865485,"limit":67108864}"#,
             r#"{"code":"token_stale","rejection":"claim_mismatch"}"#,
             r#"{"code":"refused","refusal":"zero_variance"}"#,
             r#"{"code":"data_unreadable","refusal":"no_table"}"#,
             r#"{"code":"method_not_available"}"#,
             r#"{"code":"variant_not_available","gap":"spearman_exact_p"}"#,
             r#"{"code":"variant_not_available","gap":{"code":"fractional_df","index":1}}"#,
+            r#"{"code":"variant_not_available","gap":{"code":"df_contradicts_stated_variant","index":0}}"#,
             r#"{"code":"binding_invalid","gap":"family_does_not_fit_method"}"#,
             r#"{"code":"binding_invalid","gap":"ols_target_does_not_fit_family"}"#,
             r#"{"code":"binding_invalid","gap":{"code":"df_count_does_not_fit","expected":2,"printed":1}}"#,
