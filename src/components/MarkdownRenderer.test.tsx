@@ -1,3 +1,8 @@
+/* eslint-disable testing-library/no-container, testing-library/no-node-access --
+   These tests pin the rendered MARKUP itself: that no <script> element or
+   onerror attribute survives, and the exact innerHTML of each line. Testing
+   Library's queries see only what a user can find and cannot see a stripped
+   attribute, so the container is the thing under test here. */
 import React from 'react';
 import { render } from '@testing-library/react';
 import MarkdownRenderer from './MarkdownRenderer';
@@ -30,6 +35,7 @@ describe('MarkdownRenderer XSS protection', () => {
       <MarkdownRenderer content={'<a href="javascript:alert(1)">Download report</a>'} />
     );
     const link = container.querySelector('a');
+    // eslint-disable-next-line no-script-url -- the scheme the test asserts is gone
     expect(link?.getAttribute('href') ?? '').not.toContain('javascript:');
   });
 });
