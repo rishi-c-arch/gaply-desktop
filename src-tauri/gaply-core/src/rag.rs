@@ -131,7 +131,7 @@ fn sha256_hex(text: &str) -> String {
 }
 
 /// Run one document through the full untrusted-ingestion pipeline.
-#[tracing::instrument(skip(db, embedder, doc), fields(title = %doc.title, source = doc.source_type.as_str()))]
+#[tracing::instrument(skip(db, embedder, doc), fields(source = doc.source_type.as_str()))]
 pub fn ingest_document(
     db: &Database,
     embedder: &dyn Embedder,
@@ -312,7 +312,7 @@ pub fn chunks_for_source(
     Ok(out)
 }
 
-#[tracing::instrument(skip(db, embedder))]
+#[tracing::instrument(skip(db, embedder, query))]
 pub fn search(
     db: &Database,
     embedder: &dyn Embedder,

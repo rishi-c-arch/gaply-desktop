@@ -88,6 +88,15 @@ pub struct AnalysisIngestReport {
 /// accepted so that what arrives can be COUNTED.
 pub const ACCEPTED_EXTENSIONS: &[&str] = &["sps", "jnl", "py", "R", "r", "ipynb", "csv"];
 
+/// The extension as the log may carry it: one the picker offers, or `other`.
+fn logged_extension(ext: &str) -> &'static str {
+    ACCEPTED_EXTENSIONS
+        .iter()
+        .find(|a| a.eq_ignore_ascii_case(ext))
+        .copied()
+        .unwrap_or("other")
+}
+
 fn extension_of(path: &std::path::Path) -> String {
     path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase()
 }
@@ -170,9 +179,12 @@ pub fn ingest(paths: &[String]) -> AnalysisIngestReport {
 
     // The durable half of the instrument: the counts reach the log whether or
     // not anyone reads the screen.
+    // A closed word per upload, never the text after a file name's last dot
+    // (evaluation of Phases 2 and 3, F3).
+    let extensions: Vec<&str> = files.iter().map(|f| logged_extension(&f.extension)).collect();
     tracing::info!(
         uploads = files.len(), parsed, stored_not_parsed = stored, rejected, commands, statistical,
-        extensions = ?files.iter().map(|f| f.extension.clone()).collect::<Vec<_>>(),
+        extensions = ?extensions,
         "analysis upload (D191 instrument)"
     );
 
@@ -300,5 +312,16 @@ EXECUTE.\n";
         let r = ingest(&[]);
         assert_eq!(r.files.len(), 0);
         assert!(r.summary.contains("No analysis files"), "{}", r.summary);
+    }
+
+    /// The log carries an accepted extension or `other`, never what follows
+    /// the last dot of a file's name (evaluation of Phases 2 and 3, F3).
+    #[test]
+    fn the_logged_extension_is_a_closed_word() {
+        assert_eq!(logged_extension("sps"), "sps");
+        assert_eq!(logged_extension("csv"), "csv");
+        assert!(ACCEPTED_EXTENSIONS.contains(&logged_extension("r")));
+        assert_eq!(logged_extension("reply-to-reviewers_smith"), "other");
+        assert_eq!(logged_extension(""), "other");
     }
 }

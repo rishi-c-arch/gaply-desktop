@@ -16,17 +16,20 @@
 
 mod desc_support;
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 use tauri::Manager;
 
-use app_lib::runs::{CheckpointHook, Clock, Point, Runs, MAX_RUNS};
+use app_lib::runs::{CheckpointHook, Clock, DatasetSlots, Point, Runs, MAX_RUNS};
 use app_lib::state::AppState;
 use desc_support::*;
-use gaply_core::contracts::{RunId, RunState};
+use gaply_core::contracts::{OperationId, RunId, RunState};
+use gaply_core::stats_desc::{self, DescribeParams};
+use gaply_core::stats_l1::dataset::{build_dataset, DataFingerprint, RawTable, TableRef};
 use gaply_core::Database;
 
 /* ---- fixtures --------------------------------------------------------------- */
@@ -297,6 +300,98 @@ fn open_profile_validate_run_status_result_export_close_through_ipc() {
 /* ---- refusals --------------------------------------------------------------- */
 
 #[test]
+fn open_refuses_the_cell_text_cap_with_its_own_code_and_opens_a_file_at_it() {
+    // Evaluation of Phases 2 and 3, F4 and decision 37. The ingest keeps at
+    // most 2 MiB of cell text (`supplementary::MAX_TOTAL_CHARS`, counted in
+    // UTF-8 bytes after each cell is clamped). Before the fix a file over it
+    // was refused as `malformed`.
+    let w = world(None);
+    let dir = TempDir::new("textcap");
+
+    // The evaluation's shape: 5,000 rows by 128 columns of numbers, 3.8 MB,
+    // inside the row, column and size caps.
+    let mut wide = (1..=128)
+        .map(|c| format!("c{c}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    wide.push('\n');
+    for r in 0..5_000usize {
+        let row: Vec<String> = (0..128usize)
+            .map(|c| format!("{}.{}", (r * 7 + c * 13) % 1000, (r + c) % 97))
+            .collect();
+        wide.push_str(&row.join(","));
+        wide.push('\n');
+    }
+    assert!(wide.len() < 10 * 1024 * 1024);
+    let p = dir.write("wide_5000x128.csv", wide.as_bytes());
+    let e = call(
+        &w.w,
+        "stats_desc_open",
+        json!({ "path": p.to_string_lossy() }),
+    )
+    .unwrap_err();
+    assert_eq!(
+        refusal(&e),
+        json!({ "code": "content_too_large", "limit_bytes": 2_097_152 })
+    );
+
+    // Exactly at the cap: 128 four-byte headers, 2,047 rows of 128 eight-byte
+    // cells and one row of 128 four-byte cells, 2,097,152 bytes of cell text.
+    let at_cap = |last: &str| -> Vec<u8> {
+        let mut s = (1..=128)
+            .map(|c| format!("h{c:03}"))
+            .collect::<Vec<_>>()
+            .join(",");
+        s.push('\n');
+        let full = vec!["1234.567"; 128].join(",");
+        for _ in 0..2_047 {
+            s.push_str(&full);
+            s.push('\n');
+        }
+        let mut cells = vec!["1.25"; 128];
+        cells[127] = last;
+        s.push_str(&cells.join(","));
+        s.push('\n');
+        s.into_bytes()
+    };
+    let p = dir.write("at_cap.csv", &at_cap("1.25"));
+    let o = call(
+        &w.w,
+        "stats_desc_open",
+        json!({ "path": p.to_string_lossy() }),
+    )
+    .expect("a file at the cap opens");
+    assert_eq!(o["profile"]["rows"], 2_048, "{}", o["profile"]["rows"]);
+    // One byte more is over it.
+    let p = dir.write("over_cap.csv", &at_cap("1.255"));
+    let e = call(
+        &w.w,
+        "stats_desc_open",
+        json!({ "path": p.to_string_lossy() }),
+    )
+    .unwrap_err();
+    assert_eq!(refusal(&e)["code"], "content_too_large");
+
+    // A workbook too: 65 rows of 64 text cells of 512 characters (the cell
+    // cap), 2,129,920 bytes of cell text with the headers.
+    let long = "a".repeat(512);
+    let headers: Vec<String> = (1..=64).map(|c| format!("t{c}")).collect();
+    let headers: Vec<&str> = headers.iter().map(String::as_str).collect();
+    let rows: Vec<Vec<C>> = (0..65).map(|_| vec![C::T(&long); 64]).collect();
+    let p = dir.write("text_cap.xlsx", &xlsx(&headers, &rows));
+    let e = call(
+        &w.w,
+        "stats_desc_open",
+        json!({ "path": p.to_string_lossy() }),
+    )
+    .unwrap_err();
+    assert_eq!(
+        refusal(&e),
+        json!({ "code": "content_too_large", "limit_bytes": 2_097_152 })
+    );
+}
+
+#[test]
 fn open_refuses_a_file_over_the_caps_with_its_code_and_holds_nothing() {
     let w = world(None);
     let dir = TempDir::new("caps");
@@ -459,6 +554,215 @@ fn a_run_parked_at_column_k_and_cancelled_ends_cancelled_with_fewer_columns_proc
             "{cmd}"
         );
     }
+}
+
+/// Evaluation of Phases 2 and 3, F1. A cancel that lands after the LAST
+/// check point has read the flag, while the last column is being summarised,
+/// finds no check point left to stop at: every column is done and the worker
+/// reaches its success branch with the flag set. It must still end
+/// `Cancelled`, with no result. Before this test, deleting that branch's
+/// cancel arm in `runs.rs` left every committed test green.
+#[test]
+fn a_cancel_after_the_last_check_point_ends_cancelled_with_no_result() {
+    let last = ALL.len() - 1;
+    let (hook, parked, go) = park_when(move |_, p| p == Point::Passed(last));
+    let runs = runs_with(Some(hook), 30_000);
+    let w = world(Some(runs.clone()));
+    let o = open(&w);
+    let run = start(&w, &o, 1, &ALL).unwrap();
+    parked
+        .recv_timeout(Duration::from_secs(10))
+        .expect("parked after the last check point");
+
+    let c = call(&w.w, "stats_desc_cancel", json!({ "runId": run })).unwrap();
+    assert_eq!(c["state"], "running", "accepted while running: {c}");
+    assert_eq!(c["cancelRequested"], true);
+    go.send(()).unwrap();
+
+    let s = until_terminal(&w.w, run);
+    assert_eq!(s["state"], "cancelled", "{s}");
+    assert_eq!(s["cancelRequested"], true);
+    // Not vacuous: no check point was left, so every column was summarised
+    // and then discarded.
+    assert_eq!(s["columnsDone"], ALL.len() as u64, "{s}");
+    assert_eq!(
+        path(&runs, run),
+        [
+            S::Draft,
+            S::Validating,
+            S::Validated,
+            S::Queued,
+            S::Running,
+            S::Cancelled
+        ]
+    );
+    for (cmd, body) in [
+        ("stats_desc_result", json!({ "runId": run })),
+        (
+            "stats_desc_export",
+            json!({ "runId": run, "format": "csv" }),
+        ),
+    ] {
+        assert_eq!(
+            refusal(&call(&w.w, cmd, body).unwrap_err())["code"],
+            "run.cancelled",
+            "{cmd}"
+        );
+    }
+}
+
+/// A clock for F2 that stands still until a hook arms it. Armed, its next
+/// reading on the armed thread (the check point's reading of the ceiling,
+/// which comes AFTER its reading of the cancel flag) accepts a cancel of the
+/// run through `Runs::cancel` and moves time on by the whole ceiling. So the
+/// cancel and the ceiling land at the same check point, by construction and
+/// not by timing.
+struct CancelAtTheCeiling {
+    now: AtomicU64,
+    ceiling: u64,
+    armed: Mutex<Option<(std::thread::ThreadId, RunId)>>,
+    runs: OnceLock<Weak<Runs>>,
+    /// The state each cancel was accepted in.
+    accepted: Mutex<Vec<RunState>>,
+}
+
+impl Clock for CancelAtTheCeiling {
+    fn now_ms(&self) -> u64 {
+        let fire = {
+            let mut armed = self.armed.lock().unwrap();
+            match *armed {
+                Some((thread, run)) if thread == std::thread::current().id() => {
+                    *armed = None;
+                    Some(run)
+                }
+                _ => None,
+            }
+        };
+        if let Some(run) = fire {
+            self.now.fetch_add(self.ceiling, Ordering::SeqCst);
+            let runs = self.runs.get().and_then(Weak::upgrade).expect("runs");
+            let snap = runs.cancel(run).expect("the run is held");
+            assert!(snap.cancel_requested);
+            self.accepted.lock().unwrap().push(snap.record.state);
+        }
+        self.now.load(Ordering::SeqCst)
+    }
+}
+
+/// Evaluation of Phases 2 and 3, F2. A cancel accepted while running ends
+/// the run `Cancelled` even when the ceiling also passes at the same check
+/// point. 1,000 runs, each deterministic: the cancel is accepted inside the
+/// check point's own reading of the clock.
+#[test]
+fn a_cancel_and_the_ceiling_at_the_same_check_point_end_cancelled_every_time() {
+    use gaply_core::contracts::codes::Closed;
+    const CEILING: u64 = 1_000;
+    const K: usize = 1;
+    const RUNS: usize = 1_000;
+    let clock = Arc::new(CancelAtTheCeiling {
+        now: AtomicU64::new(0),
+        ceiling: CEILING,
+        armed: Mutex::new(None),
+        runs: OnceLock::new(),
+        accepted: Mutex::new(Vec::new()),
+    });
+    let arm = clock.clone();
+    let hook: CheckpointHook = Arc::new(move |run, p| {
+        if p == Point::Column(K) {
+            *arm.armed.lock().unwrap() = Some((std::thread::current().id(), run));
+        }
+    });
+    let runs = Arc::new(Runs::with_hooks(clock.clone(), Some(hook), CEILING));
+    clock
+        .runs
+        .set(Arc::downgrade(&runs))
+        .ok()
+        .expect("set once");
+
+    let slots = DatasetSlots::default();
+    let dataset = build_dataset(
+        RawTable::from_rows(
+            vec!["a".into(), "b".into(), "c".into()],
+            (1..=5)
+                .map(|i| vec![i.to_string(), (i * 2).to_string(), (i * 3).to_string()])
+                .collect(),
+        ),
+        DataFingerprint::of_bytes(b"synthetic", "unit", TableRef::FirstTable),
+    )
+    .expect("dataset");
+    let params = DescribeParams::defaults_for(&stats_desc::profile(&dataset));
+    assert_eq!(params.columns.len(), 3);
+    let slot = slots
+        .get(slots.insert("synthetic".into(), dataset))
+        .expect("slot");
+
+    let mut ended = std::collections::BTreeMap::<String, usize>::new();
+    for i in 0..RUNS as u64 {
+        let spec = stats_desc::spec(OperationId(i + 1), slot.dataset(), params.clone());
+        let run = runs.start(slot.clone(), spec).expect("started");
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let s = loop {
+            let s = runs.snapshot(run).expect("held");
+            if s.record.state.is_terminal() {
+                break s;
+            }
+            assert!(Instant::now() < deadline, "run {i} did not end");
+            std::thread::yield_now();
+        };
+        *ended
+            .entry(format!(
+                "{} cancel_requested={} columns_done={}",
+                s.record.state.wire(),
+                s.cancel_requested,
+                s.columns_done
+            ))
+            .or_default() += 1;
+    }
+    let accepted = clock.accepted.lock().unwrap().clone();
+    // Not vacuous: every run's cancel was accepted while it ran, and each run
+    // stopped at check point K, which the flag (read before the cancel) did
+    // not stop, so the ceiling did.
+    assert_eq!(accepted.len(), RUNS, "a cancel was accepted in every run");
+    assert!(
+        accepted.iter().all(|s| *s == RunState::Running),
+        "{accepted:?}"
+    );
+    assert_eq!(
+        ended.into_iter().collect::<Vec<_>>(),
+        [(
+            format!("cancelled cancel_requested=true columns_done={K}"),
+            RUNS
+        )],
+        "every run must end Cancelled"
+    );
+}
+
+/// F2, the other outcomes of the worker's last step: a cancel accepted while
+/// running, then a panic in the describe loop, still ends `Cancelled`.
+#[test]
+fn a_cancel_accepted_before_the_describe_loop_panics_ends_cancelled() {
+    let me: Arc<OnceLock<Weak<Runs>>> = Arc::new(OnceLock::new());
+    let me2 = me.clone();
+    let hook: CheckpointHook = Arc::new(move |run, p| {
+        if p == Point::Passed(1) {
+            let runs = me2.get().and_then(Weak::upgrade).expect("runs");
+            assert!(runs.cancel(run).expect("held").cancel_requested);
+            panic!("a deliberate panic after the cancel was accepted");
+        }
+    });
+    let runs = runs_with(Some(hook), 30_000);
+    me.set(Arc::downgrade(&runs)).ok().expect("set once");
+    let w = world(Some(runs.clone()));
+    let o = open(&w);
+    let run = start(&w, &o, 1, &ALL).unwrap();
+    let s = until_terminal(&w.w, run);
+    assert_eq!(s["state"], "cancelled", "{s}");
+    assert_eq!(s["cancelRequested"], true);
+    assert_eq!(path(&runs, run).last(), Some(&S::Cancelled));
+    assert_eq!(
+        refusal(&call(&w.w, "stats_desc_result", json!({ "runId": run })).unwrap_err())["code"],
+        "run.cancelled"
+    );
 }
 
 #[test]

@@ -183,6 +183,30 @@ fn a_document_that_does_not_parse_is_stopped_by_the_preflight() {
     }
 }
 
+/// Evaluation of Research OS Phases 2 and 3, F4 (decision 37): Level 1's open
+/// refuses a data file over the ingest's 2 MiB of cell text with its own code
+/// and the limit, not as `malformed`. The evaluation's shape: 5,000 rows by
+/// 128 columns of numbers, inside every other cap.
+#[test]
+fn a_data_file_over_the_cell_text_cap_is_refused_with_its_own_code() {
+    let w = world_with(MockTransport::new());
+    let mut wide = (1..=128).map(|c| format!("c{c}")).collect::<Vec<_>>().join(",");
+    wide.push('\n');
+    for r in 0..5_000usize {
+        let row: Vec<String> = (0..128usize).map(|c| format!("{}.{}", (r * 7 + c * 13) % 1000, (r + c) % 97)).collect();
+        wide.push_str(&row.join(","));
+        wide.push('\n');
+    }
+    let data = w.files.data.with_file_name(format!("{FILE}_wide.csv"));
+    std::fs::write(&data, wide.as_bytes()).unwrap();
+    let e = l1::open(&w.db, &w.runs, &w.ai, &w.files.manuscript, &data).err().expect("refused");
+    let GaplyError::Validation(m) = &e else { panic!("not a validation error: {e:?}") };
+    let v: serde_json::Value = serde_json::from_str(m).expect("a closed code in JSON");
+    assert_eq!(v["code"], "data_refused", "{v}");
+    assert_eq!(v["reason"], json!({ "code": "content_too_large", "limit_bytes": 2_097_152 }), "{v}");
+    assert!(!m.contains(FILE) && !m.contains(PATH), "no name or folder in the refusal: {m}");
+}
+
 /* ---- tokens --------------------------------------------------------------- */
 
 #[test]

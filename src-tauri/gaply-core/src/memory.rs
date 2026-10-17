@@ -20,7 +20,7 @@ pub struct Episode {
 }
 
 impl Database {
-    #[tracing::instrument(skip(self, context))]
+    #[tracing::instrument(skip(self, decision, context))]
     pub fn record_episode(
         &self,
         agent: &str,

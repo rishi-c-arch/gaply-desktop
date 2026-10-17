@@ -40,7 +40,13 @@ shape, and Level 1's run store (`L1Runs`, four runs, no state machine).
    started on its own thread, then polled. Cancel is cooperative, through a
    check point the operation calls between columns
    (`stats_desc::describe_until`); the check point also enforces the time
-   ceiling (ADR-010). A cancelled run is never reported as succeeded.
+   ceiling (ADR-010). A cancelled run is never reported as succeeded: a
+   cancel accepted while the run is queued or running ends it `Cancelled`,
+   even when it lands after the last check point or as the ceiling passes,
+   because the worker reads the flag again under the lock of its last
+   transition and a set flag decides the end. (Sharpened 17 Oct 2026: the
+   evaluation of Phases 2 and 3 found the claim held by one unpinned line,
+   F1, and broken at the ceiling, F2.)
 5. **Commands are thin and return views** (`stats_desc_commands.rs`): each
    `#[tracing::instrument(skip_all)]`, refusals as a closed code in JSON,
    never a path. The webview sends the full `OperationSpec`; Rust validates
@@ -92,6 +98,11 @@ shape, and Level 1's run store (`L1Runs`, four runs, no state machine).
   reachable edge by the record's path.
 - Mutation probes, Phase 2B report: removing the cancel check, or the busy
   check, turns a test red.
+- Evaluation fixes (D274): `a_cancel_after_the_last_check_point_ends_cancelled_with_no_result`,
+  `a_cancel_and_the_ceiling_at_the_same_check_point_end_cancelled_every_time`
+  (1,000 runs, deterministic through an injected clock) and
+  `a_cancel_accepted_before_the_describe_loop_panics_ends_cancelled`, each red
+  with the worker's cancel arm removed.
 - `src-tauri/tests/stats_desc_wire.rs` and `src/screens/statistics/
   describeTypes.vitest.ts`: each view's bytes pinned on both sides.
 

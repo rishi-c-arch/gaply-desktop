@@ -23,7 +23,10 @@
 //!   the run manager's own lock, so no run can start between them.
 //! * **Ids continue** across activations: a new engine's first run and slot
 //!   come after the last engine's, so an old id reads as unknown rather than
-//!   naming something new.
+//!   naming something new. Slots are numbered from one counter the session
+//!   shares with every engine, so even an open that lands in an engine after
+//!   it was dropped takes a number the next engine never hands out
+//!   (evaluation of Phases 2 and 3, F8).
 //! * **Entitlement is not checked here** (decision 9): the list view carries
 //!   `entitled: null` for the frontend to fill from `useEntitlement`.
 //! * Only `workspace_activate` activates. Nothing else in the app calls
@@ -33,6 +36,7 @@
 //! a refusal that is a closed code with closed-word or numeric parameters.
 //! Nothing here holds or logs user data.
 
+use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use serde::Serialize;
@@ -81,9 +85,13 @@ struct Inner {
     state: WorkspaceState,
     /// Present exactly while Statistics is active.
     statistics: Option<Arc<StatisticsEngine>>,
-    /// The last run id and slot handed out by an engine since dropped.
+    /// The last run id handed out by an engine since dropped. A run cannot
+    /// start once its engine is sealed, so a number carried over is enough.
     last_run: u64,
-    last_slot: u64,
+    /// Every engine's slots are numbered from this one counter: an open that
+    /// passed the check before a deactivation inserts into the dropped
+    /// engine, after any number could be carried over (F8).
+    slot_numbers: Arc<AtomicU64>,
 }
 
 pub struct WorkspaceSession {
@@ -110,7 +118,7 @@ impl WorkspaceSession {
                 state: WorkspaceState::NoWorkspace,
                 statistics: None,
                 last_run: 0,
-                last_slot: 0,
+                slot_numbers: Arc::new(AtomicU64::new(0)),
             }),
             health,
             runs,
@@ -179,8 +187,7 @@ impl WorkspaceSession {
             (None, WorkspaceId::Statistics) => {
                 let runs = (self.runs)();
                 runs.continue_after(inner.last_run);
-                let datasets = DatasetSlots::default();
-                datasets.continue_after(inner.last_slot);
+                let datasets = DatasetSlots::numbered_by(Arc::clone(&inner.slot_numbers));
                 Ok(Arc::new(StatisticsEngine {
                     runs,
                     datasets: Arc::new(datasets),
@@ -236,7 +243,6 @@ impl WorkspaceSession {
         inner.state = workspace::transition(inner.state, WorkspaceEvent::Deactivate)?;
         if let Some(engine) = inner.statistics.take() {
             inner.last_run = inner.last_run.max(engine.runs.last_id());
-            inner.last_slot = inner.last_slot.max(engine.datasets.last_id());
         }
         inner.state = workspace::transition(inner.state, WorkspaceEvent::Deactivated)?;
         tracing::info!(workspace = workspace_word(id), "workspace: left");

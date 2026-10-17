@@ -10,25 +10,50 @@ built.
 Blueprint §17 says no operation may exceed its budget indefinitely, and
 every capability should declare a resource profile. Before Phase 2 the only
 budgets were the ingest's caps (100 MiB through `import_guard`, 10 MiB per
-data file, 5,000 rows, 128 columns, 512 characters per cell, 64 MiB
-inflated for an archive since evaluation fixes part C) and the AI helper's
-request budgets. The deep evaluation measured a 1.44 GB peak from a 1.5 MB
-workbook (M-9) before part C bounded inflation.
+data file, 5,000 rows, 128 columns, 512 characters per cell, 2 MiB of cell
+text in all, 64 MiB inflated for an archive since evaluation fixes part C)
+and the AI helper's request budgets. The deep evaluation measured a 1.44 GB
+peak from a 1.5 MB workbook (M-9) before part C bounded inflation.
 
 ## Decision
 
 1. **The input is bounded at the door, once.** `stats_desc_open` reads
    through Level 1's ingest (`stats_l1_ingest::load_dataset`): a regular
-   file, one open, a bounded read, inflation counted before parsing, the
-   row and column caps. A file over a cap is refused with Level 1's code
-   (`too_large`, `file_too_large`, `archive_too_large`, …). There is no
-   second ingest path.
+   file, one open, a bounded read, inflation counted before parsing, then
+   the parser's caps. There is no second ingest path. Every cap, with its
+   value and what a file over it gets (listed in full since the evaluation
+   of Phases 2 and 3, F4, which found the cell-text cap missing here and
+   refused as `malformed`):
+
+   | cap | value | over it |
+   |---|---|---|
+   | file bytes, `import_guard::MAX_BYTES` | 100 MiB | `too_large {bytes, limit}` |
+   | data file bytes, `supplementary::MAX_FILE_SIZE_BYTES` | 10 MiB | `too_large {bytes, limit}` |
+   | inflated bytes of a zip workbook or a `.mat`'s compressed elements, `MAX_WORKBOOK_UNCOMPRESSED_BYTES` | 64 MiB | `archive_too_large {declared, limit}` |
+   | data rows, the header not counted, `supplementary::MAX_ROWS` | 5,000 | `file_too_large {limit_rows}` |
+   | columns, `supplementary::MAX_COLS` | 128 | `dataset {too_wide, columns, limit}` |
+   | characters per cell, `supplementary::MAX_CELL_LEN` | 512 | not refused: the cell is clamped to 512 |
+   | cell text in all, `supplementary::MAX_TOTAL_CHARS`, counted in UTF-8 bytes after clamping, header included (CSV, TSV and spreadsheets) | 2 MiB (2,097,152 bytes) | `content_too_large {limit_bytes}` |
+
+   The last cap binds before the row and column caps on a wide numeric
+   table: 5,000 rows by 128 columns of 5-to-6-character numbers is about
+   3.8 MB of cell text and is refused, while 3,000 by 128 opens. It stays
+   as it is because it is the verifier's shared ingest limit (decision
+   37).
 2. **The run is bounded in time.** A wall-clock ceiling of 30 s from the
-   run's start (`runs::RUN_CEILING_MS`), checked at the same check point as
-   cancel, before each column. A run that reaches it ends `TimedOut`.
+   run's start (`runs::RUN_CEILING_MS`, from Queued → Running), checked at
+   the same check point as cancel, after the cancel flag, before each
+   column. A run that reaches it ends `TimedOut`, unless a cancel was
+   accepted before the run's last transition: then it ends `Cancelled`
+   (§3).
 3. **Work is cancellable.** The check point reads the cancel flag before
-   each column; a cancel accepted while the run runs always ends it
-   `Cancelled`.
+   each column, and the worker reads it again under the lock of its last
+   transition, so a cancel accepted while the run runs always ends it
+   `Cancelled`: also when it lands as the ceiling passes, or after the last
+   check point, or before a panic. (Corrected 17 Oct 2026: the proposed text
+   said this of the check point alone, which a cancel landing after the
+   flag was read could miss and end `TimedOut`, evaluation of Phases 2 and
+   3, F2.)
 4. **Memory is bounded by count.** At most 8 run records and 4 dataset
    slots, in memory only.
 5. **The estimate is reported before the run.** `ValidationReport.
@@ -68,6 +93,16 @@ workbook (M-9) before part C bounded inflation.
   check lets the run process every column.
 - `open_refuses_a_file_over_the_caps_with_its_code_and_holds_nothing`: 5,001
   rows, over 10 MiB, and a folder each refused with their code.
+- `open_refuses_the_cell_text_cap_with_its_own_code_and_opens_a_file_at_it`
+  (F4): the evaluation's 5,000 × 128 CSV and a workbook over 2 MiB of cell
+  text refused as `content_too_large`, a CSV at exactly 2,097,152 bytes of
+  cell text opened, one byte more refused; Level 1's open gives the same
+  code (`a_data_file_over_the_cell_text_cap_is_refused_with_its_own_code`).
+- `a_cancel_and_the_ceiling_at_the_same_check_point_end_cancelled_every_time`
+  (F2): 1,000 runs, each with the cancel accepted inside the check point's
+  reading of the clock, all `Cancelled`.
+- The evaluation's debug measurement (F22): 3,000 × 128, every column, 685 ms
+  of run time and 78.6 MiB peak; release still not measured.
 
 ## Revision trigger
 

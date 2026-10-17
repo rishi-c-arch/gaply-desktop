@@ -87,10 +87,14 @@ const WORDS: Record<WorkspaceCode, (r: WorkspaceRefusal) => string> = {
     `This belongs to the ${name(r.params.found)} workspace, but ${name(r.params.expected)} is the one open.`,
   'workspace.run_active': (r) =>
     `Run ${r.params.run ?? '?'} is still queued or running, so the workspace cannot be closed yet.`,
+  // While a workspace is opening nothing can be closed, so it says to wait
+  // (evaluation of Phases 2 and 3, F15).
   'workspace.illegal_transition': (r) =>
-    r.params.workspace
-      ? `${name(r.params.workspace)} is ${PHASE_TEXT[r.params.from ?? 'active'].toLowerCase()}. Close it first.`
-      : 'That cannot be done from here.',
+    !r.params.workspace
+      ? 'That cannot be done from here.'
+      : r.params.from === 'activating'
+        ? `${name(r.params.workspace)} is still opening. Wait for it to open, then try again.`
+        : `${name(r.params.workspace)} is ${PHASE_TEXT[r.params.from ?? 'active'].toLowerCase()}. Close it first.`,
 };
 
 function name(id: WorkspaceId | undefined): string {

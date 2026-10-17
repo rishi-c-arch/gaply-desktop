@@ -78,6 +78,9 @@ describe('the workspace wire', () => {
     expect(workspaceRefusal(err)).toEqual(runActive);
     expect(workspaceSentence(runActive)).toBe('Run 3 is still queued or running, so the workspace cannot be closed yet.');
     expect(workspaceSentence(illegal)).toBe('Statistics is open. Close it first.');
+    // F15: while another activation is opening, nothing can be closed.
+    const opening = { ...illegal, params: { ...illegal.params, from: 'activating' as const } };
+    expect(workspaceSentence(opening)).toBe('Statistics is still opening. Wait for it to open, then try again.');
     expect(workspaceRefusal({ message: JSON.stringify({ code: 'run.unknown_run' }) })).toBeNull();
     expect(workspaceRefusal(new Error('not json'))).toBeNull();
   });

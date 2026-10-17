@@ -9,6 +9,9 @@
 // it, so nothing here congratulates, and "Could not compute" is a reason,
 // not an error.
 import { refusalOf, sentenceFor } from '../statsverifier/l1/l1Wording';
+// The run manager's ceiling, pinned to runs::RUN_CEILING_MS by
+// src-tauri/tests/stats_desc_wire.rs (evaluation of Phases 2 and 3, F11).
+import LIMITS from './describeLimits.json';
 import type { WireCode } from '../statsverifier/statsL1Types';
 import type { ColumnKind, Diagnostic, Platform, Reproducibility, RunState, ValidationStatus } from './describeTypes';
 
@@ -123,7 +126,8 @@ export const WORDS: Record<string, Words> = {
   'run.not_finished': () => 'This run has not ended yet.',
   'run.no_result': () => 'This run ended without a result.',
   'run.cancelled': () => 'This run was cancelled, so it has no result.',
-  'run.timed_out': () => 'This run passed its 30-second limit and was stopped, so it has no result.',
+  'run.timed_out': () =>
+    `This run passed its ${LIMITS.runCeilingMs / 1000}-second limit and was stopped, so it has no result.`,
   'run.resource_limit': () => 'This run passed a resource limit and was stopped, so it has no result.',
   'run.illegal_transition': () => 'Gaply could not change this run in that way.',
   'run.already_terminal': () => 'This run has already ended.',
@@ -187,9 +191,20 @@ export function progressSentence(done: number, total: number): string {
   return `${done} of ${total} ${total === 1 ? 'column' : 'columns'} summarised.`;
 }
 
+/** The status view's elapsed time runs from the moment the run was made,
+ *  when Run was pressed; the manifest's runs from the computation's start
+ *  to its end (evaluation of Phases 2 and 3, F6). Each says which it is. */
 export function elapsedSentence(ms: number): string {
-  return `Elapsed: ${(ms / 1000).toFixed(1)} s`;
+  return `Elapsed since you pressed Run: ${(ms / 1000).toFixed(1)} s`;
 }
+
+export function computeTimeSentence(ms: number): string {
+  return `${(ms / 1000).toFixed(3)} s, from the start of the computation to its end`;
+}
+
+/** Rows used always equals rows read in this summary (F6). */
+export const ROWS_USED_NOTE =
+  "The same as rows read: this summary leaves out cells, never whole rows. Each column's Missing count says how many.";
 
 /** A number as shown in the table: six significant figures. The export
  *  keeps every digit. */

@@ -411,6 +411,13 @@ pub enum L1IngestRefusal {
     /// compressed elements inflate past `limit`, counted before matfile reads
     /// them.
     ArchiveTooLarge { declared: u64, limit: u64 },
+    /// More cell text than the ingest keeps: `limit_bytes` of UTF-8, counted
+    /// over every cell after each is clamped to its own cap (the shared
+    /// ingest's `MAX_TOTAL_CHARS`, 2 MiB). A file can be inside the row,
+    /// column and size caps and still over this one: 5,000 rows by 128
+    /// columns of numbers is (evaluation of Research OS Phases 2 and 3, F4;
+    /// it was refused as `Malformed` before).
+    ContentTooLarge { limit_bytes: usize },
 }
 
 /// Why no schema was built at all.

@@ -15,12 +15,15 @@
 //!   start is refused with `run.run_busy`.
 //! * Cancel is cooperative. The describe loop calls this manager's check
 //!   point before each column (`stats_desc::describe_until`); the check point
-//!   reads the cancel flag and the clock, and a run past its wall-clock
-//!   ceiling ([`RUN_CEILING_MS`], 30 s) ends `TimedOut` there.
+//!   reads the cancel flag, then the clock, and a run past its wall-clock
+//!   ceiling ([`RUN_CEILING_MS`], 30 s) stops there.
 //! * Every state change goes through `contracts::transition`. A cancelled run
-//!   is never reported as succeeded: the worker reads the cancel flag under
-//!   the same lock as its last transition, so a cancel that the screen saw
-//!   accepted while the run was running always ends `Cancelled`.
+//!   is never reported as succeeded, timed out or failed: the worker reads the
+//!   cancel flag again under the same lock as its last transition, and a set
+//!   flag decides the end, so a cancel that the screen saw accepted while the
+//!   run was running always ends `Cancelled`, even when it landed after the
+//!   last check point or as the ceiling passed (evaluation of Phases 2 and 3,
+//!   F1 and F2).
 //! * A record keeps its terminal state for as long as it is held. Nothing the
 //!   webview sends changes a finished record: a cancel of one returns its
 //!   state unchanged.
@@ -81,10 +84,15 @@ impl Clock for SinceStart {
 pub enum Point {
     BeforeStart,
     Column(usize),
+    /// The check point at `k` let the run go on: the cancel flag and the
+    /// clock have been read, and column `k` is about to be summarised. A
+    /// test parks here to land a cancel after the last check point.
+    Passed(usize),
 }
 
-/// Called at each [`Point`], before the run's state, cancel flag or clock is
-/// read there. Tests only: a test parks a run here.
+/// Called at each [`Point`]: at `BeforeStart` and `Column(k)` before the
+/// run's state, cancel flag or clock is read there, at `Passed(k)` after.
+/// Tests only: a test parks a run here.
 pub type CheckpointHook = Arc<dyn Fn(RunId, Point) + Send + Sync>;
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -113,11 +121,23 @@ impl Slot {
 
 #[derive(Default)]
 pub struct DatasetSlots {
-    next: AtomicU64,
+    /// The last slot number handed out. Shared by every engine one workspace
+    /// session builds ([`DatasetSlots::numbered_by`]), so an open that lands
+    /// in an engine already dropped can never take a number the next engine
+    /// hands out (evaluation of Phases 2 and 3, F8).
+    next: Arc<AtomicU64>,
     slots: Mutex<VecDeque<(u64, Arc<Slot>)>>,
 }
 
 impl DatasetSlots {
+    /// Slots numbered from `counter`, which other slot sets may share.
+    pub fn numbered_by(counter: Arc<AtomicU64>) -> DatasetSlots {
+        DatasetSlots {
+            next: counter,
+            slots: Mutex::new(VecDeque::new()),
+        }
+    }
+
     /// Holds the dataset and returns its slot. A fifth drops the oldest; a run
     /// already using it keeps its own handle until it ends.
     pub fn insert(&self, display_name: String, dataset: Dataset) -> u64 {
@@ -375,7 +395,8 @@ impl Runs {
     }
 
     /// The worker: Queued → Running, the describe loop with its check point,
-    /// then exactly one terminal transition.
+    /// then exactly one terminal transition, `Cancel` whenever the flag is
+    /// set.
     fn work(self: Arc<Self>, run: RunId, slot: Arc<Slot>, spec: OperationSpec<DescribeParams>) {
         if let Some(hook) = &self.hook {
             hook(run, Point::BeforeStart);
@@ -403,14 +424,24 @@ impl Runs {
         let Some(entry) = Self::find(&mut entries, run) else {
             return;
         };
-        match outcome {
-            // Every column was done, but the cancel came first: the work is
-            // discarded and the run ends Cancelled, never Succeeded.
-            Ok(Ok(result)) if entry.cancel_requested => {
-                entry.columns_done = entry.columns_total;
-                Self::step(entry, RunEvent::Cancel, now);
-                drop(result);
+        // A cancel accepted at any time before this lock decides the end,
+        // whatever the work produced: a result (the cancel landed after the
+        // last check point), the ceiling (it landed after the check point
+        // read the flag), a refusal or a panic. The work is discarded and the
+        // run ends Cancelled, never Succeeded, TimedOut or Failed. `cancel`
+        // accepts only while the run is unfinished, under this same lock, so
+        // a cancel that comes later finds the run ended and changes nothing.
+        if entry.cancel_requested {
+            match &outcome {
+                Ok(Ok(_)) => entry.columns_done = entry.columns_total,
+                Ok(Err(Halt::Stopped { done, .. })) => entry.columns_done = *done,
+                Ok(Err(Halt::Refused(_))) => {}
+                Err(_) => tracing::warn!("stats_desc: the describe loop panicked"),
             }
+            Self::step(entry, RunEvent::Cancel, now);
+            return;
+        }
+        match outcome {
             Ok(Ok(result)) => {
                 entry.columns_done = entry.columns_total;
                 let manifest = stats_desc::manifest(
@@ -477,6 +508,9 @@ impl Runs {
         if self.clock.now_ms().saturating_sub(started) >= self.ceiling_ms {
             return ControlFlow::Break(Stop::TimeOut);
         }
+        if let Some(hook) = &self.hook {
+            hook(run, Point::Passed(done));
+        }
         ControlFlow::Continue(())
     }
 
@@ -506,8 +540,9 @@ impl Runs {
         Ok(self.snapshot_of(entry))
     }
 
-    /// Asks the run to stop. Queued: cancelled now. Running: the flag is set
-    /// and the next check point ends it `Cancelled`. Finished: unchanged.
+    /// Asks the run to stop. Queued: cancelled now. Running: the flag is set,
+    /// and the next check point, or the worker's last step if no check point
+    /// is left, ends it `Cancelled`. Finished: unchanged.
     pub fn cancel(&self, run: RunId) -> Result<RunSnapshot, RunCode> {
         let now = self.clock.now_ms();
         let mut entries = lock(&self.entries);

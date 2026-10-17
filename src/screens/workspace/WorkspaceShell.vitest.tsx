@@ -70,6 +70,9 @@ describe('WorkspaceShell', () => {
     fireEvent.click(screen.getByTestId('ws-switch'));
     await screen.findByTestId('chooser-here');
     expect(ws.calls.filter(([c]) => c === 'workspace_deactivate')).toHaveLength(1);
+    // ADR-001 decision 7 as corrected (evaluation of Phases 2 and 3, F13):
+    // the shell never activates a workspace; the chooser does, on a click.
+    expect(ws.calls.some(([c]) => c === 'workspace_activate')).toBe(false);
   });
 
   it('switching during a run shows the run with Wait and Cancel; Cancel cancels it, then switches', async () => {

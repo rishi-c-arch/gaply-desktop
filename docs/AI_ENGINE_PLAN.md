@@ -23323,7 +23323,11 @@ Cooperative cancel and a 30 s wall-clock ceiling are read at one check
 point before each column. A cancel accepted while running always ends
 `Cancelled`: the worker reads the flag under the same lock as its last
 transition. A panic in the describe loop ends the run `Failed`, never
-stuck. `Runs::with_hooks` takes a clock, a hook (`Point::BeforeStart`,
+stuck. (Corrected 17 Oct 2026, D274: at `ec581c9` the last transition read
+the flag on the success path only, so a cancel accepted after the check
+point read it, as the ceiling passed, ended `TimedOut`; now a set flag
+decides the end on every path, and a panic after an accepted cancel ends
+`Cancelled`.) `Runs::with_hooks` takes a clock, a hook (`Point::BeforeStart`,
 `Point::Column(k)`) and the ceiling, for tests.
 
 **2A's API, changed in the smallest way**: `stats_desc::describe_until(dataset,
@@ -23520,3 +23524,157 @@ And formatting the files then turned `workspace_guards` red on every command:
 rustfmt split `state.workspace.require_statistics()` across lines, and the
 guard matched the call as written. It now compares with whitespace removed,
 and the first mutation probe was re-run against it (still 3 red).
+
+### D274 — Research OS, Phases 2 and 3: evaluation fixes `[src]` `[test]` `[measured]`
+
+**Added** on `feat/research-os` (from `ec581c9`, Phase 3), after the
+independent evaluation of Phases 2 and 3 (`~/gaply-corpus/os/eval23/
+evaluation.md`). Decisions 36 to 39 of 17 Oct 2026 apply
+(`~/gaply-corpus/os/decisions.md`). Each regression test was written first
+and run red, or, where the code already held an unpinned guard, shown red by
+the evaluation's own mutation and the file restored to its recorded SHA-256.
+Logs in `~/gaply-corpus/os/eval23/fixes/`, the re-run of the evaluation's
+probes in `~/gaply-corpus/os/eval23/rerun/`.
+
+**F1, a cancel during the last column (Major).** The guard existed and
+nothing pinned it. A test hook point, `runs::Point::Passed(k)`, is called
+after a check point lets the run go on; `stats_desc_commands.rs`'s
+`a_cancel_after_the_last_check_point_ends_cancelled_with_no_result` parks
+there at the last column, cancels and asserts `Cancelled`, every column done
+and discarded, `run.cancelled` from result and export. With the success
+branch's cancel arm removed (the evaluation's mutation) it is the only red
+test, `succeeded` with `cancelRequested: true`; restored (SHA-256 `9cf96c86…`
+before and after), green.
+
+**F2, cancel against the ceiling (Major).** A cancel accepted after the check
+point read the flag, as the ceiling passed, ended `TimedOut`. The worker's last
+step now reads the flag under the lock of its last transition and a set flag
+decides the end on every path: a result, the ceiling, a refusal or a panic
+all end `Cancelled` (`runs.rs`, `work`). The check point already read the flag
+before the clock and is unchanged. `a_cancel_and_the_ceiling_at_the_same_check_point_end_cancelled_every_time`
+uses an injected clock that accepts the cancel inside the check point's own
+reading of the time and moves past the ceiling: 1,000 runs, deterministic,
+1,000 `timed_out` before the fix and 1,000 `cancelled` after (and in five more
+runs of the test). `a_cancel_accepted_before_the_describe_loop_panics_ends_cancelled`
+covers the panic path (`failed` before). Disabling the new arm turns these two
+and F1's test red, nothing else. Corrected to match: `runs.rs`'s docs, D272's
+sentence (a panic after an accepted cancel ends `Cancelled`), ADR-003 §4,
+ADR-010 §2 and §3.
+
+**F3, paths in `gaply_core`'s tracing (decision 36).** `db.rs`'s "sqlite store
+ready" event no longer carries `db = %path.display()`. `tests/no_path_in_tracing.rs`
+now scans `gaply-core/src` too, and **pointing it there was not enough**: its
+field rule read the KEY only, so `db = …` passed with the scan extended
+(measured green). The rule now also reads a field's VALUE (`a_count` exempts a
+chain ending in `.len`), with must-fail snippets for both shapes. The core
+scan also has a text rule (whole `_`/`.` segments of `title`, `query`,
+`description`, `decision`, `text`, `content`, `sentence`, `excerpt`,
+`snippet`, `label`, `header`, `cell`), which found four more: `rag.rs:134`
+(a document's title in `ingest_document`'s span), `rag.rs:315` (`search`'s
+query), `projects.rs:37` (`create_project`'s name and description) and
+`memory.rs:23` (`record_episode`'s free-text decision); each is now skipped.
+Red before (6 sites in core), green after. The value rule found two in the app
+crate: `analysis_ingest.rs`'s D191 instrument logged each upload's raw text
+after the last dot of its file name, now a closed word (`logged_extension`,
+an accepted extension or `other`, unit-tested), and a count read through a
+local named `profile` in `stats_desc_commands.rs`, renamed. Rendered side: the
+evaluation's privacy session, re-run, logs `sqlite store ready
+schema_version=25 applied=25` and no `/Users/` in 109 lines. The app crate's
+scan does not have the text rule: it lists eight commands whose spans record
+user text (search queries, `ai_citation_need`'s manuscript sentences, a
+paper's title, a manuscript name, a project description), outside this
+step's scope and reported for a decision.
+
+**F4, the 2 MiB cell-text cap (decision 37).** `L1IngestRefusal::ContentTooLarge
+{ limit_bytes }`, wire code `content_too_large` with `limit_bytes`
+(2,097,152: the cap counts UTF-8 bytes after each cell is clamped, though
+`MAX_TOTAL_CHARS`'s name says characters). `supplementary::exceeds_content_cap_bytes`
+tells it apart after a failed parse, as the row and column caps are, mirroring
+both parsers' order and count. One sentence in Level 1's table, which the
+describe screen uses for every ingest refusal, naming no level; `l1Codes.json`
+and its Rust pin updated. Tests: the evaluation's 5,000 × 128 CSV is
+`content_too_large` through `stats_desc_open` and through Level 1's `open`
+(both `malformed` before); a CSV at exactly 2,097,152 bytes of cell text
+opens, one byte more is refused; a workbook over the cap is refused (red with
+the spreadsheet branch disabled). ADR-010 §1 lists all seven caps with values.
+
+**F5, missing codes on numeric requests only (decision 38).**
+`stats_desc::codes_for` gives a Categorical request no codes, in `describe`
+and in the manifest's exclusions; validation already warned for Numeric
+requests only. `a_ticked_missing_code_applies_to_numeric_requests_only`: with
+-99 ticked, a categorical column keeps its "-99" level (n 5, missing 0) and a
+numeric one drops its -99 cell; red before (n 3, missing 2). The R golden's
+`coded_missing_99_as_categorical` case encoded the old rule: the generator
+(`make_desc_fixtures.R`) no longer applies codes to a categorical case and was
+re-run with `/usr/local/bin/Rscript`; the 12 data files and `cells_bits.csv`
+came out byte-identical, and only that case's rows changed (n 50 → 56,
+missing 10 → 4, a "-99" level of 6). Phase 2A's R golden, property,
+metamorphic, output-hash and export targets pass.
+
+**ADR-001 and ADR-002 (decision 39).** ADR-001's decision 7 now says the shell
+never activates a workspace (F13); `WorkspaceShell.vitest.tsx` asserts its
+switch makes no `workspace_activate` call. Both are Accepted, 17 Oct 2026.
+
+**Minors fixed** (inside the Phase 2A to 3 files, no contract type changed):
+F6, the status line reads "Elapsed since you pressed Run" and the manifest
+panel shows "Time to compute" and why rows used equals rows read; F8, one slot
+counter shared by every engine a session builds, so an open landing in a
+dropped engine never shares a number with the next
+(`an_open_landing_in_a_dropped_engine_never_shares_a_slot_number_with_the_next`,
+red before: both 2); F11, the 30-second sentence reads
+`describeLimits.json`, pinned to `runs::RUN_CEILING_MS`
+(`the_screens_run_ceiling_is_the_run_managers`); F15, a refusal while
+opening says to wait. Each with a vitest or Rust test, red first.
+
+**Not fixed, with the phase for each:** F10 (Latin-1 and UTF-16 refused as
+`malformed`: Level 1's ingest, a new verifier code; Phase 4), F19
+(`tests/l1_support/mod.rs` unformatted: verifier test support; a
+formatting-only commit before Phase 4 touches it), and the Notes F7, F9, F12,
+F14, F16, F17, F20, F21, F23, F24, F25 (listed one per line in the step
+report). F18: D271's "quartiles, min and max bit-identical" held on its 19
+cases; over the evaluation's 1,600 datasets min and max are bit-identical and
+quartiles within 1 ulp of R, inside the gate. F22: the evaluation's debug
+timings are in ADR-010's evidence; release is still not measured.
+
+**The evaluation's probes, re-run** (its `eval23_probe.rs`, in
+`src-tauri/examples/` for the run only and removed after): the 1,600-dataset
+batch and the metamorphic batch give output byte-identical to the
+evaluation's, so its R comparisons hold unchanged (0 of 1,600 over the gate;
+0 differing rows in eight identity variants; quartiles 1 ulp in 122, 86 and
+103 files); ten processes, one MD5 per artefact and the same as the
+evaluation's; race1 300/300, race2 0 runs after the seal, race3 60/60
+`Cancelled`, race4 over 1,000 trials 7 cancels while running, all `Cancelled`
+and none `TimedOut` (1 in 200 before), race5 40 of 40 `Cancelled`; the guards
+output identical; the privacy session's sentinels where they were, the
+database path gone; 31 hostile files, one outcome changed (5,000 × 128 is
+`content_too_large`), no crash or alarm.
+
+**Measured, 18 Oct 2026, macOS aarch64:** `cargo test --workspace` exit 0,
+88 targets (86 Running + 2 Doc-tests), 2,648 passed, 12 ignored: the
+evaluation's 2,637 at `ec581c9` plus 11 new tests (`stats_desc_commands`
+10 → 14, `no_path_in_tracing` 2 → 4, `desc_metamorphic` 8 → 9,
+`stats_desc_wire` 2 → 3, `stats_l1_commands` 23 → 24, `workspace_session`
+6 → 7, app lib 520 → 521); no other target's count moved. `cargo test -p app
+--features devtools`: 30 targets, 645 passed, 9 ignored (D273's 635 plus the
+10 app-crate tests). vitest: the Research OS, Stats Check, Stats Verifier
+and Level 1 folders 25 files, 228 passed; the whole suite 93 files, 1,117.
+`npx tsc --noEmit`, CI's eslint and `npm run build` exit 0 (`public/sitemap.xml`
+written back from HEAD). `rustfmt --check` by path: no hunk in any Research
+OS file changed here; the changed `gaply_core` files that had hunks at HEAD
+have the same count now.
+
+**Found on the way:** `DescribeFlow.vitest.tsx`'s focus test (Phase 2B) read
+`document.activeElement` straight after waiting for a heading's text, while
+focus moves in an effect after render; under heavy load it failed 1 run in 3
+and 1 in 10. Its four focus checks now wait for the focus (0 failures in 10
+at the same load), and still fail if focus never moves.
+
+**Decided on review (decisions 40 to 43, 18 Oct 2026):** the guard's text
+rule now covers `src-tauri/src` too (with `manuscript` back in its words and a
+name ending in an `id` segment exempt), it was red on exactly the eight
+commands (`create_project`, `rag_search`, `citation_lib_search`,
+`ai_citation_need`, `ai_semantic_search`, `note_search`,
+`note_paper_fulltext`, `ai_job_export_report`) and on one constant header
+name in `http_fetcher.rs`, and is green with the eight on `skip_all` and that
+field renamed; `ENGINE_VERSION` stays 1; the cloud agents' `error = %e`
+fields wait for Phase 4; the focus-test fix stays.

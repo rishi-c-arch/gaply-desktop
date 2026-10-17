@@ -12,6 +12,7 @@
   "claim_revision",
   "claim_sentence",
   "conclusion_not_assessed",
+  "content_too_large",
   "continuity_correction",
   "continuity_does_not_apply",
   "data_precision",

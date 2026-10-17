@@ -627,3 +627,74 @@ fn a_constant_column_has_sd_exactly_0_before_any_arithmetic() {
         )
     );
 }
+
+/// Evaluation of Phases 2 and 3, F5 (decision 38): a ticked missing code
+/// applies to Numeric requests only. A categorical column that has a "-99"
+/// level keeps it, counts and all, and the manifest lists no coded exclusion
+/// for it; a numeric column drops its -99 cells and the manifest says how
+/// many. The screen's question already says "in the columns you summarise as
+/// numeric".
+#[test]
+fn a_ticked_missing_code_applies_to_numeric_requests_only() {
+    // `coded` holds codes as numbers; `label` is text with "-99" among its
+    // labels, which the dataset types as a number cell.
+    let d = table(
+        &["score", "coded", "label"],
+        &[
+            &["12.5", "1", "x"],
+            &["-99", "-99", "-99"],
+            &["7.25", "2", "y"],
+            &["9", "-99", "x"],
+            &["30.125", "1", "y"],
+        ],
+    );
+    let p = params(
+        &[
+            (1, TreatAs::Numeric),
+            (2, TreatAs::Categorical),
+            (3, TreatAs::Categorical),
+        ],
+        &[-99.0],
+    );
+    let r = describe(&d, &p).expect("describes");
+
+    let ColumnResult::Numeric(score) = &r.columns[0] else {
+        panic!("score is numeric")
+    };
+    assert_eq!((score.n, score.missing), (4, 1), "the -99 cell is left out");
+    assert_eq!(score.min, Stat::Value(7.25), "-99 is not the minimum");
+
+    for (i, minus_99) in [(1usize, 2u64), (2, 1)] {
+        let ColumnResult::Categorical(c) = &r.columns[i] else {
+            panic!("column {i} is categorical")
+        };
+        assert_eq!((c.n, c.missing), (5, 0), "column {i} keeps every cell");
+        let level = c
+            .levels
+            .iter()
+            .find(|l| l.label == "-99")
+            .unwrap_or_else(|| panic!("column {i} keeps its -99 level: {:?}", c.levels));
+        assert_eq!(level.count, minus_99, "column {i}");
+    }
+
+    // The manifest records the numeric column's coded exclusion only.
+    let s = spec(OperationId(9), &d, p);
+    let m = manifest(&s, &d, &r, 0, PLATFORM);
+    let coded: Vec<_> = m
+        .exclusions
+        .iter()
+        .filter(|e| e.code == DescCode::MissingCode)
+        .collect();
+    assert_eq!(coded.len(), 1, "{:?}", m.exclusions);
+    assert_eq!(coded[0].count, 1);
+    let numeric = m
+        .exclusions
+        .iter()
+        .find(|e| e.code == DescCode::MissingCell || e.code == DescCode::MissingCode)
+        .expect("an exclusion");
+    assert_eq!(
+        coded[0].params.get(&ParamKey::Column),
+        numeric.params.get(&ParamKey::Column),
+        "the coded exclusion is the score column's"
+    );
+}

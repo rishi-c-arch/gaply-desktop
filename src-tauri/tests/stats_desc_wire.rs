@@ -200,6 +200,23 @@ fn each_view_serialises_to_exactly_its_fixtures_bytes() {
     assert_bytes("exportView.json", &ExportView { bytes, sha256 });
 }
 
+/// Evaluation of Phases 2 and 3, F11: the screen words the run ceiling from
+/// `describeLimits.json`, so that file is exactly the run manager's ceiling,
+/// and a change to one cannot leave the other's sentence false.
+#[test]
+fn the_screens_run_ceiling_is_the_run_managers() {
+    let file: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(fixtures().join("describeLimits.json"))
+            .expect("describeLimits.json"),
+    )
+    .unwrap();
+    assert_eq!(
+        file,
+        serde_json::json!({ "runCeilingMs": app_lib::runs::RUN_CEILING_MS }),
+        "describeLimits.json and runs::RUN_CEILING_MS differ"
+    );
+}
+
 #[test]
 fn the_screens_code_list_is_exactly_the_closed_sets() {
     let file: Vec<String> = serde_json::from_str(

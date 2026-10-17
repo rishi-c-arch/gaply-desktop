@@ -380,6 +380,69 @@ pub fn xls_not_compound_document_bytes(bytes: &[u8], ext: &str) -> bool {
         )
 }
 
+/// **Level 1 and the descriptive summary (evaluation of Research OS Phases
+/// 2 and 3, F4): does the table hold more than [`MAX_TOTAL_CHARS`] bytes of
+/// cell text?** Like [`exceeds_row_cap_bytes`], called only after a parse has
+/// FAILED, to tell the content cap apart without reading the message. It
+/// mirrors the parsers' order and count: CSV/TSV records are read with the
+/// same settings and stop at the first that is past the row cap, malformed
+/// or over the column cap (each its own refusal); a spreadsheet's first
+/// sheet is checked for its row and column caps first. Each cell is clamped
+/// as the parser clamps it and its UTF-8 length added, header included.
+pub fn exceeds_content_cap_bytes(bytes: &[u8], ext: &str) -> bool {
+    match ext {
+        "csv" | "tsv" => csv_exceeds_content_cap(bytes, ext),
+        "xlsx" | "xls" | "xlsb" | "ods" | "xlsm" => sheet_exceeds_content_cap(workbook_from_bytes(bytes, ext)),
+        _ => false,
+    }
+}
+
+fn csv_exceeds_content_cap(reader: impl Read, ext: &str) -> bool {
+    let mut rdr = csv::ReaderBuilder::new()
+        .has_headers(false)
+        .flexible(true)
+        .delimiter(if ext == "tsv" { b'\t' } else { b',' })
+        .from_reader(reader);
+    let mut total = 0usize;
+    for (i, rec) in rdr.records().enumerate() {
+        if i > MAX_ROWS {
+            return false;
+        }
+        let Ok(rec) = rec else { return false };
+        if rec.len() > MAX_COLS {
+            return false;
+        }
+        for field in rec.iter() {
+            total += clamp_cell(field).0.len();
+            if total > MAX_TOTAL_CHARS {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn sheet_exceeds_content_cap<RS: Read + std::io::Seek>(wb: Result<calamine::Sheets<RS>, calamine::Error>) -> bool {
+    use calamine::Reader;
+    let Ok(mut wb) = wb else { return false };
+    let Some(sheet) = wb.sheet_names().first().cloned() else { return false };
+    let Ok(range) = wb.worksheet_range(&sheet) else { return false };
+    let (height, width) = range.get_size();
+    if height > MAX_ROWS + 1 || width > MAX_COLS {
+        return false;
+    }
+    let mut total = 0usize;
+    for row in range.rows() {
+        for cell in row {
+            total += clamp_cell(&cell_to_string(cell)).0.len();
+            if total > MAX_TOTAL_CHARS {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 /// Clamp a cell to [`MAX_CELL_LEN`] chars; returns (clamped, was_clamped).
 fn clamp_cell(s: &str) -> (String, bool) {
     if s.chars().count() <= MAX_CELL_LEN {

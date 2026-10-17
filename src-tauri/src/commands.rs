@@ -41,7 +41,7 @@ pub struct HealthReport {
 }
 
 #[tauri::command]
-#[tracing::instrument(skip(state))]
+#[tracing::instrument(skip_all)]
 pub fn create_project(
     state: State<'_, AppState>,
     name: String,
@@ -464,7 +464,7 @@ pub async fn verify_reference(
 }
 
 #[tauri::command]
-#[tracing::instrument(skip(state))]
+#[tracing::instrument(skip_all)]
 pub fn rag_search(
     state: State<'_, AppState>,
     query: String,
@@ -1207,7 +1207,7 @@ pub fn citation_lib_list(
 }
 
 #[tauri::command]
-#[tracing::instrument(skip(state))]
+#[tracing::instrument(skip_all)]
 pub fn citation_lib_search(
     state: State<'_, AppState>,
     query: String,
@@ -1445,7 +1445,7 @@ pub fn ai_generate_cancel(state: State<'_, AppState>) {
 /// writing it to ai_evidence_cards would create rows with a NULL chunk_id and
 /// an empty quote, which is the shape the grounding check exists to prevent.
 #[tauri::command]
-#[tracing::instrument(skip(state))]
+#[tracing::instrument(skip_all)]
 pub async fn ai_citation_need(
     state: State<'_, AppState>,
     sentence: String,
@@ -2398,7 +2398,7 @@ pub fn ai_embed_cancel(state: State<'_, AppState>) {
 /// Semantic search: embed the query (with the query prefix), FTS prefilter,
 /// cosine rerank, top k.
 #[tauri::command]
-#[tracing::instrument(skip(state))]
+#[tracing::instrument(skip_all)]
 pub async fn ai_semantic_search(
     state: State<'_, AppState>,
     query: String,
@@ -2503,7 +2503,7 @@ pub fn note_list(
 }
 
 #[tauri::command]
-#[tracing::instrument(skip(state))]
+#[tracing::instrument(skip_all)]
 pub fn note_search(
     state: State<'_, AppState>,
     query: String,
@@ -2536,7 +2536,7 @@ pub fn note_delete(state: State<'_, AppState>, id: String) -> Result<(), GaplyEr
 /// empty/None (free-typed notes) uses the title fallback exactly as before.
 /// Local, deterministic, no network. None → no full text (editor shows notes alone).
 #[tauri::command]
-#[tracing::instrument(skip(state))]
+#[tracing::instrument(skip_all)]
 pub fn note_paper_fulltext(
     state: State<'_, AppState>,
     title: String,
@@ -3453,7 +3453,7 @@ pub async fn ai_citation_audit_start(
 /// composer and both renderers live in gaply-core, so this command is a read
 /// plus a render and owns no wording of its own.
 #[tauri::command]
-#[tracing::instrument(skip(state))]
+#[tracing::instrument(skip_all)]
 pub async fn ai_job_export_report(
     state: State<'_, AppState>,
     job_id: i64,

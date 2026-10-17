@@ -42,6 +42,11 @@
 //! truncates, are refused here on `rows_truncated`. Level 1 never computes on
 //! a truncated table, and the cap is not raised (decisions.md).
 //!
+//! A CSV or spreadsheet with more than 2 MiB of cell text
+//! (`supplementary::MAX_TOTAL_CHARS`, UTF-8 bytes after each cell is clamped)
+//! is [`L1IngestRefusal::ContentTooLarge`], told apart by a typed check like
+//! the row and column caps (evaluation of Research OS Phases 2 and 3, F4).
+//!
 //! Every refusal is a typed value with no path, no file name and no message
 //! text from the parser: the only things in it are a byte count or a row cap.
 //!
@@ -178,6 +183,10 @@ pub fn dataset_from_checked(checked: CheckedFile) -> Result<Dataset, L1IngestRef
         } else if let Some(columns) = supplementary::exceeds_col_cap_bytes(&before, &ext) {
             // Step 8b, section 4's finding 1: too wide, not malformed.
             L1IngestRefusal::Dataset(DatasetRefusal::TooWide { columns, limit: supplementary::MAX_COLS })
+        } else if supplementary::exceeds_content_cap_bytes(&before, &ext) {
+            // Research OS evaluation, F4: more cell text than the ingest
+            // keeps, not malformed.
+            L1IngestRefusal::ContentTooLarge { limit_bytes: supplementary::MAX_TOTAL_CHARS }
         } else if supplementary::xls_not_compound_document_bytes(&before, &ext) {
             L1IngestRefusal::XlsNotReadable
         } else {

@@ -176,11 +176,8 @@ pub fn open(slots: &DatasetSlots, path: &Path) -> Result<DatasetView, GaplyError
     let display_name = display_name(path);
     let profile = stats_desc::profile(&dataset);
     let input_ref = stats_desc::input_ref(&dataset);
-    tracing::info!(
-        rows = profile.rows,
-        columns = profile.columns.len(),
-        "stats_desc: dataset opened"
-    );
+    let (rows, columns) = (profile.rows, profile.columns.len());
+    tracing::info!(rows, columns, "stats_desc: dataset opened");
     let slot = slots.insert(display_name.clone(), dataset);
     Ok(DatasetView {
         slot,

@@ -1,6 +1,7 @@
 # ADR-002: Preserve `gaply_core` and the verifier; build beside, not inside
 
-**Status: Proposed.** Not accepted until Rishi approves it.
+**Status: Accepted, 17 Oct 2026 (decision 39),** after the evaluation of
+Phases 2 and 3 (`~/gaply-corpus/os/eval23/evaluation.md`) and its fixes.
 Written 17 Oct 2026, Research OS Phase 3, from the Phase 0 audit's proposal
 (`~/gaply-corpus/os/phase0/phase0_audit.md` §7) and what Phases 2A, 2B and 3
 did under it (D271, D272 and the Phase 3 D-entry in `docs/AI_ENGINE_PLAN.md`).

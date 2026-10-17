@@ -245,6 +245,11 @@ export const WORDS: Record<string, Words> = {
     }
     return `This file would take at least ${megabytes(declared)} once unpacked, more than the ${megabytes(limit)} Level 1 opens, so it was not opened.`;
   },
+  // The ingest's cap on the text of all cells together (Research OS
+  // evaluation, F4). Shown by the descriptive summary too, so it does not
+  // name Level 1.
+  content_too_large: (c) =>
+    `This file holds more than ${megabytes(num(c, 'limit_bytes'))} of text across its cells, more than Gaply reads from one file, so it was not opened. A copy with only the columns you need may fit.`,
 
   /* ---- why a claim could not be checked ---------------------------------- */
   spearman_exact_p: () => "Gaply does not compute Spearman's exact p.",

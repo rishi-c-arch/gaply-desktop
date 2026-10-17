@@ -144,8 +144,9 @@ coded_missing_99,data_coded.csv,x,numeric,-99,q1,,2
 coded_missing_99,data_coded.csv,x,numeric,-99,median,,4
 coded_missing_99,data_coded.csv,x,numeric,-99,q3,,6
 coded_missing_99,data_coded.csv,x,numeric,-99,max,,7
-coded_missing_99_as_categorical,data_coded.csv,x,categorical,-99,n,,50
-coded_missing_99_as_categorical,data_coded.csv,x,categorical,-99,missing,,10
+coded_missing_99_as_categorical,data_coded.csv,x,categorical,-99,n,,56
+coded_missing_99_as_categorical,data_coded.csv,x,categorical,-99,missing,,4
+coded_missing_99_as_categorical,data_coded.csv,x,categorical,-99,count,-99,6
 coded_missing_99_as_categorical,data_coded.csv,x,categorical,-99,count,1,9
 coded_missing_99_as_categorical,data_coded.csv,x,categorical,-99,count,2,7
 coded_missing_99_as_categorical,data_coded.csv,x,categorical,-99,count,3,7

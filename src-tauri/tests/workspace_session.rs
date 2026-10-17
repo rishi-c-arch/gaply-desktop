@@ -494,3 +494,45 @@ fn activating_statistics_builds_nothing_for_compute_or_design() {
     assert_eq!(c["params"]["workspace"], "statistics");
     assert_eq!(*asked.lock().unwrap(), [WorkspaceId::Statistics]);
 }
+
+/// Evaluation of Phases 2 and 3, F8. An open that passed the workspace check
+/// before a deactivation inserts into the engine being dropped. Its slot
+/// number must not be one the next engine hands out, or the webview could
+/// address the next engine's dataset by an old number. Reproduced without
+/// timing: the old engine is held, as the in-flight open holds it.
+#[test]
+fn an_open_landing_in_a_dropped_engine_never_shares_a_slot_number_with_the_next() {
+    use app_lib::workspace::WorkspaceSession;
+    use gaply_core::stats_l1::dataset::{build_dataset, DataFingerprint, RawTable, TableRef};
+
+    let dataset = || {
+        build_dataset(
+            RawTable::from_rows(vec!["x".into()], vec![vec!["1".into()], vec!["2".into()]]),
+            DataFingerprint::of_bytes(b"synthetic", "unit", TableRef::FirstTable),
+        )
+        .expect("dataset")
+    };
+    let session = WorkspaceSession::default();
+    session.activate(WorkspaceId::Statistics).expect("active");
+    let old = session.require_statistics().expect("engine");
+    let before = old.datasets.insert("before".into(), dataset());
+    session.deactivate().expect("left");
+    session
+        .activate(WorkspaceId::Statistics)
+        .expect("active again");
+    let new = session.require_statistics().expect("engine");
+    assert!(!Arc::ptr_eq(&old, &new), "a new engine");
+
+    // The in-flight open lands in the old engine after the deactivation.
+    let late = old.datasets.insert("late".into(), dataset());
+    let fresh = new.datasets.insert("fresh".into(), dataset());
+    assert_ne!(
+        late, fresh,
+        "the late open and the next engine's first share a number"
+    );
+    assert!(fresh > before && late > before, "{before} {late} {fresh}");
+    assert!(
+        new.datasets.get(late).is_err(),
+        "the late slot is not the new engine's"
+    );
+}

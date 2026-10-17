@@ -91,9 +91,11 @@ numeric_case <- function(case, name, d, column, codes = numeric(0)) {
   for (s in names(stats)) add(case, name, column, "numeric", codes, s, "", f17(stats[[s]]))
 }
 
+# `codes` is recorded on every row and NOT applied: a missing code applies to
+# Numeric requests only, and a categorical column keeps it as a level
+# (decision 38, evaluation of Research OS Phases 2 and 3, F5).
 categorical_case <- function(case, name, d, column, codes = numeric(0)) {
   x <- d[[column]]
-  if (length(codes)) x[x %in% codes] <- NA
   x <- as.character(x)
   v <- x[!is.na(x)]
   add(case, name, column, "categorical", codes, "n", "", as.character(length(v)))
@@ -157,7 +159,8 @@ d <- roundtrip(with_id(g = g), "data_categorical.csv")
 categorical_case("categorical", "data_categorical.csv", d, "g")
 
 # 10. A rating scale 1..7 holding -99 as a code: without and with
-#     missing_codes = [-99]; also as categorical with the code.
+#     missing_codes = [-99]; also as categorical with the code listed, which
+#     keeps -99 as a level (decision 38).
 x <- sample(1:7, 60, replace = TRUE)
 x[sample(60, 6)] <- -99
 x[sample(which(x != -99), 4)] <- NA

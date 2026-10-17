@@ -5,6 +5,7 @@
 import { describe, expect, it } from 'vitest';
 
 import CODES from './describeCodes.json';
+import LIMITS from './describeLimits.json';
 import {
   COULD_NOT_COMPUTE,
   diagnosticSentence,
@@ -25,6 +26,14 @@ import type { Diagnostic } from './describeTypes';
 const refusal = (code: Record<string, unknown>) => new Error(JSON.stringify(code));
 
 describe('describeWording', () => {
+  // Evaluation of Phases 2 and 3, F11: the ceiling in the sentence is read
+  // from describeLimits.json, which a Rust test pins to runs::RUN_CEILING_MS.
+  it('says the run ceiling the run manager enforces, not a literal', () => {
+    expect(runEndedSentence('timed_out')).toBe(
+      `This run passed its ${LIMITS.runCeilingMs / 1000}-second limit and was stopped, so it has no result.`
+    );
+  });
+
   it('has a sentence for every code, and no code it does not know', () => {
     expect(CODES.length).toBe(28);
     for (const code of CODES) {
@@ -68,6 +77,10 @@ describe('describeWording', () => {
     expect(refusalSentence(refusal(ingest))).toBe(sentenceFor(ingest as never));
     expect(refusalSentence(refusal(ingest))).toContain('5000');
     expect(refusalSentence(new Error('plain'))).toBe('This could not be done: plain');
+    // F4: the cell text cap, as stats_desc_open refuses it.
+    const cap = { code: 'content_too_large', limit_bytes: 2_097_152 };
+    expect(refusalSentence(refusal(cap))).toBe(sentenceFor(cap as never));
+    expect(refusalSentence(refusal(cap))).toMatch(/^This file holds more than 2 MB of text across its cells/);
   });
 
   it('is neutral: no state is a success, and an ended run says why it has no result', () => {

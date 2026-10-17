@@ -25,7 +25,9 @@
 //! the result; R sums in row order, and the golden gate holds the
 //! difference. Candidate missing codes come from Level 1's own rule,
 //! `binding::suspect_codes_in`, and are only reported: a value is missing
-//! here only when the user lists it in `missing_codes`.
+//! here only when the user lists it in `missing_codes`, and only in a column
+//! requested as Numeric; a Categorical request keeps it as a level (decision
+//! 38).
 //!
 //! **One counting pass,** `tally`, serves profile, validate, describe and
 //! manifest, so they cannot disagree on n or missing.
@@ -176,8 +178,9 @@ impl ColumnRequest {
 }
 
 /// The descriptive summary's parameters: the columns, in output order, and
-/// the values the user chose to treat as missing. Nothing else is missing
-/// beyond empty cells and the missing-value tokens.
+/// the values the user chose to treat as missing in the columns requested as
+/// Numeric. Nothing else is missing beyond empty cells and the missing-value
+/// tokens.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DescribeParams {
@@ -422,6 +425,17 @@ fn tally(cells: &[Cell], missing_codes: &[f64]) -> Tally {
         }
     }
     t
+}
+
+/// The missing codes a request leaves out: the listed ones for a Numeric
+/// request, none for a Categorical one, whose `-99` stays a level (decision
+/// 38, evaluation of Phases 2 and 3, F5). The screen asks about codes in the
+/// columns summarised as numeric, and `validate` warns about them there only.
+fn codes_for<'a>(request: &ColumnRequest, params: &'a DescribeParams) -> &'a [f64] {
+    match request.treat_as {
+        TreatAs::Numeric => &params.missing_codes,
+        TreatAs::Categorical => &[],
+    }
 }
 
 fn level_counts(t: &Tally) -> Vec<LevelCount> {
@@ -728,7 +742,7 @@ pub fn describe_until<B>(
             return Err(Halt::Stopped { reason, done });
         }
         let (summary, cells) = column(dataset, request.alias).expect("checked by parameter_errors");
-        let t = tally(cells, &params.missing_codes);
+        let t = tally(cells, codes_for(request, params));
         let header = summary.header.clone();
         columns.push(match request.treat_as {
             TreatAs::Numeric => ColumnResult::Numeric(
@@ -853,7 +867,7 @@ pub fn manifest(
         let Some((_, cells)) = column(dataset, request.alias) else {
             continue;
         };
-        let t = tally(cells, &spec.parameters.missing_codes);
+        let t = tally(cells, codes_for(request, &spec.parameters));
         for (code, count) in [
             (DescCode::MissingCell, t.missing_cells),
             (DescCode::MissingCode, t.missing_coded),

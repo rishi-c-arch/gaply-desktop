@@ -94,6 +94,9 @@ async function toSettings() {
 }
 
 describe('DescribeFlow', () => {
+  // Focus moves in an effect after the heading renders, so each focus check
+  // waits for it rather than reading it a tick early (unchanged, the test
+  // failed 1 run in 10 under heavy load, 18 Oct 2026).
   it('moves Import → Profile → Settings → Validate → Run → Results → Export, focusing each heading', async () => {
     const { m, view } = setup();
     expect(heading().textContent).toBe('Import a data file');
@@ -102,7 +105,7 @@ describe('DescribeFlow', () => {
 
     fireEvent.click(screen.getByTestId('desc-choose'));
     await waitFor(() => expect(heading().textContent).toBe('Profile of the file'));
-    expect(document.activeElement).toBe(heading());
+    await waitFor(() => expect(document.activeElement).toBe(heading()));
     expect(current()).toBe('Profile');
     expect(screen.getByTestId('desc-levels-rule').textContent).toContain('1 and 1.0 are one level');
     // The path went to Rust once and is nowhere on the screen.
@@ -116,16 +119,16 @@ describe('DescribeFlow', () => {
     ]) {
       fireEvent.click(screen.getByTestId(button));
       await waitFor(() => expect(heading().textContent).toBe(title));
-      expect(document.activeElement).toBe(heading());
+      await waitFor(() => expect(document.activeElement).toBe(heading()));
       expect(current()).toBe(step);
     }
     await waitFor(() => expect(screen.getByTestId('desc-run-state').textContent).toBe('Finished'));
     fireEvent.click(screen.getByTestId('desc-see-results'));
     await waitFor(() => expect(heading().textContent).toBe('Results'));
-    expect(document.activeElement).toBe(heading());
+    await waitFor(() => expect(document.activeElement).toBe(heading()));
     fireEvent.click(screen.getByTestId('desc-to-export'));
     await waitFor(() => expect(heading().textContent).toBe('Export'));
-    expect(document.activeElement).toBe(heading());
+    await waitFor(() => expect(document.activeElement).toBe(heading()));
     expect(m.calls.map(([c]) => c)).toEqual(expect.arrayContaining(['stats_desc_open', 'stats_desc_validate', 'stats_desc_run', 'stats_desc_result']));
   });
 
@@ -192,7 +195,9 @@ describe('DescribeFlow', () => {
     await screen.findByTestId('desc-run-status');
     expect(screen.getByTestId('desc-run-state').textContent).toBe('Running');
     expect(screen.getByTestId('desc-progress').textContent).toBe('1 of 3 columns summarised.');
-    expect(screen.getByTestId('desc-elapsed').textContent).toBe('Elapsed: 1.5 s');
+    // F6: the status counts from the moment Run was pressed (the record's
+    // creation), not from the computation's start, and says so.
+    expect(screen.getByTestId('desc-elapsed').textContent).toBe('Elapsed since you pressed Run: 1.5 s');
 
     fireEvent.click(screen.getByTestId('desc-cancel'));
     await waitFor(() => expect(screen.getByTestId('desc-run-state').textContent).toBe('Cancelled'));
@@ -234,6 +239,12 @@ describe('DescribeFlow', () => {
     expect(screen.getByTestId('desc-manifest-engine').textContent).toBe('1');
     expect(screen.getByTestId('desc-manifest-rows-read').textContent).toBe('9');
     expect(screen.getByTestId('desc-manifest-rows-used').textContent).toBe('9');
+    // F6: why rows used equals rows read, and the manifest's own interval,
+    // named as what it is.
+    expect(screen.getByTestId('desc-manifest-rows-used-note').textContent).toBe(
+      "The same as rows read: this summary leaves out cells, never whole rows. Each column's Missing count says how many."
+    );
+    expect(screen.getByTestId('desc-manifest-compute-time').textContent).toBe('0.003 s, from the start of the computation to its end');
     expect(screen.getByTestId('desc-manifest-platform').textContent).toBe('macOS, aarch64');
     expect(screen.getByTestId('desc-manifest-reproducibility').textContent).toContain('Bitwise');
     expect(within(panel).queryAllByRole('button')).toHaveLength(0);

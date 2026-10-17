@@ -36,6 +36,7 @@ import type {
 import {
   COULD_NOT_COMPUTE,
   diagnosticSentence,
+  computeTimeSentence,
   elapsedSentence,
   ENTRY_TEXT,
   EXPORT_CHOICES,
@@ -48,6 +49,7 @@ import {
   progressSentence,
   refusalSentence,
   reproducibilitySentence,
+  ROWS_USED_NOTE,
   RUN_STATE_NAMES,
   runEndedSentence,
   shortHash,
@@ -613,9 +615,15 @@ const DescribeFlow: React.FC<DescribeFlowProps> = ({
                 {result.manifest.rowsRead}
               </dd>
               <dt>Rows used</dt>
-              <dd className="gds-mono" data-testid="desc-manifest-rows-used">
-                {result.manifest.rowsUsed}
+              <dd>
+                <span className="gds-mono" data-testid="desc-manifest-rows-used">
+                  {result.manifest.rowsUsed}
+                </span>
+                <br />
+                <span data-testid="desc-manifest-rows-used-note">{ROWS_USED_NOTE}</span>
               </dd>
+              <dt>Time to compute</dt>
+              <dd data-testid="desc-manifest-compute-time">{computeTimeSentence(result.manifest.elapsedMs)}</dd>
               <dt>Platform</dt>
               <dd data-testid="desc-manifest-platform">{platformName(result.manifest.platform)}</dd>
               <dt>Reproducibility</dt>

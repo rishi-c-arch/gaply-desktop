@@ -1,6 +1,8 @@
 # ADR-001: One active workspace per window, checked in Rust
 
-**Status: Proposed.** Not accepted until Rishi approves it.
+**Status: Accepted, 17 Oct 2026 (decision 39),** after the evaluation of
+Phases 2 and 3 (`~/gaply-corpus/os/eval23/evaluation.md`) and its fixes, with
+decision 7 corrected (F13).
 Written 17 Oct 2026, Research OS Phase 3, from the Phase 0 audit's proposal
 (`~/gaply-corpus/os/phase0/phase0_audit.md` §6.8, §7) as built in Phase 3
 (the "Research OS, Phase 3" D-entry in `docs/AI_ENGINE_PLAN.md`).
@@ -64,9 +66,13 @@ startup whether or not anyone used them.
    view carries `entitled: null`, filled by the frontend from
    `useEntitlement`.
 7. **The webview reads, never decides.** Only `workspace_activate` calls
-   `WorkspaceSession::activate`; the chooser, the shell and the describe
-   screen's gate each make that one call after a user's click and show
-   what Rust returns. Polling only (decision 24).
+   `WorkspaceSession::activate`. The shell never activates a workspace: it
+   reads the state, asks Rust to deactivate, and links to the chooser. The
+   chooser and the describe screen's gate each make the one
+   `workspace_activate` call after a user's click and show what Rust
+   returns. Polling only (decision 24). (Corrected 17 Oct 2026: the
+   proposed text said the shell made the call too; it never did, evaluation
+   of Phases 2 and 3, F13.)
 
 ## Alternatives considered
 
@@ -108,6 +114,12 @@ startup whether or not anyone used them.
 - `src-tauri/tests/workspace_guards.rs` and `workspace_privacy.rs`.
 - Mutation probes (Phase 3 report): the check removed from one command, Compute
   made available, deactivation allowed during a run — each red.
+- The independent evaluation of Phases 2 and 3 (`~/gaply-corpus/os/eval23/`):
+  300 racing activations gave one `Active` each time; 40 deactivations
+  against a thread starting runs gave no run after the seal; every
+  `stats_desc_*` command refused while `NoWorkspace` and `Activating`.
+- `src/screens/workspace/WorkspaceShell.vitest.tsx`: the shell's switch makes
+  no `workspace_activate` call (decision 7 as corrected).
 
 ## Revision trigger
 

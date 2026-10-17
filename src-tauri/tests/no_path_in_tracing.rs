@@ -6,8 +6,11 @@
 //! goes to stdout today (`logging.rs`), and `~/gaply-dev.log` keeps it, so a
 //! path in a span is a path on disk.
 //!
-//! What it scans: every `.rs` file under `src/`, comments removed and string
-//! literals kept whole.
+//! What it scans: every `.rs` file under `src/` and, since the evaluation of
+//! Phases 2 and 3 (F3), under `gaply-core/src/`, comments removed and string
+//! literals kept whole. Before F3 a field was judged by its key alone, so
+//! `gaply_core::db`'s `db = %path.display()` passed even once the scan reached
+//! it (measured: the core scan went green with that line in place).
 //! * Every `#[instrument]` or `#[tracing::instrument]` attribute, including
 //!   one imported under another name through a `use`. Each parameter of the
 //!   function it instruments must be skipped (`skip_all`, or named in
@@ -17,8 +20,10 @@
 //!   path-like.
 //! * Every tracing event or span macro (`trace!` to `error!`, `event!`,
 //!   `span!`, `*_span!`): no field key may be path-like (`path = …`,
-//!   `%url`, `?file`), no inline format capture (`{path}`), and no
-//!   positional format argument whose leading name is path-like.
+//!   `%url`, `?file`), no field VALUE whose leading name is path-like
+//!   (`db = %path.display()`), no inline format capture (`{path}`), and no
+//!   positional format argument whose leading name is path-like. The value
+//!   rule applies to `fields(…)` of an `#[instrument]` too.
 //! * Every `.record("…", …)`: no path-like key.
 //!
 //! **What it cannot see, by construction: a path held under a name and a
@@ -39,7 +44,11 @@
 
 use std::path::{Path, PathBuf};
 
-const SCANNED_DIR: &str = "src";
+/// The app crate's source.
+const APP_DIR: &str = "src";
+/// `gaply_core`'s source, from the app crate's root (evaluation of Phases 2
+/// and 3, F3: the database path was logged from here, outside the scan).
+const CORE_DIR: &str = "gaply-core/src";
 
 /// A name is path-like when it contains one of these, in any case.
 const PATH_WORDS: &[&str] = &["path", "file", "filename", "dir", "url"];
@@ -60,6 +69,38 @@ const SPAN_MACROS: &[&str] = &[
 fn path_like(name: &str) -> bool {
     let n = name.to_ascii_lowercase();
     PATH_WORDS.iter().any(|w| n.contains(w))
+}
+
+/// A name is user-text-like when one of its `_`/`.` segments is one of these
+/// (evaluation of Phases 2 and 3, F3: a document's title, a search query, a
+/// project's name and description and an agent's free-text decision reached
+/// `gaply_core`'s spans). Whole segments, not substrings: `context` is not
+/// `text`, `prompt_version` is not a prompt. A name whose last segment is
+/// `id` or `ids` is an identifier, not text: `manuscript_id` passes and
+/// `manuscript_name` does not (decision 40).
+const TEXT_WORDS: &[&str] = &[
+    "title",
+    "manuscript",
+    "query",
+    "description",
+    "decision",
+    "text",
+    "content",
+    "sentence",
+    "excerpt",
+    "snippet",
+    "label",
+    "header",
+    "cell",
+];
+
+fn text_like(name: &str) -> bool {
+    let n = name.to_ascii_lowercase();
+    let segments: Vec<&str> = n.split(|c: char| c == '_' || c == '.').collect();
+    if matches!(segments.last(), Some(&"id") | Some(&"ids")) {
+        return false;
+    }
+    segments.iter().any(|seg| TEXT_WORDS.contains(seg))
 }
 
 /* ---- reading the source ---------------------------------------------------- */
@@ -303,6 +344,20 @@ struct Scan {
     violations: Vec<String>,
     attributes: usize,
     macros: usize,
+    /// Whether user-text-like names count too (`gaply_core`'s scan).
+    text_rule: bool,
+}
+
+impl Scan {
+    /// Path-like, or user-text-like when the text rule is on.
+    fn sensitive(&self, name: &str) -> bool {
+        path_like(name) || (self.text_rule && text_like(name))
+    }
+}
+
+/// A field value read through `.len()` is a count, whatever it counts.
+fn a_count(chain: &str) -> bool {
+    chain.ends_with(".len")
 }
 
 /// Names under which `tracing::instrument` is in scope in this file.
@@ -375,12 +430,15 @@ fn scan_attributes(file: &str, src: &Source, scan: &mut Scan) {
                     let fc = matching(m, fo).unwrap_or(piece.1);
                     for f in split_commas(m, fo + 1, fc) {
                         field_keys.push(field_key(&text(m, f), &text(c, f)));
+                        if let Some(v) = field_value_chain(&text(m, f)).filter(|v| !a_count(v)) {
+                            field_keys.push(v);
+                        }
                     }
                 }
             }
         }
         for k in field_keys {
-            if path_like(&k) {
+            if scan.sensitive(&k) {
                 scan.violations
                     .push(format!("{file}:{line}: instrument fields key `{k}`"));
             }
@@ -436,7 +494,10 @@ fn scan_attributes(file: &str, src: &Source, scan: &mut Scan) {
                 {
                     continue;
                 }
-                if (path_like(&binding) || typed_path) && !skip_all && !skipped.contains(&binding) {
+                if (scan.sensitive(&binding) || typed_path)
+                    && !skip_all
+                    && !skipped.contains(&binding)
+                {
                     scan.violations.push(format!(
                         "{file}:{line}: `{fn_name}` records parameter `{binding}`"
                     ));
@@ -503,6 +564,29 @@ fn field_key(masked: &str, code: &str) -> String {
         }
     }
     leading_chain(t)
+}
+
+/// The leading `a.b.c` chain of a `key = value` field's value, or `None`
+/// when the field has no top-level `=` (`%key`, `?key`, `key`).
+fn field_value_chain(masked: &str) -> Option<String> {
+    let t = masked.trim();
+    let b = t.as_bytes();
+    let mut depth = 0;
+    for i in 0..b.len() {
+        match b[i] {
+            b'(' | b'[' | b'{' => depth += 1,
+            b')' | b']' | b'}' => depth -= 1,
+            b'=' if depth == 0 => {
+                let prev = if i > 0 { b[i - 1] } else { b' ' };
+                let next = b.get(i + 1).copied().unwrap_or(b' ');
+                if next != b'=' && next != b'>' && !matches!(prev, b'=' | b'!' | b'<' | b'>') {
+                    return Some(leading_chain(&t[i + 1..]));
+                }
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 fn is_string_literal(t: &str) -> bool {
@@ -580,7 +664,7 @@ fn scan_macros(file: &str, src: &Source, scan: &mut Scan) {
             }
             if is_string_literal(&tc) {
                 for cap in captures(&tc) {
-                    if path_like(&cap) {
+                    if scan.sensitive(&cap) {
                         scan.violations
                             .push(format!("{file}:{line}: `{name}!` format captures `{cap}`"));
                     }
@@ -594,15 +678,21 @@ fn scan_macros(file: &str, src: &Source, scan: &mut Scan) {
             // After an event's message: positional format arguments.
             if is_event && seen_string {
                 let chain = leading_chain(&tm);
-                if path_like(&chain) {
+                if scan.sensitive(&chain) {
                     scan.violations
                         .push(format!("{file}:{line}: `{name}!` formats `{chain}`"));
                 }
             } else {
                 let key = field_key(&tm, &tc);
-                if path_like(&key) {
+                if scan.sensitive(&key) {
                     scan.violations
                         .push(format!("{file}:{line}: `{name}!` field `{key}`"));
+                } else if let Some(v) =
+                    field_value_chain(&tm).filter(|v| !a_count(v) && scan.sensitive(v))
+                {
+                    scan.violations.push(format!(
+                        "{file}:{line}: `{name}!` field `{key}` takes `{v}`"
+                    ));
                 }
             }
         }
@@ -616,7 +706,7 @@ fn scan_macros(file: &str, src: &Source, scan: &mut Scan) {
             };
             if let Some(first) = split_commas(m, open + 1, close).first() {
                 let t = text(c, *first);
-                if is_string_literal(&t) && path_like(t.trim_matches('"')) {
+                if is_string_literal(&t) && scan.sensitive(t.trim_matches('"')) {
                     scan.violations.push(format!(
                         "{}:{}: span record key {t}",
                         file,
@@ -628,9 +718,12 @@ fn scan_macros(file: &str, src: &Source, scan: &mut Scan) {
     }
 }
 
-fn scan_source(file: &str, src: &str) -> Scan {
+fn scan_source(file: &str, src: &str, text_rule: bool) -> Scan {
     let source = lex(src);
-    let mut scan = Scan::default();
+    let mut scan = Scan {
+        text_rule,
+        ..Scan::default()
+    };
     scan_attributes(file, &source, &mut scan);
     scan_macros(file, &source, &mut scan);
     scan
@@ -638,43 +731,69 @@ fn scan_source(file: &str, src: &str) -> Scan {
 
 /* ---- the tests ------------------------------------------------------------- */
 
-#[test]
-fn no_span_or_event_in_the_app_crate_records_a_path_file_name_directory_or_url() {
-    let files = rust_files(Path::new(SCANNED_DIR));
+/// Scans every `.rs` file under `dir` and asserts positive counts (at least
+/// `min_files` files, `min_attributes` attributes and `min_macros` macros, so
+/// a matcher that stops matching fails here) and no violation. With
+/// `text_rule`, user-text-like names count as well as path-like ones.
+fn assert_no_path_in_tracing(
+    dir: &str,
+    text_rule: bool,
+    min_files: usize,
+    min_attributes: usize,
+    min_macros: usize,
+) {
+    let files = rust_files(Path::new(dir));
     assert!(
-        files.len() >= 50,
-        "{} files under {SCANNED_DIR} — the scan would pass vacuously",
+        files.len() >= min_files,
+        "{} files under {dir} — the scan would pass vacuously",
         files.len()
     );
     let mut total = Scan::default();
     for f in &files {
         let src = std::fs::read_to_string(f).expect("read");
-        let s = scan_source(&f.display().to_string(), &src);
+        let s = scan_source(&f.display().to_string(), &src, text_rule);
         total.violations.extend(s.violations);
         total.attributes += s.attributes;
         total.macros += s.macros;
     }
     println!(
-        "instrument attributes: {}; tracing macros: {}",
-        total.attributes, total.macros
+        "{dir}: {} files; instrument attributes: {}; tracing macros: {}",
+        files.len(),
+        total.attributes,
+        total.macros
     );
-    // Positive counts, so a matcher that stops matching fails here.
     assert!(
-        total.attributes >= 100,
-        "only {} instrument attributes found — the matcher has stopped matching",
+        total.attributes >= min_attributes,
+        "only {} instrument attributes found under {dir} — the matcher has stopped matching",
         total.attributes
     );
     assert!(
-        total.macros >= 110,
-        "only {} tracing macros found — the matcher has stopped matching",
+        total.macros >= min_macros,
+        "only {} tracing macros found under {dir} — the matcher has stopped matching",
         total.macros
     );
     assert!(
         total.violations.is_empty(),
-        "{} place(s) can record a path, file name, directory or URL in tracing:\n{}",
+        "{} place(s) can record a path, file name, directory, URL or (with the text rule) user text in tracing:\n{}",
         total.violations.len(),
         total.violations.join("\n")
     );
+}
+
+/// With the text rule since decision 40 (18 Oct 2026): eight commands'
+/// spans recorded search queries, a manuscript's sentences, a title, a
+/// manuscript name and a project description.
+#[test]
+fn no_span_or_event_in_the_app_crate_records_a_path_file_name_directory_url_or_user_text() {
+    assert_no_path_in_tracing(APP_DIR, true, 50, 100, 110);
+}
+
+/// Evaluation of Phases 2 and 3, F3: `gaply_core` logs too (the store's
+/// opening, migrations, the agents), through the same subscriber, and with
+/// the text rule: no title, query, description, decision or other user text.
+#[test]
+fn no_span_or_event_in_gaply_core_records_a_path_file_name_directory_url_or_user_text() {
+    assert_no_path_in_tracing(CORE_DIR, true, 100, 15, 30);
 }
 
 #[test]
@@ -695,9 +814,11 @@ fn the_guard_catches_each_kind_of_violation() {
         "fn g() { let s = tracing::info_span!(\"open\", dir = 1); }\n",
         "fn g() { tracing::span!(tracing::Level::INFO, \"open\", url = 1); }\n",
         "fn g() { span.record(\"path\", 1); }\n",
+        "fn g() { tracing::info!(db = %path.display(), \"x\"); }\n",
+        "#[tracing::instrument(skip_all, fields(n = %file.display()))]\nfn f(x: u8) {}\n",
     ];
     for snippet in must_fail {
-        let s = scan_source("snippet", snippet);
+        let s = scan_source("snippet", snippet, false);
         assert_eq!(
             s.violations.len(),
             1,
@@ -715,9 +836,53 @@ fn the_guard_catches_each_kind_of_violation() {
         "// #[tracing::instrument]\n// fn f(path: String) {}\n",
         "fn g() { let s = \"#[tracing::instrument] fn f(path: String)\"; }\n",
         "fn g() { tracing::info!(rows = n, \"{} rows\", n); }\n",
+        "fn g() { tracing::info!(rows = data.len(), schema_version = r.to_version, \"x\"); }\n",
+        "fn g() { tracing::info!(uploads = files.len(), \"x\"); }\n",
     ];
     for snippet in must_pass {
-        let s = scan_source("snippet", snippet);
+        let s = scan_source("snippet", snippet, false);
+        assert!(
+            s.violations.is_empty(),
+            "should pass: {snippet}\n{:?}",
+            s.violations
+        );
+    }
+}
+
+/// The text rule (`gaply_core`'s scan), each kind on a snippet that must fail
+/// with it, and must pass without it or once fixed.
+#[test]
+fn the_text_rule_catches_user_text_and_passes_ids_and_counts() {
+    let must_fail = [
+        "#[tracing::instrument(skip(db))]\nfn search(db: u8, query: &str) {}\n",
+        "#[tracing::instrument(skip(store), fields(n = 1))]\nfn f(store: u8, description: &str) {}\n",
+        "#[tracing::instrument(skip_all, fields(t = %doc.title))]\nfn f(doc: u8) {}\n",
+        "#[tracing::instrument(skip(self, context))]\nfn f(&self, decision: &str, context: &str) {}\n",
+        "fn g() { tracing::info!(sentence = %s, \"x\"); }\n",
+        "#[tracing::instrument(skip(state))]\nasync fn f(state: u8, manuscript_name: String) {}\n",
+    ];
+    for snippet in must_fail {
+        let with = scan_source("snippet", snippet, true);
+        assert_eq!(
+            with.violations.len(),
+            1,
+            "should fail once: {snippet}\n{:?}",
+            with.violations
+        );
+        let without = scan_source("snippet", snippet, false);
+        assert!(
+            without.violations.is_empty(),
+            "path rule alone passes: {snippet}"
+        );
+    }
+    let must_pass = [
+        "fn g() { tracing::info!(manuscript_id, flags = 3, \"x\"); }\n",
+        "#[tracing::instrument(skip(text), fields(len = text.len()))]\nfn f(text: &str) {}\n",
+        "#[tracing::instrument(skip(self, decision, context))]\nfn f(&self, decision: &str, context: &str) {}\n",
+        "fn g() { tracing::info!(prompt_version = 1, \"x\"); }\n",
+    ];
+    for snippet in must_pass {
+        let s = scan_source("snippet", snippet, true);
         assert!(
             s.violations.is_empty(),
             "should pass: {snippet}\n{:?}",
