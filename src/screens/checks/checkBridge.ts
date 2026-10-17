@@ -11,6 +11,7 @@ import {
   PlagiarismReport,
   StatsValidityReport,
 } from './agentTypes';
+import { StatsConsistencyView } from './statsConsistencyTypes';
 
 export interface CheckBridge {
   plagiarism(path: string): Promise<PlagiarismReport>;
@@ -37,6 +38,10 @@ export interface CheckBridge {
   /** Pre-flight memory status (re-checkable) — free vs needed + attainable tier. */
   aicheckMemoryStatus(): Promise<AiCheckMemoryStatus>;
   validation(path: string, title?: string): Promise<StatsValidityReport>;
+  /** Level 0 statistics consistency (run_stats_consistency): can the printed
+   *  numbers all be right, from the manuscript alone. Rejects with the import
+   *  refusal's own message for a file preflight refuses. */
+  consistency(path: string): Promise<StatsConsistencyView>;
   /** Export the AI Check report as a PDF the user saves themselves: writes the
    *  already-built self-contained HTML to a temp file and opens it in the DEFAULT
    *  BROWSER (print is a no-op in the Tauri webview), where ⌘P → "Save as PDF". */
@@ -81,6 +86,9 @@ export class TauriCheckBridge implements CheckBridge {
   validation(path: string, title?: string) {
     return this.invoke<StatsValidityReport>('validate_manuscript', { path, title });
   }
+  consistency(path: string) {
+    return this.invoke<StatsConsistencyView>('run_stats_consistency', { path });
+  }
   exportReport(html: string) {
     return this.invoke<void>('export_report', { html });
   }
@@ -104,6 +112,10 @@ export function makeMockCheckBridge(reports: {
   aicheckPending?: boolean;
   memoryStatus?: AiCheckMemoryStatus;
   validation?: StatsValidityReport;
+  /** Level 0 view; absent → the mock rejects as the backend does, with a
+   *  `{ code, message }` error (`consistencyError` sets the message). */
+  consistency?: StatsConsistencyView;
+  consistencyError?: string;
   /** Captures the HTML handed to exportReport (to assert the report crossed the seam). */
   onExport?: (html: string) => void;
   onCall?: (cmd: string, path: string, verifyCitations?: boolean) => void;
@@ -184,6 +196,14 @@ export function makeMockCheckBridge(reports: {
     async validation(path) {
       reports.onCall?.('validate_manuscript', path);
       return reports.validation!;
+    },
+    async consistency(path) {
+      reports.onCall?.('run_stats_consistency', path);
+      if (!reports.consistency) {
+        // eslint-disable-next-line no-throw-literal
+        throw { code: 'validation', message: reports.consistencyError ?? 'no Level 0 fixture' };
+      }
+      return reports.consistency;
     },
     async exportReport(html) {
       reports.onCall?.('export_report', '');

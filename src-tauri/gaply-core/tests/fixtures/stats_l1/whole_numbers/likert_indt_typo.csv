@@ -1,0 +1,28 @@
+# /usr/local/bin/Rscript (R 4.6.1), make_whole_numbers.R
+# seed 20261024; R on the stored items: t = -2.488111, df = 22, p = 0.020902
+# honest print: t(22) = 2.49, p = .021; planted typo print: t(22) = 2.50, p = .021
+item,arm
+2,a
+4,a
+2,a
+2,a
+2,a
+6,a
+5,a
+2,a
+5,a
+3,a
+2,a
+7,a
+3,b
+5,b
+7,b
+1,b
+5,b
+6,b
+7,b
+6,b
+6,b
+6,b
+5,b
+7,b

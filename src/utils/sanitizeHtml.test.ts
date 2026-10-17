@@ -19,6 +19,7 @@ describe('sanitizeHtml', () => {
 
   it('strips javascript: URLs', () => {
     const clean = sanitizeHtml('<a href="javascript:alert(1)">click</a>');
+    // eslint-disable-next-line no-script-url -- the scheme the test asserts is gone
     expect(clean).not.toContain('javascript:');
     expect(clean).toContain('click');
   });

@@ -7,6 +7,7 @@ import App from './App';
 import reportWebVitals from './reportWebVitals';
 import * as serviceWorkerRegistration from './serviceWorkerRegistration';
 import isTauri from './utils/isTauri';
+import { installExternalLinkClicks } from './services/externalLinks';
 
 // Defense-in-depth against prototype pollution: freeze Object.prototype so a
 // malicious payload (e.g. from an uploaded spreadsheet parsed by SheetJS)
@@ -19,6 +20,12 @@ Object.freeze(Object.prototype);
 // desktop build uses HashRouter. Full-page navigations elsewhere in the app
 // (window.location.href = '/login') land on a path URL — convert it to the
 // equivalent hash route before React mounts.
+// Tauri: external links open through the app's own checked command; the
+// opener plugin's own click handler is off (part C follow-up, item 7).
+if (isTauri) {
+  installExternalLinkClicks(window);
+}
+
 if (isTauri) {
   const { pathname, search } = window.location;
   if (pathname !== '/' && pathname !== '/index.html' && !window.location.hash) {

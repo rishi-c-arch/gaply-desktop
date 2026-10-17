@@ -86,6 +86,20 @@ pub(crate) fn ends_with_abbreviation(tail: &str) -> bool {
     })
 }
 
+/// How far back from a full stop the abbreviation check reads, in bytes.
+/// The longest entry in [`ABBREVIATIONS`] is 7 bytes; the window leaves room
+/// for a doubled or tripled PDF space inside it and a character before it.
+pub(crate) const ABBREVIATION_LOOKBACK_BYTES: usize = 48;
+
+/// The char boundary at or before `i + 1 - ABBREVIATION_LOOKBACK_BYTES`, or 0.
+fn lookback_start(text: &str, i: usize) -> usize {
+    let mut start = (i + 1).saturating_sub(ABBREVIATION_LOOKBACK_BYTES);
+    while start > 0 && !text.is_char_boundary(start) {
+        start -= 1;
+    }
+    start
+}
+
 /// True when the terminator at byte index `i` in `text` closes a sentence.
 ///
 /// `text[i]` must be `.`, `!` or `?`. The three suppressions, in the order they
@@ -151,7 +165,18 @@ pub(crate) fn closes_sentence(text: &str, i: usize) -> bool {
     }
 
     // (2) abbreviations, and (3) single-capital initials.
-    let head = &text[..=i];
+    //
+    // The abbreviation check looks back a BOUNDED distance. It used to take
+    // the whole prefix `text[..=i]`, and `ends_with_abbreviation` normalises
+    // its argument's whitespace, so every full stop cost the length of the
+    // paragraph before it: quadratic in the number of sentences, 69 s on a
+    // paragraph of 17,496 results (Phase 1 evaluation, section 5). The window
+    // is longer than any abbreviation plus the whitespace a PDF doubles, and
+    // whitespace at the window's start cannot change the answer: if the
+    // flattened window is nothing but the abbreviation, the window began in
+    // whitespace, so the character before the abbreviation is whitespace.
+    let start = lookback_start(text, i);
+    let head = &text[start..=i];
     if ends_with_abbreviation(head) {
         return false;
     }
@@ -174,8 +199,20 @@ pub(crate) fn closes_sentence(text: &str, i: usize) -> bool {
 /// whole trimmed text rather than panicking, because the caller's offset comes
 /// from a regex match and a panic here would take down extraction.
 pub fn sentence_containing(text: &str, at: usize) -> &str {
+    match sentence_bounds(text, at) {
+        Some((start, end)) => text[start..end].trim(),
+        None => text.trim(),
+    }
+}
+
+/// The untrimmed byte range of the sentence [`sentence_containing`] returns
+/// for `at`, or `None` where it returns the whole text (`at` past the end or
+/// not on a character boundary). Every `at` inside the range on a character
+/// boundary gives the same range, so a caller scanning forward can reuse it
+/// (Level 0's reader does: phase 2 evaluation fixes, part C, m-6).
+pub fn sentence_bounds(text: &str, at: usize) -> Option<(usize, usize)> {
     if at >= text.len() || !text.is_char_boundary(at) {
-        return text.trim();
+        return None;
     }
 
     let start = text[..at]
@@ -191,7 +228,7 @@ pub fn sentence_containing(text: &str, at: usize) -> &str {
         .map(|(i, c)| at + i + c.len_utf8())
         .unwrap_or(text.len());
 
-    text[start..end].trim()
+    Some((start, end))
 }
 
 /// Split a paragraph into sentences.
@@ -229,6 +266,32 @@ pub fn sentences_in(text: &str) -> Vec<&str> {
 
 #[cfg(test)]
 mod tests {
+    /// The abbreviation check looks back a bounded distance, not over the
+    /// whole paragraph prefix (the evaluation measured the old form quadratic
+    /// in the number of sentences per paragraph). Boundaries must not change:
+    /// an abbreviation deep in a long paragraph still suppresses, a whitespace
+    /// run before it still normalises, and a word that merely ends in an
+    /// abbreviation still closes.
+    #[test]
+    fn the_abbreviation_lookback_is_bounded_and_boundaries_are_unchanged() {
+        let filler = "The groups were compared on every measure. ".repeat(400);
+        let text = format!("{filler}This was proposed by Wang et al. (2016) to incorporate context. It unaffected. Then it ended.");
+        let at = text.find("(2016)").unwrap();
+        let s = sentence_containing(&text, at);
+        assert!(s.starts_with("This was proposed by Wang et al. (2016)"), "{s:?}");
+        assert!(s.ends_with("context."), "{s:?}");
+        // A doubled space before the abbreviation still matches "et al.".
+        let text2 = format!("{filler}Proposed by Wang  et  al. (2016) here. Next.");
+        let at2 = text2.find("(2016)").unwrap();
+        assert!(sentence_containing(&text2, at2).ends_with("here."));
+        // "unaffected." is not the abbreviation "ed."
+        let at3 = text.find("It unaffected").unwrap();
+        assert_eq!(sentence_containing(&text, at3), "It unaffected.");
+        // The lookback window itself: an abbreviation more than the window
+        // back from the full stop is irrelevant to that full stop.
+        assert!(ABBREVIATION_LOOKBACK_BYTES > ABBREVIATIONS.iter().map(|a| a.len()).max().unwrap() + 8);
+    }
+
 
     #[test]
     fn pdf_doubled_whitespace_does_not_defeat_an_abbreviation() {

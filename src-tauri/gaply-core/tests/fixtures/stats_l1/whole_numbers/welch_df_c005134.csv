@@ -1,0 +1,9 @@
+# /usr/local/bin/Rscript (R 4.6.1), make_welch_df.R
+# eval3 s3 case c005134; printed, from R on the unrounded values: t(2.75) = -1.39, p = .265
+# R's Welch on the stored whole numbers: t = -1.386750, df = 2.689209, p = 0.269292
+score,arm
+53,ctl
+60,ctl
+54,ctl
+60,trt
+58,trt

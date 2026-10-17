@@ -68,6 +68,11 @@ pub struct AppState {
     /// `jobs::resume_job` picks up — the handle is how THIS process cancels or
     /// pauses, not how the job is remembered.
     pub ai_jobs: Arc<std::sync::Mutex<std::collections::HashMap<i64, crate::ai::job_runner::JobControl>>>,
+    /// Level 1 runs (Phase 2, Step 6). IN MEMORY ONLY, bounded, dropped on
+    /// close or exit.
+    pub stats_l1: Arc<crate::stats_l1_commands::L1Runs>,
+    /// The AI help setting, the user's key store and the Responses transport.
+    pub stats_ai: Arc<crate::stats_ai::StatsAi>,
 }
 
 /// How many rendered reports to keep in memory. A user exports the run they
@@ -119,7 +124,7 @@ impl AppState {
             embedder,
             aicheck_cancel: Arc::new(AtomicBool::new(false)),
             report_pdfs: Arc::new(Mutex::new(VecDeque::new())),
-            app_data_dir,
+            app_data_dir: app_data_dir.clone(),
             ai_embed,
             ai_install_cancel: Arc::new(AtomicBool::new(false)),
             ai_embed_cancel: Arc::new(AtomicBool::new(false)),
@@ -127,6 +132,8 @@ impl AppState {
             ai_gen_cancel: Arc::new(crate::ai::cancel::CancelRegistry::default()),
             ai_interactive: crate::ai::job_runner::InteractivePriority::new(),
             ai_jobs: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            stats_l1: Arc::new(crate::stats_l1_commands::L1Runs::default()),
+            stats_ai: Arc::new(crate::stats_ai::StatsAi::production(&app_data_dir)),
         }
     }
 }

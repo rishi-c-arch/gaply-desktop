@@ -119,6 +119,7 @@ dependencies = [
  "candle-nn",
  "candle-transformers",
  "csv",
+ "flate2",
  "gaply_core",
  "libc",
  "matfile",
@@ -2049,6 +2050,7 @@ dependencies = [
  "statrs",
  "thiserror 2.0.18",
  "tracing",
+ "unicode-normalization",
  "zip 2.4.2",
 ]
 

@@ -64,6 +64,20 @@ name = "label-cs"
 path = "src/bin/label-cs.rs"
 required-features = ["devtools"]
 
+# Level 0 corpus runner (Phase 1, Step 7). A measurement instrument over
+# manuscripts on this machine; never bundled.
+[[example]]
+name = "l0_corpus_run"
+required-features = ["devtools"]
+
+# The eval harness's CLI guards spawn the `ai-eval` binary, which is built only
+# with `devtools`. Without this entry the test compiled anyway and failed 8 of
+# 11, or passed on a leftover binary (§11 D210, closed).
+[[test]]
+name = "ai_eval_cli"
+path = "tests/ai_eval_cli.rs"
+required-features = ["devtools"]
+
 [lib]
 name = "app_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
@@ -121,6 +135,10 @@ candle-transformers = "0.11"
 tokenizers = { version = "0.23", default-features = false, features = ["onig"] }
 matfile = "=0.5.0"
 ambers = "=0.4.4"
+# Counts what a .mat file's compressed elements inflate to before matfile
+# reads them (part C follow-up 2; approved by name in decisions.md, 17 Oct
+# 2026). Already in Cargo.lock through zip and ambers.
+flate2 = "=1.1.9"
 arrow = { version = "=57.3.1", default-features = false }
 
 # On Windows/Linux the OS launches a NEW process for the gaply:// deep link;

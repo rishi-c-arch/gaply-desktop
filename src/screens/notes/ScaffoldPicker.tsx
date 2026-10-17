@@ -38,9 +38,11 @@ const ScaffoldPicker: React.FC<ScaffoldPickerProps> = ({ scaffolds, notice, curr
           <div className="an-sp-meta">
             <span className="an-sp-style" title="Suggested reference style">Refs: {s.cslDefaultStyle}</span>
             {/* NO onClick HERE, and never add one that stops propagation.
-                External links work because tauri-plugin-opener injects a click
-                listener on WINDOW (init-iife.js) that catches <a target="_blank">
-                and invokes plugin:opener|open_url. React dispatches from its root
+                External links work because the app installs a click listener on
+                WINDOW (src/services/externalLinks.ts; until part C's follow-up
+                the opener plugin's init-iife.js did it) that catches
+                <a target="_blank"> and opens it through the app's checked
+                command, open_external_link. React dispatches from its root
                 container, and a synthetic stopPropagation() also stops the NATIVE
                 event there — so the shim never sees the click and the link does
                 nothing at all, silently. This card has no click handler of its

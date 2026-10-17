@@ -1,0 +1,12 @@
+# The precision sweep's worst cases (evaluation fixes, part C, M-11), copied from its own output:
+#   SWEEP_OUT=sweep.tsv cargo test --release -p gaply_core --test l1_precision_sweep -- --ignored --nocapture measure_the_validity_limit_and_the_widening
+# run 17 Oct 2026 at 5163aec plus part C (precision.rs unchanged): 1,677 rows; L before halving 0.203131; worst at or below L 1.043870.
+# guard F: at or below L, the most widening any row needed (F = 1.0 fails them). guard L: above L, more than F needed (only the limit holds them).
+guard	method	case	ratio	needed	value	true_lo	true_hi
+F	ols_slope_t	gen109	0.089767	1.041659	1.9547803018	1.1682687855	2.9968199387
+F	ols_slope_t	gen113	0.095453	1.029109	-0.9529991147	-1.9013367592	-0.1109497590
+F	pearson_r	gen109	0.078807	1.024175	-0.8984237472	-0.9389234856	-0.8419546579
+F	ols_f	gen97	0.070708	1.023980	14.6714304058	8.8921578224	24.7015506081
+L	ols_f	gen137	0.171253	1.102318	11.7966075954	3.1494878876	44.8141084315
+L	pearson_r	s2_pearson_near1	0.182574	1.235202	0.9960688280	0.9300858332	0.9999806072
+L	ols_f	gen41	0.203254	3.035953	10.3865069394	9.4568340988	13.4971992874

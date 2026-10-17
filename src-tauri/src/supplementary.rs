@@ -42,7 +42,9 @@ use gaply_core::GaplyError;
 /// comfortably covers real supplementary tables while bounding the eager Excel
 /// load and any single read.
 pub const MAX_FILE_SIZE_BYTES: u64 = 10 * 1024 * 1024;
-/// Max data rows extracted (excess -> rejected).
+/// Max data rows extracted (excess -> rejected). DATA rows: the header row
+/// is not counted, so a table of exactly 5,000 rows is read (evaluation
+/// fixes, part C, m-7; it was refused before, the header counted as a row).
 pub const MAX_ROWS: usize = 5_000;
 /// Max columns per row (excess -> rejected).
 pub const MAX_COLS: usize = 128;
@@ -52,6 +54,12 @@ pub const MAX_CELL_LEN: usize = 512;
 /// Hard cap on total extracted characters across all cells/text — the real
 /// aggregate memory bound. Exceeding it REJECTS the file.
 pub const MAX_TOTAL_CHARS: usize = 2 * 1024 * 1024;
+
+/// The version of this parser, recorded in every Level 1 data fingerprint
+/// beside the file's hash (Phase 2, Step 2). Bump it when a parse of the same
+/// bytes could change: the reader crates' exact versions are pinned in
+/// `Cargo.toml` (`ambers = "=0.4.4"`, `matfile = "=0.5.0"`) and `Cargo.lock`.
+pub const PARSER_VERSION: &str = "supplementary ingest 1; calamine 0.26, csv 1, ambers 0.4.4, matfile 0.5.0";
 
 /// The kind of supplementary source.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -73,7 +81,7 @@ pub enum SupplementaryKind {
 /// codes the author declared as MISSING — and a value of 99 means nothing
 /// without the last two. Carried beside the table rather than flattened into
 /// it, so nothing has to be re-derived from a string.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Clone, Serialize)]
 pub struct VariableMeta {
     pub name: String,
     /// The source format's own type string (`F8.2`, `A5`), not a re-coding.
@@ -84,17 +92,40 @@ pub struct VariableMeta {
     pub value_labels: Vec<(String, String)>,
     /// Codes/ranges the author declared user-missing, verbatim.
     pub user_missing: Vec<String>,
+    /// The same declarations, typed, for Level 1 (Phase 2, Step 2). Not
+    /// serialised: `SupplementaryEvidence` is serialised toward the
+    /// PublishReady reviewer, and that payload must not change.
+    #[serde(skip)]
+    pub user_missing_rules: Vec<gaply_core::stats_l1::dataset::MissingRule>,
+    /// `code -> label` with the code written as the cells print it (`1`, not
+    /// `Numeric(1.0)`), for Level 1's level labels. Not serialised, as above.
+    #[serde(skip)]
+    pub value_label_codes: Vec<(String, String)>,
+}
+
+/// Counts only, never the text (part C follow-up, item 7).
+impl std::fmt::Debug for VariableMeta {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VariableMeta").field("is_numeric", &self.is_numeric).field("label", &self.label.is_some()).field("value_labels", &self.value_labels.len()).field("user_missing", &self.user_missing.len()).finish_non_exhaustive()
+    }
 }
 
 /// A single extracted table (first row treated as headers).
-#[derive(Debug, Clone, Serialize)]
+#[derive(Clone, Serialize)]
 pub struct Table {
     pub headers: Vec<String>,
     pub rows: Vec<Vec<String>>,
 }
 
+/// Counts only, never the text (part C follow-up, item 7).
+impl std::fmt::Debug for Table {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Table").field("columns", &self.headers.len()).field("rows", &self.rows.len()).finish_non_exhaustive()
+    }
+}
+
 /// Neutral evidence extracted from one supplementary file.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Clone, Serialize)]
 pub struct SupplementaryEvidence {
     pub file_name: String,
     pub kind: SupplementaryKind,
@@ -106,6 +137,26 @@ pub struct SupplementaryEvidence {
     /// plain text, which have none to lose.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub variables: Vec<VariableMeta>,
+    /// The SPSS weight variable the file declares, if any (Phase 2, Step 2).
+    /// Not serialised: see `VariableMeta::user_missing_rules`.
+    #[serde(skip)]
+    pub weight_variable: Option<String>,
+    /// `true` when the source holds more than [`MAX_ROWS`] rows and only the
+    /// first [`MAX_ROWS`] are in `tables` (`.sav` and `.mat`; CSV and
+    /// spreadsheets refuse instead). Level 1 never computes on a truncated
+    /// table. Not serialised.
+    #[serde(skip)]
+    pub rows_truncated: bool,
+    /// The sheet a spreadsheet's table was read from. Not serialised.
+    #[serde(skip)]
+    pub sheet_name: Option<String>,
+}
+
+/// Counts only, never the text (part C follow-up, item 7).
+impl std::fmt::Debug for SupplementaryEvidence {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SupplementaryEvidence").field("kind", &self.kind).field("tables", &self.tables).field("text_chars", &self.text_summary.chars().count()).field("notes", &self.notes.len()).field("variables", &self.variables.len()).field("weight_variable", &self.weight_variable.is_some()).field("rows_truncated", &self.rows_truncated).finish_non_exhaustive()
+    }
 }
 
 /// Parse a supplementary file into neutral evidence, memory-capped. Never
@@ -146,6 +197,189 @@ pub fn parse_supplementary(path: &Path) -> Result<SupplementaryEvidence, GaplyEr
     }
 }
 
+/// **Level 1 only (part C follow-up, item 3): [`parse_supplementary`] on
+/// bytes already read**, so the file that was checked and hashed is the file
+/// parsed, and the path is never opened again. `ext` is the lower-case
+/// extension, which picks the parser exactly as the path does. Each format is
+/// parsed by the same code as through the path, from a reader over `bytes`;
+/// the evidence's `file_name` is empty (Level 1 never reads it).
+pub fn parse_supplementary_bytes(bytes: &[u8], ext: &str) -> Result<SupplementaryEvidence, GaplyError> {
+    let size = bytes.len() as u64;
+    if size > MAX_FILE_SIZE_BYTES {
+        return Err(GaplyError::Validation(format!(
+            "file too large: {size} bytes exceeds the {MAX_FILE_SIZE_BYTES}-byte cap; \
+             not read into memory"
+        )));
+    }
+    let file_name = String::new();
+    match ext {
+        "sav" => sav_evidence(ambers::scan_sav_from_reader(std::io::Cursor::new(bytes), SAV_BATCH_ROWS).and_then(read_sav_rows), file_name),
+        "mat" => mat_evidence(bytes, file_name),
+        "xlsx" | "xls" | "xlsb" | "ods" | "xlsm" => spreadsheet_evidence(workbook_from_bytes(bytes, ext), file_name),
+        "csv" | "tsv" => csv_evidence(bytes, file_name, if ext == "tsv" { b'\t' } else { b',' }),
+        "txt" | "text" | "md" | "log" => text_evidence(bytes, file_name),
+        other => Err(GaplyError::Validation(format!(
+            "unsupported supplementary format {other:?}; supported: xlsx, xls, ods, \
+             csv, tsv, txt, md, sav, mat"
+        ))),
+    }
+}
+
+/// The rows `ambers::scan_sav` reads per batch; the bytes path uses the same.
+const SAV_BATCH_ROWS: usize = 100_000;
+
+/// A workbook from bytes, by extension exactly as `open_workbook_auto` picks
+/// one from a path.
+fn workbook_from_bytes<'a>(bytes: &'a [u8], ext: &str) -> Result<calamine::Sheets<std::io::Cursor<&'a [u8]>>, calamine::Error> {
+    use calamine::{open_workbook_from_rs, Error, Ods, Sheets, Xls, Xlsb, Xlsx};
+    let c = std::io::Cursor::new(bytes);
+    Ok(match ext {
+        "xls" => Sheets::Xls(open_workbook_from_rs::<Xls<_>, _>(c).map_err(Error::Xls)?),
+        "xlsx" | "xlsm" => Sheets::Xlsx(open_workbook_from_rs::<Xlsx<_>, _>(c).map_err(Error::Xlsx)?),
+        "xlsb" => Sheets::Xlsb(open_workbook_from_rs::<Xlsb<_>, _>(c).map_err(Error::Xlsb)?),
+        "ods" => Sheets::Ods(open_workbook_from_rs::<Ods<_>, _>(c).map_err(Error::Ods)?),
+        _ => calamine::open_workbook_auto_from_rs(c)?,
+    })
+}
+
+/// **Level 1 only (Phase 2, Step 2): does the file's table hold more rows
+/// than [`MAX_ROWS`]?** A new function that [`parse_supplementary`] and its
+/// existing callers never call, so their refusals keep their exact text.
+///
+/// Level 1 calls it after a parse has FAILED, to tell the row-cap refusal
+/// apart from every other one without reading the message. It mirrors the
+/// parsers' own row checks: CSV/TSV count records with the same reader
+/// settings and stop where the parser would have stopped first (a malformed
+/// record, a row over the column cap); a spreadsheet reads its first sheet's
+/// height, as `parse_spreadsheet` does. `.sav` and `.mat` never refuse on
+/// rows (they truncate, and say so in `rows_truncated`), and every other
+/// format holds no table, so both answer `false`.
+pub fn exceeds_row_cap(path: &Path) -> Result<bool, GaplyError> {
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+    match ext.as_str() {
+        "csv" | "tsv" => {
+            let file = std::fs::File::open(path)
+                .map_err(|e| GaplyError::Validation(format!("cannot open csv: {e}")))?;
+            Ok(csv_exceeds_row_cap(std::io::BufReader::new(file), &ext))
+        }
+        "xlsx" | "xls" | "xlsb" | "ods" | "xlsm" => Ok(sheet_exceeds_row_cap(calamine::open_workbook_auto(path))),
+        _ => Ok(false),
+    }
+}
+
+/// [`exceeds_row_cap`] on bytes already read (part C follow-up, item 3).
+pub fn exceeds_row_cap_bytes(bytes: &[u8], ext: &str) -> bool {
+    match ext {
+        "csv" | "tsv" => csv_exceeds_row_cap(bytes, ext),
+        "xlsx" | "xls" | "xlsb" | "ods" | "xlsm" => sheet_exceeds_row_cap(workbook_from_bytes(bytes, ext)),
+        _ => false,
+    }
+}
+
+fn csv_exceeds_row_cap(reader: impl Read, ext: &str) -> bool {
+    let mut rdr = csv::ReaderBuilder::new()
+        .has_headers(false)
+        .flexible(true)
+        .delimiter(if ext == "tsv" { b'\t' } else { b',' })
+        .from_reader(reader);
+    for (i, rec) in rdr.records().enumerate() {
+        if i > MAX_ROWS {
+            return true;
+        }
+        match rec {
+            Ok(r) if r.len() <= MAX_COLS => {}
+            _ => return false,
+        }
+    }
+    false
+}
+
+fn sheet_exceeds_row_cap<RS: Read + std::io::Seek>(wb: Result<calamine::Sheets<RS>, calamine::Error>) -> bool {
+    use calamine::Reader;
+    let Ok(mut wb) = wb else { return false };
+    let Some(sheet) = wb.sheet_names().first().cloned() else { return false };
+    let Ok(range) = wb.worksheet_range(&sheet) else { return false };
+    range.get_size().0 > MAX_ROWS + 1
+}
+
+/// **Level 1 only (Phase 2, Step 8b): the column count of a table wider
+/// than [`MAX_COLS`].** Like [`exceeds_row_cap`], called only after a parse
+/// has FAILED, to tell the column-cap refusal apart without reading the
+/// message. It mirrors the parsers' order: CSV/TSV records are read with the
+/// same settings until the first that is malformed, past the row cap, or
+/// over the column cap; a spreadsheet's first sheet is too tall before it is
+/// too wide. `None` when the table is not too wide, or the parse failed for
+/// another reason first.
+pub fn exceeds_col_cap(path: &Path) -> Result<Option<usize>, GaplyError> {
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+    match ext.as_str() {
+        "csv" | "tsv" => {
+            let file = std::fs::File::open(path)
+                .map_err(|e| GaplyError::Validation(format!("cannot open csv: {e}")))?;
+            Ok(csv_exceeds_col_cap(std::io::BufReader::new(file), &ext))
+        }
+        "xlsx" | "xls" | "xlsb" | "ods" | "xlsm" => Ok(sheet_exceeds_col_cap(calamine::open_workbook_auto(path))),
+        _ => Ok(None),
+    }
+}
+
+/// [`exceeds_col_cap`] on bytes already read (part C follow-up, item 3).
+pub fn exceeds_col_cap_bytes(bytes: &[u8], ext: &str) -> Option<usize> {
+    match ext {
+        "csv" | "tsv" => csv_exceeds_col_cap(bytes, ext),
+        "xlsx" | "xls" | "xlsb" | "ods" | "xlsm" => sheet_exceeds_col_cap(workbook_from_bytes(bytes, ext)),
+        _ => None,
+    }
+}
+
+fn csv_exceeds_col_cap(reader: impl Read, ext: &str) -> Option<usize> {
+    let mut rdr = csv::ReaderBuilder::new()
+        .has_headers(false)
+        .flexible(true)
+        .delimiter(if ext == "tsv" { b'\t' } else { b',' })
+        .from_reader(reader);
+    for (i, rec) in rdr.records().enumerate() {
+        if i > MAX_ROWS {
+            return None;
+        }
+        match rec {
+            Ok(r) if r.len() > MAX_COLS => return Some(r.len()),
+            Ok(_) => {}
+            Err(_) => return None,
+        }
+    }
+    None
+}
+
+fn sheet_exceeds_col_cap<RS: Read + std::io::Seek>(wb: Result<calamine::Sheets<RS>, calamine::Error>) -> Option<usize> {
+    use calamine::Reader;
+    let mut wb = wb.ok()?;
+    let sheet = wb.sheet_names().first().cloned()?;
+    let range = wb.worksheet_range(&sheet).ok()?;
+    let (height, width) = range.get_size();
+    (height <= MAX_ROWS + 1 && width > MAX_COLS).then_some(width)
+}
+
+/// **Level 1 only (Phase 2, Step 8b): a `.xls` that is not a readable
+/// compound document**, told apart by the parser's TYPED error
+/// (`XlsError::Cfb`), never its text: an Excel format older than BIFF8
+/// (BIFF2 to BIFF5 workbooks are not compound files) or a damaged file. The
+/// parser's error does not say which, so neither does the refusal.
+pub fn xls_not_compound_document(path: &Path) -> bool {
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+    ext == "xls" && matches!(calamine::open_workbook::<calamine::Xls<_>, _>(path), Err(calamine::XlsError::Cfb(_)))
+}
+
+/// [`xls_not_compound_document`] on bytes already read (part C follow-up,
+/// item 3).
+pub fn xls_not_compound_document_bytes(bytes: &[u8], ext: &str) -> bool {
+    ext == "xls"
+        && matches!(
+            calamine::open_workbook_from_rs::<calamine::Xls<_>, _>(std::io::Cursor::new(bytes)),
+            Err(calamine::XlsError::Cfb(_))
+        )
+}
+
 /// Clamp a cell to [`MAX_CELL_LEN`] chars; returns (clamped, was_clamped).
 fn clamp_cell(s: &str) -> (String, bool) {
     if s.chars().count() <= MAX_CELL_LEN {
@@ -169,10 +403,18 @@ fn cell_to_string(d: &calamine::Data) -> String {
 }
 
 fn parse_spreadsheet(path: &Path, file_name: String) -> Result<SupplementaryEvidence, GaplyError> {
-    use calamine::{open_workbook_auto, Reader};
+    spreadsheet_evidence(calamine::open_workbook_auto(path), file_name)
+}
 
-    let mut wb = open_workbook_auto(path)
-        .map_err(|e| GaplyError::Validation(format!("cannot open spreadsheet: {e}")))?;
+/// The spreadsheet parser after the workbook is opened, from a path or from
+/// bytes.
+fn spreadsheet_evidence<RS: Read + std::io::Seek>(
+    wb: Result<calamine::Sheets<RS>, calamine::Error>,
+    file_name: String,
+) -> Result<SupplementaryEvidence, GaplyError> {
+    use calamine::Reader;
+
+    let mut wb = wb.map_err(|e| GaplyError::Validation(format!("cannot open spreadsheet: {e}")))?;
     let sheet = wb
         .sheet_names()
         .first()
@@ -183,7 +425,8 @@ fn parse_spreadsheet(path: &Path, file_name: String) -> Result<SupplementaryEvid
         .map_err(|e| GaplyError::Validation(format!("cannot read sheet {sheet:?}: {e}")))?;
 
     let (height, width) = range.get_size();
-    if height > MAX_ROWS {
+    // The header row is not a data row (evaluation fixes, part C, m-7).
+    if height > MAX_ROWS + 1 {
         return Err(GaplyError::Validation(format!(
             "spreadsheet has {height} rows; cap is {MAX_ROWS}"
         )));
@@ -232,6 +475,9 @@ fn parse_spreadsheet(path: &Path, file_name: String) -> Result<SupplementaryEvid
         text_summary: String::new(),
         notes,
         variables: Vec::new(),
+        weight_variable: None,
+        rows_truncated: false,
+        sheet_name: Some(sheet),
     })
 }
 
@@ -252,7 +498,12 @@ fn is_matlab_73(bytes: &[u8]) -> bool {
 fn parse_mat(path: &Path, file_name: String) -> Result<SupplementaryEvidence, GaplyError> {
     let bytes = std::fs::read(path)
         .map_err(|e| GaplyError::Validation(format!("cannot read .mat: {e}")))?;
-    if is_matlab_73(&bytes) {
+    mat_evidence(&bytes, file_name)
+}
+
+/// The `.mat` parser on the file's bytes, read from a path or already read.
+fn mat_evidence(bytes: &[u8], file_name: String) -> Result<SupplementaryEvidence, GaplyError> {
+    if is_matlab_73(bytes) {
         return Err(GaplyError::Validation(
             "MATLAB 7.3 files are not supported yet; re-save with \
              save('file.mat','-v7')"
@@ -269,7 +520,7 @@ fn parse_mat(path: &Path, file_name: String) -> Result<SupplementaryEvidence, Ga
     // different and are reported differently: a dropped variable is a note, an
     // int32 variable is a refusal, because nothing can be recovered from the
     // file once the parse aborts.
-    let mat = matfile::MatFile::parse(std::io::Cursor::new(&bytes)).map_err(|e| {
+    let mat = matfile::MatFile::parse(std::io::Cursor::new(bytes)).map_err(|e| {
         GaplyError::Validation(format!(
             "malformed or unsupported .mat file: {e}. Note: this reader cannot \
              parse int32 variables and fails on the whole file when one is \
@@ -282,8 +533,10 @@ fn parse_mat(path: &Path, file_name: String) -> Result<SupplementaryEvidence, Ga
     let mut columns: Vec<Vec<String>> = Vec::new();
     let mut variables = Vec::new();
     let mut notes = Vec::new();
+    let mut rows_truncated = false;
     for arr in mat.arrays().iter().take(MAX_COLS) {
-        let (declared_type, cells) = matlab_cells(arr);
+        let (declared_type, cells, truncated) = matlab_cells(arr);
+        rows_truncated |= truncated;
         headers.push(arr.name().to_string());
         variables.push(VariableMeta {
             name: arr.name().to_string(),
@@ -295,6 +548,8 @@ fn parse_mat(path: &Path, file_name: String) -> Result<SupplementaryEvidence, Ga
             label: None,
             value_labels: Vec::new(),
             user_missing: Vec::new(),
+            user_missing_rules: Vec::new(),
+            value_label_codes: Vec::new(),
         });
         columns.push(cells);
     }
@@ -308,7 +563,7 @@ fn parse_mat(path: &Path, file_name: String) -> Result<SupplementaryEvidence, Ga
     // NOTHING DROPPED IS HIDDEN. The reader returns only the variables it
     // understood, so a char or cell variable vanishes with no signal. Count
     // the container's own variable entries and say how many did not survive.
-    let declared = count_mat_variables(&bytes);
+    let declared = count_mat_variables(bytes);
     if declared > mat.arrays().len() {
         notes.push(format!(
             "{} of {declared} variables in the file were not read: char/cell \
@@ -324,6 +579,9 @@ fn parse_mat(path: &Path, file_name: String) -> Result<SupplementaryEvidence, Ga
         tables: vec![Table { headers, rows }],
         notes,
         variables,
+        weight_variable: None,
+        rows_truncated,
+        sheet_name: None,
     })
 }
 
@@ -362,10 +620,118 @@ fn count_mat_variables(bytes: &[u8]) -> usize {
     n
 }
 
-/// One MATLAB array as `(declared_type, cells)`. Numeric data is rendered with
-/// `serde_json`-style shortest round-trip so a value is never re-formatted into
-/// something the author did not write (ONTOLOGY §4.20, TEXT).
-fn matlab_cells(arr: &matfile::Array) -> (String, Vec<String>) {
+/// **What a `.mat` file's compressed elements inflate to, counted** (part C
+/// follow-up 2). `matfile` inflates each `miCOMPRESSED` element with
+/// `read_to_end` and nothing bounds it: measured, a 7.7 MB file reached a
+/// 1,048 MB peak. Each top-level compressed element is inflated here into a
+/// sink that only counts (flate2, approved for this alone), stopping as soon
+/// as the total passes `limit`. `Err(counted)` past the limit; `Ok(total)`
+/// otherwise, including for a file this walk cannot read, which is left to
+/// the parser to refuse. Nothing inflated is kept.
+///
+/// The walk: after the 128-byte header, each element is an 8-byte tag
+/// `(type, length)`; a compressed element (15) is not padded, every other is
+/// padded to 8 bytes (`count_mat_variables` pads every element, which is
+/// wrong only after a compressed one; it is left as it is).
+pub fn count_mat_inflation(bytes: &[u8], limit: u64) -> Result<u64, u64> {
+    const HEADER: usize = 128;
+    const MI_COMPRESSED: u32 = 15;
+    if bytes.len() <= HEADER + 8 {
+        return Ok(0);
+    }
+    let little = &bytes[126..128] == b"IM";
+    let u32_at = |o: usize| -> u32 {
+        let b = [bytes[o], bytes[o + 1], bytes[o + 2], bytes[o + 3]];
+        if little { u32::from_le_bytes(b) } else { u32::from_be_bytes(b) }
+    };
+    let (mut off, mut total) = (HEADER, 0u64);
+    while off + 8 <= bytes.len() {
+        let (ty, len) = (u32_at(off), u32_at(off + 4) as usize);
+        let Some(data) = bytes.get(off + 8..off + 8 + len) else { break };
+        if ty == MI_COMPRESSED {
+            let room = limit.saturating_sub(total);
+            let mut counted = flate2::read::ZlibDecoder::new(data).take(room.saturating_add(1));
+            let Ok(n) = std::io::copy(&mut counted, &mut std::io::sink()) else { break };
+            total = total.saturating_add(n);
+            if n > room {
+                return Err(total);
+            }
+            off += 8 + len;
+        } else {
+            off += 8 + len.div_ceil(8) * 8;
+        }
+    }
+    Ok(total)
+}
+
+/// What a zlib-compressed SPSS file's trailer declares (part C follow-up 2,
+/// item 3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ZsavTrailer {
+    /// Not a `$FL3` file: nothing to read.
+    NotZsav,
+    /// The most any one allocation or all blocks together would take, from
+    /// the declared block size and each block's declared inflated size.
+    Declared { inflated: u64 },
+    /// No zlib header points at a trailer the file holds, or the trailer
+    /// cannot be what it declares (a negative size, a block count its length
+    /// does not hold, a block outside the file).
+    Malformed,
+}
+
+/// **The trailer of a `.zsav`, read before ambers reads it.** Ambers
+/// allocates each block at the size the trailer declares and the trailer's
+/// entries at the count it declares; measured, a trailer declaring a 2 GiB
+/// block made a 2,048 MB allocation, one declaring 2^31 - 1 blocks a
+/// 49,152 MB one, and a negative size panicked. The zlib header is found by
+/// its own shape (its first field is its own offset, and its trailer offset
+/// and length end the file), in either byte order.
+pub fn zsav_trailer(bytes: &[u8]) -> ZsavTrailer {
+    if bytes.get(..4) != Some(&b"$FL3"[..]) {
+        return ZsavTrailer::NotZsav;
+    }
+    for little in [true, false] {
+        let i64_at = |o: usize| -> Option<i64> {
+            let b: [u8; 8] = bytes.get(o..o + 8)?.try_into().ok()?;
+            Some(if little { i64::from_le_bytes(b) } else { i64::from_be_bytes(b) })
+        };
+        let i32_at = |o: usize| -> Option<i32> {
+            let b: [u8; 4] = bytes.get(o..o + 4)?.try_into().ok()?;
+            Some(if little { i32::from_le_bytes(b) } else { i32::from_be_bytes(b) })
+        };
+        let len = bytes.len() as i64;
+        let header = (0..bytes.len().saturating_sub(24)).find(|&p| {
+            matches!((i64_at(p), i64_at(p + 8), i64_at(p + 16)), (Some(a), Some(off), Some(n)) if a == p as i64 && off > 0 && n > 0 && off.checked_add(n) == Some(len))
+        });
+        let Some(p) = header else { continue };
+        let (Some(zt), Some(zlen)) = (i64_at(p + 8), i64_at(p + 16)) else { return ZsavTrailer::Malformed };
+        let zt = zt as usize;
+        let (Some(block), Some(blocks)) = (i32_at(zt + 16), i32_at(zt + 20)) else { return ZsavTrailer::Malformed };
+        if block <= 0 || blocks < 0 || i64::from(blocks).checked_mul(24).and_then(|x| x.checked_add(24)) != Some(zlen) {
+            return ZsavTrailer::Malformed;
+        }
+        let mut inflated: u64 = block as u64;
+        let mut total: u64 = 0;
+        for k in 0..blocks as usize {
+            let e = zt + 24 + 24 * k;
+            let (Some(at), Some(size), Some(packed)) = (i64_at(e + 8), i32_at(e + 16), i32_at(e + 20)) else { return ZsavTrailer::Malformed };
+            if at < 0 || size < 0 || packed < 0 || at.checked_add(i64::from(packed)).map_or(true, |end| end > len) {
+                return ZsavTrailer::Malformed;
+            }
+            inflated = inflated.max(size as u64);
+            total = total.saturating_add(size as u64);
+        }
+        return ZsavTrailer::Declared { inflated: inflated.max(total) };
+    }
+    ZsavTrailer::Malformed
+}
+
+/// One MATLAB array as `(declared_type, cells, truncated)`: `truncated` says
+/// the array held more than [`MAX_ROWS`] values and only the first are kept.
+/// Numeric data is rendered with `serde_json`-style shortest round-trip so a
+/// value is never re-formatted into something the author did not write
+/// (ONTOLOGY §4.20, TEXT).
+fn matlab_cells(arr: &matfile::Array) -> (String, Vec<String>, bool) {
     use matfile::NumericData;
     let dims = arr
         .size()
@@ -375,10 +741,10 @@ fn matlab_cells(arr: &matfile::Array) -> (String, Vec<String>) {
         .join("x");
     macro_rules! render {
         ($v:expr) => {
-            $v.iter().take(MAX_ROWS).map(|x| x.to_string()).collect::<Vec<_>>()
+            ($v.iter().take(MAX_ROWS).map(|x| x.to_string()).collect::<Vec<_>>(), $v.len() > MAX_ROWS)
         };
     }
-    let cells = match arr.data() {
+    let (cells, truncated) = match arr.data() {
         NumericData::Double { real, .. } => render!(real),
         NumericData::Single { real, .. } => render!(real),
         NumericData::Int8 { real, .. } => render!(real),
@@ -390,13 +756,37 @@ fn matlab_cells(arr: &matfile::Array) -> (String, Vec<String>) {
         NumericData::Int64 { real, .. } => render!(real),
         NumericData::UInt64 { real, .. } => render!(real),
     };
-    (format!("matlab:{dims}"), cells)
+    (format!("matlab:{dims}"), cells, truncated)
 }
 
 /// SPSS `.sav`, via `ambers` (pure Rust).
 fn parse_sav(path: &Path, file_name: String) -> Result<SupplementaryEvidence, GaplyError> {
-    let (batch, meta) = ambers::read_sav(path)
-        .map_err(|e| GaplyError::Validation(format!("malformed or unsupported .sav file: {e}")))?;
+    sav_evidence(ambers::scan_sav(path).and_then(read_sav_rows), file_name)
+}
+
+/// The rows of an opened `.sav` and its metadata: at most [`MAX_ROWS`] + 1
+/// rows, enough to keep [`MAX_ROWS`] and to know there were more (part C
+/// follow-up, item 4). A byte-coded or zlib-compressed (`.zsav`) file holds
+/// rows far beyond its size on disk, and `ambers::read_sav` reads every one:
+/// measured, 40 million rows in a 40 KB file peaked at 330 MB. The output is
+/// unchanged: it was already cut to [`MAX_ROWS`] rows.
+fn read_sav_rows<R: Read + std::io::Seek>(
+    mut scanner: ambers::Scanner<R>,
+) -> Result<(arrow::record_batch::RecordBatch, ambers::SpssMetadata), ambers::error::SpssError> {
+    let meta = scanner.metadata().clone();
+    scanner.limit(MAX_ROWS + 1);
+    let batch = scanner.collect_single()?;
+    Ok((batch, meta))
+}
+
+/// The `.sav` parser after `ambers` has read the file, from a path or from
+/// bytes.
+fn sav_evidence(
+    read: Result<(arrow::record_batch::RecordBatch, ambers::SpssMetadata), ambers::error::SpssError>,
+    file_name: String,
+) -> Result<SupplementaryEvidence, GaplyError> {
+    let (batch, meta) =
+        read.map_err(|e| GaplyError::Validation(format!("malformed or unsupported .sav file: {e}")))?;
 
     let mut notes = Vec::new();
     let mut headers = Vec::new();
@@ -421,6 +811,16 @@ fn parse_sav(path: &Path, file_name: String) -> Result<SupplementaryEvidence, Ga
                 .variable_missing_values
                 .get(name)
                 .map(|specs| specs.iter().map(|s| format!("{s:?}")).collect())
+                .unwrap_or_default(),
+            user_missing_rules: meta
+                .variable_missing_values
+                .get(name)
+                .map(|specs| specs.iter().map(missing_rule).collect())
+                .unwrap_or_default(),
+            value_label_codes: meta
+                .variable_value_labels
+                .get(name)
+                .map(|m| m.iter().map(|(v, l)| (value_code(v), l.clone())).collect())
                 .unwrap_or_default(),
         });
         headers.push(name.clone());
@@ -452,7 +852,29 @@ fn parse_sav(path: &Path, file_name: String) -> Result<SupplementaryEvidence, Ga
         tables: vec![Table { headers, rows }],
         notes,
         variables,
+        weight_variable: meta.weight_variable.clone(),
+        rows_truncated: batch.num_rows() > MAX_ROWS,
+        sheet_name: None,
     })
+}
+
+/// An SPSS user-missing declaration, typed.
+fn missing_rule(spec: &ambers::MissingSpec) -> gaply_core::stats_l1::dataset::MissingRule {
+    use gaply_core::stats_l1::dataset::MissingRule;
+    match spec {
+        ambers::MissingSpec::Value(v) => MissingRule::Value(*v),
+        ambers::MissingSpec::Range { lo, hi } => MissingRule::Range { lo: *lo, hi: *hi },
+        ambers::MissingSpec::StringValue(s) => MissingRule::Text(s.clone()),
+    }
+}
+
+/// A value-label key as the cells print it: `1` for `Numeric(1.0)`, the
+/// string itself for a string code.
+fn value_code(v: &ambers::Value) -> String {
+    match v {
+        ambers::Value::Numeric(x) => gaply_core::stats_l1::dataset::number_code(*x),
+        ambers::Value::String(s) => s.clone(),
+    }
 }
 
 /// One Arrow cell as the string the file holds. A null is the empty string,
@@ -482,11 +904,16 @@ fn columns_to_rows(columns: &[Vec<String>], notes: &mut Vec<String>) -> Vec<Vec<
 fn parse_csv(path: &Path, file_name: String, delim: u8) -> Result<SupplementaryEvidence, GaplyError> {
     let file = std::fs::File::open(path)
         .map_err(|e| GaplyError::Validation(format!("cannot open csv: {e}")))?;
+    csv_evidence(std::io::BufReader::new(file), file_name, delim)
+}
+
+/// The CSV parser on a reader: an opened file, or bytes already read.
+fn csv_evidence(reader: impl Read, file_name: String, delim: u8) -> Result<SupplementaryEvidence, GaplyError> {
     let mut rdr = csv::ReaderBuilder::new()
         .has_headers(false)
         .flexible(true)
         .delimiter(delim)
-        .from_reader(std::io::BufReader::new(file));
+        .from_reader(reader);
 
     let mut notes = Vec::new();
     let mut total = 0usize;
@@ -496,7 +923,7 @@ fn parse_csv(path: &Path, file_name: String, delim: u8) -> Result<SupplementaryE
 
     // Streaming: only ever one record + our capped output is resident.
     for (i, rec) in rdr.records().enumerate() {
-        if i >= MAX_ROWS {
+        if i > MAX_ROWS {
             return Err(GaplyError::Validation(format!(
                 "csv has more than {MAX_ROWS} rows; cap is {MAX_ROWS}"
             )));
@@ -539,15 +966,23 @@ fn parse_csv(path: &Path, file_name: String, delim: u8) -> Result<SupplementaryE
         text_summary: String::new(),
         notes,
         variables: Vec::new(),
+        weight_variable: None,
+        rows_truncated: false,
+        sheet_name: None,
     })
 }
 
 fn parse_text(path: &Path, file_name: String) -> Result<SupplementaryEvidence, GaplyError> {
     let file = std::fs::File::open(path)
         .map_err(|e| GaplyError::Validation(format!("cannot open text file: {e}")))?;
+    text_evidence(std::io::BufReader::new(file), file_name)
+}
+
+/// The text parser on a reader: an opened file, or bytes already read.
+fn text_evidence(reader: impl Read, file_name: String) -> Result<SupplementaryEvidence, GaplyError> {
     // Read at most MAX_TOTAL_CHARS+1 bytes — bounded regardless of file size.
     let mut buf = Vec::new();
-    std::io::BufReader::new(file)
+    reader
         .take(MAX_TOTAL_CHARS as u64 + 1)
         .read_to_end(&mut buf)
         .map_err(|e| GaplyError::Validation(format!("cannot read text: {e}")))?;
@@ -569,6 +1004,9 @@ fn parse_text(path: &Path, file_name: String) -> Result<SupplementaryEvidence, G
         text_summary: text,
         notes,
         variables: Vec::new(),
+        weight_variable: None,
+        rows_truncated: false,
+        sheet_name: None,
     })
 }
 
@@ -591,6 +1029,29 @@ mod tests {
 
     /// **An SPSS variable is more than a column name**, and every part of it a
     /// reader needs to interpret a value is preserved.
+    /// Part C follow-up, item 4: a `.zsav` holds rows far beyond its size on
+    /// disk (measured: 40 million rows in 40 KB, a 330 MB peak), and ambers
+    /// read every one. Only the first MAX_ROWS + 1 are read now: enough to
+    /// keep MAX_ROWS and to know there were more.
+    #[test]
+    fn a_sav_is_read_no_further_than_one_row_past_the_cap() {
+        use arrow::array::Float64Array;
+        use arrow::datatypes::{DataType, Field, Schema};
+        let rows = 200_000;
+        let schema = std::sync::Arc::new(Schema::new(vec![Field::new("x", DataType::Float64, false)]));
+        let batch = arrow::record_batch::RecordBatch::try_new(schema, vec![std::sync::Arc::new(Float64Array::from(vec![1.0; rows]))]).unwrap();
+        let mut buf = std::io::Cursor::new(Vec::new());
+        ambers::write_sav_to_writer(&mut buf, &batch, &ambers::SpssMetadata::default(), ambers::Compression::Zlib, None).unwrap();
+        let bytes = buf.into_inner();
+        assert!(bytes.len() < 10_000, "{} bytes hold {rows} rows", bytes.len());
+        let scanner = ambers::scan_sav_from_reader(std::io::Cursor::new(&bytes[..]), SAV_BATCH_ROWS).unwrap();
+        let (read, _) = read_sav_rows(scanner).unwrap();
+        assert_eq!(read.num_rows(), MAX_ROWS + 1);
+        let ev = parse_supplementary_bytes(&bytes, "sav").unwrap();
+        assert!(ev.rows_truncated);
+        assert_eq!(ev.tables[0].rows.len(), MAX_ROWS);
+    }
+
     #[test]
     fn an_spss_file_keeps_names_types_labels_value_labels_and_user_missing() {
         let ev = parse_supplementary(&fixture("analysis.sav")).expect("parses");

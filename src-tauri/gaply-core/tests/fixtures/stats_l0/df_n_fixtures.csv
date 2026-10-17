@@ -1,0 +1,26 @@
+# Golden cases for gaply_core's df_matches_n (Phase 1, Step 6).
+# Hand-derived; no reference software. Typed inputs: the Step 3 reader gives
+# no r an n, so these are not sentences. An integer df is a point; a df with
+# decimals is its interval (47.6 is [47.55, 47.65]).
+# Columns: case, family, df (one or two, separated by ;), n, partial, expected.
+case,family,df,n,partial,expected
+# 50 - 2 = 48.
+equal,R,48,50,false,Consistent
+# 50 - 2 = 48, not 49.
+off_by_one,R,49,50,false,Inconsistent
+# df printed as n.
+df_is_n,R,50,50,false,Inconsistent
+# 48 in [47.95, 48.05].
+fractional_in,R,48.0,50,false,Consistent
+# 48 not in [47.55, 47.65].
+fractional_out,R,47.6,50,false,Inconsistent
+# One covariate: 50 - 2 - 1 = 47; as a plain r it would be Inconsistent.
+partial,R,47,50,true,NotApplicable(PartialCorrelation)
+# No n in the unit.
+no_n,R,48,,false,NotApplicable(NoSampleSizeInUnit)
+# t: df depends on the design.
+t,T,48,50,false,NotApplicable(DfNotFixedByN)
+# F: likewise.
+f,F,1;48,50,false,NotApplicable(DfNotFixedByN)
+# Chi-square: df does not depend on n.
+chi,ChiSquare,1,226,false,NotApplicable(DfNotFixedByN)

@@ -1,0 +1,36 @@
+# The precision sweep's dataset c02_t_welch_1dec (synthetic, seed 20261015),
+# written by /usr/local/bin/Rscript make_eval_datasets.R (src-tauri/gaply-core/tests/fixtures/stats_l1/precision_sweep/).
+score,grp
+18.7,ctl
+21.8,ctl
+20.6,ctl
+20.1,ctl
+19.9,ctl
+20.0,ctl
+20.5,ctl
+21.6,ctl
+20.9,trt
+18.5,trt
+13.3,trt
+20.4,trt
+21.8,trt
+19.9,trt
+15.3,trt
+22.3,trt
+23.7,trt
+18.2,trt
+17.8,trt
+16.9,trt
+23.3,trt
+10.3,trt
+15.6,trt
+22.2,trt
+20.9,trt
+19.6,trt
+26.5,trt
+20.2,trt
+14.9,trt
+21.2,trt
+21.4,trt
+32.1,trt
+23.3,trt

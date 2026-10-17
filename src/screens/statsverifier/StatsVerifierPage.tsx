@@ -17,12 +17,19 @@ import { AnalysisSpec, StatsPreview, VerificationReport } from './statsVerifierT
 import AnalysisSpecBuilder from './AnalysisSpecBuilder';
 import StatsVerifierReport from './StatsVerifierReport';
 import StatsChatDock from './StatsChatDock';
+import { isFeatureEnabled } from '../../config/featureFlags';
+import { StatsL1Bridge, TauriStatsL1Bridge } from './statsL1Bridge';
+import L1Flow from './l1/L1Flow';
+import { ENTRY_TEXT } from './l1/l1Wording';
 
 export interface StatsVerifierPageProps {
   bridge?: StatsVerifierBridge;
   subscriptionService?: ReturnType<typeof createSubscriptionService>;
   /** Test seam: force premium/free instead of fetching. */
   forceTier?: 'free' | 'premium';
+  /** Level 1 ("Check a paper against its data"); shown only with the
+   *  statsL1 flag on, and only past this page's gate. */
+  l1Bridge?: StatsL1Bridge;
 }
 
 const SVRail: React.FC<{ navigate: (p: string) => void }> = ({ navigate }) => (
@@ -44,7 +51,7 @@ const Shell: React.FC<{ navigate: (p: string) => void; children: React.ReactNode
   </div>
 );
 
-const StatsVerifierPage: React.FC<StatsVerifierPageProps> = ({ bridge, subscriptionService, forceTier }) => {
+const StatsVerifierPage: React.FC<StatsVerifierPageProps> = ({ bridge, subscriptionService, forceTier, l1Bridge }) => {
   const navigate = useNavigate();
   const { session } = useGaplySession();
   const b = useMemo(
@@ -67,6 +74,9 @@ const StatsVerifierPage: React.FC<StatsVerifierPageProps> = ({ bridge, subscript
   const [report, setReport] = useState<VerificationReport | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const l1On = isFeatureEnabled('statsL1');
+  const [mode, setMode] = useState<'verify' | 'l1'>('verify');
+  const l1 = useMemo(() => l1Bridge ?? new TauriStatsL1Bridge(), [l1Bridge]);
 
   const acceptDataPath = async (name: string, path: string) => {
     setError(null);
@@ -196,6 +206,15 @@ const StatsVerifierPage: React.FC<StatsVerifierPageProps> = ({ bridge, subscript
     );
   }
 
+  /* ------------------------------ Level 1 ------------------------------- */
+  if (l1On && mode === 'l1') {
+    return (
+      <Shell navigate={navigate}>
+        <L1Flow bridge={l1} onExit={() => setMode('verify')} />
+      </Shell>
+    );
+  }
+
   /* ------------------------------- result ------------------------------- */
   if (report && spec && dataFile) {
     return (
@@ -232,6 +251,12 @@ const StatsVerifierPage: React.FC<StatsVerifierPageProps> = ({ bridge, subscript
   return (
     <Shell navigate={navigate}>
       <div style={{ display: 'grid', gap: 12 }} data-testid="sv-entry">
+        {l1On && (
+          <Card title="Check a paper against its data">
+            <p className="gds-jc__disclaimer" data-testid="sv-l1-entry-text">{ENTRY_TEXT}</p>
+            <Button data-testid="sv-l1-start" onClick={() => setMode('l1')}>Check a paper against its data</Button>
+          </Card>
+        )}
         <Card title="Upload your data (CSV or spreadsheet)">
           <Button variant="secondary" data-testid="sv-data-pick" onClick={() => (isTauri ? void pickData() : dataInputRef.current?.click())}>
             Choose data file

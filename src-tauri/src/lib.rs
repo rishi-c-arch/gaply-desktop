@@ -5,6 +5,7 @@ pub mod audit_export;
 pub mod citation_resolver;
 pub mod commands;
 pub mod escalation;
+pub mod external_links;
 pub mod guidelines;
 pub mod http_fetcher;
 pub mod harness_log;
@@ -27,6 +28,11 @@ mod wire_contract_tests;
 pub mod report_build;
 pub mod reviewer_synthesis;
 pub mod state;
+pub mod stats_ai;
+pub mod stats_consistency;
+pub mod stats_l1_commands;
+pub mod stats_l1_ingest;
+pub mod stats_reproduction;
 pub mod supplementary;
 
 use std::sync::Arc;
@@ -71,7 +77,10 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::new().build())
-        .plugin(tauri_plugin_opener::init())
+        // The opener's own click handler is OFF: it opened any
+        // `<a target="_blank">` with no check in Rust. Links go through
+        // `external_links::open_external_link` (part C follow-up, item 7).
+        .plugin(tauri_plugin_opener::Builder::new().open_js_links_on_click(false).build())
         .plugin(tauri_plugin_deep_link::init())
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
@@ -302,6 +311,28 @@ pub fn run() {
             commands::run_stats_preview,
             commands::run_stats_verify,
             commands::run_stats_chat,
+            stats_consistency::run_stats_consistency,
+            stats_l1_commands::stats_l1_open,
+            stats_l1_commands::stats_l1_edit_claim,
+            stats_l1_commands::stats_l1_add_claim,
+            stats_l1_commands::stats_l1_proposals,
+            stats_l1_commands::stats_l1_helper_preview,
+            stats_l1_commands::stats_l1_helper_send,
+            stats_l1_commands::stats_l1_helper_revoke,
+            stats_l1_commands::stats_l1_helper_cancel,
+            stats_l1_commands::stats_l1_confirm_binding,
+            stats_l1_commands::stats_l1_draft_proposal,
+            stats_l1_commands::stats_l1_compute,
+            stats_l1_commands::stats_l1_close,
+            stats_l1_commands::stats_ai_usage,
+            stats_l1_commands::stats_ai_setting_get,
+            stats_l1_commands::stats_ai_setting_set,
+            stats_l1_commands::stats_ai_key_status,
+            stats_l1_commands::stats_ai_key_save,
+            stats_l1_commands::stats_ai_key_test,
+            stats_l1_commands::stats_ai_key_remove,
+            stats_l1_commands::stats_open_source_link,
+            external_links::open_external_link,
             commands::build_gapfinder_corpus,
             commands::run_gap_finder,
             commands::run_gapfinder_qa,

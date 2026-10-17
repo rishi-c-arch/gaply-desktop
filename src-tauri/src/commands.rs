@@ -273,10 +273,21 @@ pub fn sample_manuscript_path() -> Result<String, GaplyError> {
     Ok(path.to_string_lossy().to_string())
 }
 
+/// The generic secret commands refuse the Level 1 OpenAI key's entry: it is
+/// saved, checked and removed only through `stats_ai_key_*`, which validate it
+/// and never return it. No command reads any secret back.
+fn refuse_reserved_secret(name: &str) -> Result<(), GaplyError> {
+    if name.trim() == crate::stats_ai::OPENAI_KEY_ENTRY {
+        return Err(GaplyError::Validation("{\"code\":\"reserved_secret\"}".into()));
+    }
+    Ok(())
+}
+
 /// Store an API key (or any secret) the user entered, in the OS keychain.
 #[tauri::command]
 #[tracing::instrument(skip(value))]
 pub fn store_secret(name: String, value: String) -> Result<(), GaplyError> {
+    refuse_reserved_secret(&name)?;
     secrets::store_secret(&name, &value)
 }
 
@@ -284,6 +295,7 @@ pub fn store_secret(name: String, value: String) -> Result<(), GaplyError> {
 #[tauri::command]
 #[tracing::instrument]
 pub fn has_secret(name: String) -> Result<bool, GaplyError> {
+    refuse_reserved_secret(&name)?;
     secrets::has_secret(&name)
 }
 
@@ -291,6 +303,7 @@ pub fn has_secret(name: String) -> Result<bool, GaplyError> {
 #[tauri::command]
 #[tracing::instrument]
 pub fn delete_secret(name: String) -> Result<(), GaplyError> {
+    refuse_reserved_secret(&name)?;
     secrets::delete_secret(&name)
 }
 

@@ -1,0 +1,31 @@
+# The precision sweep's dataset c08_anova3_1dec (synthetic, seed 20261015),
+# written by /usr/local/bin/Rscript make_eval_datasets.R (src-tauri/gaply-core/tests/fixtures/stats_l1/precision_sweep/).
+y,g
+9.6,p
+11.0,p
+,p
+10.6,p
+9.6,p
+8.3,p
+12.0,p
+12.2,q
+12.7,q
+9.6,q
+9.7,q
+12.6,q
+12.3,q
+9.5,q
+,q
+14.3,q
+12.5,q
+14.7,q
+7.0,q
+14.5,r
+14.6,r
+13.8,r
+16.0,r
+12.1,r
+12.6,r
+15.1,r
+8.0,r
+14.7,r
