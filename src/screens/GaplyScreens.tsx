@@ -36,6 +36,7 @@ import { DescribePage } from './statistics/DescribeFlow';
 import { WorkspaceChooser } from './workspace/WorkspaceChooser';
 import { WorkspaceShell } from './workspace/WorkspaceShell';
 import { RequireWorkspace } from './workspace/RequireWorkspace';
+import { EnterStatistics } from './workspace/EnterStatistics';
 import CopilotPage from './copilot/CopilotPage';
 import BillingPage from './subscription/BillingPage';
 import CommunityPage from './community/CommunityPage';
@@ -108,10 +109,15 @@ export const AiCheckRoute: React.FC = () => (
     </RequireAuth>
   </GaplySessionProvider>
 );
+/** /app/check/stats — the free Stats Check. Opening it opens the Statistics
+ *  workspace (Research OS, Phase 4A, decision 49): no extra click, and the
+ *  browser build renders it as before. */
 export const StatsCheckRoute: React.FC = () => (
   <GaplySessionProvider>
     <RequireAuth>
-      <StatsCheckPage />
+      <EnterStatistics>
+        <StatsCheckPage />
+      </EnterStatistics>
     </RequireAuth>
   </GaplySessionProvider>
 );
@@ -193,11 +199,15 @@ export const GapFinderRoute: React.FC = () => (
 );
 
 /** /app/statsverifier — Statistical Analysis Verifier (paid). Premium-gated;
- *  in-page `useEntitlement('stats_verifier')` mirrors PublishReady exactly. */
+ *  in-page `useEntitlement('stats_verifier')` mirrors PublishReady exactly.
+ *  Opening it opens the Statistics workspace (Research OS, Phase 4A,
+ *  decision 49), as the Stats Check does. */
 export const StatsVerifierRoute: React.FC = () => (
   <GaplySessionProvider>
     <RequireAuth>
-      <StatsVerifierPage />
+      <EnterStatistics>
+        <StatsVerifierPage />
+      </EnterStatistics>
     </RequireAuth>
   </GaplySessionProvider>
 );

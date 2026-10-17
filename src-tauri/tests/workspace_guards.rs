@@ -12,6 +12,12 @@
 //! 3. Only `workspace_activate` activates a workspace: `WorkspaceSession::
 //!    activate` has exactly one caller in the app's source, and it is that
 //!    command.
+//! 4. Phase 4A (decision 49): every verifier OPERATION command, listed by
+//!    name below, checks the workspace first, in the same form; no EXEMPT
+//!    command checks it at all; and every registered command of the
+//!    verifier's modules (`stats_l1_commands`, `stats_consistency`,
+//!    `stats_legacy`) is in exactly one of the two lists, so a new one must
+//!    be classified before it can ship.
 //!
 //! What this cannot see: a check written in a way that is not this exact
 //! call (an alias, a macro). The runtime tests in `workspace_session.rs` call
@@ -131,6 +137,185 @@ fn every_registered_stats_desc_command_checks_the_workspace_first() {
     );
 }
 
+/// The verifier's operation commands (decision 49): each runs Level 0 or
+/// Level 1 work, or is the legacy lane. (file, registered path)
+const VERIFIER_OPERATIONS: &[(&str, &str)] = &[
+    (
+        "src/stats_consistency.rs",
+        "stats_consistency::run_stats_consistency",
+    ),
+    ("src/stats_legacy.rs", "stats_legacy::run_stats_preview"),
+    ("src/stats_legacy.rs", "stats_legacy::run_stats_verify"),
+    (
+        "src/stats_l1_commands.rs",
+        "stats_l1_commands::stats_l1_open",
+    ),
+    (
+        "src/stats_l1_commands.rs",
+        "stats_l1_commands::stats_l1_edit_claim",
+    ),
+    (
+        "src/stats_l1_commands.rs",
+        "stats_l1_commands::stats_l1_add_claim",
+    ),
+    (
+        "src/stats_l1_commands.rs",
+        "stats_l1_commands::stats_l1_proposals",
+    ),
+    (
+        "src/stats_l1_commands.rs",
+        "stats_l1_commands::stats_l1_helper_preview",
+    ),
+    (
+        "src/stats_l1_commands.rs",
+        "stats_l1_commands::stats_l1_helper_send",
+    ),
+    (
+        "src/stats_l1_commands.rs",
+        "stats_l1_commands::stats_l1_confirm_binding",
+    ),
+    (
+        "src/stats_l1_commands.rs",
+        "stats_l1_commands::stats_l1_draft_proposal",
+    ),
+    (
+        "src/stats_l1_commands.rs",
+        "stats_l1_commands::stats_l1_compute",
+    ),
+];
+
+/// The commands decision 49 never gates: they only remove a key or data,
+/// read or change settings, open a link, or stop a send. (file, path, why)
+const VERIFIER_EXEMPT: &[(&str, &str, &str)] = &[
+    (
+        "src/stats_l1_commands.rs",
+        "stats_l1_commands::stats_l1_close",
+        "drops a run and its data",
+    ),
+    (
+        "src/stats_l1_commands.rs",
+        "stats_l1_commands::stats_l1_helper_revoke",
+        "withdraws a consent grant",
+    ),
+    (
+        "src/stats_l1_commands.rs",
+        "stats_l1_commands::stats_l1_helper_cancel",
+        "stops an AI send; starts nothing",
+    ),
+    (
+        "src/stats_l1_commands.rs",
+        "stats_l1_commands::stats_ai_usage",
+        "reads a run's AI usage counters",
+    ),
+    (
+        "src/stats_l1_commands.rs",
+        "stats_l1_commands::stats_ai_setting_get",
+        "reads a setting",
+    ),
+    (
+        "src/stats_l1_commands.rs",
+        "stats_l1_commands::stats_ai_setting_set",
+        "changes a setting",
+    ),
+    (
+        "src/stats_l1_commands.rs",
+        "stats_l1_commands::stats_ai_key_status",
+        "reads whether a key is saved",
+    ),
+    (
+        "src/stats_l1_commands.rs",
+        "stats_l1_commands::stats_ai_key_save",
+        "saves the user's key",
+    ),
+    (
+        "src/stats_l1_commands.rs",
+        "stats_l1_commands::stats_ai_key_test",
+        "tests the key, with no user data",
+    ),
+    (
+        "src/stats_l1_commands.rs",
+        "stats_l1_commands::stats_ai_key_remove",
+        "removes the key",
+    ),
+    (
+        "src/stats_l1_commands.rs",
+        "stats_l1_commands::stats_open_source_link",
+        "opens a link",
+    ),
+];
+
+/// The body's first statement, whitespace removed, is the check.
+fn checks_first(body: &str) -> bool {
+    let first: String = body
+        .split(';')
+        .next()
+        .unwrap_or_default()
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect();
+    first.starts_with("let")
+        && first.contains("=state.workspace.require_statistics()")
+        && first.ends_with(")?")
+}
+
+#[test]
+fn every_verifier_operation_command_checks_the_workspace_first_and_no_exempt_command_does() {
+    let all = registered();
+    assert!(all.len() > 100, "the handler parse is inert");
+    let family: Vec<&String> = all
+        .iter()
+        .filter(|p| {
+            p.starts_with("stats_l1_commands::")
+                || p.starts_with("stats_consistency::")
+                || p.starts_with("stats_legacy::")
+        })
+        .collect();
+    let mut listed: Vec<&str> = VERIFIER_OPERATIONS.iter().map(|(_, p)| *p).collect();
+    listed.extend(VERIFIER_EXEMPT.iter().map(|(_, p, _)| *p));
+    let mut sorted = listed.clone();
+    sorted.sort_unstable();
+    sorted.dedup();
+    assert_eq!(sorted.len(), listed.len(), "a command is in both lists");
+    let mut registered_family: Vec<&str> = family.iter().map(|p| p.as_str()).collect();
+    registered_family.sort_unstable();
+    assert_eq!(
+        registered_family, sorted,
+        "every registered verifier command is classified, and every classified one is registered"
+    );
+
+    let mut failures = Vec::new();
+    for (file, path) in VERIFIER_OPERATIONS {
+        let src = without_line_comments(&read(&root().join(file)));
+        let name = path.rsplit("::").next().unwrap();
+        match fn_body(&src, name) {
+            Some(body) if checks_first(body) => {}
+            Some(body) => failures.push(format!(
+                "{path}: first statement is `{}`",
+                body.split(';').next().unwrap_or("").trim()
+            )),
+            None => failures.push(format!("{path}: no body found")),
+        }
+    }
+    for (file, path, why) in VERIFIER_EXEMPT {
+        let src = without_line_comments(&read(&root().join(file)));
+        let name = path.rsplit("::").next().unwrap();
+        let body: String = fn_body(&src, name)
+            .unwrap_or_else(|| panic!("{path}: no body found"))
+            .chars()
+            .filter(|c| !c.is_whitespace())
+            .collect();
+        if body.contains("require_statistics") {
+            failures.push(format!("{path} is gated, but it is exempt: {why}"));
+        }
+    }
+    println!(
+        "gated {} verifier operation commands; {} exempt",
+        VERIFIER_OPERATIONS.len(),
+        VERIFIER_EXEMPT.len()
+    );
+    assert!(failures.is_empty(), "decision 49:\n{}", failures.join("\n"));
+}
+
 #[test]
 fn the_legacy_stats_chat_is_not_registered_or_defined() {
     let all = registered();
@@ -156,8 +341,12 @@ fn the_legacy_stats_chat_is_not_registered_or_defined() {
         }
         assert!(defined.is_empty(), "{removed} is defined in {defined:?}");
     }
-    // The two the Stats Verifier page calls stay.
-    for kept in ["commands::run_stats_preview", "commands::run_stats_verify"] {
+    // The two the Stats Verifier page calls stay, registered from
+    // `stats_legacy` since Phase 4A.
+    for kept in [
+        "stats_legacy::run_stats_preview",
+        "stats_legacy::run_stats_verify",
+    ] {
         assert!(all.iter().any(|p| p == kept), "{kept} is registered");
     }
 }

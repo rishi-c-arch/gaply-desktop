@@ -23678,3 +23678,116 @@ commands (`create_project`, `rag_search`, `citation_lib_search`,
 name in `http_fetcher.rs`, and is green with the eight on `skip_all` and that
 field renamed; `ENGINE_VERSION` stays 1; the cloud agents' `error = %e`
 fields wait for Phase 4; the focus-test fix stays.
+
+### D275 — Research OS, Phase 4A: the Statistics capability registry, the verifier's façades, and the workspace check on the verifier's operation commands `[src]` `[test]` `[measured]`
+
+**Added** on `feat/research-os-4` (from `da00686`). Decisions 44 to 51 of
+18 Oct 2026 apply (`~/gaply-corpus/os/decisions.md`), with 16, 27, 30 and
+42. The verifier does not move: `gaply-core/src/stats_l0`, `stats_l1` and
+`stats_assist` are unchanged (`git diff da00686` over them is empty).
+ADR-001 gains an Accepted addendum (decision 49), ADR-003 a Proposed one, and
+ADR-010 a Proposed one with the measured profiles.
+
+**The contract** (`gaply_core::contracts::capability`, pure, domain-free):
+`CapabilityDescriptor<W>` (blueprint §7.2, texts as closed wording codes
+`W`), `Lifecycle` and its one rule `runnable_in(Build)` (decision 48),
+`ResourceProfile`, `ConfirmationId` (64 lowercase hex, prints nothing), and
+`capability.*` refusals: `unknown_capability`, `version_mismatch`,
+`not_runnable`, `confirmation_missing`, `confirmation_unmatched`.
+`OperationSpec` gains `confirmation_refs` (decision 50; written always, read
+as empty when absent; schema version 1). `ParamKey` and `ParamValue` gain a
+lifecycle. A descriptor derives `Serialize` only.
+
+**The table** (`gaply_core::stats_registry`, pure, static; pin SHA-256
+`9bc76ee0…` over the sorted list):
+
+| id | version | lifecycle |
+|---|---|---|
+| `stats.check` | 1 | stable |
+| `stats.verify.independent_t` | 1 | beta |
+| `stats.verify.paired_t` | 1 | beta |
+| `stats.verify.one_way_anova` | 1 | beta |
+| `stats.verify.pearson` | 1 | beta |
+| `stats.verify.spearman` | 1 | beta |
+| `stats.verify.chi_square_independence` | 1 | beta |
+| `stats.verify.ols` | 1 | beta |
+| `stats.describe` | 1 | beta |
+
+The seven `stats.verify` rows are derived from `MethodCatalogue::ENTRIES`
+(Beta when `L1Registry` implements the method, Planned otherwise; none is
+Planned today). The Statistics `WorkspaceDescriptor`'s capability ids are
+this table's (`stats_registry::workspace_descriptor`), so `workspace_list`
+lists nine. `run_stats_preview` and `run_stats_verify` are not capabilities.
+
+**The façades** (`gaply_core::stats_adapters`, pure): `check`, `verify`
+(one, keyed by method; each spec carries its bindings' tokens) and
+`describe_validate` / `describe_until`. The registry first, then the
+existing function, its output unchanged: equal over 12 Level 0 inputs, all
+43 rows of Level 1's golden set and all 19 cases of Phase 2A's R golden set.
+A stale or revoked token is still refused by the gate inside `reproduce`
+with today's `token_stale`. The describe façades word a refusal with the
+existing `stats.desc.*` codes. Level 1's helper accepts a method an AI
+answer names only when its capability is runnable, refusing otherwise with
+the validator's own `unknown_method`.
+
+**Gated (decision 49), first statement `workspace.inactive`:**
+`run_stats_consistency`, `run_stats_preview`, `run_stats_verify` (now
+registered from `stats_legacy`; bodies unchanged in `commands.rs`),
+`stats_l1_open`, `stats_l1_edit_claim`, `stats_l1_add_claim`,
+`stats_l1_proposals`, `stats_l1_helper_preview`, `stats_l1_helper_send`,
+`stats_l1_confirm_binding`, `stats_l1_draft_proposal`, `stats_l1_compute`.
+**Never gated:** `stats_l1_close`, `stats_l1_helper_revoke`,
+`stats_l1_helper_cancel`, `stats_ai_usage`, `stats_ai_setting_get`,
+`stats_ai_setting_set`, `stats_ai_key_status`, `stats_ai_key_save`,
+`stats_ai_key_test`, `stats_ai_key_remove`, `stats_open_source_link`.
+**Ungated callers outside the commands** (decision 7): the seams
+`stats_consistency::run_stats_consistency_measured` (Level 0, through its
+façade) and `stats_l1_commands::{open, compute, …}` (through theirs), called
+by tests and by `examples/l0_corpus_run.rs` and `examples/l1_paper_run.rs`;
+and `stats_reproduction::run_stats_reproduction_measured`, which calls
+`reproduce` directly and is called only by `tests/stats_l1_reproduction.rs`.
+The manuscript pipeline calls neither level. The two screens activate
+Statistics on opening (`EnterStatistics`), one activation at a time, the body
+only once Active; the browser build is unchanged.
+
+**Decision 42 and the app's error fields.** `tests/no_error_text_in_tracing.rs`
+fails on an error logged as text (`error = %e`, `?e`, `{e}`, a positional
+`e`, `#[instrument(err)]`). The seven gaply-core cloud-agent fields and
+nineteen app fields that could record user text, a path or model output now
+log `error_kind` (`e.code()`, a serde category or a closed word; red before:
+7 + 21 sites, green after); `pipeline.rs`'s refverify event also lost its
+`reference = %r.raw` (manuscript text). Twenty-eight others are listed in the
+guard, one line each, for a later step.
+
+**Measured, 18 Oct 2026, macOS aarch64** (logs in
+`~/gaply-corpus/os/phase4/logs/`): `cargo test --workspace` exit 0, 96
+targets (94 Running + 2 Doc-tests), 2,680 passed, 12 ignored: D274's 88 and
+2,648 plus 8 new targets (23 tests), `workspace_guards` 3 → 4 and the
+`gaply_core` lib 1,818 → 1,826. `cargo test -p app --features devtools`: 36
+targets, 661 passed, 9 ignored. vitest over the workspace, describe, Stats
+Check, Stats Verifier and Level 1 folders: 26 files, 236 passed. `npx tsc
+--noEmit`, CI's eslint and `npm run build` exit 0. Peak RSS (dev profile):
+describe at the caps 94.0 MiB, Level 1's OLS with 127 predictors at the caps
+689.6 MiB, Level 0 on 10 MiB 419.2 MiB; Level 0 at its 100 MiB cap not
+measured (ADR-010's addendum). Mutation probes, each predicted, run and
+restored to its SHA-256: the check removed from `stats_l1_compute` (3 red),
+`stats_l1_close` gated (2 red), Pearson's version raised (the pin and two
+unit tests red), Planned made runnable (6 red), the registry check removed
+from the `check` façade (2 red).
+
+**Found on the way:** F19's file formatted (15 hunks to 0); a `#[cfg(test)]`
+import in `stats_consistency.rs` cut `stats_outcome_has_no_score.rs`'s read
+of the file to nothing (that guard reads up to the first such attribute), seen
+only in the whole-workspace run of the third mutation probe, and moved into
+the test module; three `gguf = %gguf.display()` info events in
+`models/mod.rs` log a model path that `no_path_in_tracing.rs` does not see
+(changed in the review round, below). **Not done here:** F10 and F14 (each fix changes a wire code
+or an outcome; for a decision), F20, and a release-build measurement.
+
+**Review round (decisions 52 to 58):** `no_path_in_tracing.rs` now also fails
+on a value or message argument that renders a path through `.display()` or
+`.to_string_lossy()`, whatever its name; it went red on five fields in four
+`models/mod.rs` calls (`log_model_resolution` and the three model-load lines),
+which now log the model's kind, its source as `env`, `bundled` or `home`, and
+whether the model and tokenizer files exist, and the suites' counts are
+unchanged (2,680 and 661).

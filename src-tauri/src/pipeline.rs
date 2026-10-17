@@ -590,7 +590,7 @@ fn run_pipeline_inner(
             for (i, r) in refs.iter().enumerate() {
                 match verifier.verify(&db, r, now) {
                     Ok(rv) => items.push((r.clone(), rv)),
-                    Err(e) => tracing::warn!(reference = %r.raw, error = %e, "refverify failed for a reference"),
+                    Err(e) => tracing::warn!(error_kind = e.code(), "refverify failed for a reference"),
                 }
                 let pct = (((i + 1) * 100) / total) as u8;
                 emit(AnalysisEvent::StageProgress { stage: "verification".into(), pct });
@@ -603,7 +603,10 @@ fn run_pipeline_inner(
         let report = match verify_citations(&*proxy, &items) {
             Ok(r) => r,
             Err(e) => {
-                tracing::warn!(error = %e, "SLM-2: verification call failed; recording UNKNOWN verdicts");
+                tracing::warn!(
+                    error_kind = e.code(),
+                    "SLM-2: verification call failed; recording UNKNOWN verdicts"
+                );
                 let mock = MockProxyClient::returning(serde_json::json!({ "verdicts": [] }));
                 verify_citations(&mock, &items)?
             }

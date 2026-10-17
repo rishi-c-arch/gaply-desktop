@@ -14,12 +14,16 @@ use serde_json::{json, Value};
 
 use gaply_core::contracts::codes::Closed;
 use gaply_core::contracts::workspace::{
-    availability, check_spec, descriptor, descriptors, require, transition, ActivationPolicy,
-    Availability, DisplayNameCode, WorkspaceCode, WorkspaceDescriptor, WorkspaceEvent,
-    WorkspaceEventKind, WorkspacePhase, WorkspaceState,
+    availability, check_spec, require, transition, ActivationPolicy, Availability, DisplayNameCode,
+    WorkspaceCode, WorkspaceDescriptor, WorkspaceEvent, WorkspaceEventKind, WorkspacePhase,
+    WorkspaceState,
 };
 use gaply_core::contracts::{CapabilityId, Os, ParamKey, ParamValue, WorkspaceId};
 use gaply_core::stats_desc;
+// Phase 4A: the descriptors carry the registry's capability ids (decision 47).
+use gaply_core::stats_registry::{
+    workspace_descriptor as descriptor, workspace_descriptors as descriptors, Registry,
+};
 
 const WS: [WorkspaceId; 3] = [
     WorkspaceId::Statistics,
@@ -140,12 +144,15 @@ fn statistics_is_available_and_compute_and_design_are_missing_and_claim_nothing(
             display_name_code: DisplayNameCode::Statistics,
             availability: Availability::Available,
             activation_policy: ActivationPolicy::SingleActive,
-            capability_ids: vec![stats_desc::capability_id()],
+            capability_ids: Registry::statistics().ids(),
             supports_offline: true,
             supported_platforms: vec![Os::Macos, Os::Windows, Os::Linux],
         },
-        "Statistics' one capability is the descriptive summary"
+        "Statistics' capabilities are the registry's"
     );
+    assert!(descriptor(WorkspaceId::Statistics)
+        .capability_ids
+        .contains(&stats_desc::capability_id()));
     for (id, name) in [
         (WorkspaceId::Compute, DisplayNameCode::Compute),
         (WorkspaceId::Design, DisplayNameCode::Design),

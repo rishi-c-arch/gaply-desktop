@@ -242,6 +242,9 @@ export interface OperationSpec {
   inputs: InputRef[];
   parameters: DescribeParams;
   randomSeed: number | null;
+  /** The confirmations a run needs (Research OS, Phase 4A, decision 50).
+   *  The descriptive summary needs none, so it is always empty. */
+  confirmationRefs: [];
 }
 
 /** A command's refusal, parsed from its message: a closed code and its

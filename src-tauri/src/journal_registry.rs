@@ -225,7 +225,10 @@ fn cached_registry_get(
             None
         }
         Err(e) => {
-            tracing::warn!(error = %e, "journal registry unreachable; unverified");
+            tracing::warn!(
+                error_kind = e.code(),
+                "journal registry unreachable; unverified"
+            );
             None
         }
     }

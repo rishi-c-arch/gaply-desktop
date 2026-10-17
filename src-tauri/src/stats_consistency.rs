@@ -9,6 +9,11 @@
 //! method in the registry (`stats_l0::outcome::check_reading`). No network, no
 //! model, and no database write: preflight only reads this machine's stored
 //! import rate.
+//!
+//! Research OS, Phase 4A: the last two run behind the `stats.check` façade
+//! (`gaply_core::stats_adapters::check`), so the capability registry's check
+//! sits on this path; its output is unchanged. The command checks that the
+//! Statistics workspace is active before anything else (decision 49).
 
 use gaply_core::extract;
 use gaply_core::import_guard;
@@ -17,8 +22,9 @@ use gaply_core::stats_l0::method::{
     CheckNote, Computed, ConcernReason, CouldNotCheckReason, L0Verdict, NotApplicableReason, Provenance,
 };
 use gaply_core::stats_l0::number::{NumberNotRead, Relation};
-use gaply_core::stats_l0::outcome::{check_reading, CheckOutcome, ClaimOutcome, StatsConsistencyOutcome};
-use gaply_core::stats_l0::result::{read_results, PValue, Reason, TableStructure};
+use gaply_core::stats_adapters;
+use gaply_core::stats_l0::outcome::{CheckOutcome, ClaimOutcome, StatsConsistencyOutcome};
+use gaply_core::stats_l0::result::{PValue, Reason, TableStructure};
 use gaply_core::stats_l0::{df_matches_n, estimate_in_interval, p_consistency};
 use gaply_core::{Database, GaplyError};
 
@@ -45,8 +51,8 @@ pub fn run_stats_consistency_measured(
     let ex = extract::extract_path(path)?;
     let is_docx = path.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("docx"));
     let tables = if is_docx { TableStructure::Declared } else { TableStructure::NotAvailable };
-    let reading = read_results(&ex, tables);
-    Ok(check_reading(&ex, reading))
+    stats_adapters::check(&stats_adapters::check_spec(), crate::workspace::build(), &ex, tables)
+        .map_err(crate::workspace::refuse_capability)
 }
 
 /// The Tauri command: Level 0 for the manuscript at `path`, as the view the
@@ -61,6 +67,7 @@ pub async fn run_stats_consistency(
     state: tauri::State<'_, crate::state::AppState>,
     path: String,
 ) -> Result<StatsConsistencyView, GaplyError> {
+    let _ = state.workspace.require_statistics().map_err(crate::workspace::refuse)?;
     let db = state.db.clone();
     tokio::task::spawn_blocking(move || {
         let outcome = run_stats_consistency_measured(&db, std::path::Path::new(&path))?;
@@ -533,6 +540,7 @@ fn number_words(n: NumberNotRead) -> (&'static str, String) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gaply_core::stats_l0::{outcome::check_reading, result::read_results};
     use gaply_core::stats_l0::registry::MethodRegistry;
 
     /// A scratch file under the system temp dir, removed on drop.

@@ -11,6 +11,7 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::Value;
 
+use gaply_core::contracts::capability::{CapabilityCode, ConfirmationId, Lifecycle};
 use gaply_core::contracts::codes::{Closed, RunCode};
 use gaply_core::contracts::workspace::{WorkspaceCode, WorkspaceEventKind, WorkspacePhase};
 use gaply_core::contracts::{
@@ -89,6 +90,7 @@ fn spec() -> OperationSpec<DescribeParams> {
         inputs: vec![input()],
         parameters: params(),
         random_seed: Some(20261017),
+        confirmation_refs: vec![ConfirmationId::parse(&"c".repeat(64)).expect("id")],
     }
 }
 
@@ -135,6 +137,7 @@ fn every_contract_type_round_trips_and_structs_refuse_an_unknown_field() {
         [
             "capabilityId",
             "capabilityVersion",
+            "confirmationRefs",
             "inputs",
             "operationId",
             "parameters",
@@ -685,6 +688,24 @@ fn the_code_and_word_lists_are_pinned() {
             "fail_numerically",
         ]
     );
+    // Phase 4A: the registry's refusals and the lifecycle words.
+    assert_eq!(
+        CapabilityCode::ALL
+            .iter()
+            .map(|c| c.wire())
+            .collect::<Vec<_>>(),
+        [
+            "capability.unknown_capability",
+            "capability.version_mismatch",
+            "capability.not_runnable",
+            "capability.confirmation_missing",
+            "capability.confirmation_unmatched",
+        ]
+    );
+    assert_eq!(
+        Lifecycle::ALL.iter().map(|c| c.wire()).collect::<Vec<_>>(),
+        ["planned", "experimental", "beta", "stable", "deprecated"]
+    );
     assert_eq!(RunCode::NAMESPACE, "run.");
     assert_eq!(DescCode::NAMESPACE, "stats.desc.");
     assert!(DescCode::NAMESPACE.starts_with(WorkspaceId::Statistics.namespace()));
@@ -710,6 +731,8 @@ fn the_code_and_word_lists_are_pinned() {
     all.extend(WorkspacePhase::ALL.iter().map(|c| c.wire()));
     all.extend(WorkspaceEventKind::ALL.iter().map(|c| c.wire()));
     all.extend(WorkspaceCode::ALL.iter().map(|c| c.wire()));
+    all.extend(CapabilityCode::ALL.iter().map(|c| c.wire()));
+    all.extend(Lifecycle::ALL.iter().map(|c| c.wire()));
     let n = all.len();
     all.sort_unstable();
     all.dedup();

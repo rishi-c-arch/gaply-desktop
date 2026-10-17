@@ -53,6 +53,7 @@ use gaply_core::contracts::{
     transition, Diagnostic, OperationSpec, Platform, ResultBundle, RunEvent, RunId, RunRecord,
     RunState, SchemaVersion, ValidationReport, ValidationStatus,
 };
+use gaply_core::stats_adapters;
 use gaply_core::stats_desc::{self, DescCode, DescribeParams, DescribeResult, Halt};
 use gaply_core::stats_l1::dataset::Dataset;
 
@@ -355,7 +356,10 @@ impl Runs {
 
         // Outside the lock, so a status poll does not wait on it; the record is
         // unfinished, so no second run can start meanwhile.
-        let report = stats_desc::validate(slot.dataset(), &spec);
+        // Through `stats.describe`'s façade: the capability registry first
+        // (Research OS, Phase 4A), then `stats_desc::validate`, unchanged.
+        let report =
+            stats_adapters::describe_validate(&spec, crate::workspace::build(), slot.dataset());
         let queued = {
             let now = self.clock.now_ms();
             let mut entries = lock(&self.entries);
@@ -415,9 +419,12 @@ impl Runs {
             }
         }
         let outcome = catch_unwind(AssertUnwindSafe(|| {
-            stats_desc::describe_until(slot.dataset(), &spec.parameters, |done| {
-                self.checkpoint(run, done, started)
-            })
+            stats_adapters::describe_until(
+                &spec,
+                crate::workspace::build(),
+                slot.dataset(),
+                |done| self.checkpoint(run, done, started),
+            )
         }));
         let now = self.clock.now_ms();
         let mut entries = lock(&self.entries);

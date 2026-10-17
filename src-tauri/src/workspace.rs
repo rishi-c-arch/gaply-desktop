@@ -31,6 +31,15 @@
 //!   `entitled: null` for the frontend to fill from `useEntitlement`.
 //! * Only `workspace_activate` activates. Nothing else in the app calls
 //!   [`WorkspaceSession::activate`].
+//! * **The verifier's operation commands check it too (Phase 4A, decision
+//!   49):** Level 0's `run_stats_consistency`, the legacy
+//!   `run_stats_preview` and `run_stats_verify`, and every Level 1 command
+//!   that opens, edits, proposes, previews, sends, confirms or computes.
+//!   The commands that only remove a key or data, read or change settings,
+//!   open a link, or stop a send are never gated; `tests/workspace_guards.rs`
+//!   holds both lists by name.
+//! * [`build`] is what every façade is told about this build: Experimental
+//!   capabilities run only with the `devtools` feature (decision 48).
 //!
 //! Every command is `#[tracing::instrument(skip_all)]` and returns a view, or
 //! a refusal that is a closed code with closed-word or numeric parameters.
@@ -41,11 +50,13 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use serde::Serialize;
 
+use gaply_core::contracts::capability::{Build, CapabilityCode};
 use gaply_core::contracts::codes::Closed;
 use gaply_core::contracts::workspace::{
     self, Availability, WorkspaceCode, WorkspaceDescriptor, WorkspaceEvent, WorkspaceState,
 };
 use gaply_core::contracts::{Diagnostic, ParamKey, ParamValue, WorkspaceId};
+use gaply_core::stats_registry;
 use gaply_core::GaplyError;
 
 use crate::runs::{DatasetSlots, Runs};
@@ -292,6 +303,19 @@ pub fn refuse(d: Diagnostic<WorkspaceCode>) -> GaplyError {
     GaplyError::Validation(serde_json::to_string(&d).expect("a diagnostic serialises"))
 }
 
+/// This build, as the capability registry reads it: `Devtools` exactly when
+/// the app is built with its `devtools` feature (decision 48).
+pub fn build() -> Build {
+    Build::from_devtools(cfg!(feature = "devtools"))
+}
+
+/// A capability refusal as the webview reads it, in the same shape:
+/// `{"code":"capability.not_runnable","params":{…},"severity":"error"}`.
+pub fn refuse_capability(d: Diagnostic<CapabilityCode>) -> GaplyError {
+    tracing::info!(code = d.code.wire(), "capability: refused");
+    GaplyError::Validation(serde_json::to_string(&d).expect("a diagnostic serialises"))
+}
+
 /// `workspace.inactive` for the Statistics workspace, as a command refusal:
 /// what a `stats_desc_*` command answers when the workspace was left between
 /// its check and its work.
@@ -303,7 +327,7 @@ pub fn refuse_inactive() -> GaplyError {
 }
 
 pub fn list() -> Vec<WorkspaceDescriptorView> {
-    workspace::descriptors()
+    stats_registry::workspace_descriptors()
         .into_iter()
         .map(|descriptor| WorkspaceDescriptorView {
             descriptor,

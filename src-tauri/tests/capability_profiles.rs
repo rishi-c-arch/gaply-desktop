@@ -1,0 +1,103 @@
+//! **The registry's resource profiles are the app's constants (Research OS,
+//! Phase 4A).** `gaply_core::stats_registry` may not read the app crate, so
+//! each limit is a literal there; this pins every literal to the constant it
+//! copies, so the two cannot drift:
+//!
+//! * `max_rows` = `supplementary::MAX_ROWS`, `max_columns` = `MAX_COLS` and
+//!   `max_input_bytes` = `MAX_TOTAL_CHARS` (cell text, UTF-8 bytes) for
+//!   `stats.verify.*` and `stats.describe`;
+//! * `ceiling_ms` = `runs::RUN_CEILING_MS` for `stats.describe`, and none for
+//!   Level 0 and Level 1, which have no time ceiling;
+//! * the table formats = `stats_l1_ingest::TABLE_EXTENSIONS`.
+//!
+//! Level 0's manuscript cap is pinned to `import_guard::MAX_BYTES` in
+//! `gaply-core/tests/capability_registry.rs`.
+
+use app_lib::{runs, stats_l1_ingest, supplementary};
+use gaply_core::contracts::capability::{Cancel, FileFormat};
+use gaply_core::stats_registry::{Kind, Registry};
+
+fn word(f: FileFormat) -> String {
+    serde_json::to_value(f)
+        .unwrap()
+        .as_str()
+        .unwrap()
+        .to_string()
+}
+
+#[test]
+fn every_profile_literal_is_the_app_constant_it_copies() {
+    let t = Registry::statistics();
+    let mut tables = 0;
+    for e in t.entries() {
+        let p = e.descriptor.resource_profile;
+        match e.kind {
+            Kind::Verify(_) | Kind::Describe => {
+                tables += 1;
+                assert_eq!(
+                    p.max_rows,
+                    Some(supplementary::MAX_ROWS as u64),
+                    "{}",
+                    e.descriptor.id.as_str()
+                );
+                assert_eq!(
+                    p.max_columns,
+                    Some(supplementary::MAX_COLS as u64),
+                    "{}",
+                    e.descriptor.id.as_str()
+                );
+                assert_eq!(
+                    p.max_input_bytes,
+                    Some(supplementary::MAX_TOTAL_CHARS as u64),
+                    "{}",
+                    e.descriptor.id.as_str()
+                );
+                let mut formats: Vec<String> = e
+                    .descriptor
+                    .supported_formats
+                    .iter()
+                    .map(|f| word(*f))
+                    .collect();
+                let mut accepted: Vec<String> = stats_l1_ingest::TABLE_EXTENSIONS
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect();
+                formats.sort();
+                accepted.sort();
+                assert_eq!(
+                    formats,
+                    accepted,
+                    "{}: the ingest's table formats",
+                    e.descriptor.id.as_str()
+                );
+            }
+            Kind::Check => {
+                assert_eq!(
+                    (p.max_rows, p.max_columns, p.ceiling_ms),
+                    (None, None, None)
+                );
+                assert_eq!(p.cancel, Cancel::None);
+            }
+        }
+        match e.kind {
+            Kind::Describe => {
+                assert_eq!(p.ceiling_ms, Some(runs::RUN_CEILING_MS));
+                assert_eq!(
+                    p.cancel,
+                    Cancel::Cooperative,
+                    "the run manager's check point"
+                );
+            }
+            Kind::Verify(_) => {
+                assert_eq!(p.ceiling_ms, None, "Level 1 has no time ceiling");
+                assert_eq!(p.cancel, Cancel::None, "compute is one call");
+            }
+            Kind::Check => {}
+        }
+        assert!(!p.uses_gpu && !p.temp_disk, "{}", e.descriptor.id.as_str());
+    }
+    assert_eq!(
+        tables, 8,
+        "seven Level 1 capabilities and the descriptive summary"
+    );
+}

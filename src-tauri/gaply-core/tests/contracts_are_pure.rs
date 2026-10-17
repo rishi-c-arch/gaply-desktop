@@ -31,6 +31,20 @@
 //!    a transparent newtype), and every named-field struct on the wire is
 //!    camelCase.
 //!
+//! Phase 4A adds `src/stats_registry/` and `src/stats_adapters/` to checks 1,
+//! 2 and 6, each with its own import list, and both to the modules
+//! `contracts` must never name (check 3):
+//! * `stats_registry` may name `crate::contracts`, and exactly
+//!   `crate::stats_l1::catalogue::{L1MethodId, MethodCatalogue}`,
+//!   `crate::stats_l1::compute::L1Registry` and
+//!   `crate::stats_desc::{CAPABILITY_ID, CAPABILITY_VERSION}`;
+//! * `stats_adapters` may name `crate::contracts`, `crate::stats_registry`,
+//!   `crate::stats_l0`, `crate::stats_l1`, `crate::stats_desc` (decision 46),
+//!   and of `crate::extract` exactly `ExtractionResult` (Level 0's input),
+//!   `SectionKind` and `extract_from_text` (its unit tests). Inline, only those
+//!   three `crate::extract` paths are allowed, so no inline path can reach
+//!   `extract`'s file readers.
+//!
 //! What it cannot see: a route through a helper in an allowed module (a
 //! function of `stats_l1::dataset` that read a file would not be caught
 //! here; `stats_l1_is_llm_free_and_offline.rs` guards that directory), and
@@ -40,6 +54,8 @@ use std::path::{Path, PathBuf};
 
 const CONTRACTS: &str = "src/contracts";
 const STATS_DESC: &str = "src/stats_desc";
+const STATS_REGISTRY: &str = "src/stats_registry";
+const STATS_ADAPTERS: &str = "src/stats_adapters";
 
 const FORBIDDEN: &[(&str, &str)] = &[
     ("std::fs", "the filesystem"),
@@ -89,6 +105,52 @@ const STATS_DESC_CRATE_PATHS: &[&str] = &[
     "crate::stats_l1::binding",
 ];
 
+const STATS_REGISTRY_CRATE_PATHS: &[&str] = &[
+    "crate::contracts",
+    "crate::stats_l1::catalogue",
+    "crate::stats_l1::compute",
+    "crate::stats_desc",
+];
+/// What `stats_registry` may import from the catalogue, Level 1's registry
+/// and the descriptive summary, by exact name.
+const REGISTRY_ITEMS: &[(&str, &[&str])] = &[
+    (
+        "crate::stats_l1::catalogue",
+        &["L1MethodId", "MethodCatalogue"],
+    ),
+    ("crate::stats_l1::compute", &["L1Registry"]),
+    (
+        "crate::stats_desc",
+        &["CAPABILITY_ID", "CAPABILITY_VERSION"],
+    ),
+];
+const STATS_ADAPTERS_CRATE_PATHS: &[&str] = &[
+    "crate::contracts",
+    "crate::stats_registry",
+    "crate::stats_l0",
+    "crate::stats_l1",
+    "crate::stats_desc",
+    "crate::extract",
+];
+/// The one module outside decision 46's list `stats_adapters` reads, by
+/// exact name.
+const ADAPTER_ITEMS: &[(&str, &[&str])] = &[(
+    "crate::extract",
+    &["ExtractionResult", "SectionKind", "extract_from_text"],
+)];
+/// Inline `crate::` paths in `stats_adapters`: `crate::extract` only by
+/// those exact names.
+const STATS_ADAPTERS_INLINE_PATHS: &[&str] = &[
+    "crate::contracts",
+    "crate::stats_registry",
+    "crate::stats_l0",
+    "crate::stats_l1",
+    "crate::stats_desc",
+    "crate::extract::ExtractionResult",
+    "crate::extract::SectionKind",
+    "crate::extract::extract_from_text",
+];
+
 /// The verifier's items `stats_desc` may import, by exact name.
 const VERIFIER_ITEMS: &[(&str, &[&str])] = &[
     (
@@ -107,6 +169,8 @@ const DOMAIN_MODULES: &[&str] = &[
     "stats_verify",
     "stats_verdict",
     "stats_chat",
+    "stats_registry",
+    "stats_adapters",
 ];
 /// Where their types are declared, read to build the type list.
 const DOMAIN_SOURCES: &[&str] = &[
@@ -115,6 +179,8 @@ const DOMAIN_SOURCES: &[&str] = &[
     "src/stats_assist",
     "src/stats_desc",
     "src/stats_verify.rs",
+    "src/stats_registry",
+    "src/stats_adapters",
 ];
 
 /// `stats_desc` types that hold a column header or a level label. They may
@@ -150,7 +216,7 @@ const CELL_TYPES: &[&str] = &[
 
 /// The only `String`-holding types in `contracts`, each checked on the way
 /// in. Sorted, as the scan's list is.
-const CONTRACTS_STRING_TYPES: &[&str] = &["CapabilityId", "ContentHash"];
+const CONTRACTS_STRING_TYPES: &[&str] = &["CapabilityId", "ConfirmationId", "ContentHash"];
 
 fn rust_files(dir: &Path) -> Vec<PathBuf> {
     if dir.is_file() {
@@ -404,15 +470,17 @@ fn holds_string(body: &str) -> bool {
 #[test]
 fn contracts_and_stats_desc_reach_no_file_network_process_clock_model_or_log() {
     let mut found = Vec::new();
-    for (path, code) in sources(CONTRACTS, 2)
+    for (path, code) in sources(CONTRACTS, 3)
         .iter()
         .chain(sources(STATS_DESC, 2).iter())
+        .chain(sources(STATS_REGISTRY, 1).iter())
+        .chain(sources(STATS_ADAPTERS, 2).iter())
     {
         found.extend(forbidden_in(path, code));
     }
     assert!(
         found.is_empty(),
-        "contracts and stats_desc are pure. Found:\n{}",
+        "contracts, stats_desc, stats_registry and stats_adapters are pure. Found:\n{}",
         found.join("\n")
     );
 }
@@ -421,14 +489,36 @@ fn contracts_and_stats_desc_reach_no_file_network_process_clock_model_or_log() {
 fn imports_are_std_serde_serde_json_sha2_and_the_named_crate_paths_only() {
     let mut found = Vec::new();
     let mut statements = 0;
-    for (dir, crate_paths, verifier) in [
-        (CONTRACTS, CONTRACTS_CRATE_PATHS, &[][..]),
-        (STATS_DESC, STATS_DESC_CRATE_PATHS, VERIFIER_ITEMS),
+    for (dir, crate_paths, verifier, inline) in [
+        (
+            CONTRACTS,
+            CONTRACTS_CRATE_PATHS,
+            &[][..],
+            CONTRACTS_CRATE_PATHS,
+        ),
+        (
+            STATS_DESC,
+            STATS_DESC_CRATE_PATHS,
+            VERIFIER_ITEMS,
+            STATS_DESC_CRATE_PATHS,
+        ),
+        (
+            STATS_REGISTRY,
+            STATS_REGISTRY_CRATE_PATHS,
+            REGISTRY_ITEMS,
+            STATS_REGISTRY_CRATE_PATHS,
+        ),
+        (
+            STATS_ADAPTERS,
+            STATS_ADAPTERS_CRATE_PATHS,
+            ADAPTER_ITEMS,
+            STATS_ADAPTERS_INLINE_PATHS,
+        ),
     ] {
-        for (path, code) in sources(dir, 2) {
+        for (path, code) in sources(dir, 1) {
             statements += use_statements(&code).len();
             found.extend(import_violations(&path, &code, crate_paths, verifier));
-            found.extend(crate_path_violations(&path, &code, crate_paths));
+            found.extend(crate_path_violations(&path, &code, inline));
         }
     }
     assert!(
@@ -450,6 +540,24 @@ fn imports_are_std_serde_serde_json_sha2_and_the_named_crate_paths_only() {
             assert!(
                 imported.iter().any(|i| i == name),
                 "stats_desc no longer imports {prefix}::{name}; update the list"
+            );
+        }
+    }
+    // So must stats_registry each item on its list.
+    let reg: String = sources(STATS_REGISTRY, 1)
+        .into_iter()
+        .map(|(_, c)| c)
+        .collect();
+    for (prefix, names) in REGISTRY_ITEMS {
+        let imported: Vec<String> = use_statements(&reg)
+            .iter()
+            .filter(|s| s.starts_with(prefix))
+            .flat_map(|s| imported_names(s, prefix))
+            .collect();
+        for name in *names {
+            assert!(
+                imported.iter().any(|i| i == name),
+                "stats_registry no longer imports {prefix}::{name}; update the list"
             );
         }
     }
@@ -636,8 +744,8 @@ fn a_stats_desc_type_holding_text_prints_counts_through_its_own_debug() {
 #[test]
 fn every_deserialised_struct_refuses_unknown_fields_and_wire_structs_are_camel_case() {
     let mut checked = 0;
-    for dir in [CONTRACTS, STATS_DESC] {
-        for (path, code) in sources(dir, 2) {
+    for dir in [CONTRACTS, STATS_DESC, STATS_REGISTRY, STATS_ADAPTERS] {
+        for (path, code) in sources(dir, 1) {
             // Every check here reads a derive from ONE line. A derive list
             // wrapped over several lines would be invisible to them, so it
             // fails here instead of passing there.
@@ -723,6 +831,30 @@ fn the_guard_catches_each_kind_of_violation() {
     assert!(
         !crate_path_violations("s.rs", inline, STATS_DESC_CRATE_PATHS).is_empty(),
         "an inline crate path"
+    );
+
+    // Phase 4A's lists refuse what they do not name.
+    let reader = "use crate::extract::docparse::parse_path;\n";
+    assert!(
+        !import_violations("a.rs", reader, STATS_ADAPTERS_CRATE_PATHS, ADAPTER_ITEMS).is_empty(),
+        "an extract item off the list"
+    );
+    let inline_reader = "fn x(p: &std::path::Path) { let _ = crate::extract::extract_path(p); }\n";
+    assert!(
+        !crate_path_violations("a.rs", inline_reader, STATS_ADAPTERS_INLINE_PATHS).is_empty(),
+        "an inline path to extract's file reader"
+    );
+    let input = "use crate::extract::ExtractionResult;\n";
+    assert!(import_violations("a.rs", input, STATS_ADAPTERS_CRATE_PATHS, ADAPTER_ITEMS).is_empty());
+    let binding = "use crate::stats_l1::binding::confirm;\n";
+    assert!(
+        !import_violations("r.rs", binding, STATS_REGISTRY_CRATE_PATHS, REGISTRY_ITEMS).is_empty(),
+        "the registry names the catalogue and Level 1's registry only"
+    );
+    let helper = "use crate::stats_assist::spec::HelperTask;\n";
+    assert!(
+        !forbidden_in("a.rs", &code_only(helper)).is_empty(),
+        "the helper layer"
     );
 
     let leak = "#[derive(Debug, Clone, Serialize)]\n#[serde(rename_all = \"camelCase\")]\npub struct Leak {\n    pub rows: Vec<String>,\n}\n";

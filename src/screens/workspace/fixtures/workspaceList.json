@@ -6,6 +6,14 @@
     "availability": "available",
     "activationPolicy": "single_active",
     "capabilityIds": [
+      "stats.check",
+      "stats.verify.independent_t",
+      "stats.verify.paired_t",
+      "stats.verify.one_way_anova",
+      "stats.verify.pearson",
+      "stats.verify.spearman",
+      "stats.verify.chi_square_independence",
+      "stats.verify.ols",
       "stats.describe"
     ],
     "supportsOffline": true,

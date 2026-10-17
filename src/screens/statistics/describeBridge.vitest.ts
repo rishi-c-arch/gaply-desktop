@@ -27,6 +27,7 @@ const spec: OperationSpec = {
   inputs: [datasetView.inputRef],
   parameters: { columns: [{ alias: 'C2', treatAs: 'numeric' }], missingCodes: [99] },
   randomSeed: null,
+  confirmationRefs: [],
 };
 
 describe('TauriDescribeBridge', () => {
@@ -63,7 +64,8 @@ describe('TauriDescribeBridge', () => {
     await new TauriDescribeBridge().validate(3, spec);
     const sent = invoke.mock.calls[0][1].spec as OperationSpec;
     expect(Object.keys(sent).sort()).toEqual([
-      'capabilityId', 'capabilityVersion', 'inputs', 'operationId', 'parameters', 'randomSeed', 'schemaVersion', 'workspaceId',
+      'capabilityId', 'capabilityVersion', 'confirmationRefs', 'inputs', 'operationId', 'parameters', 'randomSeed', 'schemaVersion',
+      'workspaceId',
     ]);
     expect(Object.keys(sent.inputs[0]).sort()).toEqual(['columns', 'contentHash', 'rows', 'semanticRole']);
     expect(Object.keys(sent.parameters).sort()).toEqual(['columns', 'missingCodes']);

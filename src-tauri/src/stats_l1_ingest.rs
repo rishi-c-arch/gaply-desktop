@@ -77,7 +77,9 @@ pub use gaply_core::stats_l1::dataset::L1IngestRefusal;
 
 /// Extensions the ingest turns into a table. Text formats parse but hold no
 /// table and are refused before being read.
-const TABLE_EXTENSIONS: &[&str] = &["sav", "mat", "xlsx", "xls", "xlsb", "ods", "xlsm", "csv", "tsv"];
+/// Public so `tests/capability_registry.rs` can pin the registry's table
+/// formats to it (Research OS, Phase 4A).
+pub const TABLE_EXTENSIONS: &[&str] = &["sav", "mat", "xlsx", "xls", "xlsb", "ods", "xlsm", "csv", "tsv"];
 
 /// The workbook formats that are zip archives (`.xls` is a compound
 /// document, not a zip).

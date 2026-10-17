@@ -516,7 +516,7 @@ pub fn chat_turn(
     match proxy.verify(&payload).and_then(|resp| gate_chat_response(&resp, &sent)) {
         Ok(turn) => turn,
         Err(e) => {
-            tracing::warn!(error = %e, "copilot chat cloud call failed; honest unavailable");
+            tracing::warn!(error_kind = e.code(), "copilot chat cloud call failed; honest unavailable");
             ChatTurn::unavailable(vec![format!("cloud_failed: {e}")])
         }
     }

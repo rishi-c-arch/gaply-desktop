@@ -111,3 +111,53 @@ shape, and Level 1's run store (`L1Runs`, four runs, no state machine).
 A second domain needs a result subtype or a run event the envelope cannot
 carry; or Phase 4's Level 1 wrap needs a confirmation step that
 `AwaitingConfirmation` cannot express.
+
+## Addendum: 4A: the capability registry
+
+**Status: Proposed, 18 Oct 2026.** Research OS Phase 4A (decisions 44 to
+51). Not accepted until Rishi approves it; the accepted text above stands.
+
+1. **The descriptor is a contract, domain-free**
+   (`gaply_core::contracts::capability`): `CapabilityDescriptor<W>` with the
+   blueprint's §7.2 fields, its texts as closed wording codes `W`;
+   `Lifecycle { Planned, Experimental, Beta, Stable, Deprecated }` and the one
+   rule `Lifecycle::runnable_in(Build)` (Planned and Deprecated never,
+   Experimental only with the app's `devtools` feature, Beta and Stable
+   always, decision 48); `ResourceProfile`, with `None` for a limit that does
+   not exist; `ConfirmationId` (64 lowercase hex, prints nothing); the
+   refusals `capability.{unknown_capability, version_mismatch, not_runnable,
+   confirmation_missing, confirmation_unmatched}`. A descriptor derives
+   `Serialize`, never `Deserialize`: no payload, file, setting or model reply
+   can add one.
+2. **`OperationSpec` gains `confirmation_refs: Vec<ConfirmationId>`**
+   (decision 50), schema version 1 unchanged; it is written always and read
+   as empty when absent, so a capability that needs none may leave it out.
+3. **The Statistics table** (`gaply_core::stats_registry`, pure, static):
+   `stats.check` (Level 0, Stable); `stats.verify.<method_id>` derived from
+   `MethodCatalogue::ENTRIES`, Beta when `L1Registry` implements the method
+   and Planned otherwise (all seven are implemented today); `stats.describe`
+   (Beta, Phase 2A's id and version). `lookup` and `require_runnable` refuse
+   with the codes above, in the order unknown, version, lifecycle. The
+   Statistics `WorkspaceDescriptor` takes its capability ids from this table
+   (`contracts::workspace::descriptor_with`), so there is one list.
+4. **The façades** (`gaply_core::stats_adapters`, pure): `check`, one
+   generic `verify` keyed by method, `describe_validate` and `describe_until`.
+   Each asks `require_runnable` first, checks the confirmation where the
+   capability needs one, then calls the existing function and returns its
+   output unchanged. Level 1's token stays the gate's to judge: a stale or
+   revoked token gives today's `token_stale`. The commands call them, so the
+   check is on the real path; the describe façades word a registry refusal
+   with `stats.desc.unknown_capability` or `capability_version_mismatch`.
+5. **Not in 4A:** a `ResultBundle` and manifest for Level 0 and Level 1
+   (Phase 5's provenance); the method selector and the t-test as an analysis
+   (4B); `L1Runs` stays in `AppState`.
+
+**Evidence:** `gaply-core/tests/capability_registry.rs` (the pin, the id
+scan, the derivation), `stats_adapters_golden.rs` (43 Level 1 golden rows and
+19 R golden cases equal through the façades), the façades' unit tests
+(forged specs; test-only tables for Planned, Experimental and Deprecated),
+`src-tauri/tests/stats_check_facade.rs` (12 inputs through Level 0's seam),
+`contracts_are_pure.rs` (both new modules scanned).
+
+**Revision trigger:** 4B's method selector reads the table, or a capability
+needs a confirmation that is not a Level 1 token.

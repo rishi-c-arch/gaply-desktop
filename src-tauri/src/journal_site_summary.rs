@@ -245,7 +245,10 @@ pub fn summarize_site(
             page_truncated,
         },
         Err(e) => {
-            tracing::warn!(error = %e, "journal site-summary cloud call failed; registry checks unaffected");
+            tracing::warn!(
+                error_kind = e.code(),
+                "journal site-summary cloud call failed; registry checks unaffected"
+            );
             SiteSummary::degraded(
                 SiteSummaryStatus::LlmUnavailable,
                 url,

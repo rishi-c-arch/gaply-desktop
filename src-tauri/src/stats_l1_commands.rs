@@ -59,7 +59,8 @@ use gaply_core::stats_assist::transport::{TransportError, WireGate};
 use gaply_core::stats_l0::input::DocumentContext;
 use gaply_core::stats_l0::method::L0Verdict;
 use gaply_core::stats_l0::number::{NumberNotRead, Relation};
-use gaply_core::stats_l0::outcome::check_reading;
+use gaply_core::contracts::capability::ConfirmationId;
+use gaply_core::stats_adapters;
 use gaply_core::stats_l0::result::{read_results, Family, PValue, TableStructure};
 use gaply_core::stats_l1::binding::{
     BindingDraft, BindingProposal, OlsTarget, ProposalId, ProposalReason, ProposalSource, Rejection, WholeNumberAnswer, WholeNumbers,
@@ -77,7 +78,7 @@ use gaply_core::{Database, GaplyError};
 
 use crate::stats_ai::{test_key, AiSettings, StatsAi, TaskUsage, UsageByTask, PROVIDER};
 use crate::stats_l1_ingest::load_dataset;
-use crate::stats_reproduction::{reproduction_view, run_stats_reproduction_measured, ReproductionView};
+use crate::stats_reproduction::{reproduction_view, ReproductionView};
 
 /// The most runs held at once; the oldest is dropped first.
 pub const MAX_RUNS: usize = 4;
@@ -1138,10 +1139,14 @@ pub fn open(db: &Database, runs: &L1Runs, ai: &StatsAi, manuscript: &Path, data:
     // pins the premise.
     let ex = extract::extract_path(manuscript).map_err(|_| refuse(w("manuscript_not_extracted")))?;
     let is_docx = manuscript.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("docx"));
-    let reading = read_results(&ex, if is_docx { TableStructure::Declared } else { TableStructure::NotAvailable });
+    let tables = if is_docx { TableStructure::Declared } else { TableStructure::NotAvailable };
+    let reading = read_results(&ex, tables);
     let ctx = DocumentContext::read(&ex, &reading);
     let (claims, not_located) = claims_from_reading(&ex, &reading);
-    let level0_outcome = check_reading(&ex, reading);
+    // Level 0 through its capability's façade, which reads the results again
+    // (deterministic, the same reading) and checks the registry first.
+    let level0_outcome = stats_adapters::check(&stats_adapters::check_spec(), crate::workspace::build(), &ex, tables)
+        .map_err(crate::workspace::refuse_capability)?;
     let dataset = load_dataset(data).map_err(|r| refuse(with_code(w("data_refused"), "reason", codes::l1_ingest_refusal(r))))?;
 
     let mut level0 = HashMap::new();
@@ -1386,6 +1391,19 @@ fn transmit(run: &Arc<Mutex<L1Run>>, ai: &StatsAi, prepared: PreparedSend) -> Re
 /// core session; then the reply is validated and turned into a suggestion,
 /// an explanation or context items. Suggestions become proposals.
 #[tracing::instrument(skip_all)]
+/// A method an AI task's answer names is used only when its capability is
+/// runnable in this build (Research OS, Phase 4A, item 5): the validator has
+/// already refused an id outside the catalogue; this refuses one the
+/// registry does not let run (Planned, Deprecated, or Experimental without
+/// devtools), with the validator's own `unknown_method`.
+pub fn runnable_method(m: L1MethodId) -> Result<(), ReplyRejection> {
+    if stats_adapters::method_is_runnable(m, crate::workspace::build()) {
+        Ok(())
+    } else {
+        Err(ReplyRejection::UnknownMethod)
+    }
+}
+
 pub fn helper_send(runs: &L1Runs, ai: &StatsAi, run: u64, preview: L1Handle, now_unix: u64) -> Result<L1HelperResultView, GaplyError> {
     if preview.run != run {
         return Err(refuse(w("preview_from_another_run")));
@@ -1421,7 +1439,13 @@ pub fn helper_send(runs: &L1Runs, ai: &StatsAi, run: u64, preview: L1Handle, now
     let read = |s: &Sent| read_response(&s.reply.body);
     match &outbound {
         Outbound::ClaimMethod(o) => {
-            let s = read(&sent).and_then(|out| validate_claim_method(&out, o)).map_err(|e| refuse(reply_rejection_code(e)))?;
+            let s = read(&sent)
+                .and_then(|out| validate_claim_method(&out, o))
+                .and_then(|s| match s.method {
+                    Some(m) => runnable_method(m).map(|()| s),
+                    None => Ok(s),
+                })
+                .map_err(|e| refuse(reply_rejection_code(e)))?;
             let proposal = match s.method {
                 Some(m) => {
                     let draft = BindingDraft::new(m, VariantChoice::not_stated(MethodCatalogue::entry(m).variant_kind));
@@ -1440,7 +1464,10 @@ pub fn helper_send(runs: &L1Runs, ai: &StatsAi, run: u64, preview: L1Handle, now
             })
         }
         Outbound::BindingSuggestion(o) => {
-            let s = read(&sent).and_then(|out| validate_binding_suggestion(&out, o)).map_err(|e| refuse(reply_rejection_code(e)))?;
+            let s = read(&sent)
+                .and_then(|out| validate_binding_suggestion(&out, o))
+                .and_then(|s| runnable_method(s.method).map(|()| s))
+                .map_err(|e| refuse(reply_rejection_code(e)))?;
             let mut draft = BindingDraft::new(s.method, VariantChoice::not_stated(MethodCatalogue::entry(s.method).variant_kind));
             let mut by_role: BTreeMap<RoleName, Vec<ColumnAlias>> = BTreeMap::new();
             for role in &s.roles {
@@ -1622,11 +1649,24 @@ pub fn compute(runs: &L1Runs, run: u64, handles: &[String]) -> Result<Reproducti
     let handle = runs.get(run)?;
     let mut r = lock(&handle);
     let mut pairs = Vec::with_capacity(handles.len());
+    // One `stats.verify.<method_id>` spec per method, carrying the tokens
+    // that open the gate for it (Research OS, Phase 4A). A token that does
+    // not is carried by none and refused inside `reproduce`, as before.
+    let mut by_method: Vec<(L1MethodId, Vec<ConfirmationId>)> = Vec::new();
     for h in handles {
-        let (_, rev, token) = r.tokens.get(h).ok_or_else(|| refuse(w("unknown_token_handle")))?;
+        let (claim, rev, token) = r.tokens.get(h).ok_or_else(|| refuse(w("unknown_token_handle")))?;
+        if let (Ok(binding), Some(id)) = (r.state.gate(token, *claim), ConfirmationId::parse(token.as_str())) {
+            match by_method.iter_mut().find(|(m, _)| *m == binding.method()) {
+                Some((_, refs)) => refs.push(id),
+                None => by_method.push((binding.method(), vec![id])),
+            }
+        }
         pairs.push((rev.clone(), token.clone()));
     }
-    let outcome = run_stats_reproduction_measured(&r.state, &r.data_path, &pairs);
+    let specs: Vec<_> = by_method.into_iter().map(|(m, refs)| stats_adapters::verify_spec(m, refs)).collect();
+    let data_path = r.data_path.clone();
+    let outcome = stats_adapters::verify(&specs, crate::workspace::build(), &r.state, &pairs, || load_dataset(&data_path))
+        .map_err(crate::workspace::refuse_capability)?;
     let view = reproduction_view(&outcome);
     r.reproduction = Some(outcome);
     tracing::info!(run, reproduced = view.counts.reproduced, not_reproduced = view.counts.not_reproduced, "stats_l1: computed");
@@ -1697,6 +1737,7 @@ async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T, GaplyError> +
 #[tauri::command]
 #[tracing::instrument(skip_all)]
 pub async fn stats_l1_open(state: St<'_>, manuscript: String, data: String) -> Result<L1OpenView, GaplyError> {
+    let _ = state.workspace.require_statistics().map_err(crate::workspace::refuse)?;
     let (db, runs, ai) = (state.db.clone(), state.stats_l1.clone(), state.stats_ai.clone());
     blocking(move || open(&db, &runs, &ai, Path::new(&manuscript), Path::new(&data))).await
 }
@@ -1704,6 +1745,7 @@ pub async fn stats_l1_open(state: St<'_>, manuscript: String, data: String) -> R
 #[tauri::command]
 #[tracing::instrument(skip_all)]
 pub async fn stats_l1_edit_claim(state: St<'_>, run: u64, claim_id: usize, claim: L1ClaimInput) -> Result<L1RevisionView, GaplyError> {
+    let _ = state.workspace.require_statistics().map_err(crate::workspace::refuse)?;
     let runs = state.stats_l1.clone();
     blocking(move || edit_claim(&runs, run, claim_id, &claim)).await
 }
@@ -1711,6 +1753,7 @@ pub async fn stats_l1_edit_claim(state: St<'_>, run: u64, claim_id: usize, claim
 #[tauri::command]
 #[tracing::instrument(skip_all)]
 pub async fn stats_l1_add_claim(state: St<'_>, run: u64, claim: L1ClaimInput) -> Result<L1RevisionView, GaplyError> {
+    let _ = state.workspace.require_statistics().map_err(crate::workspace::refuse)?;
     let runs = state.stats_l1.clone();
     blocking(move || add_claim(&runs, run, &claim)).await
 }
@@ -1718,6 +1761,7 @@ pub async fn stats_l1_add_claim(state: St<'_>, run: u64, claim: L1ClaimInput) ->
 #[tauri::command]
 #[tracing::instrument(skip_all)]
 pub async fn stats_l1_proposals(state: St<'_>, run: u64) -> Result<Vec<L1ProposalView>, GaplyError> {
+    let _ = state.workspace.require_statistics().map_err(crate::workspace::refuse)?;
     let runs = state.stats_l1.clone();
     blocking(move || proposals(&runs, run)).await
 }
@@ -1730,6 +1774,7 @@ pub async fn stats_l1_helper_preview(
     input: HelperTaskInput,
     categories: Vec<String>,
 ) -> Result<L1PreviewView, GaplyError> {
+    let _ = state.workspace.require_statistics().map_err(crate::workspace::refuse)?;
     let (runs, ai) = (state.stats_l1.clone(), state.stats_ai.clone());
     blocking(move || helper_preview(&runs, &ai, run, &input, &categories)).await
 }
@@ -1737,6 +1782,7 @@ pub async fn stats_l1_helper_preview(
 #[tauri::command]
 #[tracing::instrument(skip_all)]
 pub async fn stats_l1_helper_send(state: St<'_>, run: u64, preview: L1Handle) -> Result<L1HelperResultView, GaplyError> {
+    let _ = state.workspace.require_statistics().map_err(crate::workspace::refuse)?;
     let (runs, ai) = (state.stats_l1.clone(), state.stats_ai.clone());
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
     blocking(move || helper_send(&runs, &ai, run, preview, now)).await
@@ -1762,6 +1808,7 @@ pub async fn stats_l1_confirm_binding(
     proposal: L1Handle,
     edits: Option<BindingEdits>,
 ) -> Result<L1ConfirmView, GaplyError> {
+    let _ = state.workspace.require_statistics().map_err(crate::workspace::refuse)?;
     let runs = state.stats_l1.clone();
     blocking(move || confirm_binding(&runs, run, proposal, edits.as_ref())).await
 }
@@ -1775,6 +1822,7 @@ pub async fn stats_l1_draft_proposal(
     from: Option<L1Handle>,
     edits: BindingEdits,
 ) -> Result<L1ProposalView, GaplyError> {
+    let _ = state.workspace.require_statistics().map_err(crate::workspace::refuse)?;
     let runs = state.stats_l1.clone();
     blocking(move || draft_proposal(&runs, run, claim_id, from, &edits)).await
 }
@@ -1782,6 +1830,7 @@ pub async fn stats_l1_draft_proposal(
 #[tauri::command]
 #[tracing::instrument(skip_all)]
 pub async fn stats_l1_compute(state: St<'_>, run: u64, tokens: Vec<String>) -> Result<ReproductionView, GaplyError> {
+    let _ = state.workspace.require_statistics().map_err(crate::workspace::refuse)?;
     let runs = state.stats_l1.clone();
     blocking(move || compute(&runs, run, &tokens)).await
 }

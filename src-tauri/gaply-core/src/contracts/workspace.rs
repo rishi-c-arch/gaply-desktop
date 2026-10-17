@@ -129,12 +129,13 @@ pub fn availability(id: WorkspaceId) -> Availability {
     }
 }
 
-/// The descriptor of `id` in this build.
-///
-/// Statistics' one capability id is written here as a word, because the
-/// contracts name no capability module; `tests/workspace_contract.rs` pins it
-/// to `stats_desc::CAPABILITY_ID`.
-pub fn descriptor(id: WorkspaceId) -> WorkspaceDescriptor {
+/// The descriptor of `id` in this build, carrying the capability ids its
+/// workspace's registry lists. The contracts name no capability, so the list
+/// is given: `stats_registry::workspace_descriptor` passes the Statistics
+/// table's ids, and there is no second list (decision 47). A `Missing`
+/// workspace claims nothing, whatever it is given, and an id of another
+/// workspace is dropped.
+pub fn descriptor_with(id: WorkspaceId, capability_ids: Vec<CapabilityId>) -> WorkspaceDescriptor {
     let missing = |display_name_code| WorkspaceDescriptor {
         id,
         version: 0,
@@ -152,9 +153,9 @@ pub fn descriptor(id: WorkspaceId) -> WorkspaceDescriptor {
             display_name_code: DisplayNameCode::Statistics,
             availability: availability(id),
             activation_policy: ActivationPolicy::SingleActive,
-            capability_ids: ["stats.describe"]
-                .iter()
-                .map(|c| CapabilityId::parse(c).expect("a well-formed capability id"))
+            capability_ids: capability_ids
+                .into_iter()
+                .filter(|c| c.workspace() == id)
                 .collect(),
             supports_offline: true,
             supported_platforms: vec![Os::Macos, Os::Windows, Os::Linux],
@@ -162,11 +163,6 @@ pub fn descriptor(id: WorkspaceId) -> WorkspaceDescriptor {
         WorkspaceId::Compute => missing(DisplayNameCode::Compute),
         WorkspaceId::Design => missing(DisplayNameCode::Design),
     }
-}
-
-/// Every workspace's descriptor, in `WorkspaceId::ALL`'s order.
-pub fn descriptors() -> Vec<WorkspaceDescriptor> {
-    WorkspaceId::ALL.iter().map(|w| descriptor(*w)).collect()
 }
 
 /// Which workspace is active in a window, if any, and whether it is on its

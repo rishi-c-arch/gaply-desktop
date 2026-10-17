@@ -717,7 +717,7 @@ pub fn qa_turn(
     match proxy.verify(&payload).and_then(|resp| gate_qa_response(&resp, &sent, &prior)) {
         Ok(turn) => Ok(turn),
         Err(e) => {
-            tracing::warn!(error = %e, "gapfinder qa cloud call failed; honest unavailable");
+            tracing::warn!(error_kind = e.code(), "gapfinder qa cloud call failed; honest unavailable");
             let mut turn = QaTurn::unavailable_offline(prior);
             turn.warnings.push(format!("cloud_failed: {e}"));
             Ok(turn)
@@ -1020,7 +1020,7 @@ pub fn draft_turn(
     match proxy.verify(&payload).and_then(|resp| gate_draft_response(&resp, &sent)) {
         Ok(result) => Ok(result),
         Err(e) => {
-            tracing::warn!(error = %e, "gapfinder draft cloud call failed; honest unavailable");
+            tracing::warn!(error_kind = e.code(), "gapfinder draft cloud call failed; honest unavailable");
             let mut r = DraftResult::unavailable_offline();
             r.warnings.push(format!("cloud_failed: {e}"));
             Ok(r)
@@ -1219,7 +1219,7 @@ pub fn fit_turn(
     match proxy.verify(&payload).and_then(|resp| gate_fit_response(&resp, &sent)) {
         Ok(r) => Ok(r),
         Err(e) => {
-            tracing::warn!(error = %e, "gapfinder fit cloud call failed; honest unavailable");
+            tracing::warn!(error_kind = e.code(), "gapfinder fit cloud call failed; honest unavailable");
             let mut r = FitResult::unavailable_offline();
             r.warnings.push(format!("cloud_failed: {e}"));
             Ok(r)

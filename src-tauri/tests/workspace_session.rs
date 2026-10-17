@@ -175,7 +175,15 @@ fn the_list_has_three_descriptors_and_leaves_entitlement_to_the_frontend() {
             ("design".into(), "missing".into(), Value::Null),
         ]
     );
-    assert_eq!(rows[0]["capabilityIds"], json!(["stats.describe"]));
+    // Phase 4A (decision 47): the registry's ids, one list.
+    assert_eq!(
+        rows[0]["capabilityIds"],
+        json!(gaply_core::stats_registry::Registry::statistics()
+            .ids()
+            .iter()
+            .map(|i| i.as_str())
+            .collect::<Vec<_>>())
+    );
     assert_eq!(rows[0]["displayNameCode"], "workspace.name.statistics");
     assert_eq!(rows[1]["capabilityIds"], json!([]));
     assert_eq!(

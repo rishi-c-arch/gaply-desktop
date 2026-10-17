@@ -13,8 +13,13 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 
-use app_lib::stats_ai::{AiSettings, CredentialStore, MemoryCredentialStore, RequestTimeout, ResponsesTransport, StatsAi, TransportFactory};
-use app_lib::stats_l1_commands::{self as l1, BindingEdits, L1OpenView, L1Runs, LevelEdit, RoleEdit};
+use app_lib::stats_ai::{
+    AiSettings, CredentialStore, MemoryCredentialStore, RequestTimeout, ResponsesTransport,
+    StatsAi, TransportFactory,
+};
+use app_lib::stats_l1_commands::{
+    self as l1, BindingEdits, L1OpenView, L1Runs, LevelEdit, RoleEdit,
+};
 use gaply_core::stats_assist::transport::{HelperTransport, MockTransport};
 use gaply_core::stats_l0::pvalue;
 use gaply_core::{Database, GaplyError};
@@ -49,7 +54,11 @@ impl Drop for Files {
 pub fn printed() -> (String, String, String) {
     let t = gaply_core::stats_verify::t_test_student(&TREATED, &CONTROL).unwrap();
     let p = pvalue::t_two_tailed(t.t, t.df).unwrap();
-    (format!("{:.2}", t.t.abs()), format!("{}", t.df), format!("{:.3}", p).trim_start_matches('0').to_string())
+    (
+        format!("{:.2}", t.t.abs()),
+        format!("{}", t.df),
+        format!("{:.3}", p).trim_start_matches('0').to_string(),
+    )
 }
 
 pub fn csv(treated: &[f64]) -> String {
@@ -80,7 +89,11 @@ pub fn files() -> Files {
     .unwrap();
     let data = dir.join(format!("{FILE}_data.csv"));
     std::fs::write(&data, csv(&TREATED)).unwrap();
-    Files { root, manuscript, data }
+    Files {
+        root,
+        manuscript,
+        data,
+    }
 }
 
 /* ---- the context ---------------------------------------------------------- */
@@ -100,11 +113,23 @@ pub fn world_with(mock: MockTransport) -> World {
     let factory: TransportFactory = Arc::new(move |_| m.clone() as Arc<dyn HelperTransport>);
     let store = Arc::new(MemoryCredentialStore::default());
     let ai = StatsAi::for_tests(store.clone(), factory, "http://127.0.0.1:9/v1");
-    World { files: files(), db: Database::in_memory().unwrap(), runs: L1Runs::default(), ai, store, mock }
+    World {
+        files: files(),
+        db: Database::in_memory().unwrap(),
+        runs: L1Runs::default(),
+        ai,
+        store,
+        mock,
+    }
 }
 
 pub fn ai_on(w: &World, web: bool) {
-    w.ai.set_settings(AiSettings { ai_help: true, web_context: web, model: "gpt-5.5".into() }).unwrap();
+    w.ai.set_settings(AiSettings {
+        ai_help: true,
+        web_context: web,
+        model: "gpt-5.5".into(),
+    })
+    .unwrap();
     w.store.save_key(KEY).unwrap();
 }
 
@@ -128,8 +153,20 @@ pub fn json_reply(v: Value) -> String {
 pub fn manual_edits() -> BindingEdits {
     BindingEdits {
         method_id: "independent_t".into(),
-        roles: vec![RoleEdit { role: "outcome".into(), aliases: vec![1] }, RoleEdit { role: "group".into(), aliases: vec![2] }],
-        levels: vec![LevelEdit { role: "group".into(), levels: vec![LEVEL.into(), "ctrl".into()] }],
+        roles: vec![
+            RoleEdit {
+                role: "outcome".into(),
+                aliases: vec![1],
+            },
+            RoleEdit {
+                role: "group".into(),
+                aliases: vec![2],
+            },
+        ],
+        levels: vec![LevelEdit {
+            role: "group".into(),
+            levels: vec![LEVEL.into(), "ctrl".into()],
+        }],
         filters: vec![],
         variant_ticked: None,
         ols_overall_f: None,
@@ -141,20 +178,28 @@ pub fn manual_edits() -> BindingEdits {
 /// Confirm claim 0 by hand, from the first proposal held.
 pub fn confirm_by_hand(w: &World, run: u64) -> String {
     let proposals = l1::proposals(&w.runs, run).unwrap();
-    let first = proposals.first().map(|p| p.proposal).expect("a local proposal");
-    l1::confirm_binding(&w.runs, run, first, Some(&manual_edits())).expect("confirmed").token
+    let first = proposals
+        .first()
+        .map(|p| p.proposal)
+        .expect("a local proposal");
+    l1::confirm_binding(&w.runs, run, first, Some(&manual_edits()))
+        .expect("confirmed")
+        .token
 }
 
 pub fn code(e: &GaplyError) -> String {
     match e {
-        GaplyError::Validation(m) => serde_json::from_str::<Value>(m).map(|v| v["code"].as_str().unwrap_or("").to_string()).unwrap_or_default(),
+        GaplyError::Validation(m) => serde_json::from_str::<Value>(m)
+            .map(|v| v["code"].as_str().unwrap_or("").to_string())
+            .unwrap_or_default(),
         other => format!("not a validation error: {other:?}"),
     }
 }
 
-
 pub fn binding_reply() -> String {
-    json_reply(json!({"roles": [{"role": "outcome", "alias": "C1", "levels_to_select": null}, {"role": "group", "alias": "C2", "levels_to_select": 2}], "reason": "C1 is numeric; C2 has two levels.", "relied_on": ["schema"]}))
+    json_reply(
+        json!({"roles": [{"role": "outcome", "alias": "C1", "levels_to_select": null}, {"role": "group", "alias": "C2", "levels_to_select": 2}], "reason": "C1 is numeric; C2 has two levels.", "relied_on": ["schema"]}),
+    )
 }
 
 /* ---- a tracing capture -------------------------------------------------- */
@@ -175,7 +220,10 @@ impl tracing::Subscriber for Capture {
     /// `sometimes`, never a cached `always`/`never`: tests run on parallel
     /// threads, and a callsite first hit where no subscriber is set would
     /// otherwise be cached as `never` and skip this capture.
-    fn register_callsite(&self, _: &'static tracing::Metadata<'static>) -> tracing::subscriber::Interest {
+    fn register_callsite(
+        &self,
+        _: &'static tracing::Metadata<'static>,
+    ) -> tracing::subscriber::Interest {
         tracing::subscriber::Interest::sometimes()
     }
     fn enabled(&self, _: &tracing::Metadata<'_>) -> bool {
@@ -211,7 +259,9 @@ pub struct CaptureServer {
 }
 
 pub fn read_request(stream: &mut std::net::TcpStream) -> Vec<u8> {
-    stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .unwrap();
     let mut buf = Vec::new();
     let mut chunk = [0u8; 4096];
     loop {
@@ -222,7 +272,11 @@ pub fn read_request(stream: &mut std::net::TcpStream) -> Vec<u8> {
         buf.extend_from_slice(&chunk[..n]);
         if let Some(end) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
             let head = String::from_utf8_lossy(&buf[..end]).to_lowercase();
-            let len = head.lines().find_map(|l| l.strip_prefix("content-length:")).map(|v| v.trim().parse::<usize>().unwrap()).unwrap_or(0);
+            let len = head
+                .lines()
+                .find_map(|l| l.strip_prefix("content-length:"))
+                .map(|v| v.trim().parse::<usize>().unwrap())
+                .unwrap_or(0);
             if buf.len() >= end + 4 + len {
                 break;
             }
@@ -267,20 +321,43 @@ pub fn capture_server(responses: Vec<(u16, String)>) -> CaptureServer {
     CaptureServer { url, requests }
 }
 
-pub fn world_with_real_transport(server: &CaptureServer, cancel_flag: Option<Arc<AtomicBool>>, timeout: RequestTimeout) -> World {
+pub fn world_with_real_transport(
+    server: &CaptureServer,
+    cancel_flag: Option<Arc<AtomicBool>>,
+    timeout: RequestTimeout,
+) -> World {
     let store = Arc::new(MemoryCredentialStore::default());
     let base = server.url.clone();
     let s2: Arc<dyn CredentialStore> = store.clone();
     let factory: TransportFactory = Arc::new(move |cancel| {
         let cancel = cancel_flag.clone().unwrap_or(cancel);
-        Arc::new(ResponsesTransport::new(&base, s2.clone(), cancel, Duration::from_millis(10), timeout).unwrap()) as Arc<dyn HelperTransport>
+        Arc::new(
+            ResponsesTransport::new(
+                &base,
+                s2.clone(),
+                cancel,
+                Duration::from_millis(10),
+                timeout,
+            )
+            .unwrap(),
+        ) as Arc<dyn HelperTransport>
     });
     let ai = StatsAi::for_tests(store.clone(), factory, &server.url);
-    World { files: files(), db: Database::in_memory().unwrap(), runs: L1Runs::default(), ai, store, mock: Arc::new(MockTransport::new()) }
+    World {
+        files: files(),
+        db: Database::in_memory().unwrap(),
+        runs: L1Runs::default(),
+        ai,
+        store,
+        mock: Arc::new(MockTransport::new()),
+    }
 }
 
 pub fn split(raw: &[u8]) -> (String, Vec<(String, String)>, Vec<u8>) {
-    let end = raw.windows(4).position(|w| w == b"\r\n\r\n").expect("a head");
+    let end = raw
+        .windows(4)
+        .position(|w| w == b"\r\n\r\n")
+        .expect("a head");
     let head = String::from_utf8(raw[..end].to_vec()).unwrap();
     let mut lines = head.split("\r\n");
     let request_line = lines.next().unwrap().to_string();

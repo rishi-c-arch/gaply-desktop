@@ -34,6 +34,7 @@ pub mod stats_consistency;
 pub mod stats_desc_commands;
 pub mod stats_l1_commands;
 pub mod stats_l1_ingest;
+pub mod stats_legacy;
 pub mod stats_reproduction;
 pub mod supplementary;
 pub mod workspace;
@@ -315,8 +316,10 @@ pub fn run() {
             // Verifier page (`/app/statsverifier`) calls them. The legacy chat
             // beside them, `run_stats_chat`, was removed in Research OS Phase 3
             // (decision 8); `tests/workspace_guards.rs` checks it stays gone.
-            commands::run_stats_preview,
-            commands::run_stats_verify,
+            // Since Research OS Phase 4A they are registered from
+            // `stats_legacy`, behind the workspace check (decision 49).
+            stats_legacy::run_stats_preview,
+            stats_legacy::run_stats_verify,
             stats_consistency::run_stats_consistency,
             stats_l1_commands::stats_l1_open,
             stats_l1_commands::stats_l1_edit_claim,

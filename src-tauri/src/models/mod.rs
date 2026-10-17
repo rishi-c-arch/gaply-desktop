@@ -135,6 +135,19 @@ pub(crate) fn stage1_lm_paths() -> Option<(PathBuf, PathBuf)> {
     Some((gguf, slm1_tokenizer_path()?))
 }
 
+/// Where a model's GGUF was found, as a closed word for the log (Research OS
+/// decision 58): `env` (its variable is set), `bundled` (inside the app's
+/// bundled models) or `home` (`~/gaply-models`). Never the folder itself.
+fn model_source(env_key: &str, gguf: &std::path::Path) -> &'static str {
+    if std::env::var_os(env_key).is_some() {
+        "env"
+    } else if bundled_models_dir().map_or(false, |d| gguf.starts_with(d)) {
+        "bundled"
+    } else {
+        "home"
+    }
+}
+
 /// One-line startup log of how the Stage-1 LM resolves — the packaged proof that
 /// the bundled model is reachable in a BUILT app (a resource that works in
 /// `tauri dev` but silently isn't in the `.app` is the failure this guards).
@@ -142,18 +155,12 @@ pub(crate) fn stage1_lm_paths() -> Option<(PathBuf, PathBuf)> {
 pub fn log_model_resolution() {
     match stage1_lm_paths() {
         Some((gguf, tok)) => {
-            let source = if std::env::var_os("GAPLY_STAGE1_LM_GGUF").is_some() {
-                "env"
-            } else if bundled_models_dir().map_or(false, |d| gguf.starts_with(d)) {
-                "bundled"
-            } else {
-                "home(~/gaply-models)"
-            };
+            // The kind, its source and whether the files exist; never a path,
+            // which names the user's home folder (decision 58).
             tracing::info!(
-                source,
-                gguf = %gguf.display(),
+                model = "stage1_lm",
+                source = model_source("GAPLY_STAGE1_LM_GGUF", &gguf),
                 gguf_exists = gguf.exists(),
-                tokenizer = %tok.display(),
                 tokenizer_exists = tok.exists(),
                 "model resolution: stage-1 LM"
             );
@@ -173,12 +180,19 @@ pub fn slm1_model() -> Option<Box<dyn PerplexityModel>> {
         Some((gguf, tokenizer)) if gguf.exists() && tokenizer.exists() => {
             match CandlePerplexityModel::from_paths(&gguf, &tokenizer) {
                 Ok(m) => {
-                    tracing::info!(gguf = %gguf.display(), "SLM-1: loaded candle perplexity model");
+                    tracing::info!(
+                        model = "slm1",
+                        source = model_source("GAPLY_SLM1_GGUF", &gguf),
+                        gguf_exists = true,
+                        tokenizer_exists = true,
+                        "SLM-1: loaded candle perplexity model"
+                    );
                     Some(Box::new(m))
                 }
-                Err(e) => {
+                Err(_) => {
+                    // The kind only: the loader's message names the model file's path.
                     tracing::warn!(
-                        error = %e,
+                        error_kind = "model_load_failed",
                         "SLM-1: candle model present but failed to load"
                     );
                     None
@@ -211,12 +225,19 @@ pub fn slm1_mini_model() -> Option<Box<dyn PerplexityModel>> {
                 "Qwen2.5-1.5B (compact, on-device)",
             ) {
                 Ok(m) => {
-                    tracing::info!(gguf = %gguf.display(), "SLM-1-MINI: loaded compact candle perplexity model");
+                    tracing::info!(
+                        model = "slm1_mini",
+                        source = model_source("GAPLY_SLM1_MINI_GGUF", &gguf),
+                        gguf_exists = true,
+                        tokenizer_exists = true,
+                        "SLM-1-MINI: loaded compact candle perplexity model"
+                    );
                     Some(Box::new(m))
                 }
-                Err(e) => {
+                Err(_) => {
+                    // The kind only: the loader's message names the model file's path.
                     tracing::warn!(
-                        error = %e,
+                        error_kind = "model_load_failed",
                         "SLM-1-MINI: compact model present but failed to load"
                     );
                     None
@@ -248,11 +269,21 @@ pub fn stage1_lm_model() -> Option<Box<dyn PerplexityModel>> {
                 "stage-1 language model (on-device)",
             ) {
                 Ok(m) => {
-                    tracing::info!(gguf = %gguf.display(), "Stage-1 LM: loaded perplexity model");
+                    tracing::info!(
+                        model = "stage1_lm",
+                        source = model_source("GAPLY_STAGE1_LM_GGUF", &gguf),
+                        gguf_exists = true,
+                        tokenizer_exists = true,
+                        "Stage-1 LM: loaded perplexity model"
+                    );
                     Some(Box::new(m))
                 }
-                Err(e) => {
-                    tracing::warn!(error = %e, "Stage-1 LM: model present but failed to load");
+                Err(_) => {
+                    // The kind only: the loader's message names the model file's path.
+                    tracing::warn!(
+                        error_kind = "model_load_failed",
+                        "Stage-1 LM: model present but failed to load"
+                    );
                     None
                 }
             }

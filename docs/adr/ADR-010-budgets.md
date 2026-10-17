@@ -108,3 +108,42 @@ peak from a 1.5 MB workbook (M-9) before part C bounded inflation.
 
 The first measured budget breach; a capability whose inner loop runs longer
 than its check-point interval; or Phase 4's capability descriptors.
+
+## Addendum: each capability's resource profile (Phase 4A)
+
+**Status: Proposed** (this ADR stays Proposed). Research OS Phase 4A,
+18 Oct 2026. The profiles are literals in `gaply_core::stats_registry`,
+pinned to the app's constants by `src-tauri/tests/capability_profiles.rs`
+and to `import_guard::MAX_BYTES` by `gaply-core/tests/capability_registry.rs`.
+A limit that does not exist is `None`.
+
+| capability | RAM class | max rows | max columns | max input bytes | ceiling | cancel | GPU | temp disk |
+|---|---|---|---|---|---|---|---|---|
+| `stats.check` | 8 GB (unconfirmed at the cap, below) | none | none | 104,857,600: the manuscript file (`import_guard::MAX_BYTES`) | none | none | no | no |
+| `stats.verify.*` (7) | 8 GB | 5,000 | 128 | 2,097,152: cell text in UTF-8 bytes (`MAX_TOTAL_CHARS`) | none | none: compute is one call | no | no |
+| `stats.describe` | 8 GB | 5,000 | 128 | 2,097,152, as above | 30,000 ms (`RUN_CEILING_MS`) | cooperative, per column | no | no |
+
+**What was measured, and how.** Peak resident memory with `/usr/bin/time -l`,
+one capability per process, through a probe in `src-tauri/examples/` that
+existed only for the run (kept, with its SHA-256, in
+`~/gaply-corpus/os/phase4/mem/`). macOS aarch64, 8 GiB RAM, the **dev
+profile** (`debug = "line-tables-only"`); a release build was not made (no
+release cache, and the disk was near its 15 GiB floor). Synthetic inputs
+only.
+
+| run | input | peak RSS | time (dev) |
+|---|---|---|---|
+| an idle process | none | 10,305,536 B (9.8 MiB) | — |
+| `stats.describe` | 5,000 × 128 numbers of three characters (1.92 MB of cell text, under the 2 MiB cap; the row and column caps both reached), all 128 columns numeric | 98,615,296 B (94.0 MiB) | 1.24 s |
+| `stats.verify.ols` | the same table; outcome C1 and 127 predictors, the overall F, through open, confirm and compute | 723,140,608 B (689.6 MiB) | 239 s |
+| `stats.check` | a 10 MiB manuscript of results (134,433 read) | 439,566,336 B (419.2 MiB) | 341 s, under load |
+| `stats.check` | the 100 MiB cap | **not measured** | — |
+
+The 100 MiB run was not made: the disk was at 14.9 GiB, under the 15 GiB
+floor, and on an 8 GiB machine a run of several GiB would swap onto the same
+volume. *Inferred, not measured:* if peak RSS grows with the results read, as
+from 10 MiB it would, a manuscript at the cap needs about ten times 419 MiB,
+which does not fit the 8 GB class beside the app. Until it is measured,
+`stats.check`'s 8 GB class holds for manuscripts up to the measured size
+only. Level 1's OLS at the caps is seven times the descriptive summary's
+peak; both fit the 8 GB class.
