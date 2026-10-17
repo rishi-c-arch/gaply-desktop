@@ -122,8 +122,8 @@ describe('part C follow-up: minor wording', () => {
     expect(sentenceFor({ code: 'not_matched' })).toBe('Differs from the value computed from the data under this binding.');
     expect(sentenceFor({ code: 'conclusion_not_assessed', gap: 'p_judged_on_printed_numbers' })).toMatch(/^The p was judged against the printed statistic/);
     expect(sentenceFor({ code: 'archive_too_large', declared: 4097, limit: 67_108_864 })).toBe(
-      'This workbook unpacks to more than its own contents list says, so it was not opened.'
+      'This file unpacks to more than its own contents list says, so it was not opened.'
     );
-    expect(sentenceFor({ code: 'archive_too_large', declared: 1_572_865_485, limit: 67_108_864 })).toMatch(/would take 1500 MB once unpacked, more than the 64 MB/);
+    expect(sentenceFor({ code: 'archive_too_large', declared: 1_572_865_485, limit: 67_108_864 })).toMatch(/^This file would take at least 1500 MB once unpacked, more than the 64 MB/);
   });
 });

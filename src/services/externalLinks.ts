@@ -8,18 +8,23 @@
 // Every external link goes through `open_external_link`, which rechecks it
 // (https only, no credentials, bounded; `src-tauri/src/external_links.rs`).
 //
-// `installExternalLinkClicks` keeps the plugin's click rules exactly (primary
-// button, no Meta or Alt, not already cancelled, `target="_blank"` or Ctrl or
-// Shift held; http, https, mailto and tel are kept out of the webview), and
-// opens only https through the command. Level 1's model-supplied sources keep
-// their own stricter command, `stats_open_source_link`.
+// `installExternalLinkClicks` keeps the plugin's rules for which clicks it
+// takes (primary button, no Meta or Alt, not already cancelled), and since
+// part C's follow-up 2 takes every http, https, mailto and tel anchor whatever
+// its target that is not on the app's own origin, so no external link
+// navigates the app window itself. It opens
+// https and mailto through the command (Rust allows only listed mailto
+// addresses, with at most a subject) and opens no http or tel link. Level 1's
+// model-supplied sources keep their own stricter command,
+// `stats_open_source_link`.
 
 import { invoke } from '@tauri-apps/api/core';
 
 const KEPT_OUT = ['http:', 'https:', 'mailto:', 'tel:'];
+const OPENED = ['https:', 'mailto:'];
 
-/** Open an https URL in the system browser through the checked command.
- *  Rejects, without sending, anything that is not https. */
+/** Open an https or mailto URL through the checked command. Rejects,
+ *  without sending, any other scheme. */
 export async function openExternal(url: string): Promise<void> {
   let parsed: URL;
   try {
@@ -27,7 +32,7 @@ export async function openExternal(url: string): Promise<void> {
   } catch {
     throw new Error('That link could not be read, so it was not opened.');
   }
-  if (parsed.protocol !== 'https:') throw new Error('Only https links are opened.');
+  if (!OPENED.includes(parsed.protocol)) throw new Error('Only https and mailto links are opened.');
   await invoke('open_external_link', { url });
 }
 
@@ -39,7 +44,7 @@ export function installExternalLinkClicks(win: Window): () => void {
     const a = e.composedPath().find((n) => n instanceof Node && n.nodeName.toUpperCase() === 'A') as
       | HTMLAnchorElement
       | undefined;
-    if (!a || !a.href || (a.target !== '_blank' && !e.ctrlKey && !e.shiftKey)) return;
+    if (!a || !a.href) return;
     let url: URL;
     try {
       url = new URL(a.href);
@@ -47,8 +52,12 @@ export function installExternalLinkClicks(win: Window): () => void {
       return;
     }
     if (!KEPT_OUT.includes(url.protocol)) return;
+    // The app's own pages are left to the router: in development and on
+    // Windows the app itself is served over http (localhost:3000,
+    // tauri.localhost).
+    if (url.origin === win.location.origin) return;
     e.preventDefault();
-    if (url.protocol === 'https:') {
+    if (OPENED.includes(url.protocol)) {
       // A refused or failed open changes nothing on the page.
       openExternal(url.href).catch(() => undefined);
     }

@@ -1,6 +1,13 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import SEO from './SEO';
+import { isTauri } from '../utils/isTauri';
+import { openExternal } from '../services/externalLinks';
+
+/** The application email: a listed address and a subject only, so the
+ *  desktop app's checked command (`open_external_link`) opens it; it refuses
+ *  a body (part C follow-up 3). */
+const CAREER_MAILTO = 'mailto:helloresearcher@gaply.in?subject=Career%20Application%20-%20Gaply.in';
 
 const CareerPage: React.FC = () => {
   const navigate = useNavigate();
@@ -55,7 +62,12 @@ const CareerPage: React.FC = () => {
   ];
 
   const handleApplyClick = () => {
-    window.open('mailto:helloresearcher@gaply.in?subject=Career Application - Gaply.in&body=Dear Gaply Team,%0D%0A%0D%0AI am interested in joining your expert research team. Please find my application details below:%0D%0A%0D%0APosition of Interest:%0D%0AQualifications:%0D%0AExperience:%0D%0A%0D%0AThank you for your consideration.%0D%0A%0D%0ABest regards,', '_blank');
+    // The desktop webview opens nothing through window.open.
+    if (isTauri) {
+      openExternal(CAREER_MAILTO).catch(() => undefined);
+      return;
+    }
+    window.open(CAREER_MAILTO, '_blank');
   };
 
   return (

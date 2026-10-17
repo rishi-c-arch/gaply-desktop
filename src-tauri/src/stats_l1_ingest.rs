@@ -143,6 +143,24 @@ pub fn check_file(path: &Path) -> Result<CheckedFile, L1IngestRefusal> {
             return Err(L1IngestRefusal::ArchiveTooLarge { declared: counted, limit: MAX_WORKBOOK_UNCOMPRESSED_BYTES });
         }
     }
+    // A .zsav's trailer, read before ambers allocates from it (part C
+    // follow-up 2, item 3).
+    if ext == "sav" {
+        match supplementary::zsav_trailer(&before) {
+            supplementary::ZsavTrailer::Malformed => return Err(L1IngestRefusal::Malformed),
+            supplementary::ZsavTrailer::Declared { inflated } if inflated > MAX_WORKBOOK_UNCOMPRESSED_BYTES => {
+                return Err(L1IngestRefusal::ArchiveTooLarge { declared: inflated, limit: MAX_WORKBOOK_UNCOMPRESSED_BYTES });
+            }
+            _ => {}
+        }
+    }
+    // A .mat file's compressed elements, counted the same way before matfile
+    // inflates them (part C follow-up 2).
+    if ext == "mat" {
+        if let Err(counted) = supplementary::count_mat_inflation(&before, MAX_WORKBOOK_UNCOMPRESSED_BYTES) {
+            return Err(L1IngestRefusal::ArchiveTooLarge { declared: counted, limit: MAX_WORKBOOK_UNCOMPRESSED_BYTES });
+        }
+    }
     Ok(CheckedFile { bytes: before, ext })
 }
 
@@ -689,6 +707,118 @@ mod tests {
             assert_eq!(d.rows(), 4);
             let _ = std::fs::remove_file(&p);
         }
+    }
+
+    /// A MATLAB v5 file holding one compressed double matrix of `n` zeros,
+    /// as `save('-v7')` writes a large zero vector: the miMATRIX element
+    /// deflated inside a miCOMPRESSED (15) element.
+    fn compressed_mat(n: usize) -> Vec<u8> {
+        use std::io::Write as _;
+        let real = (n * 8) as u32;
+        let mut m = Vec::new();
+        for v in [14u32, 48 + real, 6, 8, 6, 0, 5, 8, n as u32, 1, 1, 1] {
+            m.extend_from_slice(&v.to_le_bytes());
+        }
+        m.extend_from_slice(b"x\0\0\0\0\0\0\0");
+        m.extend_from_slice(&9u32.to_le_bytes());
+        m.extend_from_slice(&real.to_le_bytes());
+        let mut enc = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::fast());
+        enc.write_all(&m).unwrap();
+        let chunk = vec![0u8; 1 << 20];
+        let mut left = n * 8;
+        while left > 0 {
+            let k = left.min(chunk.len());
+            enc.write_all(&chunk[..k]).unwrap();
+            left -= k;
+        }
+        let z = enc.finish().unwrap();
+        let mut out = vec![b' '; 116];
+        out[..19].copy_from_slice(b"MATLAB 5.0 MAT-file");
+        out.extend_from_slice(&[0u8; 8]);
+        out.extend_from_slice(&0x0100u16.to_le_bytes());
+        out.extend_from_slice(b"IM");
+        out.extend_from_slice(&15u32.to_le_bytes());
+        out.extend_from_slice(&(z.len() as u32).to_le_bytes());
+        out.extend_from_slice(&z);
+        out
+    }
+
+    /// Part C follow-up 2: matfile inflates a compressed element with
+    /// `read_to_end`, so a 7.7 MB file reached a 1 GB peak. Every compressed
+    /// element is now inflated into a counter first, and past the limit the
+    /// file is refused with the workbook's code before matfile sees it. The
+    /// fixtures still open.
+    #[test]
+    fn a_mat_whose_compressed_elements_inflate_past_the_limit_is_refused_before_matfile_reads_it() {
+        // 9 million doubles: 72 MB inflated, about 70 KB on disk.
+        let bytes = compressed_mat(9_000_000);
+        assert!(bytes.len() < 1024 * 1024, "{} bytes", bytes.len());
+        let p = write("big.mat", &bytes);
+        let started = std::time::Instant::now();
+        let got = load_dataset(&p).map(|_| ());
+        assert!(matches!(got, Err(L1IngestRefusal::ArchiveTooLarge { limit: MAX_WORKBOOK_UNCOMPRESSED_BYTES, .. })), "{got:?}");
+        assert!(started.elapsed() < std::time::Duration::from_secs(2), "{:?}", started.elapsed());
+        let small = write("small.mat", &compressed_mat(1000));
+        assert!(!matches!(load_dataset(&small), Err(L1IngestRefusal::ArchiveTooLarge { .. })));
+        for f in ["analysis_v7.mat", "analysis_mixed.mat"] {
+            assert!(load_dataset(&fixture(f)).is_ok(), "{f}");
+        }
+        for f in [p, small] {
+            let _ = std::fs::remove_file(f);
+        }
+    }
+
+    /// An honest 100-row zlib-compressed SPSS file (`$FL3`), from ambers'
+    /// own writer, and the offset of its trailer (found from the zlib header,
+    /// whose first field is its own offset).
+    fn zsav() -> (Vec<u8>, usize) {
+        use arrow::array::Float64Array;
+        use arrow::datatypes::{DataType, Field, Schema};
+        let schema = std::sync::Arc::new(Schema::new(vec![Field::new("x", DataType::Float64, false)]));
+        let batch = arrow::record_batch::RecordBatch::try_new(schema, vec![std::sync::Arc::new(Float64Array::from(vec![1.0; 100]))]).unwrap();
+        let mut buf = std::io::Cursor::new(Vec::new());
+        ambers::write_sav_to_writer(&mut buf, &batch, &ambers::SpssMetadata::default(), ambers::Compression::Zlib, None).unwrap();
+        let b = buf.into_inner();
+        let i64_at = |o: usize| i64::from_le_bytes(b[o..o + 8].try_into().unwrap());
+        let zh = (0..b.len() - 24).find(|&p| i64_at(p) == p as i64 && i64_at(p + 8) as usize + i64_at(p + 16) as usize == b.len()).unwrap();
+        let zt = i64_at(zh + 8) as usize;
+        (b, zt)
+    }
+
+    /// Part C follow-up 2, item 3: ambers allocates each zlib block at the
+    /// size the trailer declares, and the trailer's entries at the count it
+    /// declares. Measured: a trailer declaring a 2 GiB block made a 2,048 MB
+    /// allocation, one declaring 2^31 - 1 blocks a 49,152 MB one, and a
+    /// negative size panicked. The trailer is now read before ambers runs:
+    /// sizes past the limit are refused with the workbook's code, a trailer
+    /// that cannot be what it declares as malformed. Honest files still open.
+    #[test]
+    fn a_zsav_whose_trailer_lies_is_refused_before_ambers_reads_it() {
+        let (honest, zt) = zsav();
+        assert_eq!(&honest[..4], b"$FL3");
+        let p = write("honest.sav", &honest);
+        assert_eq!(load_dataset(&p).map(|d| d.rows()), Ok(100));
+        let entry = zt + 24;
+        let lies: [(&str, usize, i32, bool); 3] = [
+            ("a 2 GiB block", entry + 16, i32::MAX, true),
+            ("a negative block", entry + 16, -1, false),
+            ("2^31 - 1 blocks", zt + 20, i32::MAX, false),
+        ];
+        for (name, at, value, too_large) in lies {
+            let mut b = honest.clone();
+            b[at..at + 4].copy_from_slice(&value.to_le_bytes());
+            let q = write("lie.sav", &b);
+            let got = std::panic::catch_unwind(|| load_dataset(&q).map(|_| ()));
+            let Ok(got) = got else { panic!("{name}: the reader panicked") };
+            if too_large {
+                assert!(matches!(got, Err(L1IngestRefusal::ArchiveTooLarge { limit: MAX_WORKBOOK_UNCOMPRESSED_BYTES, .. })), "{name}: {got:?}");
+            } else {
+                assert_eq!(got, Err(L1IngestRefusal::Malformed), "{name}");
+            }
+            let _ = std::fs::remove_file(&q);
+        }
+        assert!(load_dataset(&fixture("analysis.sav")).is_ok());
+        let _ = std::fs::remove_file(&p);
     }
 
     /// m-7: the header is not a row. A file with exactly 5,000 data rows was

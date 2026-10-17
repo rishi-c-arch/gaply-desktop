@@ -119,6 +119,7 @@ dependencies = [
  "candle-nn",
  "candle-transformers",
  "csv",
+ "flate2",
  "gaply_core",
  "libc",
  "matfile",

@@ -476,6 +476,18 @@ pub struct L1Run {
     reproduction: Option<ReproductionOutcome>,
     usage: UsageByTask,
     cancel: Arc<AtomicBool>,
+    /// Set when the run is closed or evicted (part C follow-up 2): the wire
+    /// gate then refuses every later attempt with `RunClosed`, and a send in
+    /// flight drops its result.
+    closed: bool,
+}
+
+/// Mark a run closed: its cancel is set, so a transport waiting to retry
+/// stops, and the gate refuses with `RunClosed` from now on.
+fn mark_closed(run: &Arc<Mutex<L1Run>>) {
+    let mut r = lock(run);
+    r.closed = true;
+    r.cancel.store(true, Ordering::SeqCst);
 }
 
 #[derive(Default)]
@@ -488,10 +500,16 @@ impl L1Runs {
     fn insert(&self, make: impl FnOnce(u64) -> L1Run) -> u64 {
         let id = self.next.fetch_add(1, Ordering::SeqCst) + 1;
         let run = Arc::new(Mutex::new(make(id)));
-        let mut runs = self.runs.lock().unwrap();
-        runs.push_back((id, run));
-        while runs.len() > MAX_RUNS {
-            runs.pop_front();
+        let mut evicted = Vec::new();
+        {
+            let mut runs = self.runs.lock().unwrap();
+            runs.push_back((id, run));
+            while runs.len() > MAX_RUNS {
+                evicted.extend(runs.pop_front());
+            }
+        }
+        for (_, old) in &evicted {
+            mark_closed(old);
         }
         id
     }
@@ -500,12 +518,19 @@ impl L1Runs {
         self.runs.lock().unwrap().iter().find(|(r, _)| *r == id).map(|(_, run)| run.clone()).ok_or_else(|| refuse(w("unknown_run")))
     }
 
-    /// Drop a run. True if it was held.
+    /// Drop a run. True if it was held. A send of the run still in flight
+    /// sends nothing more and drops its result (part C follow-up 2).
     pub fn close(&self, id: u64) -> bool {
-        let mut runs = self.runs.lock().unwrap();
-        let before = runs.len();
-        runs.retain(|(r, _)| *r != id);
-        runs.len() != before
+        let removed: Vec<Arc<Mutex<L1Run>>> = {
+            let mut runs = self.runs.lock().unwrap();
+            let (gone, kept): (VecDeque<_>, VecDeque<_>) = runs.drain(..).partition(|(r, _)| *r == id);
+            *runs = kept;
+            gone.into_iter().map(|(_, run)| run).collect()
+        };
+        for run in &removed {
+            mark_closed(run);
+        }
+        !removed.is_empty()
     }
 
     pub fn len(&self) -> usize {
@@ -1146,6 +1171,7 @@ pub fn open(db: &Database, runs: &L1Runs, ai: &StatsAi, manuscript: &Path, data:
         reproduction: None,
         usage: BTreeMap::new(),
         cancel: Arc::new(AtomicBool::new(false)),
+        closed: false,
     });
     let run = runs.get(id)?;
     let r = lock(&run);
@@ -1334,6 +1360,9 @@ fn transmit(run: &Arc<Mutex<L1Run>>, ai: &StatsAi, prepared: PreparedSend) -> Re
             return Err(if help.ai_help { WireGate::WebContextOff } else { WireGate::AiHelpOff });
         }
         let r = lock(run);
+        if r.closed {
+            return Err(WireGate::RunClosed);
+        }
         if r.cancel.load(Ordering::SeqCst) {
             return Err(WireGate::Cancelled);
         }
@@ -1342,7 +1371,13 @@ fn transmit(run: &Arc<Mutex<L1Run>>, ai: &StatsAi, prepared: PreparedSend) -> Re
     let before = transport.requests_sent();
     let result = prepared.transmit_gated(&*transport, &gate);
     let requests = transport.requests_sent().saturating_sub(before);
-    record_usage(&mut lock(run), task, requests, result.as_ref().ok());
+    let mut r = lock(run);
+    record_usage(&mut r, task, requests, result.as_ref().ok());
+    // A run closed while this send was in flight: whatever came back is
+    // dropped, never shown (part C follow-up 2).
+    if r.closed {
+        return Err(refuse(send_refusal_code(SendRefusal::Transport(TransportError::Gated(WireGate::RunClosed)))));
+    }
     result.map_err(|e| refuse(send_refusal_code(e)))
 }
 
@@ -1359,6 +1394,9 @@ pub fn helper_send(runs: &L1Runs, ai: &StatsAi, run: u64, preview: L1Handle, now
     let id = PreviewId(preview.id);
     let (prepared, outbound, meta_claim, query_sent) = {
         let mut r = lock(&handle);
+        if r.closed {
+            return Err(refuse(w("unknown_run")));
+        }
         sync_helper(&mut r, ai);
         let meta = r.previews.get(&id).ok_or_else(|| refuse(w("unknown_preview")))?;
         let (meta_claim, query_sent) = (meta.claim, meta.query_sent.clone());

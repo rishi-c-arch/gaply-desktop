@@ -620,6 +620,112 @@ fn count_mat_variables(bytes: &[u8]) -> usize {
     n
 }
 
+/// **What a `.mat` file's compressed elements inflate to, counted** (part C
+/// follow-up 2). `matfile` inflates each `miCOMPRESSED` element with
+/// `read_to_end` and nothing bounds it: measured, a 7.7 MB file reached a
+/// 1,048 MB peak. Each top-level compressed element is inflated here into a
+/// sink that only counts (flate2, approved for this alone), stopping as soon
+/// as the total passes `limit`. `Err(counted)` past the limit; `Ok(total)`
+/// otherwise, including for a file this walk cannot read, which is left to
+/// the parser to refuse. Nothing inflated is kept.
+///
+/// The walk: after the 128-byte header, each element is an 8-byte tag
+/// `(type, length)`; a compressed element (15) is not padded, every other is
+/// padded to 8 bytes (`count_mat_variables` pads every element, which is
+/// wrong only after a compressed one; it is left as it is).
+pub fn count_mat_inflation(bytes: &[u8], limit: u64) -> Result<u64, u64> {
+    const HEADER: usize = 128;
+    const MI_COMPRESSED: u32 = 15;
+    if bytes.len() <= HEADER + 8 {
+        return Ok(0);
+    }
+    let little = &bytes[126..128] == b"IM";
+    let u32_at = |o: usize| -> u32 {
+        let b = [bytes[o], bytes[o + 1], bytes[o + 2], bytes[o + 3]];
+        if little { u32::from_le_bytes(b) } else { u32::from_be_bytes(b) }
+    };
+    let (mut off, mut total) = (HEADER, 0u64);
+    while off + 8 <= bytes.len() {
+        let (ty, len) = (u32_at(off), u32_at(off + 4) as usize);
+        let Some(data) = bytes.get(off + 8..off + 8 + len) else { break };
+        if ty == MI_COMPRESSED {
+            let room = limit.saturating_sub(total);
+            let mut counted = flate2::read::ZlibDecoder::new(data).take(room.saturating_add(1));
+            let Ok(n) = std::io::copy(&mut counted, &mut std::io::sink()) else { break };
+            total = total.saturating_add(n);
+            if n > room {
+                return Err(total);
+            }
+            off += 8 + len;
+        } else {
+            off += 8 + len.div_ceil(8) * 8;
+        }
+    }
+    Ok(total)
+}
+
+/// What a zlib-compressed SPSS file's trailer declares (part C follow-up 2,
+/// item 3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ZsavTrailer {
+    /// Not a `$FL3` file: nothing to read.
+    NotZsav,
+    /// The most any one allocation or all blocks together would take, from
+    /// the declared block size and each block's declared inflated size.
+    Declared { inflated: u64 },
+    /// No zlib header points at a trailer the file holds, or the trailer
+    /// cannot be what it declares (a negative size, a block count its length
+    /// does not hold, a block outside the file).
+    Malformed,
+}
+
+/// **The trailer of a `.zsav`, read before ambers reads it.** Ambers
+/// allocates each block at the size the trailer declares and the trailer's
+/// entries at the count it declares; measured, a trailer declaring a 2 GiB
+/// block made a 2,048 MB allocation, one declaring 2^31 - 1 blocks a
+/// 49,152 MB one, and a negative size panicked. The zlib header is found by
+/// its own shape (its first field is its own offset, and its trailer offset
+/// and length end the file), in either byte order.
+pub fn zsav_trailer(bytes: &[u8]) -> ZsavTrailer {
+    if bytes.get(..4) != Some(&b"$FL3"[..]) {
+        return ZsavTrailer::NotZsav;
+    }
+    for little in [true, false] {
+        let i64_at = |o: usize| -> Option<i64> {
+            let b: [u8; 8] = bytes.get(o..o + 8)?.try_into().ok()?;
+            Some(if little { i64::from_le_bytes(b) } else { i64::from_be_bytes(b) })
+        };
+        let i32_at = |o: usize| -> Option<i32> {
+            let b: [u8; 4] = bytes.get(o..o + 4)?.try_into().ok()?;
+            Some(if little { i32::from_le_bytes(b) } else { i32::from_be_bytes(b) })
+        };
+        let len = bytes.len() as i64;
+        let header = (0..bytes.len().saturating_sub(24)).find(|&p| {
+            matches!((i64_at(p), i64_at(p + 8), i64_at(p + 16)), (Some(a), Some(off), Some(n)) if a == p as i64 && off > 0 && n > 0 && off.checked_add(n) == Some(len))
+        });
+        let Some(p) = header else { continue };
+        let (Some(zt), Some(zlen)) = (i64_at(p + 8), i64_at(p + 16)) else { return ZsavTrailer::Malformed };
+        let zt = zt as usize;
+        let (Some(block), Some(blocks)) = (i32_at(zt + 16), i32_at(zt + 20)) else { return ZsavTrailer::Malformed };
+        if block <= 0 || blocks < 0 || i64::from(blocks).checked_mul(24).and_then(|x| x.checked_add(24)) != Some(zlen) {
+            return ZsavTrailer::Malformed;
+        }
+        let mut inflated: u64 = block as u64;
+        let mut total: u64 = 0;
+        for k in 0..blocks as usize {
+            let e = zt + 24 + 24 * k;
+            let (Some(at), Some(size), Some(packed)) = (i64_at(e + 8), i32_at(e + 16), i32_at(e + 20)) else { return ZsavTrailer::Malformed };
+            if at < 0 || size < 0 || packed < 0 || at.checked_add(i64::from(packed)).map_or(true, |end| end > len) {
+                return ZsavTrailer::Malformed;
+            }
+            inflated = inflated.max(size as u64);
+            total = total.saturating_add(size as u64);
+        }
+        return ZsavTrailer::Declared { inflated: inflated.max(total) };
+    }
+    ZsavTrailer::Malformed
+}
+
 /// One MATLAB array as `(declared_type, cells, truncated)`: `truncated` says
 /// the array held more than [`MAX_ROWS`] values and only the first are kept.
 /// Numeric data is rendered with `serde_json`-style shortest round-trip so a

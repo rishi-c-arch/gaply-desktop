@@ -367,6 +367,72 @@ fn a_transport_retry_after_a_timeout_is_gated_on_the_wire() {
 }
 
 /* ------------------------------------------------------------------------ *
+ *  Part C follow-up 2: closing a run mid-send
+ * ------------------------------------------------------------------------ */
+
+/// The run is closed (the screen's "close", or eviction) while its first
+/// attempt has timed out and the transport is waiting to retry. Closing sets
+/// the run's cancel, and the wire gate refuses every later attempt of that
+/// run with `RunClosed`: the retry never reaches the server, and the command
+/// returns the closed run's code instead of any result.
+#[test]
+fn closing_a_run_while_its_send_waits_to_retry_sends_nothing_more_and_drops_the_result() {
+    let srv = server(vec![None, None, None]);
+    let c = real_ctx(&srv, RequestTimeout::Fixed(Duration::from_millis(400)));
+    turn_on(&c);
+    let v = l1::open(&c.db, &c.runs, &c.ai, &c._files.manuscript, &c._files.data).expect("open");
+    let input = HelperTaskInput::ClaimMethod { claim_id: 0, methods_passage: None };
+    let p = l1::helper_preview(&c.runs, &c.ai, v.run, &input, &[]).unwrap();
+    let result = std::thread::scope(|s| {
+        let job = s.spawn(|| l1::helper_send(&c.runs, &c.ai, v.run, p.preview, 1_792_000_000));
+        let t0 = Instant::now();
+        while srv.requests.lock().unwrap().is_empty() {
+            assert!(t0.elapsed() < Duration::from_secs(10), "the first attempt never arrived");
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        assert!(c.runs.close(v.run), "the run was held");
+        job.join().unwrap()
+    });
+    std::thread::sleep(Duration::from_millis(600));
+    let n = srv.requests.lock().unwrap().len();
+    let got = result.as_ref().map(|_| "shown".to_string()).unwrap_or_else(|e| code(&e));
+    println!("claim_method, run closed while waiting to retry: requests={n} result={got}");
+    assert_eq!(n, 1, "no attempt after the close reached the server");
+    assert_eq!(got, "unknown_run", "the result is dropped as the closed run's");
+}
+
+/// A reply that arrives after its run was closed is dropped, never shown;
+/// and an explanation whose first reply fails validation does not retry.
+#[test]
+fn a_reply_that_arrives_after_its_run_is_closed_is_dropped_and_nothing_retries() {
+    let good = json_reply(json!({"explanation": "The result was reproduced."}));
+    let bad = json_reply(json!({"explanation": "The printed t of 9.87 does not fit."}));
+    for (name, replies) in [("a valid reply", vec![good.clone()]), ("a reply that would retry", vec![bad, good])] {
+        let (atx, arx) = mpsc::channel();
+        let (rtx, rrx) = mpsc::channel();
+        let hold = Arc::new(Holding { arrived: Mutex::new(Some(atx)), release: Mutex::new(Some(rrx)), replies: Mutex::new(VecDeque::from(replies)), n: AtomicU32::new(0) });
+        let h2 = hold.clone();
+        let factory: TransportFactory = Arc::new(move |_| h2.clone() as Arc<dyn HelperTransport>);
+        let c = ctx_with(factory, "http://127.0.0.1:9/v1");
+        turn_on(&c);
+        let run = explanation_ready(&c);
+        let p = l1::helper_preview(&c.runs, &c.ai, run, &HelperTaskInput::ResultExplanation { claim_id: 0 }, &[]).unwrap();
+        let result = std::thread::scope(|s| {
+            let job = s.spawn(|| l1::helper_send(&c.runs, &c.ai, run, p.preview, 1_792_000_000));
+            arx.recv_timeout(Duration::from_secs(10)).expect("the first call arrived");
+            assert!(c.runs.close(run), "the run was held");
+            rtx.send(()).unwrap();
+            job.join().unwrap()
+        });
+        let sent = hold.requests_sent();
+        let got = result.as_ref().map(|_| "shown".to_string()).unwrap_or_else(|e| code(&e));
+        println!("explanation, {name}, run closed during the first call: requests={sent} result={got}");
+        assert_eq!(sent, 1, "{name}: exactly one request went out");
+        assert_eq!(got, "unknown_run", "{name}: the result is dropped, not shown");
+    }
+}
+
+/* ------------------------------------------------------------------------ *
  *  5. Redirects, the key test
  * ------------------------------------------------------------------------ */
 

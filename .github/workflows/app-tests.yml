@@ -20,7 +20,8 @@
 #
 # `--features devtools` is deliberate. `tests/ai_eval_cli.rs` spawns the
 # `ai-eval` binary, which is gated on that feature, and without it 8 of its 11
-# tests fail with NotFound (§11 D210, still open locally). Here the binary is
+# tests fail with NotFound (§11 D210; closed 17 Oct 2026: the test target now
+# requires the feature, so a run without it skips the target). Here the binary is
 # built from this checkout by this run, so a pass cannot come from a stale
 # binary left on disk — the contamination D210 records. It also means the
 # devtools binaries (grrb, grrb-gate, ai-eval, label-cn, label-cs) are compiled

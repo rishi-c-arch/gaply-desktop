@@ -17151,6 +17151,8 @@ Separate open item, deliberately NOT part of this record:
 
 ### D210 — three things found while measuring A3, recorded and NOT fixed
 
+**Item 1 closed (17 Oct 2026):** `ai_eval_cli` is a `[[test]]` with `required-features = ["devtools"]` in `src-tauri/Cargo.toml`, so a plain workspace run no longer builds it and no leftover binary decides its result.
+
 Each is real, each was found by doing something else, and none is repaired
 here. They are written down so the next person meets them as records rather
 than as discoveries.
@@ -23148,6 +23150,57 @@ statistic's p far from the printed p (A01 near 1e-7 against .200; T05b
 [.0486, .0496] against .040). Section 4's computed values are identical to
 part C's against R; its 134 verdict changes are on the generator's
 placeholder `p = .5`.
+
+**Follow-up 2 (17 Oct 2026).** Decisions: flate2 1.1.9 is approved by name as
+a direct dependency of the app crate, only to count what a `.mat` file's
+compressed elements inflate to (`decisions.md`); mailto gets a checked path,
+http and tel do not; the disk floor is Prompt 0's 15 GiB.
+
+* **Links.** `open_external_link` also opens `mailto`, only to an address in
+  `external_links::MAILTO_ADDRESSES` (`helloresearcher@gaply.in`, the one the
+  app's pages link to) with at most one `subject`; every other mailto is
+  `mailto_address_not_listed` or `mailto_parameter_not_allowed`. http and tel
+  stay `not_https`. The webview's handler now takes every http, https,
+  mailto and tel anchor not on the app's own origin, whatever its target, so
+  no external link navigates the app window. The Google sign-in URL that
+  supabase-js builds is 237 characters against the 2,048 limit (8.6x;
+  `src/services/supabase/signInLink.vitest.ts`, no account, no network), and
+  `open_checked` shows it reaches the opener. No http link to Gaply's own
+  sites existed; the journal seed holds two `http://www.nature.com`
+  `source_url`s (data, unchanged).
+* **`.mat`.** `supplementary::count_mat_inflation` inflates each top-level
+  `miCOMPRESSED` element into a counting sink before matfile reads it;
+  past 64 MiB the file is `archive_too_large`. The 7.7 MB synthetic file
+  (800 MB inflated): 1,048 MB peak before, refused in 19.6 ms at 19 MB now.
+* **`.zsav` trailers.** Measured with a counting allocator: a trailer
+  declaring a 2 GiB block made a 2,048 MB allocation, 2^31 - 1 blocks a
+  49,152 MB one, a negative size panicked. `supplementary::zsav_trailer`
+  reads the trailer first: sizes past 64 MiB are `archive_too_large`, an
+  impossible trailer is `malformed`.
+* **Closing a run mid-send.** `L1Runs::close` and eviction set the run's
+  cancel and a `closed` flag; the wire gate refuses every later attempt with
+  `RunClosed`, and a result from a closed run is dropped as `unknown_run`.
+* **Stdout.** `scripts/dev-detached.sh` points fd 1 and 2 at
+  `~/gaply-dev.log` for a `--release` build, so pdf-extract 0.7.12's
+  `println!` at `lib.rs:796, 846` writes decoded characters of a user's PDF
+  there; a packaged app's stdout is not redirected. Reported, not changed.
+* **CI lint.** `MarkdownRenderer.test.tsx` and `sanitizeHtml.test.ts` failed
+  CI's eslint step on `main` too (same blobs); fixed with scoped, reasoned
+  disable directives, no assertion changed.
+
+Open items (not now):
+* Command argument lengths: several Level 1 commands take strings and lists from the webview with no length or count bound.
+* Link paths: `stats_open_source_link` checks scheme and host only, never the path or that the URL came from this run's reply.
+* Stdout, for release: a release build run from a terminal or through `scripts/dev-detached.sh` prints characters of a user's PDF text (pdf-extract 0.7.12, `lib.rs:796, 846`); proposed fix: on unix, point fd 1 at /dev/null at startup and send tracing to stderr (`logging.rs`, `.with_writer(std::io::stderr)`).
+
+**Follow-up 3 (17 Oct 2026).** The Careers page's "Apply Now" mailto now
+carries only a subject and, in the desktop app, goes through `openExternal`
+(`careerMailto.vitest.tsx`). The download popup's `window.open` buttons and
+the quartile guides were not changed: at 8d6dbb7, before the opener change,
+`window.open` already opened nothing in the desktop app (the app never calls
+`on_new_window`, so wry 0.55.1's `createWebViewWithConfiguration` delegate
+returns `None`, `wry_web_view_ui_delegate.rs:257`, macOS traced), and the
+quartile guides render only on the web landing page.
 
 #### Accepted findings
 

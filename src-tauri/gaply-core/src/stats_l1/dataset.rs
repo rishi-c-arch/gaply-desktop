@@ -407,7 +407,9 @@ pub enum L1IngestRefusal {
     /// Since the part C follow-up, also a workbook whose parts INFLATE past
     /// their declared sizes or past `limit`, counted before parsing; then
     /// `declared` is the bytes inflated when the count stopped, which may be
-    /// below `limit`.
+    /// below `limit`. Since part C follow-up 2, also a `.mat` file whose
+    /// compressed elements inflate past `limit`, counted before matfile reads
+    /// them.
     ArchiveTooLarge { declared: u64, limit: u64 },
 }
 

@@ -235,14 +235,15 @@ export const WORDS: Record<string, Words> = {
   dataset: (c, w) => w(nested(c, 'refusal')),
   not_a_regular_file: () => 'The chosen data file is not a regular file (it may be a pipe, a device or a socket), so it was not read.',
   // `declared` at or below the limit: a part unpacked to more than the
-  // archive said it holds (part C follow-up, item 2).
+  // archive said it holds (part C follow-up, item 2). Also a .mat file whose
+  // compressed elements unpack past the limit (follow-up 2), so "file".
   archive_too_large: (c) => {
     const declared = num(c, 'declared');
     const limit = num(c, 'limit');
     if (declared !== undefined && limit !== undefined && declared <= limit) {
-      return 'This workbook unpacks to more than its own contents list says, so it was not opened.';
+      return 'This file unpacks to more than its own contents list says, so it was not opened.';
     }
-    return `This workbook would take ${megabytes(declared)} once unpacked, more than the ${megabytes(limit)} Level 1 opens, so it was not opened.`;
+    return `This file would take at least ${megabytes(declared)} once unpacked, more than the ${megabytes(limit)} Level 1 opens, so it was not opened.`;
   },
 
   /* ---- why a claim could not be checked ---------------------------------- */
