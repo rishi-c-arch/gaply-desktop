@@ -645,8 +645,10 @@ pub(super) fn passes_filters(dataset: &Dataset, filters: &[IncludeFilter], row: 
 /// A candidate code is flagged when it occurs and every OTHER value in the
 /// column (the non-candidate ones, at least three of them) lies in a range
 /// the code sits more than three widths outside of. `-99` among 1-to-7 is
-/// flagged; `99` among 0-to-120 is not.
-fn suspect_codes_in(column: ColumnAlias, cells: &[Cell]) -> Vec<SuspectMissingCode> {
+/// flagged; `99` among 0-to-120 is not. The descriptive summary's profile
+/// reports what this finds and never applies it (`stats_desc`, Research OS
+/// Phase 2A).
+pub(crate) fn suspect_codes_in(column: ColumnAlias, cells: &[Cell]) -> Vec<SuspectMissingCode> {
     let values: Vec<f64> = cells.iter().filter_map(Cell::number).collect();
     let is_candidate = |v: f64| MISSING_CODE_CANDIDATES.iter().any(|&c| v == f64::from(c));
     let others: Vec<f64> = values.iter().copied().filter(|v| !is_candidate(*v)).collect();

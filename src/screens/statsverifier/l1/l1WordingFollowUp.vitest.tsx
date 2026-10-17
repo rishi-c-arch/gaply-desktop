@@ -126,4 +126,16 @@ describe('part C follow-up: minor wording', () => {
     );
     expect(sentenceFor({ code: 'archive_too_large', declared: 1_572_865_485, limit: 67_108_864 })).toMatch(/^This file would take at least 1500 MB once unpacked, more than the 64 MB/);
   });
+
+  // Research OS evaluation of Phases 2 and 3, F4 (decision 37): the ingest's
+  // cap on all cell text has its own sentence, with the limit, and is not
+  // "malformed". The descriptive summary shows it too, so it names no level.
+  it('the cell text cap reads as a size limit, not a broken file', () => {
+    const s = sentenceFor({ code: 'content_too_large', limit_bytes: 2_097_152 });
+    expect(s).toBe(
+      'This file holds more than 2 MB of text across its cells, more than Gaply reads from one file, so it was not opened. A copy with only the columns you need may fit.'
+    );
+    expect(s).not.toBe(sentenceFor({ code: 'malformed' }));
+    expect(s).not.toMatch(/Level 1/);
+  });
 });

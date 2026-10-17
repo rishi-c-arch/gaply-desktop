@@ -172,7 +172,9 @@ impl RangeFault {
 /// SD of 10 that is ~1e-7 absolute, which the centred variance and t then
 /// inherit, and Level 1 missed R by up to 1.5e-6 (evaluation fixes, part C,
 /// m-10). R on this machine (aarch64) accumulates in double, as here.
-fn mean(xs: &[f64]) -> f64 {
+/// The descriptive summary (`stats_desc`) calls it too and has no mean of
+/// its own (Research OS, Phase 2A).
+pub(crate) fn mean(xs: &[f64]) -> f64 {
     let n = xs.len() as f64;
     let m = xs.iter().sum::<f64>() / n;
     if !m.is_finite() {
@@ -222,8 +224,9 @@ fn sum_of_squares(terms: impl IntoIterator<Item = f64>) -> Result<f64, GaplyErro
 }
 
 /// Sample variance (n-1 denominator), with the mean and every squared
-/// deviation range-checked.
-fn sample_variance(xs: &[f64]) -> Result<f64, GaplyError> {
+/// deviation range-checked. Also the descriptive summary's variance
+/// (`stats_desc`, Research OS Phase 2A).
+pub(crate) fn sample_variance(xs: &[f64]) -> Result<f64, GaplyError> {
     let n = xs.len();
     if n < 2 {
         return Ok(0.0);

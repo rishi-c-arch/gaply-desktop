@@ -36,6 +36,8 @@ import { GtagRouteListener } from './analytics/GtagRouteListener';
 import { OfflineHintBanner } from './components/OfflineHintBanner';
 import { isTauri } from './utils/isTauri';
 import { isFeatureEnabled } from './config/featureFlags';
+import { describeRoute } from './screens/statistics/describeRoute';
+import { workspaceRoutes } from './screens/workspace/workspaceRoute';
 
 const CitationGeneratorPage = React.lazy(() => import('./features/citation-generator/CitationGeneratorPage'));
 const ScopusLowApcGuidePage = React.lazy(() => import('./components/seo-guides/ScopusLowApcGuidePage'));
@@ -63,6 +65,9 @@ const GaplyPublishReadyRoute = React.lazy(() => import('./screens/GaplyScreens')
 const GaplyCopilotRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.CopilotRoute })));
 const GaplyGapFinderRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.GapFinderRoute })));
 const GaplyStatsVerifierRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.StatsVerifierRoute })));
+const GaplyDescribeRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.DescribeRoute })));
+const GaplyWorkspaceChooserRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.WorkspaceChooserRoute })));
+const GaplyWorkspaceShellRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.WorkspaceShellRoute })));
 const GaplyBillingRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.BillingRoute })));
 const GaplyCommunityRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.CommunityRoute })));
 const GaplySettingsRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.SettingsRoute })));
@@ -662,6 +667,13 @@ const AppContent: React.FC = () => {
           <Route path="/app/publishready" element={<Suspense fallback={null}><GaplyPublishReadyRoute /></Suspense>} />
           <Route path="/app/gapfinder" element={<Suspense fallback={null}><GaplyGapFinderRoute /></Suspense>} />
           <Route path="/app/statsverifier" element={<Suspense fallback={null}><GaplyStatsVerifierRoute /></Suspense>} />
+          {/* The Research OS descriptive summary: only while its flag is on. */}
+          {describeRoute(<Suspense fallback={null}><GaplyDescribeRoute /></Suspense>)}
+          {/* The Research OS workspace chooser and shell: only while their flag is on. */}
+          {workspaceRoutes(
+            <Suspense fallback={null}><GaplyWorkspaceChooserRoute /></Suspense>,
+            <Suspense fallback={null}><GaplyWorkspaceShellRoute /></Suspense>
+          )}
           <Route path="/app/copilot" element={<Suspense fallback={null}><GaplyCopilotRoute /></Suspense>} />
           <Route path="/app/billing" element={<Suspense fallback={null}><GaplyBillingRoute /></Suspense>} />
           <Route path="/app/community" element={<Suspense fallback={null}><GaplyCommunityRoute /></Suspense>} />

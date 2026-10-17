@@ -34,7 +34,7 @@ impl NewProject {
 
 /// Validate and create a project. Names are trimmed; empty or oversized
 /// input is rejected before touching the store.
-#[tracing::instrument(skip(store), fields(name = %name))]
+#[tracing::instrument(skip_all)]
 pub fn create_project(
     store: &dyn ProjectStore,
     name: &str,

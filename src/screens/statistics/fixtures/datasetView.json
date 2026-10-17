@@ -1,0 +1,61 @@
+{
+  "slot": 3,
+  "displayName": "survey.csv",
+  "profile": {
+    "rows": 9,
+    "columns": [
+      {
+        "alias": "C1",
+        "header": "group",
+        "kind": "categorical",
+        "n": 9,
+        "missing": 0,
+        "distinct": 2,
+        "levels": [
+          {
+            "label": "a",
+            "count": 5
+          },
+          {
+            "label": "b",
+            "count": 4
+          }
+        ],
+        "suspectMissingCodes": [
+          {
+            "code": -99,
+            "cells": 1
+          }
+        ],
+        "nonFinite": 0
+      },
+      {
+        "alias": "C2",
+        "header": "dose",
+        "kind": "numeric",
+        "n": 8,
+        "missing": 1,
+        "distinct": 3,
+        "levels": [
+          {
+            "label": "1",
+            "count": 4
+          }
+        ],
+        "suspectMissingCodes": [
+          {
+            "code": 99,
+            "cells": 2
+          }
+        ],
+        "nonFinite": 1
+      }
+    ]
+  },
+  "inputRef": {
+    "contentHash": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "rows": 9,
+    "columns": 2,
+    "semanticRole": "table"
+  }
+}

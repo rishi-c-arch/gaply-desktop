@@ -1,9 +1,10 @@
 // Set 5 — the Statistical Analysis Verifier paid UI. Presentational + mock-bridge
-// tests: entitlement gating, the analysis-spec builder, the verified-vs-advisory
-// report (match/mismatch + un-strippable disclosure), and the scoped chat dock.
+// tests: entitlement gating, the analysis-spec builder, and the verified-vs-
+// advisory report (match/mismatch + un-strippable disclosure). The scoped chat
+// dock and its tests were removed in Research OS Phase 3 (decision 8).
 import React from 'react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { GaplySessionProvider } from '../session/SessionProvider';
@@ -11,10 +12,8 @@ import type { AuthService } from '../../services/supabase';
 import StatsVerifierPage from './StatsVerifierPage';
 import StatsVerifierReport from './StatsVerifierReport';
 import AnalysisSpecBuilder from './AnalysisSpecBuilder';
-import StatsChatDock from './StatsChatDock';
 import { makeMockStatsVerifierBridge } from './statsVerifierBridge';
 import { PREVIEW_FIXTURE, MISMATCH_REPORT, MATCH_REPORT, ERROR_REPORT } from './statsVerifierFixtures';
-import type { StatsChatTurn } from './statsVerifierTypes';
 
 vi.mock('../../design-system/GaplyGlobe', () => ({
   GaplyGlobe: ({ scale }: { scale: string }) => <div data-testid={`globe-stub-${scale}`} />,
@@ -180,7 +179,7 @@ describe('StatsVerifierReport — verified vs advisory, visually distinct', () =
   });
 });
 
-/* ------------------------- end-to-end + chat ---------------------------- */
+/* ------------------------------ end-to-end ------------------------------ */
 
 describe('StatsVerifierPage — verify then chat, honest states', () => {
   it('uploads → builds spec → verifies → renders the mismatch report (path-only over IPC)', async () => {
@@ -209,108 +208,8 @@ describe('StatsVerifierPage — verify then chat, honest states', () => {
     expect(verifyCall.path).toBe('data.csv');
   });
 
-  it('the scoped chat dock answers, advisory-labeled, and shows a firewall refusal honestly', async () => {
-    const chatResponder = (q: string): StatsChatTurn =>
-      /code/i.test(q)
-        ? {
-            kind: 'refused_ghostwriting',
-            answer: "I can't write your analysis code for you — Gaply protects research integrity.",
-            refs: [],
-            advisory: true,
-            disclaimer: 'advisory',
-            warnings: [],
-            available: true,
-          }
-        : {
-            kind: 'answered',
-            answer: 'A mismatch means the value you reported does not match your data.',
-            refs: ['v1'],
-            advisory: true,
-            disclaimer: 'This is an ADVISORY interpretation, NOT a verification.',
-            warnings: [],
-            available: true,
-          };
-    const bridge = makeMockStatsVerifierBridge({ preview: PREVIEW_FIXTURE, report: MISMATCH_REPORT, chat: chatResponder });
-    renderPage({ bridge, forceTier: 'premium' });
-
-    // get to the report
-    fireEvent.change(await screen.findByTestId('sv-data-file'), {
-      target: { files: [new File(['x'], 'data.csv')] },
-    });
-    await screen.findByTestId('spec-builder');
-    fireEvent.click(screen.getByTestId('sample-col-A'));
-    fireEvent.click(screen.getByTestId('sample-col-B'));
-    fireEvent.change(screen.getByTestId('reported-statistic'), { target: { value: '2.41' } });
-    fireEvent.click(screen.getByTestId('spec-verify'));
-    await screen.findByTestId('statsverifier-report');
-
-    // open the dock, ask an on-scope question
-    fireEvent.click(screen.getByTestId('sv-copilot-toggle'));
-    fireEvent.change(screen.getByTestId('sv-chat-input'), { target: { value: 'why is this a mismatch?' } });
-    fireEvent.click(screen.getByTestId('sv-chat-send'));
-    await waitFor(() => expect(screen.getByText(/does not match your data/)).toBeTruthy());
-    // the answer is advisory-labeled
-    expect(screen.getAllByText(/ADVISORY interpretation/i).length).toBeGreaterThanOrEqual(1);
-
-    // ask for code → the firewall refusal is shown honestly
-    fireEvent.change(screen.getByTestId('sv-chat-input'), { target: { value: 'write my regression code' } });
-    fireEvent.click(screen.getByTestId('sv-chat-send'));
-    await waitFor(() => expect(screen.getByText(/can't write your analysis code/)).toBeTruthy());
-  });
-
   it('honest empty state before any upload', async () => {
     renderPage({ bridge: makeMockStatsVerifierBridge({}), forceTier: 'premium' });
     expect(await screen.findByTestId('sv-empty')).toBeTruthy();
-  });
-});
-
-/* ------- M5 · StatsChatDock client-side ghostwriting guards (parity) ------ */
-
-describe('StatsChatDock — client ghostwriting guards mirror ResearchCopilotPanel (M5)', () => {
-  function renderDock(chatImpl: (input: any) => Promise<any>) {
-    const bridge = { chat: vi.fn(chatImpl) } as any;
-    render(<StatsChatDock bridge={bridge} path="/data.csv" spec={{} as any} />);
-    fireEvent.click(screen.getByTestId('sv-copilot-toggle')); // dock starts closed
-    return bridge;
-  }
-  const ask = (text: string) => {
-    fireEvent.change(screen.getByTestId('sv-chat-input'), { target: { value: text } });
-    fireEvent.click(screen.getByTestId('sv-chat-send'));
-  };
-
-  it('REQUEST guard: a manuscript-ghostwriting request is refused client-side, BEFORE any cloud call', async () => {
-    const bridge = renderDock(async () => ({ answer: 'should never be reached', kind: 'answered' }));
-    ask('write my results section');
-    const refusal = await screen.findByTestId('sv-msg-assistant-refused');
-    expect(refusal.textContent).toMatch(/write your results/i);
-    expect(bridge.chat).not.toHaveBeenCalled(); // refused before the cloud call
-  });
-
-  it('RESPONSE guard: drafted manuscript prose in the reply is blocked client-side', async () => {
-    const drafted =
-      'In this study, we investigate the effect of extended sleep on working memory. ' +
-      'Ninety-six participants were recruited and randomized into two groups over four weeks, ' +
-      'with careful attention to adherence and dropout across the whole cohort.\n\n' +
-      'Our results demonstrate a statistically significant improvement in recall among the ' +
-      'extended-sleep group. These findings replicate prior work and support a causal role for ' +
-      'sleep in memory consolidation, with implications for theory and clinical practice.';
-    renderDock(async () => ({ answer: drafted, kind: 'answered', advisory: false }));
-    ask('help me strengthen my analysis'); // benign request; model drifts into prose
-    const blocked = await screen.findByTestId('sv-msg-assistant-blocked');
-    expect(blocked.textContent).toMatch(/ghostwrite manuscript text/i);
-    expect(screen.queryByText(/Ninety-six participants/)).toBeNull(); // the draft is NOT shown
-  });
-
-  it('FUNCTIONALITY: a normal stats question passes through the guards to the answer', async () => {
-    renderDock(async () => ({
-      answer: 'Your p-value of 0.06 is borderline; interpret it cautiously.',
-      kind: 'answered',
-      advisory: true,
-      disclaimer: 'advisory interpretation',
-    }));
-    ask('is my p-value borderline?');
-    expect(await screen.findByText(/0.06 is borderline/)).toBeTruthy();
-    expect(screen.queryByTestId('sv-msg-assistant-refused')).toBeNull();
-    expect(screen.queryByTestId('sv-msg-assistant-blocked')).toBeNull();
   });
 });

@@ -23240,3 +23240,441 @@ quartile guides render only on the web landing page.
 16. Old `.xls` (BIFF2 to BIFF5): today refused with "save it as .xlsx".
 17. Presentation-layout sheets (stacked blocks, merged headers).
 18. Mixed designs: repeated-measures and mixed-model ANOVA.
+
+### D271 — Research OS, Phase 2A: the shared contracts and the descriptive summary, pure, in gaply_core `[src]` `[test]` `[measured]`
+
+**Added** on `feat/research-os` (from `030108d`), in `gaply_core` only: no
+command, run manager or screen (those are Phase 2B). `contracts/` holds the
+typed envelope: `WorkspaceId` (Statistics), `CapabilityId` (a closed grammar:
+2 to 4 dot-separated lowercase words, the first a workspace namespace),
+`OperationId`, `RunId`, `ContentHash` (64 lowercase hex), `InputRef`,
+`OperationSpec<P>`, `Diagnostic<C>`, `ValidationReport<C>`, `RunState`,
+`transition`, `RunRecord`, `ResultBundle<T, C>`, `RunManifest<C>`; codes are
+namespaced words from one table per enum (`run.*` here, `stats.desc.*` in
+`stats_desc`). It is domain-free: what differs per capability is a type
+parameter, it names no verifier type, and it does not wrap
+`stats_l1::codes::WireCode` (the verifier is unchanged). No `ArtifactRef`.
+`stats_desc/` holds `profile`, `validate`, `describe` (n, missing, mean, sd
+n − 1, min, type-7 quartiles, max; or levels in code-point order), `manifest`,
+and `export` (CSV and JSON bytes; the export lives here, not in
+`contracts/`, because it writes a statistics result). It follows the
+decisions of 17 Oct 2026 (`~/gaply-corpus/os/decisions.md`, items 1 to 5, 11
+and 12). Wire: camelCase fields, snake_case words, `schemaVersion` 1 only,
+unknown fields refused, no field for a path or a display name.
+
+**One implementation of each formula.** The mean is `stats_verify::mean` (the
+two-pass mean of part C, m-10), the variance `stats_verify::sample_variance`
+over its range-checked sum of squares, and the candidate missing codes
+`binding::suspect_codes_in` (reported, never applied). Each was made
+`pub(crate)`; no body changed. Values go in ascending order, so a row
+permutation changes no bit. sd of a column whose min equals its max is 0
+before any arithmetic: on ordinary constants the mean is already exact and
+the guard does not decide (deleting it left the suite green); on a constant
+column whose sum overflows it does, and a test pins both.
+
+**The RunState edges** (blueprint §8.5, and no others; tested pair by pair):
+Draft –begin_validation→ Validating; Validating –request_input→
+NeedsUserInput, –refuse→ Refused, –pass_validation→ Validated; Validated
+–require_confirmation→ AwaitingConfirmation, –enqueue→ Queued;
+AwaitingConfirmation –confirm→ Queued, –cancel→ Cancelled, –invalidate→
+Invalidated; Queued –start→ Running, –cancel→ Cancelled, –refuse→ Refused;
+Running –succeed→ Succeeded, –fail→ Failed, –cancel→ Cancelled, –time_out→
+TimedOut, –exceed_resources→ ResourceLimit, –fail_numerically→
+NumericalFailure. 18 edges; the other 207 of 225 pairs are refused, with
+`run.already_terminal` from the nine states no edge leaves (NeedsUserInput,
+Refused, Invalidated, Succeeded, Failed, Cancelled, TimedOut, ResourceLimit,
+NumericalFailure) and `run.illegal_transition` otherwise. NeedsUserInput has
+no way out because §8.5 draws none: the answer changes the spec, and a new
+spec is a new run.
+
+**R and the gates.** `/usr/local/bin/Rscript
+src-tauri/gaply-core/tests/fixtures/stats_desc/make_desc_fixtures.R` (R 4.6.1,
+aarch64, `set.seed(20261017)`) writes 13 data files, `golden.csv` (19 cases,
+186 rows, `%.17g`) and `cells_bits.csv` (the bits of all 11,055 numbers R
+read, all equal to Gaply's). Gate: |gaply − R| ≤ 1e-12 · max(|R|, s), s the
+case's R sd, or 1 when it is 0 or undefined; n, missing, levels, min and max
+exact. Measured worst: mean 2.7e-16, sd 2.4e-15, quartiles, min and max
+bit-identical. Properties (proptest 1.12.0, a dev-dependency, `std` only, seed
+20261017, persistence off, 5 × 1,024 cases in 0.85 s debug) use an exact
+integer oracle on the grid j/128 and the same gate; the shift and scale
+relations allow the sum of both sides' gates plus one ulp. By hand, R's
+`read.csv` read an export back bit-identical (15 of 15 numbers); R's own
+parser read the e-notation `9.9999999690625000e8` one ulp low, so reference
+values are compared as bits.
+
+### D272 — Research OS, Phase 2B: the run manager, the descriptive summary's commands, its screen and its export; no path in tracing; ignored tests carry a waiver `[src]` `[test]` `[measured]`
+
+**Added** on `feat/research-os` (from `9c54030`, Phase 2A), on top of D271's
+contracts and descriptive summary. Decisions of 17 Oct 2026 apply
+(`~/gaply-corpus/os/decisions.md`, 4 to 9, 12, 15 and 17). The ADRs it
+proposes are `docs/adr/ADR-003-operation-contract.md` (Proposed),
+`ADR-004-artifacts-and-manifests.md` (Proposed, with 004a, the save-dialog
+export, Accepted 17 Oct 2026) and `ADR-010-budgets.md` (Proposed).
+
+**The run manager** (`src-tauri/src/runs.rs`, in `AppState` as `runs` and
+`datasets`, memory only): at most 8 run records, the oldest finished one
+dropped first and an unfinished one never; at most 4 dataset slots, the
+oldest dropped first, a slot dropped on close or exit. One foreground run:
+a second start while any record is unfinished is `run.run_busy` and makes
+no record. A run is detached: `start` makes the record, validates, queues,
+starts its own thread and returns the id; the screen polls. Every change
+goes through `contracts::transition`; the record keeps its path of states.
+Cooperative cancel and a 30 s wall-clock ceiling are read at one check
+point before each column. A cancel accepted while running always ends
+`Cancelled`: the worker reads the flag under the same lock as its last
+transition. A panic in the describe loop ends the run `Failed`, never
+stuck. (Corrected 17 Oct 2026, D274: at `ec581c9` the last transition read
+the flag on the success path only, so a cancel accepted after the check
+point read it, as the ceiling passed, ended `TimedOut`; now a set flag
+decides the end on every path, and a panic after an accepted cancel ends
+`Cancelled`.) `Runs::with_hooks` takes a clock, a hook (`Point::BeforeStart`,
+`Point::Column(k)`) and the ceiling, for tests.
+
+**2A's API, changed in the smallest way**: `stats_desc::describe_until(dataset,
+params, checkpoint: FnMut(usize) -> ControlFlow<B>)` returns
+`Result<DescribeResult, Halt<B>>` (`Refused(Diagnostic)` or `Stopped { reason,
+done }`); `describe` is `describe_until` with a checkpoint that never stops,
+so every 2A caller and test is unchanged. The module still reads no flag and
+no clock. `RunCode` gained `unknown_input`, `not_finished` and `no_result`
+(the pin in `contracts_wire.rs` updated).
+
+**Eight commands** (`stats_desc_commands.rs`, registered in `lib.rs`): open,
+validate, run, status, result, cancel, export, close; each
+`#[tracing::instrument(skip_all)]`, a view or a closed code in JSON, never a
+path. `stats_desc_open` reads through Level 1's `load_dataset` and refuses
+with Level 1's own code. **The shared ingest writes nothing to the database**:
+`check_file` and `dataset_from_checked` take no `Database`; the import-guard
+rate's one writer, `import_guard::record_rate` (`cache_put("import:
+seconds_per_page", {"secondsPerPage", "samples"}, 90 days)`), is called only
+by the citation-link import (`commands.rs`) and the open-access fetch
+(`oa_fetch.rs`); Level 1's `open` only READS the rate, through
+`preflight(db, manuscript, …)` on the manuscript. The step's premise that
+the ingest writes it does not hold; the matrix asserts no write at all.
+
+**Paths in tracing (decision 8).** `detect_ai` had a bare
+`#[tracing::instrument]`, and `run_stats_preview`, `run_stats_verify` and
+`run_stats_chat` skipped `manuscript_path` but not `path`: each span rendered
+the data or manuscript path through `Debug` (measured by mutation: `span
+detect_ai path="/var/folders/…/SPANPATH_SENTINEL_p55/SPANFILE_SENTINEL_ms.txt"`).
+A source guard (`tests/no_path_in_tracing.rs`) over every instrument
+attribute, event and span macro and `.record` in `src-tauri/src` found 32
+sites; 19 functions now `skip_all`, 8 events lose their path, dir or url
+field, one count key is renamed (`files` → `uploads`) and `log_auth_callback`
+no longer logs the deep link's path. `tests/no_path_in_command_spans.rs`
+runs the four commands with sentinels and reads every span and event.
+
+**Ignored tests.** `gaply-core/tests/ignored_tests_carry_a_waiver.rs` lists
+every ignore in the workspace (12 `#[ignore]`, 5 `cfg_attr(windows,
+ignore)`); an unconditional ignore of a test whose name or file mentions
+precision, privacy, provenance or cancel needs `issue=`, `owner=` and
+`review=YYYY-MM-DD`. The two precision sweeps carry `issue=D270-sweep
+owner=rishi review=2027-01-31`.
+
+**Output hashes (decision 15).** `gaply-core/tests/desc_output_hashes.rs`
+pins `offset_1e9` `5fd0af5d…`, `large_5000` `15d71b77…`, `heavy_tail`
+`b3b2edbf…` (macOS aarch64, Rust 1.97.0); the clean-checkout (Linux) and
+Windows jobs run it.
+
+**The screen** (`src/screens/statistics/`): `DescribeFlow.tsx`, Import →
+Profile → Settings → Validate → Run → Results → Export, focus on each
+heading; the levels rule in one sentence (decision 17); a candidate missing
+code as a question naming the value, applied only when ticked; progress,
+Cancel, elapsed and the terminal state; a neutral table with "Could not
+compute" and its reason; a read-only manifest panel; export through
+`saveTextFile` after checking the text re-encodes to the returned bytes.
+Route `/app/statistics/describe` and a hub tile behind
+`REACT_APP_FEATURE_STATS_DESCRIBE`, off by default (not an authorization
+boundary).
+
+**Wire contract.** One JSON fixture per view in
+`src/screens/statistics/fixtures/`, every optional field filled and no empty
+array; `src-tauri/tests/stats_desc_wire.rs` serialises each view to exactly
+those bytes; `describeTypes.vitest.ts` deep-compares each with a copy typed
+`satisfies` the view and pins every key; `describeCodes.json` equals
+`DescCode::ALL ∪ RunCode::ALL`.
+
+**Privacy matrix** (`tests/stats_desc_privacy_matrix.rs`, global tracing
+subscriber, a temporary app-data folder and a migrated database file): seven
+sentinels over the open view, validation, run, status, result (manifest
+apart), the manifest in the view and as bytes, the CSV, 8 refusals, every
+span and event from every thread, and every byte of every file in the
+app-data folder, which is SHA-256-identical before and after.
+
+**Measured, 17 Oct 2026, macOS aarch64** (logs in `~/gaply-corpus/os/phase2b/`):
+`cargo test --workspace` exit 0, 83 targets (81 Running + 2 Doc-tests), 2,616
+passed, 12 ignored: Phase 2A's 75 targets and 2,594 plus 8 new targets and
+22 new tests; the only earlier target whose count moved is the app lib, 517
+→ 518 (the eviction unit test in `runs.rs`). `cargo test -p app --features
+devtools`: 26 targets, 621 passed, 9 ignored. vitest: 89 files, 1,095 passed.
+`npx tsc --noEmit`, CI's eslint and `npm run build` exit 0. Mutation probes,
+each restored to its recorded SHA-256: no cancel check (the parked run did
+all 4 columns), no busy check (a second run started), a path back in
+`detect_ai`'s span (the guard and the runtime test), a path under the key
+`opened` (only the matrix sees it: the guard is name-based by construction),
+a renamed fixture key (the Rust bytes test and the vitest), a file write in
+`runs.rs`, the hub tile without its flag: every one red.
+
+**Not met, by design:** blueprint §8.5's "persist terminal state even if the
+UI closes" (nothing persists); `AwaitingConfirmation`, `Invalidated`,
+`ResourceLimit` and `NumericalFailure` have no producer, so the commands
+reach 11 of the 18 edges.
+
+### D273 — Research OS, Phase 3: one active workspace per window, checked in Rust and shown in the UI; the legacy Stats Verifier chat removed `[src]` `[test]` `[measured]`
+
+**Added** on `feat/research-os` (from `64ec1e7`, Phase 2B). Decisions of
+17 Oct 2026 apply (`~/gaply-corpus/os/decisions.md`, 7, 8, 9, 20, 24 and 27).
+The ADRs it proposes are `docs/adr/ADR-001-one-active-workspace.md` and
+`docs/adr/ADR-002-preserve-gaply-core.md`, both Proposed.
+
+**The contract** (`gaply_core::contracts::workspace`, pure, under Phase 2A's
+purity and layering guard): `WorkspaceId` gains Compute and Design (namespaces
+`compute`, `design`); `WorkspaceDescriptor { id, version, display_name_code,
+availability, activation_policy, capability_ids, supports_offline,
+supported_platforms }`; `availability` is static per build, Statistics
+`Available` (version 1, capability `stats.describe`, macOS/Windows/Linux,
+offline), Compute and Design `Missing`, which claim nothing (version 0, no
+capability, no platform, not offline) and show as "Coming later".
+`CapabilityId::parse` accepts only a namespace of a workspace that is not
+`Missing`, so `compute.solve` is still refused. Closed codes `workspace.*`:
+`unavailable`, `not_ready`, `inactive`, `wrong_workspace`, `run_active`,
+`illegal_transition`. `ParamKey` gains `workspace` and `run`; `ParamValue`
+gains a workspace id, a phase word and an event word (every word in exactly
+one set, pinned). Available, entitled and active are three separate facts:
+the descriptor, the frontend's `useEntitlement` (shown, not enforced in Rust,
+decision 9; the list view carries `entitled: null`), and the session.
+
+**The WorkspaceState edge table** (and no others; 70 (state, event) pairs
+over three workspaces, 15 edges Ok, 55 refused with
+`workspace.illegal_transition` naming the phase, the event and the state's
+workspace):
+
+| from | event | to |
+|---|---|---|
+| NoWorkspace | activate(w) | Activating(w) |
+| Activating(w) | activated | Active(w) |
+| Activating(w) | activation_refused | NoWorkspace |
+| Active(w) | deactivate | Deactivating(w) |
+| Deactivating(w) | deactivated | NoWorkspace |
+
+From a state naming a workspace no edge leads to a state naming another.
+
+**The session** (`src-tauri/src/workspace.rs`, `AppState.workspace`):
+activation enters `Activating`, checks availability, then the readiness
+check outside the lock (Statistics: nothing to load, ready), then builds the
+Statistics engine and enters `Active`; otherwise `activation_refused` and the
+refusal. Phase 2B's run records and dataset slots moved from `AppState` into
+the engine: built on activation, dropped on deactivation; while
+`NoWorkspace` no engine value exists, and the session has no field for a
+Compute or Design engine. Run and slot ids continue across activations.
+Deactivation with a run queued or running is refused with
+`workspace.run_active {run, workspace}`, the state still `Active`;
+`Runs::seal` checks and closes the run manager under the records' own lock,
+so no run can start in between. Only `workspace_activate` calls `activate`.
+
+**Enforcement (decision 27).** Every `stats_desc_*` command's first
+statement is `state.workspace.require_statistics()?`; `validate` and `run`
+then refuse a spec whose `workspaceId`, or whose capability's workspace, is
+not the active one (`workspace.wrong_workspace`). `stats_desc::validate` also
+reports a non-Statistics spec as `unknown_capability`. The verifier's Level 0
+and Level 1 commands are not gated (Phase 4).
+
+**Commands**: `workspace_list`, `workspace_state` (`{state, activeRun,
+latestRun}`), `workspace_activate(id)`, `workspace_deactivate`; polling only.
+**Removed** (decision 8): `run_stats_chat` (command and registration) and
+`StatsChatDock` (component, the bridge's `chat`, the `StatsChatTurn` type);
+`run_stats_preview` and `run_stats_verify` stay, because the Stats Verifier
+page at `/app/statsverifier` calls them. `gaply_core::stats_chat` is
+unchanged and has no app caller.
+
+**The screens** (`src/screens/workspace/`, behind
+`REACT_APP_FEATURE_WORKSPACES`, off by default, not an authorization
+boundary): "Choose your workspace" with the blueprint §3.1 texts, three
+cards, each showing availability, access and whether it is open as separate
+facts, Compute and Design disabled; focus on the heading on open; one
+`workspace_activate` per click. A slim Statistics shell: tools, recent items
+(empty), a job area reading the newest run through `stats_desc_status`,
+settings, and a switch that, refused with `run_active`, shows the run with
+Wait, Cancel and Stay. With the describe flag on too, the descriptive summary
+is reached from the workspace and leaves the hub; its route is behind a gate
+that shows it only while Statistics is active and opens Statistics on the
+user's click.
+
+**Measured, 17 Oct 2026, macOS aarch64** (logs in `~/gaply-corpus/os/phase3/`):
+`cargo test --workspace` exit 0, 88 targets (86 Running + 2 Doc-tests),
+2,637 passed, 12 ignored: Phase 2B's 83 targets and 2,616 plus 5 new
+targets (`workspace_contract` 7, `workspace_session` 6, `workspace_guards` 3,
+`workspace_wire` 2, `workspace_privacy` 1) and 2 new unit tests in `runs.rs`
+(app lib 518 → 520); every other target's counts unchanged.
+`no_path_in_command_spans` keeps 1 test, now over three commands (its chat
+part removed). `cargo test -p app --features devtools`: 30 targets, 635
+passed, 9 ignored. vitest: 93 files, 1,115 passed (4 new files, 24 tests; 4
+tests removed with the chat dock). `npx tsc --noEmit`, CI's eslint and `npm
+run build` exit 0. Mutation probes, each predicted first and restored to its
+recorded SHA-256: the check swallowed in `stats_desc_close` (3 red: the
+guard, the NoWorkspace/Activating test, the sweep), Compute made available
+(7 red, as predicted, including `compute.solve` parsing), deactivation
+allowed during a run (2 red). The sweep: 7 views, 12 refusals and 74 tracing
+lines with no header, label, cell, file name or path.
+
+**Found on the way:** `rustfmt --check` reading stdin exits 0 when it prints
+a diff (negative control: a badly formatted line, rc 0, one `Diff in`
+hunk), so a status-only check over stdin proves nothing; Phase 2B's reported
+rustfmt result used that form. Phase 3 counted the printed hunks instead.
+And formatting the files then turned `workspace_guards` red on every command:
+rustfmt split `state.workspace.require_statistics()` across lines, and the
+guard matched the call as written. It now compares with whitespace removed,
+and the first mutation probe was re-run against it (still 3 red).
+
+### D274 — Research OS, Phases 2 and 3: evaluation fixes `[src]` `[test]` `[measured]`
+
+**Added** on `feat/research-os` (from `ec581c9`, Phase 3), after the
+independent evaluation of Phases 2 and 3 (`~/gaply-corpus/os/eval23/
+evaluation.md`). Decisions 36 to 39 of 17 Oct 2026 apply
+(`~/gaply-corpus/os/decisions.md`). Each regression test was written first
+and run red, or, where the code already held an unpinned guard, shown red by
+the evaluation's own mutation and the file restored to its recorded SHA-256.
+Logs in `~/gaply-corpus/os/eval23/fixes/`, the re-run of the evaluation's
+probes in `~/gaply-corpus/os/eval23/rerun/`.
+
+**F1, a cancel during the last column (Major).** The guard existed and
+nothing pinned it. A test hook point, `runs::Point::Passed(k)`, is called
+after a check point lets the run go on; `stats_desc_commands.rs`'s
+`a_cancel_after_the_last_check_point_ends_cancelled_with_no_result` parks
+there at the last column, cancels and asserts `Cancelled`, every column done
+and discarded, `run.cancelled` from result and export. With the success
+branch's cancel arm removed (the evaluation's mutation) it is the only red
+test, `succeeded` with `cancelRequested: true`; restored (SHA-256 `9cf96c86…`
+before and after), green.
+
+**F2, cancel against the ceiling (Major).** A cancel accepted after the check
+point read the flag, as the ceiling passed, ended `TimedOut`. The worker's last
+step now reads the flag under the lock of its last transition and a set flag
+decides the end on every path: a result, the ceiling, a refusal or a panic
+all end `Cancelled` (`runs.rs`, `work`). The check point already read the flag
+before the clock and is unchanged. `a_cancel_and_the_ceiling_at_the_same_check_point_end_cancelled_every_time`
+uses an injected clock that accepts the cancel inside the check point's own
+reading of the time and moves past the ceiling: 1,000 runs, deterministic,
+1,000 `timed_out` before the fix and 1,000 `cancelled` after (and in five more
+runs of the test). `a_cancel_accepted_before_the_describe_loop_panics_ends_cancelled`
+covers the panic path (`failed` before). Disabling the new arm turns these two
+and F1's test red, nothing else. Corrected to match: `runs.rs`'s docs, D272's
+sentence (a panic after an accepted cancel ends `Cancelled`), ADR-003 §4,
+ADR-010 §2 and §3.
+
+**F3, paths in `gaply_core`'s tracing (decision 36).** `db.rs`'s "sqlite store
+ready" event no longer carries `db = %path.display()`. `tests/no_path_in_tracing.rs`
+now scans `gaply-core/src` too, and **pointing it there was not enough**: its
+field rule read the KEY only, so `db = …` passed with the scan extended
+(measured green). The rule now also reads a field's VALUE (`a_count` exempts a
+chain ending in `.len`), with must-fail snippets for both shapes. The core
+scan also has a text rule (whole `_`/`.` segments of `title`, `query`,
+`description`, `decision`, `text`, `content`, `sentence`, `excerpt`,
+`snippet`, `label`, `header`, `cell`), which found four more: `rag.rs:134`
+(a document's title in `ingest_document`'s span), `rag.rs:315` (`search`'s
+query), `projects.rs:37` (`create_project`'s name and description) and
+`memory.rs:23` (`record_episode`'s free-text decision); each is now skipped.
+Red before (6 sites in core), green after. The value rule found two in the app
+crate: `analysis_ingest.rs`'s D191 instrument logged each upload's raw text
+after the last dot of its file name, now a closed word (`logged_extension`,
+an accepted extension or `other`, unit-tested), and a count read through a
+local named `profile` in `stats_desc_commands.rs`, renamed. Rendered side: the
+evaluation's privacy session, re-run, logs `sqlite store ready
+schema_version=25 applied=25` and no `/Users/` in 109 lines. The app crate's
+scan does not have the text rule: it lists eight commands whose spans record
+user text (search queries, `ai_citation_need`'s manuscript sentences, a
+paper's title, a manuscript name, a project description), outside this
+step's scope and reported for a decision.
+
+**F4, the 2 MiB cell-text cap (decision 37).** `L1IngestRefusal::ContentTooLarge
+{ limit_bytes }`, wire code `content_too_large` with `limit_bytes`
+(2,097,152: the cap counts UTF-8 bytes after each cell is clamped, though
+`MAX_TOTAL_CHARS`'s name says characters). `supplementary::exceeds_content_cap_bytes`
+tells it apart after a failed parse, as the row and column caps are, mirroring
+both parsers' order and count. One sentence in Level 1's table, which the
+describe screen uses for every ingest refusal, naming no level; `l1Codes.json`
+and its Rust pin updated. Tests: the evaluation's 5,000 × 128 CSV is
+`content_too_large` through `stats_desc_open` and through Level 1's `open`
+(both `malformed` before); a CSV at exactly 2,097,152 bytes of cell text
+opens, one byte more is refused; a workbook over the cap is refused (red with
+the spreadsheet branch disabled). ADR-010 §1 lists all seven caps with values.
+
+**F5, missing codes on numeric requests only (decision 38).**
+`stats_desc::codes_for` gives a Categorical request no codes, in `describe`
+and in the manifest's exclusions; validation already warned for Numeric
+requests only. `a_ticked_missing_code_applies_to_numeric_requests_only`: with
+-99 ticked, a categorical column keeps its "-99" level (n 5, missing 0) and a
+numeric one drops its -99 cell; red before (n 3, missing 2). The R golden's
+`coded_missing_99_as_categorical` case encoded the old rule: the generator
+(`make_desc_fixtures.R`) no longer applies codes to a categorical case and was
+re-run with `/usr/local/bin/Rscript`; the 12 data files and `cells_bits.csv`
+came out byte-identical, and only that case's rows changed (n 50 → 56,
+missing 10 → 4, a "-99" level of 6). Phase 2A's R golden, property,
+metamorphic, output-hash and export targets pass.
+
+**ADR-001 and ADR-002 (decision 39).** ADR-001's decision 7 now says the shell
+never activates a workspace (F13); `WorkspaceShell.vitest.tsx` asserts its
+switch makes no `workspace_activate` call. Both are Accepted, 17 Oct 2026.
+
+**Minors fixed** (inside the Phase 2A to 3 files, no contract type changed):
+F6, the status line reads "Elapsed since you pressed Run" and the manifest
+panel shows "Time to compute" and why rows used equals rows read; F8, one slot
+counter shared by every engine a session builds, so an open landing in a
+dropped engine never shares a number with the next
+(`an_open_landing_in_a_dropped_engine_never_shares_a_slot_number_with_the_next`,
+red before: both 2); F11, the 30-second sentence reads
+`describeLimits.json`, pinned to `runs::RUN_CEILING_MS`
+(`the_screens_run_ceiling_is_the_run_managers`); F15, a refusal while
+opening says to wait. Each with a vitest or Rust test, red first.
+
+**Not fixed, with the phase for each:** F10 (Latin-1 and UTF-16 refused as
+`malformed`: Level 1's ingest, a new verifier code; Phase 4), F19
+(`tests/l1_support/mod.rs` unformatted: verifier test support; a
+formatting-only commit before Phase 4 touches it), and the Notes F7, F9, F12,
+F14, F16, F17, F20, F21, F23, F24, F25 (listed one per line in the step
+report). F18: D271's "quartiles, min and max bit-identical" held on its 19
+cases; over the evaluation's 1,600 datasets min and max are bit-identical and
+quartiles within 1 ulp of R, inside the gate. F22: the evaluation's debug
+timings are in ADR-010's evidence; release is still not measured.
+
+**The evaluation's probes, re-run** (its `eval23_probe.rs`, in
+`src-tauri/examples/` for the run only and removed after): the 1,600-dataset
+batch and the metamorphic batch give output byte-identical to the
+evaluation's, so its R comparisons hold unchanged (0 of 1,600 over the gate;
+0 differing rows in eight identity variants; quartiles 1 ulp in 122, 86 and
+103 files); ten processes, one MD5 per artefact and the same as the
+evaluation's; race1 300/300, race2 0 runs after the seal, race3 60/60
+`Cancelled`, race4 over 1,000 trials 7 cancels while running, all `Cancelled`
+and none `TimedOut` (1 in 200 before), race5 40 of 40 `Cancelled`; the guards
+output identical; the privacy session's sentinels where they were, the
+database path gone; 31 hostile files, one outcome changed (5,000 × 128 is
+`content_too_large`), no crash or alarm.
+
+**Measured, 18 Oct 2026, macOS aarch64:** `cargo test --workspace` exit 0,
+88 targets (86 Running + 2 Doc-tests), 2,648 passed, 12 ignored: the
+evaluation's 2,637 at `ec581c9` plus 11 new tests (`stats_desc_commands`
+10 → 14, `no_path_in_tracing` 2 → 4, `desc_metamorphic` 8 → 9,
+`stats_desc_wire` 2 → 3, `stats_l1_commands` 23 → 24, `workspace_session`
+6 → 7, app lib 520 → 521); no other target's count moved. `cargo test -p app
+--features devtools`: 30 targets, 645 passed, 9 ignored (D273's 635 plus the
+10 app-crate tests). vitest: the Research OS, Stats Check, Stats Verifier
+and Level 1 folders 25 files, 228 passed; the whole suite 93 files, 1,117.
+`npx tsc --noEmit`, CI's eslint and `npm run build` exit 0 (`public/sitemap.xml`
+written back from HEAD). `rustfmt --check` by path: no hunk in any Research
+OS file changed here; the changed `gaply_core` files that had hunks at HEAD
+have the same count now.
+
+**Found on the way:** `DescribeFlow.vitest.tsx`'s focus test (Phase 2B) read
+`document.activeElement` straight after waiting for a heading's text, while
+focus moves in an effect after render; under heavy load it failed 1 run in 3
+and 1 in 10. Its four focus checks now wait for the focus (0 failures in 10
+at the same load), and still fail if focus never moves.
+
+**Decided on review (decisions 40 to 43, 18 Oct 2026):** the guard's text
+rule now covers `src-tauri/src` too (with `manuscript` back in its words and a
+name ending in an `id` segment exempt), it was red on exactly the eight
+commands (`create_project`, `rag_search`, `citation_lib_search`,
+`ai_citation_need`, `ai_semantic_search`, `note_search`,
+`note_paper_fulltext`, `ai_job_export_report`) and on one constant header
+name in `http_fetcher.rs`, and is green with the eight on `skip_all` and that
+field renamed; `ENGINE_VERSION` stays 1; the cloud agents' `error = %e`
+fields wait for Phase 4; the focus-test fix stays.

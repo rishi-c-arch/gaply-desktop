@@ -176,6 +176,7 @@ fn every_code() -> Vec<WireCode> {
         L1IngestRefusal::Dataset(DatasetRefusal::NoColumns),
         L1IngestRefusal::NotARegularFile,
         L1IngestRefusal::ArchiveTooLarge { declared: 2, limit: 1 },
+        L1IngestRefusal::ContentTooLarge { limit_bytes: 1 },
     ];
     for r in ingest {
         all.push(codes::l1_ingest_refusal(r));

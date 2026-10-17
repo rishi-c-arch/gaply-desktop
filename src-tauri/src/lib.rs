@@ -27,13 +27,16 @@ pub mod pipeline;
 mod wire_contract_tests;
 pub mod report_build;
 pub mod reviewer_synthesis;
+pub mod runs;
 pub mod state;
 pub mod stats_ai;
 pub mod stats_consistency;
+pub mod stats_desc_commands;
 pub mod stats_l1_commands;
 pub mod stats_l1_ingest;
 pub mod stats_reproduction;
 pub mod supplementary;
+pub mod workspace;
 
 use std::sync::Arc;
 
@@ -308,9 +311,12 @@ pub fn run() {
             commands::run_publishready,
             commands::reviewer_letter_availability,
             commands::run_copilot_chat,
+            // `run_stats_preview` and `run_stats_verify` stay: the Stats
+            // Verifier page (`/app/statsverifier`) calls them. The legacy chat
+            // beside them, `run_stats_chat`, was removed in Research OS Phase 3
+            // (decision 8); `tests/workspace_guards.rs` checks it stays gone.
             commands::run_stats_preview,
             commands::run_stats_verify,
-            commands::run_stats_chat,
             stats_consistency::run_stats_consistency,
             stats_l1_commands::stats_l1_open,
             stats_l1_commands::stats_l1_edit_claim,
@@ -332,6 +338,20 @@ pub fn run() {
             stats_l1_commands::stats_ai_key_test,
             stats_l1_commands::stats_ai_key_remove,
             stats_l1_commands::stats_open_source_link,
+            stats_desc_commands::stats_desc_open,
+            stats_desc_commands::stats_desc_validate,
+            stats_desc_commands::stats_desc_run,
+            stats_desc_commands::stats_desc_status,
+            stats_desc_commands::stats_desc_result,
+            stats_desc_commands::stats_desc_cancel,
+            stats_desc_commands::stats_desc_export,
+            stats_desc_commands::stats_desc_close,
+            // Research OS, Phase 3: the window's one active workspace. Only
+            // `workspace_activate` activates one.
+            workspace::workspace_list,
+            workspace::workspace_state,
+            workspace::workspace_activate,
+            workspace::workspace_deactivate,
             external_links::open_external_link,
             commands::build_gapfinder_corpus,
             commands::run_gap_finder,

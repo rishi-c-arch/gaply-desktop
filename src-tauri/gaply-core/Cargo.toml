@@ -50,3 +50,11 @@ keyring = { version = "3", features = ["windows-native"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 keyring = { version = "3", features = ["sync-secret-service", "crypto-rust"] }
+
+# Property tests for the descriptive summary (Research OS, Phase 2A),
+# approved by name in decisions.md (17 Oct 2026): a dev-dependency only, with
+# only the "std" feature (no fork, no timeout, no regex strategies), and every
+# test runs with failure persistence off, so no proptest-regressions file is
+# ever written.
+[dev-dependencies]
+proptest = { version = "1", default-features = false, features = ["std"] }

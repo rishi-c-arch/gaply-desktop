@@ -1,0 +1,35 @@
+{
+  "status": "invalid",
+  "errors": [
+    {
+      "code": "stats.desc.unknown_column",
+      "params": {
+        "column": 9
+      },
+      "severity": "error"
+    }
+  ],
+  "warnings": [
+    {
+      "code": "stats.desc.suspect_missing_code",
+      "params": {
+        "column": 2,
+        "count": 2,
+        "value": 99
+      },
+      "severity": "warning"
+    }
+  ],
+  "missingInformation": [
+    {
+      "code": "stats.desc.no_columns_selected",
+      "params": {},
+      "severity": "note"
+    }
+  ],
+  "estimatedResources": {
+    "rows": 9,
+    "columns": 2,
+    "cells": 18
+  }
+}

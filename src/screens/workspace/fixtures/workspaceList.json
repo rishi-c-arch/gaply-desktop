@@ -1,0 +1,41 @@
+[
+  {
+    "id": "statistics",
+    "version": 1,
+    "displayNameCode": "workspace.name.statistics",
+    "availability": "available",
+    "activationPolicy": "single_active",
+    "capabilityIds": [
+      "stats.describe"
+    ],
+    "supportsOffline": true,
+    "supportedPlatforms": [
+      "macos",
+      "windows",
+      "linux"
+    ],
+    "entitled": null
+  },
+  {
+    "id": "compute",
+    "version": 0,
+    "displayNameCode": "workspace.name.compute",
+    "availability": "missing",
+    "activationPolicy": "single_active",
+    "capabilityIds": [],
+    "supportsOffline": false,
+    "supportedPlatforms": [],
+    "entitled": null
+  },
+  {
+    "id": "design",
+    "version": 0,
+    "displayNameCode": "workspace.name.design",
+    "availability": "missing",
+    "activationPolicy": "single_active",
+    "capabilityIds": [],
+    "supportsOffline": false,
+    "supportedPlatforms": [],
+    "entitled": null
+  }
+]

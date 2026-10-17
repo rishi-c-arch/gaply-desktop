@@ -1,0 +1,20 @@
+{
+  "runId": 4,
+  "state": "running",
+  "terminal": false,
+  "columnsDone": 1,
+  "columnsTotal": 2,
+  "elapsedMs": 12,
+  "cancelRequested": true,
+  "diagnostics": [
+    {
+      "code": "stats.desc.suspect_missing_code",
+      "params": {
+        "column": 2,
+        "count": 2,
+        "value": 99
+      },
+      "severity": "warning"
+    }
+  ]
+}

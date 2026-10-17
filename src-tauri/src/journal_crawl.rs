@@ -855,7 +855,7 @@ pub fn crawl(
                 lexicon_hit: hit_of(&url, &anchor),
                 body: None,
             });
-            tracing::debug!(url = %url, first = %first, "same content under a second url");
+            tracing::debug!("same content under a second url");
             // Its links are the first copy's links and are already queued.
             continue;
         }

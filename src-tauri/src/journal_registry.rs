@@ -212,7 +212,7 @@ fn cached_registry_get(
         return Some(body);
     }
     if !limiter.try_consume(&host_of(url)).allowed {
-        tracing::warn!(%url, "journal registry rate-limited; fact stays unverified");
+        tracing::warn!("journal registry rate-limited; fact stays unverified");
         return None;
     }
     match fetcher.get(&HttpRequest::get(url)) {
@@ -221,11 +221,11 @@ fn cached_registry_get(
             Some(resp.body)
         }
         Ok(resp) => {
-            tracing::warn!(%url, status = resp.status, "journal registry non-200; unverified");
+            tracing::warn!(status = resp.status, "journal registry non-200; unverified");
             None
         }
         Err(e) => {
-            tracing::warn!(%url, error = %e, "journal registry unreachable; unverified");
+            tracing::warn!(error = %e, "journal registry unreachable; unverified");
             None
         }
     }

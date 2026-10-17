@@ -94,8 +94,9 @@ impl Database {
         let pool = r2d2::Pool::builder().max_size(8).build(manager)?;
         let db = Self { pool, path: Some(path.to_path_buf()) };
         let report = db.migrate()?;
+        // No path: it is the app-data folder's, under the user's home
+        // (evaluation of Phases 2 and 3, F3).
         tracing::info!(
-            db = %path.display(),
             schema_version = report.to_version,
             applied = report.applied.len(),
             "sqlite store ready"

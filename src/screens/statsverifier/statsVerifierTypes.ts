@@ -1,6 +1,7 @@
 // Gaply — Statistical Analysis Verifier (premium) wire types. These MIRROR the
-// Rust serialization of gaply-core's stats_verdict (Set 3) + stats_chat (Set 4)
-// EXACTLY — snake_case tags, serde renames — so the bridge is a pure pass-through.
+// Rust serialization of gaply-core's stats_verdict (Set 3) EXACTLY — snake_case
+// tags, serde renames — so the bridge is a pure pass-through. (The Set 4 chat
+// turn's type went with the chat, Research OS Phase 3.)
 // The verified numbers are ALWAYS the engine's; nothing here recomputes them.
 
 /** serde rename_all = "snake_case" on TestKind. */
@@ -82,17 +83,6 @@ export interface VerificationReport {
   advisory: AdvisoryNote[];
   /** Required, never empty — the lane-distinguishing disclosure. */
   disclosure: string;
-}
-
-/** The Set 4 scoped-chat turn (advisory by TYPE — no verified-lane fields). */
-export interface StatsChatTurn {
-  kind: 'answered' | 'refused_ghostwriting' | 'blocked_ghostwriting' | 'unavailable';
-  answer: string;
-  refs: string[];
-  advisory: boolean;
-  disclaimer: string;
-  warnings: string[];
-  available: boolean;
 }
 
 /** run_stats_preview result — columns + optional extraction pre-fill. */

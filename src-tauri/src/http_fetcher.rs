@@ -107,7 +107,7 @@ impl ReqwestFetcher {
                 // A malformed constant is a programming error, not a runtime
                 // condition — but it must not take the whole client down, so
                 // the header is dropped and the client still builds.
-                _ => tracing::error!(header = %k, "invalid default header constant"),
+                _ => tracing::error!(constant = %k, "invalid default header constant"),
             }
         }
         let client = reqwest::blocking::Client::builder()

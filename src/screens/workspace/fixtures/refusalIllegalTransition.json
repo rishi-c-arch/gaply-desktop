@@ -1,0 +1,9 @@
+{
+  "code": "workspace.illegal_transition",
+  "params": {
+    "from": "active",
+    "event": "activate",
+    "workspace": "statistics"
+  },
+  "severity": "error"
+}
