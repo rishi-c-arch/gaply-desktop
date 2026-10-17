@@ -93,6 +93,14 @@ closed! {
         UnknownRun => "unknown_run",
         /// A foreground run is already going.
         RunBusy => "run_busy",
+        /// No input is held under that slot: never opened, closed, or
+        /// evicted.
+        UnknownInput => "unknown_input",
+        /// The run has not ended, so it has no result yet.
+        NotFinished => "not_finished",
+        /// The run ended without a result: refused, waiting on the user, or
+        /// failed.
+        NoResult => "no_result",
         /// The user cancelled the run.
         Cancelled => "cancelled",
         /// The run passed its time ceiling.

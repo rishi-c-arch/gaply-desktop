@@ -10,6 +10,9 @@
 //!   categorical column's levels in code-point order with their counts.
 //! * [`manifest`] records the run, and [`export`] writes the result as CSV
 //!   and the manifest as JSON.
+//! * [`describe_until`] is `describe` with a check point before each
+//!   column, where the run manager (Phase 2B) stops a cancelled run or one
+//!   past its time ceiling.
 //!
 //! Pure: no file, network, process, clock or model; the caller passes the
 //! elapsed time and the platform (`tests/contracts_are_pure.rs`).
@@ -45,6 +48,8 @@
 pub mod export;
 
 use std::collections::BTreeMap;
+use std::convert::Infallible;
+use std::ops::ControlFlow;
 
 use serde::de::{Deserializer, Error as _};
 use serde::ser::Serializer;
@@ -685,19 +690,50 @@ pub fn describe(
     dataset: &Dataset,
     params: &DescribeParams,
 ) -> Result<DescribeResult, Diagnostic<DescCode>> {
+    match describe_until(dataset, params, |_| ControlFlow::<Infallible>::Continue(())) {
+        Ok(result) => Ok(result),
+        Err(Halt::Refused(e)) => Err(e),
+        Err(Halt::Stopped { reason, .. }) => match reason {},
+    }
+}
+
+/// Why [`describe_until`] returned no result.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Halt<B> {
+    /// The parameters are wrong for this dataset: what `describe` returns.
+    Refused(Diagnostic<DescCode>),
+    /// The caller's checkpoint stopped the run after `done` columns.
+    Stopped { reason: B, done: usize },
+}
+
+/// [`describe`], with a check point before each column (Phase 2B).
+/// `checkpoint(done)` is called with the number of columns already
+/// summarised, before the first column and between every two, and a `Break`
+/// stops the run there. What a stop means, a cancel or a time ceiling, is
+/// the caller's: this module reads no flag and no clock.
+pub fn describe_until<B>(
+    dataset: &Dataset,
+    params: &DescribeParams,
+    mut checkpoint: impl FnMut(usize) -> ControlFlow<B>,
+) -> Result<DescribeResult, Halt<B>> {
     if let Some(e) = parameter_errors(dataset, params).into_iter().next() {
-        return Err(e);
+        return Err(Halt::Refused(e));
     }
     if params.columns.is_empty() {
-        return Err(Diagnostic::note(DescCode::NoColumnsSelected));
+        return Err(Halt::Refused(Diagnostic::note(DescCode::NoColumnsSelected)));
     }
     let mut columns = Vec::with_capacity(params.columns.len());
-    for request in &params.columns {
+    for (done, request) in params.columns.iter().enumerate() {
+        if let ControlFlow::Break(reason) = checkpoint(done) {
+            return Err(Halt::Stopped { reason, done });
+        }
         let (summary, cells) = column(dataset, request.alias).expect("checked by parameter_errors");
         let t = tally(cells, &params.missing_codes);
         let header = summary.header.clone();
         columns.push(match request.treat_as {
-            TreatAs::Numeric => ColumnResult::Numeric(numeric_summary(request.alias, header, &t)?),
+            TreatAs::Numeric => ColumnResult::Numeric(
+                numeric_summary(request.alias, header, &t).map_err(Halt::Refused)?,
+            ),
             TreatAs::Categorical => ColumnResult::Categorical(CategoricalSummary {
                 alias: request.alias,
                 header,

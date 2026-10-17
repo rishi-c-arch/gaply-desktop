@@ -604,6 +604,9 @@ fn the_code_and_word_lists_are_pinned() {
         [
             "run.unknown_run",
             "run.run_busy",
+            "run.unknown_input",
+            "run.not_finished",
+            "run.no_result",
             "run.cancelled",
             "run.timed_out",
             "run.resource_limit",

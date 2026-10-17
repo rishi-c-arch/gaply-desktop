@@ -1,0 +1,93 @@
+{
+  "runId": 4,
+  "status": "succeeded",
+  "columns": [
+    {
+      "numeric": {
+        "alias": "C2",
+        "header": "dose",
+        "n": 8,
+        "missing": 1,
+        "mean": {
+          "value": 52.5
+        },
+        "sd": {
+          "not_computable": "stats.desc.overflow"
+        },
+        "min": {
+          "value": 10.5
+        },
+        "q1": {
+          "value": 31.0
+        },
+        "median": {
+          "value": 50.0
+        },
+        "q3": {
+          "value": 70.75
+        },
+        "max": {
+          "value": 95.5
+        }
+      }
+    },
+    {
+      "categorical": {
+        "alias": "C1",
+        "header": "group",
+        "n": 9,
+        "missing": 0,
+        "levels": [
+          {
+            "label": "a",
+            "count": 5
+          },
+          {
+            "label": "b",
+            "count": 4
+          }
+        ]
+      }
+    }
+  ],
+  "diagnostics": [
+    {
+      "code": "stats.desc.suspect_missing_code",
+      "params": {
+        "column": 2,
+        "count": 2,
+        "value": 99
+      },
+      "severity": "warning"
+    }
+  ],
+  "manifest": {
+    "schemaVersion": 1,
+    "capabilityId": "stats.describe",
+    "capabilityVersion": 1,
+    "engineVersion": 1,
+    "inputs": [
+      "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    ],
+    "parametersHash": "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+    "seed": 7,
+    "rowsRead": 9,
+    "rowsUsed": 9,
+    "exclusions": [
+      {
+        "code": "stats.desc.missing_cell",
+        "count": 1,
+        "params": {
+          "column": 2
+        }
+      }
+    ],
+    "platform": {
+      "os": "macos",
+      "arch": "aarch64"
+    },
+    "elapsedMs": 3,
+    "outputHash": "5fd0af5daee4d8dfcb466411096e7f26e513bf2cadfb0e1605ff085026fe5b4a",
+    "reproducibility": "bitwise"
+  }
+}

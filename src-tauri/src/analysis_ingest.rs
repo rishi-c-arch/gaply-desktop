@@ -171,7 +171,7 @@ pub fn ingest(paths: &[String]) -> AnalysisIngestReport {
     // The durable half of the instrument: the counts reach the log whether or
     // not anyone reads the screen.
     tracing::info!(
-        files = files.len(), parsed, stored_not_parsed = stored, rejected, commands, statistical,
+        uploads = files.len(), parsed, stored_not_parsed = stored, rejected, commands, statistical,
         extensions = ?files.iter().map(|f| f.extension.clone()).collect::<Vec<_>>(),
         "analysis upload (D191 instrument)"
     );
@@ -183,7 +183,7 @@ pub fn ingest(paths: &[String]) -> AnalysisIngestReport {
 
 /// Tauri surface. Sync: reading a few small text files needs no thread.
 #[tauri::command]
-#[tracing::instrument]
+#[tracing::instrument(skip_all)]
 pub fn analysis_ingest(paths: Vec<String>) -> Result<AnalysisIngestReport, GaplyError> {
     Ok(ingest(&paths))
 }

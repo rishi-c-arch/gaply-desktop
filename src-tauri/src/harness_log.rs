@@ -120,7 +120,7 @@ fn append_to(path: &std::path::Path, report: &ShadowComparisonReport) -> bool {
     };
     if let Some(parent) = path.parent() {
         if let Err(e) = std::fs::create_dir_all(parent) {
-            tracing::warn!(error = %e, dir = %parent.display(), "box4: could not create record dir");
+            tracing::warn!(error = %e, "box4: could not create record dir");
             return false;
         }
     }
@@ -133,7 +133,7 @@ fn append_to(path: &std::path::Path, report: &ShadowComparisonReport) -> bool {
             }
         },
         Err(e) => {
-            tracing::warn!(error = %e, path = %path.display(), "box4: could not open record file");
+            tracing::warn!(error = %e, "box4: could not open record file");
             false
         }
     }
@@ -154,7 +154,7 @@ pub fn manuscript_sha256(path: &std::path::Path) -> String {
             format!("{:x}", h.finalize())
         }
         Err(e) => {
-            tracing::warn!(error = %e, path = %path.display(), "box4: could not hash manuscript");
+            tracing::warn!(error = %e, "box4: could not hash manuscript");
             String::new()
         }
     }

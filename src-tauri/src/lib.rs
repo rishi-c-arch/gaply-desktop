@@ -27,9 +27,11 @@ pub mod pipeline;
 mod wire_contract_tests;
 pub mod report_build;
 pub mod reviewer_synthesis;
+pub mod runs;
 pub mod state;
 pub mod stats_ai;
 pub mod stats_consistency;
+pub mod stats_desc_commands;
 pub mod stats_l1_commands;
 pub mod stats_l1_ingest;
 pub mod stats_reproduction;
@@ -332,6 +334,14 @@ pub fn run() {
             stats_l1_commands::stats_ai_key_test,
             stats_l1_commands::stats_ai_key_remove,
             stats_l1_commands::stats_open_source_link,
+            stats_desc_commands::stats_desc_open,
+            stats_desc_commands::stats_desc_validate,
+            stats_desc_commands::stats_desc_run,
+            stats_desc_commands::stats_desc_status,
+            stats_desc_commands::stats_desc_result,
+            stats_desc_commands::stats_desc_cancel,
+            stats_desc_commands::stats_desc_export,
+            stats_desc_commands::stats_desc_close,
             external_links::open_external_link,
             commands::build_gapfinder_corpus,
             commands::run_gap_finder,

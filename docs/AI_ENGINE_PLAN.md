@@ -23301,3 +23301,116 @@ relations allow the sum of both sides' gates plus one ulp. By hand, R's
 `read.csv` read an export back bit-identical (15 of 15 numbers); R's own
 parser read the e-notation `9.9999999690625000e8` one ulp low, so reference
 values are compared as bits.
+
+### D272 — Research OS, Phase 2B: the run manager, the descriptive summary's commands, its screen and its export; no path in tracing; ignored tests carry a waiver `[src]` `[test]` `[measured]`
+
+**Added** on `feat/research-os` (from `9c54030`, Phase 2A), on top of D271's
+contracts and descriptive summary. Decisions of 17 Oct 2026 apply
+(`~/gaply-corpus/os/decisions.md`, 4 to 9, 12, 15 and 17). The ADRs it
+proposes are `docs/adr/ADR-003-operation-contract.md` (Proposed),
+`ADR-004-artifacts-and-manifests.md` (Proposed, with 004a, the save-dialog
+export, Accepted 17 Oct 2026) and `ADR-010-budgets.md` (Proposed).
+
+**The run manager** (`src-tauri/src/runs.rs`, in `AppState` as `runs` and
+`datasets`, memory only): at most 8 run records, the oldest finished one
+dropped first and an unfinished one never; at most 4 dataset slots, the
+oldest dropped first, a slot dropped on close or exit. One foreground run:
+a second start while any record is unfinished is `run.run_busy` and makes
+no record. A run is detached: `start` makes the record, validates, queues,
+starts its own thread and returns the id; the screen polls. Every change
+goes through `contracts::transition`; the record keeps its path of states.
+Cooperative cancel and a 30 s wall-clock ceiling are read at one check
+point before each column. A cancel accepted while running always ends
+`Cancelled`: the worker reads the flag under the same lock as its last
+transition. A panic in the describe loop ends the run `Failed`, never
+stuck. `Runs::with_hooks` takes a clock, a hook (`Point::BeforeStart`,
+`Point::Column(k)`) and the ceiling, for tests.
+
+**2A's API, changed in the smallest way**: `stats_desc::describe_until(dataset,
+params, checkpoint: FnMut(usize) -> ControlFlow<B>)` returns
+`Result<DescribeResult, Halt<B>>` (`Refused(Diagnostic)` or `Stopped { reason,
+done }`); `describe` is `describe_until` with a checkpoint that never stops,
+so every 2A caller and test is unchanged. The module still reads no flag and
+no clock. `RunCode` gained `unknown_input`, `not_finished` and `no_result`
+(the pin in `contracts_wire.rs` updated).
+
+**Eight commands** (`stats_desc_commands.rs`, registered in `lib.rs`): open,
+validate, run, status, result, cancel, export, close; each
+`#[tracing::instrument(skip_all)]`, a view or a closed code in JSON, never a
+path. `stats_desc_open` reads through Level 1's `load_dataset` and refuses
+with Level 1's own code. **The shared ingest writes nothing to the database**:
+`check_file` and `dataset_from_checked` take no `Database`; the import-guard
+rate's one writer, `import_guard::record_rate` (`cache_put("import:
+seconds_per_page", {"secondsPerPage", "samples"}, 90 days)`), is called only
+by the citation-link import (`commands.rs`) and the open-access fetch
+(`oa_fetch.rs`); Level 1's `open` only READS the rate, through
+`preflight(db, manuscript, …)` on the manuscript. The step's premise that
+the ingest writes it does not hold; the matrix asserts no write at all.
+
+**Paths in tracing (decision 8).** `detect_ai` had a bare
+`#[tracing::instrument]`, and `run_stats_preview`, `run_stats_verify` and
+`run_stats_chat` skipped `manuscript_path` but not `path`: each span rendered
+the data or manuscript path through `Debug` (measured by mutation: `span
+detect_ai path="/var/folders/…/SPANPATH_SENTINEL_p55/SPANFILE_SENTINEL_ms.txt"`).
+A source guard (`tests/no_path_in_tracing.rs`) over every instrument
+attribute, event and span macro and `.record` in `src-tauri/src` found 32
+sites; 19 functions now `skip_all`, 8 events lose their path, dir or url
+field, one count key is renamed (`files` → `uploads`) and `log_auth_callback`
+no longer logs the deep link's path. `tests/no_path_in_command_spans.rs`
+runs the four commands with sentinels and reads every span and event.
+
+**Ignored tests.** `gaply-core/tests/ignored_tests_carry_a_waiver.rs` lists
+every ignore in the workspace (12 `#[ignore]`, 5 `cfg_attr(windows,
+ignore)`); an unconditional ignore of a test whose name or file mentions
+precision, privacy, provenance or cancel needs `issue=`, `owner=` and
+`review=YYYY-MM-DD`. The two precision sweeps carry `issue=D270-sweep
+owner=rishi review=2027-01-31`.
+
+**Output hashes (decision 15).** `gaply-core/tests/desc_output_hashes.rs`
+pins `offset_1e9` `5fd0af5d…`, `large_5000` `15d71b77…`, `heavy_tail`
+`b3b2edbf…` (macOS aarch64, Rust 1.97.0); the clean-checkout (Linux) and
+Windows jobs run it.
+
+**The screen** (`src/screens/statistics/`): `DescribeFlow.tsx`, Import →
+Profile → Settings → Validate → Run → Results → Export, focus on each
+heading; the levels rule in one sentence (decision 17); a candidate missing
+code as a question naming the value, applied only when ticked; progress,
+Cancel, elapsed and the terminal state; a neutral table with "Could not
+compute" and its reason; a read-only manifest panel; export through
+`saveTextFile` after checking the text re-encodes to the returned bytes.
+Route `/app/statistics/describe` and a hub tile behind
+`REACT_APP_FEATURE_STATS_DESCRIBE`, off by default (not an authorization
+boundary).
+
+**Wire contract.** One JSON fixture per view in
+`src/screens/statistics/fixtures/`, every optional field filled and no empty
+array; `src-tauri/tests/stats_desc_wire.rs` serialises each view to exactly
+those bytes; `describeTypes.vitest.ts` deep-compares each with a copy typed
+`satisfies` the view and pins every key; `describeCodes.json` equals
+`DescCode::ALL ∪ RunCode::ALL`.
+
+**Privacy matrix** (`tests/stats_desc_privacy_matrix.rs`, global tracing
+subscriber, a temporary app-data folder and a migrated database file): seven
+sentinels over the open view, validation, run, status, result (manifest
+apart), the manifest in the view and as bytes, the CSV, 8 refusals, every
+span and event from every thread, and every byte of every file in the
+app-data folder, which is SHA-256-identical before and after.
+
+**Measured, 17 Oct 2026, macOS aarch64** (logs in `~/gaply-corpus/os/phase2b/`):
+`cargo test --workspace` exit 0, 83 targets (81 Running + 2 Doc-tests), 2,616
+passed, 12 ignored: Phase 2A's 75 targets and 2,594 plus 8 new targets and
+22 new tests; the only earlier target whose count moved is the app lib, 517
+→ 518 (the eviction unit test in `runs.rs`). `cargo test -p app --features
+devtools`: 26 targets, 621 passed, 9 ignored. vitest: 89 files, 1,095 passed.
+`npx tsc --noEmit`, CI's eslint and `npm run build` exit 0. Mutation probes,
+each restored to its recorded SHA-256: no cancel check (the parked run did
+all 4 columns), no busy check (a second run started), a path back in
+`detect_ai`'s span (the guard and the runtime test), a path under the key
+`opened` (only the matrix sees it: the guard is name-based by construction),
+a renamed fixture key (the Rust bytes test and the vitest), a file write in
+`runs.rs`, the hub tile without its flag: every one red.
+
+**Not met, by design:** blueprint §8.5's "persist terminal state even if the
+UI closes" (nothing persists); `AwaitingConfirmation`, `Invalidated`,
+`ResourceLimit` and `NumericalFailure` have no producer, so the commands
+reach 11 of the 18 edges.

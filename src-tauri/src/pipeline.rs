@@ -174,7 +174,7 @@ impl NetworkConsent {
 /// The async command. Extracts `Arc` handles from managed state (cheap, Send)
 /// then runs the sync pipeline off the async runtime via spawn_blocking.
 #[tauri::command]
-#[tracing::instrument(skip(state, on_event))]
+#[tracing::instrument(skip_all)]
 pub async fn run_full_analysis(
     state: State<'_, AppState>,
     path: String,

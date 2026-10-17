@@ -91,7 +91,7 @@ pub fn db_health(state: State<'_, AppState>) -> Result<DbHealth, GaplyError> {
 /// store the result, and return the typed `ExtractionResult`. Pure offline:
 /// the file is read from the local disk and never leaves the machine.
 #[tauri::command]
-#[tracing::instrument(skip(state))]
+#[tracing::instrument(skip_all)]
 pub fn extract_manuscript(
     state: State<'_, AppState>,
     path: String,
@@ -111,7 +111,7 @@ pub fn extract_manuscript(
 /// validate. Stores the extraction and the validation findings (severity
 /// CRITICAL/MAJOR), and returns the validity report. No network, no LLM.
 #[tauri::command]
-#[tracing::instrument(skip(state))]
+#[tracing::instrument(skip_all)]
 pub fn validate_manuscript(
     state: State<'_, AppState>,
     path: String,
@@ -138,7 +138,7 @@ pub fn validate_manuscript(
 /// corpus), and compares against the shared corpus and against itself.
 /// Returns matched spans with similarity scores and source provenance.
 #[tauri::command]
-#[tracing::instrument(skip(state))]
+#[tracing::instrument(skip_all)]
 pub fn check_plagiarism(
     state: State<'_, AppState>,
     path: String,
@@ -167,7 +167,7 @@ fn title_from_path(path: &str) -> String {
 /// compute Set-2 fingerprints once → store. Explicit user action; the upload
 /// under a plagiarism check is NEVER auto-added.
 #[tauri::command]
-#[tracing::instrument(skip(state))]
+#[tracing::instrument(skip_all)]
 pub fn add_to_plagiarism_library(
     state: State<'_, AppState>,
     path: String,
@@ -208,7 +208,7 @@ pub fn remove_from_plagiarism_library(state: State<'_, AppState>, id: i64) -> Re
 /// fingerprints) AND against itself (self-plagiarism). The upload stays
 /// session-isolated — never added to the library.
 #[tauri::command]
-#[tracing::instrument(skip(state))]
+#[tracing::instrument(skip_all)]
 pub fn check_plagiarism_exact(
     state: State<'_, AppState>,
     path: String,
@@ -308,7 +308,7 @@ pub fn delete_secret(name: String) -> Result<(), GaplyError> {
 }
 
 #[tauri::command]
-#[tracing::instrument]
+#[tracing::instrument(skip_all)]
 pub fn detect_ai(path: String) -> Result<AiDetectionReport, GaplyError> {
     // **§11 D213: `extract_path`, not `extract_from_text`** — it attaches the
     // table structures the pipeline attaches. `detect_extraction` excludes only
@@ -352,7 +352,7 @@ pub struct AiCheckResult {
 /// CPU — so async + spawn_blocking, like `run_full_analysis`. Never fails for
 /// a missing model: degraded tiers come back as honest labels in the result.
 #[tauri::command]
-#[tracing::instrument(skip(state, on_event))]
+#[tracing::instrument(skip_all)]
 pub async fn run_aicheck(
     state: State<'_, AppState>,
     path: String,
@@ -486,7 +486,7 @@ pub fn rag_search(
 /// unreachable/non-HTML/injected sources come back as Unavailable/Quarantined
 /// with an honest note, and the checklist simply stays bare — no fabrication.
 #[tauri::command]
-#[tracing::instrument(skip(state))]
+#[tracing::instrument(skip_all)]
 pub async fn ingest_guidelines(
     state: State<'_, AppState>,
     journal_url: Option<String>,
@@ -729,7 +729,7 @@ pub fn reviewer_letter_availability() -> ReviewerLetterAvailability {
 /// When the proxy is not live the reviewer letter is marked "unavailable
 /// offline"; the rest of the report (all local) is still returned.
 #[tauri::command]
-#[tracing::instrument(skip(state, user_token))]
+#[tracing::instrument(skip_all)]
 pub async fn run_publishready(
     state: State<'_, AppState>,
     path: String,
@@ -912,7 +912,7 @@ pub fn run_publishready_measured(
         .filter_map(|p| match crate::supplementary::parse_supplementary(std::path::Path::new(p)) {
             Ok(ev) => serde_json::to_value(&ev).ok(),
             Err(e) => {
-                tracing::warn!(path = %p, error = %e, "supplementary parse failed; skipped");
+                tracing::warn!(error = %e, "supplementary parse failed; skipped");
                 None
             }
         })
@@ -1132,7 +1132,7 @@ pub fn run_publishready_measured(
 /// registry (CrossRef) is the only truth source, every field verified or
 /// honestly absent, honest Unverified with a manual-entry fallback otherwise.
 #[tauri::command]
-#[tracing::instrument(skip(state))]
+#[tracing::instrument(skip_all)]
 pub async fn resolve_citation_metadata(
     state: State<'_, AppState>,
     path: Option<String>,
@@ -1274,7 +1274,7 @@ pub struct AiIndexReport {
 /// the async runtime thread (the `verify_reference` precedent). Re-running is
 /// safe — `index_chunks` is idempotent by database constraint.
 #[tauri::command]
-#[tracing::instrument(skip(state))]
+#[tracing::instrument(skip_all)]
 pub async fn ai_index_document(
     state: State<'_, AppState>,
     document_id: i64,
@@ -2048,7 +2048,7 @@ pub async fn ai_embed_document(
 /// reason the check moved up: finding out after a progress bar has run is
 /// finding out too late to have saved anything.
 #[tauri::command]
-#[tracing::instrument(skip(state))]
+#[tracing::instrument(skip_all)]
 pub async fn ai_import_preflight(
     state: State<'_, AppState>,
     path: String,
@@ -2091,7 +2091,7 @@ pub enum LinkSourceEvent {
 /// `matched_by = 'manual'` is the point: the user asserted this link, so it
 /// outranks the DOI and title heuristics and is never silently re-derived.
 #[tauri::command]
-#[tracing::instrument(skip(state, on_event))]
+#[tracing::instrument(skip_all)]
 pub async fn ai_link_source_document(
     state: State<'_, AppState>,
     citation_id: String,
@@ -2562,11 +2562,13 @@ pub fn log_auth_callback(
     has_refresh_token: bool,
     param_location: String,
 ) {
+    // Received so the webview's call keeps its shape; never logged, since no
+    // span or event records a path (Research OS decision 8).
+    let _ = path;
     tracing::info!(
         target: "app_lib::auth",
         %scheme,
         %host,
-        %path,
         has_code,
         has_error,
         has_access_token,
@@ -2750,7 +2752,7 @@ pub fn export_publishready_pdf(
 /// one-at-a-time lifecycle is untouched); link fetches are rate-limited per
 /// host with capped downloads. Caps reject oversize input honestly.
 #[tauri::command]
-#[tracing::instrument(skip(state))]
+#[tracing::instrument(skip_all)]
 pub async fn build_gapfinder_corpus(
     state: State<'_, AppState>,
     session: String,
@@ -3128,7 +3130,7 @@ fn stats_prefill_p(manuscript_path: &Option<String>) -> Option<f64> {
 /// Preview the uploaded data's columns (and optionally pre-fill the reported
 /// p-value from an attached manuscript). Local, deterministic — no network.
 #[tauri::command]
-#[tracing::instrument(skip(manuscript_path))]
+#[tracing::instrument(skip_all)]
 pub fn run_stats_preview(
     path: String,
     manuscript_path: Option<String>,
@@ -3146,7 +3148,7 @@ pub fn run_stats_preview(
 /// and LOCAL (the Set 2 engine); no model, no proxy. The optional manuscript
 /// adds the deterministic advisory lane (validate.rs).
 #[tauri::command]
-#[tracing::instrument(skip(spec, manuscript_path))]
+#[tracing::instrument(skip_all)]
 pub fn run_stats_verify(
     path: String,
     spec: AnalysisSpec,
@@ -3163,7 +3165,7 @@ pub fn run_stats_verify(
 /// before any proxy probe; cloud-only, honest degradation; the user's JWT rides
 /// along for the proxy's server-side entitlement gate.
 #[tauri::command]
-#[tracing::instrument(skip(spec, manuscript_path, question, user_token))]
+#[tracing::instrument(skip_all)]
 pub async fn run_stats_chat(
     path: String,
     spec: AnalysisSpec,

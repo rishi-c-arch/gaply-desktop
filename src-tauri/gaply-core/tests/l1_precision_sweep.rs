@@ -524,7 +524,7 @@ fn sweep() -> Vec<Row> {
 }
 
 #[test]
-#[ignore = "the precision sweep: minutes in release; run on purpose"]
+#[ignore = "the precision sweep: minutes in release; run on purpose; issue=D270-sweep owner=rishi review=2027-01-31"]
 fn measure_the_validity_limit_and_the_widening() {
     let rows = sweep();
     let mut out =
@@ -579,7 +579,7 @@ fn measure_the_validity_limit_and_the_widening() {
 /// The shipped constants contain every extreme the sweep finds at or below
 /// L; above L the range is unbounded.
 #[test]
-#[ignore = "the precision sweep: minutes in release; run on purpose"]
+#[ignore = "the precision sweep: minutes in release; run on purpose; issue=D270-sweep owner=rishi review=2027-01-31"]
 fn the_shipped_limit_and_widening_contain_every_extreme_found() {
     let rows = sweep();
     let mut misses = Vec::new();

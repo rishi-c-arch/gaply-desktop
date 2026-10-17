@@ -32,6 +32,7 @@ import JournalVerifyPage from './journalverify/JournalVerifyPage';
 import PublishReadyPage from './publishready/PublishReadyPage';
 import GapFinderPage from './gapfinder/GapFinderPage';
 import StatsVerifierPage from './statsverifier/StatsVerifierPage';
+import { DescribePage } from './statistics/DescribeFlow';
 import CopilotPage from './copilot/CopilotPage';
 import BillingPage from './subscription/BillingPage';
 import CommunityPage from './community/CommunityPage';
@@ -194,6 +195,16 @@ export const StatsVerifierRoute: React.FC = () => (
   <GaplySessionProvider>
     <RequireAuth>
       <StatsVerifierPage />
+    </RequireAuth>
+  </GaplySessionProvider>
+);
+
+/** /app/statistics/describe — the Research OS descriptive summary (Phase 2B),
+ *  reached only while its flag is on (see statistics/describeRoute). */
+export const DescribeRoute: React.FC = () => (
+  <GaplySessionProvider>
+    <RequireAuth>
+      <DescribePage />
     </RequireAuth>
   </GaplySessionProvider>
 );

@@ -13,6 +13,7 @@ import '../../hero-animations.css';
 import '../../hero-new.css';
 import './homeHero.css';
 import { isFeatureEnabled } from '../../config/featureFlags';
+import { describeTiles } from '../statistics/describeRoute';
 
 // The real app feature pages (the old dashboard tools), in the hero-sidebar
 // style. Each navigates to its actual in-app route.
@@ -41,16 +42,25 @@ const HERO_OPTIONS = [
   { label: 'Settings', href: '/app/settings' },
 ].filter((opt) => opt.href !== '/app/check/stats' || isFeatureEnabled('statsCheck'));
 
+/** The options with the Research OS descriptive summary after the verifier,
+ *  only while its flag is on. Read when the hero renders, so a test can turn
+ *  the flag on and off in one file. */
+function heroOptions(): typeof HERO_OPTIONS {
+  const at = HERO_OPTIONS.findIndex((opt) => opt.href === '/app/statsverifier') + 1;
+  return [...HERO_OPTIONS.slice(0, at), ...describeTiles(), ...HERO_OPTIONS.slice(at)];
+}
+
 const AppHomeHero: React.FC = () => {
   const { theme, toggleTheme } = useTheme();
   const isDark = theme === 'dark';
   const navigate = useNavigate();
   const location = useLocation();
   const [isMenuOpen, setIsMenuOpen] = React.useState(false);
+  const options = React.useMemo(heroOptions, []);
   const activeSidebarIndex = React.useMemo(() => {
-    const idx = HERO_OPTIONS.findIndex((opt) => opt.href === location.pathname);
+    const idx = options.findIndex((opt) => opt.href === location.pathname);
     return idx === -1 ? 0 : idx;
-  }, [location.pathname]);
+  }, [location.pathname, options]);
 
   return (
     <div data-testid="home-dashboard">
@@ -84,7 +94,7 @@ const AppHomeHero: React.FC = () => {
               </button>
               {isMenuOpen && (
                 <div className="hero-menu-dropdown" role="menu">
-                  {HERO_OPTIONS.map((opt) => (
+                  {options.map((opt) => (
                     <Link
                       key={opt.href}
                       to={opt.href}
@@ -126,7 +136,7 @@ const AppHomeHero: React.FC = () => {
                 aria-hidden="true"
                 style={{ transform: `translateY(${activeSidebarIndex * 56}px)` }}
               />
-              {HERO_OPTIONS.map((opt, i) => (
+              {options.map((opt, i) => (
                 <Link
                   key={opt.href}
                   to={opt.href}

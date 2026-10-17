@@ -73,6 +73,12 @@ pub struct AppState {
     pub stats_l1: Arc<crate::stats_l1_commands::L1Runs>,
     /// The AI help setting, the user's key store and the Responses transport.
     pub stats_ai: Arc<crate::stats_ai::StatsAi>,
+    /// Research OS run records (Phase 2B). IN MEMORY ONLY, at most 8, the
+    /// oldest finished one dropped first.
+    pub runs: Arc<crate::runs::Runs>,
+    /// Research OS dataset slots (Phase 2B). IN MEMORY ONLY, at most 4,
+    /// dropped on close or exit.
+    pub datasets: Arc<crate::runs::DatasetSlots>,
 }
 
 /// How many rendered reports to keep in memory. A user exports the run they
@@ -134,6 +140,8 @@ impl AppState {
             ai_jobs: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             stats_l1: Arc::new(crate::stats_l1_commands::L1Runs::default()),
             stats_ai: Arc::new(crate::stats_ai::StatsAi::production(&app_data_dir)),
+            runs: Arc::new(crate::runs::Runs::default()),
+            datasets: Arc::new(crate::runs::DatasetSlots::default()),
         }
     }
 }
