@@ -33,6 +33,9 @@ import PublishReadyPage from './publishready/PublishReadyPage';
 import GapFinderPage from './gapfinder/GapFinderPage';
 import StatsVerifierPage from './statsverifier/StatsVerifierPage';
 import { DescribePage } from './statistics/DescribeFlow';
+import { WorkspaceChooser } from './workspace/WorkspaceChooser';
+import { WorkspaceShell } from './workspace/WorkspaceShell';
+import { RequireWorkspace } from './workspace/RequireWorkspace';
 import CopilotPage from './copilot/CopilotPage';
 import BillingPage from './subscription/BillingPage';
 import CommunityPage from './community/CommunityPage';
@@ -200,11 +203,35 @@ export const StatsVerifierRoute: React.FC = () => (
 );
 
 /** /app/statistics/describe — the Research OS descriptive summary (Phase 2B),
- *  reached only while its flag is on (see statistics/describeRoute). */
+ *  reached only while its flag is on (see statistics/describeRoute). Shown
+ *  only while the Statistics workspace is active (Phase 3): Rust refuses its
+ *  commands otherwise. */
 export const DescribeRoute: React.FC = () => (
   <GaplySessionProvider>
     <RequireAuth>
-      <DescribePage />
+      <RequireWorkspace id="statistics">
+        <DescribePage />
+      </RequireWorkspace>
+    </RequireAuth>
+  </GaplySessionProvider>
+);
+
+/** /app/workspaces — "Choose your workspace" (Research OS, Phase 3), only
+ *  while its flag is on (see workspace/workspaceRoute). */
+export const WorkspaceChooserRoute: React.FC = () => (
+  <GaplySessionProvider>
+    <RequireAuth>
+      <WorkspaceChooser />
+    </RequireAuth>
+  </GaplySessionProvider>
+);
+
+/** /app/workspaces/statistics — the slim shell around the Statistics
+ *  workspace (Research OS, Phase 3), only while its flag is on. */
+export const WorkspaceShellRoute: React.FC = () => (
+  <GaplySessionProvider>
+    <RequireAuth>
+      <WorkspaceShell />
     </RequireAuth>
   </GaplySessionProvider>
 );

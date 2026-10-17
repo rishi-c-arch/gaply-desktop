@@ -24,6 +24,17 @@
 //! (decision 4). The manifest holds hashes and counts (decision 12). Export
 //! returns bytes, and Rust writes nothing: the screen's save dialog writes
 //! the one file the user names (decision 5, ADR-004a).
+//!
+//! **The workspace check comes first (Research OS, Phase 3, decision 27).**
+//! Every command's first statement is
+//! `state.workspace.require_statistics()`: unless Statistics is the active
+//! workspace, the command is refused with `workspace.inactive` before
+//! anything else runs, and the run records and slots it would use do not
+//! exist. `validate` and `run` then refuse a spec whose `workspaceId`, or
+//! whose capability's workspace, is not the active one, however it was
+//! built (`workspace.wrong_workspace`). `tests/workspace_guards.rs` reads
+//! `lib.rs`'s handler list and fails if a registered `stats_desc_*` command
+//! does not start with the check.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -40,8 +51,12 @@ use gaply_core::stats_desc::{self, ColumnResult, DatasetProfile, DescCode, Descr
 use gaply_core::stats_l1::codes::{l1_ingest_refusal, WireCode};
 use gaply_core::GaplyError;
 
-use crate::runs::{DatasetSlots, RunSnapshot, Runs};
+use gaply_core::contracts::workspace::check_spec;
+use gaply_core::contracts::WorkspaceId;
+
+use crate::runs::{DatasetSlots, NotStarted, RunSnapshot, Runs};
 use crate::stats_l1_ingest::load_dataset;
+use crate::workspace::{refuse as refuse_workspace, refuse_inactive};
 
 /* ------------------------------------------------------------------------ *
  *  Views
@@ -198,7 +213,11 @@ pub fn run(
     spec: OperationSpec<DescribeParams>,
 ) -> Result<RunStartedView, GaplyError> {
     let held = slots.get(slot).map_err(refuse_run)?;
-    let id = runs.start(held, spec).map_err(refuse_run)?;
+    let id = runs.start(held, spec).map_err(|n| match n {
+        NotStarted::Busy => refuse_run(RunCode::RunBusy),
+        // The workspace was left between the check and the start.
+        NotStarted::Sealed => refuse_inactive(),
+    })?;
     Ok(RunStartedView { run_id: id.0 })
 }
 
@@ -256,7 +275,11 @@ async fn blocking<T: Send + 'static>(
 #[tauri::command]
 #[tracing::instrument(skip_all)]
 pub async fn stats_desc_open(state: St<'_>, path: String) -> Result<DatasetView, GaplyError> {
-    let slots = state.datasets.clone();
+    let engine = state
+        .workspace
+        .require_statistics()
+        .map_err(refuse_workspace)?;
+    let slots = engine.datasets.clone();
     blocking(move || open(&slots, Path::new(&path))).await
 }
 
@@ -267,7 +290,17 @@ pub async fn stats_desc_validate(
     slot: u64,
     spec: OperationSpec<DescribeParams>,
 ) -> Result<ValidationReportView, GaplyError> {
-    let slots = state.datasets.clone();
+    let engine = state
+        .workspace
+        .require_statistics()
+        .map_err(refuse_workspace)?;
+    check_spec(
+        WorkspaceId::Statistics,
+        spec.workspace_id,
+        &spec.capability_id,
+    )
+    .map_err(refuse_workspace)?;
+    let slots = engine.datasets.clone();
     blocking(move || validate(&slots, slot, &spec)).await
 }
 
@@ -278,26 +311,48 @@ pub async fn stats_desc_run(
     slot: u64,
     spec: OperationSpec<DescribeParams>,
 ) -> Result<RunStartedView, GaplyError> {
-    let (runs, slots) = (state.runs.clone(), state.datasets.clone());
+    let engine = state
+        .workspace
+        .require_statistics()
+        .map_err(refuse_workspace)?;
+    check_spec(
+        WorkspaceId::Statistics,
+        spec.workspace_id,
+        &spec.capability_id,
+    )
+    .map_err(refuse_workspace)?;
+    let (runs, slots) = (engine.runs.clone(), engine.datasets.clone());
     blocking(move || run(&runs, &slots, slot, spec)).await
 }
 
 #[tauri::command]
 #[tracing::instrument(skip_all)]
 pub async fn stats_desc_status(state: St<'_>, run_id: u64) -> Result<RunStateView, GaplyError> {
-    status(&state.runs, run_id)
+    let engine = state
+        .workspace
+        .require_statistics()
+        .map_err(refuse_workspace)?;
+    status(&engine.runs, run_id)
 }
 
 #[tauri::command]
 #[tracing::instrument(skip_all)]
 pub async fn stats_desc_result(state: St<'_>, run_id: u64) -> Result<ResultBundleView, GaplyError> {
-    result(&state.runs, run_id)
+    let engine = state
+        .workspace
+        .require_statistics()
+        .map_err(refuse_workspace)?;
+    result(&engine.runs, run_id)
 }
 
 #[tauri::command]
 #[tracing::instrument(skip_all)]
 pub async fn stats_desc_cancel(state: St<'_>, run_id: u64) -> Result<RunStateView, GaplyError> {
-    cancel(&state.runs, run_id)
+    let engine = state
+        .workspace
+        .require_statistics()
+        .map_err(refuse_workspace)?;
+    cancel(&engine.runs, run_id)
 }
 
 #[tauri::command]
@@ -307,12 +362,20 @@ pub async fn stats_desc_export(
     run_id: u64,
     format: ExportFormat,
 ) -> Result<ExportView, GaplyError> {
-    let runs = state.runs.clone();
+    let engine = state
+        .workspace
+        .require_statistics()
+        .map_err(refuse_workspace)?;
+    let runs = engine.runs.clone();
     blocking(move || export(&runs, run_id, format)).await
 }
 
 #[tauri::command]
 #[tracing::instrument(skip_all)]
 pub async fn stats_desc_close(state: St<'_>, slot: u64) -> Result<bool, GaplyError> {
-    Ok(close(&state.datasets, slot))
+    let engine = state
+        .workspace
+        .require_statistics()
+        .map_err(refuse_workspace)?;
+    Ok(close(&engine.datasets, slot))
 }

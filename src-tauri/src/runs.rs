@@ -32,11 +32,16 @@
 //!
 //! For tests, [`Runs::with_hooks`] takes a clock, a hook the check point
 //! calls first (a test parks a run there at column k) and the ceiling.
+//!
+//! Phase 3: the run manager and the slots belong to the Statistics workspace
+//! (`crate::workspace`), built when it is activated and dropped when it is
+//! left. [`Runs::seal`] is how it is left: under the records' lock it either
+//! names the unfinished run, or closes the manager so no run can start after.
 
 use std::collections::VecDeque;
 use std::ops::ControlFlow;
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Instant;
 
@@ -150,6 +155,17 @@ impl DatasetSlots {
     pub fn held(&self) -> usize {
         lock(&self.slots).len()
     }
+
+    /// The last slot number handed out.
+    pub fn last_id(&self) -> u64 {
+        self.next.load(Ordering::SeqCst)
+    }
+
+    /// Numbers the next slot after `last`, so a slot of an earlier engine is
+    /// never reused.
+    pub fn continue_after(&self, last: u64) {
+        self.next.fetch_max(last, Ordering::SeqCst);
+    }
 }
 
 /* ------------------------------------------------------------------------ *
@@ -190,8 +206,19 @@ enum Stop {
     TimeOut,
 }
 
+/// Why [`Runs::start`] made no record.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NotStarted {
+    /// Another run is unfinished: `run.run_busy`.
+    Busy,
+    /// The manager was sealed: its workspace has been left.
+    Sealed,
+}
+
 pub struct Runs {
     next: AtomicU64,
+    /// Set by [`Runs::seal`], only while `entries` is locked.
+    sealed: AtomicBool,
     entries: Mutex<VecDeque<Entry>>,
     clock: Arc<dyn Clock>,
     hook: Option<CheckpointHook>,
@@ -213,6 +240,7 @@ impl Runs {
     ) -> Runs {
         Runs {
             next: AtomicU64::new(0),
+            sealed: AtomicBool::new(false),
             entries: Mutex::new(VecDeque::new()),
             clock,
             hook,
@@ -264,19 +292,22 @@ impl Runs {
 
     /// Creates the run, validates `spec` on the slot's dataset and, if it may
     /// run, queues it and starts it on its own thread. Returns at once.
-    /// Refused with `run.run_busy` while another run is unfinished. A spec
-    /// that fails validation still makes a record, ended `Refused` or
-    /// `NeedsUserInput`, whose snapshot carries the codes.
+    /// Refused while another run is unfinished, and once the manager is
+    /// sealed. A spec that fails validation still makes a record, ended
+    /// `Refused` or `NeedsUserInput`, whose snapshot carries the codes.
     pub fn start(
         self: &Arc<Self>,
         slot: Arc<Slot>,
         spec: OperationSpec<DescribeParams>,
-    ) -> Result<RunId, RunCode> {
+    ) -> Result<RunId, NotStarted> {
         let now = self.clock.now_ms();
         let run = {
             let mut entries = lock(&self.entries);
+            if self.sealed.load(Ordering::SeqCst) {
+                return Err(NotStarted::Sealed);
+            }
             if entries.iter().any(|e| !e.record.state.is_terminal()) {
-                return Err(RunCode::RunBusy);
+                return Err(NotStarted::Busy);
             }
             let run = RunId(self.next.fetch_add(1, Ordering::SeqCst) + 1);
             let mut entry = Entry {
@@ -511,6 +542,43 @@ impl Runs {
     pub fn held(&self) -> usize {
         lock(&self.entries).len()
     }
+
+    /// The run that is queued or running, if any (at most one: one
+    /// foreground run at a time).
+    pub fn unfinished(&self) -> Option<RunId> {
+        lock(&self.entries)
+            .iter()
+            .find(|e| !e.record.state.is_terminal())
+            .map(|e| e.record.run_id)
+    }
+
+    /// The newest record held, finished or not.
+    pub fn latest(&self) -> Option<RunId> {
+        lock(&self.entries).back().map(|e| e.record.run_id)
+    }
+
+    /// Closes the manager to new runs, unless one is unfinished: then it is
+    /// left open and that run's id is the answer. One step under the records'
+    /// lock, so no run can start between the check and the seal.
+    pub fn seal(&self) -> Result<(), RunId> {
+        let entries = lock(&self.entries);
+        if let Some(e) = entries.iter().find(|e| !e.record.state.is_terminal()) {
+            return Err(e.record.run_id);
+        }
+        self.sealed.store(true, Ordering::SeqCst);
+        Ok(())
+    }
+
+    /// The last run id handed out.
+    pub fn last_id(&self) -> u64 {
+        self.next.load(Ordering::SeqCst)
+    }
+
+    /// Numbers the next run after `last`, so a run id of an earlier engine is
+    /// never reused.
+    pub fn continue_after(&self, last: u64) {
+        self.next.fetch_max(last, Ordering::SeqCst);
+    }
 }
 
 #[cfg(test)]
@@ -565,5 +633,63 @@ mod tests {
             .collect();
         Runs::evict(&mut busy);
         assert_eq!(busy.len(), MAX_RUNS + 1);
+    }
+
+    /// Phase 3. Leaving the Statistics workspace seals its run manager. With a
+    /// run unfinished the seal is refused with that run's id and the manager
+    /// stays open; once sealed, a start makes no record. The seal and the
+    /// start take the same lock, so there is no gap between them.
+    #[test]
+    fn a_seal_names_the_unfinished_run_and_a_sealed_manager_starts_nothing() {
+        use gaply_core::stats_desc::{Alias, ColumnRequest, TreatAs};
+        use gaply_core::stats_l1::dataset::{
+            build_dataset, ColumnAlias, DataFingerprint, RawTable, TableRef,
+        };
+
+        let runs = Arc::new(Runs::default());
+        lock(&runs.entries).push_back(entry(7, RunState::Running));
+        assert_eq!(runs.seal(), Err(RunId(7)));
+        assert_eq!(runs.unfinished(), Some(RunId(7)));
+        assert!(!runs.sealed.load(Ordering::SeqCst), "left open");
+
+        lock(&runs.entries).clear();
+        lock(&runs.entries).push_back(entry(8, RunState::Cancelled));
+        assert_eq!(runs.seal(), Ok(()));
+        assert_eq!(runs.latest(), Some(RunId(8)));
+
+        let dataset = build_dataset(
+            RawTable::from_rows(vec!["x".into()], vec![vec!["1".into()], vec!["2".into()]]),
+            DataFingerprint::of_bytes(b"synthetic", "unit", TableRef::FirstTable),
+        )
+        .expect("dataset");
+        let spec = stats_desc::spec(
+            OperationId(1),
+            &dataset,
+            DescribeParams {
+                columns: vec![ColumnRequest {
+                    alias: Alias(ColumnAlias(1)),
+                    treat_as: TreatAs::Numeric,
+                }],
+                missing_codes: vec![],
+            },
+        );
+        let slot = Arc::new(Slot {
+            display_name: "synthetic".into(),
+            dataset,
+        });
+        assert_eq!(runs.start(slot, spec), Err(NotStarted::Sealed));
+        assert_eq!(runs.held(), 1, "no record was made");
+    }
+
+    #[test]
+    fn ids_continue_after_an_earlier_engine() {
+        let runs = Runs::default();
+        runs.continue_after(5);
+        assert_eq!(runs.last_id(), 5);
+        runs.continue_after(3);
+        assert_eq!(runs.last_id(), 5, "never goes back");
+        let slots = DatasetSlots::default();
+        slots.continue_after(4);
+        assert_eq!(slots.last_id(), 4);
     }
 }

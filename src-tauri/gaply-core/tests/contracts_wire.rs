@@ -12,6 +12,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 use gaply_core::contracts::codes::{Closed, RunCode};
+use gaply_core::contracts::workspace::{WorkspaceCode, WorkspaceEventKind, WorkspacePhase};
 use gaply_core::contracts::{
     transition, Arch, CapabilityId, ContentHash, Diagnostic, Exclusion, InputRef, OperationId,
     OperationSpec, Os, ParamKey, ParamValue, Platform, Reproducibility, ResourceEstimate,
@@ -269,8 +270,8 @@ fn every_contract_type_round_trips_and_structs_refuse_an_unknown_field() {
     );
     refuses_extra_field(&bundle);
 
-    for v in [WorkspaceId::Statistics] {
-        round_trip(&v);
+    for v in WorkspaceId::ALL {
+        round_trip(v);
     }
     for v in [Severity::Error, Severity::Warning, Severity::Note] {
         round_trip(&v);
@@ -354,8 +355,15 @@ fn the_checked_newtypes_refuse_what_does_not_fit_them() {
         "schema version 0"
     );
     assert!(
-        with("workspaceId", Value::from("compute")).is_err(),
+        with("workspaceId", Value::from("geometry")).is_err(),
         "an unknown workspace"
+    );
+    // Phase 3: Compute is a workspace id, so the spec reads; the app refuses
+    // it with `workspace.wrong_workspace` (src-tauri/tests/workspace_session.rs)
+    // and `stats_desc::validate` with `unknown_capability`.
+    assert!(
+        with("workspaceId", Value::from("compute")).is_ok(),
+        "a known workspace reads"
     );
 
     for id in ["stats.describe", "stats.desc_summary", "stats.a.b.c"] {
@@ -687,6 +695,21 @@ fn the_code_and_word_lists_are_pinned() {
     all.extend(DescCode::ALL.iter().map(|c| c.wire()));
     all.extend(RunState::ALL.iter().map(|c| c.wire()));
     all.extend(RunEvent::ALL.iter().map(|c| c.wire()));
+    // Phase 3's parameter words: workspace ids, phases and events.
+    let workspaces: Vec<String> = WorkspaceId::ALL
+        .iter()
+        .map(|w| {
+            serde_json::to_value(w)
+                .expect("json")
+                .as_str()
+                .expect("a word")
+                .to_string()
+        })
+        .collect();
+    all.extend(workspaces.iter().map(String::as_str));
+    all.extend(WorkspacePhase::ALL.iter().map(|c| c.wire()));
+    all.extend(WorkspaceEventKind::ALL.iter().map(|c| c.wire()));
+    all.extend(WorkspaceCode::ALL.iter().map(|c| c.wire()));
     let n = all.len();
     all.sort_unstable();
     all.dedup();

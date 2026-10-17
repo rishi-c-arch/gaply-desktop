@@ -15,7 +15,9 @@ export function describeRoute(element: React.ReactElement): React.ReactElement |
   return isFeatureEnabled('statsDescribe') ? <Route path={DESCRIBE_PATH} element={element} /> : null;
 }
 
-/** The hub tile, or none while the flag is off. */
+/** The hub tile, or none while the flag is off. With the workspaces flag on
+ *  too, the screen is reached from the Statistics workspace instead, so the
+ *  hub has no tile for it (Research OS, Phase 3). */
 export function describeTiles(): Array<typeof DESCRIBE_TILE> {
-  return isFeatureEnabled('statsDescribe') ? [DESCRIBE_TILE] : [];
+  return isFeatureEnabled('statsDescribe') && !isFeatureEnabled('workspaces') ? [DESCRIBE_TILE] : [];
 }

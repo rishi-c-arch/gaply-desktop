@@ -1,0 +1,8 @@
+[
+  "workspace.illegal_transition",
+  "workspace.inactive",
+  "workspace.not_ready",
+  "workspace.run_active",
+  "workspace.unavailable",
+  "workspace.wrong_workspace"
+]

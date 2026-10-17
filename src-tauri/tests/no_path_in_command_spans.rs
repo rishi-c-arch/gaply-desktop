@@ -1,20 +1,20 @@
-//! **What the four commands that recorded a path now render in tracing
-//! (Research OS decision 8, Phase 2B).** `detect_ai`, `run_stats_preview`,
-//! `run_stats_verify` and `run_stats_chat` each recorded the file path in
-//! their span (`path="…"`, through `Debug`) until Phase 2B. This runs each
-//! one on files in a folder named `SPANPATH_SENTINEL_p55`, with
-//! `SPANFILE_SENTINEL_…` in their names, and reads every span and event the
-//! process produces: neither sentinel may appear, and each command's span
-//! must have been seen, so the check is not vacuous.
+//! **What the commands that recorded a path now render in tracing (Research
+//! OS decision 8, Phase 2B).** `detect_ai`, `run_stats_preview` and
+//! `run_stats_verify` each recorded the file path in their span (`path="…"`,
+//! through `Debug`) until Phase 2B. This runs each one on files in a folder
+//! named `SPANPATH_SENTINEL_p55`, with `SPANFILE_SENTINEL_…` in their names,
+//! and reads every span and event the process produces: neither sentinel may
+//! appear, and each command's span must have been seen, so the check is not
+//! vacuous.
 //!
 //! Each runs without a model or the network: `detect_ai` uses the heuristic
-//! model it hard-codes, and `run_stats_chat` is asked to write analysis code,
-//! which its firewall refuses before the proxy is probed or the keychain
-//! read (asserted first, so the test cannot reach either).
+//! model it hard-codes. Phase 2B also ran `run_stats_chat` here; Phase 3
+//! removed that command (decision 8), and `workspace_guards.rs` checks it is
+//! no longer registered.
 //!
 //! The source-side guard is `no_path_in_tracing.rs`. Alone in its binary on
-//! purpose: its subscriber is the process's global default, so the chat
-//! command's `spawn_blocking` thread is captured too.
+//! purpose: its subscriber is the process's global default, so spans on
+//! every thread are captured.
 
 mod l1_support;
 
@@ -27,20 +27,15 @@ use gaply_core::stats_verdict::{
 
 const PATH: &str = "SPANPATH_SENTINEL_p55";
 const FILE: &str = "SPANFILE_SENTINEL";
-const QUESTION: &str = "Write the python code for my regression analysis";
 
 #[test]
-fn the_four_commands_record_no_path_or_file_name_in_tracing() {
+fn the_three_commands_record_no_path_or_file_name_in_tracing() {
     let lines = Arc::new(Mutex::new(Vec::<String>::new()));
     tracing::subscriber::set_global_default(l1_support::Capture {
         lines: lines.clone(),
     })
     .expect("the only subscriber");
     tracing::callsite::rebuild_interest_cache();
-    assert!(
-        gaply_core::chat_agent::is_ghostwriting(QUESTION),
-        "the chat must stop at its firewall, before any network"
-    );
 
     let root = std::env::temp_dir().join(format!("gaply-spans-{}", std::process::id()));
     let folder = root.join(PATH);
@@ -73,30 +68,15 @@ fn the_four_commands_record_no_path_or_file_name_in_tracing() {
 
     let ai = commands::detect_ai(ms_s.clone());
     let preview = commands::run_stats_preview(data_s.clone(), Some(ms_s.clone()));
-    let verify = commands::run_stats_verify(data_s.clone(), spec.clone(), Some(ms_s.clone()));
-    let chat = tokio::runtime::Runtime::new()
-        .unwrap()
-        .block_on(commands::run_stats_chat(
-            data_s.clone(),
-            spec,
-            Some(ms_s.clone()),
-            QUESTION.into(),
-            None,
-            None,
-        ));
+    let verify = commands::run_stats_verify(data_s.clone(), spec, Some(ms_s.clone()));
     let _ = std::fs::remove_dir_all(&root);
     assert!(
-        ai.is_ok() && preview.is_ok() && verify.is_ok() && chat.is_ok(),
+        ai.is_ok() && preview.is_ok() && verify.is_ok(),
         "each command ran"
     );
 
     let traced = lines.lock().unwrap().clone();
-    for name in [
-        "detect_ai",
-        "run_stats_preview",
-        "run_stats_verify",
-        "run_stats_chat",
-    ] {
+    for name in ["detect_ai", "run_stats_preview", "run_stats_verify"] {
         assert!(
             traced
                 .iter()

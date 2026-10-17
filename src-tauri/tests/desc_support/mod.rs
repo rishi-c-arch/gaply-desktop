@@ -3,6 +3,11 @@
 //! the test, and an app over Tauri's mock runtime with the eight
 //! `stats_desc_*` commands, so a test calls them through IPC with the
 //! webview's argument names and reads the JSON the webview reads.
+//!
+//! Phase 3: the app also has the four `workspace_*` commands, and the
+//! commands need the Statistics workspace active. [`app`] activates it
+//! through `workspace_activate`, as the chooser does, so Phase 2B's tests
+//! run in the state a user reaches; [`app_with`] leaves it to the test.
 #![allow(dead_code)]
 
 use std::path::{Path, PathBuf};
@@ -21,6 +26,7 @@ use tauri::{WebviewWindow, WebviewWindowBuilder};
 use app_lib::runs::Runs;
 use app_lib::state::AppState;
 use app_lib::stats_desc_commands as desc;
+use app_lib::workspace::{self as ws, Health, HealthCheck, RunsFactory, WorkspaceSession};
 use gaply_core::{AppConfig, Database};
 
 /* ---- folders ---------------------------------------------------------------- */
@@ -194,11 +200,32 @@ pub fn xlsx(headers: &[&str], rows: &[Vec<C>]) -> Vec<u8> {
 /* ---- the app ---------------------------------------------------------------- */
 
 /// An app over the mock runtime, its state built by `AppState::new` on
-/// `app_data` and `db`, with `runs` swapped in when given.
+/// `app_data` and `db`, with `runs` as the Statistics run manager when given,
+/// and the Statistics workspace activated through `workspace_activate`.
 pub fn app(
     app_data: &Path,
     db: Arc<Database>,
     runs: Option<Arc<Runs>>,
+) -> (tauri::App<MockRuntime>, WebviewWindow<MockRuntime>) {
+    let factory: RunsFactory =
+        Arc::new(move || runs.clone().unwrap_or_else(|| Arc::new(Runs::default())));
+    let (app, webview) = app_with(app_data, db, factory, Arc::new(ws::readiness));
+    call(
+        &webview,
+        "workspace_activate",
+        json!({ "id": "statistics" }),
+    )
+    .expect("Statistics activates");
+    (app, webview)
+}
+
+/// [`app`] with no workspace active, the Statistics run manager built by
+/// `runs` at each activation, and the readiness check given.
+pub fn app_with(
+    app_data: &Path,
+    db: Arc<Database>,
+    runs: RunsFactory,
+    health: HealthCheck,
 ) -> (tauri::App<MockRuntime>, WebviewWindow<MockRuntime>) {
     let mut state = AppState::new(
         AppConfig::new(app_data.join("gaply.db").to_string_lossy().as_ref()),
@@ -207,9 +234,7 @@ pub fn app(
         Arc::new(gaply_core::embed::HashEmbedder),
         app_data.to_path_buf(),
     );
-    if let Some(r) = runs {
-        state.runs = r;
-    }
+    state.workspace = Arc::new(WorkspaceSession::with_hooks(health, runs));
     let app = mock_builder()
         .manage(state)
         .invoke_handler(tauri::generate_handler![
@@ -221,6 +246,10 @@ pub fn app(
             desc::stats_desc_cancel,
             desc::stats_desc_export,
             desc::stats_desc_close,
+            ws::workspace_list,
+            ws::workspace_state,
+            ws::workspace_activate,
+            ws::workspace_deactivate,
         ])
         .build(mock_context(noop_assets()))
         .expect("mock app");
@@ -229,6 +258,21 @@ pub fn app(
         .build()
         .expect("webview");
     (app, webview)
+}
+
+/// A readiness check that always answers `health`.
+pub fn always(health: Health) -> HealthCheck {
+    Arc::new(move |_| health)
+}
+
+/// A factory that hands out `runs` at every activation.
+pub fn the(runs: Arc<Runs>) -> RunsFactory {
+    Arc::new(move || runs.clone())
+}
+
+/// A factory that builds a fresh default run manager at every activation.
+pub fn fresh() -> RunsFactory {
+    Arc::new(|| Arc::new(Runs::default()))
 }
 
 /// One IPC call. `Ok` is the view's JSON; `Err` is the refusal's JSON, as the

@@ -14,6 +14,7 @@ import '../../hero-new.css';
 import './homeHero.css';
 import { isFeatureEnabled } from '../../config/featureFlags';
 import { describeTiles } from '../statistics/describeRoute';
+import { workspaceTiles } from '../workspace/workspaceRoute';
 
 // The real app feature pages (the old dashboard tools), in the hero-sidebar
 // style. Each navigates to its actual in-app route.
@@ -42,12 +43,13 @@ const HERO_OPTIONS = [
   { label: 'Settings', href: '/app/settings' },
 ].filter((opt) => opt.href !== '/app/check/stats' || isFeatureEnabled('statsCheck'));
 
-/** The options with the Research OS descriptive summary after the verifier,
- *  only while its flag is on. Read when the hero renders, so a test can turn
- *  the flag on and off in one file. */
+/** The options with the Research OS workspace chooser first and the
+ *  descriptive summary after the verifier, each only while its flag is on.
+ *  Read when the hero renders, so a test can turn the flags on and off in one
+ *  file. */
 function heroOptions(): typeof HERO_OPTIONS {
   const at = HERO_OPTIONS.findIndex((opt) => opt.href === '/app/statsverifier') + 1;
-  return [...HERO_OPTIONS.slice(0, at), ...describeTiles(), ...HERO_OPTIONS.slice(at)];
+  return [...workspaceTiles(), ...HERO_OPTIONS.slice(0, at), ...describeTiles(), ...HERO_OPTIONS.slice(at)];
 }
 
 const AppHomeHero: React.FC = () => {

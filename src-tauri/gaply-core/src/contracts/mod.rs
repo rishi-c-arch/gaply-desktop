@@ -22,8 +22,12 @@
 //! blueprint's assumptions, variants, units, resource policy and
 //! confirmation refs (Phase 4 adds what the Level 1 wrap needs); and any
 //! free-form map.
+//!
+//! [`workspace`] (Phase 3) holds the workspace descriptors and the one state
+//! machine that says which workspace is active.
 
 pub mod codes;
+pub mod workspace;
 
 use std::collections::BTreeMap;
 
@@ -32,6 +36,7 @@ use serde::ser::Serializer;
 use serde::{Deserialize, Serialize};
 
 use self::codes::{closed, RunCode};
+use self::workspace::{Availability, WorkspaceEventKind, WorkspacePhase};
 
 /* ------------------------------------------------------------------------ *
  *  Versions and ids
@@ -62,27 +67,38 @@ impl<'de> Deserialize<'de> for SchemaVersion {
     }
 }
 
-/// A domain workspace. Phase 3 adds Compute and Design.
+/// A domain workspace. Whether each is in this build is
+/// [`workspace::availability`]'s answer: Compute and Design are `Missing`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum WorkspaceId {
     Statistics,
+    Compute,
+    Design,
 }
 
 impl WorkspaceId {
-    pub const ALL: &'static [WorkspaceId] = &[WorkspaceId::Statistics];
+    pub const ALL: &'static [WorkspaceId] = &[
+        WorkspaceId::Statistics,
+        WorkspaceId::Compute,
+        WorkspaceId::Design,
+    ];
 
     /// The first word of this workspace's capability ids and codes.
     pub fn namespace(self) -> &'static str {
         match self {
             WorkspaceId::Statistics => "stats",
+            WorkspaceId::Compute => "compute",
+            WorkspaceId::Design => "design",
         }
     }
 }
 
 /// A capability's id, `stats.describe`: two to four dot-separated words of
 /// lowercase ASCII letters and underscores, each 1 to 32 long, the first of
-/// them a workspace's namespace. Checked when built and on the way in.
+/// them the namespace of a workspace this build has (not `Missing`), so
+/// `compute.solve` is refused while Compute is missing. Checked when built
+/// and on the way in.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct CapabilityId(String);
 
@@ -94,7 +110,9 @@ impl CapabilityId {
                 (1..=32).contains(&w.len())
                     && w.bytes().all(|b| b.is_ascii_lowercase() || b == b'_')
             })
-            && WorkspaceId::ALL.iter().any(|ws| ws.namespace() == words[0]);
+            && WorkspaceId::ALL.iter().any(|ws| {
+                ws.namespace() == words[0] && workspace::availability(*ws) != Availability::Missing
+            });
         well_formed.then(|| CapabilityId(id.to_string()))
     }
 
@@ -250,9 +268,15 @@ pub enum ParamKey {
     Found,
     From,
     Event,
+    /// A workspace, by its id (Phase 3).
+    Workspace,
+    /// A run, by its number (Phase 3).
+    Run,
 }
 
-/// A diagnostic's parameter: an integer or a closed word. Never text.
+/// A diagnostic's parameter: an integer or a closed word. Never text. Every
+/// closed word is in exactly one of these sets, so an untagged parameter
+/// reads back as what it was (`contracts_wire.rs`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ParamValue<C> {
@@ -260,6 +284,9 @@ pub enum ParamValue<C> {
     Code(C),
     State(RunState),
     Event(RunEvent),
+    Workspace(WorkspaceId),
+    Phase(WorkspacePhase),
+    WorkspaceEvent(WorkspaceEventKind),
 }
 
 pub type Params<C> = BTreeMap<ParamKey, ParamValue<C>>;

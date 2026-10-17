@@ -1,22 +1,20 @@
 // Gaply — Statistical Analysis Verifier (premium). Upload data + build the
 // analysis-spec → deterministic recompute + reported-vs-recomputed verdict →
-// verified-vs-advisory report + scoped chat. The recompute is 100% local
-// (Set 2/3 engine); the chat is the only cloud hop. Entitlement gating mirrors
-// PublishReady EXACTLY — this is UX; the real gate is server-side at the proxy
-// (the JWT rides the chat request; the server verifies + consumes uses).
+// verified-vs-advisory report. The recompute is 100% local (Set 2/3 engine).
+// Entitlement gating mirrors PublishReady EXACTLY — this is UX, not an
+// authorization boundary. The scoped chat (StatsChatDock, run_stats_chat) was
+// removed in Research OS Phase 3 (decision 8).
 import React, { useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppShell, Badge, Button, Card, GaplyGlobe, HeaderBar, NavRail, Panel } from '../../design-system';
 import { pickManuscriptPath, basenameOf } from '../common/pickFile';
 import { isTauri } from '../../utils/isTauri';
 import { createSubscriptionService } from '../../services/supabase';
-import { useGaplySession } from '../session/SessionProvider';
 import { useEntitlement } from '../subscription/entitlement';
 import { StatsVerifierBridge, TauriStatsVerifierBridge } from './statsVerifierBridge';
 import { AnalysisSpec, StatsPreview, VerificationReport } from './statsVerifierTypes';
 import AnalysisSpecBuilder from './AnalysisSpecBuilder';
 import StatsVerifierReport from './StatsVerifierReport';
-import StatsChatDock from './StatsChatDock';
 import { isFeatureEnabled } from '../../config/featureFlags';
 import { StatsL1Bridge, TauriStatsL1Bridge } from './statsL1Bridge';
 import L1Flow from './l1/L1Flow';
@@ -53,11 +51,7 @@ const Shell: React.FC<{ navigate: (p: string) => void; children: React.ReactNode
 
 const StatsVerifierPage: React.FC<StatsVerifierPageProps> = ({ bridge, subscriptionService, forceTier, l1Bridge }) => {
   const navigate = useNavigate();
-  const { session } = useGaplySession();
-  const b = useMemo(
-    () => bridge ?? new TauriStatsVerifierBridge(() => session?.access_token),
-    [bridge, session]
-  );
+  const b = useMemo(() => bridge ?? new TauriStatsVerifierBridge(), [bridge]);
 
   const entitlement = useEntitlement(
     'stats_verifier',
@@ -230,17 +224,8 @@ const StatsVerifierPage: React.FC<StatsVerifierPageProps> = ({ bridge, subscript
             </HeaderBar>
           }
         >
-          <div style={{ display: 'grid', gridTemplateRows: '1fr auto', height: '100%', minHeight: 0 }}>
-            <div style={{ minHeight: 0, overflow: 'auto', padding: 16 }}>
-              <StatsVerifierReport report={report} />
-            </div>
-            <StatsChatDock
-              bridge={b}
-              path={dataFile.path}
-              spec={spec}
-              manuscriptPath={manuscriptPath}
-              userToken={session?.access_token}
-            />
+          <div style={{ height: '100%', minHeight: 0, overflow: 'auto', padding: 16 }}>
+            <StatsVerifierReport report={report} />
           </div>
         </AppShell>
       </div>

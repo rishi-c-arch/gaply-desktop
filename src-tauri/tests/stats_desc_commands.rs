@@ -342,7 +342,16 @@ fn open_refuses_a_file_over_the_caps_with_its_code_and_holds_nothing() {
 
     // No refusal names the file or its folder, and nothing was held.
     assert!(!e.to_string().contains("caps"), "{e}");
-    assert_eq!(w.app.state::<AppState>().datasets.held(), 0);
+    assert_eq!(
+        w.app
+            .state::<AppState>()
+            .workspace
+            .require_statistics()
+            .expect("Statistics is active")
+            .datasets
+            .held(),
+        0
+    );
 }
 
 #[test]

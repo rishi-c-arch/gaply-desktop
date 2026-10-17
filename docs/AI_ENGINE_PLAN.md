@@ -23414,3 +23414,109 @@ a renamed fixture key (the Rust bytes test and the vitest), a file write in
 UI closes" (nothing persists); `AwaitingConfirmation`, `Invalidated`,
 `ResourceLimit` and `NumericalFailure` have no producer, so the commands
 reach 11 of the 18 edges.
+
+### D273 — Research OS, Phase 3: one active workspace per window, checked in Rust and shown in the UI; the legacy Stats Verifier chat removed `[src]` `[test]` `[measured]`
+
+**Added** on `feat/research-os` (from `64ec1e7`, Phase 2B). Decisions of
+17 Oct 2026 apply (`~/gaply-corpus/os/decisions.md`, 7, 8, 9, 20, 24 and 27).
+The ADRs it proposes are `docs/adr/ADR-001-one-active-workspace.md` and
+`docs/adr/ADR-002-preserve-gaply-core.md`, both Proposed.
+
+**The contract** (`gaply_core::contracts::workspace`, pure, under Phase 2A's
+purity and layering guard): `WorkspaceId` gains Compute and Design (namespaces
+`compute`, `design`); `WorkspaceDescriptor { id, version, display_name_code,
+availability, activation_policy, capability_ids, supports_offline,
+supported_platforms }`; `availability` is static per build, Statistics
+`Available` (version 1, capability `stats.describe`, macOS/Windows/Linux,
+offline), Compute and Design `Missing`, which claim nothing (version 0, no
+capability, no platform, not offline) and show as "Coming later".
+`CapabilityId::parse` accepts only a namespace of a workspace that is not
+`Missing`, so `compute.solve` is still refused. Closed codes `workspace.*`:
+`unavailable`, `not_ready`, `inactive`, `wrong_workspace`, `run_active`,
+`illegal_transition`. `ParamKey` gains `workspace` and `run`; `ParamValue`
+gains a workspace id, a phase word and an event word (every word in exactly
+one set, pinned). Available, entitled and active are three separate facts:
+the descriptor, the frontend's `useEntitlement` (shown, not enforced in Rust,
+decision 9; the list view carries `entitled: null`), and the session.
+
+**The WorkspaceState edge table** (and no others; 70 (state, event) pairs
+over three workspaces, 15 edges Ok, 55 refused with
+`workspace.illegal_transition` naming the phase, the event and the state's
+workspace):
+
+| from | event | to |
+|---|---|---|
+| NoWorkspace | activate(w) | Activating(w) |
+| Activating(w) | activated | Active(w) |
+| Activating(w) | activation_refused | NoWorkspace |
+| Active(w) | deactivate | Deactivating(w) |
+| Deactivating(w) | deactivated | NoWorkspace |
+
+From a state naming a workspace no edge leads to a state naming another.
+
+**The session** (`src-tauri/src/workspace.rs`, `AppState.workspace`):
+activation enters `Activating`, checks availability, then the readiness
+check outside the lock (Statistics: nothing to load, ready), then builds the
+Statistics engine and enters `Active`; otherwise `activation_refused` and the
+refusal. Phase 2B's run records and dataset slots moved from `AppState` into
+the engine: built on activation, dropped on deactivation; while
+`NoWorkspace` no engine value exists, and the session has no field for a
+Compute or Design engine. Run and slot ids continue across activations.
+Deactivation with a run queued or running is refused with
+`workspace.run_active {run, workspace}`, the state still `Active`;
+`Runs::seal` checks and closes the run manager under the records' own lock,
+so no run can start in between. Only `workspace_activate` calls `activate`.
+
+**Enforcement (decision 27).** Every `stats_desc_*` command's first
+statement is `state.workspace.require_statistics()?`; `validate` and `run`
+then refuse a spec whose `workspaceId`, or whose capability's workspace, is
+not the active one (`workspace.wrong_workspace`). `stats_desc::validate` also
+reports a non-Statistics spec as `unknown_capability`. The verifier's Level 0
+and Level 1 commands are not gated (Phase 4).
+
+**Commands**: `workspace_list`, `workspace_state` (`{state, activeRun,
+latestRun}`), `workspace_activate(id)`, `workspace_deactivate`; polling only.
+**Removed** (decision 8): `run_stats_chat` (command and registration) and
+`StatsChatDock` (component, the bridge's `chat`, the `StatsChatTurn` type);
+`run_stats_preview` and `run_stats_verify` stay, because the Stats Verifier
+page at `/app/statsverifier` calls them. `gaply_core::stats_chat` is
+unchanged and has no app caller.
+
+**The screens** (`src/screens/workspace/`, behind
+`REACT_APP_FEATURE_WORKSPACES`, off by default, not an authorization
+boundary): "Choose your workspace" with the blueprint §3.1 texts, three
+cards, each showing availability, access and whether it is open as separate
+facts, Compute and Design disabled; focus on the heading on open; one
+`workspace_activate` per click. A slim Statistics shell: tools, recent items
+(empty), a job area reading the newest run through `stats_desc_status`,
+settings, and a switch that, refused with `run_active`, shows the run with
+Wait, Cancel and Stay. With the describe flag on too, the descriptive summary
+is reached from the workspace and leaves the hub; its route is behind a gate
+that shows it only while Statistics is active and opens Statistics on the
+user's click.
+
+**Measured, 17 Oct 2026, macOS aarch64** (logs in `~/gaply-corpus/os/phase3/`):
+`cargo test --workspace` exit 0, 88 targets (86 Running + 2 Doc-tests),
+2,637 passed, 12 ignored: Phase 2B's 83 targets and 2,616 plus 5 new
+targets (`workspace_contract` 7, `workspace_session` 6, `workspace_guards` 3,
+`workspace_wire` 2, `workspace_privacy` 1) and 2 new unit tests in `runs.rs`
+(app lib 518 → 520); every other target's counts unchanged.
+`no_path_in_command_spans` keeps 1 test, now over three commands (its chat
+part removed). `cargo test -p app --features devtools`: 30 targets, 635
+passed, 9 ignored. vitest: 93 files, 1,115 passed (4 new files, 24 tests; 4
+tests removed with the chat dock). `npx tsc --noEmit`, CI's eslint and `npm
+run build` exit 0. Mutation probes, each predicted first and restored to its
+recorded SHA-256: the check swallowed in `stats_desc_close` (3 red: the
+guard, the NoWorkspace/Activating test, the sweep), Compute made available
+(7 red, as predicted, including `compute.solve` parsing), deactivation
+allowed during a run (2 red). The sweep: 7 views, 12 refusals and 74 tracing
+lines with no header, label, cell, file name or path.
+
+**Found on the way:** `rustfmt --check` reading stdin exits 0 when it prints
+a diff (negative control: a badly formatted line, rc 0, one `Diff in`
+hunk), so a status-only check over stdin proves nothing; Phase 2B's reported
+rustfmt result used that form. Phase 3 counted the printed hunks instead.
+And formatting the files then turned `workspace_guards` red on every command:
+rustfmt split `state.workspace.require_statistics()` across lines, and the
+guard matched the call as written. It now compares with whitespace removed,
+and the first mutation probe was re-run against it (still 3 red).

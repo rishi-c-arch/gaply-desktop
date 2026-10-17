@@ -7,7 +7,8 @@
 //! writes the one file the user names. A source scan, comments removed, over
 //! `src/runs.rs`, `src/stats_desc_commands.rs`, `gaply-core/src/contracts/`
 //! and `gaply-core/src/stats_desc/`, for any way to write, create, rename,
-//! copy or remove a file or folder.
+//! copy or remove a file or folder. Phase 3 added `src/workspace.rs`, which
+//! holds the engine these use (decision 20: the slice writes nothing).
 //!
 //! It constrains what was TYPED in these files, not what a callee does: the
 //! commands call Level 1's ingest, which reads and does not write, and the
@@ -19,6 +20,7 @@ use std::path::{Path, PathBuf};
 const SCANNED: &[&str] = &[
     "src/runs.rs",
     "src/stats_desc_commands.rs",
+    "src/workspace.rs",
     "gaply-core/src/contracts",
     "gaply-core/src/stats_desc",
 ];

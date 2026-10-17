@@ -3083,10 +3083,11 @@ pub async fn run_copilot_chat(
 
 // ============================================================================
 // Statistical Analysis Verifier (premium) — thin adapters over
-// `gaply_core::stats_verdict` (deterministic recompute + verdict) and
-// `gaply_core::stats_chat` (the analysis-scoped interpretive chat). The
+// `gaply_core::stats_verdict` (deterministic recompute + verdict). The
 // verified math lives entirely in core; these commands only parse the uploaded
-// table and delegate. No business logic here.
+// table and delegate. No business logic here. The analysis-scoped chat command
+// (`run_stats_chat`, over `gaply_core::stats_chat`) was removed in Research OS
+// Phase 3 (decision 8); the core module is unchanged and has no app caller.
 // ============================================================================
 
 /// Columns of the uploaded data + an optional extraction-prefilled p-value, so
@@ -3157,50 +3158,6 @@ pub fn run_stats_verify(
     let table = load_first_table(&path)?;
     let validity = stats_validity(&manuscript_path);
     Ok(stats_verdict::verify_analysis(&spec, &table.headers, &table.rows, validity.as_ref()))
-}
-
-/// One analysis-scoped interpretive-chat turn (Set 4). The SAME deterministic
-/// report is rebuilt server-side to scope the chat (the report type is
-/// Serialize-only by design — never round-tripped). FIREWALL runs in local code
-/// before any proxy probe; cloud-only, honest degradation; the user's JWT rides
-/// along for the proxy's server-side entitlement gate.
-#[tauri::command]
-#[tracing::instrument(skip_all)]
-pub async fn run_stats_chat(
-    path: String,
-    spec: AnalysisSpec,
-    manuscript_path: Option<String>,
-    question: String,
-    language: Option<String>,
-    user_token: Option<String>,
-) -> Result<gaply_core::stats_chat::StatsChatTurn, GaplyError> {
-    // async + spawn_blocking: this parses the uploaded table/manuscript (blocking
-    // I/O) and does blocking keychain/HTTP for the chat — all off the event-loop
-    // thread (mirrors run_full_analysis). Body/logic unchanged.
-    tokio::task::spawn_blocking(move || {
-        use gaply_core::stats_chat;
-
-        let language = language.unwrap_or_else(|| "en".to_string());
-        let table = load_first_table(&path)?;
-        let validity = stats_validity(&manuscript_path);
-        let report = stats_verdict::verify_analysis(&spec, &table.headers, &table.rows, validity.as_ref());
-
-        // FIREWALL layer 1 first: a ghostwriting request is refused by local code
-        // before we even probe the proxy. (stats_chat's own pre-filter — including
-        // the code-authoring mirror — still runs inside, so nothing slips through.)
-        if gaply_core::chat_agent::is_ghostwriting(&question) {
-            return Ok(stats_chat::stats_chat_turn(None, &report, &question, &language));
-        }
-        let turn = match ProxyReqwestClient::from_env().map(|c| c.with_user_token(user_token)) {
-            Ok(client) if client.reachable() => {
-                stats_chat::stats_chat_turn(Some(&client), &report, &question, &language)
-            }
-            _ => stats_chat::stats_chat_turn(None, &report, &question, &language),
-        };
-        Ok(turn)
-    })
-    .await
-    .map_err(|e| GaplyError::Internal(format!("stats chat task panicked: {e}")))?
 }
 
 /* ===================== Phase 8: batch jobs ================================ *

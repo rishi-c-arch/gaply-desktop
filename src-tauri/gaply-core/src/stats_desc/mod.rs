@@ -617,10 +617,10 @@ pub fn validate(
     spec: &OperationSpec<DescribeParams>,
 ) -> ValidationReport<DescCode> {
     let mut unsupported = Vec::new();
-    match spec.workspace_id {
-        WorkspaceId::Statistics => {}
-    }
-    if spec.capability_id.as_str() != CAPABILITY_ID {
+    // A spec for another workspace names no capability of this one. The app
+    // refuses it first, with `workspace.wrong_workspace` (Phase 3).
+    if spec.workspace_id != WorkspaceId::Statistics || spec.capability_id.as_str() != CAPABILITY_ID
+    {
         unsupported.push(Diagnostic::error(DescCode::UnknownCapability));
     }
     if spec.capability_version != CAPABILITY_VERSION {
