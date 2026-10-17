@@ -23240,3 +23240,64 @@ quartile guides render only on the web landing page.
 16. Old `.xls` (BIFF2 to BIFF5): today refused with "save it as .xlsx".
 17. Presentation-layout sheets (stacked blocks, merged headers).
 18. Mixed designs: repeated-measures and mixed-model ANOVA.
+
+### D271 — Research OS, Phase 2A: the shared contracts and the descriptive summary, pure, in gaply_core `[src]` `[test]` `[measured]`
+
+**Added** on `feat/research-os` (from `030108d`), in `gaply_core` only: no
+command, run manager or screen (those are Phase 2B). `contracts/` holds the
+typed envelope: `WorkspaceId` (Statistics), `CapabilityId` (a closed grammar:
+2 to 4 dot-separated lowercase words, the first a workspace namespace),
+`OperationId`, `RunId`, `ContentHash` (64 lowercase hex), `InputRef`,
+`OperationSpec<P>`, `Diagnostic<C>`, `ValidationReport<C>`, `RunState`,
+`transition`, `RunRecord`, `ResultBundle<T, C>`, `RunManifest<C>`; codes are
+namespaced words from one table per enum (`run.*` here, `stats.desc.*` in
+`stats_desc`). It is domain-free: what differs per capability is a type
+parameter, it names no verifier type, and it does not wrap
+`stats_l1::codes::WireCode` (the verifier is unchanged). No `ArtifactRef`.
+`stats_desc/` holds `profile`, `validate`, `describe` (n, missing, mean, sd
+n − 1, min, type-7 quartiles, max; or levels in code-point order), `manifest`,
+and `export` (CSV and JSON bytes; the export lives here, not in
+`contracts/`, because it writes a statistics result). It follows the
+decisions of 17 Oct 2026 (`~/gaply-corpus/os/decisions.md`, items 1 to 5, 11
+and 12). Wire: camelCase fields, snake_case words, `schemaVersion` 1 only,
+unknown fields refused, no field for a path or a display name.
+
+**One implementation of each formula.** The mean is `stats_verify::mean` (the
+two-pass mean of part C, m-10), the variance `stats_verify::sample_variance`
+over its range-checked sum of squares, and the candidate missing codes
+`binding::suspect_codes_in` (reported, never applied). Each was made
+`pub(crate)`; no body changed. Values go in ascending order, so a row
+permutation changes no bit. sd of a column whose min equals its max is 0
+before any arithmetic: on ordinary constants the mean is already exact and
+the guard does not decide (deleting it left the suite green); on a constant
+column whose sum overflows it does, and a test pins both.
+
+**The RunState edges** (blueprint §8.5, and no others; tested pair by pair):
+Draft –begin_validation→ Validating; Validating –request_input→
+NeedsUserInput, –refuse→ Refused, –pass_validation→ Validated; Validated
+–require_confirmation→ AwaitingConfirmation, –enqueue→ Queued;
+AwaitingConfirmation –confirm→ Queued, –cancel→ Cancelled, –invalidate→
+Invalidated; Queued –start→ Running, –cancel→ Cancelled, –refuse→ Refused;
+Running –succeed→ Succeeded, –fail→ Failed, –cancel→ Cancelled, –time_out→
+TimedOut, –exceed_resources→ ResourceLimit, –fail_numerically→
+NumericalFailure. 18 edges; the other 207 of 225 pairs are refused, with
+`run.already_terminal` from the nine states no edge leaves (NeedsUserInput,
+Refused, Invalidated, Succeeded, Failed, Cancelled, TimedOut, ResourceLimit,
+NumericalFailure) and `run.illegal_transition` otherwise. NeedsUserInput has
+no way out because §8.5 draws none: the answer changes the spec, and a new
+spec is a new run.
+
+**R and the gates.** `/usr/local/bin/Rscript
+src-tauri/gaply-core/tests/fixtures/stats_desc/make_desc_fixtures.R` (R 4.6.1,
+aarch64, `set.seed(20261017)`) writes 13 data files, `golden.csv` (19 cases,
+186 rows, `%.17g`) and `cells_bits.csv` (the bits of all 11,055 numbers R
+read, all equal to Gaply's). Gate: |gaply − R| ≤ 1e-12 · max(|R|, s), s the
+case's R sd, or 1 when it is 0 or undefined; n, missing, levels, min and max
+exact. Measured worst: mean 2.7e-16, sd 2.4e-15, quartiles, min and max
+bit-identical. Properties (proptest 1.12.0, a dev-dependency, `std` only, seed
+20261017, persistence off, 5 × 1,024 cases in 0.85 s debug) use an exact
+integer oracle on the grid j/128 and the same gate; the shift and scale
+relations allow the sum of both sides' gates plus one ulp. By hand, R's
+`read.csv` read an export back bit-identical (15 of 15 numbers); R's own
+parser read the e-notation `9.9999999690625000e8` one ulp low, so reference
+values are compared as bits.
