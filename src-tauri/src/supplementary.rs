@@ -81,7 +81,7 @@ pub enum SupplementaryKind {
 /// codes the author declared as MISSING — and a value of 99 means nothing
 /// without the last two. Carried beside the table rather than flattened into
 /// it, so nothing has to be re-derived from a string.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Clone, Serialize)]
 pub struct VariableMeta {
     pub name: String,
     /// The source format's own type string (`F8.2`, `A5`), not a re-coding.
@@ -103,15 +103,29 @@ pub struct VariableMeta {
     pub value_label_codes: Vec<(String, String)>,
 }
 
+/// Counts only, never the text (part C follow-up, item 7).
+impl std::fmt::Debug for VariableMeta {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VariableMeta").field("is_numeric", &self.is_numeric).field("label", &self.label.is_some()).field("value_labels", &self.value_labels.len()).field("user_missing", &self.user_missing.len()).finish_non_exhaustive()
+    }
+}
+
 /// A single extracted table (first row treated as headers).
-#[derive(Debug, Clone, Serialize)]
+#[derive(Clone, Serialize)]
 pub struct Table {
     pub headers: Vec<String>,
     pub rows: Vec<Vec<String>>,
 }
 
+/// Counts only, never the text (part C follow-up, item 7).
+impl std::fmt::Debug for Table {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Table").field("columns", &self.headers.len()).field("rows", &self.rows.len()).finish_non_exhaustive()
+    }
+}
+
 /// Neutral evidence extracted from one supplementary file.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Clone, Serialize)]
 pub struct SupplementaryEvidence {
     pub file_name: String,
     pub kind: SupplementaryKind,
@@ -136,6 +150,13 @@ pub struct SupplementaryEvidence {
     /// The sheet a spreadsheet's table was read from. Not serialised.
     #[serde(skip)]
     pub sheet_name: Option<String>,
+}
+
+/// Counts only, never the text (part C follow-up, item 7).
+impl std::fmt::Debug for SupplementaryEvidence {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SupplementaryEvidence").field("kind", &self.kind).field("tables", &self.tables).field("text_chars", &self.text_summary.chars().count()).field("notes", &self.notes.len()).field("variables", &self.variables.len()).field("weight_variable", &self.weight_variable.is_some()).field("rows_truncated", &self.rows_truncated).finish_non_exhaustive()
+    }
 }
 
 /// Parse a supplementary file into neutral evidence, memory-capped. Never
@@ -176,6 +197,51 @@ pub fn parse_supplementary(path: &Path) -> Result<SupplementaryEvidence, GaplyEr
     }
 }
 
+/// **Level 1 only (part C follow-up, item 3): [`parse_supplementary`] on
+/// bytes already read**, so the file that was checked and hashed is the file
+/// parsed, and the path is never opened again. `ext` is the lower-case
+/// extension, which picks the parser exactly as the path does. Each format is
+/// parsed by the same code as through the path, from a reader over `bytes`;
+/// the evidence's `file_name` is empty (Level 1 never reads it).
+pub fn parse_supplementary_bytes(bytes: &[u8], ext: &str) -> Result<SupplementaryEvidence, GaplyError> {
+    let size = bytes.len() as u64;
+    if size > MAX_FILE_SIZE_BYTES {
+        return Err(GaplyError::Validation(format!(
+            "file too large: {size} bytes exceeds the {MAX_FILE_SIZE_BYTES}-byte cap; \
+             not read into memory"
+        )));
+    }
+    let file_name = String::new();
+    match ext {
+        "sav" => sav_evidence(ambers::scan_sav_from_reader(std::io::Cursor::new(bytes), SAV_BATCH_ROWS).and_then(read_sav_rows), file_name),
+        "mat" => mat_evidence(bytes, file_name),
+        "xlsx" | "xls" | "xlsb" | "ods" | "xlsm" => spreadsheet_evidence(workbook_from_bytes(bytes, ext), file_name),
+        "csv" | "tsv" => csv_evidence(bytes, file_name, if ext == "tsv" { b'\t' } else { b',' }),
+        "txt" | "text" | "md" | "log" => text_evidence(bytes, file_name),
+        other => Err(GaplyError::Validation(format!(
+            "unsupported supplementary format {other:?}; supported: xlsx, xls, ods, \
+             csv, tsv, txt, md, sav, mat"
+        ))),
+    }
+}
+
+/// The rows `ambers::scan_sav` reads per batch; the bytes path uses the same.
+const SAV_BATCH_ROWS: usize = 100_000;
+
+/// A workbook from bytes, by extension exactly as `open_workbook_auto` picks
+/// one from a path.
+fn workbook_from_bytes<'a>(bytes: &'a [u8], ext: &str) -> Result<calamine::Sheets<std::io::Cursor<&'a [u8]>>, calamine::Error> {
+    use calamine::{open_workbook_from_rs, Error, Ods, Sheets, Xls, Xlsb, Xlsx};
+    let c = std::io::Cursor::new(bytes);
+    Ok(match ext {
+        "xls" => Sheets::Xls(open_workbook_from_rs::<Xls<_>, _>(c).map_err(Error::Xls)?),
+        "xlsx" | "xlsm" => Sheets::Xlsx(open_workbook_from_rs::<Xlsx<_>, _>(c).map_err(Error::Xlsx)?),
+        "xlsb" => Sheets::Xlsb(open_workbook_from_rs::<Xlsb<_>, _>(c).map_err(Error::Xlsb)?),
+        "ods" => Sheets::Ods(open_workbook_from_rs::<Ods<_>, _>(c).map_err(Error::Ods)?),
+        _ => calamine::open_workbook_auto_from_rs(c)?,
+    })
+}
+
 /// **Level 1 only (Phase 2, Step 2): does the file's table hold more rows
 /// than [`MAX_ROWS`]?** A new function that [`parse_supplementary`] and its
 /// existing callers never call, so their refusals keep their exact text.
@@ -194,31 +260,46 @@ pub fn exceeds_row_cap(path: &Path) -> Result<bool, GaplyError> {
         "csv" | "tsv" => {
             let file = std::fs::File::open(path)
                 .map_err(|e| GaplyError::Validation(format!("cannot open csv: {e}")))?;
-            let mut rdr = csv::ReaderBuilder::new()
-                .has_headers(false)
-                .flexible(true)
-                .delimiter(if ext == "tsv" { b'\t' } else { b',' })
-                .from_reader(std::io::BufReader::new(file));
-            for (i, rec) in rdr.records().enumerate() {
-                if i > MAX_ROWS {
-                    return Ok(true);
-                }
-                match rec {
-                    Ok(r) if r.len() <= MAX_COLS => {}
-                    _ => return Ok(false),
-                }
-            }
-            Ok(false)
+            Ok(csv_exceeds_row_cap(std::io::BufReader::new(file), &ext))
         }
-        "xlsx" | "xls" | "xlsb" | "ods" | "xlsm" => {
-            use calamine::{open_workbook_auto, Reader};
-            let Ok(mut wb) = open_workbook_auto(path) else { return Ok(false) };
-            let Some(sheet) = wb.sheet_names().first().cloned() else { return Ok(false) };
-            let Ok(range) = wb.worksheet_range(&sheet) else { return Ok(false) };
-            Ok(range.get_size().0 > MAX_ROWS + 1)
-        }
+        "xlsx" | "xls" | "xlsb" | "ods" | "xlsm" => Ok(sheet_exceeds_row_cap(calamine::open_workbook_auto(path))),
         _ => Ok(false),
     }
+}
+
+/// [`exceeds_row_cap`] on bytes already read (part C follow-up, item 3).
+pub fn exceeds_row_cap_bytes(bytes: &[u8], ext: &str) -> bool {
+    match ext {
+        "csv" | "tsv" => csv_exceeds_row_cap(bytes, ext),
+        "xlsx" | "xls" | "xlsb" | "ods" | "xlsm" => sheet_exceeds_row_cap(workbook_from_bytes(bytes, ext)),
+        _ => false,
+    }
+}
+
+fn csv_exceeds_row_cap(reader: impl Read, ext: &str) -> bool {
+    let mut rdr = csv::ReaderBuilder::new()
+        .has_headers(false)
+        .flexible(true)
+        .delimiter(if ext == "tsv" { b'\t' } else { b',' })
+        .from_reader(reader);
+    for (i, rec) in rdr.records().enumerate() {
+        if i > MAX_ROWS {
+            return true;
+        }
+        match rec {
+            Ok(r) if r.len() <= MAX_COLS => {}
+            _ => return false,
+        }
+    }
+    false
+}
+
+fn sheet_exceeds_row_cap<RS: Read + std::io::Seek>(wb: Result<calamine::Sheets<RS>, calamine::Error>) -> bool {
+    use calamine::Reader;
+    let Ok(mut wb) = wb else { return false };
+    let Some(sheet) = wb.sheet_names().first().cloned() else { return false };
+    let Ok(range) = wb.worksheet_range(&sheet) else { return false };
+    range.get_size().0 > MAX_ROWS + 1
 }
 
 /// **Level 1 only (Phase 2, Step 8b): the column count of a table wider
@@ -235,33 +316,48 @@ pub fn exceeds_col_cap(path: &Path) -> Result<Option<usize>, GaplyError> {
         "csv" | "tsv" => {
             let file = std::fs::File::open(path)
                 .map_err(|e| GaplyError::Validation(format!("cannot open csv: {e}")))?;
-            let mut rdr = csv::ReaderBuilder::new()
-                .has_headers(false)
-                .flexible(true)
-                .delimiter(if ext == "tsv" { b'\t' } else { b',' })
-                .from_reader(std::io::BufReader::new(file));
-            for (i, rec) in rdr.records().enumerate() {
-                if i > MAX_ROWS {
-                    return Ok(None);
-                }
-                match rec {
-                    Ok(r) if r.len() > MAX_COLS => return Ok(Some(r.len())),
-                    Ok(_) => {}
-                    Err(_) => return Ok(None),
-                }
-            }
-            Ok(None)
+            Ok(csv_exceeds_col_cap(std::io::BufReader::new(file), &ext))
         }
-        "xlsx" | "xls" | "xlsb" | "ods" | "xlsm" => {
-            use calamine::{open_workbook_auto, Reader};
-            let Ok(mut wb) = open_workbook_auto(path) else { return Ok(None) };
-            let Some(sheet) = wb.sheet_names().first().cloned() else { return Ok(None) };
-            let Ok(range) = wb.worksheet_range(&sheet) else { return Ok(None) };
-            let (height, width) = range.get_size();
-            Ok((height <= MAX_ROWS + 1 && width > MAX_COLS).then_some(width))
-        }
+        "xlsx" | "xls" | "xlsb" | "ods" | "xlsm" => Ok(sheet_exceeds_col_cap(calamine::open_workbook_auto(path))),
         _ => Ok(None),
     }
+}
+
+/// [`exceeds_col_cap`] on bytes already read (part C follow-up, item 3).
+pub fn exceeds_col_cap_bytes(bytes: &[u8], ext: &str) -> Option<usize> {
+    match ext {
+        "csv" | "tsv" => csv_exceeds_col_cap(bytes, ext),
+        "xlsx" | "xls" | "xlsb" | "ods" | "xlsm" => sheet_exceeds_col_cap(workbook_from_bytes(bytes, ext)),
+        _ => None,
+    }
+}
+
+fn csv_exceeds_col_cap(reader: impl Read, ext: &str) -> Option<usize> {
+    let mut rdr = csv::ReaderBuilder::new()
+        .has_headers(false)
+        .flexible(true)
+        .delimiter(if ext == "tsv" { b'\t' } else { b',' })
+        .from_reader(reader);
+    for (i, rec) in rdr.records().enumerate() {
+        if i > MAX_ROWS {
+            return None;
+        }
+        match rec {
+            Ok(r) if r.len() > MAX_COLS => return Some(r.len()),
+            Ok(_) => {}
+            Err(_) => return None,
+        }
+    }
+    None
+}
+
+fn sheet_exceeds_col_cap<RS: Read + std::io::Seek>(wb: Result<calamine::Sheets<RS>, calamine::Error>) -> Option<usize> {
+    use calamine::Reader;
+    let mut wb = wb.ok()?;
+    let sheet = wb.sheet_names().first().cloned()?;
+    let range = wb.worksheet_range(&sheet).ok()?;
+    let (height, width) = range.get_size();
+    (height <= MAX_ROWS + 1 && width > MAX_COLS).then_some(width)
 }
 
 /// **Level 1 only (Phase 2, Step 8b): a `.xls` that is not a readable
@@ -272,6 +368,16 @@ pub fn exceeds_col_cap(path: &Path) -> Result<Option<usize>, GaplyError> {
 pub fn xls_not_compound_document(path: &Path) -> bool {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
     ext == "xls" && matches!(calamine::open_workbook::<calamine::Xls<_>, _>(path), Err(calamine::XlsError::Cfb(_)))
+}
+
+/// [`xls_not_compound_document`] on bytes already read (part C follow-up,
+/// item 3).
+pub fn xls_not_compound_document_bytes(bytes: &[u8], ext: &str) -> bool {
+    ext == "xls"
+        && matches!(
+            calamine::open_workbook_from_rs::<calamine::Xls<_>, _>(std::io::Cursor::new(bytes)),
+            Err(calamine::XlsError::Cfb(_))
+        )
 }
 
 /// Clamp a cell to [`MAX_CELL_LEN`] chars; returns (clamped, was_clamped).
@@ -297,10 +403,18 @@ fn cell_to_string(d: &calamine::Data) -> String {
 }
 
 fn parse_spreadsheet(path: &Path, file_name: String) -> Result<SupplementaryEvidence, GaplyError> {
-    use calamine::{open_workbook_auto, Reader};
+    spreadsheet_evidence(calamine::open_workbook_auto(path), file_name)
+}
 
-    let mut wb = open_workbook_auto(path)
-        .map_err(|e| GaplyError::Validation(format!("cannot open spreadsheet: {e}")))?;
+/// The spreadsheet parser after the workbook is opened, from a path or from
+/// bytes.
+fn spreadsheet_evidence<RS: Read + std::io::Seek>(
+    wb: Result<calamine::Sheets<RS>, calamine::Error>,
+    file_name: String,
+) -> Result<SupplementaryEvidence, GaplyError> {
+    use calamine::Reader;
+
+    let mut wb = wb.map_err(|e| GaplyError::Validation(format!("cannot open spreadsheet: {e}")))?;
     let sheet = wb
         .sheet_names()
         .first()
@@ -384,7 +498,12 @@ fn is_matlab_73(bytes: &[u8]) -> bool {
 fn parse_mat(path: &Path, file_name: String) -> Result<SupplementaryEvidence, GaplyError> {
     let bytes = std::fs::read(path)
         .map_err(|e| GaplyError::Validation(format!("cannot read .mat: {e}")))?;
-    if is_matlab_73(&bytes) {
+    mat_evidence(&bytes, file_name)
+}
+
+/// The `.mat` parser on the file's bytes, read from a path or already read.
+fn mat_evidence(bytes: &[u8], file_name: String) -> Result<SupplementaryEvidence, GaplyError> {
+    if is_matlab_73(bytes) {
         return Err(GaplyError::Validation(
             "MATLAB 7.3 files are not supported yet; re-save with \
              save('file.mat','-v7')"
@@ -401,7 +520,7 @@ fn parse_mat(path: &Path, file_name: String) -> Result<SupplementaryEvidence, Ga
     // different and are reported differently: a dropped variable is a note, an
     // int32 variable is a refusal, because nothing can be recovered from the
     // file once the parse aborts.
-    let mat = matfile::MatFile::parse(std::io::Cursor::new(&bytes)).map_err(|e| {
+    let mat = matfile::MatFile::parse(std::io::Cursor::new(bytes)).map_err(|e| {
         GaplyError::Validation(format!(
             "malformed or unsupported .mat file: {e}. Note: this reader cannot \
              parse int32 variables and fails on the whole file when one is \
@@ -444,7 +563,7 @@ fn parse_mat(path: &Path, file_name: String) -> Result<SupplementaryEvidence, Ga
     // NOTHING DROPPED IS HIDDEN. The reader returns only the variables it
     // understood, so a char or cell variable vanishes with no signal. Count
     // the container's own variable entries and say how many did not survive.
-    let declared = count_mat_variables(&bytes);
+    let declared = count_mat_variables(bytes);
     if declared > mat.arrays().len() {
         notes.push(format!(
             "{} of {declared} variables in the file were not read: char/cell \
@@ -536,8 +655,32 @@ fn matlab_cells(arr: &matfile::Array) -> (String, Vec<String>, bool) {
 
 /// SPSS `.sav`, via `ambers` (pure Rust).
 fn parse_sav(path: &Path, file_name: String) -> Result<SupplementaryEvidence, GaplyError> {
-    let (batch, meta) = ambers::read_sav(path)
-        .map_err(|e| GaplyError::Validation(format!("malformed or unsupported .sav file: {e}")))?;
+    sav_evidence(ambers::scan_sav(path).and_then(read_sav_rows), file_name)
+}
+
+/// The rows of an opened `.sav` and its metadata: at most [`MAX_ROWS`] + 1
+/// rows, enough to keep [`MAX_ROWS`] and to know there were more (part C
+/// follow-up, item 4). A byte-coded or zlib-compressed (`.zsav`) file holds
+/// rows far beyond its size on disk, and `ambers::read_sav` reads every one:
+/// measured, 40 million rows in a 40 KB file peaked at 330 MB. The output is
+/// unchanged: it was already cut to [`MAX_ROWS`] rows.
+fn read_sav_rows<R: Read + std::io::Seek>(
+    mut scanner: ambers::Scanner<R>,
+) -> Result<(arrow::record_batch::RecordBatch, ambers::SpssMetadata), ambers::error::SpssError> {
+    let meta = scanner.metadata().clone();
+    scanner.limit(MAX_ROWS + 1);
+    let batch = scanner.collect_single()?;
+    Ok((batch, meta))
+}
+
+/// The `.sav` parser after `ambers` has read the file, from a path or from
+/// bytes.
+fn sav_evidence(
+    read: Result<(arrow::record_batch::RecordBatch, ambers::SpssMetadata), ambers::error::SpssError>,
+    file_name: String,
+) -> Result<SupplementaryEvidence, GaplyError> {
+    let (batch, meta) =
+        read.map_err(|e| GaplyError::Validation(format!("malformed or unsupported .sav file: {e}")))?;
 
     let mut notes = Vec::new();
     let mut headers = Vec::new();
@@ -655,11 +798,16 @@ fn columns_to_rows(columns: &[Vec<String>], notes: &mut Vec<String>) -> Vec<Vec<
 fn parse_csv(path: &Path, file_name: String, delim: u8) -> Result<SupplementaryEvidence, GaplyError> {
     let file = std::fs::File::open(path)
         .map_err(|e| GaplyError::Validation(format!("cannot open csv: {e}")))?;
+    csv_evidence(std::io::BufReader::new(file), file_name, delim)
+}
+
+/// The CSV parser on a reader: an opened file, or bytes already read.
+fn csv_evidence(reader: impl Read, file_name: String, delim: u8) -> Result<SupplementaryEvidence, GaplyError> {
     let mut rdr = csv::ReaderBuilder::new()
         .has_headers(false)
         .flexible(true)
         .delimiter(delim)
-        .from_reader(std::io::BufReader::new(file));
+        .from_reader(reader);
 
     let mut notes = Vec::new();
     let mut total = 0usize;
@@ -721,9 +869,14 @@ fn parse_csv(path: &Path, file_name: String, delim: u8) -> Result<SupplementaryE
 fn parse_text(path: &Path, file_name: String) -> Result<SupplementaryEvidence, GaplyError> {
     let file = std::fs::File::open(path)
         .map_err(|e| GaplyError::Validation(format!("cannot open text file: {e}")))?;
+    text_evidence(std::io::BufReader::new(file), file_name)
+}
+
+/// The text parser on a reader: an opened file, or bytes already read.
+fn text_evidence(reader: impl Read, file_name: String) -> Result<SupplementaryEvidence, GaplyError> {
     // Read at most MAX_TOTAL_CHARS+1 bytes — bounded regardless of file size.
     let mut buf = Vec::new();
-    std::io::BufReader::new(file)
+    reader
         .take(MAX_TOTAL_CHARS as u64 + 1)
         .read_to_end(&mut buf)
         .map_err(|e| GaplyError::Validation(format!("cannot read text: {e}")))?;
@@ -770,6 +923,29 @@ mod tests {
 
     /// **An SPSS variable is more than a column name**, and every part of it a
     /// reader needs to interpret a value is preserved.
+    /// Part C follow-up, item 4: a `.zsav` holds rows far beyond its size on
+    /// disk (measured: 40 million rows in 40 KB, a 330 MB peak), and ambers
+    /// read every one. Only the first MAX_ROWS + 1 are read now: enough to
+    /// keep MAX_ROWS and to know there were more.
+    #[test]
+    fn a_sav_is_read_no_further_than_one_row_past_the_cap() {
+        use arrow::array::Float64Array;
+        use arrow::datatypes::{DataType, Field, Schema};
+        let rows = 200_000;
+        let schema = std::sync::Arc::new(Schema::new(vec![Field::new("x", DataType::Float64, false)]));
+        let batch = arrow::record_batch::RecordBatch::try_new(schema, vec![std::sync::Arc::new(Float64Array::from(vec![1.0; rows]))]).unwrap();
+        let mut buf = std::io::Cursor::new(Vec::new());
+        ambers::write_sav_to_writer(&mut buf, &batch, &ambers::SpssMetadata::default(), ambers::Compression::Zlib, None).unwrap();
+        let bytes = buf.into_inner();
+        assert!(bytes.len() < 10_000, "{} bytes hold {rows} rows", bytes.len());
+        let scanner = ambers::scan_sav_from_reader(std::io::Cursor::new(&bytes[..]), SAV_BATCH_ROWS).unwrap();
+        let (read, _) = read_sav_rows(scanner).unwrap();
+        assert_eq!(read.num_rows(), MAX_ROWS + 1);
+        let ev = parse_supplementary_bytes(&bytes, "sav").unwrap();
+        assert!(ev.rows_truncated);
+        assert_eq!(ev.tables[0].rows.len(), MAX_ROWS);
+    }
+
     #[test]
     fn an_spss_file_keeps_names_types_labels_value_labels_and_user_missing() {
         let ev = parse_supplementary(&fixture("analysis.sav")).expect("parses");

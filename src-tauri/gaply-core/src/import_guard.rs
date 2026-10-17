@@ -276,6 +276,52 @@ pub fn open_regular_file(path: &std::path::Path) -> Result<(std::fs::File, u64),
     Ok((file, meta.len()))
 }
 
+/// What inflating every part of a zip archive into a counter found (Phase 2
+/// evaluation fixes, part C follow-up, item 2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ZipInflation {
+    /// Every part inflated to no more than its declared size, and all of them
+    /// to `total` bytes, no more than the limit.
+    Within { total: u64 },
+    /// A part inflated past its own declared size, or the parts together past
+    /// the limit. `counted` is the bytes inflated when the count stopped, at
+    /// most one byte past what was allowed.
+    Over { counted: u64 },
+    /// Not an archive this reader can open or inflate (a damaged entry, an
+    /// unsupported method, encryption): left to the parser to refuse.
+    NotReadable,
+}
+
+/// Inflate each part of the zip archive in `bytes`, in turn, into a sink that
+/// only counts, and stop as soon as the count passes that part's declared
+/// size or `limit` for all the parts together. Nothing inflated is kept:
+/// memory is the decompressor's own buffers, whatever the archive declares.
+///
+/// Part C refused an archive by the sizes its central directory DECLARES; a
+/// declaration is the archive's own claim, and the reader (zip 2.4.2, the one
+/// calamine uses) bounds only the compressed bytes it reads, so an archive
+/// declaring small sizes could still inflate without bound inside the parser.
+/// This counts what is actually inflated, before any parser sees the bytes.
+pub fn count_zip_inflation(bytes: &[u8], limit: u64) -> ZipInflation {
+    use std::io::Read;
+    let Ok(mut archive) = zip::ZipArchive::new(std::io::Cursor::new(bytes)) else { return ZipInflation::NotReadable };
+    let mut total: u64 = 0;
+    for i in 0..archive.len() {
+        let Ok(mut part) = archive.by_index(i) else { return ZipInflation::NotReadable };
+        // What this part may still inflate to, and one byte more to see a
+        // part that goes past it.
+        let room = part.size().min(limit.saturating_sub(total));
+        let Ok(counted) = std::io::copy(&mut (&mut part).take(room.saturating_add(1)), &mut std::io::sink()) else {
+            return ZipInflation::NotReadable;
+        };
+        total = total.saturating_add(counted);
+        if counted > room {
+            return ZipInflation::Over { counted: total };
+        }
+    }
+    ZipInflation::Within { total }
+}
+
 /// The refusal [`preflight`] gives a path that is not a regular file.
 const NOT_A_REGULAR_FILE: &str = "This is not a regular file (it may be a pipe, a device or a socket), so it was not read.";
 

@@ -567,7 +567,7 @@ pub struct L1SlotView {
     pub min: Option<usize>,
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[derive(Clone, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct L1ClaimView {
     pub claim_id: usize,
@@ -588,6 +588,13 @@ pub struct L1ClaimView {
     pub level0: Option<WireCode>,
 }
 
+/// Counts only, never the text (part C follow-up, item 7).
+impl std::fmt::Debug for L1ClaimView {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("L1ClaimView").field("claim_id", &self.claim_id).field("section", &self.section).field("family", &self.family).field("df", &self.df.len()).field("sentence_chars", &self.sentence.chars().count()).finish_non_exhaustive()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct L1SchemaView {
@@ -596,7 +603,7 @@ pub struct L1SchemaView {
     pub issues: Vec<WireCode>,
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[derive(Clone, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct L1ColumnView {
     pub alias: String,
@@ -611,12 +618,26 @@ pub struct L1ColumnView {
     pub issues: Vec<WireCode>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+/// Counts only, never the text (part C follow-up, item 7).
+impl std::fmt::Debug for L1ColumnView {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("L1ColumnView").field("alias", &self.alias).field("header_chars", &self.header.chars().count()).field("column_type", &self.column_type).field("has_missing", &self.has_missing).field("levels", &self.levels.len()).finish_non_exhaustive()
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct L1LevelView {
     pub code: String,
     pub label: Option<String>,
     pub count: usize,
+}
+
+/// Counts only, never the text (part C follow-up, item 7).
+impl std::fmt::Debug for L1LevelView {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("L1LevelView").field("code_chars", &self.code.chars().count()).field("label", &self.label.is_some()).field("count", &self.count).finish_non_exhaustive()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
@@ -669,11 +690,18 @@ pub struct L1RoleView {
     pub aliases: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[derive(Clone, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct L1LevelSelectionView {
     pub role: &'static str,
     pub levels: Vec<String>,
+}
+
+/// Counts only, never the text (part C follow-up, item 7).
+impl std::fmt::Debug for L1LevelSelectionView {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("L1LevelSelectionView").field("role", &self.role).field("levels", &self.levels.len()).finish_non_exhaustive()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
@@ -683,7 +711,7 @@ pub struct L1RevisionView {
     pub revision: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[derive(Clone, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct L1PreviewView {
     pub preview: L1Handle,
@@ -692,6 +720,13 @@ pub struct L1PreviewView {
     pub body: String,
     pub sha256: String,
     pub categories: Vec<&'static str>,
+}
+
+/// Counts only, never the text (part C follow-up, item 7).
+impl std::fmt::Debug for L1PreviewView {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("L1PreviewView").field("task", &self.task).field("bytes", &self.body.len()).field("sha256", &self.sha256).field("categories", &self.categories).finish_non_exhaustive()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
@@ -749,7 +784,7 @@ pub enum L1HelperResultView {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[derive(Clone, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct L1ConfirmView {
     pub token: String,
@@ -761,6 +796,13 @@ pub struct L1ConfirmView {
     pub suspect_missing_codes: Vec<L1SuspectCodeView>,
     /// The whole-number answers the binding was confirmed with.
     pub whole_numbers: Vec<L1WholeNumberView>,
+}
+
+/// Counts only, never the text (part C follow-up, item 7).
+impl std::fmt::Debug for L1ConfirmView {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("L1ConfirmView").field("claim_id", &self.claim_id).field("rows_read", &self.rows_read).field("n_used", &self.n_used).field("suspect_missing_codes", &self.suspect_missing_codes.len()).field("whole_numbers", &self.whole_numbers.len()).finish_non_exhaustive()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
@@ -807,7 +849,7 @@ pub struct AiKeyTestView {
  * ------------------------------------------------------------------------ */
 
 /// A claim the user types or edits: printed strings, never floats.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+#[derive(Clone, PartialEq, Eq, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct L1ClaimInput {
     /// `t`, `F`, `chi_square`, `r` or `z`.
@@ -822,12 +864,19 @@ pub struct L1ClaimInput {
     pub sentence: Option<String>,
 }
 
+/// Counts only, never the text (part C follow-up, item 7).
+impl std::fmt::Debug for L1ClaimInput {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("L1ClaimInput").field("df", &self.df.len()).field("n", &self.n.is_some()).field("p", &self.p.is_some()).field("sentence_chars", &self.sentence.as_ref().map(|t| t.chars().count())).finish_non_exhaustive()
+    }
+}
+
 /// One helper task's input. Each variant carries only what its task needs.
 ///
 /// Unknown fields are refused (evaluation fixes, part B): the web query has
 /// no free-text edit and the DOI field holds a DOI only, so an `editedQuery`
 /// or a `paper` field from an older screen never reaches a request.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+#[derive(Clone, PartialEq, Eq, serde::Deserialize)]
 #[serde(tag = "task", rename_all = "snake_case", rename_all_fields = "camelCase", deny_unknown_fields)]
 pub enum HelperTaskInput {
     ClaimMethod { claim_id: usize, methods_passage: Option<String> },
@@ -846,6 +895,24 @@ pub enum HelperTaskInput {
     },
 }
 
+/// Counts only, never the text (part C follow-up, item 7).
+impl std::fmt::Debug for HelperTaskInput {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            HelperTaskInput::ClaimMethod { claim_id, methods_passage } => f
+                .debug_struct("ClaimMethod")
+                .field("claim_id", claim_id)
+                .field("methods_passage_chars", &methods_passage.as_ref().map(|t| t.chars().count()))
+                .finish(),
+            HelperTaskInput::BindingSuggestion { claim_id, .. } => f.debug_struct("BindingSuggestion").field("claim_id", claim_id).finish_non_exhaustive(),
+            HelperTaskInput::ResultExplanation { claim_id } => f.debug_struct("ResultExplanation").field("claim_id", claim_id).finish(),
+            HelperTaskInput::WebContext { claim_id, doi, .. } => {
+                f.debug_struct("WebContext").field("claim_id", claim_id).field("doi", &doi.is_some()).finish_non_exhaustive()
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RoleEdit {
@@ -853,18 +920,32 @@ pub struct RoleEdit {
     pub aliases: Vec<u32>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+#[derive(Clone, PartialEq, Eq, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LevelEdit {
     pub role: String,
     pub levels: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+/// Counts only, never the text (part C follow-up, item 7).
+impl std::fmt::Debug for LevelEdit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LevelEdit").field("levels", &self.levels.len()).finish_non_exhaustive()
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FilterEdit {
     pub alias: u32,
     pub levels: Vec<String>,
+}
+
+/// Counts only, never the text (part C follow-up, item 7).
+impl std::fmt::Debug for FilterEdit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FilterEdit").field("alias", &self.alias).field("levels", &self.levels.len()).finish_non_exhaustive()
+    }
 }
 
 /// The user's edits to a proposal before confirming. Recorded as Manual,

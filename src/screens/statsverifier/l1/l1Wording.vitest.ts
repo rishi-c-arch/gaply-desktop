@@ -87,7 +87,8 @@ describe('the Level 1 wording table', () => {
       'This check has used its 20 requests for this task.'
     );
     expect(refusalSentence(new Error('{"code":"transport","error":"timeout"}'))).toBe('The request timed out.');
-    expect(refusalSentence(new Error('not json'))).toBe('Something went wrong, and nothing was changed.');
+    // Part C follow-up: the message itself, never a claim that nothing changed.
+    expect(refusalSentence(new Error('not json'))).toBe('This could not be done: not json.');
   });
 
   it('every code part B added has its own sentence, and none falls through to "Refused:"', () => {

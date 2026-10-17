@@ -38,7 +38,8 @@
 //! the number is not checked, `DataPrecision`: the stored cells' rounding
 //! alone could explain the miss (rule 1). A statistic in that state makes
 //! the claim CouldNotCheck; a p in it leaves a matched claim Reproduced with
-//! the note.
+//! the note, unless the printed statistic itself rules the printed p out
+//! ([`Contradiction`], part C follow-up): then the p is not matched.
 //!
 //! The outcome never says which number is wrong: it shows each printed number
 //! beside the computed one, with what it had to fall in and a status. No
@@ -157,11 +158,32 @@ pub enum NotCheckedReason {
     DataPrecision { decimals: u32 },
 }
 
+/// Why a printed number is not matched although the data alone did not
+/// decide it. Closed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Contradiction {
+    /// The data's precision left the p undecided, but Level 0, on the printed
+    /// numbers alone, calls the printed p Inconsistent with the printed
+    /// statistic and df under every print Level 1 accepts for them (part C
+    /// follow-up, item 1; the joint evaluation's A01).
+    PRuledOutByPrintedStatistic,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NumberStatus {
     Matched(Option<MatchNote>),
     NotMatched,
     NotChecked(NotCheckedReason),
+    /// Not matched, for a reason the reader is told ([`Contradiction`]).
+    /// Counts as `NotMatched` in every verdict.
+    Contradicted(Contradiction),
+}
+
+impl NumberStatus {
+    /// `NotMatched`, or not matched for a stated reason.
+    pub fn is_miss(self) -> bool {
+        matches!(self, NumberStatus::NotMatched | NumberStatus::Contradicted(_))
+    }
 }
 
 /// One printed number beside the computed one.
@@ -203,15 +225,16 @@ impl CandidateComparison {
     }
     /// At least one checked number did not match.
     pub fn fails(&self) -> bool {
-        self.numbers.iter().any(|n| n.status == NumberStatus::NotMatched)
+        self.numbers.iter().any(|n| n.status.is_miss())
     }
 }
 
 /// The candidate rule on statuses alone: the statistic matched, and no number
-/// is `NotMatched`. `NotChecked` numbers neither help nor hurt.
+/// is `NotMatched` or `Contradicted`. `NotChecked` numbers neither help nor
+/// hurt.
 pub fn statuses_match(numbers: impl Iterator<Item = (NumberKind, NumberStatus)> + Clone) -> bool {
     numbers.clone().any(|(k, s)| k == NumberKind::Statistic && matches!(s, NumberStatus::Matched(_)))
-        && !numbers.into_iter().any(|(_, s)| s == NumberStatus::NotMatched)
+        && !numbers.into_iter().any(|(_, s)| s.is_miss())
 }
 
 /* ------------------------------------------------------------------------ *
@@ -271,6 +294,10 @@ pub enum ConclusionGap {
     PNotChecked,
     /// Phase 1's comparison could not place the printed p.
     Unplaced,
+    /// The p was judged against the printed statistic, because the data's
+    /// precision left the data's own p undecided, so its side of alpha is
+    /// not compared ([`Contradiction::PRuledOutByPrintedStatistic`]).
+    PJudgedOnPrintedNumbers,
 }
 
 /// Why a claim could not be checked. Closed codes with numeric parameters.
@@ -654,12 +681,112 @@ pub fn compare_df(printed: &ReportedNumber, index: usize, computed: f64, integer
 /// Level 0's p outcome on the claim's printed numbers, with a not-checked
 /// reason when it is a Concern or a CouldNotCheck.
 fn level0_p_gap(result: &ReportedResult, ctx: &DocumentContext) -> Option<(NotCheckedReason, L0Verdict)> {
-    let verdict = PConsistency.run(&L0Input { result, context: ctx }).outcome;
+    let verdict = level0(result, ctx).outcome;
     match verdict {
         L0Verdict::Concern(r) => Some((NotCheckedReason::PConcernAtLevel0(r), verdict)),
         L0Verdict::CouldNotCheck(r) => Some((NotCheckedReason::PCouldNotCheckAtLevel0(r), verdict)),
         L0Verdict::Consistent(_) | L0Verdict::Inconsistent { .. } => None,
     }
+}
+
+/// Level 0's own method on printed numbers.
+fn level0(result: &ReportedResult, ctx: &DocumentContext) -> MethodCheck {
+    PConsistency.run(&L0Input { result, context: ctx })
+}
+
+/// The print `steps` units of the last printed place from `n`, read as `n`
+/// was (`count` for an exact point, `measured` otherwise), or as `measured`
+/// when `as_measured`. `None` when it cannot be printed or read.
+fn print_beside(n: &ReportedNumber, steps: i128, as_measured: bool) -> Option<ReportedNumber> {
+    let d = n.decimals();
+    let scale = 10i128.checked_pow(d)?;
+    let v = n.value();
+    let k = v.numer().checked_mul(scale)?.checked_div(v.denom())?.checked_add(steps)?;
+    let (whole, frac) = (k.abs() / scale, k.abs() % scale);
+    let sign = if k < 0 { "-" } else { "" };
+    let raw = if d == 0 { format!("{sign}{whole}") } else { format!("{sign}{whole}.{frac:0>width$}", width = d as usize) };
+    let point = n.interval().lo == n.interval().hi;
+    if point && !as_measured { ReportedNumber::count(&raw).ok() } else { ReportedNumber::measured(&raw).ok() }
+}
+
+/// Part C follow-up, item 1. Whether no p the printed statistic and df allow
+/// can be the printed p, by Level 0's own [`PConsistency`], called (never
+/// copied) on every print Level 1 itself accepts for those numbers:
+///
+/// - the statistic as printed and one unit in its last place either side,
+///   which hold a truncated (`[S, S + u)`) or double-rounded
+///   (`[S - u/2 - u/20, S - u/2)`) statistic;
+/// - for Welch's df, the df read as a rounding (`measured`) and one unit
+///   either side, which hold a rounded or truncated whole-number df; an
+///   integer df must equal the computed one and is used as printed;
+/// - the p as printed, and for an equality one unit up (a truncated p;
+///   Level 0's own rule a2 holds a double-rounded one).
+///
+/// True only when EVERY one is Inconsistent. Each piece's range is a
+/// contiguous neighbour of the next, so every combination being Inconsistent
+/// means the printed p misses their whole union. Anything else (Consistent,
+/// a Concern, a CouldNotCheck, a print that cannot be read or lies past the
+/// statistic's range) leaves the p undecided. With `band`, each recomputed
+/// range is widened to part C's Spearman band before Phase 1's comparison.
+fn printed_p_ruled_out(result: &ReportedResult, ctx: &DocumentContext, c: &ComputedResult, band: bool) -> bool {
+    let mut statistics = Vec::with_capacity(3);
+    for step in [-1, 0, 1] {
+        let Some(s) = print_beside(&result.statistic, step, true) else { return false };
+        let v = s.value();
+        match result.family {
+            // A neighbour below zero adds nothing: the print's own interval
+            // already reaches 0.
+            Family::F | Family::ChiSquare if v.is_negative() => continue,
+            // A neighbour at or past |r| = 1 would reach p = 0: not decided.
+            Family::R if v.numer().abs() >= v.denom() => return false,
+            _ => statistics.push(s),
+        }
+    }
+    let mut dfs: Vec<Vec<ReportedNumber>> = vec![Vec::new()];
+    for printed in &result.df {
+        let options: Vec<ReportedNumber> = if c.variant == ComputedVariant::Welch {
+            match [-1, 0, 1].map(|step| print_beside(printed, step, true)) {
+                [Some(below), Some(at), Some(above)] => vec![below, at, above],
+                _ => return false,
+            }
+        } else {
+            vec![printed.clone()]
+        };
+        dfs = dfs.iter().flat_map(|head| options.iter().map(move |d| [head.as_slice(), std::slice::from_ref(d)].concat())).collect();
+    }
+    let mut ps = vec![result.p.clone()];
+    if let PValue::Reported(p) = &result.p {
+        if p.relation() == Relation::Eq {
+            let up = print_beside(p, 1, false).and_then(|n| ReportedNumber::p_value(n.raw(), Relation::Eq).ok());
+            ps.extend(up.map(PValue::Reported));
+        }
+    }
+    let mut trail = Vec::new();
+    let alpha = alpha_of(ctx, &mut trail);
+    for statistic in &statistics {
+        for df in &dfs {
+            for p in &ps {
+                let r = ReportedResult { statistic: statistic.clone(), df: df.clone(), p: p.clone(), ..result.clone() };
+                let check = level0(&r, ctx);
+                let verdict = if band {
+                    let Some((lo, hi)) = check.computed.iter().find_map(|(k, v)| match (*k, v) {
+                        ("recomputed_p", Computed::Range { lo, hi }) => Some((*lo, *hi)),
+                        _ => None,
+                    }) else {
+                        return false;
+                    };
+                    let input = PComparison { p, family: r.family, variance_ratio_candidate: is_variance_ratio_candidate(&r) };
+                    compare_p(&input, spearman_exact_band(lo).0, spearman_exact_band(hi).1, || None, ctx, &alpha, &mut trail)
+                } else {
+                    check.outcome
+                };
+                if !matches!(verdict, L0Verdict::Inconsistent { .. }) {
+                    return false;
+                }
+            }
+        }
+    }
+    !statistics.is_empty()
 }
 
 /// The p, by Phase 1's [`compare_p`] with the exact p as a zero-width range.
@@ -750,6 +877,9 @@ fn compare_n(result: &ReportedResult, n_used: usize) -> Option<NumberComparison>
 fn combined_conclusion(cands: &[CandidateComparison], alpha: &Alpha) -> (Option<bool>, Option<ConclusionGap>) {
     if cands.iter().any(|c| c.numbers.iter().any(|n| n.kind == NumberKind::P && matches!(n.status, NumberStatus::NotChecked(_)))) {
         return (None, Some(ConclusionGap::PNotChecked));
+    }
+    if cands.iter().any(|c| c.numbers.iter().any(|n| n.kind == NumberKind::P && matches!(n.status, NumberStatus::Contradicted(_)))) {
+        return (None, Some(ConclusionGap::PJudgedOnPrintedNumbers));
     }
     if matches!(alpha, Alpha::Several(_)) {
         return (None, Some(ConclusionGap::SeveralAlphas));
@@ -966,8 +1096,23 @@ pub fn compare_claim(
                 }
             }
         }
+        // Part C follow-up, item 1 (the joint evaluation's A01): a p the
+        // data's precision alone left undecided is still not matched when the
+        // printed statistic rules it out, whatever the data's rounding. Never
+        // a match, and the statistic and df keep their outcomes. Spearman
+        // with no variant stated and possible ties stays undecided, as part C
+        // leaves a miss there; with no ties, inside R's exact range, the
+        // printed statistic's p is widened to the band.
+        if let NumberStatus::NotChecked(NotCheckedReason::DataPrecision { .. }) = p.status {
+            let spearman_not_stated = facts.method == L1MethodId::Spearman && !facts.variant.is_stated();
+            let decidable = !spearman_not_stated || computation.ties == Some(false);
+            let band = spearman_not_stated && c.n <= SPEARMAN_EXACT_MAX_N;
+            if decidable && printed_p_ruled_out(result, ctx, c, band) {
+                p.status = NumberStatus::Contradicted(Contradiction::PRuledOutByPrintedStatistic);
+            }
+        }
         let conclusion_changes = match p.status {
-            NumberStatus::NotChecked(_) => None,
+            NumberStatus::NotChecked(_) | NumberStatus::Contradicted(_) => None,
             _ => {
                 let (lo, hi) = widen(c.p, c.p);
                 conclusion_changes_of(&result.p, lo, hi, &alpha)

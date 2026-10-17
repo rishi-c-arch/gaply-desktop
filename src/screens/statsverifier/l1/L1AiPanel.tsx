@@ -47,13 +47,13 @@ export function notSent(task: HelperTaskInput['task'], ticked: OptInCategory[]):
 }
 
 export const RECIPIENT_TEXT =
-  'Sent to OpenAI over HTTPS, with your own API key. Gaply runs no server in between and sees nothing.';
+  'Sent from this device straight to OpenAI over HTTPS, with your own API key. No Gaply server is in between, so none receives it.';
 
 export const RETENTION_TEXT =
   "The request sets store to false, which asks OpenAI not to keep the response for later retrieval. That does not mean nothing is kept: OpenAI keeps abuse-monitoring logs of API requests for up to 30 days, and its prompt cache may hold data for up to 24 hours. OpenAI says API data is not used to train its models unless you opt in.";
 
 export const WEB_RETENTION_TEXT =
-  "Web search sends the query on to the sites searched, whose own retention policies apply.";
+  "With web search, OpenAI runs the search itself, limited to a fixed list of sites. What OpenAI sends to search them is up to OpenAI, not Gaply.";
 
 /** What Withdraw does (evaluation fixes, part C, M-S2): every Send makes a
  *  new consent, and the cancel stops every request of this check. */

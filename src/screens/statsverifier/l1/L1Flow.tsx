@@ -822,7 +822,7 @@ export const L1Flow: React.FC<L1FlowProps> = ({ bridge, onExit }) => {
           <p style={{ margin: 0 }} role="status" data-testid="l1-results-counts">
             {result.counts.reproduced} reproduced
             {partlyReproduced(result) > 0 ? ` (${partlyReproduced(result)} of them with a number that was not decided)` : ''},{' '}
-            {result.counts.notReproduced} not reproduced, {result.counts.couldNotCheck} could not be checked.{' '}
+            {result.counts.notReproduced} not reproduced, {result.counts.couldNotCheck} could not check.{' '}
             {skippedPhrase(result.skipped)}
             {result.skipped > 0 ? ' ' : ''}
             {dataReadPhrase(result.data)}

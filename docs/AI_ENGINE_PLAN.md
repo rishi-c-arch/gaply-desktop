@@ -23045,6 +23045,110 @@ changed one row (DEV, `F(1,62) = 9.96, p = 0.003`, Inconsistent to
 Consistent with the double-rounding note; R [.002463, .002475]); HOLDOUT
 and OWN are unchanged, and no row became Inconsistent.
 
+#### Evaluation fixes, part C follow-up (17 Oct 2026) `[src]` `[test]` `[measured]`
+
+Part C's open questions and the gaps it could not test. Level 0 is as part C
+left it; part C's changes stand except where an item says so.
+
+**Decisions recorded, nothing changed for them (the author, 17 Oct 2026).**
+The double-rounding rule's cost is accepted: with its visible note it now
+matches 19 of 1,100 "+1%" plants, 2 of 1,100 last-digit typos, and 62 upward
+plants on discrete data answered "Exact whole numbers". Part C's Level 0
+changes are accepted: PMC13101904's `F(1,62) = 9.96, p = .003` and
+pone.0129646 claims 1 and 8 are Consistent with the double-rounding note.
+That DEV row now disagrees with its label and with statcheck (both
+Inconsistent / error): R puts the printed statistic's p in [.002463,
+.002475], which software shows as .0025 and a paper rounds again to .003;
+the label and statcheck assume a single rounding, and rule a2 does not.
+"Rounded, or not sure" stays the default answer to the whole-number
+question.
+
+* **A printed p the printed statistic rules out (part C's open question 1,
+  red-team A01).** When the data's precision alone leaves a p undecided,
+  Level 0's own `PConsistency` is called (not copied) on the printed numbers,
+  under the claim's document context (tails, alpha, a named correction). It
+  is called on every print Level 1 itself accepts for them, because Level 0's
+  range for the literal print misses honest prints Level 1 accepts: the
+  statistic as printed and one unit in its last place either side (a
+  truncated or double-rounded statistic), Welch's df read as a rounding and
+  one unit either side, and the p and one unit up (a truncated p). Measured
+  with `/usr/local/bin/Rscript ~/gaply-corpus/eval3/partc2/neighbours.R` and
+  `neighbours_b.R`: `t(20) = 1.50` from a truth of 1.5095, printed `p =
+  .147`, has Level 0's range [.147954, .150527] for 1.50 alone. Only when
+  every combination is Inconsistent is the p not matched:
+  `NumberStatus::Contradicted(Contradiction::PRuledOutByPrintedStatistic)`,
+  on the wire `not_matched` with `why: p_ruled_out_by_printed_statistic`
+  ("The printed p cannot follow from the printed statistic and its degrees of
+  freedom, whatever the data's rounding."). It never matches a p and never
+  changes a statistic's or a df's outcome; a Concern, a CouldNotCheck or any
+  print Level 0 cannot read leaves the p undecided. Spearman with no variant
+  stated widens each range to part C's band (n ≤ 1290) and, with possible
+  ties, changes nothing. The data's own p is undecided, so the conclusion is
+  not assessed (`ConclusionGap::PJudgedOnPrintedNumbers`). Tests:
+  `l1_eval_fixes_c2.rs` (six), each neighbour proven by a mutation that turns
+  `honest_prints_level_1_accepts_are_never_ruled_out` red. Step 8b's
+  `l1_planted_errors.rs` pinned a planted Spearman p (.315 for rho .49, n 24;
+  R's t approximation .0151) as not decided on unbounded data; it is now Not
+  reproduced, and the pin lists only the planted rho.
+* **A workbook that lies about its sizes.** Before parsing, every part of a
+  zip-based workbook is inflated into a sink that only counts
+  (`import_guard::count_zip_inflation`, zip 2.4.2, the reader calamine uses);
+  a part that inflates past its declared size, or parts past 64 MiB, are
+  refused with `archive_too_large` (then `declared` is the bytes counted when
+  it stopped, and the screen says the workbook "unpacks to more than its own
+  contents list says"). Part C's residual is closed.
+* **The file is opened once.** `stats_l1_ingest::check_file` opens and reads
+  the file through one handle; `dataset_from_checked` parses those bytes
+  (`supplementary::parse_supplementary_bytes`, the same parsers on a reader)
+  and never opens the path again, so `file_changed_while_reading` is no longer
+  produced on this path. The existing Stats Verifier's
+  `parse_supplementary(path)` is unchanged.
+* **`.sav` and `.mat`.** A byte-coded or zlib (`.zsav`) file holds rows far
+  beyond its size on disk and ambers read all of them; the app now scans at
+  most 5,001 rows (`read_sav_rows`, `Scanner::limit`), for the path API too,
+  whose output it already cut to 5,000. `matfile` inflates a compressed
+  element with `read_to_end` and the app does not control that reader: NOT
+  bounded, proposal in the follow-up report. Inside ambers, a zsav block is
+  allocated at the size its trailer declares; not measured, not controlled.
+* **Debug.** 36 types that hold rows, cells, headers, level codes or labels,
+  header tokens, a manuscript sentence, passage or DOI, or a request body
+  print counts only (`tests/no_private_text_in_debug.rs`: a source scan over
+  `stats_l1`, `stats_assist` and the app's L1 files, plus sentinels).
+* **Links.** The opener plugin is built with its click handler off and the
+  window keeps only `opener:allow-reveal-item-in-dir`; every external link,
+  OAuth sign-in included, goes through `external_links::open_external_link`
+  (https, a host, no credentials, at most 2,048 characters), with the
+  plugin's click rules kept in `src/services/externalLinks.ts`. http, mailto
+  and tel links no longer open. Level 1's sources keep
+  `stats_open_source_link` (`tests/no_link_bypasses_the_recheck.rs`).
+* **Minor wording.** Part C's list, each with a vitest
+  (`l1WordingFollowUp.vitest.tsx`), the web and billing lines written only
+  from what `stats_ai.rs` and `outbound.rs` make true.
+
+**The workbook limit stays 64 MiB, measured.** A synthetic workbook of 5,001
+rows by 128 numeric cells that declares 67,042,229 bytes (just under 64 MiB)
+and passes the row and column caps opens in 438 ms at 141 MB maximum RSS
+(`~/gaply-corpus/eval3/partc2/bin1/partc2_harness mk_full full_pad78.xlsx 64
+78`, then `/usr/bin/time -l partc2_harness load full_pad78.xlsx`, release),
+under the 500 MB line. The lying workbook (4.1 MB on disk, 5,527 bytes
+declared, about 600 MB inflated): 18.3 s and 2.1 GB at part C, refused only
+as over 5,000 rows after full inflation; now refused in about 1 ms at 16 MB.
+The count adds 15.7 ms (median of 7) to the largest real workbook and 6.3 ms
+to the largest that opens; all 27 real workbooks open or refuse as before.
+
+Re-measured with part C's drivers (`~/gaply-corpus/eval3/partc2/run_after.sh`,
+compared by `compare2.py` with part C's after-results): honest section 3
+unchanged (7,464 / 0 / 636, scenario B 2,672 / 0 / 628); the 144 and 238
+double-rounded sets, the discrete set, every Level 0 set, sections 5 and 6
+and 15 unchanged; DEV and HOLDOUT unchanged, OWN identical by hash. Planted
+(caught / missed / undecided) 8,061 / 2,550 / 1,989 became 8,135 / 2,471 /
+1,994: wrong-tail p 458 / 142 → 512 / 88 and 477 / 23 → 497 / 3. Red team:
+A01, C01, C02, C03 and T05b became Not reproduced; R puts each printed
+statistic's p far from the printed p (A01 near 1e-7 against .200; T05b
+[.0486, .0496] against .040). Section 4's computed values are identical to
+part C's against R; its 134 verdict changes are on the generator's
+placeholder `p = .5`.
+
 #### Accepted findings
 
 * Level 1 keeps Step 8b's truncation rule, so it can accept a printed

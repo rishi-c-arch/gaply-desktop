@@ -22,14 +22,19 @@
 //!    Step 2 report.
 //! 2. The ingest's own size and type limits, then
 //!    [`supplementary::parse_supplementary`], the one parser.
-//! 3. SHA-256 over the exact file bytes, read before the parse and again
-//!    after it: a file that changed between the two is refused rather than
-//!    fingerprinted as something it no longer is. Both reads go through the
-//!    opened handle with a bound. A zip-based workbook whose central
-//!    directory declares more than [`MAX_WORKBOOK_UNCOMPRESSED_BYTES`] is
-//!    refused here, before any part is inflated (part C, M-9): a 1.5 MB
+//! 3. The file is read ONCE, through the opened handle with a bound, and
+//!    those bytes are what is hashed and what is parsed
+//!    ([`supplementary::parse_supplementary_bytes`]): the path is never
+//!    opened again, so the file cannot change between the check and the
+//!    parse (part C follow-up, item 3; until then the parser reopened the
+//!    path and a second read compared the bytes). A zip-based workbook whose
+//!    central directory declares more than [`MAX_WORKBOOK_UNCOMPRESSED_BYTES`]
+//!    is refused here, before any part is inflated (part C, M-9): a 1.5 MB
 //!    file that inflated to 1.5 GB peaked at 1.4 GB in memory, and an
-//!    allocation failure aborts the process.
+//!    allocation failure aborts the process. Then every part is inflated
+//!    into a counter, and a part that inflates past its declared size, or
+//!    parts past the limit, are refused the same way before parsing
+//!    ([`import_guard::count_zip_inflation`], part C follow-up, item 2).
 //! 4. [`build_dataset`] in `gaply_core`.
 //!
 //! A file over the ingest row cap is [`L1IngestRefusal::FileTooLarge`]: CSV
@@ -49,7 +54,7 @@ use std::path::Path;
 use gaply_core::extract::docparse::DocumentShape;
 use std::io::Read;
 
-use gaply_core::import_guard::{self, EstimateBasis, NotOpened};
+use gaply_core::import_guard::{self, EstimateBasis, NotOpened, ZipInflation};
 use gaply_core::stats_l1::dataset::{
     build_dataset, DataFingerprint, Dataset, DatasetRefusal, RawTable, RawVariable, SourceMetadata, TableRef,
 };
@@ -80,16 +85,31 @@ const ZIP_EXTENSIONS: &[&str] = &["xlsx", "xlsm", "xlsb", "ods"];
 /// largest declares 13,248,850 bytes (a 2.26 MB file). 64 MiB is about five
 /// times that. The deep evaluation's bomb declares 1,572,865,485.
 ///
-/// What it does not catch: an archive that declares small sizes and inflates
-/// to more. The reader (zip 2.4.2, through calamine) bounds the compressed
-/// bytes it reads, not the inflated output, and checks the CRC only at the
-/// end of an entry.
+/// An archive that declares small sizes and inflates to more is caught by
+/// counting what each part actually inflates to before parsing (part C
+/// follow-up, item 2): the reader (zip 2.4.2, through calamine) bounds the
+/// compressed bytes it reads, not the inflated output.
 pub const MAX_WORKBOOK_UNCOMPRESSED_BYTES: u64 = 64 * 1024 * 1024;
 
 /// The file at `path` as a Level 1 dataset.
 #[doc(hidden)]
 #[tracing::instrument(skip(path))]
 pub fn load_dataset(path: &Path) -> Result<Dataset, L1IngestRefusal> {
+    dataset_from_checked(check_file(path)?)
+}
+
+/// A data file opened, checked and read once: its bytes and its extension.
+/// It holds no path, so nothing after the check can open the file again (part
+/// C follow-up, item 3). Never `Debug`: the bytes are the user's data.
+#[doc(hidden)]
+pub struct CheckedFile {
+    bytes: Vec<u8>,
+    ext: String,
+}
+
+/// Steps 0 to 3's checks, and the bytes read through the opened handle.
+#[doc(hidden)]
+pub fn check_file(path: &Path) -> Result<CheckedFile, L1IngestRefusal> {
     // 0. A regular file, judged on the opened handle; read through it.
     let (file, bytes_len) = open_regular(path)?;
 
@@ -116,26 +136,36 @@ pub fn load_dataset(path: &Path) -> Result<Dataset, L1IngestRefusal> {
                 return Err(L1IngestRefusal::ArchiveTooLarge { declared, limit: MAX_WORKBOOK_UNCOMPRESSED_BYTES });
             }
         }
+        // What the parts DECLARE is the archive's own claim. Count what they
+        // actually inflate to, into a sink, before any parser sees them (part
+        // C follow-up, item 2).
+        if let ZipInflation::Over { counted } = import_guard::count_zip_inflation(&before, MAX_WORKBOOK_UNCOMPRESSED_BYTES) {
+            return Err(L1IngestRefusal::ArchiveTooLarge { declared: counted, limit: MAX_WORKBOOK_UNCOMPRESSED_BYTES });
+        }
     }
+    Ok(CheckedFile { bytes: before, ext })
+}
+
+/// Steps 3 and 4 on a checked file: the parse reads the checked bytes, never
+/// the path, so they are the bytes fingerprinted.
+#[doc(hidden)]
+pub fn dataset_from_checked(checked: CheckedFile) -> Result<Dataset, L1IngestRefusal> {
+    let CheckedFile { bytes: before, ext } = checked;
     // A failed parse is classified by a typed check of its own
     // (`exceeds_row_cap`), never by reading the parser's message, which the
     // existing Stats Verifier shows unchanged.
-    let evidence = supplementary::parse_supplementary(path).map_err(|_| {
-        if supplementary::exceeds_row_cap(path).unwrap_or(false) {
+    let evidence = supplementary::parse_supplementary_bytes(&before, &ext).map_err(|_| {
+        if supplementary::exceeds_row_cap_bytes(&before, &ext) {
             L1IngestRefusal::FileTooLarge { limit_rows: MAX_ROWS }
-        } else if let Ok(Some(columns)) = supplementary::exceeds_col_cap(path) {
+        } else if let Some(columns) = supplementary::exceeds_col_cap_bytes(&before, &ext) {
             // Step 8b, section 4's finding 1: too wide, not malformed.
             L1IngestRefusal::Dataset(DatasetRefusal::TooWide { columns, limit: supplementary::MAX_COLS })
-        } else if supplementary::xls_not_compound_document(path) {
+        } else if supplementary::xls_not_compound_document_bytes(&before, &ext) {
             L1IngestRefusal::XlsNotReadable
         } else {
             L1IngestRefusal::Malformed
         }
     })?;
-    let after = read_bounded(open_regular(path)?.0)?;
-    if before != after {
-        return Err(L1IngestRefusal::FileChangedWhileReading);
-    }
     if evidence.rows_truncated {
         return Err(L1IngestRefusal::FileTooLarge { limit_rows: MAX_ROWS });
     }
@@ -523,6 +553,142 @@ mod tests {
         let real = std::fs::read(fixture("sample.xlsx")).unwrap();
         assert!(declared_uncompressed_total(&real).unwrap() < MAX_WORKBOOK_UNCOMPRESSED_BYTES);
         assert!(load_dataset(&fixture("sample.xlsx")).is_ok());
+    }
+
+    /* ---- part C follow-up: a workbook that lies, and one read ------------- */
+
+    /// A raw deflate stream, fixed Huffman codes, that inflates to `1 + 258 *
+    /// matches` zero bytes: one literal 0, then `matches` copies of length
+    /// 258 at distance 1 (13 bits each), then the end of the block.
+    fn deflated_zeros(matches: usize) -> Vec<u8> {
+        let (mut out, mut acc, mut n) = (Vec::new(), 0u64, 0u32);
+        let mut bits = |v: u64, count: u32, out: &mut Vec<u8>| {
+            acc |= v << n;
+            n += count;
+            while n >= 8 {
+                out.push(acc as u8);
+                acc >>= 8;
+                n -= 8;
+            }
+        };
+        // A Huffman code goes in most significant bit first.
+        let code = |c: u64, len: u32| (0..len).fold(0u64, |r, i| r | (((c >> i) & 1) << (len - 1 - i)));
+        bits(1, 1, &mut out); // BFINAL
+        bits(1, 2, &mut out); // BTYPE 01: fixed codes
+        bits(code(0x30, 8), 8, &mut out); // literal 0
+        for _ in 0..matches {
+            bits(code(0xC5, 8), 8, &mut out); // length 258 (symbol 285)
+            bits(0, 5, &mut out); // distance 1 (code 0)
+        }
+        bits(0, 7, &mut out); // end of block (256)
+        bits(0, 7, &mut out); // flush
+        out
+    }
+
+    /// Part C's minimal workbook with its sheet replaced by `matches` worth of
+    /// deflated zeros that DECLARES `declared` uncompressed bytes, in the
+    /// local header and the central directory alike.
+    fn lying_xlsx(matches: usize, declared: u32) -> Vec<u8> {
+        let honest = xlsx(1, None);
+        // Every part but the sheet, as Part C's helper stored them.
+        let mut out = Vec::new();
+        let mut central = Vec::new();
+        let mut at = 0usize;
+        let mut count = 0u16;
+        while honest.get(at..at + 4) == Some(&[0x50, 0x4b, 0x03, 0x04][..]) {
+            let u16_at = |i: usize| usize::from(u16::from_le_bytes([honest[i], honest[i + 1]]));
+            let size = u32::from_le_bytes(honest[at + 18..at + 22].try_into().unwrap()) as usize;
+            let name_len = u16_at(at + 26);
+            let end = at + 30 + name_len + u16_at(at + 28) + size;
+            let name = &honest[at + 30..at + 30 + name_len];
+            if name != b"xl/worksheets/sheet1.xml" {
+                let offset = out.len() as u32;
+                out.extend_from_slice(&honest[at..end]);
+                central.extend_from_slice(&[0x50, 0x4b, 0x01, 0x02, 45, 0, 20, 0, 0, 0, 0, 0, 0, 0, 0x21, 0]);
+                central.extend_from_slice(&honest[at + 14..at + 26]); // crc, sizes
+                central.extend_from_slice(&(name_len as u16).to_le_bytes());
+                central.extend_from_slice(&[0; 12]);
+                central.extend_from_slice(&offset.to_le_bytes());
+                central.extend_from_slice(name);
+                count += 1;
+            }
+            at = end;
+        }
+        let name = b"xl/worksheets/sheet1.xml";
+        let data = deflated_zeros(matches);
+        let offset = out.len() as u32;
+        let mut header = vec![0u8; 0];
+        header.extend_from_slice(&[0, 0, 0, 0]); // crc: never reached
+        header.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        header.extend_from_slice(&declared.to_le_bytes());
+        out.extend_from_slice(&[0x50, 0x4b, 0x03, 0x04, 20, 0, 0, 0, 8, 0, 0, 0, 0x21, 0]);
+        out.extend_from_slice(&header);
+        out.extend_from_slice(&(name.len() as u16).to_le_bytes());
+        out.extend_from_slice(&0u16.to_le_bytes());
+        out.extend_from_slice(name);
+        out.extend_from_slice(&data);
+        central.extend_from_slice(&[0x50, 0x4b, 0x01, 0x02, 45, 0, 20, 0, 0, 0, 8, 0, 0, 0, 0x21, 0]);
+        central.extend_from_slice(&header);
+        central.extend_from_slice(&(name.len() as u16).to_le_bytes());
+        central.extend_from_slice(&[0; 12]);
+        central.extend_from_slice(&offset.to_le_bytes());
+        central.extend_from_slice(name);
+        count += 1;
+        let start = out.len() as u32;
+        out.extend_from_slice(&central);
+        out.extend_from_slice(&[0x50, 0x4b, 0x05, 0x06, 0, 0, 0, 0]);
+        out.extend_from_slice(&count.to_le_bytes());
+        out.extend_from_slice(&count.to_le_bytes());
+        out.extend_from_slice(&(central.len() as u32).to_le_bytes());
+        out.extend_from_slice(&start.to_le_bytes());
+        out.extend_from_slice(&0u16.to_le_bytes());
+        out
+    }
+
+    /// Part C follow-up, item 2: a workbook that DECLARES a 4 KiB sheet and
+    /// inflates it to about 77 MB (300,000 copies of 258 bytes, past the
+    /// 64 MiB limit) passes part C's declared-size check, so it reached the
+    /// parser. It is now refused with the same closed code as soon as the
+    /// inflated count passes the part's declared size, and nothing inflated is
+    /// kept. Part C's own minimal workbook still opens.
+    #[test]
+    fn a_workbook_that_declares_small_sizes_and_inflates_past_them_is_refused() {
+        let bytes = lying_xlsx(300_000, 4096);
+        assert!(declared_uncompressed_total(&bytes).unwrap() < MAX_WORKBOOK_UNCOMPRESSED_BYTES, "declares small sizes");
+        assert!(bytes.len() < 1024 * 1024, "{} bytes on disk", bytes.len());
+        let p = write("lying.xlsx", &bytes);
+        let started = std::time::Instant::now();
+        let got = load_dataset(&p).map(|_| ());
+        assert!(
+            matches!(got, Err(L1IngestRefusal::ArchiveTooLarge { declared, limit: MAX_WORKBOOK_UNCOMPRESSED_BYTES }) if declared <= MAX_WORKBOOK_UNCOMPRESSED_BYTES),
+            "{got:?}"
+        );
+        assert!(started.elapsed() < std::time::Duration::from_secs(2), "{:?}", started.elapsed());
+        let honest = write("honest.xlsx", &xlsx(3, None));
+        assert_eq!(load_dataset(&honest).map(|d| d.rows()), Ok(3));
+        for f in [p, honest] {
+            let _ = std::fs::remove_file(f);
+        }
+    }
+
+    /// Part C follow-up, item 3: the file is opened and read ONCE. Replacing
+    /// or removing it after the check changes nothing: the parse reads the
+    /// bytes that were checked and hashed, never the path again.
+    #[test]
+    fn the_parse_reads_the_checked_bytes_after_the_file_is_replaced_or_removed() {
+        for replace in [true, false] {
+            let p = write("PATH_SECRET_once.csv", CSV);
+            let checked = check_file(&p).expect("checked");
+            let _ = std::fs::remove_file(&p);
+            if replace {
+                std::fs::write(&p, b"other,columns\n9,9\n").unwrap();
+            }
+            let d = dataset_from_checked(checked).unwrap_or_else(|e| panic!("replace={replace}: {e:?}"));
+            assert_eq!(d.schema.fingerprint, DataFingerprint::of_bytes(CSV, PARSER_VERSION, TableRef::FirstTable), "replace={replace}");
+            assert_eq!(d.schema.columns.iter().map(|c| c.header.as_str()).collect::<Vec<_>>(), vec!["score", "group", "note"]);
+            assert_eq!(d.rows(), 4);
+            let _ = std::fs::remove_file(&p);
+        }
     }
 
     /// m-7: the header is not a row. A file with exactly 5,000 data rows was

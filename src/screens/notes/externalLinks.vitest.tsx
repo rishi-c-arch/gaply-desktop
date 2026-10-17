@@ -5,11 +5,15 @@
 // what carries them: `new_window_handler` starts as None, its only setter is
 // `WebviewBuilder::on_new_window`, and the app never calls it — so wry's
 // WKWebView UI delegate falls through to `else { None }` and a native
-// new-window request would be dropped. They work anyway because
-// tauri-plugin-opener injects `init-iife.js`, a listener on WINDOW that catches
-// a left-click whose composedPath contains an `<a>` with target="_blank" and an
-// http/https/mailto/tel href, calls preventDefault(), and invokes
-// `plugin:opener|open_url`. The click never reaches the native path at all.
+// new-window request would be dropped. They work anyway because a listener on
+// WINDOW catches a left-click whose composedPath contains an `<a>` with
+// target="_blank" and an http/https/mailto/tel href, calls preventDefault(),
+// and opens it. Until the Stats Verifier's part C follow-up that listener was
+// tauri-plugin-opener's injected `init-iife.js`, which opened any such URL
+// with no check in Rust; now it is the app's own
+// (`src/services/externalLinks.ts`), with the same rules, and it opens https
+// links through the checked command `open_external_link`. The click never
+// reaches the native path at all.
 //
 // THE CONSEQUENCE THIS FILE PINS. The shim is on `window`, which is ABOVE
 // React's root container. React dispatches synthetic events from that
@@ -27,28 +31,28 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'fs';
 
+const { invoke } = vi.hoisted(() => ({ invoke: vi.fn(async (_cmd: string, _args?: unknown) => undefined) }));
+vi.mock('@tauri-apps/api/core', () => ({ invoke }));
+import { installExternalLinkClicks } from '../../services/externalLinks';
+
 import ScaffoldPicker from './ScaffoldPicker';
 import RecommendedToolsPanel from './RecommendedToolsPanel';
 import { Scaffold } from './manuscriptModel';
 
 const CAT = JSON.parse(readFileSync('public/manuscripts/scaffolds.json', 'utf8')) as { scaffolds: Scaffold[] };
 
-/** Stand in for tauri-plugin-opener's injected shim: the same window-level
- *  listener, applying the same filter. If a click reaches this, the real plugin
- *  would have opened the URL; if it doesn't, the link does nothing. */
+/** The app's real window-level listener, with only the Rust command mocked:
+ *  `opened` is every URL it sent to `open_external_link`. If a click reaches
+ *  it, the app opens the URL; if it doesn't, the link does nothing. */
 const installOpenerShim = () => {
-  const opened: string[] = [];
-  const onClick = (e: MouseEvent) => {
-    if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.altKey) return;
-    const a = e.composedPath().find((n) => n instanceof Node && (n as Node).nodeName?.toUpperCase() === 'A') as HTMLAnchorElement | undefined;
-    if (!a || !a.href) return;
-    if (a.target !== '_blank' && !e.ctrlKey && !e.shiftKey) return;
-    if (!['http:', 'https:', 'mailto:', 'tel:'].some((p) => new URL(a.href).protocol === p)) return;
-    e.preventDefault();
-    opened.push(a.href);
+  invoke.mockClear();
+  const remove = installExternalLinkClicks(window);
+  return {
+    get opened(): string[] {
+      return invoke.mock.calls.filter((c) => c[0] === 'open_external_link').map((c) => (c[1] as { url: string }).url);
+    },
+    remove,
   };
-  window.addEventListener('click', onClick);
-  return { opened, remove: () => window.removeEventListener('click', onClick) };
 };
 
 let shim: ReturnType<typeof installOpenerShim>;

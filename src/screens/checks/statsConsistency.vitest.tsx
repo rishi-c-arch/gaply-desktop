@@ -116,12 +116,16 @@ describe('Level 0 section — cards', () => {
   it('says when the conclusion changes, and when it does not', () => {
     const changes = result(9, 't(28) = 1.20, p = .001', { kind: 'inconsistent', conclusionChanges: true }, '.001');
     const { unmount } = render(<L0ResultCard result={changes} alpha=".05" />);
+    // Part C follow-up, minor wording: the sentence says what is known (the
+    // printed statistic's p), never that the printed p is the wrong number.
     expect(screen.getByTestId('l0-conclusion').textContent).toBe(
-      'The conclusion at α = .05 changes: the printed p and the recomputed p fall on opposite sides of it.'
+      'If the statistic and df are as printed, their p falls on the other side of α = .05 from the printed p.'
     );
     unmount();
     render(<L0ResultCard result={{ ...changes, verdict: { kind: 'inconsistent', conclusionChanges: false } }} alpha=".05" />);
-    expect(screen.getByTestId('l0-conclusion').textContent).toBe('The conclusion at α = .05 does not change.');
+    expect(screen.getByTestId('l0-conclusion').textContent).toBe(
+      'If the statistic and df are as printed, their p falls on the same side of α = .05 as the printed p.'
+    );
   });
 
   it('shows a floor note on its card, as text, never only in a tooltip', () => {

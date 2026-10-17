@@ -138,7 +138,7 @@ describe('evaluation fixes, part C', () => {
     expect(screen.getByTestId('l1-result-0-reason').textContent).toBe(
       "The printed statistic differs from the value computed from the data by no more than the file's rounding to whole numbers could explain, so it was not decided."
     );
-    expect(text).toContain('(the file stores whole numbers: 2.05 to 2.25)');
+    expect(text).toContain("(with the file's rounding to whole numbers it could be anywhere from 2.05 to 2.25)");
   });
 
   it('the card says which whole-number answer was used (B-1)', () => {

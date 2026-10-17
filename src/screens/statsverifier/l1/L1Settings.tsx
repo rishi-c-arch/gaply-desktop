@@ -32,6 +32,12 @@ const KEY_TEST_WORDS: Record<string, string> = {
 /** The sentence under the Test key button while AI help is off. */
 export const KEY_TEST_NEEDS_AI_HELP = 'Turn AI help on to test the key.';
 
+/** Where the key goes and who bills for its use: only what the code makes
+ *  true (part C follow-up). Requests go from this device to OpenAI with the
+ *  user's key (`src-tauri/src/stats_ai.rs`, `OPENAI_BASE`). */
+export const KEY_TEXT =
+  "The key goes to your operating system's keychain and is never shown again. Every request is made with your key, so OpenAI bills your account for it at OpenAI's prices.";
+
 export function keyTestSentence(result: string): string {
   return KEY_TEST_WORDS[result] ?? 'The test failed.';
 }
@@ -146,7 +152,7 @@ export const L1Settings: React.FC<L1SettingsProps> = ({ bridge, settings, onSett
           <p className="gds-jc__disclaimer" data-testid="l1-key-test-needs-ai">{KEY_TEST_NEEDS_AI_HELP}</p>
         )}
         <p className="gds-jc__disclaimer">
-          The key goes to your operating system's keychain and is never shown again. You pay OpenAI for what you send.
+          {KEY_TEXT}
         </p>
       </div>
       {message && <p role="status" data-testid="l1-settings-message">{message}</p>}

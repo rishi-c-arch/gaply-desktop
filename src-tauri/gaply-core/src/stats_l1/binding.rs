@@ -65,7 +65,7 @@ pub enum ProposalReason {
 }
 
 /// Where a proposal came from.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum ProposalSource {
     Local {
         reason: ProposalReason,
@@ -82,6 +82,21 @@ pub enum ProposalSource {
     },
 }
 
+/// Counts only, never the text (part C follow-up, item 7).
+impl std::fmt::Debug for ProposalSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ProposalSource::Local { reason, matched_tokens } => {
+                f.debug_struct("Local").field("reason", reason).field("matched_tokens", &matched_tokens.len()).finish()
+            }
+            ProposalSource::AiSuggestion { task_id, request_id } => {
+                f.debug_struct("AiSuggestion").field("task_id", task_id).field("request_id", request_id).finish()
+            }
+            ProposalSource::Manual { edited_from } => f.debug_struct("Manual").field("edited_from", edited_from).finish(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RoleBinding {
     pub role: RoleName,
@@ -90,17 +105,31 @@ pub struct RoleBinding {
 
 /// The levels of a group role that enter the comparison. When absent, every
 /// level present after the include-filters enters.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct LevelSelection {
     pub role: RoleName,
     pub levels: Vec<String>,
 }
 
+/// Counts only, never the text (part C follow-up, item 7).
+impl std::fmt::Debug for LevelSelection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LevelSelection").field("role", &self.role).field("levels", &self.levels.len()).finish_non_exhaustive()
+    }
+}
+
 /// "`column` is one of these levels": the only filter in Phase 2.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct IncludeFilter {
     pub column: ColumnAlias,
     pub levels: Vec<String>,
+}
+
+/// Counts only, never the text (part C follow-up, item 7).
+impl std::fmt::Debug for IncludeFilter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("IncludeFilter").field("column", &self.column).field("levels", &self.levels.len()).finish_non_exhaustive()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

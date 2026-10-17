@@ -560,15 +560,15 @@ describe('Level 1: results', () => {
   it('each printed number is beside the computed one; Could-not-check is neutral with its reason', async () => {
     const b = fakeBridge();
     await toResults(b);
-    expect(screen.getByTestId('l1-results-counts').textContent).toMatch(/^1 reproduced, 0 not reproduced, 1 could not be checked\./);
+    expect(screen.getByTestId('l1-results-counts').textContent).toMatch(/^1 reproduced, 0 not reproduced, 1 could not check\./);
     const card = screen.getByTestId('l1-result-0');
     expect(within(card).getByTestId('l1-result-0-verdict').textContent).toBe('Reproduced');
     const rows = within(card).getAllByRole('row');
     expect(rows[1].textContent).toMatch(/the test statistic.*2\.10.*2\.1034.*Matches\./);
     // Step 8b, rule 1: the range the stored cells' rounding allows sits
     // beside the computed value; a zero range shows nothing.
-    expect(rows[1].textContent).toContain('2.1034 (the file stores 2 decimals: 2.071 to 2.1358)');
-    expect(rows[2].textContent).not.toContain('the file stores');
+    expect(rows[1].textContent).toContain("2.1034 (with the file's 2-decimal rounding it could be anywhere from 2.071 to 2.1358)");
+    expect(rows[2].textContent).not.toContain('could be anywhere from');
     expect(within(card).getByTestId('l1-result-0-n').textContent).toMatch(/n used: 36 of 40 rows read\. 4 rows left out: a missing value in a chosen column\./);
     expect(within(card).getByTestId('l1-result-0-notes').textContent).toMatch(/Matched as Student's t-test \(pooled variance\)\./);
     expect(within(card).getByTestId('l1-result-0-provenance').textContent).toMatch(/Engine: stats_l1 engine 1/);
@@ -793,7 +793,7 @@ describe('Level 1: evaluation fixes, part C', () => {
     fireEvent.click(screen.getByTestId('l1-run'));
     await screen.findByTestId('l1-results');
     const counts = screen.getByTestId('l1-results-counts');
-    expect(counts.textContent).toMatch(/^1 reproduced, 0 not reproduced, 0 could not be checked\. 1 claim was skipped by you and not run\./);
+    expect(counts.textContent).toMatch(/^1 reproduced, 0 not reproduced, 0 could not check\. 1 claim was skipped by you and not run\./);
     expect(counts.getAttribute('role')).toBe('status');
     expect(screen.getByTestId('l1-results-skipped').textContent).toBe(`Skipped by you: ${SENTENCE_1}`);
     expect(screen.queryByTestId('l1-result-1')).toBeNull();

@@ -67,7 +67,7 @@ pub enum ClaimOrigin {
 }
 
 /// One Level 1 claim.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct L1Claim {
     pub id: ClaimId,
     pub result: ReportedResult,
@@ -77,6 +77,13 @@ pub struct L1Claim {
     pub sentence: String,
     pub revision: RevisionHash,
     pub origin: ClaimOrigin,
+}
+
+/// Counts only, never the text (part C follow-up, item 7).
+impl std::fmt::Debug for L1Claim {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("L1Claim").field("id", &self.id).field("family", &self.result.family).field("location", &self.location).field("sentence_chars", &self.sentence.chars().count()).field("revision", &self.revision).field("origin", &self.origin).finish_non_exhaustive()
+    }
 }
 
 /// Why a result could not be given a sentence ordinal.
@@ -215,7 +222,7 @@ impl L1Claim {
 }
 
 /// A claim as the user types it: printed strings, never floats.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct UserClaim<'a> {
     pub family: Family,
     pub statistic: &'a str,
@@ -225,6 +232,13 @@ pub struct UserClaim<'a> {
     pub location: ClaimLocation,
     /// The sentence the user says the claim is in, if they give one.
     pub sentence: Option<&'a str>,
+}
+
+/// Counts only, never the text (part C follow-up, item 7).
+impl std::fmt::Debug for UserClaim<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("UserClaim").field("family", &self.family).field("df", &self.df.len()).field("n", &self.n.is_some()).field("location", &self.location).field("sentence_chars", &self.sentence.map(|t| t.chars().count())).finish_non_exhaustive()
+    }
 }
 
 #[derive(Debug, Clone, Copy)]

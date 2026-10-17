@@ -52,11 +52,22 @@ pub const CATEGORY_EXPLOSION_ABOVE: usize = 1_000;
 
 /// A user-missing definition from the source file (SPSS). Codes the author
 /// declared, verbatim and typed.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub enum MissingRule {
     Value(f64),
     Range { lo: f64, hi: f64 },
     Text(String),
+}
+
+/// Counts only, never the text (part C follow-up, item 7).
+impl std::fmt::Debug for MissingRule {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MissingRule::Value(_) => f.write_str("Value"),
+            MissingRule::Range { .. } => f.write_str("Range"),
+            MissingRule::Text(t) => f.debug_struct("Text").field("chars", &t.chars().count()).finish(),
+        }
+    }
 }
 
 impl MissingRule {
@@ -71,13 +82,20 @@ impl MissingRule {
 
 /// What the source told us about one column, beyond its cells. Empty for a
 /// format that carries nothing (CSV, a spreadsheet).
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct RawVariable {
     pub user_missing: Vec<MissingRule>,
     /// `code -> label`, where `code` is the value as the cells print it.
     pub value_labels: Vec<(String, String)>,
     /// `Some(true)` when the format declares the column a string variable.
     pub declared_text: Option<bool>,
+}
+
+/// Counts only, never the text (part C follow-up, item 7).
+impl std::fmt::Debug for RawVariable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RawVariable").field("user_missing", &self.user_missing.len()).field("value_labels", &self.value_labels.len()).field("declared_text", &self.declared_text).finish_non_exhaustive()
+    }
 }
 
 /// Whether the source format's variable metadata (user-missing, value labels,
@@ -96,7 +114,7 @@ pub enum SourceMetadata {
 
 /// The ingest's output, as strings: one header per column, one string per
 /// cell, in file order. Never a path or a file name.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct RawTable {
     pub headers: Vec<String>,
     pub rows: Vec<Vec<String>>,
@@ -105,6 +123,13 @@ pub struct RawTable {
     /// The declared weight variable's header, when the format declares one.
     pub weight_variable: Option<String>,
     pub metadata: SourceMetadata,
+}
+
+/// Counts only, never the text (part C follow-up, item 7).
+impl std::fmt::Debug for RawTable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RawTable").field("columns", &self.headers.len()).field("rows", &self.rows.len()).field("variables", &self.variables.len()).field("weight_variable", &self.weight_variable.is_some()).field("metadata", &self.metadata).finish_non_exhaustive()
+    }
 }
 
 impl RawTable {
@@ -120,13 +145,25 @@ impl RawTable {
 
 /// Which table of the file was read. A file's bytes alone do not say which
 /// sheet the schema came from.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum TableRef {
     /// The first (and only) table of a CSV.
     FirstTable,
     Sheet { index: usize, name: String },
     SpssCases,
     MatlabVariables,
+}
+
+/// Counts only, never the text (part C follow-up, item 7).
+impl std::fmt::Debug for TableRef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TableRef::FirstTable => f.write_str("FirstTable"),
+            TableRef::Sheet { index, .. } => f.debug_struct("Sheet").field("index", index).finish_non_exhaustive(),
+            TableRef::SpssCases => f.write_str("SpssCases"),
+            TableRef::MatlabVariables => f.write_str("MatlabVariables"),
+        }
+    }
 }
 
 /// SHA-256 over the exact file bytes, with the parser that read them and the
@@ -239,13 +276,20 @@ impl LevelBucket {
 }
 
 /// One level of a group column, for the screen on this device.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct LevelInfo {
     /// The value as the column prints it: `1`, `2`, `control`.
     pub code: String,
     /// The source's value label for the code, when it has one.
     pub label: Option<String>,
     pub count: usize,
+}
+
+/// Counts only, never the text (part C follow-up, item 7).
+impl std::fmt::Debug for LevelInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LevelInfo").field("code_chars", &self.code.chars().count()).field("label", &self.label.is_some()).field("count", &self.count).finish_non_exhaustive()
+    }
 }
 
 /// The levels of a group column. Local only: never serialised.
@@ -360,6 +404,10 @@ pub enum L1IngestRefusal {
     /// A zip-based workbook whose parts declare more uncompressed bytes than
     /// `limit` (evaluation fixes, part C): refused before any part is
     /// inflated. `declared` is the sum of the central directory's sizes.
+    /// Since the part C follow-up, also a workbook whose parts INFLATE past
+    /// their declared sizes or past `limit`, counted before parsing; then
+    /// `declared` is the bytes inflated when the count stopped, which may be
+    /// below `limit`.
     ArchiveTooLarge { declared: u64, limit: u64 },
 }
 
@@ -371,7 +419,7 @@ pub enum DatasetRefusal {
 }
 
 /// One column of the schema, for this device.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct ColumnSummary {
     pub alias: ColumnAlias,
     /// The original header. Never leaves the device.
@@ -385,6 +433,13 @@ pub struct ColumnSummary {
     /// Codes and labels, for the same columns `distinct` is counted on.
     pub levels: Option<LocalLevels>,
     pub issues: Vec<ColumnIssue>,
+}
+
+/// Counts only, never the text (part C follow-up, item 7).
+impl std::fmt::Debug for ColumnSummary {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ColumnSummary").field("alias", &self.alias).field("column_type", &self.column_type).field("has_missing", &self.has_missing).field("distinct", &self.distinct).field("level_bucket", &self.level_bucket).field("levels", &self.levels.as_ref().map(|l| l.levels.len())).field("issues", &self.issues).finish_non_exhaustive()
+    }
 }
 
 impl ColumnSummary {
@@ -465,11 +520,22 @@ pub struct AliasedColumn {
  * ------------------------------------------------------------------------ */
 
 /// One typed cell. Local only.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub enum Cell {
     Missing,
     Number(f64),
     Text(String),
+}
+
+/// Counts only, never the text (part C follow-up, item 7).
+impl std::fmt::Debug for Cell {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Cell::Missing => f.write_str("Missing"),
+            Cell::Number(_) => f.write_str("Number"),
+            Cell::Text(_) => f.write_str("Text"),
+        }
+    }
 }
 
 impl Cell {

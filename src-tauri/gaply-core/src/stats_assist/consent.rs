@@ -194,17 +194,45 @@ impl<T> Allowed<T> {
 }
 
 /// Original headers by alias, each cut to [`MAX_HEADER_CHARS`].
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct ColumnHeaders(pub(crate) Vec<(String, String)>);
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Counts only, never the text (part C follow-up, item 7).
+impl std::fmt::Debug for ColumnHeaders {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ColumnHeaders").field("headers", &self.0.len()).finish_non_exhaustive()
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
 pub struct ClaimSentence(pub(crate) String);
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Counts only, never the text (part C follow-up, item 7).
+impl std::fmt::Debug for ClaimSentence {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ClaimSentence").field("chars", &self.0.chars().count()).finish_non_exhaustive()
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
 pub struct MethodsPassage(pub(crate) String);
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Counts only, never the text (part C follow-up, item 7).
+impl std::fmt::Debug for MethodsPassage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MethodsPassage").field("chars", &self.0.chars().count()).finish_non_exhaustive()
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
 pub struct Doi(pub(crate) String);
+
+/// Counts only, never the text (part C follow-up, item 7).
+impl std::fmt::Debug for Doi {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Doi").field("chars", &self.0.chars().count()).finish_non_exhaustive()
+    }
+}
 
 /// Fold text for the DOI scan: NFKC, case-folded, zero-width and other
 /// format characters removed.

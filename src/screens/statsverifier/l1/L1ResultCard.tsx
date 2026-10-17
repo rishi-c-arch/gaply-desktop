@@ -46,12 +46,13 @@ export function shown(v: number): string {
   return String(Number(v.toPrecision(6)));
 }
 
-/** "(the file stores 2 decimals: 1.89 to 1.95)" beside a computed value
- *  whose stored cells' rounding gives it a range (Step 8b). */
+/** "(with the file's 2-decimal rounding it could be anywhere from 1.89 to
+ *  1.95)" beside a computed value whose stored cells' rounding gives it a
+ *  range (Step 8b; wording, part C follow-up). */
 export function storedRange(n: L1NumberView, decimals: number | null): string {
   if (n.precisionLo === null || n.precisionHi === null || decimals === null) return '';
-  const stores = decimals === 0 ? 'whole numbers' : `${decimals} ${decimals === 1 ? 'decimal' : 'decimals'}`;
-  return ` (the file stores ${stores}: ${shown(n.precisionLo)} to ${shown(n.precisionHi)})`;
+  const rounding = decimals === 0 ? 'rounding to whole numbers' : `${decimals}-decimal rounding`;
+  return ` (with the file's ${rounding} it could be anywhere from ${shown(n.precisionLo)} to ${shown(n.precisionHi)})`;
 }
 
 function accepted(n: L1NumberView): string {
@@ -161,7 +162,9 @@ export const L1ResultCard: React.FC<L1ResultCardProps> = ({ bridge, run, claim, 
         <p style={{ margin: 0 }} data-testid={`${id}-method`}>
           Method: {methodPhrase(result.method, result.variant?.code ?? null)}. Variant:{' '}
           {sentenceFor(result.variant ?? undefined, ctx)}
-          {result.variantSetBy ? `, ${sentenceFor(result.variantSetBy, ctx)}` : ''}.
+          {result.variantSetBy && result.variant && result.variant.code !== 'not_stated' && result.variantSetBy.code !== 'not_stated'
+            ? `, ${sentenceFor(result.variantSetBy, ctx)}`
+            : ''}.
         </p>
       )}
 
@@ -220,7 +223,7 @@ export const L1ResultCard: React.FC<L1ResultCardProps> = ({ bridge, run, claim, 
         <details data-testid={`${id}-provenance`}>
           <summary>Provenance</summary>
           <p className="gds-jc__disclaimer" style={{ margin: 0 }}>
-            Method {result.provenance.methodId} (version {result.provenance.methodVersion})
+            Method: {methodPhrase(result.provenance.methodId, null)} (version {result.provenance.methodVersion})
             {result.provenance.reference ? `, following ${result.provenance.reference}` : ", Gaply's own arithmetic"}. Engine:{' '}
             {result.provenance.engineVersion}. Binding {sentenceFor(result.provenance.bindingSource, ctx)}; variant{' '}
             {sentenceFor(result.provenance.variantSetBy, ctx)}. Inputs digest{' '}

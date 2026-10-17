@@ -172,7 +172,7 @@ pub struct CatalogueEntryOut {
     pub variants: Vec<&'static str>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Clone, PartialEq, Serialize)]
 pub struct ClaimMethodOutbound {
     pub task: &'static str,
     pub result: ResultFieldsOut,
@@ -184,6 +184,13 @@ pub struct ClaimMethodOutbound {
     pub sentence: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub methods_passage: Option<String>,
+}
+
+/// Counts only, never the text (part C follow-up, item 7).
+impl std::fmt::Debug for ClaimMethodOutbound {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ClaimMethodOutbound").field("task", &self.task).field("method_words", &self.method_words).field("catalogue", &self.catalogue.len()).field("sentence_chars", &self.sentence.as_ref().map(|t| t.chars().count())).field("methods_passage_chars", &self.methods_passage.as_ref().map(|t| t.chars().count())).finish_non_exhaustive()
+    }
 }
 
 fn printed_p(p: &PValue) -> String {
@@ -243,13 +250,20 @@ pub struct RoleSlotOut {
     pub levels: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Clone, PartialEq, Serialize)]
 pub struct HeaderOut {
     pub alias: String,
     pub header: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+/// Counts only, never the text (part C follow-up, item 7).
+impl std::fmt::Debug for HeaderOut {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HeaderOut").field("alias", &self.alias).field("header_chars", &self.header.chars().count()).finish_non_exhaustive()
+    }
+}
+
+#[derive(Clone, PartialEq, Serialize)]
 pub struct BindingSuggestionOutbound {
     pub task: &'static str,
     pub method_id: &'static str,
@@ -260,6 +274,13 @@ pub struct BindingSuggestionOutbound {
     pub headers: Option<Vec<HeaderOut>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sentence: Option<String>,
+}
+
+/// Counts only, never the text (part C follow-up, item 7).
+impl std::fmt::Debug for BindingSuggestionOutbound {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BindingSuggestionOutbound").field("task", &self.task).field("method_id", &self.method_id).field("role_slots", &self.role_slots.len()).field("headers", &self.headers.as_ref().map(Vec::len)).field("sentence_chars", &self.sentence.as_ref().map(|t| t.chars().count())).finish_non_exhaustive()
+    }
 }
 
 pub fn build_binding_suggestion(
@@ -418,12 +439,19 @@ pub fn build_result_explanation(rep: &ClaimReproduction, ctx: &DocumentContext) 
  *  web_context
  * ------------------------------------------------------------------------ */
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Clone, PartialEq, Serialize)]
 pub struct WebContextOutbound {
     pub task: &'static str,
     pub query: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub doi: Option<String>,
+}
+
+/// Counts only, never the text (part C follow-up, item 7).
+impl std::fmt::Debug for WebContextOutbound {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WebContextOutbound").field("task", &self.task).field("query_chars", &self.query.chars().count()).field("doi", &self.doi.is_some()).finish_non_exhaustive()
+    }
 }
 
 /// The query is built from closed parts only; the DOI must have been ticked,

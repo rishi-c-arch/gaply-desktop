@@ -30,7 +30,7 @@ use crate::stats_l1::dataset::sha256_hex;
 pub struct PreviewId(pub u32);
 
 /// What the user sees before anything is sent.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Preview {
     pub id: PreviewId,
     pub task: HelperTask,
@@ -38,6 +38,13 @@ pub struct Preview {
     pub body: String,
     pub sha256: String,
     pub categories: Vec<&'static str>,
+}
+
+/// Counts only, never the text (part C follow-up, item 7).
+impl std::fmt::Debug for Preview {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Preview").field("id", &self.id.0).field("task", &self.task).field("bytes", &self.body.len()).field("sha256", &self.sha256).field("categories", &self.categories).finish_non_exhaustive()
+    }
 }
 
 struct StoredPreview {

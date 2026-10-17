@@ -316,12 +316,15 @@ fn every_method_one_planted_error_moves_its_claim_alone_to_not_reproduced() {
     // Every case whose status Step 8b's rule 1 changed, pinned. Spearman's
     // golden data is stored to 1 decimal with gaps of 0.1 or less, so
     // rounding could reorder its ranks: its precision is unbounded and a
-    // planted rho or p is not checked rather than not reproduced.
+    // planted rho is not checked rather than not reproduced. A planted p
+    // (.315 for rho .49, n 24; R's t approximation .0151, part C's band
+    // reaching about .185) is ruled out by the printed rho itself, whatever
+    // the data's rounding, so since part C's follow-up it is Not reproduced.
     assert_eq!(within_precision, EXPECTED_WITHIN_PRECISION, "the cases rule 1 moved");
 }
 
 /// Filled from the first run under rule 1; see the report for Step 8b.
-const EXPECTED_WITHIN_PRECISION: &[&str] = &["cor_pos_spearman statistic", "cor_pos_spearman p"];
+const EXPECTED_WITHIN_PRECISION: &[&str] = &["cor_pos_spearman statistic"];
 
 /// One planted statistic just inside the precision range and one just beyond
 /// it, on the three-group ANOVA (`data_anova3.csv`, stored to 2 decimals):

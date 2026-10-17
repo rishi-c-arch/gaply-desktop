@@ -116,8 +116,10 @@ export function createAuthService(client: SupabaseClient | null = getSupabase())
         // hand the flow off to the system browser?
         await logAuthProbe('after_signin');
         try {
-          const { openUrl } = await import('@tauri-apps/plugin-opener');
-          await openUrl(data.url);
+          // Through the app's checked command, never the plugin directly
+          // (part C follow-up, item 7). The authorize URL is https.
+          const { openExternal } = await import('../externalLinks');
+          await openExternal(data.url);
           return { ok: true };
         } catch (e) {
           return { ok: false, error: e instanceof Error ? e.message : 'Could not open browser' };

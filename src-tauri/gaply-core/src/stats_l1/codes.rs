@@ -28,8 +28,8 @@ use crate::stats_l1::compute::{ComputedVariant, ExclusionReason, L1Refusal, NonF
 use crate::stats_l1::dataset::{DatasetRefusal, L1IngestRefusal};
 use crate::stats_l1::reproduce::{
     BindingSourceKind,
-    BindingGap, ConclusionGap, L1CouldNotCheck, L1Note, MatchNote, NSource, NotCheckedReason, NumberKind, NumberStatus,
-    StatisticGap, VariantGap,
+    BindingGap, ConclusionGap, Contradiction, L1CouldNotCheck, L1Note, MatchNote, NSource, NotCheckedReason, NumberKind,
+    NumberStatus, StatisticGap, VariantGap,
 };
 use crate::stats_l1::run_state::{GateRejection, StaleField};
 use crate::stats_l1::token::RevokedBecause;
@@ -158,12 +158,20 @@ pub fn not_checked_reason(r: NotCheckedReason) -> WireCode {
     }
 }
 
+pub fn contradiction(r: Contradiction) -> WireCode {
+    match r {
+        Contradiction::PRuledOutByPrintedStatistic => c("p_ruled_out_by_printed_statistic"),
+    }
+}
+
 pub fn number_status(s: NumberStatus) -> WireCode {
     match s {
         NumberStatus::Matched(None) => c("matched"),
         NumberStatus::Matched(Some(note)) => c("matched").with("note", match_note(note)),
         NumberStatus::NotMatched => c("not_matched"),
         NumberStatus::NotChecked(why) => c("not_checked").with("why", not_checked_reason(why)),
+        // Not matched, with the reason (part C follow-up).
+        NumberStatus::Contradicted(why) => c("not_matched").with("why", contradiction(why)),
     }
 }
 
@@ -248,6 +256,7 @@ pub fn conclusion_gap(g: ConclusionGap) -> WireCode {
         ConclusionGap::SeveralAlphas => c("several_alphas"),
         ConclusionGap::PNotChecked => c("p_not_checked"),
         ConclusionGap::Unplaced => c("unplaced"),
+        ConclusionGap::PJudgedOnPrintedNumbers => c("p_judged_on_printed_numbers"),
     }
 }
 
@@ -452,6 +461,7 @@ mod tests {
             NumberStatus::Matched(Some(MatchNote::InMagnitude)),
             NumberStatus::NotMatched,
             NumberStatus::NotChecked(NotCheckedReason::SpearmanPMayBeExact),
+            NumberStatus::Contradicted(Contradiction::PRuledOutByPrintedStatistic),
         ] {
             got.push(j(number_status(s)));
         }
@@ -470,7 +480,13 @@ mod tests {
         ] {
             got.push(j(computed_variant(v)));
         }
-        for g in [ConclusionGap::CandidatesDisagree, ConclusionGap::SeveralAlphas, ConclusionGap::PNotChecked, ConclusionGap::Unplaced] {
+        for g in [
+            ConclusionGap::CandidatesDisagree,
+            ConclusionGap::SeveralAlphas,
+            ConclusionGap::PNotChecked,
+            ConclusionGap::Unplaced,
+            ConclusionGap::PJudgedOnPrintedNumbers,
+        ] {
             got.push(j(conclusion_gap(g)));
         }
         for n in [
@@ -600,6 +616,7 @@ mod tests {
             r#"{"code":"matched","note":"in_magnitude"}"#,
             r#"{"code":"not_matched"}"#,
             r#"{"code":"not_checked","why":"spearman_p_may_be_exact"}"#,
+            r#"{"code":"not_matched","why":"p_ruled_out_by_printed_statistic"}"#,
             r#"{"code":"student_pooled"}"#,
             r#"{"code":"welch"}"#,
             r#"{"code":"paired"}"#,
@@ -615,6 +632,7 @@ mod tests {
             r#"{"code":"several_alphas"}"#,
             r#"{"code":"p_not_checked"}"#,
             r#"{"code":"unplaced"}"#,
+            r#"{"code":"p_judged_on_printed_numbers"}"#,
             r#"{"code":"variant_matched","variant":"student_pooled"}"#,
             r#"{"code":"sign_compared_in_magnitude"}"#,
             r#"{"code":"df_truncated","index":0}"#,

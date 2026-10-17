@@ -50,9 +50,12 @@ export interface L0ResultCardProps {
    *  method check its verdict rests on. */
   result: L0ResultView & { check: L0MethodCheckView };
   alpha: string;
+  /** The paper states no threshold, so .05 was assumed (part C follow-up). */
+  alphaAssumed?: boolean;
 }
 
-export const L0ResultCard: React.FC<L0ResultCardProps> = ({ result, alpha }) => {
+export const L0ResultCard: React.FC<L0ResultCardProps> = ({ result, alpha, alphaAssumed = false }) => {
+  const at = `α = ${alpha}${alphaAssumed ? ' (assumed; the paper states none)' : ''}`;
   const v = result.verdict;
   return (
     <div
@@ -69,9 +72,9 @@ export const L0ResultCard: React.FC<L0ResultCardProps> = ({ result, alpha }) => 
           <p style={{ margin: '8px 0 0' }}>{INCONSISTENT_TEXT}</p>
           <p style={muted} data-testid="l0-conclusion">
             {v.conclusionChanges === true
-              ? `The conclusion at α = ${alpha} changes: the printed p and the recomputed p fall on opposite sides of it.`
+              ? `If the statistic and df are as printed, their p falls on the other side of ${at} from the printed p.`
               : v.conclusionChanges === false
-                ? `The conclusion at α = ${alpha} does not change.`
+                ? `If the statistic and df are as printed, their p falls on the same side of ${at} as the printed p.`
                 : 'Whether the conclusion changes was not assessed.'}
           </p>
         </>
@@ -149,7 +152,7 @@ const StatsConsistencySection: React.FC<StatsConsistencySectionProps> = ({ view,
 
       <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
         {ordered.map((r) => (
-          <L0ResultCard key={r.id} result={r} alpha={alpha} />
+          <L0ResultCard key={r.id} result={r} alpha={alpha} alphaAssumed={view.alpha.assumed} />
         ))}
       </div>
 
@@ -161,7 +164,7 @@ const StatsConsistencySection: React.FC<StatsConsistencySectionProps> = ({ view,
           {showPlain && (
             <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
               {plain.map((r) => (
-                <L0ResultCard key={r.id} result={r} alpha={alpha} />
+                <L0ResultCard key={r.id} result={r} alpha={alpha} alphaAssumed={view.alpha.assumed} />
               ))}
             </div>
           )}

@@ -62,6 +62,10 @@ function roundingOf(c: WireCode | undefined): string {
 /** Bytes as megabytes, for a reader. */
 const megabytes = (b: number | undefined) => (b === undefined ? '?' : `${Math.round(b / (1024 * 1024))} MB`);
 
+/** Bytes as megabytes to one decimal: a file's size beside its limit (part C
+ *  follow-up, minor wording). */
+const megabytesOne = (b: number | undefined) => (b === undefined ? '?' : `${(b / (1024 * 1024)).toFixed(1)} MB`);
+
 export const WORDS: Record<string, Words> = {
   /* ---- Level 0's notes and reasons, carried into Level 1 ----------------- */
   one_tailed_stated: () => 'Consistent as a one-tailed test, which the paper states.',
@@ -78,7 +82,8 @@ export const WORDS: Record<string, Words> = {
   df_not_fixed_by_n: () => 'For this test the degrees of freedom are not fixed by the sample size.',
   no_sample_size_in_unit: () => 'No sample size is printed with this result.',
   partial_correlation: () => 'This is a partial correlation, whose degrees of freedom depend on covariates not printed here.',
-  granularity_unknown: () => 'The precision of the printed values is not known, so this check cannot be made.',
+  granularity_unknown: () =>
+    'This check needs to know the data are whole numbers; Gaply never assumes that, so it was not run.',
   adjusted_p: () =>
     'The printed p is larger than the recomputed one and the paper names a correction for multiple testing, so it may be an adjusted p.',
   invalid_input: () => 'The printed numbers do not define this computation, so it was not made.',
@@ -103,7 +108,13 @@ export const WORDS: Record<string, Words> = {
     if (note && (own.includes(note.code) || (note.code === 'p_note' && nested(note, 'note')?.code === 'double_rounded'))) return w(note);
     return note ? `Matches. ${w(note)}` : 'Matches.';
   },
-  not_matched: () => 'Differs from the value computed from the data under this binding.',
+  // A miss with a reason (part C follow-up) says that reason instead.
+  not_matched: (c, w) => {
+    const why = nested(c, 'why');
+    return why ? w(why) : 'Differs from the value computed from the data under this binding.';
+  },
+  p_ruled_out_by_printed_statistic: () =>
+    "The printed p cannot follow from the printed statistic and its degrees of freedom, whatever the data's rounding.",
   // One term per idea (part C, M-S5): a number left undecided is "not
   // decided", in its own sentence, never "not compared: The ...".
   not_checked: (c, w) => {
@@ -129,7 +140,7 @@ export const WORDS: Record<string, Words> = {
   one_tailed_unstated_on_exact_p: () =>
     'The p agrees only as a one-tailed test, and the paper does not say the test was one-tailed.',
   p_concern: (c, w) => `The p raises a concern: ${tail(w(nested(c, 'reason')))}.`,
-  p_could_not_check: (c, w) => `The p could not be checked: ${tail(w(nested(c, 'reason')))}.`,
+  p_could_not_check: (c, w) => `Could not check the p: ${tail(w(nested(c, 'reason')))}.`,
   spearman_p_may_be_exact: () =>
     "The printed p does not match the t approximation, but it lies where Spearman's exact p could be, and Gaply does not compute the exact p yet.",
   spearman_p_with_ties: () =>
@@ -154,8 +165,10 @@ export const WORDS: Record<string, Words> = {
   /* ---- conclusions ------------------------------------------------------- */
   candidates_disagree: () => 'The variants Gaply tried disagree about the conclusion, so no change in conclusion is reported.',
   several_alphas: () => 'The paper states more than one significance threshold, so a change in conclusion was not assessed.',
-  p_not_checked: () => 'The p was not compared, so a change in conclusion was not assessed.',
+  p_not_checked: () => 'The p was not decided, so a change in conclusion was not assessed.',
   unplaced: () => 'The result could not be placed against a significance threshold, so a change in conclusion was not assessed.',
+  p_judged_on_printed_numbers: () =>
+    "The p was judged against the printed statistic, because the data's rounding left the data's own p undecided, so a change in conclusion was not assessed.",
 
   /* ---- Level 1's notes --------------------------------------------------- */
   variant_matched: (c, w) => `Matched as ${w(nested(c, 'variant'))}.`,
@@ -207,7 +220,10 @@ export const WORDS: Record<string, Words> = {
   too_wide: (c) => `The file has ${num(c, 'columns') ?? '?'} columns, more than the ${num(c, 'limit') ?? '?'} Level 1 reads.`,
   no_columns: () => 'The file has no columns.',
   not_readable: () => 'The data file could not be read.',
-  too_large: (c) => `The data file is ${num(c, 'bytes') ?? '?'} bytes, over the ${num(c, 'limit') ?? '?'}-byte limit.`,
+  too_large: (c) => {
+    const [size, limit] = [megabytesOne(num(c, 'bytes')), megabytesOne(num(c, 'limit'))];
+    return size === limit ? `The data file is just over the ${limit} limit.` : `The data file is ${size}, over the ${limit} limit.`;
+  },
   unsupported_format: () => 'This data file format is not supported.',
   malformed: () => 'The data file is malformed.',
   no_table: () => 'The data file holds no table.',
@@ -218,8 +234,16 @@ export const WORDS: Record<string, Words> = {
     'This .xls file is in a format Level 1 cannot read, such as an older Excel version. Save it as .xlsx and open that.',
   dataset: (c, w) => w(nested(c, 'refusal')),
   not_a_regular_file: () => 'The chosen data file is not a regular file (it may be a pipe, a device or a socket), so it was not read.',
-  archive_too_large: (c) =>
-    `This workbook would take ${megabytes(num(c, 'declared'))} once unpacked, more than the ${megabytes(num(c, 'limit'))} Level 1 opens, so it was not opened.`,
+  // `declared` at or below the limit: a part unpacked to more than the
+  // archive said it holds (part C follow-up, item 2).
+  archive_too_large: (c) => {
+    const declared = num(c, 'declared');
+    const limit = num(c, 'limit');
+    if (declared !== undefined && limit !== undefined && declared <= limit) {
+      return 'This workbook unpacks to more than its own contents list says, so it was not opened.';
+    }
+    return `This workbook would take ${megabytes(declared)} once unpacked, more than the ${megabytes(limit)} Level 1 opens, so it was not opened.`;
+  },
 
   /* ---- why a claim could not be checked ---------------------------------- */
   spearman_exact_p: () => "Gaply does not compute Spearman's exact p.",
@@ -230,7 +254,8 @@ export const WORDS: Record<string, Words> = {
   ols_target_does_not_fit_family: () => 'The regression target you chose does not produce the kind of statistic printed.',
   df_count_does_not_fit: (c) =>
     `The paper prints ${plural(num(c, 'printed'), 'degree of freedom', 'degrees of freedom')} and this method has ${num(c, 'expected') ?? '?'}.`,
-  printed_out_of_range: () => 'The printed statistic lies outside the range this statistic can take.',
+  printed_out_of_range: () =>
+    'The printed statistic is at or past the limit this statistic can take, so it was not checked. A correlation printed as ±1.00 can be a rounding of a value just inside ±1.',
   no_computed_result: () => 'No computed value exists to compare with the printed statistic.',
   token_stale: (c, w) => w(nested(c, 'rejection')),
   refused: (c, w) => w(nested(c, 'refusal')),
@@ -334,8 +359,8 @@ export function level0Phrase(v: WireCode | null): string {
     case 'inconsistent': {
       const cc = nested(v, 'conclusion_changes')?.code;
       return cc === 'yes'
-        ? 'Level 0: the printed numbers do not agree with each other, and the conclusion would change'
-        : 'Level 0: the printed numbers do not agree with each other';
+        ? 'Level 0: inconsistent (these numbers cannot all be correct as printed), and the conclusion would change'
+        : 'Level 0: inconsistent (these numbers cannot all be correct as printed)';
     }
     case 'concern':
       return `Level 0: concern. ${sentenceFor(nested(v, 'reason'))}`;
@@ -380,7 +405,7 @@ export const LEVELS_DIFFER_ON_TRUNCATION =
 
 /** A NotReproduced result, worded the one way it may be. Never "wrong". */
 export const NOT_REPRODUCED_TEXT =
-  'The data under this binding gives a different value from the one printed. The usual causes are a different subset of rows, a different version of the data, a different method, or a typo.';
+  'The data under this binding gives a different value from the one printed. The usual causes are a binding that differs from the paper\'s analysis, a different subset of rows, a different version of the data, a different method, or a typo.';
 
 /* ------------------------------------------------------------------------ *
  *  Command refusals
@@ -502,7 +527,10 @@ export function refusalOf(e: unknown): WireCode | null {
 /** One plain sentence for a command refusal. */
 export function refusalSentence(e: unknown, ctx: WordContext = NO_COLUMNS): string {
   const c = refusalOf(e);
-  if (!c) return 'Something went wrong, and nothing was changed.';
+  if (!c) {
+    const message = e instanceof Error ? e.message : typeof e === 'string' ? e : '';
+    return message.trim() ? `This could not be done: ${tail(message.trim())}.` : 'This could not be done.';
+  }
   if (c.code in SIMPLE_REFUSALS) return SIMPLE_REFUSALS[c.code];
   const inner = (k: string) => nested(c, k);
   switch (c.code) {
@@ -530,7 +558,7 @@ export function refusalSentence(e: unknown, ctx: WordContext = NO_COLUMNS): stri
     case 'link_refused':
       return 'That link is not on the list of sources Gaply opens, so it was not opened.';
     default:
-      return `Refused: ${c.code}.`;
+      return `This could not be done (${c.code.replace(/_/g, ' ')}).`;
   }
 }
 

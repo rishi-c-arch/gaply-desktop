@@ -22,7 +22,7 @@ use gaply_core::stats_l1::codes::{self, WireCode};
 use gaply_core::stats_l1::compute::{ComputedVariant, ExclusionReason, L1Refusal, NonFiniteAt, OlsTerm};
 use gaply_core::stats_l1::dataset::{ColumnAlias, DatasetRefusal, L1IngestRefusal};
 use gaply_core::stats_l1::reproduce::{
-    BindingGap, BindingSourceKind, ConclusionGap, L1CouldNotCheck, L1Note, MatchNote, NSource, NotCheckedReason, NumberKind,
+    BindingGap, BindingSourceKind, ConclusionGap, Contradiction, L1CouldNotCheck, L1Note, MatchNote, NSource, NotCheckedReason, NumberKind,
     NumberStatus, StatisticGap, VariantGap,
 };
 use gaply_core::stats_l1::run_state::{GateRejection, StaleField};
@@ -91,7 +91,7 @@ fn every_code() -> Vec<WireCode> {
     for r in not_checked {
         all.push(codes::not_checked_reason(r));
     }
-    for s in [NumberStatus::Matched(None), NumberStatus::Matched(Some(MatchNote::InMagnitude)), NumberStatus::NotMatched, NumberStatus::NotChecked(NotCheckedReason::SpearmanPMayBeExact)] {
+    for s in [NumberStatus::Matched(None), NumberStatus::Matched(Some(MatchNote::InMagnitude)), NumberStatus::NotMatched, NumberStatus::NotChecked(NotCheckedReason::SpearmanPMayBeExact), NumberStatus::Contradicted(Contradiction::PRuledOutByPrintedStatistic)] {
         all.push(codes::number_status(s));
     }
     for v in [
@@ -109,7 +109,7 @@ fn every_code() -> Vec<WireCode> {
     ] {
         all.push(codes::computed_variant(v));
     }
-    for g in [ConclusionGap::CandidatesDisagree, ConclusionGap::SeveralAlphas, ConclusionGap::PNotChecked, ConclusionGap::Unplaced] {
+    for g in [ConclusionGap::CandidatesDisagree, ConclusionGap::SeveralAlphas, ConclusionGap::PNotChecked, ConclusionGap::Unplaced, ConclusionGap::PJudgedOnPrintedNumbers] {
         all.push(codes::conclusion_gap(g));
     }
     for n in [

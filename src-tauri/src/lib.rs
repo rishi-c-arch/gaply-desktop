@@ -5,6 +5,7 @@ pub mod audit_export;
 pub mod citation_resolver;
 pub mod commands;
 pub mod escalation;
+pub mod external_links;
 pub mod guidelines;
 pub mod http_fetcher;
 pub mod harness_log;
@@ -76,7 +77,10 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::new().build())
-        .plugin(tauri_plugin_opener::init())
+        // The opener's own click handler is OFF: it opened any
+        // `<a target="_blank">` with no check in Rust. Links go through
+        // `external_links::open_external_link` (part C follow-up, item 7).
+        .plugin(tauri_plugin_opener::Builder::new().open_js_links_on_click(false).build())
         .plugin(tauri_plugin_deep_link::init())
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
@@ -328,6 +332,7 @@ pub fn run() {
             stats_l1_commands::stats_ai_key_test,
             stats_l1_commands::stats_ai_key_remove,
             stats_l1_commands::stats_open_source_link,
+            external_links::open_external_link,
             commands::build_gapfinder_corpus,
             commands::run_gap_finder,
             commands::run_gapfinder_qa,

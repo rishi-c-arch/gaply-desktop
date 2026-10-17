@@ -82,13 +82,20 @@ impl<'a> OutgoingRequest<'a> {
 }
 
 /// What came back. The body is the provider's response, untrusted data.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct TransportReply {
     pub body: Vec<u8>,
     /// The provider's request id, for diagnostics.
     pub request_id: Option<String>,
     /// Measured by the transport (the core has no clock).
     pub latency_ms: u64,
+}
+
+/// Counts only, never the text (part C follow-up, item 7).
+impl std::fmt::Debug for TransportReply {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TransportReply").field("bytes", &self.body.len()).field("request_id", &self.request_id).field("latency_ms", &self.latency_ms).finish_non_exhaustive()
+    }
 }
 
 /// Why nothing came back. Closed codes with numeric parameters only: never a
@@ -121,10 +128,17 @@ pub trait HelperTransport: Send + Sync {
 /// A transport that never touches the network: it records every body it is
 /// handed and returns queued replies in order (a `Failed` error once the
 /// queue is empty).
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct MockTransport {
     replies: Mutex<VecDeque<Result<TransportReply, TransportError>>>,
     sent: Mutex<Vec<(HelperTask, Vec<u8>)>>,
+}
+
+/// Counts only, never the text (part C follow-up, item 7).
+impl std::fmt::Debug for MockTransport {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MockTransport").field("replies", &self.replies.lock().map(|q| q.len()).ok()).field("sent", &self.sent.lock().map(|v| v.len()).ok()).finish_non_exhaustive()
+    }
 }
 
 impl MockTransport {
