@@ -11,6 +11,7 @@ import validationJson from './fixtures/ttestValidationReportView.json';
 import stateJson from './fixtures/ttestRunStateView.json';
 import resultJson from './fixtures/ttestResultView.json';
 import capabilityJson from './fixtures/capabilityList.json';
+import groupLevelsJson from './fixtures/groupLevelsView.json';
 import * as typed from './fixtures/ttestFixtures';
 import { datasetView } from './fixtures/describeFixtures';
 import { makeMockTTestBridge, TauriCapabilityBridge, TauriTTestBridge } from './ttestBridge';
@@ -30,6 +31,7 @@ const PAIRS: Array<[string, unknown, unknown]> = [
   ['TTestRunStateView', typed.ttestRunStateView, stateJson],
   ['TTestResultView', typed.ttestResultView, resultJson],
   ['CapabilityView[]', typed.capabilityList, capabilityJson],
+  ['GroupLevelsView', typed.groupLevelsView, groupLevelsJson],
 ];
 
 /** Every key path in a value, arrays read through. */
@@ -173,6 +175,10 @@ describe('the t-test view fixtures', () => {
     );
   });
 
+  it('pins the group-levels view (decision 81)', () => {
+    expect(keys(groupLevelsJson)).toEqual(['.column', '.levels', '.levels[].count', '.levels[].index', '.levels[].label', '.slot']);
+  });
+
   it('no manifest key can hold a path, a name, a header or a label', () => {
     for (const k of Object.keys(resultJson.manifest)) expect(k).not.toMatch(/path|file|name|header|label|dir|url/i);
   });
@@ -182,6 +188,7 @@ describe('TauriTTestBridge', () => {
   it('invokes each command with the argument keys the Rust signature takes', async () => {
     const b = new TauriTTestBridge();
     await b.open('/Users/x/data.csv');
+    await b.groupLevels(3, 'C1');
     await b.validate(3, spec);
     await b.run(3, spec);
     await b.status(4);
@@ -196,6 +203,7 @@ describe('TauriTTestBridge', () => {
     expect(seen).toEqual([
       // The dataset is opened and closed with Phase 2B's commands (decision 74).
       ['stats_desc_open', ['path']],
+      ['stats_ttest_group_levels', ['column', 'slot']],
       ['stats_ttest_validate', ['slot', 'spec']],
       ['stats_ttest_run', ['slot', 'spec']],
       ['stats_ttest_status', ['runId']],
@@ -206,8 +214,8 @@ describe('TauriTTestBridge', () => {
       ['stats_desc_close', ['slot']],
       ['capability_list', []],
     ]);
-    expect(invoke.mock.calls[6][1].format).toBe('csv');
-    expect(invoke.mock.calls[7][1].format).toBe('manifestJson');
+    expect(invoke.mock.calls[7][1].format).toBe('csv');
+    expect(invoke.mock.calls[8][1].format).toBe('manifestJson');
   });
 
   it('sends a spec with exactly the keys Rust reads, at every level', async () => {

@@ -6,11 +6,13 @@
 // the path once (to open), the slot, the run id and the user's choices, and
 // shows what comes back.
 //
-// The choices: the outcome (a numeric column), the group (a column with at
-// least two levels), the two levels when there are more, chosen by label and
-// sent as their positions in the profile's list (decision 78: the screen
-// never sorts labels), the variant, asked with no default (decision 64), and
-// each candidate missing code in the outcome, asked as a question.
+// The choices: the outcome (a numeric column), the group (any column with at
+// least two levels when read as categorical, numeric columns included:
+// decision 81), the two levels when there are more, chosen by label and
+// sent as their positions in the list stats_ttest_group_levels returns,
+// which is the core's own indexing (decisions 78, 81: the screen never sorts
+// labels), the variant, asked with no default (decision 64), and each
+// candidate missing code in the outcome, asked as a question.
 //
 // What lives here, and for how long: the file's base name, the headers, the
 // level labels, the candidate missing-code values, the chosen settings and
@@ -32,6 +34,7 @@ import { saveTextFile } from '../../utils/saveTextFile';
 import { ttestBridge, type TTestBridge } from './ttestBridge';
 import type { ColumnProfile, DatasetView, ExportFormat } from './describeTypes';
 import type {
+  GroupLevel,
   TTestDiagnostic,
   TTestResultView,
   TTestRunStateView,
@@ -51,7 +54,9 @@ import {
   STATUS_SENTENCES,
 } from './describeWording';
 import {
+  GROUP_LIMIT_SENTENCE,
   levelsQuestion,
+  MAX_GROUP_LEVELS,
   SD_RATIO_NOTE,
   shownNumber,
   STANDARDIZER_NAMES,
@@ -92,15 +97,18 @@ const aliasNumber = (alias: string) => Number(alias.replace(/^C/, ''));
 /** The columns that can be an outcome: numeric ones. */
 const outcomes = (view: DatasetView) => view.profile.columns.filter((c) => c.kind === 'numeric');
 
-/** The columns that can be a group: ones whose profile lists at least two
- *  levels. Their levels are used in the profile's own order. */
-const groups = (view: DatasetView) => view.profile.columns.filter((c) => (c.levels?.length ?? 0) >= 2);
+/** The columns that can be a group: any with 2 to MAX_GROUP_LEVELS levels
+ *  when read as categorical, numeric ones included (decisions 81, 87). The
+ *  profile's `distinct` counts them for every kind; the levels themselves
+ *  come from stats_ttest_group_levels, which refuses a column with more. */
+const groups = (view: DatasetView) =>
+  view.profile.columns.filter((c: ColumnProfile) => c.distinct >= 2 && c.distinct <= MAX_GROUP_LEVELS);
 
-/** The two chosen levels, by position in the profile's list. */
+/** The two chosen levels, by position in the group-levels list. */
 type LevelPicks = [number | null, number | null];
 
-function defaultLevels(c: ColumnProfile | undefined): LevelPicks {
-  return c?.levels?.length === 2 ? [0, 1] : [null, null];
+function defaultLevels(levels: GroupLevel[]): LevelPicks {
+  return levels.length === 2 ? [0, 1] : [null, null];
 }
 
 function buildSpec(
@@ -152,6 +160,8 @@ const TTestFlow: React.FC<TTestFlowProps> = ({
   const [view, setView] = useState<DatasetView | null>(null);
   const [outcome, setOutcome] = useState('');
   const [group, setGroup] = useState('');
+  /** The chosen group's levels, as Rust indexes them. */
+  const [groupLevels, setGroupLevels] = useState<GroupLevel[]>([]);
   const [levels, setLevels] = useState<LevelPicks>([null, null]);
   const [variant, setVariant] = useState<Variant | null>(null);
   const [ticked, setTicked] = useState<number[]>([]);
@@ -182,8 +192,6 @@ const TTestFlow: React.FC<TTestFlowProps> = ({
     [bridge]
   );
 
-  const groupColumn = useMemo(() => view?.profile.columns.find((c) => c.alias === group), [view, group]);
-  const groupLevels = useMemo(() => groupColumn?.levels ?? [], [groupColumn]);
   const outcomeColumn = useMemo(() => view?.profile.columns.find((c) => c.alias === outcome), [view, outcome]);
   const offered = useMemo(() => outcomeColumn?.suspectMissingCodes ?? [], [outcomeColumn]);
   const missingCodes = useMemo(() => ticked.filter((t) => offered.some((s) => s.code === t)), [ticked, offered]);
@@ -194,7 +202,7 @@ const TTestFlow: React.FC<TTestFlowProps> = ({
         const c = view?.profile.columns.find((col) => aliasNumber(col.alias) === alias);
         return c ? `"${c.header}"` : `C${alias}`;
       },
-      level: (index: number) => groupLevels[index]?.label ?? `level ${index + 1}`,
+      level: (index: number) => groupLevels.find((l) => l.index === index)?.label ?? `level ${index + 1}`,
     }),
     [view, groupLevels]
   );
@@ -235,6 +243,7 @@ const TTestFlow: React.FC<TTestFlowProps> = ({
   const reset = () => {
     setOutcome('');
     setGroup('');
+    setGroupLevels([]);
     setLevels([null, null]);
     setVariant(null);
     setTicked([]);
@@ -308,10 +317,18 @@ const TTestFlow: React.FC<TTestFlowProps> = ({
       setExportNote(where ? `Saved. SHA-256 of the file: ${shortHash(out.sha256)}` : 'Not saved: the save dialog was closed.');
     });
 
-  const chooseGroup = (alias: string) => {
-    setGroup(alias);
-    setLevels(defaultLevels(view?.profile.columns.find((c) => c.alias === alias)));
-  };
+  const chooseGroup = (alias: string) =>
+    act(async () => {
+      setGroup(alias);
+      setGroupLevels([]);
+      setLevels([null, null]);
+      if (alias === '' || slot.current === null) return;
+      // The levels in the core's own order (decision 81); positions in this
+      // list are what the spec sends.
+      const read = await bridge.groupLevels(slot.current, alias);
+      setGroupLevels(read.levels);
+      setLevels(defaultLevels(read.levels));
+    });
   const chooseLevel = (which: 0 | 1, value: string) =>
     setLevels((l) => {
       const next: LevelPicks = [l[0], l[1]];
@@ -426,7 +443,7 @@ const TTestFlow: React.FC<TTestFlowProps> = ({
             </label>
             <label>
               Group (a column with at least two levels){' '}
-              <select value={group} data-testid="tt-group" onChange={(e) => chooseGroup(e.target.value)}>
+              <select value={group} data-testid="tt-group" onChange={(e) => void chooseGroup(e.target.value)}>
                 <option value="">Choose a column…</option>
                 {groups(view).map((c) => (
                   <option key={c.alias} value={c.alias}>
@@ -435,7 +452,10 @@ const TTestFlow: React.FC<TTestFlowProps> = ({
                 ))}
               </select>
             </label>
-            {groupColumn && (
+            <p style={{ margin: 0 }} data-testid="tt-group-limit">
+              <small>{GROUP_LIMIT_SENTENCE}</small>
+            </p>
+            {groupLevels.length > 0 && (
               <fieldset data-testid="tt-levels">
                 <legend>The two groups</legend>
                 {groupLevels.length > 2 && <p data-testid="tt-levels-question">{levelsQuestion(groupLevels.length)}</p>}
@@ -448,9 +468,9 @@ const TTestFlow: React.FC<TTestFlowProps> = ({
                       onChange={(e) => chooseLevel(which, e.target.value)}
                     >
                       <option value="">Choose a level…</option>
-                      {/* The profile's own order; the value is the position. */}
-                      {groupLevels.map((l, position) => (
-                        <option key={position} value={String(position)}>
+                      {/* Rust's own order; the value is the index Rust gave. */}
+                      {groupLevels.map((l) => (
+                        <option key={l.index} value={String(l.index)}>
                           {l.label} ({l.count})
                         </option>
                       ))}

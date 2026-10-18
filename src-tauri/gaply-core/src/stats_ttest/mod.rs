@@ -93,6 +93,12 @@ pub const CAPABILITY_VERSION: u32 = 1;
 pub const ENGINE_VERSION: u32 = 1;
 /// The interval's coverage. Fixed in version 1.
 pub const CONFIDENCE_LEVEL: f64 = 0.95;
+/// The most levels a group column may have to be listed for the user to
+/// choose two (decision 87): a column with more is a measurement, not a
+/// grouping, and its values are never sent to the screen as a list. The one
+/// constant; the screen reads it from `ttestLimits.json`, pinned to it by
+/// `src-tauri/tests/stats_ttest_wire.rs`.
+pub const MAX_GROUP_LEVELS: usize = 50;
 /// The quantile the interval uses: 1 − (1 − 0.95) / 2.
 const UPPER_TAIL_POINT: f64 = 0.975;
 
@@ -165,6 +171,10 @@ closed! {
         NormalityNotAssessed => "normality_not_assessed",
         /// Limitation: Cohen's d has no confidence interval (decision 63).
         CohensDHasNoInterval => "cohens_d_has_no_interval",
+        /// A column has more levels than a group may (decision 87): its
+        /// levels are not listed. Params `count`, `limit`
+        /// ([`MAX_GROUP_LEVELS`]).
+        TooManyLevels => "too_many_levels",
     }
 }
 
@@ -287,15 +297,32 @@ const LIMITATIONS: [TTestCode; 2] = [
  *  The one splitting pass
  * ------------------------------------------------------------------------ */
 
-/// The group column's levels, in code-point order.
-fn levels_of(cells: &[Cell]) -> Vec<String> {
-    let mut levels: BTreeMap<String, ()> = BTreeMap::new();
+/// Each level of a column read as categorical (Level 1's reading of cells,
+/// decision 17) and its non-missing cells, in code-point order: THE level
+/// function, which [`levels_of`] and [`group_levels`] both read.
+fn level_counts(cells: &[Cell]) -> BTreeMap<String, u64> {
+    let mut levels: BTreeMap<String, u64> = BTreeMap::new();
     for cell in cells {
         if let Some(code) = cell.level_code() {
-            levels.insert(code, ());
+            *levels.entry(code).or_insert(0) += 1;
         }
     }
-    levels.into_keys().collect()
+    levels
+}
+
+/// The group column's levels, in code-point order.
+fn levels_of(cells: &[Cell]) -> Vec<String> {
+    level_counts(cells).into_keys().collect()
+}
+
+/// A column's levels as a spec's `levels` indexes them: position `i` here is
+/// index `i` (Research OS, Phase 4B-2 follow-up, decision 81), with its
+/// count of non-missing cells. Any column, numeric ones included, read as
+/// categorical. `None` when no column has that alias. The labels are the
+/// user's own; the app shows them on the user's screen only.
+pub fn group_levels(dataset: &Dataset, group: Alias) -> Option<Vec<(String, u64)>> {
+    let (_, cells) = column(dataset, group)?;
+    Some(level_counts(cells).into_iter().collect())
 }
 
 /// The outcome's values in the two groups, each in ascending order, and the

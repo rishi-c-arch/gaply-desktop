@@ -740,6 +740,7 @@ fn the_code_and_word_lists_are_pinned() {
             "stats.ttest.missing_code",
             "stats.ttest.normality_not_assessed",
             "stats.ttest.cohens_d_has_no_interval",
+            "stats.ttest.too_many_levels",
         ]
     );
     assert_eq!(TTestCode::NAMESPACE, "stats.ttest.");

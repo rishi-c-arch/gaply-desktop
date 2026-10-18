@@ -51,7 +51,8 @@ export type TTestCode =
   | 'stats.ttest.missing_outcome'
   | 'stats.ttest.missing_code'
   | 'stats.ttest.normality_not_assessed'
-  | 'stats.ttest.cohens_d_has_no_interval';
+  | 'stats.ttest.cohens_d_has_no_interval'
+  | 'stats.ttest.too_many_levels';
 
 export type TTestParamKey = 'column' | 'count' | 'index' | 'value' | 'limit' | 'expected' | 'found';
 
@@ -149,6 +150,24 @@ export interface TTestResultView {
   result: TTestResult;
   diagnostics: TTestDiagnostic[];
   manifest: TTestRunManifest;
+}
+
+/* ---- a group's levels (decision 81) ------------------------------------ */
+
+/** One level of a group column: its index, which is what a spec's `levels`
+ *  names, its label (the user's own text) and its non-missing cells. */
+export interface GroupLevel {
+  index: number;
+  label: string;
+  count: number;
+}
+
+/** stats_ttest_group_levels: a column's levels as the t-test indexes them,
+ *  for any column, a group coded in numbers included. */
+export interface GroupLevelsView {
+  slot: number;
+  column: string;
+  levels: GroupLevel[];
 }
 
 /* ---- the capability list (the method selector) ------------------------ */

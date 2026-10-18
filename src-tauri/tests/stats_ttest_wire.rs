@@ -18,7 +18,8 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use app_lib::stats_ttest_commands::{
-    CapabilityView, TTestResultView, TTestRunStateView, ValidationReportView,
+    CapabilityView, GroupLevel, GroupLevelsView, TTestResultView, TTestRunStateView,
+    ValidationReportView,
 };
 use gaply_core::contracts::capability::{CapabilityCode, Lifecycle};
 use gaply_core::contracts::codes::{Closed, RunCode};
@@ -151,6 +152,26 @@ fn each_view_serialises_to_exactly_its_fixtures_bytes() {
             },
         },
     );
+    // The follow-up's view (decision 81): a group coded 0/1.
+    assert_bytes(
+        "groupLevelsView.json",
+        &GroupLevelsView {
+            slot: 3,
+            column: gaply_core::stats_desc::Alias(gaply_core::stats_l1::dataset::ColumnAlias(2)),
+            levels: vec![
+                GroupLevel {
+                    index: 0,
+                    label: "0".into(),
+                    count: 6,
+                },
+                GroupLevel {
+                    index: 1,
+                    label: "1".into(),
+                    count: 6,
+                },
+            ],
+        },
+    );
     assert_bytes(
         "capabilityList.json",
         &vec![CapabilityView {
@@ -187,7 +208,11 @@ fn the_ttest_screens_code_list_is_exactly_the_closed_sets() {
         .iter()
         .map(|c| c.wire().to_string())
         .collect();
-    assert_eq!(rust.len(), 28, "the t-test's 28 codes");
+    assert_eq!(
+        rust.len(),
+        29,
+        "the t-test's 29 codes (too_many_levels, decision 87)"
+    );
     rust.extend(RunCode::ALL.iter().map(|c| c.wire().to_string()));
     rust.extend(WorkspaceCode::ALL.iter().map(|c| c.wire().to_string()));
     rust.extend(CapabilityCode::ALL.iter().map(|c| c.wire().to_string()));
@@ -209,6 +234,21 @@ fn the_selectors_wording_list_is_exactly_stats_wording() {
         sorted(rust),
         "capabilityCodes.json and StatsWording differ"
     );
+}
+
+/// Decision 87: the screen's group limit is the core's one constant.
+#[test]
+fn the_screens_group_limit_is_the_cores() {
+    let file: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(screens().join("ttestLimits.json")).expect("ttestLimits.json"),
+    )
+    .unwrap();
+    assert_eq!(
+        file,
+        serde_json::json!({ "maxGroupLevels": gaply_core::stats_ttest::MAX_GROUP_LEVELS }),
+        "ttestLimits.json and stats_ttest::MAX_GROUP_LEVELS differ"
+    );
+    assert_eq!(gaply_core::stats_ttest::MAX_GROUP_LEVELS, 50, "decision 87");
 }
 
 /// The t-test screen words the run ceiling from `describeLimits.json` too,

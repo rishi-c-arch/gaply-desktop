@@ -15,7 +15,7 @@ use gaply_core::stats_l1::dataset::{
     build_dataset, ColumnAlias, DataFingerprint, Dataset, RawTable, TableRef,
 };
 use gaply_core::stats_ttest::{
-    compute, run, spec, validate, Halt, Stat, TTestCode, TTestParams, Variant,
+    compute, group_levels, run, spec, validate, Halt, Stat, TTestCode, TTestParams, Variant,
 };
 
 fn table(headers: &[&str], rows: &[&[&str]]) -> Dataset {
@@ -395,4 +395,49 @@ fn overflow_and_underflow_keep_their_own_codes_as_in_the_descriptive_summary() {
         let e = compute(&under, &p(None, Some(v))).unwrap_err();
         assert_eq!(e.code.wire(), "stats.ttest.underflow", "{v:?}");
     }
+}
+
+/// Decision 81: `group_levels` is the index a spec's `levels` names, by
+/// construction. A group coded in numbers (1, 2, 10: code-point order puts
+/// "10" before "2") and one with an empty cell: for every ordered pair of
+/// positions, group 1 of the result is the level at the first position, with
+/// that level's count as its n. An unknown column is `None`.
+#[test]
+fn group_levels_are_the_indices_a_spec_names() {
+    let d = table(
+        &["y", "g"],
+        &[
+            &["1", "1"],
+            &["2", "1"],
+            &["4", "2"],
+            &["5", "2"],
+            &["7", "10"],
+            &["8.5", "10"],
+            &["3", ""],
+        ],
+    );
+    let g = Alias(ColumnAlias(2));
+    let levels = group_levels(&d, g).expect("the column exists");
+    assert_eq!(
+        levels,
+        vec![
+            ("1".to_string(), 2),
+            ("10".to_string(), 2),
+            ("2".to_string(), 2)
+        ],
+        "code-point order, the empty cell not a level"
+    );
+    for i in 0..3u32 {
+        for j in 0..3u32 {
+            if i == j {
+                continue;
+            }
+            let r = compute(&d, &p(Some([i, j]), Some(Variant::Welch))).expect("computes");
+            assert_eq!(r.groups[0].label, levels[i as usize].0, "[{i}, {j}]");
+            assert_eq!(r.groups[1].label, levels[j as usize].0, "[{i}, {j}]");
+            assert_eq!(r.groups[0].n, levels[i as usize].1);
+            assert_eq!(r.groups[0].level, i);
+        }
+    }
+    assert_eq!(group_levels(&d, Alias(ColumnAlias(9))), None);
 }

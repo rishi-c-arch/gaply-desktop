@@ -7,12 +7,21 @@
 // writes the one file the user names, and Rust writes nothing.
 import { isTauri } from '../../utils/isTauri';
 import type { DatasetView, ExportFormat, ExportView, RunStartedView } from './describeTypes';
-import type { CapabilityView, TTestResultView, TTestRunStateView, TTestSpec, TTestValidationReportView } from './ttestTypes';
+import type {
+  CapabilityView,
+  GroupLevelsView,
+  TTestResultView,
+  TTestRunStateView,
+  TTestSpec,
+  TTestValidationReportView,
+} from './ttestTypes';
 
 export interface TTestBridge {
   /** Reads the file through Level 1's ingest (stats_desc_open). The path is
    *  not kept. */
   open(path: string): Promise<DatasetView>;
+  /** A column's levels as the t-test indexes them (decision 81). */
+  groupLevels(slot: number, column: string): Promise<GroupLevelsView>;
   validate(slot: number, spec: TTestSpec): Promise<TTestValidationReportView>;
   /** Starts a detached run and returns its id at once. */
   run(slot: number, spec: TTestSpec): Promise<RunStartedView>;
@@ -37,6 +46,9 @@ async function invoke<T>(cmd: string, args: Record<string, unknown> = {}): Promi
 export class TauriTTestBridge implements TTestBridge {
   open(path: string) {
     return invoke<DatasetView>('stats_desc_open', { path });
+  }
+  groupLevels(slot: number, column: string) {
+    return invoke<GroupLevelsView>('stats_ttest_group_levels', { slot, column });
   }
   validate(slot: number, spec: TTestSpec) {
     return invoke<TTestValidationReportView>('stats_ttest_validate', { slot, spec });
@@ -95,6 +107,7 @@ export function makeMockTTestBridge(
   return {
     calls,
     open: (path) => call('stats_desc_open', { path }, { path: '<path>' }),
+    groupLevels: (slot, column) => call('stats_ttest_group_levels', { slot, column }),
     validate: (slot, spec) => call('stats_ttest_validate', { slot, spec }),
     run: (slot, spec) => call('stats_ttest_run', { slot, spec }),
     status: (runId) => call('stats_ttest_status', { runId }),

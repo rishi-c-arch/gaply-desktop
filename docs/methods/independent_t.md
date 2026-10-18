@@ -12,7 +12,9 @@ does not change. The pure core is `gaply_core::stats_ttest`; its façade is
 run manager's t-test kind, the `stats_ttest_*` commands, the method selector
 at `/app/statistics` and the screen at `/app/statistics/ttest`; the analysis
 area stays behind `REACT_APP_FEATURE_STATS_DESCRIBE`, which is off (decision
-66). The tier is decided before it ships.
+66). The tier is decided before it ships. A group coded in numbers (0/1,
+1/2/3) is chosen through `stats_ttest_group_levels`, which lists a column's
+levels in this page's §4 order with their indices (D279, decision 81).
 
 ## 1. Inputs and the spec
 
@@ -113,6 +115,7 @@ read.
 | df above 1e4 | not computable, `quantile_out_of_range` (unreachable through the ingest's 5,000 rows) |
 | the outcome holds text, NaN or an infinity | invalid, `outcome_holds_text` / `outcome_non_finite` |
 | the group has fewer than 2 levels | invalid, `group_one_level` |
+| the group column has more than 50 levels | its levels are not listed: `stats_ttest_group_levels` refuses with `too_many_levels` {count, limit}, and the screen does not offer the column (decision 87) |
 | more than 2 levels and none chosen | `NeedsUserInput`, `levels_not_chosen` {count} |
 | a level index out of range, or both the same | invalid, `level_out_of_range` {index, limit} / `levels_equal` |
 | a missing code that is NaN or infinite | invalid, `missing_code_not_finite` |

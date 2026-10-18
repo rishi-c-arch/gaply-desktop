@@ -359,6 +359,7 @@ pub fn run() {
             stats_ttest_commands::stats_ttest_result,
             stats_ttest_commands::stats_ttest_cancel,
             stats_ttest_commands::stats_ttest_export,
+            stats_ttest_commands::stats_ttest_group_levels,
             stats_ttest_commands::capability_list,
             // Research OS, Phase 3: the window's one active workspace. Only
             // `workspace_activate` activates one.

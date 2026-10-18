@@ -43,7 +43,7 @@ function everySentence(): string[] {
 
 describe('the t-test screen words every code it can show', () => {
   it('has a sentence for each code in ttestCodes.json, and none for any other', () => {
-    expect(ttestCodes).toHaveLength(50);
+    expect(ttestCodes).toHaveLength(51);
     const missing = ttestCodes.filter((c) => !(c in words.TTEST_WORDS));
     expect(missing).toEqual([]);
     expect(Object.keys(words.TTEST_WORDS).sort()).toEqual([...ttestCodes].sort());

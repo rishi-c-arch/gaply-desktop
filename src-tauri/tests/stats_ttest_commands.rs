@@ -1095,3 +1095,189 @@ fn a_summary_started_through_runs_start_is_still_a_summary() {
     );
     assert!(runs.result(run).is_ok());
 }
+
+/* ---- a group coded in numbers (decision 81) ---------------------------------- */
+
+/// A table whose group is coded in numbers: `0`/`1` in C2, `1`/`2`/`3` in C3.
+/// Both columns read as numeric, so `DatasetView`'s profile lists no levels
+/// for them; `stats_ttest_group_levels` does.
+fn coded_table() -> Vec<u8> {
+    let y = [
+        "4.5", "6", "5.25", "7", "3", "8.5", "4", "9", "5", "6.75", "2", "7.5",
+    ];
+    let rows: Vec<Vec<C>> = (0..12)
+        .map(|i| {
+            vec![
+                C::N(y[i]),
+                C::N(if i % 2 == 0 { "0" } else { "1" }),
+                C::N(["1", "2", "3"][i % 3]),
+            ]
+        })
+        .collect();
+    delimited(&["y", "treated", "dose"], &rows, ",", "\n")
+}
+
+fn group_levels(w: &World, o: &Value, column: &str) -> Result<Value, Value> {
+    call(
+        &w.w,
+        "stats_ttest_group_levels",
+        json!({ "slot": o["slot"], "column": column }),
+    )
+}
+
+#[test]
+fn a_group_coded_0_1_is_offered_and_runs_with_its_levels_in_the_cores_order() {
+    let w = world_with(None, "coded.csv", &coded_table());
+    let o = open(&w);
+    // The profile reads the column as numeric and lists no levels.
+    assert_eq!(o["profile"]["columns"][1]["kind"], "numeric");
+    assert_eq!(o["profile"]["columns"][1]["levels"], Value::Null);
+    assert_eq!(o["profile"]["columns"][1]["distinct"], 2);
+
+    let g = group_levels(&w, &o, "C2").expect("the group's levels");
+    assert_eq!(g["slot"], o["slot"]);
+    assert_eq!(g["column"], "C2");
+    assert_eq!(
+        g["levels"],
+        json!([
+            { "index": 0, "label": "0", "count": 6 },
+            { "index": 1, "label": "1", "count": 6 }
+        ])
+    );
+    // Run with each order: group 1 is the level at the position sent, so the
+    // command's list is the core's indexing.
+    for (levels, first) in [([0u32, 1u32], "0"), ([1, 0], "1")] {
+        let run = start(
+            &w,
+            &o,
+            tspec(
+                &o,
+                u64::from(levels[0]) + 1,
+                "C1",
+                "C2",
+                Some(levels),
+                Some("welch"),
+                &[],
+            ),
+        )
+        .unwrap();
+        assert_eq!(until_terminal_t(&w.w, run)["state"], "succeeded");
+        let r = call(&w.w, "stats_ttest_result", json!({ "runId": run })).unwrap();
+        let groups = r["result"]["groups"].as_array().unwrap();
+        assert_eq!(groups[0]["label"], first, "{levels:?}");
+        for gs in groups {
+            let i = gs["level"].as_u64().unwrap() as usize;
+            assert_eq!(gs["label"], g["levels"][i]["label"], "index {i}");
+            assert_eq!(gs["n"], g["levels"][i]["count"], "index {i}");
+        }
+    }
+}
+
+#[test]
+fn a_group_coded_1_2_and_3_needs_two_chosen() {
+    let w = world_with(None, "coded.csv", &coded_table());
+    let o = open(&w);
+    let g = group_levels(&w, &o, "C3").expect("the group's levels");
+    let labels: Vec<&str> = g["levels"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|l| l["label"].as_str().unwrap())
+        .collect();
+    assert_eq!(labels, ["1", "2", "3"]);
+    let v = call(
+        &w.w,
+        "stats_ttest_validate",
+        json!({ "slot": o["slot"], "spec": tspec(&o, 1, "C1", "C3", None, Some("student"), &[]) }),
+    )
+    .unwrap();
+    assert_eq!(v["status"], "needs_user_input", "{v}");
+    assert_eq!(
+        v["missingInformation"][0]["code"],
+        "stats.ttest.levels_not_chosen"
+    );
+    assert_eq!(v["missingInformation"][0]["params"]["count"], 3);
+    // Two chosen by their positions in the command's list: "3" against "1".
+    let run = start(
+        &w,
+        &o,
+        tspec(&o, 2, "C1", "C3", Some([2, 0]), Some("student"), &[]),
+    )
+    .unwrap();
+    assert_eq!(until_terminal_t(&w.w, run)["state"], "succeeded");
+    let r = call(&w.w, "stats_ttest_result", json!({ "runId": run })).unwrap();
+    assert_eq!(r["result"]["groups"][0]["label"], "3");
+    assert_eq!(r["result"]["groups"][1]["label"], "1");
+    assert_eq!(
+        r["result"]["exclusions"],
+        json!([{ "code": "stats.ttest.other_level", "count": 4, "params": { "column": 3 } }])
+    );
+}
+
+#[test]
+fn group_levels_checks_the_workspace_first_and_refuses_with_closed_codes() {
+    let w = world_with(None, "coded.csv", &coded_table());
+    let o = open(&w);
+    // A text column reads too; an unknown column and slot are refused.
+    assert_eq!(
+        code_of(&group_levels(&w, &o, "C9").unwrap_err()),
+        "stats.ttest.unknown_column"
+    );
+    assert_eq!(
+        refusal(&group_levels(&w, &o, "C9").unwrap_err())["params"],
+        json!({ "column": 9 })
+    );
+    assert_eq!(
+        code_of(
+            &call(
+                &w.w,
+                "stats_ttest_group_levels",
+                json!({ "slot": 99, "column": "C2" })
+            )
+            .unwrap_err()
+        ),
+        "run.unknown_input"
+    );
+    call(&w.w, "workspace_deactivate", json!({})).expect("leaves");
+    assert_eq!(
+        code_of(&group_levels(&w, &o, "C2").unwrap_err()),
+        "workspace.inactive"
+    );
+}
+
+/// Decision 87: a group column has between 2 and 50 levels. One with 51 is
+/// refused with its own code, so a continuous column's values never reach
+/// the screen as a list; one with exactly 50 is listed.
+#[test]
+fn a_group_with_51_levels_is_refused_and_one_with_50_is_listed() {
+    let rows: Vec<Vec<String>> = (1..=51)
+        .map(|i: u32| {
+            vec![
+                format!("{}.5", i % 7),
+                i.to_string(),
+                // 1..=50, the 51st row repeating 50.
+                i.min(50).to_string(),
+            ]
+        })
+        .collect();
+    let cells: Vec<Vec<C>> = rows
+        .iter()
+        .map(|r| r.iter().map(|c| C::N(c.as_str())).collect())
+        .collect();
+    let w = world_with(
+        None,
+        "wide.csv",
+        &delimited(&["y", "fifty_one", "fifty"], &cells, ",", "\n"),
+    );
+    let o = open(&w);
+    assert_eq!(o["profile"]["columns"][1]["distinct"], 51);
+    assert_eq!(o["profile"]["columns"][2]["distinct"], 50);
+
+    let e = refusal(&group_levels(&w, &o, "C2").unwrap_err());
+    assert_eq!(e["code"], "stats.ttest.too_many_levels", "{e}");
+    assert_eq!(e["params"], json!({ "count": 51, "limit": 50 }));
+
+    let g = group_levels(&w, &o, "C3").expect("fifty levels are listed");
+    assert_eq!(g["levels"].as_array().unwrap().len(), 50);
+    assert_eq!(g["levels"][49]["index"], 49);
+}

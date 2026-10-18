@@ -72,8 +72,25 @@ const state = (s: TTestRunStateView['state'], terminal: boolean, cancelRequested
 
 const PATH = '/Users/someone/PATH_SENTINEL_z9/trial.csv';
 
-function setup(responses: Record<string, unknown>, save = vi.fn().mockResolvedValue('/chosen/out.csv')) {
-  const bridge = makeMockTTestBridge({ stats_desc_open: view, stats_desc_close: true, ...responses });
+/** What stats_ttest_group_levels answers (decision 81): a column's levels
+ *  as the core indexes them. For a categorical column of this test's view,
+ *  its profile's list; for the numeric C4, "10" before "9" (code points). */
+function levelsOf(v: DatasetView) {
+  return ({ slot, column }: Record<string, unknown>) => {
+    const c = v.profile.columns.find((col) => col.alias === column);
+    const levels =
+      column === 'C4'
+        ? [
+            { label: '10', count: 3 },
+            { label: '9', count: 3 },
+          ]
+        : (c?.levels ?? []);
+    return { slot, column, levels: levels.map((l, index) => ({ index, label: l.label, count: l.count })) };
+  };
+}
+
+function setup(responses: Record<string, unknown>, save = vi.fn().mockResolvedValue('/chosen/out.csv'), v: DatasetView = view) {
+  const bridge = makeMockTTestBridge({ stats_desc_open: v, stats_desc_close: true, stats_ttest_group_levels: levelsOf(v), ...responses });
   render(<TTestFlow bridge={bridge} pickPath={async () => PATH} save={save} pollMs={10} />);
   return { bridge, save };
 }
@@ -86,6 +103,13 @@ async function expectFocusOn(text: string) {
 
 const specs = (bridge: ReturnType<typeof makeMockTTestBridge>, cmd: string) =>
   bridge.calls.filter(([c]) => c === cmd).map(([, a]) => a.spec as TTestSpec);
+
+/** Chooses the group, then waits for Rust's list of its levels (decision 81). */
+async function chooseGroup(alias: string) {
+  fireEvent.change(screen.getByTestId('tt-group'), { target: { value: alias } });
+  await screen.findByTestId('tt-levels');
+  await waitFor(() => expect((screen.getByTestId('tt-level-1') as HTMLSelectElement).options.length).toBeGreaterThan(1));
+}
 
 async function toSettings() {
   fireEvent.click(screen.getByTestId('tt-choose'));
@@ -108,7 +132,7 @@ describe('TTestFlow', () => {
     expect(screen.getAllByRole('navigation')[0].textContent).toBe('ImportProfileSettingsValidateRunResultsExport');
     await toSettings();
     fireEvent.change(screen.getByTestId('tt-outcome'), { target: { value: 'C1' } });
-    fireEvent.change(screen.getByTestId('tt-group'), { target: { value: 'C2' } });
+    await chooseGroup('C2');
     fireEvent.click(screen.getByTestId('tt-variant-welch'));
     fireEvent.click(screen.getByTestId('tt-check'));
     await expectFocusOn('Check the settings');
@@ -149,7 +173,7 @@ describe('TTestFlow', () => {
     // Nothing can be checked before an outcome and a group are chosen.
     expect((screen.getByTestId('tt-check') as HTMLButtonElement).disabled).toBe(true);
     fireEvent.change(screen.getByTestId('tt-outcome'), { target: { value: 'C1' } });
-    fireEvent.change(screen.getByTestId('tt-group'), { target: { value: 'C2' } });
+    await chooseGroup('C2');
     fireEvent.click(screen.getByTestId('tt-check'));
     await expectFocusOn('Check the settings');
     expect(specs(bridge, 'stats_ttest_validate')[0].parameters.variant).toBeNull();
@@ -167,7 +191,7 @@ describe('TTestFlow', () => {
     expect(q.textContent).toContain(
       'Is -99 a code for a missing value? It appears in the outcome "score" (2 cells). If you tick it, every row whose outcome is -99 is left out.'
     );
-    fireEvent.change(screen.getByTestId('tt-group'), { target: { value: 'C2' } });
+    await chooseGroup('C2');
     fireEvent.click(screen.getByTestId('tt-variant-student'));
     fireEvent.click(screen.getByTestId('tt-check'));
     await expectFocusOn('Check the settings');
@@ -187,7 +211,7 @@ describe('TTestFlow', () => {
     const { bridge } = setup({ stats_ttest_validate: report('valid') });
     await toSettings();
     fireEvent.change(screen.getByTestId('tt-outcome'), { target: { value: 'C1' } });
-    fireEvent.change(screen.getByTestId('tt-group'), { target: { value: 'C3' } });
+    await chooseGroup('C3');
     expect(screen.getByTestId('tt-levels-question').textContent).toBe(
       'The group has 3 levels. Choose the two to compare: the first is group 1 and the second is group 2.'
     );
@@ -215,6 +239,76 @@ describe('TTestFlow', () => {
     expect(JSON.stringify(sent)).not.toMatch(/ｚ|😀|"b"/);
   });
 
+  it('offers a group coded in numbers, reads its levels from Rust, and sends positions from that list (decision 81)', async () => {
+    // C4 is numeric, so the profile lists no levels for it: only its
+    // distinct count says it has two.
+    const coded: DatasetView = {
+      ...view,
+      profile: {
+        ...view.profile,
+        columns: [
+          ...view.profile.columns,
+          { alias: 'C4', header: 'dose', kind: 'numeric', n: 6, missing: 0, distinct: 2, levels: null, suspectMissingCodes: [], nonFinite: 0 },
+        ],
+      },
+    };
+    const { bridge } = setup({ stats_ttest_validate: report('valid') }, undefined, coded);
+    await toSettings();
+    const group = screen.getByTestId('tt-group') as HTMLSelectElement;
+    expect(Array.from(group.options).map((o) => o.value)).toContain('C4');
+    fireEvent.change(screen.getByTestId('tt-outcome'), { target: { value: 'C1' } });
+    fireEvent.change(group, { target: { value: 'C4' } });
+    await waitFor(() =>
+      expect(bridge.calls.filter(([c]) => c === 'stats_ttest_group_levels')).toEqual([['stats_ttest_group_levels', { slot: 3, column: 'C4' }]])
+    );
+    const g1 = (await screen.findByTestId('tt-level-1')) as HTMLSelectElement;
+    const g2 = screen.getByTestId('tt-level-2') as HTMLSelectElement;
+    await waitFor(() => expect(Array.from(g1.options).slice(1).map((o) => o.textContent)).toEqual(['10 (3)', '9 (3)']));
+    // Two levels: the command's positions 0 and 1 by default.
+    expect([g1.value, g2.value]).toEqual(['0', '1']);
+    // Choose by label: group 1 is "9", group 2 is "10". A numeric sort in
+    // JavaScript would have put "9" first, at position 0.
+    const by = (select: HTMLSelectElement, label: string) => Array.from(select.options).find((o) => o.textContent === `${label} (3)`)!.value;
+    fireEvent.change(g1, { target: { value: by(g1, '9') } });
+    fireEvent.change(g2, { target: { value: by(g2, '10') } });
+    fireEvent.click(screen.getByTestId('tt-variant-welch'));
+    fireEvent.click(screen.getByTestId('tt-check'));
+    await expectFocusOn('Check the settings');
+    expect(specs(bridge, 'stats_ttest_validate')[0].parameters).toEqual({
+      outcome: 'C1',
+      group: 'C4',
+      levels: [1, 0],
+      variant: 'welch',
+      missingCodes: [],
+    });
+  });
+
+  it('offers a group of 2 to 50 values only, and says why a column with more is not offered (decision 87)', async () => {
+    const numeric = (alias: string, header: string, distinct: number) => ({
+      alias,
+      header,
+      kind: 'numeric' as const,
+      n: 60,
+      missing: 0,
+      distinct,
+      levels: null,
+      suspectMissingCodes: [],
+      nonFinite: 0,
+    });
+    const wide: DatasetView = {
+      ...view,
+      profile: { ...view.profile, columns: [...view.profile.columns, numeric('C4', 'fifty_one', 51), numeric('C5', 'fifty', 50)] },
+    };
+    setup({}, undefined, wide);
+    await toSettings();
+    const offered = Array.from((screen.getByTestId('tt-group') as HTMLSelectElement).options).map((o) => o.value);
+    expect(offered).toContain('C5');
+    expect(offered).not.toContain('C4');
+    expect(screen.getByTestId('tt-group-limit').textContent).toBe(
+      'A column with more than 50 distinct values is not offered as a group: a t-test compares two groups, and a column with that many values is a measurement rather than a grouping.'
+    );
+  });
+
   it('Cancel asks Rust to stop the run, and shows the end it reports', async () => {
     let cancelled = false;
     const { bridge } = setup({
@@ -228,7 +322,7 @@ describe('TTestFlow', () => {
     });
     await toSettings();
     fireEvent.change(screen.getByTestId('tt-outcome'), { target: { value: 'C1' } });
-    fireEvent.change(screen.getByTestId('tt-group'), { target: { value: 'C2' } });
+    await chooseGroup('C2');
     fireEvent.click(screen.getByTestId('tt-variant-student'));
     fireEvent.click(screen.getByTestId('tt-check'));
     await expectFocusOn('Check the settings');
@@ -250,7 +344,7 @@ describe('TTestFlow', () => {
     });
     await toSettings();
     fireEvent.change(screen.getByTestId('tt-outcome'), { target: { value: 'C1' } });
-    fireEvent.change(screen.getByTestId('tt-group'), { target: { value: 'C2' } });
+    await chooseGroup('C2');
     fireEvent.click(screen.getByTestId('tt-variant-welch'));
     fireEvent.click(screen.getByTestId('tt-check'));
     await expectFocusOn('Check the settings');
@@ -303,7 +397,7 @@ describe('TTestFlow', () => {
     });
     await toSettings();
     fireEvent.change(screen.getByTestId('tt-outcome'), { target: { value: 'C1' } });
-    fireEvent.change(screen.getByTestId('tt-group'), { target: { value: 'C2' } });
+    await chooseGroup('C2');
     fireEvent.click(screen.getByTestId('tt-check'));
     expect((await screen.findByTestId('tt-error')).textContent).toBe('This run is not a t-test, so this screen cannot read it.');
     expect(heading().textContent).toBe('Choose the outcome, the group and the test');

@@ -6,6 +6,7 @@
 // as the bridges' answers.
 import type {
   CapabilityView,
+  GroupLevelsView,
   TTestDiagnostic,
   TTestExclusion,
   TTestResultView,
@@ -86,6 +87,16 @@ export const ttestResultView = {
     reproducibility: 'bitwise',
   },
 } satisfies TTestResultView;
+
+/** stats_ttest_group_levels for a group coded 0/1 (decision 81). */
+export const groupLevelsView = {
+  slot: 3,
+  column: 'C2',
+  levels: [
+    { index: 0, label: '0', count: 6 },
+    { index: 1, label: '1', count: 6 },
+  ],
+} satisfies GroupLevelsView;
 
 export const capabilityList = [
   {

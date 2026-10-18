@@ -79,6 +79,7 @@ pub fn app_with(
             ttest::stats_ttest_result,
             ttest::stats_ttest_cancel,
             ttest::stats_ttest_export,
+            ttest::stats_ttest_group_levels,
             ttest::capability_list,
             ws::workspace_list,
             ws::workspace_state,

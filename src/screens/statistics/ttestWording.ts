@@ -15,6 +15,8 @@ import { workspaceSentence } from '../workspace/workspaceWording';
 import type { WorkspaceRefusal } from '../workspace/workspaceTypes';
 // The run manager's ceiling, pinned to runs::RUN_CEILING_MS (F11).
 import LIMITS from './describeLimits.json';
+// The group limit, pinned to stats_ttest::MAX_GROUP_LEVELS (decision 87).
+import TTEST_LIMITS from './ttestLimits.json';
 import type { Stage } from './describeWording';
 import type { Standardizer, TTestStat, Variant } from './ttestTypes';
 
@@ -51,6 +53,12 @@ export const STANDARDIZER_NAMES: Record<Standardizer, string> = {
   pooled_sd: 'the pooled SD',
   root_mean_variance: 'the square root of the mean of the two variances',
 };
+
+/** The most distinct values a group column may have (decision 87). */
+export const MAX_GROUP_LEVELS: number = TTEST_LIMITS.maxGroupLevels;
+
+/** Why a column with more is not offered as a group. */
+export const GROUP_LIMIT_SENTENCE = `A column with more than ${MAX_GROUP_LEVELS} distinct values is not offered as a group: a t-test compares two groups, and a column with that many values is a measurement rather than a grouping.`;
 
 export function levelsQuestion(count: number): string {
   return `The group has ${count} levels. Choose the two to compare: the first is group 1 and the second is group 2.`;
@@ -139,6 +147,8 @@ export const TTEST_WORDS: Record<string, Words> = {
   'stats.ttest.normality_not_assessed': () =>
     "Normality is not assessed: the t-test assumes each group's values come from a roughly normal distribution, or that the groups are large, and Gaply does not check either.",
   'stats.ttest.cohens_d_has_no_interval': () => "Cohen's d is shown without a confidence interval: Gaply does not compute one for d yet.",
+  'stats.ttest.too_many_levels': (d) =>
+    `This column has ${num(d, 'count') ?? '?'} distinct values, more than the ${num(d, 'limit') ?? TTEST_LIMITS.maxGroupLevels} a group may have, so its values are not listed.`,
   'run.unknown_run': () => 'This run is no longer held. Gaply keeps the last 8 runs in memory only; run the t-test again.',
   'run.run_busy': () => 'Another run is going in this workspace. Wait for it to end, or cancel it.',
   'run.unknown_input': () => 'This file is no longer open. Open it again.',

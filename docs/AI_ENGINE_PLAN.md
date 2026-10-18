@@ -24077,3 +24077,54 @@ removed (5 red: describe's three race tests and the t-test's two),
 "significant" in a result sentence (2 red: the wording rule and the card),
 and a card for a capability that is not runnable (2 red: the placement and
 the card test).
+
+### D279 — Research OS, Phase 4B-2 follow-up: a group coded in numbers, through `stats_ttest_group_levels` `[src]` `[test]` `[measured]`
+
+**Added** on `feat/research-os-4` after 4B-2's commit (`0db8fb4`), decision 81
+of 18 Oct 2026 (decisions 81 to 86, `~/gaply-corpus/os/decisions.md`).
+D278 recorded that the profile lists levels only for a categorical column,
+so a group coded 0/1 could not be chosen on the screen though the core
+reads it. Now a command `stats_ttest_group_levels { slot, column } →
+{slot, column, levels: [{index, label, count}]}` gives any column's levels
+as the t-test indexes them, from `stats_ttest::group_levels`, which reads the
+core's one level function (`level_counts`; `levels_of`, used by `check`,
+reads the same map), so position `i` is index `i` by construction. It checks
+the workspace first, refuses an unknown slot with `run.unknown_input` and an
+unknown column with `stats.ttest.unknown_column {column}`, and is the eighth
+`stats_ttest_commands` command (`workspace_guards.rs`: gated). The group
+picker offers every column with at least two distinct values (the profile's
+`distinct`), numeric columns included, reads the chosen column's levels from
+the command and sends positions from its list. `DatasetView` is unchanged.
+The labels appear in that view only: the privacy matrix has it as a surface
+(the group's label allowed there) and its two refusals; the wire has
+`groupLevelsView.json`, byte-equal from Rust and deep-equal to a typed copy,
+its keys and the command's argument keys pinned.
+
+**Tests, red before:** `stats_ttest_commands.rs`
+`a_group_coded_0_1_is_offered_and_runs_with_its_levels_in_the_cores_order`,
+`a_group_coded_1_2_and_3_needs_two_chosen`,
+`group_levels_checks_the_workspace_first_and_refuses_with_closed_codes` (red:
+the command was not registered); `TTestFlow.vitest.tsx` `offers a group coded
+in numbers, reads its levels from Rust, and sends positions from that list`
+(red: `expected [ '', 'C2', 'C3' ] to include 'C4'`); then green. A core test,
+`ttest_validate.rs` `group_levels_are_the_indices_a_spec_names`, checks every
+ordered pair of positions against `compute` for a group "1", "10", "2". A
+probe returning the levels reversed turned four tests red: the three
+predicted and the privacy matrix, whose check that the group's first level
+is the sentinel label also caught it.
+
+**On review (decisions 87 and 88, 18 Oct 2026):** a group column has between 2
+and 50 distinct values. `stats_ttest::MAX_GROUP_LEVELS` (50) is the one
+constant; the screen reads it from `src/screens/statistics/ttestLimits.json`,
+which `stats_ttest_wire.rs` pins to it. The picker offers only columns with
+2 to 50 distinct values and says, under it, why a column with more is not
+offered. `stats_ttest_group_levels` refuses a column with more than 50
+levels with a 29th code, `stats.ttest.too_many_levels {count, limit}`, before
+any value is listed, so a continuous column's values never reach the screen
+as a list (pins: `contracts_wire.rs`, `ttestCodes.json`, now 51 codes).
+Tests, red before: `a_group_with_51_levels_is_refused_and_one_with_50_is_listed`
+(red: the 51 levels were listed) and `TTestFlow.vitest.tsx` `offers a group of
+2 to 50 values only, and says why a column with more is not offered` (red:
+`expected [ '', 'C1', 'C2', 'C3', 'C4', 'C5' ] to not include 'C4'`); green
+after. The disk rule is checked before every build, test run and commit,
+and a build never starts under 15 GiB (decision 88).

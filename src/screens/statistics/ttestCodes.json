@@ -39,6 +39,7 @@
   "stats.ttest.same_column",
   "stats.ttest.sd_ratio_undefined",
   "stats.ttest.suspect_missing_code",
+  "stats.ttest.too_many_levels",
   "stats.ttest.underflow",
   "stats.ttest.unknown_capability",
   "stats.ttest.unknown_column",

@@ -19,7 +19,7 @@
 //!    `stats_legacy`) is in exactly one of the two lists, so a new one must
 //!    be classified before it can ship.
 //!
-//! 5. Phase 4B-2 (decisions 74, 76): the six `stats_ttest_*` commands check
+//! 5. Phase 4B-2 (decisions 74, 76, 81): the seven `stats_ttest_*` commands check
 //!    the workspace first, in the same form, and `capability_list`, which
 //!    reads only the static registry, does not check it at all.
 //!
@@ -329,6 +329,8 @@ const TTEST_OPERATIONS: &[&str] = &[
     "stats_ttest_commands::stats_ttest_result",
     "stats_ttest_commands::stats_ttest_cancel",
     "stats_ttest_commands::stats_ttest_export",
+    // The follow-up (decision 81).
+    "stats_ttest_commands::stats_ttest_group_levels",
 ];
 
 /// Exempt: it reads only the static capability registry (decision 76).

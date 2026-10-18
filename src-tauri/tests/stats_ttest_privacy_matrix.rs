@@ -19,7 +19,8 @@
 //! * `TXT_SENTINEL_r06`, a text cell in a column the user does not select.
 //!
 //! Allowed: the header and the label in `DatasetView`'s profile, in the
-//! result view (its manifest apart) and in the CSV export's body; the file's
+//! result view (its manifest apart) and in the CSV export's body; the label
+//! in `stats_ttest_group_levels`' view (the follow-up, decision 81); the file's
 //! base name in `DatasetView` only; the unselected text cell only as a level
 //! label in `DatasetView`'s profile. Forbidden everywhere else: the spec,
 //! the manifest (in the view and as exported bytes), every other view, every
@@ -79,6 +80,8 @@ fn table() -> Vec<u8> {
 fn allowed(surface: &str, sentinel: &str) -> bool {
     match surface {
         "DatasetView" => [HDR, LVL, FILE, TXT].contains(&sentinel),
+        // The follow-up's view (decision 81): the group's labels, there only.
+        "GroupLevelsView" => [LVL].contains(&sentinel),
         "TTestResultView (without its manifest)" | "CSV export" => [HDR, LVL].contains(&sentinel),
         _ => false,
     }
@@ -153,6 +156,14 @@ fn no_sentinel_reaches_a_surface_it_is_not_allowed_on() {
     .expect("open");
     push(&mut surfaces, "DatasetView", &o);
     assert_eq!(o["profile"]["columns"][1]["levels"][0]["label"], LVL);
+    let g = call(
+        &w,
+        "stats_ttest_group_levels",
+        json!({ "slot": o["slot"], "column": "C2" }),
+    )
+    .expect("the group's levels");
+    assert_eq!(g["levels"][0]["label"], LVL);
+    push(&mut surfaces, "GroupLevelsView", &g);
     let spec = tspec(&o, 1, "C1", "C2", Some([0, 1]), Some("welch"), &[]);
     push(&mut surfaces, "spec", &spec);
     let v = call(
@@ -294,6 +305,14 @@ fn no_sentinel_reaches_a_surface_it_is_not_allowed_on() {
             "stats_ttest_export",
             json!({ "runId": 99, "format": "csv" }),
         ),
+        (
+            "stats_ttest_group_levels",
+            json!({ "slot": o["slot"], "column": "C9" }),
+        ),
+        (
+            "stats_ttest_group_levels",
+            json!({ "slot": 99, "column": "C2" }),
+        ),
     ] {
         errors.push(call(&w, cmd, body).expect_err(cmd));
     }
@@ -304,6 +323,14 @@ fn no_sentinel_reaches_a_surface_it_is_not_allowed_on() {
     // Inactive: every command refused with the workspace's own code.
     call(&w, "workspace_deactivate", json!({})).expect("leaves");
     errors.push(call(&w, "stats_ttest_status", json!({ "runId": run })).expect_err("inactive"));
+    errors.push(
+        call(
+            &w,
+            "stats_ttest_group_levels",
+            json!({ "slot": o["slot"], "column": "C2" }),
+        )
+        .expect_err("inactive"),
+    );
     errors.push(
         call(
             &w,
@@ -415,6 +442,7 @@ fn no_sentinel_reaches_a_surface_it_is_not_allowed_on() {
     // labels and no header, so the header is allowed there and absent.
     for (surface, wanted) in [
         ("DatasetView", vec![HDR, LVL, FILE, TXT]),
+        ("GroupLevelsView", vec![LVL]),
         ("TTestResultView (without its manifest)", vec![LVL]),
         ("CSV export", vec![LVL]),
     ] {

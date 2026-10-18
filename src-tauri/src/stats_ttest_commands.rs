@@ -21,6 +21,15 @@
 //! Export returns bytes, and Rust writes nothing: the screen's save dialog
 //! writes the one file the user names (decision 5, ADR-004a).
 //!
+//! `stats_ttest_group_levels` (the follow-up, decision 81) gives a column's
+//! levels as the t-test indexes them, from `stats_ttest::group_levels`, the
+//! core's own level function, so the screen's positions are the core's by
+//! construction; it works for any column, a group coded in numbers
+//! included, which `DatasetView`'s profile lists no levels for. The labels
+//! appear in its view only. A column with more than
+//! `stats_ttest::MAX_GROUP_LEVELS` (50) levels is refused with
+//! `stats.ttest.too_many_levels {count, limit}` (decision 87).
+//!
 //! `capability_list` only reads the static registry, so it needs no
 //! workspace (decision 76). Whether a capability is runnable is computed
 //! here, with the registry's `require_runnable` and this build; the screen
@@ -34,13 +43,14 @@ use gaply_core::contracts::capability::Lifecycle;
 use gaply_core::contracts::codes::{Closed, RunCode};
 use gaply_core::contracts::workspace::check_spec;
 use gaply_core::contracts::{
-    CapabilityId, ContentHash, Diagnostic, OperationSpec, ResourceEstimate, RunId, RunManifest,
-    RunState, ValidationStatus, WorkspaceId,
+    CapabilityId, ContentHash, Diagnostic, OperationSpec, ParamKey, ResourceEstimate, RunId,
+    RunManifest, RunState, ValidationStatus, WorkspaceId,
 };
 use gaply_core::stats_adapters;
+use gaply_core::stats_desc::Alias;
 use gaply_core::stats_registry::{self, StatsWording};
 use gaply_core::stats_ttest::export::{manifest_json, result_csv};
-use gaply_core::stats_ttest::{TTestCode, TTestParams, TTestResult};
+use gaply_core::stats_ttest::{self, TTestCode, TTestParams, TTestResult};
 use gaply_core::GaplyError;
 
 use crate::runs::{DatasetSlots, NotStarted, RunSnapshot, Runs};
@@ -103,6 +113,25 @@ pub struct CapabilityView {
     pub runnable: bool,
 }
 
+/// One level of a group column: its index (what a spec's `levels` names),
+/// its label (the user's own text) and its non-missing cells.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GroupLevel {
+    pub index: u32,
+    pub label: String,
+    pub count: u64,
+}
+
+/// A column's levels, in the t-test's order (decision 81).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GroupLevelsView {
+    pub slot: u64,
+    pub column: Alias,
+    pub levels: Vec<GroupLevel>,
+}
+
 fn run_state_view(s: RunSnapshot<TTestCode>) -> TTestRunStateView {
     TTestRunStateView {
         run_id: s.record.run_id.0,
@@ -122,6 +151,12 @@ fn run_state_view(s: RunSnapshot<TTestCode>) -> TTestRunStateView {
 fn refuse_run(code: RunCode) -> GaplyError {
     tracing::info!(code = code.wire(), "stats_ttest: refused");
     GaplyError::Validation(serde_json::json!({ "code": code.wire() }).to_string())
+}
+
+/// A t-test refusal: `{"code":"stats.ttest.unknown_column","params":…}`.
+fn refuse_ttest(d: Diagnostic<TTestCode>) -> GaplyError {
+    tracing::info!(code = d.code.wire(), "stats_ttest: refused");
+    GaplyError::Validation(serde_json::to_string(&d).expect("a diagnostic serialises"))
 }
 
 /// The capability registry's check, its refusal returned as it is
@@ -198,6 +233,46 @@ pub fn export(runs: &Runs, run_id: u64, format: ExportFormat) -> Result<ExportVi
     };
     let sha256 = ContentHash::of_bytes(&bytes).as_hex().to_string();
     Ok(ExportView { bytes, sha256 })
+}
+
+/// `column`'s levels as the t-test indexes them, through the core's own
+/// level function (decision 81).
+pub fn group_levels(
+    slots: &DatasetSlots,
+    slot: u64,
+    column: Alias,
+) -> Result<GroupLevelsView, GaplyError> {
+    let held = slots.get(slot).map_err(refuse_run)?;
+    let levels = stats_ttest::group_levels(held.dataset(), column).ok_or_else(|| {
+        refuse_ttest(
+            Diagnostic::error(TTestCode::UnknownColumn)
+                .int(ParamKey::Column, i64::from(column.0 .0)),
+        )
+    })?;
+    // Decision 87: a column with more levels than a group may is refused
+    // before its values are listed, so a measurement never reaches the
+    // screen as a list.
+    if levels.len() > stats_ttest::MAX_GROUP_LEVELS {
+        return Err(refuse_ttest(
+            Diagnostic::error(TTestCode::TooManyLevels)
+                .int(ParamKey::Count, levels.len() as i64)
+                .int(ParamKey::Limit, stats_ttest::MAX_GROUP_LEVELS as i64),
+        ));
+    }
+    tracing::info!(levels = levels.len(), "stats_ttest: group levels read");
+    Ok(GroupLevelsView {
+        slot,
+        column,
+        levels: levels
+            .into_iter()
+            .enumerate()
+            .map(|(i, (label, count))| GroupLevel {
+                index: u32::try_from(i).unwrap_or(u32::MAX),
+                label,
+                count,
+            })
+            .collect(),
+    })
 }
 
 /// Every Statistics capability, in the registry's order, with whether this
@@ -328,6 +403,21 @@ pub async fn stats_ttest_export(
         .map_err(refuse_workspace)?;
     let runs = engine.runs.clone();
     blocking(move || export(&runs, run_id, format)).await
+}
+
+#[tauri::command]
+#[tracing::instrument(skip_all)]
+pub async fn stats_ttest_group_levels(
+    state: St<'_>,
+    slot: u64,
+    column: Alias,
+) -> Result<GroupLevelsView, GaplyError> {
+    let engine = state
+        .workspace
+        .require_statistics()
+        .map_err(refuse_workspace)?;
+    let slots = engine.datasets.clone();
+    blocking(move || group_levels(&slots, slot, column)).await
 }
 
 /// Exempt from the workspace check: it reads only the static registry
