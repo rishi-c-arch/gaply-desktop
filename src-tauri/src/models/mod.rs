@@ -10,6 +10,8 @@ pub mod candle_perplexity;
 pub mod ollama_verify;
 pub mod proxy_client;
 pub mod quantized_qwen2_lowmem;
+#[cfg(test)]
+pub(crate) mod test_env;
 
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -918,37 +920,25 @@ mod deep_plan_gate_tests {
 
 #[cfg(test)]
 mod mini_loader_tests {
+    use super::test_env::ModelEnv;
     use super::{slm1_mini_model, slm1_mini_paths};
 
-    /// Both tests below set and remove `GAPLY_SLM1_TOKENIZER`, which is
-    /// process-wide, and the test harness runs them on parallel threads: one
-    /// could remove it between the other's set and read, and the read then
-    /// fell back to the home folder's tokenizer (seen once in a workspace run,
-    /// 18 Oct 2026). Each holds this lock for its whole set → assert → remove.
-    /// A poisoned lock (the other test failed) is taken anyway, so one
-    /// failure does not fail both.
-    static TOKENIZER_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
-        TOKENIZER_ENV_LOCK
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
+    // Both tests below change process-wide model variables, which the AI-Check
+    // flow tests also change and read, on parallel threads. Each holds the one
+    // `ModelEnv` lock for its whole set → assert, and the guard puts every
+    // variable back on drop, also when an assertion fails.
 
     /// The mini resolver honors `GAPLY_SLM1_MINI_GGUF` for the model and shares
     /// the SLM-1 tokenizer (`GAPLY_SLM1_TOKENIZER`), and `slm1_mini_model`
     /// honestly returns `None` when the GGUF path doesn't exist — never a silent
     /// stand-in, and (critically) never loads the real ~945MB model in tests.
     ///
-    /// Done sequentially within the test, and under `env_lock` against the
-    /// other test that shares the tokenizer variable. Mirrors the existing
-    /// env-in-tests pattern (aicheck.rs, `FLOW_ENV_LOCK`).
+    /// Done under the `ModelEnv` lock (see `test_env`).
     #[test]
     fn mini_paths_honor_env_and_absent_model_is_none() {
-        let _env = env_lock();
-        // Set → assert → restore, with the lock held throughout.
-        std::env::set_var("GAPLY_SLM1_MINI_GGUF", "/nonexistent/mini.gguf");
-        std::env::set_var("GAPLY_SLM1_TOKENIZER", "/nonexistent/tokenizer.json");
+        let mut env = ModelEnv::lock();
+        env.set("GAPLY_SLM1_MINI_GGUF", "/nonexistent/mini.gguf");
+        env.set("GAPLY_SLM1_TOKENIZER", "/nonexistent/tokenizer.json");
 
         let (gguf, tok) = slm1_mini_paths().expect("env overrides form a path pair");
         assert_eq!(gguf.to_str(), Some("/nonexistent/mini.gguf"));
@@ -956,9 +946,6 @@ mod mini_loader_tests {
 
         // Files don't exist → honestly None (no panic, no real-model load).
         assert!(slm1_mini_model().is_none(), "absent mini GGUF => None");
-
-        std::env::remove_var("GAPLY_SLM1_MINI_GGUF");
-        std::env::remove_var("GAPLY_SLM1_TOKENIZER");
     }
 
     /// The Stage-1 LM resolver honors `GAPLY_STAGE1_LM_GGUF`, shares the SLM-1
@@ -966,18 +953,15 @@ mod mini_loader_tests {
     /// never a silent stand-in, never loads a real model in tests.
     #[test]
     fn stage1_lm_paths_honor_env_and_absent_model_is_none() {
-        let _env = env_lock();
-        std::env::set_var("GAPLY_STAGE1_LM_GGUF", "/nonexistent/stage1.gguf");
-        std::env::set_var("GAPLY_SLM1_TOKENIZER", "/nonexistent/tokenizer.json");
+        let mut env = ModelEnv::lock();
+        env.set("GAPLY_STAGE1_LM_GGUF", "/nonexistent/stage1.gguf");
+        env.set("GAPLY_SLM1_TOKENIZER", "/nonexistent/tokenizer.json");
 
         let (gguf, tok) = super::stage1_lm_paths().expect("env overrides form a path pair");
         assert_eq!(gguf.to_str(), Some("/nonexistent/stage1.gguf"));
         assert_eq!(tok.to_str(), Some("/nonexistent/tokenizer.json"), "shares the SLM-1 tokenizer");
         assert!(super::stage1_lm_model().is_none(), "absent Stage-1 GGUF => None");
         assert!(!super::stage1_lm_present());
-
-        std::env::remove_var("GAPLY_STAGE1_LM_GGUF");
-        std::env::remove_var("GAPLY_SLM1_TOKENIZER");
     }
 }
 
