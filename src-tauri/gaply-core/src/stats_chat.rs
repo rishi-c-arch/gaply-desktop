@@ -349,7 +349,7 @@ pub fn stats_chat_turn(
     match proxy.verify(&payload).and_then(|resp| gate_stats_chat_response(&resp, &sent)) {
         Ok(turn) => turn,
         Err(e) => {
-            tracing::warn!(error = %e, "stats copilot cloud call failed; honest unavailable");
+            tracing::warn!(error_kind = e.code(), "stats copilot cloud call failed; honest unavailable");
             StatsChatTurn::unavailable(vec![format!("cloud_failed: {e}")])
         }
     }

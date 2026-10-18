@@ -33,9 +33,12 @@ import PublishReadyPage from './publishready/PublishReadyPage';
 import GapFinderPage from './gapfinder/GapFinderPage';
 import StatsVerifierPage from './statsverifier/StatsVerifierPage';
 import { DescribePage } from './statistics/DescribeFlow';
+import { StatisticsHomePage } from './statistics/StatisticsHome';
+import { TTestPage } from './statistics/TTestFlow';
 import { WorkspaceChooser } from './workspace/WorkspaceChooser';
 import { WorkspaceShell } from './workspace/WorkspaceShell';
 import { RequireWorkspace } from './workspace/RequireWorkspace';
+import { EnterStatistics } from './workspace/EnterStatistics';
 import CopilotPage from './copilot/CopilotPage';
 import BillingPage from './subscription/BillingPage';
 import CommunityPage from './community/CommunityPage';
@@ -108,10 +111,15 @@ export const AiCheckRoute: React.FC = () => (
     </RequireAuth>
   </GaplySessionProvider>
 );
+/** /app/check/stats — the free Stats Check. Opening it opens the Statistics
+ *  workspace (Research OS, Phase 4A, decision 49): no extra click, and the
+ *  browser build renders it as before. */
 export const StatsCheckRoute: React.FC = () => (
   <GaplySessionProvider>
     <RequireAuth>
-      <StatsCheckPage />
+      <EnterStatistics>
+        <StatsCheckPage />
+      </EnterStatistics>
     </RequireAuth>
   </GaplySessionProvider>
 );
@@ -193,11 +201,15 @@ export const GapFinderRoute: React.FC = () => (
 );
 
 /** /app/statsverifier — Statistical Analysis Verifier (paid). Premium-gated;
- *  in-page `useEntitlement('stats_verifier')` mirrors PublishReady exactly. */
+ *  in-page `useEntitlement('stats_verifier')` mirrors PublishReady exactly.
+ *  Opening it opens the Statistics workspace (Research OS, Phase 4A,
+ *  decision 49), as the Stats Check does. */
 export const StatsVerifierRoute: React.FC = () => (
   <GaplySessionProvider>
     <RequireAuth>
-      <StatsVerifierPage />
+      <EnterStatistics>
+        <StatsVerifierPage />
+      </EnterStatistics>
     </RequireAuth>
   </GaplySessionProvider>
 );
@@ -211,6 +223,31 @@ export const DescribeRoute: React.FC = () => (
     <RequireAuth>
       <RequireWorkspace id="statistics">
         <DescribePage />
+      </RequireWorkspace>
+    </RequireAuth>
+  </GaplySessionProvider>
+);
+
+/** /app/statistics — the Statistics method selector (Research OS, Phase
+ *  4B-2), only while the describe flag is on (see
+ *  statistics/statisticsRoute). It reads only the static capability
+ *  registry, so it needs no workspace (decision 76). */
+export const StatisticsHomeRoute: React.FC = () => (
+  <GaplySessionProvider>
+    <RequireAuth>
+      <StatisticsHomePage />
+    </RequireAuth>
+  </GaplySessionProvider>
+);
+
+/** /app/statistics/ttest — the independent-samples t-test (Research OS,
+ *  Phase 4B-2), shown only while the Statistics workspace is active, with
+ *  the describe screen's explicit button to open it (decision 77). */
+export const TTestRoute: React.FC = () => (
+  <GaplySessionProvider>
+    <RequireAuth>
+      <RequireWorkspace id="statistics" body="Open the Statistics workspace to use the t-test.">
+        <TTestPage />
       </RequireWorkspace>
     </RequireAuth>
   </GaplySessionProvider>

@@ -25,6 +25,10 @@
 //!   positional format argument whose leading name is path-like. The value
 //!   rule applies to `fields(…)` of an `#[instrument]` too.
 //! * Every `.record("…", …)`: no path-like key.
+//! * Since Research OS Phase 4A (decision 57): no field value and no
+//!   positional format argument that RENDERS a path, through `.display()` or
+//!   `.to_string_lossy()`, whatever its name. Before it, `gguf =
+//!   %gguf.display()` passed, because `gguf` is not a path-like name.
 //!
 //! **What it cannot see, by construction: a path held under a name and a
 //! type that say nothing about it** (`manuscript: String`). It constrains
@@ -355,6 +359,13 @@ impl Scan {
     }
 }
 
+/// An expression that renders a path or a file name as text, whatever it is
+/// called: `Path::display` or `OsStr::to_string_lossy` (decision 57).
+fn renders_path(t: &str) -> bool {
+    let t: String = t.chars().filter(|c| !c.is_whitespace()).collect();
+    t.contains(".display()") || t.contains(".to_string_lossy()")
+}
+
 /// A field value read through `.len()` is a count, whatever it counts.
 fn a_count(chain: &str) -> bool {
     chain.ends_with(".len")
@@ -681,6 +692,10 @@ fn scan_macros(file: &str, src: &Source, scan: &mut Scan) {
                 if scan.sensitive(&chain) {
                     scan.violations
                         .push(format!("{file}:{line}: `{name}!` formats `{chain}`"));
+                } else if renders_path(&tm) {
+                    scan.violations.push(format!(
+                        "{file}:{line}: `{name}!` formats a rendered path `{tm}`"
+                    ));
                 }
             } else {
                 let key = field_key(&tm, &tc);
@@ -692,6 +707,10 @@ fn scan_macros(file: &str, src: &Source, scan: &mut Scan) {
                 {
                     scan.violations.push(format!(
                         "{file}:{line}: `{name}!` field `{key}` takes `{v}`"
+                    ));
+                } else if renders_path(&tm) {
+                    scan.violations.push(format!(
+                        "{file}:{line}: `{name}!` field `{key}` renders a path"
                     ));
                 }
             }
@@ -816,6 +835,10 @@ fn the_guard_catches_each_kind_of_violation() {
         "fn g() { span.record(\"path\", 1); }\n",
         "fn g() { tracing::info!(db = %path.display(), \"x\"); }\n",
         "#[tracing::instrument(skip_all, fields(n = %file.display()))]\nfn f(x: u8) {}\n",
+        // Decision 57: a rendered path under any name, as a field or an argument.
+        "fn g() { tracing::info!(gguf = %gguf.display(), \"x\"); }\n",
+        "fn g() { tracing::info!(\"loaded {}\", gguf.display()); }\n",
+        "fn g() { tracing::info!(name = %f.to_string_lossy(), \"x\"); }\n",
     ];
     for snippet in must_fail {
         let s = scan_source("snippet", snippet, false);
@@ -838,6 +861,7 @@ fn the_guard_catches_each_kind_of_violation() {
         "fn g() { tracing::info!(rows = n, \"{} rows\", n); }\n",
         "fn g() { tracing::info!(rows = data.len(), schema_version = r.to_version, \"x\"); }\n",
         "fn g() { tracing::info!(uploads = files.len(), \"x\"); }\n",
+        "fn g() { tracing::info!(source, gguf_exists = gguf.exists(), \"x\"); }\n",
     ];
     for snippet in must_pass {
         let s = scan_source("snippet", snippet, false);

@@ -263,6 +263,11 @@ pub struct TTestResult {
     pub mean_b: f64,
     /// "welch" (unequal variances, default) or "student" (pooled).
     pub method: &'static str,
+    /// The standard error t divides by: sqrt(va/na + vb/nb) for Welch,
+    /// sqrt(sp²(1/na + 1/nb)) for Student, sd(a − b)/sqrt(n) paired. Exposed
+    /// for the t-test as an analysis (`stats_ttest`, Research OS Phase 4B-1),
+    /// so its standard error and interval come from here and nowhere else.
+    pub se: f64,
 }
 
 fn require_group(name: &str, xs: &[f64]) -> Result<(), GaplyError> {
@@ -297,7 +302,7 @@ pub fn t_test_welch(a: &[f64], b: &[f64]) -> Result<TTestResult, GaplyError> {
     let numerator = underflow_unless_normal(finite((sa + sb).powi(2))?, true)?;
     let denominator = underflow_unless_normal(finite(sa.powi(2) / (na - 1.0) + sb.powi(2) / (nb - 1.0))?, true)?;
     let df = finite(numerator / denominator)?;
-    Ok(TTestResult { t, df, p_two_sided: t_two_sided(t.abs(), df), mean_a: ma, mean_b: mb, method: "welch" })
+    Ok(TTestResult { t, df, p_two_sided: t_two_sided(t.abs(), df), mean_a: ma, mean_b: mb, method: "welch", se })
 }
 
 /// Student's pooled-variance t-test (assumes equal variances).
@@ -316,7 +321,7 @@ pub fn t_test_student(a: &[f64], b: &[f64]) -> Result<TTestResult, GaplyError> {
     }
     let (ma, mb) = (checked_mean(a)?, checked_mean(b)?);
     let t = finite((ma - mb) / se)?;
-    Ok(TTestResult { t, df, p_two_sided: t_two_sided(t.abs(), df), mean_a: ma, mean_b: mb, method: "student" })
+    Ok(TTestResult { t, df, p_two_sided: t_two_sided(t.abs(), df), mean_a: ma, mean_b: mb, method: "student", se })
 }
 
 /// Paired-samples t-test: `a[i]` and `b[i]` are one subject measured twice.
@@ -341,7 +346,7 @@ pub fn t_test_paired(a: &[f64], b: &[f64]) -> Result<TTestResult, GaplyError> {
     }
     let t = finite(md / se)?;
     let df = n - 1.0;
-    Ok(TTestResult { t, df, p_two_sided: t_two_sided(t.abs(), df), mean_a: checked_mean(a)?, mean_b: checked_mean(b)?, method: "paired" })
+    Ok(TTestResult { t, df, p_two_sided: t_two_sided(t.abs(), df), mean_a: checked_mean(a)?, mean_b: checked_mean(b)?, method: "paired", se })
 }
 
 // ---------------------------------------------------------------------------

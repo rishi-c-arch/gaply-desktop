@@ -27,6 +27,14 @@
 //!   names a correction for multiple testing: `CouldNotCheck(AdjustedP)`.
 //! - **d.** Otherwise `Inconsistent { conclusion_changes }`.
 //!
+//! **Before any rule, the df limit (decision 90).** A t or an r whose df, at
+//! either end of its printed interval, is above [`pvalue::T_DF_MEASURED_MAX`]
+//! is `CouldNotCheck(DfBeyondMeasuredRange)`: there the t engine is not
+//! measured within Level 0's gate, and a disagreement could be the engine's.
+//! Inputs that define no p are still `InvalidInput` first. The limit is in
+//! [`PConsistency`]'s own evaluation, not in [`compare_p`], which Level 1
+//! shares with its exact p.
+//!
 //! A result printed `ns` is `Consistent` when the recomputed p can reach alpha.
 //! An F with df1 of 2 or more whose upper-tail p cannot but whose two-tailed p
 //! can is `Concern(FTwoTailed)`; anything else is `Inconsistent`. Inputs that do not
@@ -136,7 +144,7 @@ pub fn alpha_of(ctx: &DocumentContext, computed: &mut Vec<(&'static str, Compute
 
 fn evaluate(r: &ReportedResult, ctx: &DocumentContext, computed: &mut Vec<(&'static str, Computed)>) -> L0Verdict {
     let alpha = alpha_of(ctx, computed);
-    let Some((p_lo, p_hi)) = recomputed_range(r) else { return INVALID };
+    let (p_lo, p_hi) = match measured_range(r) { Ok(range) => range, Err(not_checked) => return not_checked };
     let input = PComparison { p: &r.p, family: r.family, variance_ratio_candidate: is_variance_ratio_candidate(r) };
     compare_p(&input, p_lo, p_hi, || f_two_tailed_range(r), ctx, &alpha, computed)
 }
@@ -454,6 +462,29 @@ fn recomputed_range(r: &ReportedResult) -> Option<(f64, f64)> {
         }
     }
     (lo.is_finite() && hi.is_finite()).then_some((lo, hi))
+}
+
+/// [`recomputed_range`], or why there is none to judge: `InvalidInput` when the
+/// inputs define no p, then `DfBeyondMeasuredRange` when a t or r df reaches
+/// above the range where the t engine is measured (decision 90).
+fn measured_range(r: &ReportedResult) -> Result<(f64, f64), L0Verdict> {
+    let range = recomputed_range(r).ok_or(INVALID)?;
+    if beyond_measured_df(r) {
+        return Err(L0Verdict::CouldNotCheck(
+            CouldNotCheckReason::DfBeyondMeasuredRange,
+        ));
+    }
+    Ok(range)
+}
+
+/// Decision 90: a t or r (r goes through t) whose df reaches above the range
+/// where the t engine is measured within Level 0's gate, at either end of the
+/// df's printed interval.
+fn beyond_measured_df(r: &ReportedResult) -> bool {
+    matches!(r.family, Family::T | Family::R)
+        && r.df
+            .iter()
+            .any(|d| d.interval().hi.to_f64() > pvalue::T_DF_MEASURED_MAX)
 }
 
 /// The two-tailed F p-values the printed numbers allow, over the same corners.

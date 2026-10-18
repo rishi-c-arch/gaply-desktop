@@ -31,6 +31,15 @@
 //!   `entitled: null` for the frontend to fill from `useEntitlement`.
 //! * Only `workspace_activate` activates. Nothing else in the app calls
 //!   [`WorkspaceSession::activate`].
+//! * **The verifier's operation commands check it too (Phase 4A, decision
+//!   49):** Level 0's `run_stats_consistency`, the legacy
+//!   `run_stats_preview` and `run_stats_verify`, and every Level 1 command
+//!   that opens, edits, proposes, previews, sends, confirms or computes.
+//!   The commands that only remove a key or data, read or change settings,
+//!   open a link, or stop a send are never gated; `tests/workspace_guards.rs`
+//!   holds both lists by name.
+//! * [`build`] is what every façade is told about this build: Experimental
+//!   capabilities run only with the `devtools` feature (decision 48).
 //!
 //! Every command is `#[tracing::instrument(skip_all)]` and returns a view, or
 //! a refusal that is a closed code with closed-word or numeric parameters.
@@ -41,14 +50,16 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use serde::Serialize;
 
+use gaply_core::contracts::capability::{Build, CapabilityCode};
 use gaply_core::contracts::codes::Closed;
 use gaply_core::contracts::workspace::{
     self, Availability, WorkspaceCode, WorkspaceDescriptor, WorkspaceEvent, WorkspaceState,
 };
 use gaply_core::contracts::{Diagnostic, ParamKey, ParamValue, WorkspaceId};
+use gaply_core::stats_registry;
 use gaply_core::GaplyError;
 
-use crate::runs::{DatasetSlots, Runs};
+use crate::runs::{DatasetSlots, RunKind, Runs};
 
 /// A readiness check's answer (blueprint §9.2's `health_check`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -152,14 +163,19 @@ impl WorkspaceSession {
             .expect("the Statistics engine exists while Statistics is active"))
     }
 
-    /// The unfinished run of the active workspace, if any, and its newest run.
-    pub fn runs_brief(&self) -> (Option<u64>, Option<u64>) {
+    /// The unfinished run of the active workspace, if any, and its newest run,
+    /// each with its kind (decision 80).
+    pub fn runs_brief(&self) -> (Option<RunEntryView>, Option<RunEntryView>) {
         let engine = lock(&self.inner).statistics.clone();
         match engine {
-            Some(e) => (
-                e.runs.unfinished().map(|r| r.0),
-                e.runs.latest().map(|r| r.0),
-            ),
+            Some(e) => {
+                let brief = e.runs.brief();
+                let view = |(run, kind): (gaply_core::contracts::RunId, RunKind)| RunEntryView {
+                    run_id: run.0,
+                    kind,
+                };
+                (brief.unfinished.map(view), brief.latest.map(view))
+            }
             None => (None, None),
         }
     }
@@ -273,22 +289,45 @@ pub struct WorkspaceDescriptorView {
     pub entitled: Option<bool>,
 }
 
+/// A Statistics run as the shell names it: its id and its kind, so the shell
+/// reads it through that kind's status and cancel commands (Research OS,
+/// Phase 4B-2, decision 80).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunEntryView {
+    pub run_id: u64,
+    pub kind: RunKind,
+}
+
 /// The window's workspace state, and the Statistics runs the shell's job area
-/// reads (by id, through `stats_desc_status`).
+/// and switch dialog read (by id, through their kind's `*_status`).
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceStateView {
     pub state: WorkspaceState,
     /// The run that is queued or running, if any.
-    pub active_run: Option<u64>,
+    pub active_run: Option<RunEntryView>,
     /// The newest run held, finished or not.
-    pub latest_run: Option<u64>,
+    pub latest_run: Option<RunEntryView>,
 }
 
 /// A workspace refusal as the webview reads it: the diagnostic in JSON,
 /// `{"code":"workspace.inactive","params":{…},"severity":"error"}`.
 pub fn refuse(d: Diagnostic<WorkspaceCode>) -> GaplyError {
     tracing::info!(code = d.code.wire(), "workspace: refused");
+    GaplyError::Validation(serde_json::to_string(&d).expect("a diagnostic serialises"))
+}
+
+/// This build, as the capability registry reads it: `Devtools` exactly when
+/// the app is built with its `devtools` feature (decision 48).
+pub fn build() -> Build {
+    Build::from_devtools(cfg!(feature = "devtools"))
+}
+
+/// A capability refusal as the webview reads it, in the same shape:
+/// `{"code":"capability.not_runnable","params":{…},"severity":"error"}`.
+pub fn refuse_capability(d: Diagnostic<CapabilityCode>) -> GaplyError {
+    tracing::info!(code = d.code.wire(), "capability: refused");
     GaplyError::Validation(serde_json::to_string(&d).expect("a diagnostic serialises"))
 }
 
@@ -303,7 +342,7 @@ pub fn refuse_inactive() -> GaplyError {
 }
 
 pub fn list() -> Vec<WorkspaceDescriptorView> {
-    workspace::descriptors()
+    stats_registry::workspace_descriptors()
         .into_iter()
         .map(|descriptor| WorkspaceDescriptorView {
             descriptor,

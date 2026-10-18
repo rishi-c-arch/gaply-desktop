@@ -126,3 +126,47 @@ startup whether or not anyone used them.
 A second workspace reaches Experimental (it then needs its own engine,
 readiness check and operation commands under the same check), or the user
 asks for background work in a second workspace (blueprint §3.4).
+
+## Addendum: Activation on entering the verifier's screens
+
+**Status: Accepted, 18 Oct 2026 (decision 49).** Research OS Phase 4A. This
+amends decision 7 for two screens; the text above stands as accepted.
+
+- **The verifier's operation commands check, first, that Statistics is
+  active**, as the `stats_desc_*` commands do: Level 0's
+  `run_stats_consistency`, the legacy `run_stats_preview` and
+  `run_stats_verify` (registered from `stats_legacy` since 4A, their bodies
+  unchanged in `commands.rs`), and Level 1's `stats_l1_open`,
+  `stats_l1_edit_claim`, `stats_l1_add_claim`, `stats_l1_proposals`,
+  `stats_l1_helper_preview`, `stats_l1_helper_send`,
+  `stats_l1_confirm_binding`, `stats_l1_draft_proposal` and
+  `stats_l1_compute`. Each refuses with `workspace.inactive` before anything
+  else runs.
+- **Never gated:** `stats_l1_close`, `stats_l1_helper_revoke`,
+  `stats_l1_helper_cancel`, `stats_ai_usage`, `stats_ai_setting_get`,
+  `stats_ai_setting_set`, `stats_ai_key_status`, `stats_ai_key_save`,
+  `stats_ai_key_test`, `stats_ai_key_remove`, `stats_open_source_link`: they
+  only remove a key or data, read or change settings, open a link, or stop a
+  send. A user can always delete their key and drop a run.
+- **Opening the Stats Check or the Stats Verifier screen activates
+  Statistics** (`src/screens/workspace/EnterStatistics.tsx`, on both routes in
+  `GaplyScreens.tsx`): it reads `workspace_state` and calls
+  `workspace_activate` only when Statistics is not active, one activation in
+  flight at a time (a shared promise, one call under StrictMode), and renders
+  the screen's body only once Statistics is Active. A refusal shows its
+  code's sentence. Opening that screen is the user's choice of workspace, and
+  the free Stats Check needs no extra click. In the browser build (no Tauri)
+  both screens render as before, with no call.
+- The describe screen keeps its explicit button (Phase 3's question 6).
+- How these screens switch while another workspace is active is decided when
+  another workspace exists.
+
+**Evidence:** `src-tauri/tests/workspace_guards.rs`
+(`every_verifier_operation_command_checks_the_workspace_first_and_no_exempt_command_does`:
+both lists by name, and every registered command of the verifier's modules is
+in exactly one); `src-tauri/tests/verifier_workspace.rs` (every operation
+command refused while `NoWorkspace` and while `Activating`, run once active;
+every exempt command runs while `NoWorkspace`);
+`src-tauri/tests/verifier_privacy.rs`; `src/screens/workspace/EnterStatistics.vitest.tsx`.
+Mutation probes: the check removed from `stats_l1_compute`, and the check
+added to `stats_l1_close`, each turn the guard red (Phase 4A report).

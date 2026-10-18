@@ -392,11 +392,13 @@ mod tests {
     use gaply_core::extract::extract_from_text;
 
     use crate::models::ollama_verify::scripted::scripted_ollama;
+    use crate::models::test_env::ModelEnv;
 
     use super::*;
 
-    /// Serializes the flow tests — they mutate process-global env (GAPLY_*).
-    static FLOW_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    // The flow tests change process-global env (GAPLY_*). They hold the one
+    // `ModelEnv` lock, shared with `models::mini_loader_tests`, and its guard
+    // puts every variable back on drop (see `models::test_env`).
 
     // --- Set C2a: citation verification ---
     use gaply_core::extract::citations::Reference;
@@ -503,11 +505,11 @@ mod tests {
     /// machine), no real network — fully deterministic, heuristic-only.
     #[test]
     fn flow_is_two_way_and_honest_with_or_without_ollama() {
-        let _env = FLOW_ENV_LOCK.lock().unwrap();
-        std::env::set_var("GAPLY_DISABLE_DEEP", "1");
-        std::env::set_var("GAPLY_SLM1_GGUF", "/nonexistent/gaply-aicheck-test.gguf");
+        let mut env = ModelEnv::lock();
+        env.set("GAPLY_DISABLE_DEEP", "1");
+        env.set("GAPLY_SLM1_GGUF", "/nonexistent/gaply-aicheck-test.gguf");
         // Stage-1 LM absent → no candle load of the 0.5B (installed on dev machines).
-        std::env::set_var("GAPLY_STAGE1_LM_GGUF", "/nonexistent/stage1.gguf");
+        env.set("GAPLY_STAGE1_LM_GGUF", "/nonexistent/stage1.gguf");
         let ex = extract_from_text(&format!(
             "Introduction\n\n{h} {a} {a} {a} {h}\n",
             a = AI_SENT,
@@ -516,7 +518,7 @@ mod tests {
 
         // --- Scenario 1: a live (scripted) Ollama must make NO difference —
         // the probe decision is that the classifier is never consulted.
-        std::env::set_var("GAPLY_SLM2_ENDPOINT", scripted_ollama("{}"));
+        env.set("GAPLY_SLM2_ENDPOINT", scripted_ollama("{}"));
         let out = run_aicheck_flow(&ex, &|_| {}, &|| false).expect("no cancel");
         assert!(out.deep_model.is_none(), "SLM-1 absent must be reported as None");
         assert!(!out.passages.is_empty(), "the AI-like run should flag");
@@ -543,7 +545,7 @@ mod tests {
             let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
             format!("http://{}", l.local_addr().unwrap())
         };
-        std::env::set_var("GAPLY_SLM2_ENDPOINT", dead);
+        env.set("GAPLY_SLM2_ENDPOINT", dead);
         let out2 = run_aicheck_flow(&ex, &|_| {}, &|| false).expect("no cancel");
         assert!(out2.classifier_model.is_none());
         assert_eq!(out2.classified, 0);
@@ -577,11 +579,11 @@ mod tests {
     /// Non-English input downgrades the whole report, un-strippably.
     #[test]
     fn non_english_document_is_downgraded() {
-        let _env = FLOW_ENV_LOCK.lock().unwrap();
+        let mut env = ModelEnv::lock();
         // Disable the deep tier + Stage-1 LM so no installed model loads candle here.
-        std::env::set_var("GAPLY_DISABLE_DEEP", "1");
-        std::env::set_var("GAPLY_SLM1_GGUF", "/nonexistent/gaply-aicheck-test.gguf");
-        std::env::set_var("GAPLY_STAGE1_LM_GGUF", "/nonexistent/stage1.gguf");
+        env.set("GAPLY_DISABLE_DEEP", "1");
+        env.set("GAPLY_SLM1_GGUF", "/nonexistent/gaply-aicheck-test.gguf");
+        env.set("GAPLY_STAGE1_LM_GGUF", "/nonexistent/stage1.gguf");
         let ex = extract_from_text(
             "Introducción\n\nLos resultados de este estudio muestran que el método es eficaz y \
              los datos son consistentes con la interpretación de los hallazgos en la muestra.\n",
@@ -594,18 +596,21 @@ mod tests {
 
     // --- Set 2: events, cancel/reset, memory status ---
 
-    fn hermetic_env() {
+    /// Takes the `ModelEnv` lock and points every model at nothing; the
+    /// returned guard restores them when the test ends.
+    fn hermetic_env() -> ModelEnv {
+        let mut env = ModelEnv::lock();
         // No candle load of either model.
-        std::env::set_var("GAPLY_DISABLE_DEEP", "1");
-        std::env::set_var("GAPLY_SLM1_GGUF", "/nonexistent/x.gguf");
-        std::env::set_var("GAPLY_SLM1_MINI_GGUF", "/nonexistent/x.gguf");
-        std::env::set_var("GAPLY_STAGE1_LM_GGUF", "/nonexistent/x.gguf");
+        env.set("GAPLY_DISABLE_DEEP", "1");
+        env.set("GAPLY_SLM1_GGUF", "/nonexistent/x.gguf");
+        env.set("GAPLY_SLM1_MINI_GGUF", "/nonexistent/x.gguf");
+        env.set("GAPLY_STAGE1_LM_GGUF", "/nonexistent/x.gguf");
+        env
     }
 
     #[test]
     fn flow_emits_events_in_order() {
-        let _env = FLOW_ENV_LOCK.lock().unwrap();
-        hermetic_env();
+        let _env = hermetic_env();
         let ex = extract_from_text("Introduction\n\nThe results show the method works well here.\n");
         let seen = std::cell::RefCell::new(Vec::<AiCheckEvent>::new());
         let emit = |ev: AiCheckEvent| seen.borrow_mut().push(ev);
@@ -620,8 +625,7 @@ mod tests {
     fn cancel_token_flips_and_resets_across_runs() {
         use std::sync::atomic::{AtomicBool, Ordering};
         use std::sync::Arc;
-        let _env = FLOW_ENV_LOCK.lock().unwrap();
-        hermetic_env();
+        let _env = hermetic_env();
         // An AI-like doc so the pre-pass yields candidates (the cancel checkpoint).
         let ex = extract_from_text(
             "Introduction\n\nThe results show that the model can do the work well. \

@@ -590,7 +590,7 @@ fn run_pipeline_inner(
             for (i, r) in refs.iter().enumerate() {
                 match verifier.verify(&db, r, now) {
                     Ok(rv) => items.push((r.clone(), rv)),
-                    Err(e) => tracing::warn!(reference = %r.raw, error = %e, "refverify failed for a reference"),
+                    Err(e) => tracing::warn!(error_kind = e.code(), "refverify failed for a reference"),
                 }
                 let pct = (((i + 1) * 100) / total) as u8;
                 emit(AnalysisEvent::StageProgress { stage: "verification".into(), pct });
@@ -603,7 +603,10 @@ fn run_pipeline_inner(
         let report = match verify_citations(&*proxy, &items) {
             Ok(r) => r,
             Err(e) => {
-                tracing::warn!(error = %e, "SLM-2: verification call failed; recording UNKNOWN verdicts");
+                tracing::warn!(
+                    error_kind = e.code(),
+                    "SLM-2: verification call failed; recording UNKNOWN verdicts"
+                );
                 let mock = MockProxyClient::returning(serde_json::json!({ "verdicts": [] }));
                 verify_citations(&mock, &items)?
             }
@@ -1691,9 +1694,11 @@ Diekelmann S and Born J. 2010. The memory function of sleep. Nature Reviews Neur
     /// load — and it worked by defeating a file-existence check rather than by
     /// expressing an intent. Deliberately NOT unset afterwards: every pipeline
     /// test in this module wants the heuristic, so a leak across the shared test
-    /// process is benign (and `set_var` is process-global regardless).
+    /// process is benign (and `set_var` is process-global regardless). Set under
+    /// the `ModelEnv` lock, so an AI-Check test's guard cannot restore over it
+    /// (`models::test_env::set_for_the_process`).
     fn force_heuristic() {
-        std::env::set_var("GAPLY_DISABLE_DEEP", "1");
+        crate::models::test_env::set_for_the_process("GAPLY_DISABLE_DEEP", "1");
     }
 
     /// §11 D233 acceptance, in fixture form: the sentence a real manuscript

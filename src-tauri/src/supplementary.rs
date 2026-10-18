@@ -381,6 +381,26 @@ pub fn xls_not_compound_document_bytes(bytes: &[u8], ext: &str) -> bool {
 }
 
 /// **Level 1 and the descriptive summary (evaluation of Research OS Phases
+/// 2 and 3, F10): is a CSV or TSV text in an encoding other than UTF-8?** Like
+/// [`exceeds_row_cap_bytes`], called only after a parse has FAILED, so a file
+/// that opens is never affected. True for a UTF-16 byte-order mark, or for
+/// bytes that are not valid UTF-8 and hold no control character other than
+/// tab, line feed and carriage return (Latin-1, Windows-1252). Bytes with
+/// other control characters are not text in any encoding, and stay malformed.
+pub fn not_utf8_text_bytes(bytes: &[u8], ext: &str) -> bool {
+    if ext != "csv" && ext != "tsv" {
+        return false;
+    }
+    if bytes.starts_with(&[0xFF, 0xFE]) || bytes.starts_with(&[0xFE, 0xFF]) {
+        return true;
+    }
+    std::str::from_utf8(bytes).is_err()
+        && !bytes
+            .iter()
+            .any(|&b| (b < 0x20 && b != b'\t' && b != b'\n' && b != b'\r') || b == 0x7F)
+}
+
+/// **Level 1 and the descriptive summary (evaluation of Research OS Phases
 /// 2 and 3, F4): does the table hold more than [`MAX_TOTAL_CHARS`] bytes of
 /// cell text?** Like [`exceeds_row_cap_bytes`], called only after a parse has
 /// FAILED, to tell the content cap apart without reading the message. It

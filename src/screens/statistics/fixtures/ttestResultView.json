@@ -1,0 +1,90 @@
+{
+  "runId": 5,
+  "status": "succeeded",
+  "result": {
+    "variant": "welch",
+    "t": 1.5,
+    "df": 7.25,
+    "p": 0.125,
+    "meanDifference": 30.5,
+    "standardError": 16.25,
+    "confidenceLevel": 0.95,
+    "ciLower": -8.5,
+    "ciUpper": 68.75,
+    "cohensD": 1.125,
+    "dStandardizer": "root_mean_variance",
+    "dStandardizerValue": 26.5,
+    "groups": [
+      {
+        "level": 0,
+        "label": "ctrl",
+        "n": 5,
+        "mean": 63.125,
+        "sd": 29.25
+      },
+      {
+        "level": 1,
+        "label": "trt",
+        "n": 4,
+        "mean": 33.0625,
+        "sd": 22.75
+      }
+    ],
+    "sdRatio": {
+      "value": 1.25
+    },
+    "exclusions": [
+      {
+        "code": "stats.ttest.missing_outcome",
+        "count": 1,
+        "params": {
+          "column": 1
+        }
+      }
+    ],
+    "limitations": [
+      "stats.ttest.normality_not_assessed",
+      "stats.ttest.cohens_d_has_no_interval"
+    ]
+  },
+  "diagnostics": [
+    {
+      "code": "stats.ttest.suspect_missing_code",
+      "params": {
+        "column": 1,
+        "count": 2,
+        "value": 99
+      },
+      "severity": "warning"
+    }
+  ],
+  "manifest": {
+    "schemaVersion": 1,
+    "capabilityId": "stats.analyze.independent_t",
+    "capabilityVersion": 1,
+    "engineVersion": 1,
+    "inputs": [
+      "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    ],
+    "parametersHash": "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+    "seed": 7,
+    "rowsRead": 10,
+    "rowsUsed": 9,
+    "exclusions": [
+      {
+        "code": "stats.ttest.missing_outcome",
+        "count": 1,
+        "params": {
+          "column": 1
+        }
+      }
+    ],
+    "platform": {
+      "os": "macos",
+      "arch": "aarch64"
+    },
+    "elapsedMs": 3,
+    "outputHash": "5fd0af5daee4d8dfcb466411096e7f26e513bf2cadfb0e1605ff085026fe5b4a",
+    "reproducibility": "bitwise"
+  }
+}

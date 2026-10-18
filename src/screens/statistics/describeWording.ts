@@ -120,7 +120,7 @@ export const WORDS: Record<string, Words> = {
     `${cells(num(d, 'count'))} of column ${col(num(d, 'column') ?? 0)} were empty or held a missing-value token, and were left out.`,
   'stats.desc.missing_code': (d, col) =>
     `${cells(num(d, 'count'))} of column ${col(num(d, 'column') ?? 0)} held a missing code you ticked, and were left out.`,
-  'run.unknown_run': () => 'This run is no longer held. Gaply keeps the last 8 runs in memory only; run the summary again.',
+  'run.unknown_run': () => `This run is no longer held. Gaply keeps the last ${LIMITS.maxRuns} runs in memory only; run the summary again.`,
   'run.run_busy': () => 'A summary is already running. Wait for it to end, or cancel it.',
   'run.unknown_input': () => 'This file is no longer open. Open it again.',
   'run.not_finished': () => 'This run has not ended yet.',
@@ -131,6 +131,7 @@ export const WORDS: Record<string, Words> = {
   'run.resource_limit': () => 'This run passed a resource limit and was stopped, so it has no result.',
   'run.illegal_transition': () => 'Gaply could not change this run in that way.',
   'run.already_terminal': () => 'This run has already ended.',
+  'run.wrong_kind': () => 'This run is not a descriptive summary, so this screen cannot read it.',
 };
 
 /** The sentence for a diagnostic. */

@@ -423,7 +423,7 @@ fn ingest_paper_rag(
     match rag::ingest_document(db, embedder, &doc) {
         Ok(report) => format!("{:?}", report.status).to_lowercase(),
         Err(e) => {
-            tracing::warn!(error = %e, %id, "paper RAG ingest failed (digest still usable)");
+            tracing::warn!(error_kind = e.code(), %id, "paper RAG ingest failed (digest still usable)");
             format!("ingest_failed: {e}")
         }
     }

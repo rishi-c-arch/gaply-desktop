@@ -894,7 +894,7 @@ pub fn run_publishready_measured(
     // naming one would be a guess. Re-running is the remedy either way.
     let report: gaply_core::report::PublishReadyReport = serde_json::from_str(&json)
         .map_err(|e| {
-            tracing::warn!(run_id = %report_id, error = %e, "cached report failed to parse");
+            tracing::warn!(run_id = %report_id, error_kind = ?e.classify(), "cached report failed to parse");
             GaplyError::Internal(
                 "This saved report could not be read. Please run the analysis again to \
                  generate a new report. If it keeps happening, that may indicate a bug — \
@@ -912,7 +912,7 @@ pub fn run_publishready_measured(
         .filter_map(|p| match crate::supplementary::parse_supplementary(std::path::Path::new(p)) {
             Ok(ev) => serde_json::to_value(&ev).ok(),
             Err(e) => {
-                tracing::warn!(error = %e, "supplementary parse failed; skipped");
+                tracing::warn!(error_kind = e.code(), "supplementary parse failed; skipped");
                 None
             }
         })
@@ -984,7 +984,7 @@ pub fn run_publishready_measured(
                 Some(o)
             }
             Err(e) => {
-                tracing::warn!(run_id = %report_id, error = %e, "box4 shadow synthesis failed; skipped");
+                tracing::warn!(run_id = %report_id, error_kind = e.code(), "box4 shadow synthesis failed; skipped");
                 None
             }
         };
@@ -1032,7 +1032,10 @@ pub fn run_publishready_measured(
                 match reviewer_agent::gate_reviewer_response(&resp, &sent_ids) {
                     Ok(ev) => ev,
                     Err(e) => {
-                        tracing::warn!(error = %e, "reviewer gate failed; marking unavailable");
+                        tracing::warn!(
+                            error_kind = e.code(),
+                            "reviewer gate failed; marking unavailable"
+                        );
                         ReviewerEvaluation::unavailable(
                             "The reviewer's reply could not be verified against this report's \
                              findings, so it was discarded. Your report is complete.",
@@ -1046,7 +1049,10 @@ pub fn run_publishready_measured(
                 // every failure — false whenever the proxy had answered, which
                 // is most of them. `unavailable_reason_for` keys on the category
                 // the proxy now sends and never echoes raw error text.
-                tracing::warn!(error = %e, "reviewer cloud call failed; marking unavailable");
+                tracing::warn!(
+                    error_kind = e.code(),
+                    "reviewer cloud call failed; marking unavailable"
+                );
                 ReviewerEvaluation::unavailable(reviewer_agent::unavailable_reason_for(
                     &e.to_string(),
                 ))
@@ -1689,10 +1695,12 @@ pub async fn ai_citation_support(
             // Logged at WARN as well as returned: a validation failure is rare,
             // it is the case a developer most needs the transcript for, and the
             // UI keeps only what it renders.
+            // The kind only (decision 42): the raw attempts are model output,
+            // so they go to the screen below and never into the log.
             tracing::warn!(
-                error = ?e,
+                error_kind = "validation_failed",
                 document_id,
-                "citation_support failed validation twice — raw attempts follow"
+                "citation_support failed validation twice; the attempts go to the screen, not the log"
             );
             return Ok(serde_json::json!({
                 "outcome": "validationFailed",
@@ -2823,7 +2831,10 @@ pub async fn run_gap_finder(
             {
                 Ok(f) => f,
                 Err(e) => {
-                    tracing::warn!(error = %e, "gap finder cloud call failed; marking unavailable");
+                    tracing::warn!(
+                        error_kind = e.code(),
+                        "gap finder cloud call failed; marking unavailable"
+                    );
                     GapFindings::unavailable_offline()
                 }
             },
@@ -3130,7 +3141,9 @@ fn stats_prefill_p(manuscript_path: &Option<String>) -> Option<f64> {
 
 /// Preview the uploaded data's columns (and optionally pre-fill the reported
 /// p-value from an attached manuscript). Local, deterministic — no network.
-#[tauri::command]
+/// The legacy lane's body, not a capability. The registered command is
+/// `stats_legacy::run_stats_preview`, which checks that Statistics is active
+/// first (Research OS, Phase 4A, decision 49) and then calls this.
 #[tracing::instrument(skip_all)]
 pub fn run_stats_preview(
     path: String,
@@ -3147,8 +3160,9 @@ pub fn run_stats_preview(
 /// Recompute the user's analysis-spec against the uploaded data and compare
 /// reported vs recomputed → a [`StatsVerificationReport`]. 100% deterministic
 /// and LOCAL (the Set 2 engine); no model, no proxy. The optional manuscript
-/// adds the deterministic advisory lane (validate.rs).
-#[tauri::command]
+/// adds the deterministic advisory lane (validate.rs). The legacy lane's
+/// body, as `run_stats_preview`'s: the registered command is
+/// `stats_legacy::run_stats_verify`.
 #[tracing::instrument(skip_all)]
 pub fn run_stats_verify(
     path: String,
@@ -3389,7 +3403,7 @@ fn spawn_job_runner(
         let paused = matches!(outcome, Ok(crate::ai::job_runner::RunOutcome::Paused));
         match &outcome {
             Ok(o) => tracing::info!(job_id, ?o, "job finished"),
-            Err(e) => tracing::error!(job_id, %e, "job failed"),
+            Err(e) => tracing::error!(job_id, error_kind = e.code(), "job failed"),
         }
         // A finished job's control handle is dead weight; a paused one's is not.
         if !paused {

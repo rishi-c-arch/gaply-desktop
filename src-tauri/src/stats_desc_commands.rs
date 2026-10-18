@@ -46,6 +46,7 @@ use gaply_core::contracts::{
     ContentHash, Diagnostic, InputRef, OperationSpec, ResourceEstimate, RunId, RunManifest,
     RunState, ValidationStatus,
 };
+use gaply_core::stats_adapters;
 use gaply_core::stats_desc::export::{manifest_json, result_csv};
 use gaply_core::stats_desc::{self, ColumnResult, DatasetProfile, DescCode, DescribeParams};
 use gaply_core::stats_l1::codes::{l1_ingest_refusal, WireCode};
@@ -193,7 +194,10 @@ pub fn validate(
     spec: &OperationSpec<DescribeParams>,
 ) -> Result<ValidationReportView, GaplyError> {
     let held = slots.get(slot).map_err(refuse_run)?;
-    let r = stats_desc::validate(held.dataset(), spec);
+    // The capability registry first, through `stats.describe`'s façade
+    // (Research OS, Phase 4A): a spec it refuses is `Unsupported` with
+    // `stats.desc.unknown_capability` or `capability_version_mismatch`.
+    let r = stats_adapters::describe_validate(spec, crate::workspace::build(), held.dataset());
     Ok(ValidationReportView {
         status: r.status,
         errors: r.errors,

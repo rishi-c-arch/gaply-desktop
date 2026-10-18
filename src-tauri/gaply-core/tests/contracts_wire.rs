@@ -11,6 +11,7 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::Value;
 
+use gaply_core::contracts::capability::{CapabilityCode, ConfirmationId, Lifecycle};
 use gaply_core::contracts::codes::{Closed, RunCode};
 use gaply_core::contracts::workspace::{WorkspaceCode, WorkspaceEventKind, WorkspacePhase};
 use gaply_core::contracts::{
@@ -21,6 +22,7 @@ use gaply_core::contracts::{
 };
 use gaply_core::stats_desc::{Alias, ColumnRequest, DescCode, DescribeParams, TreatAs};
 use gaply_core::stats_l1::dataset::ColumnAlias;
+use gaply_core::stats_ttest::TTestCode;
 
 fn round_trip<T: Serialize + DeserializeOwned + PartialEq + Debug>(v: &T) -> Value {
     let json = serde_json::to_string(v).expect("serialises");
@@ -89,6 +91,7 @@ fn spec() -> OperationSpec<DescribeParams> {
         inputs: vec![input()],
         parameters: params(),
         random_seed: Some(20261017),
+        confirmation_refs: vec![ConfirmationId::parse(&"c".repeat(64)).expect("id")],
     }
 }
 
@@ -135,6 +138,7 @@ fn every_contract_type_round_trips_and_structs_refuse_an_unknown_field() {
         [
             "capabilityId",
             "capabilityVersion",
+            "confirmationRefs",
             "inputs",
             "operationId",
             "parameters",
@@ -620,6 +624,7 @@ fn the_code_and_word_lists_are_pinned() {
             "run.resource_limit",
             "run.illegal_transition",
             "run.already_terminal",
+            "run.wrong_kind",
         ]
     );
     assert_eq!(
@@ -685,6 +690,60 @@ fn the_code_and_word_lists_are_pinned() {
             "fail_numerically",
         ]
     );
+    // Phase 4A: the registry's refusals and the lifecycle words.
+    assert_eq!(
+        CapabilityCode::ALL
+            .iter()
+            .map(|c| c.wire())
+            .collect::<Vec<_>>(),
+        [
+            "capability.unknown_capability",
+            "capability.version_mismatch",
+            "capability.not_runnable",
+            "capability.confirmation_missing",
+            "capability.confirmation_unmatched",
+        ]
+    );
+    assert_eq!(
+        Lifecycle::ALL.iter().map(|c| c.wire()).collect::<Vec<_>>(),
+        ["planned", "experimental", "beta", "stable", "deprecated"]
+    );
+    // Phase 4B-1: the t-test's codes.
+    assert_eq!(
+        TTestCode::ALL.iter().map(|c| c.wire()).collect::<Vec<_>>(),
+        [
+            "stats.ttest.unknown_capability",
+            "stats.ttest.capability_version_mismatch",
+            "stats.ttest.input_count",
+            "stats.ttest.input_mismatch",
+            "stats.ttest.unknown_column",
+            "stats.ttest.same_column",
+            "stats.ttest.outcome_holds_text",
+            "stats.ttest.outcome_non_finite",
+            "stats.ttest.group_one_level",
+            "stats.ttest.level_out_of_range",
+            "stats.ttest.levels_equal",
+            "stats.ttest.missing_code_not_finite",
+            "stats.ttest.variant_not_chosen",
+            "stats.ttest.levels_not_chosen",
+            "stats.ttest.suspect_missing_code",
+            "stats.ttest.group_too_small",
+            "stats.ttest.both_groups_constant",
+            "stats.ttest.overflow",
+            "stats.ttest.underflow",
+            "stats.ttest.arithmetic_refused",
+            "stats.ttest.quantile_out_of_range",
+            "stats.ttest.sd_ratio_undefined",
+            "stats.ttest.missing_group",
+            "stats.ttest.other_level",
+            "stats.ttest.missing_outcome",
+            "stats.ttest.missing_code",
+            "stats.ttest.normality_not_assessed",
+            "stats.ttest.cohens_d_has_no_interval",
+            "stats.ttest.too_many_levels",
+        ]
+    );
+    assert_eq!(TTestCode::NAMESPACE, "stats.ttest.");
     assert_eq!(RunCode::NAMESPACE, "run.");
     assert_eq!(DescCode::NAMESPACE, "stats.desc.");
     assert!(DescCode::NAMESPACE.starts_with(WorkspaceId::Statistics.namespace()));
@@ -693,6 +752,7 @@ fn the_code_and_word_lists_are_pinned() {
     // as what it was.
     let mut all: Vec<&str> = RunCode::ALL.iter().map(|c| c.wire()).collect();
     all.extend(DescCode::ALL.iter().map(|c| c.wire()));
+    all.extend(TTestCode::ALL.iter().map(|c| c.wire()));
     all.extend(RunState::ALL.iter().map(|c| c.wire()));
     all.extend(RunEvent::ALL.iter().map(|c| c.wire()));
     // Phase 3's parameter words: workspace ids, phases and events.
@@ -710,6 +770,8 @@ fn the_code_and_word_lists_are_pinned() {
     all.extend(WorkspacePhase::ALL.iter().map(|c| c.wire()));
     all.extend(WorkspaceEventKind::ALL.iter().map(|c| c.wire()));
     all.extend(WorkspaceCode::ALL.iter().map(|c| c.wire()));
+    all.extend(CapabilityCode::ALL.iter().map(|c| c.wire()));
+    all.extend(Lifecycle::ALL.iter().map(|c| c.wire()));
     let n = all.len();
     all.sort_unstable();
     all.dedup();
@@ -723,6 +785,12 @@ fn the_code_and_word_lists_are_pinned() {
     for c in DescCode::ALL {
         assert!(
             c.wire().starts_with(DescCode::NAMESPACE)
+                && serde_json::to_value(c).expect("json") == c.wire()
+        );
+    }
+    for c in TTestCode::ALL {
+        assert!(
+            c.wire().starts_with(TTestCode::NAMESPACE)
                 && serde_json::to_value(c).expect("json") == c.wire()
         );
     }

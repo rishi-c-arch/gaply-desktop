@@ -567,6 +567,7 @@ pub fn spec(
         inputs: vec![input_ref(dataset)],
         parameters,
         random_seed: None,
+        confirmation_refs: Vec::new(),
     }
 }
 

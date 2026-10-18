@@ -117,6 +117,7 @@ function buildSpec(view: DatasetView, picks: Record<string, Pick>, missingCodes:
       missingCodes,
     },
     randomSeed: null,
+    confirmationRefs: [],
   };
 }
 

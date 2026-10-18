@@ -15,10 +15,13 @@ import { GATE_TEXT, SHELL_TEXT, workspaceSentence } from './workspaceWording';
 export interface RequireWorkspaceProps {
   id: WorkspaceId;
   bridge?: WorkspaceBridge;
+  /** The gate's sentence for the screen behind it (Phase 4B-2: the t-test
+   *  has its own); the descriptive summary's by default. */
+  body?: string;
   children: React.ReactNode;
 }
 
-export const RequireWorkspace: React.FC<RequireWorkspaceProps> = ({ id, bridge: given, children }) => {
+export const RequireWorkspace: React.FC<RequireWorkspaceProps> = ({ id, bridge: given, body = GATE_TEXT.body, children }) => {
   const navigate = useNavigate();
   const bridge = useMemo(() => given ?? workspaceBridge(), [given]);
   const [active, setActive] = useState<boolean | null>(null);
@@ -56,7 +59,7 @@ export const RequireWorkspace: React.FC<RequireWorkspaceProps> = ({ id, bridge: 
   return (
     <div className="gds-root" style={{ minHeight: '100vh', padding: 24 }} data-testid="ws-gate">
       <Card title={GATE_TEXT.heading}>
-        <p>{GATE_TEXT.body}</p>
+        <p>{body}</p>
         <p role="status" aria-live="polite" data-testid="ws-gate-message">
           {message ?? ''}
         </p>

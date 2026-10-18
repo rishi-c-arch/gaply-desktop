@@ -117,7 +117,10 @@ impl SwarmAgent for RevisingVerificationAgent<'_> {
             }
             Err(e) => {
                 // A failed reconsideration must never lose the gated original.
-                tracing::warn!(error = %e, "reconsideration failed; holding prior verdicts");
+                tracing::warn!(
+                    error_kind = e.code(),
+                    "reconsideration failed; holding prior verdicts"
+                );
                 None
             }
         }

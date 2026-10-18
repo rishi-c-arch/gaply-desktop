@@ -100,7 +100,7 @@ pub fn run_targeted_escalation(
     let records: Vec<EvidenceRecord> = match serde_json::from_value(report["evidence"].clone()) {
         Ok(r) => r,
         Err(e) => {
-            tracing::warn!(run_id, error = %e, "evidence could not be interpreted; verdict withheld");
+            tracing::warn!(run_id, error_kind = ?e.classify(), "evidence could not be interpreted; verdict withheld");
             return EscalationSummary {
                 withheld: Some(VerdictWithheld::EvidenceUninterpretable),
                 ..Default::default()
@@ -198,7 +198,7 @@ fn escalate_batch(
     match proxy.verify(&payload).and_then(|resp| gate_escalation_response(&resp, &sent)) {
         Ok(outcomes) => Some(outcomes),
         Err(e) => {
-            tracing::warn!(error = %e, "escalation batch failed; findings stay unavailable");
+            tracing::warn!(error_kind = e.code(), "escalation batch failed; findings stay unavailable");
             None
         }
     }

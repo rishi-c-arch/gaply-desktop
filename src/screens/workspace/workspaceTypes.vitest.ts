@@ -36,7 +36,18 @@ const list = [
     displayNameCode: 'workspace.name.statistics',
     availability: 'available',
     activationPolicy: 'single_active',
-    capabilityIds: ['stats.describe'],
+    capabilityIds: [
+      'stats.check',
+      'stats.verify.independent_t',
+      'stats.verify.paired_t',
+      'stats.verify.one_way_anova',
+      'stats.verify.pearson',
+      'stats.verify.spearman',
+      'stats.verify.chi_square_independence',
+      'stats.verify.ols',
+      'stats.describe',
+      'stats.analyze.independent_t',
+    ],
     supportsOffline: true,
     supportedPlatforms: ['macos', 'windows', 'linux'],
     entitled: null,
@@ -45,7 +56,12 @@ const list = [
   missing('design'),
 ] satisfies WorkspaceDescriptorView[];
 
-const state = { state: { phase: 'active', workspace: 'statistics' }, activeRun: 3, latestRun: 3 } satisfies WorkspaceStateView;
+// Phase 4B-2 (decision 80): each run names its kind.
+const state = {
+  state: { phase: 'active', workspace: 'statistics' },
+  activeRun: { runId: 3, kind: 'ttest' },
+  latestRun: { runId: 3, kind: 'ttest' },
+} satisfies WorkspaceStateView;
 const none = { state: { phase: 'no_workspace' }, activeRun: null, latestRun: null } satisfies WorkspaceStateView;
 const runActive = {
   code: 'workspace.run_active',

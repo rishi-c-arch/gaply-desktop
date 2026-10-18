@@ -41,8 +41,10 @@ const HEADER: [&str; 7] = [
     "note",
 ];
 
-/// A text field, guarded and quoted.
-fn text(field: &str) -> String {
+/// A text field, guarded and quoted. The t-test's export writes its text
+/// fields through this too, so the guard is one rule (Research OS, Phase
+/// 4B-1).
+pub(crate) fn text(field: &str) -> String {
     let guarded = if field.starts_with(FORMULA_STARTS) {
         format!("'{field}")
     } else {

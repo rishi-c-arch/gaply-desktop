@@ -40,7 +40,8 @@ export type RunCode =
   | 'run.timed_out'
   | 'run.resource_limit'
   | 'run.illegal_transition'
-  | 'run.already_terminal';
+  | 'run.already_terminal'
+  | 'run.wrong_kind';
 
 export type RunState =
   | 'draft'
@@ -242,6 +243,9 @@ export interface OperationSpec {
   inputs: InputRef[];
   parameters: DescribeParams;
   randomSeed: number | null;
+  /** The confirmations a run needs (Research OS, Phase 4A, decision 50).
+   *  The descriptive summary needs none, so it is always empty. */
+  confirmationRefs: [];
 }
 
 /** A command's refusal, parsed from its message: a closed code and its

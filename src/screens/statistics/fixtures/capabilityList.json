@@ -1,0 +1,18 @@
+[
+  {
+    "id": "stats.analyze.independent_t",
+    "version": 1,
+    "lifecycle": "beta",
+    "titleCode": "stats.capability.analyze.independent_t.title",
+    "descriptionCode": "stats.capability.analyze.independent_t.description",
+    "licenseNotes": [
+      "stats.capability.license.statrs_mit"
+    ],
+    "knownLimitations": [
+      "stats.capability.limit.analyze.levels_follow_level_1",
+      "stats.capability.limit.analyze.normality_not_assessed",
+      "stats.capability.limit.analyze.cohens_d_has_no_interval"
+    ],
+    "runnable": true
+  }
+]

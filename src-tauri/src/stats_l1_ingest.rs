@@ -77,7 +77,9 @@ pub use gaply_core::stats_l1::dataset::L1IngestRefusal;
 
 /// Extensions the ingest turns into a table. Text formats parse but hold no
 /// table and are refused before being read.
-const TABLE_EXTENSIONS: &[&str] = &["sav", "mat", "xlsx", "xls", "xlsb", "ods", "xlsm", "csv", "tsv"];
+/// Public so `tests/capability_registry.rs` can pin the registry's table
+/// formats to it (Research OS, Phase 4A).
+pub const TABLE_EXTENSIONS: &[&str] = &["sav", "mat", "xlsx", "xls", "xlsb", "ods", "xlsm", "csv", "tsv"];
 
 /// The workbook formats that are zip archives (`.xls` is a compound
 /// document, not a zip).
@@ -95,6 +97,10 @@ const ZIP_EXTENSIONS: &[&str] = &["xlsx", "xlsm", "xlsb", "ods"];
 /// follow-up, item 2): the reader (zip 2.4.2, through calamine) bounds the
 /// compressed bytes it reads, not the inflated output.
 pub const MAX_WORKBOOK_UNCOMPRESSED_BYTES: u64 = 64 * 1024 * 1024;
+
+/// The deepest element nesting a worksheet may have (F14, decision 52). A
+/// rich-text cell goes eight deep; this leaves room for any extension.
+pub const MAX_SHEET_XML_DEPTH: usize = 64;
 
 /// The file at `path` as a Level 1 dataset.
 #[doc(hidden)]
@@ -147,6 +153,11 @@ pub fn check_file(path: &Path) -> Result<CheckedFile, L1IngestRefusal> {
         if let ZipInflation::Over { counted } = import_guard::count_zip_inflation(&before, MAX_WORKBOOK_UNCOMPRESSED_BYTES) {
             return Err(L1IngestRefusal::ArchiveTooLarge { declared: counted, limit: MAX_WORKBOOK_UNCOMPRESSED_BYTES });
         }
+        // F14 (decision 52): a sheet that nests far past any SpreadsheetML
+        // is not one; the parser read it as an empty table.
+        if import_guard::worksheet_nests_deeper_than(&before, MAX_SHEET_XML_DEPTH) {
+            return Err(L1IngestRefusal::Malformed);
+        }
     }
     // A .zsav's trailer, read before ambers allocates from it (part C
     // follow-up 2, item 3).
@@ -189,6 +200,9 @@ pub fn dataset_from_checked(checked: CheckedFile) -> Result<Dataset, L1IngestRef
             L1IngestRefusal::ContentTooLarge { limit_bytes: supplementary::MAX_TOTAL_CHARS }
         } else if supplementary::xls_not_compound_document_bytes(&before, &ext) {
             L1IngestRefusal::XlsNotReadable
+        } else if supplementary::not_utf8_text_bytes(&before, &ext) {
+            // F10 (decision 52): text in another encoding, not malformed.
+            L1IngestRefusal::EncodingNotUtf8
         } else {
             L1IngestRefusal::Malformed
         }

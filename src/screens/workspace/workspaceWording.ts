@@ -73,6 +73,13 @@ export const SWITCH_DIALOG = {
   waiting: 'Waiting for the run to end…',
 };
 
+/** What the Stats Check and the Stats Verifier show while they open the
+ *  Statistics workspace for the user (Phase 4A, decision 49). */
+export const ENTER_TEXT = {
+  opening: 'Opening the Statistics workspace…',
+  notOpened: 'The Statistics workspace could not be opened.',
+};
+
 export const GATE_TEXT = {
   heading: 'This is part of the Statistics workspace',
   body: 'Open the Statistics workspace to use the descriptive summary.',

@@ -23678,3 +23678,525 @@ commands (`create_project`, `rag_search`, `citation_lib_search`,
 name in `http_fetcher.rs`, and is green with the eight on `skip_all` and that
 field renamed; `ENGINE_VERSION` stays 1; the cloud agents' `error = %e`
 fields wait for Phase 4; the focus-test fix stays.
+
+### D275 — Research OS, Phase 4A: the Statistics capability registry, the verifier's façades, and the workspace check on the verifier's operation commands `[src]` `[test]` `[measured]`
+
+**Added** on `feat/research-os-4` (from `da00686`). Decisions 44 to 51 of
+18 Oct 2026 apply (`~/gaply-corpus/os/decisions.md`), with 16, 27, 30 and
+42. The verifier does not move: `gaply-core/src/stats_l0`, `stats_l1` and
+`stats_assist` are unchanged (`git diff da00686` over them is empty).
+ADR-001 gains an Accepted addendum (decision 49), ADR-003 a Proposed one, and
+ADR-010 a Proposed one with the measured profiles.
+
+**The contract** (`gaply_core::contracts::capability`, pure, domain-free):
+`CapabilityDescriptor<W>` (blueprint §7.2, texts as closed wording codes
+`W`), `Lifecycle` and its one rule `runnable_in(Build)` (decision 48),
+`ResourceProfile`, `ConfirmationId` (64 lowercase hex, prints nothing), and
+`capability.*` refusals: `unknown_capability`, `version_mismatch`,
+`not_runnable`, `confirmation_missing`, `confirmation_unmatched`.
+`OperationSpec` gains `confirmation_refs` (decision 50; written always, read
+as empty when absent; schema version 1). `ParamKey` and `ParamValue` gain a
+lifecycle. A descriptor derives `Serialize` only.
+
+**The table** (`gaply_core::stats_registry`, pure, static; pin SHA-256
+`9bc76ee0…` over the sorted list):
+
+| id | version | lifecycle |
+|---|---|---|
+| `stats.check` | 1 | stable |
+| `stats.verify.independent_t` | 1 | beta |
+| `stats.verify.paired_t` | 1 | beta |
+| `stats.verify.one_way_anova` | 1 | beta |
+| `stats.verify.pearson` | 1 | beta |
+| `stats.verify.spearman` | 1 | beta |
+| `stats.verify.chi_square_independence` | 1 | beta |
+| `stats.verify.ols` | 1 | beta |
+| `stats.describe` | 1 | beta |
+
+The seven `stats.verify` rows are derived from `MethodCatalogue::ENTRIES`
+(Beta when `L1Registry` implements the method, Planned otherwise; none is
+Planned today). The Statistics `WorkspaceDescriptor`'s capability ids are
+this table's (`stats_registry::workspace_descriptor`), so `workspace_list`
+lists nine. `run_stats_preview` and `run_stats_verify` are not capabilities.
+
+**The façades** (`gaply_core::stats_adapters`, pure): `check`, `verify`
+(one, keyed by method; each spec carries its bindings' tokens) and
+`describe_validate` / `describe_until`. The registry first, then the
+existing function, its output unchanged: equal over 12 Level 0 inputs, all
+43 rows of Level 1's golden set and all 19 cases of Phase 2A's R golden set.
+A stale or revoked token is still refused by the gate inside `reproduce`
+with today's `token_stale`. The describe façades word a refusal with the
+existing `stats.desc.*` codes. Level 1's helper accepts a method an AI
+answer names only when its capability is runnable, refusing otherwise with
+the validator's own `unknown_method`.
+
+**Gated (decision 49), first statement `workspace.inactive`:**
+`run_stats_consistency`, `run_stats_preview`, `run_stats_verify` (now
+registered from `stats_legacy`; bodies unchanged in `commands.rs`),
+`stats_l1_open`, `stats_l1_edit_claim`, `stats_l1_add_claim`,
+`stats_l1_proposals`, `stats_l1_helper_preview`, `stats_l1_helper_send`,
+`stats_l1_confirm_binding`, `stats_l1_draft_proposal`, `stats_l1_compute`.
+**Never gated:** `stats_l1_close`, `stats_l1_helper_revoke`,
+`stats_l1_helper_cancel`, `stats_ai_usage`, `stats_ai_setting_get`,
+`stats_ai_setting_set`, `stats_ai_key_status`, `stats_ai_key_save`,
+`stats_ai_key_test`, `stats_ai_key_remove`, `stats_open_source_link`.
+**Ungated callers outside the commands** (decision 7): the seams
+`stats_consistency::run_stats_consistency_measured` (Level 0, through its
+façade) and `stats_l1_commands::{open, compute, …}` (through theirs), called
+by tests and by `examples/l0_corpus_run.rs` and `examples/l1_paper_run.rs`;
+and `stats_reproduction::run_stats_reproduction_measured`, which calls
+`reproduce` directly and is called only by `tests/stats_l1_reproduction.rs`.
+The manuscript pipeline calls neither level. The two screens activate
+Statistics on opening (`EnterStatistics`), one activation at a time, the body
+only once Active; the browser build is unchanged.
+
+**Decision 42 and the app's error fields.** `tests/no_error_text_in_tracing.rs`
+fails on an error logged as text (`error = %e`, `?e`, `{e}`, a positional
+`e`, `#[instrument(err)]`). The seven gaply-core cloud-agent fields and
+nineteen app fields that could record user text, a path or model output now
+log `error_kind` (`e.code()`, a serde category or a closed word; red before:
+7 + 21 sites, green after); `pipeline.rs`'s refverify event also lost its
+`reference = %r.raw` (manuscript text). Twenty-eight others are listed in the
+guard, one line each, for a later step.
+
+**Measured, 18 Oct 2026, macOS aarch64** (logs in
+`~/gaply-corpus/os/phase4/logs/`): `cargo test --workspace` exit 0, 96
+targets (94 Running + 2 Doc-tests), 2,680 passed, 12 ignored: D274's 88 and
+2,648 plus 8 new targets (23 tests), `workspace_guards` 3 → 4 and the
+`gaply_core` lib 1,818 → 1,826. `cargo test -p app --features devtools`: 36
+targets, 661 passed, 9 ignored. vitest over the workspace, describe, Stats
+Check, Stats Verifier and Level 1 folders: 26 files, 236 passed. `npx tsc
+--noEmit`, CI's eslint and `npm run build` exit 0. Peak RSS (dev profile):
+describe at the caps 94.0 MiB, Level 1's OLS with 127 predictors at the caps
+689.6 MiB, Level 0 on 10 MiB 419.2 MiB; Level 0 at its 100 MiB cap not
+measured (ADR-010's addendum). Mutation probes, each predicted, run and
+restored to its SHA-256: the check removed from `stats_l1_compute` (3 red),
+`stats_l1_close` gated (2 red), Pearson's version raised (the pin and two
+unit tests red), Planned made runnable (6 red), the registry check removed
+from the `check` façade (2 red).
+
+**Found on the way:** F19's file formatted (15 hunks to 0); a `#[cfg(test)]`
+import in `stats_consistency.rs` cut `stats_outcome_has_no_score.rs`'s read
+of the file to nothing (that guard reads up to the first such attribute), seen
+only in the whole-workspace run of the third mutation probe, and moved into
+the test module; three `gguf = %gguf.display()` info events in
+`models/mod.rs` log a model path that `no_path_in_tracing.rs` does not see
+(changed in the review round, below). **Not done here:** F10 and F14 (each fix changes a wire code
+or an outcome; for a decision), F20, and a release-build measurement.
+
+**Review round (decisions 52 to 58):** `no_path_in_tracing.rs` now also fails
+on a value or message argument that renders a path through `.display()` or
+`.to_string_lossy()`, whatever its name; it went red on five fields in four
+`models/mod.rs` calls (`log_model_resolution` and the three model-load lines),
+which now log the model's kind, its source as `env`, `bundled` or `home`, and
+whether the model and tokenizer files exist, and the suites' counts are
+unchanged (2,680 and 661).
+
+### D276 — Research OS, Phase 4A follow-up: two ingest refusals told apart (F10, F14) `[src]` `[test]` `[measured]`
+
+**Added** on `feat/research-os-4` after 4A's commit (`1797817`), decision 52.
+Level 1's shared ingest, which the descriptive summary also reads through,
+now names two refusals it used to hide. **F10:** a CSV or TSV that is text in
+another encoding (a UTF-16 byte-order mark, or invalid UTF-8 with no control
+character but tab, line feed and carriage return) is refused as the new
+`encoding_not_utf8` (`L1IngestRefusal::EncodingNotUtf8`;
+`supplementary::not_utf8_text_bytes`), with one sentence in Level 1's table
+and `l1Codes.json`; it is told apart only after the parse has failed, so no
+file that opens can change, and bytes that are not text stay `malformed`.
+**F14:** a zip workbook whose worksheet XML nests more than 64 elements deep
+(`stats_l1_ingest::MAX_SHEET_XML_DEPTH`; a rich-text cell goes eight deep) is
+refused as `malformed` before any parser sees it
+(`import_guard::worksheet_nests_deeper_than`, over the parts already bounded by
+the inflation count); the evaluation's file nested 200,000 inside one cell and
+opened as an empty table. Tests: `src-tauri/tests/stats_l1_ingest_followup.rs`
+(5; red before on exactly the two fixes), `l1WordingEncoding.vitest.ts` (2;
+red with the sentence removed). The evaluation's 31 hostile files, re-run
+through `stats_desc_open`: 26 identical to the fixes step's re-run apart from
+timing, every file that opens included (same content hashes); the five that
+changed are the four Latin-1 and UTF-16 files (`malformed` →
+`encoding_not_utf8`) and `deep_xml.xlsx` (an empty table → `malformed`).
+`cargo test --workspace`: 97 targets, 2,685 passed, 12 ignored (D275's 2,680
+plus the 5); Level 1's golden set unchanged. `cargo test -p app --features
+devtools`: 37 targets, 666 passed. No GRRB-watched file is touched.
+F14 does not cover `.ods` or `.xlsb`; a later step decides whether they need the same check.
+
+### D277 — Research OS, Phase 4B-1: the independent-samples t-test as an analysis, the pure core `[src]` `[test]` `[measured]`
+
+**Added** on `feat/research-os-4` (from `6c63bea`). Decisions 60 to 68 of
+18 Oct 2026 apply (`~/gaply-corpus/os/decisions.md`). New capability
+`stats.analyze.independent_t`, version 1, Beta: the t-test on the user's own
+data, not a reproduction (Level 1's `stats.verify.independent_t` is
+unchanged). Pure core only; the run manager, commands, wire, privacy matrix,
+method selector and screen are Phase 4B-2, and nothing new is reachable from
+the app. The method's page is `docs/methods/independent_t.md` (its
+`documentation_id`); `docs/adr/ADR-008-statistical-reference-strategy.md` is
+Proposed.
+
+**The module** (`gaply_core::stats_ttest`, pure; `export.rs`):
+`TTestParams { outcome, group, levels: Option<[u32; 2]>, variant:
+Option<Student | Welch>, missing_codes }`; `validate`; `run(dataset, params,
+checkpoint)`, one check point before the arithmetic, returning
+`Result<TTestResult, Halt<B>>` (`compute` is `run` with a check point that
+never stops); `manifest`; `export::result_csv`, `manifest_json`. 28 codes,
+`stats.ttest.*`, pinned in `contracts_wire.rs`. The variant is never chosen
+for the user (`variant_not_chosen`, NeedsUserInput); more than two levels need
+two chosen by index in code-point order (`levels_not_chosen`); group 1 minus
+group 2. A row is left out once, by the first of `missing_group`,
+`other_level`, `missing_outcome`, `missing_code` (outcome only). Refused:
+`group_too_small` (fewer than 2 values after exclusions); not computable:
+`both_groups_constant`, `overflow`, `underflow` (read from
+`stats_verify::RangeFault`, decision 70), `arithmetic_refused`,
+`quantile_out_of_range`; one
+constant group computes, its sd ratio `sd_ratio_undefined`. Every result
+carries `normality_not_assessed` and `cohens_d_has_no_interval`.
+
+**Reuse (decision 62).** t, df and the standard error from
+`stats_verify::t_test_student` / `t_test_welch`: their `TTestResult` gained
+one field, `se`, the number t already divided by (set at the three
+constructors; Level 1's golden targets unchanged). p from
+`stats_l0::pvalue::t_two_tailed`; group means and variances from
+`stats_verify::mean` / `sample_variance` over ascending values. Student's d
+divides by the pooled sd recovered from Student's own se; Welch's d by
+√((v₁+v₂)/2), effectsize's `pooled_sd = FALSE` standardizer (documentation
+and source read 18 Oct 2026, effectsize 1.0.3). The CSV's text fields go
+through `stats_desc::export::text` (made `pub(crate)`), the one formula-
+injection rule. No change under `stats_l0`, `stats_l1` or `stats_assist`.
+
+**The quantile.** statrs's `StudentsT::inverse_cdf` was measured first against
+R's `qt(0.975, df)` over 33 df: within 6.1e-13 up to df 4,998, but 3.5e-6 off
+at 1e5, 6.1e-5 at 1e6 and 6.8e-2 at 1e7, so it fails the 1e-12 gate. Shipped:
+bisection of `t_two_tailed(q, df) = 0.05` on [0, 1e3], within 5.2e-13 up to
+df 1e4 and not above (1.8e-11 at 1e5, 3.6e-9 at 1e7, the error of
+`t_two_tailed` itself at large df); above df 1e4 the quantile is refused,
+`quantile_out_of_range`. A table opened through the ingest has at most 5,000
+rows, so df ≤ 4,998.
+
+**The registry.** `stats.analyze.independent_t` is the tenth Statistics
+capability (`Kind::AnalyzeIndependentT`), with the descriptive summary's
+resource profile (the ingest's caps, `runs::RUN_CEILING_MS`, a cooperative
+check point; pinned in `src-tauri/tests/capability_profiles.rs`),
+`validation_suite_id` `ttest_r_golden`, `documentation_id`
+`methods/independent_t` and five limitation wording codes. Pin `20128c37…`.
+The id scan reads `stats.analyze.<word>`; a `stats.ttest.*` code is not an id.
+`workspace_list` lists ten ids (fixture and TypeScript pin). The façade
+(`stats_adapters::ttest_validate`, `ttest_run`) asks the registry first and
+words a refusal `stats.ttest.unknown_capability` or
+`capability_version_mismatch`; forged specs (an unknown id, another façade's
+id, a wrong version, a Planned table, a confirmation) are refused.
+
+**R and the gates.** `make_ttest_fixtures.R` (`/usr/local/bin/Rscript`, R
+4.6.1 aarch64, effectsize 1.0.3, `set.seed(20261018)`): 16 data files, 18
+cases × 2 variants, `t.test(var.equal = TRUE/FALSE)` and
+`effectsize::cohens_d`; 5,613 cells' bits equal to Gaply's. 32 pairs
+computed and 4 refused as expected (`both_constant`, `group_of_one`). The
+gates (ε = 1e-12, M = |m₁| + |m₂|) are per statistic and justified in the
+method's page §6; the worst measured |gaply − R| / gate is 9.989e-3 (ci_upper,
+heavy_tail). Properties (proptest, seed 20261018, 6 × 512 cases, both
+variants, 0.58 s debug): the level swap negates bit for bit, a row permutation
+changes no byte, shift and scale within the sum of both sides' gates, p in
+[0, 1], the interval contains the difference, Welch's df in its bounds.
+
+**Measured, 18 Oct 2026, macOS aarch64** (logs in
+`~/gaply-corpus/os/phase4b1/logs/`): `cargo test --workspace` exit 0, 102
+targets (100 Running + 2 Doc-tests), 2,712 passed, 12 ignored: D276's 97 and
+2,685 plus five new targets (`ttest_r_golden` 3, `ttest_quantile` 2,
+`ttest_properties` 6, `ttest_export` 3, `ttest_validate` 10), the `gaply_core`
+lib 1,826 → 1,827 (the façade's forged-spec test) and `contracts_are_pure` 7 →
+9; every other target's counts unchanged. `cargo test -p app --features
+devtools`: 37 targets, 666 passed, 9 ignored (D276's counts). vitest over the workspace, describe, Stats Check and
+Stats Verifier folders: 27 files, 238 passed; `npx tsc --noEmit` and CI's
+eslint exit 0. Mutation probes, each predicted, run with `--no-fail-fast` and
+restored to its SHA-256: unregistered (4 red: the pin, the id scan, the
+registry's lifecycle count, the façade test), Planned (2: the pin, the façade
+test), version 2 with the pin unchanged (3: the pin, the façade test,
+`another_capability_or_version_is_unsupported`), Student and Welch swapped (3:
+the R golden, the Welch-df property, the df-range test), the variant defaulted
+to Welch (3: `the_variant_is_never_chosen_for_the_user` and two others).
+**Found on the way:** `stats_l0::pvalue::t_two_tailed` loses accuracy at very
+large df (inverting it misses `qt` by 3.6e-9 at df 1e7), outside this
+capability's reach and not changed; and two app-lib tests in `models/mod.rs`
+set and remove the same tokenizer-path environment variable on parallel
+threads, which failed one of three workspace runs
+(`stage1_lm_paths_honor_env_and_absent_model_is_none`); decision 72 fixes
+them in a commit of their own, after this one.
+
+**Review (decisions 69 to 73, 18 Oct 2026).** The quantile's limit stands.
+`RangeFault` joins `stats_ttest`'s import list (decision 70), so a range fault
+is `stats.ttest.overflow` or `stats.ttest.underflow`, as in the descriptive
+summary; `arithmetic_refused` is left for a refusal that names no fault.
+`overflow_and_underflow_keep_their_own_codes_as_in_the_descriptive_summary`
+was red first (`arithmetic_refused` where `overflow` was expected) and is
+green; the code pin lists 28 codes. `cargo test --workspace` after it: 102
+targets, 2,713 passed, 12 ignored (`ttest_validate` 10 → 11, every other target
+unchanged). The departures above are accepted.
+
+**Acceptance (blueprint §18.2):**
+
+| item | evidence | status |
+|---|---|---|
+| Formula/method and variant documented | `docs/methods/independent_t.md` §2, §4 | done |
+| Golden fixtures and edge cases pass | `ttest_r_golden`, `ttest_validate`, `ttest_quantile` | done |
+| Missing values, ties, weights, precision, sample size | exclusions and codes, ties fixture, gates; weights not supported (stated) | done |
+| Diagnostic meanings and limitations documented | method page §5, §8; `TTestCode` docs | done; screen sentences 4B-2 |
+| Independent reference comparison completed | R `t.test`, effectsize, `qt` | done |
+| Unsupported designs return explicit reasons | closed codes; undetectable designs listed | core done; shown in 4B-2 |
+| Result manifest and export verified | `ttest_export` | core done; save dialog 4B-2 |
+
+### D278 — Research OS, Phase 4B-2: the t-test's app side: run manager, commands, wire, privacy matrix, method selector and screen `[src]` `[test]` `[measured]`
+
+**Added** on `feat/research-os-4` (from `8e3f843`, after D277's `ee244bc` and
+the two test fixes). Decisions 74 to 80 of 18 Oct 2026 apply
+(`~/gaply-corpus/os/decisions.md`), with 5, 9, 46, 64 to 66. The core
+(`gaply_core::stats_ttest`) is D277's and unchanged; `stats_l0`, `stats_l1`
+and `stats_assist` are unchanged. `stats_adapters` gains one function,
+`ttest_admit`, the registry's answer as the registry words it.
+
+**The run manager (decision 75)** (`src-tauri/src/runs.rs`): a record holds a
+closed enum of result kinds, `Held::{Describe, Ttest}`, each its own
+validation, result and failure in its own codes; `RunKind` (`describe`,
+`ttest`) is the app crate's closed word, so `contracts` stays domain-free.
+`Runs::start` keeps its signature; `Runs::start_ttest` is its sibling, and
+each calls its own façade's `validate` in its own body (the 4A guard
+`verifier_facade_guards.rs` reads `start`). Both make the record through one
+`open_record` (one foreground run across both kinds: `run.run_busy`), and
+queue it through one `queue`. The worker runs the summary's
+`describe_until` or the t-test's `ttest_run` with the same check point (the
+t-test calls it once, before its arithmetic) and the same ceiling, and ends
+with ONE cancel-wins check for both kinds (F1, F2): a set flag ends the run
+`Cancelled` whatever the work produced. Eviction, the run ids and the slot
+counter (F8) are shared. A not-computable t-test (both groups constant, an
+overflow) ends `Failed` with its code, as a summary's refusal does;
+`NumericalFailure` still has no producer. `snapshot`, `cancel` and `result`
+refuse a t-test's run with the new `run.wrong_kind`; `ttest_snapshot`,
+`ttest_cancel` and `ttest_result` refuse a summary's (decision 74).
+`RunSnapshot<C = DescCode>` is generic over its kind's codes.
+
+**The commands (decision 74)** (`src-tauri/src/stats_ttest_commands.rs`,
+registered in `lib.rs` after the `stats_desc_*` ones): `stats_ttest_validate
+{slot, spec}`, `stats_ttest_run {slot, spec} → {runId}`, `stats_ttest_status`
+and `stats_ttest_cancel {runId} → TTestRunStateView` (describe's
+`RunStateView` without `columnsDone` and `columnsTotal`),
+`stats_ttest_result {runId} → TTestResultView {runId, status, result,
+diagnostics, manifest}`, `stats_ttest_export {runId, format} → {bytes,
+sha256}`. Each is `#[tracing::instrument(skip_all)]`, checks the workspace
+first (`workspace.inactive`), then the spec's workspace
+(`workspace.wrong_workspace`), then the registry, whose `capability.*`
+refusal it returns as it is (`capability.unknown_capability`,
+`capability.version_mismatch {expected, found}`); only the describe
+commands word theirs as `stats.desc.*`. The dataset is opened and closed
+with `stats_desc_open` and `stats_desc_close`, unchanged. `capability_list()`
+→ `[{id, version, lifecycle, titleCode, descriptionCode, licenseNotes,
+knownLimitations, runnable}]` is exempt from the workspace check (decision
+76): it reads only the static registry, and `runnable` is
+`stats_registry::require_runnable` with this build. `workspace_guards.rs`
+lists the six as gated and `capability_list` as exempt, and fails on an
+unclassified `stats_ttest_commands` command. `run.wrong_kind` joins
+`RunCode` (pin in `contracts_wire.rs`) and `describeCodes.json`, with a
+sentence on each screen. Describe's views and fixtures are byte-identical.
+
+**The shell (decision 80)**: `WorkspaceStateView`'s `activeRun` and
+`latestRun` are `{runId, kind} | null` (`workspace::RunEntryView`; fixture
+and pins in Rust and TypeScript updated). The job area and the switch
+dialog read a run, and Cancel cancels it, through its kind's commands.
+
+**The wire, as in Phase 2B**: four fixtures (`ttestValidationReportView`,
+`ttestRunStateView`, `ttestResultView`, `capabilityList`), each byte-equal to
+its Rust view (`tests/stats_ttest_wire.rs`) and deep-equal to a copy typed
+`satisfies` (`ttestTypes.vitest.ts`, which also pins every key, the seven
+command names and their argument keys). `ttestCodes.json`, the 28
+`stats.ttest.*`, 11 `run.*`, 6 `workspace.*` and 5 `capability.*` codes, and
+`capabilityCodes.json`, the 24 `StatsWording` codes, are pinned to the Rust
+sets.
+
+**The screens** (behind `REACT_APP_FEATURE_STATS_DESCRIBE`, off):
+`StatisticsHome.tsx` at `/app/statistics` reads `capability_list`, needs no
+workspace, and gives a card if and only if Rust says runnable; Planned
+capabilities appear only on a roadmap panel, Deprecated only in a list of
+retired methods; the runnable `stats.verify.*` are one Stats Verifier card
+naming its methods, with `useEntitlement('stats_verifier')`; `stats.check`
+links to the Stats Check only while `REACT_APP_FEATURE_STATS_CHECK` is on;
+the describe and t-test cards show no entitlement (decisions 9, 66).
+**Placement (decision 77):** with only the describe flag on, the hub's tile is
+"Statistical Methods" → `/app/statistics` (it replaced "Descriptive
+Summary"); with `REACT_APP_FEATURE_WORKSPACES` on too, the tile leaves the
+hub and the Statistics workspace's tools link to the selector instead of the
+summary; with the describe flag off, the selector, the t-test and the
+summary are all hidden. `TTestFlow.tsx` at `/app/statistics/ttest`, inside
+`RequireWorkspace id="statistics"` with the describe screen's explicit
+button and its own sentence: Import → Profile → Settings → Validate → Run →
+Results → Export, focus on each heading; the outcome from the numeric
+columns, the group from the columns whose profile lists at least two levels,
+the two levels chosen by label and sent as positions in the profile's list
+(never sorted in JavaScript; tested with "ｚ" and "😀", whose UTF-16 and
+code-point orders differ), the variant asked with no default, a candidate
+missing code in the outcome asked as a question; a neutral result card (the
+variant, t, df, p, the mean difference with its se and 95% interval, d with
+the SD it used and the sentence that it has no interval, each group's label,
+n, mean and SD, the SD ratio as information, exclusions, limitations and the
+manifest panel); export through the save dialog. No sentence or rendered
+card says "significant" or shows a star (tested). The five StatsWording
+codes 4B-1 left wordless have sentences (`capabilityWording.ts`).
+
+**The privacy matrix** (`tests/stats_ttest_privacy_matrix.rs`, global
+subscriber): a header, a level label, the file name and folder, an outcome
+value no statistic can equal (61.8129, group 1's largest; R 4.6.1 under both
+variants: no statistic equals it, and none printed with 15 or 17 digits
+contains it), a number in an unselected column and a text cell in another.
+Over 119 surfaces, 13 refusals, 87 tracing lines and the three database
+files: the header, label, display name and text cell only in `DatasetView`,
+the label only in the result view and the CSV body besides; nothing in the
+spec, either manifest, any refusal, any trace or any file; the app-data
+folder SHA-256-identical before and after. The no-write guard scans
+`stats_ttest_commands.rs` and `gaply-core/src/stats_ttest/` too.
+
+**Found on the way:** comparing the result view with `compute`'s through a
+JSON `Value` differed in p's last bit (0.10922441798986729 read back as
+…728): serde_json is built without `float_roundtrip`, so its parse of the
+text may land one ulp off. The view is compared through the same text, and
+the bit-for-bit claim rests on the output hash and the CSV bytes; a
+webview's `JSON.parse` rounds correctly. And the profile lists levels only
+for a categorical column, so a group coded in numbers (0/1) is not offered
+as a group on this screen.
+
+**Measured, 18 Oct 2026, macOS aarch64** (logs in
+`~/gaply-corpus/os/phase4b2/logs/`): `cargo test --workspace` exit 0, 105
+targets (103 Running + 2 Doc-tests), 2,736 passed, 12 ignored: the
+baseline at `8e3f843` (102 targets, 2,715 passed, measured first in this
+step) plus three new targets (`stats_ttest_commands` 14, `stats_ttest_wire`
+4, `stats_ttest_privacy_matrix` 1), the app lib 523 → 524 (the cross-kind
+eviction test) and `workspace_guards` 4 → 5; no other target's count moved.
+`cargo test -p app --features devtools`: 40 targets, 689 passed, 9 ignored.
+vitest over the statistics, workspace, Stats Verifier, Level 1, Stats Check
+and home folders: 33 files, 281 passed. `npx tsc --noEmit`, CI's eslint and
+`npm run build` exit 0 (`public/sitemap.xml` written back from HEAD).
+Mutation probes, each predicted, run with every target and restored to its
+SHA-256: the workspace check removed from `stats_ttest_run` (2 red: the
+guard and the inactive-workspace test), `stats_desc_result` reading a
+t-test's run (1 red: the wrong-kind test), the shared cancel-wins check
+removed (5 red: describe's three race tests and the t-test's two),
+"significant" in a result sentence (2 red: the wording rule and the card),
+and a card for a capability that is not runnable (2 red: the placement and
+the card test).
+
+### D279 — Research OS, Phase 4B-2 follow-up: a group coded in numbers, through `stats_ttest_group_levels` `[src]` `[test]` `[measured]`
+
+**Added** on `feat/research-os-4` after 4B-2's commit (`0db8fb4`), decision 81
+of 18 Oct 2026 (decisions 81 to 86, `~/gaply-corpus/os/decisions.md`).
+D278 recorded that the profile lists levels only for a categorical column,
+so a group coded 0/1 could not be chosen on the screen though the core
+reads it. Now a command `stats_ttest_group_levels { slot, column } →
+{slot, column, levels: [{index, label, count}]}` gives any column's levels
+as the t-test indexes them, from `stats_ttest::group_levels`, which reads the
+core's one level function (`level_counts`; `levels_of`, used by `check`,
+reads the same map), so position `i` is index `i` by construction. It checks
+the workspace first, refuses an unknown slot with `run.unknown_input` and an
+unknown column with `stats.ttest.unknown_column {column}`, and is the eighth
+`stats_ttest_commands` command (`workspace_guards.rs`: gated). The group
+picker offers every column with at least two distinct values (the profile's
+`distinct`), numeric columns included, reads the chosen column's levels from
+the command and sends positions from its list. `DatasetView` is unchanged.
+The labels appear in that view only: the privacy matrix has it as a surface
+(the group's label allowed there) and its two refusals; the wire has
+`groupLevelsView.json`, byte-equal from Rust and deep-equal to a typed copy,
+its keys and the command's argument keys pinned.
+
+**Tests, red before:** `stats_ttest_commands.rs`
+`a_group_coded_0_1_is_offered_and_runs_with_its_levels_in_the_cores_order`,
+`a_group_coded_1_2_and_3_needs_two_chosen`,
+`group_levels_checks_the_workspace_first_and_refuses_with_closed_codes` (red:
+the command was not registered); `TTestFlow.vitest.tsx` `offers a group coded
+in numbers, reads its levels from Rust, and sends positions from that list`
+(red: `expected [ '', 'C2', 'C3' ] to include 'C4'`); then green. A core test,
+`ttest_validate.rs` `group_levels_are_the_indices_a_spec_names`, checks every
+ordered pair of positions against `compute` for a group "1", "10", "2". A
+probe returning the levels reversed turned four tests red: the three
+predicted and the privacy matrix, whose check that the group's first level
+is the sentinel label also caught it.
+
+**On review (decisions 87 and 88, 18 Oct 2026):** a group column has between 2
+and 50 distinct values. `stats_ttest::MAX_GROUP_LEVELS` (50) is the one
+constant; the screen reads it from `src/screens/statistics/ttestLimits.json`,
+which `stats_ttest_wire.rs` pins to it. The picker offers only columns with
+2 to 50 distinct values and says, under it, why a column with more is not
+offered. `stats_ttest_group_levels` refuses a column with more than 50
+levels with a 29th code, `stats.ttest.too_many_levels {count, limit}`, before
+any value is listed, so a continuous column's values never reach the screen
+as a list (pins: `contracts_wire.rs`, `ttestCodes.json`, now 51 codes).
+Tests, red before: `a_group_with_51_levels_is_refused_and_one_with_50_is_listed`
+(red: the 51 levels were listed) and `TTestFlow.vitest.tsx` `offers a group of
+2 to 50 values only, and says why a column with more is not offered` (red:
+`expected [ '', 'C1', 'C2', 'C3', 'C4', 'C5' ] to not include 'C4'`); green
+after. The disk rule is checked before every build, test run and commit,
+and a build never starts under 15 GiB (decision 88).
+
+### D280 — Research OS, Phase 4: evaluation fixes `[src]` `[test]` `[measured]`
+
+**Added** on `feat/research-os-4` after `3c2b7db` (D279). The independent
+evaluation of Phase 4 (`~/gaply-corpus/os/eval4/evaluation.md`) found no
+Blocker, two Majors (F1, F2), five Minors (F3 to F7) and twelve Notes.
+Decisions 89 to 96 of 18 Oct 2026 apply (`~/gaply-corpus/os/decisions.md`).
+Every Major and Minor is fixed here, each with a regression test that was run
+red, then green; where the code already held the guard (F1), the test was
+shown red by the evaluation's own mutation, the file restored to its SHA-256.
+
+| finding | fix | regression test | decisions |
+|---|---|---|---|
+| **F1** (Major) the AI helper's runnable check held only by a source scan | `runnable_method(registry, m)`; `helper_send` passes `Registry::statistics()` to `helper_send_in`, which holds the two call sites; `stats_adapters::method_is_runnable_in` is the one predicate (`method_is_runnable` removed); `Registry::with_lifecycle` and `Registry::without` are plain `pub` constructors for tests, and `no_production_source_builds_a_modified_capability_table` fails if non-test source calls either. No cargo feature. `#[tracing::instrument(skip_all)]` is back on `helper_send` (4A's insertion had left it on `runnable_method`) | `stats_l1_attacks.rs` `a_reply_naming_a_method_the_registry_does_not_let_run_is_refused_through_the_reply_path`: through the mock transport, a `claim_method` and a `binding_suggestion` reply for `independent_t`, with that capability absent and Planned, are refused `unknown_method`, add no proposal, leave the confirmed result unchanged, one request each; the real table accepts both (the control). Red under each mutation: the `claim_method` call site removed (4 rows), the `binding_suggestion` one removed (its rows); restored to SHA `39599f5c…`, green | 92, 96 |
+| **F2** (Major) ADR-008 and the method page put a 1.2e-8 difference in d between R's `t.test` and effectsize | both say what was measured on `data_offset.csv` (R 4.6.1, effectsize 1.0.3): `t.test` and `effectsize::cohens_d` agree to 2.2e-16 (Student) and 0 (Welch); d from a one-pass mean `sum(x)/n` differs by 1.194e-8 and 1.200e-8; the R call is on the method page. ADR-008 and ADR-003's 4A addendum Accepted, 18 Oct 2026; ADR-010 stays Proposed (decision 53) | `ttest_r_golden.rs` `the_offset_sentence_states_the_measured_comparison` (red: ADR-008 still had the old sentence) | 91 |
+| **F3** (Minor) Level 0 judged a t or r p at df where its engine is outside its gate | `pvalue::T_DF_MEASURED_MAX = 1e5`; `p_consistency`'s own evaluation answers `CouldNotCheck(DfBeyondMeasuredRange)` for a t or r whose df reaches above it at either end of its printed interval, after `InvalidInput` and before any rule; `compare_p`, which Level 1 shares, is unchanged. Wire word `df_beyond_measured_range`, with a sentence in the Stats Check's table (`stats_consistency.rs`) and in Level 1's (`l1Codes.json`, `l1Wording.ts`); one arm in `stats_l1/codes.rs` (decision 95). `pvalue.rs`'s two sentences narrowed to the measured range. `ENGINE_VERSION` unchanged: no formula in `pvalue.rs` changed | new target `tests/l0_large_df.rs` over `p_large_df.csv` (`make_p_large_df.R`, `/usr/local/bin/Rscript`, the evaluation's 13 × 14 grid, rows identical to its `pt_reference.csv`): above 1e5 every read sentence at 3 and 10 digits is `DfBeyondMeasuredRange` (red: 144 of 144 judged); the boundary, a fractional df and r (red: `t(100001)` Consistent); at or below 1e5 every verdict Consistent and the engine within 1e-9 (green before and after: the pin that nothing there changed) | 90, 95 |
+| **F4** (Minor) decision 87's 50-level limit held by the picker and the levels command only | `stats_ttest::check` refuses a group with more than `MAX_GROUP_LEVELS` levels with `too_many_levels {count, limit}`, so `validate` and `run` do | `ttest_validate.rs` `a_group_with_more_than_50_levels_is_refused_by_validate_and_run` (red: 51 levels, `Valid`); 50 levels still compute | 94 |
+| **F5** (Minor) `stats_l1_open` read Level 0's results twice | `stats_adapters::check_with_reading` (the same registry check, then Level 0 on the caller's reading); `open` hands it the reading it already made | `verifier_facade_guards.rs` `level_1s_open_reads_level_0s_results_once` (red: `open` called the façade that reads again); `stats_check_facade.rs` `the_check_facade_on_a_given_reading_equals_level_0_on_every_input` (12 inputs, equal to Level 0 and to `check`) | 89 |
+| **F6** (Minor) three t-test sentences | (a) the export text adds "The result table carries the two group labels with the result"; (b) the digits note says "six figures, counted from the first digit that is not zero" (not "significant figures", which the neutral-wording rule keeps off this screen); (c) `run.unknown_run` on both screens reads `maxRuns` from `describeLimits.json`, pinned to `runs::MAX_RUNS` | `ttestWording.vitest.ts` (a), (b), (c) (red: each sentence as before); `stats_desc_wire.rs` `the_screens_run_ceiling_is_the_run_managers` (red: no `maxRuns`) | 89 |
+| **F7** (Minor) the variant asked with no information beside it | each choice has one neutral line from the wording table (`VARIANT_CHOICES[].line`): Student assumes equal variances and pools them; Welch does not assume equal variances, uses each group's own and adjusts the df; the radio is `aria-describedby` the line; still no default | `TTestFlow.vitest.tsx` `shows one neutral line for each variant from the wording table, and no default` (red: no line) | 93, 64 |
+
+**Notes (decision 89), one line each:**
+N1 Tauri's deserialisation refusals are raw strings: needs a no-echo rule on every deserialised IPC type, a contract change across all commands; with eval23 F20, before the describe flag ships.
+N2 `stats_desc_close` is gated: harmless (the engine and its slots drop with the workspace); the next ADR-001 addendum lists it, when a second workspace exists.
+N3 `DatasetView` lists every level of a text column: Phase 2 behaviour kept by decision 81; the profile's level list is capped when the describe flag's tier is decided.
+N4 `CapabilityDescriptor`'s Serialize-only derive is unpinned: a compile-time check needs a dev-dependency or a trait trick; the next registry change.
+N5 `examples/` are not scanned by the façade guards: dev binaries by decision 7; Phase 5, when examples are reorganised.
+N6 the Level 1 golden header names no architecture: changing it regenerates Level 1's fixtures, a verifier step.
+N7 `arithmetic_refused`, `overflow` and `underflow` say "double" and give no next step: a wording pass with eval23 F12 ("Level 1" in sentences), before the describe flag ships.
+N8 `EnterStatistics` polls five seconds, then `illegal_transition`: unreachable while readiness is constant; when a workspace has a real readiness check.
+N9 the switch dialog stays open after a cancel from the t-test screen: needs a shell state change; when a second workspace exists.
+N10 `stats_ttest_group_levels` builds the full map before refusing: 3 ms and 31 MB at 5,000 levels; nothing to fix.
+N11 D278's privacy-matrix counts are its own commit's: recorded here; the matrix prints 132/16/96 at `3c2b7db`.
+N12 ADR-008's "at least 100× inside its gate" is about its own 18 cases (20× over the evaluation's 2,800): stated as such in its Evidence; kept.
+
+**The evaluation's probes, re-run** (`~/gaply-corpus/os/eval4/fixes/`, the
+evaluation's probe copies and data; each probe in `examples/` for its run
+only): §5 `eval4_l0_df` output byte-identical (the engine is unchanged);
+a verdict probe through Level 0's reader over the same grid at 1 to 17
+printed digits: at HEAD 94 false Inconsistent (df 5e6 and 1e7), after 0;
+above 1e5 every read sentence (1,102) `DfBeyondMeasuredRange`; at or below
+1e5 all 1,667 lines byte-identical to HEAD's. §6 `gaply.tsv` (151,200 rows)
+and `compare.out` byte-identical. §7 metamorphic byte-identical (80 pairs,
+0 failures); 10 of 10 processes per variant one line, the evaluation's.
+§8 `runmgr` 500 identical. §9 privacy: same matrix rows and the same four
+describe min/max cells; 160 surfaces, 14 refusals, 110 tracing lines in
+three of four runs (one run 161/111, inferred one more status poll); the
+app-data folder unchanged, the fresh TMPDIR empty. §10 32 hostile and 200
+fuzz files, outcomes identical, no alarm, peaks 0.63 s and 73.9 MiB;
+5,000 levels: `validate` now `invalid` `too_many_levels {5000, 50}` where it
+was `needs_user_input`. §2 forged specs identical.
+
+**Measured, 18 Oct 2026, macOS aarch64** (logs in
+`~/gaply-corpus/os/eval4/fixes/logs/`): `cargo test --workspace` at
+`3c2b7db` first: 105 targets (103 Running + 2 Doc-tests), 2,742 passed, 12
+ignored. After: exit 0, 106 targets (104 Running + 2 Doc-tests), 2,752
+passed, 12 ignored: the new `l0_large_df` (4), `ttest_validate` 12 → 13,
+`ttest_r_golden` 3 → 4, `verifier_facade_guards` 4 → 6, `stats_check_facade`
+2 → 3, `stats_l1_attacks` 7 → 8; no other target's count moved. `cargo test
+-p app --features devtools`: exit 0, 41 targets (40 Running + 1 Doc-tests),
+698 passed, 9 ignored (not measured at `3c2b7db` in this step). vitest, the
+whole suite: 100 files, 1,173 passed (1,169 + 4). `npx tsc --noEmit`, CI's
+eslint and `npm run build` exit 0 (`public/sitemap.xml` written back from
+HEAD). rustfmt by path: every changed file has HEAD's hunk count, the new
+test file none. `git diff 3c2b7db` is empty under `stats_assist`, is the one
+arm under `stats_l1`, and is decision 90's change under `stats_l0`. No
+GRRB-watched file is touched. **Found on the way:** `helper_send`'s
+`#[tracing::instrument(skip_all)]` had been on `runnable_method` since 4A and
+is back; and the two helper-path scans (`stats_l1_guards.rs`,
+`verifier_facade_guards.rs`) now name `helper_send_in`. The first failed on
+its own line count when the body moved; the second has no count and would
+have passed vacuously. A planted `.confirm(` / `reproduce(` turned both red.

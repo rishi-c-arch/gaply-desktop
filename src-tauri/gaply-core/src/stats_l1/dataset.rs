@@ -418,6 +418,12 @@ pub enum L1IngestRefusal {
     /// columns of numbers is (evaluation of Research OS Phases 2 and 3, F4;
     /// it was refused as `Malformed` before).
     ContentTooLarge { limit_bytes: usize },
+    /// A CSV or TSV that is text, but not UTF-8: a UTF-16 byte-order mark,
+    /// or bytes that are not valid UTF-8 and hold no control character (Latin-1
+    /// or Windows-1252). Told apart only after the parse has failed, so no file
+    /// that opens is affected; bytes that are not text stay `Malformed`
+    /// (Research OS evaluation of Phases 2 and 3, F10; decision 52).
+    EncodingNotUtf8,
 }
 
 /// Why no schema was built at all.

@@ -1,0 +1,16 @@
+{
+  "slot": 3,
+  "column": "C2",
+  "levels": [
+    {
+      "index": 0,
+      "label": "0",
+      "count": 6
+    },
+    {
+      "index": 1,
+      "label": "1",
+      "count": 6
+    }
+  ]
+}

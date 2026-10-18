@@ -382,7 +382,7 @@ pub fn verify_citations(
                 // result. This matches the project's degradation posture.
                 tracing::warn!(
                     batch,
-                    error = %e,
+                    error_kind = e.code(),
                     remaining = remaining.len(),
                     "citation verification aborted mid-batch; preserving prior verdicts"
                 );

@@ -88,6 +88,8 @@ export const WORDS: Record<string, Words> = {
     'The printed p is larger than the recomputed one and the paper names a correction for multiple testing, so it may be an adjusted p.',
   invalid_input: () => 'The printed numbers do not define this computation, so it was not made.',
   uninformative: () => 'Every value at the printed precision is possible here, so a match would say nothing.',
+  df_beyond_measured_range: () =>
+    "The degrees of freedom are above 100,000, where Gaply's p-value calculation has not been checked against its reference, so the p was not judged.",
   not_applicable: (c, w) => w(nested(c, 'reason')),
   no_method_ran: () => 'No check ran on this result.',
 
@@ -250,6 +252,10 @@ export const WORDS: Record<string, Words> = {
   // name Level 1.
   content_too_large: (c) =>
     `This file holds more than ${megabytes(num(c, 'limit_bytes'))} of text across its cells, more than Gaply reads from one file, so it was not opened. A copy with only the columns you need may fit.`,
+  // Text saved in another encoding, Latin-1 or UTF-16 (Research OS
+  // evaluation, F10). Shown by the descriptive summary too.
+  encoding_not_utf8: () =>
+    'This file is text saved in an encoding other than UTF-8, such as Latin-1 or UTF-16, so it was not opened. Save a copy in UTF-8 and open that copy instead.',
 
   /* ---- why a claim could not be checked ---------------------------------- */
   spearman_exact_p: () => "Gaply does not compute Spearman's exact p.",

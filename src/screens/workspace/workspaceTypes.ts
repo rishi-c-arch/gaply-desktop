@@ -41,13 +41,23 @@ export type WorkspaceState =
   | { phase: 'no_workspace' }
   | { phase: 'activating' | 'active' | 'deactivating'; workspace: WorkspaceId };
 
+/** Which kind of Statistics run a record holds (Research OS, Phase 4B-2,
+ *  decision 80): the shell reads it through that kind's commands. */
+export type RunKind = 'describe' | 'ttest';
+
+/** A Statistics run, as the shell names it. */
+export interface RunEntry {
+  runId: number;
+  kind: RunKind;
+}
+
 /** workspace_state, workspace_activate and workspace_deactivate return this. */
 export interface WorkspaceStateView {
   state: WorkspaceState;
   /** The Statistics run that is queued or running, if any. */
-  activeRun: number | null;
+  activeRun: RunEntry | null;
   /** The newest Statistics run held, finished or not. */
-  latestRun: number | null;
+  latestRun: RunEntry | null;
 }
 
 export type WorkspaceCode =

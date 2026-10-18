@@ -31,6 +31,36 @@
 //!    a transparent newtype), and every named-field struct on the wire is
 //!    camelCase.
 //!
+//! Phase 4A adds `src/stats_registry/` and `src/stats_adapters/` to checks 1,
+//! 2 and 6, each with its own import list, and both to the modules
+//! `contracts` must never name (check 3):
+//! * `stats_registry` may name `crate::contracts`, and exactly
+//!   `crate::stats_l1::catalogue::{L1MethodId, MethodCatalogue}`,
+//!   `crate::stats_l1::compute::L1Registry` and
+//!   `crate::stats_desc::{CAPABILITY_ID, CAPABILITY_VERSION}`;
+//! * `stats_adapters` may name `crate::contracts`, `crate::stats_registry`,
+//!   `crate::stats_l0`, `crate::stats_l1`, `crate::stats_desc` (decision 46),
+//!   and of `crate::extract` exactly `ExtractionResult` (Level 0's input),
+//!   `SectionKind` and `extract_from_text` (its unit tests). Inline, only those
+//!   three `crate::extract` paths are allowed, so no inline path can reach
+//!   `extract`'s file readers.
+//!
+//! Phase 4B-1 adds `src/stats_ttest/` to every check, with its own lists
+//! (decision 62), and to the modules `contracts` must never name:
+//! * `stats_ttest` may name `crate::contracts`, and exactly
+//!   `crate::stats_verify::{mean, sample_variance, t_test_student,
+//!   t_test_welch, RangeFault}` (the `se` field on their result is the
+//!   standard-error item, which needs no import; `RangeFault` keeps overflow
+//!   and underflow apart, decision 70), `crate::stats_l0::pvalue::t_two_tailed`,
+//!   `crate::stats_l1::binding::suspect_codes_in`, `crate::stats_l1::dataset`,
+//!   `crate::stats_desc::{input_ref, Alias}` and
+//!   `crate::stats_desc::export::text` (one formula-injection rule);
+//! * in `stats_ttest`, exactly the types listed below derive `Serialize`;
+//!   `GroupSummary` and `TTestResult` hold level labels, and `Split` (the
+//!   values) and `Ready` (the checked columns and levels) derive nothing;
+//! * `stats_registry` may also name `stats_ttest`'s id and version, and
+//!   `stats_adapters` may name `crate::stats_ttest`.
+//!
 //! What it cannot see: a route through a helper in an allowed module (a
 //! function of `stats_l1::dataset` that read a file would not be caught
 //! here; `stats_l1_is_llm_free_and_offline.rs` guards that directory), and
@@ -40,6 +70,9 @@ use std::path::{Path, PathBuf};
 
 const CONTRACTS: &str = "src/contracts";
 const STATS_DESC: &str = "src/stats_desc";
+const STATS_REGISTRY: &str = "src/stats_registry";
+const STATS_ADAPTERS: &str = "src/stats_adapters";
+const STATS_TTEST: &str = "src/stats_ttest";
 
 const FORBIDDEN: &[(&str, &str)] = &[
     ("std::fs", "the filesystem"),
@@ -89,6 +122,62 @@ const STATS_DESC_CRATE_PATHS: &[&str] = &[
     "crate::stats_l1::binding",
 ];
 
+const STATS_REGISTRY_CRATE_PATHS: &[&str] = &[
+    "crate::contracts",
+    "crate::stats_l1::catalogue",
+    "crate::stats_l1::compute",
+    "crate::stats_desc",
+    "crate::stats_ttest",
+];
+/// What `stats_registry` may import from the catalogue, Level 1's registry
+/// and the descriptive summary, by exact name.
+const REGISTRY_ITEMS: &[(&str, &[&str])] = &[
+    (
+        "crate::stats_l1::catalogue",
+        &["L1MethodId", "MethodCatalogue"],
+    ),
+    ("crate::stats_l1::compute", &["L1Registry"]),
+    (
+        "crate::stats_desc",
+        &["CAPABILITY_ID", "CAPABILITY_VERSION"],
+    ),
+    (
+        "crate::stats_ttest",
+        &[
+            "CAPABILITY_ID as TTEST_ID",
+            "CAPABILITY_VERSION as TTEST_VERSION",
+        ],
+    ),
+];
+const STATS_ADAPTERS_CRATE_PATHS: &[&str] = &[
+    "crate::contracts",
+    "crate::stats_registry",
+    "crate::stats_l0",
+    "crate::stats_l1",
+    "crate::stats_desc",
+    "crate::stats_ttest",
+    "crate::extract",
+];
+/// The one module outside decision 46's list `stats_adapters` reads, by
+/// exact name.
+const ADAPTER_ITEMS: &[(&str, &[&str])] = &[(
+    "crate::extract",
+    &["ExtractionResult", "SectionKind", "extract_from_text"],
+)];
+/// Inline `crate::` paths in `stats_adapters`: `crate::extract` only by
+/// those exact names.
+const STATS_ADAPTERS_INLINE_PATHS: &[&str] = &[
+    "crate::contracts",
+    "crate::stats_registry",
+    "crate::stats_l0",
+    "crate::stats_l1",
+    "crate::stats_desc",
+    "crate::stats_ttest",
+    "crate::extract::ExtractionResult",
+    "crate::extract::SectionKind",
+    "crate::extract::extract_from_text",
+];
+
 /// The verifier's items `stats_desc` may import, by exact name.
 const VERIFIER_ITEMS: &[(&str, &[&str])] = &[
     (
@@ -96,6 +185,35 @@ const VERIFIER_ITEMS: &[(&str, &[&str])] = &[
         &["mean", "sample_variance", "RangeFault"],
     ),
     ("crate::stats_l1::binding", &["suspect_codes_in"]),
+];
+
+/// What `stats_ttest` may name inside the crate. The export's path comes
+/// before the descriptive summary's, so it is matched first.
+const STATS_TTEST_CRATE_PATHS: &[&str] = &[
+    "crate::contracts",
+    "crate::stats_desc::export",
+    "crate::stats_desc",
+    "crate::stats_l0::pvalue",
+    "crate::stats_l1::binding",
+    "crate::stats_l1::dataset",
+    "crate::stats_verify",
+];
+/// The items `stats_ttest` may import, by exact name (decision 62).
+const TTEST_ITEMS: &[(&str, &[&str])] = &[
+    (
+        "crate::stats_verify",
+        &[
+            "mean",
+            "sample_variance",
+            "t_test_student",
+            "t_test_welch",
+            "RangeFault",
+        ],
+    ),
+    ("crate::stats_l0::pvalue", &["t_two_tailed"]),
+    ("crate::stats_l1::binding", &["suspect_codes_in"]),
+    ("crate::stats_desc::export", &["text"]),
+    ("crate::stats_desc", &["input_ref", "Alias"]),
 ];
 
 /// The modules `contracts` must never name.
@@ -107,6 +225,9 @@ const DOMAIN_MODULES: &[&str] = &[
     "stats_verify",
     "stats_verdict",
     "stats_chat",
+    "stats_registry",
+    "stats_adapters",
+    "stats_ttest",
 ];
 /// Where their types are declared, read to build the type list.
 const DOMAIN_SOURCES: &[&str] = &[
@@ -115,6 +236,9 @@ const DOMAIN_SOURCES: &[&str] = &[
     "src/stats_assist",
     "src/stats_desc",
     "src/stats_verify.rs",
+    "src/stats_registry",
+    "src/stats_adapters",
+    "src/stats_ttest",
 ];
 
 /// `stats_desc` types that hold a column header or a level label. They may
@@ -138,19 +262,27 @@ const HOLDS_NO_TEXT: &[&str] = &[
     "SuspectCode",
     "Stat",
 ];
+/// `stats_ttest` types that hold a level label (Phase 4B-1). They may derive
+/// `Serialize` because they ARE the user's result.
+const TTEST_HOLDS_LABELS: &[&str] = &["GroupSummary", "TTestResult"];
+/// `stats_ttest` types that derive `Serialize` and hold no text at all.
+const TTEST_HOLDS_NO_TEXT: &[&str] = &["TTestParams", "Variant", "Standardizer", "Stat"];
+
 /// What a serialisable type must never hold.
 const CELL_TYPES: &[&str] = &[
     "Cell",
     "Dataset",
     "RawTable",
     "Tally",
+    "Split",
+    "Ready",
     "SchemaSummary",
     "ColumnSummary",
 ];
 
 /// The only `String`-holding types in `contracts`, each checked on the way
 /// in. Sorted, as the scan's list is.
-const CONTRACTS_STRING_TYPES: &[&str] = &["CapabilityId", "ContentHash"];
+const CONTRACTS_STRING_TYPES: &[&str] = &["CapabilityId", "ConfirmationId", "ContentHash"];
 
 fn rust_files(dir: &Path) -> Vec<PathBuf> {
     if dir.is_file() {
@@ -404,15 +536,18 @@ fn holds_string(body: &str) -> bool {
 #[test]
 fn contracts_and_stats_desc_reach_no_file_network_process_clock_model_or_log() {
     let mut found = Vec::new();
-    for (path, code) in sources(CONTRACTS, 2)
+    for (path, code) in sources(CONTRACTS, 3)
         .iter()
         .chain(sources(STATS_DESC, 2).iter())
+        .chain(sources(STATS_REGISTRY, 1).iter())
+        .chain(sources(STATS_ADAPTERS, 2).iter())
+        .chain(sources(STATS_TTEST, 2).iter())
     {
         found.extend(forbidden_in(path, code));
     }
     assert!(
         found.is_empty(),
-        "contracts and stats_desc are pure. Found:\n{}",
+        "contracts, stats_desc, stats_registry, stats_adapters and stats_ttest are pure. Found:\n{}",
         found.join("\n")
     );
 }
@@ -421,14 +556,42 @@ fn contracts_and_stats_desc_reach_no_file_network_process_clock_model_or_log() {
 fn imports_are_std_serde_serde_json_sha2_and_the_named_crate_paths_only() {
     let mut found = Vec::new();
     let mut statements = 0;
-    for (dir, crate_paths, verifier) in [
-        (CONTRACTS, CONTRACTS_CRATE_PATHS, &[][..]),
-        (STATS_DESC, STATS_DESC_CRATE_PATHS, VERIFIER_ITEMS),
+    for (dir, crate_paths, verifier, inline) in [
+        (
+            CONTRACTS,
+            CONTRACTS_CRATE_PATHS,
+            &[][..],
+            CONTRACTS_CRATE_PATHS,
+        ),
+        (
+            STATS_DESC,
+            STATS_DESC_CRATE_PATHS,
+            VERIFIER_ITEMS,
+            STATS_DESC_CRATE_PATHS,
+        ),
+        (
+            STATS_REGISTRY,
+            STATS_REGISTRY_CRATE_PATHS,
+            REGISTRY_ITEMS,
+            STATS_REGISTRY_CRATE_PATHS,
+        ),
+        (
+            STATS_ADAPTERS,
+            STATS_ADAPTERS_CRATE_PATHS,
+            ADAPTER_ITEMS,
+            STATS_ADAPTERS_INLINE_PATHS,
+        ),
+        (
+            STATS_TTEST,
+            STATS_TTEST_CRATE_PATHS,
+            TTEST_ITEMS,
+            STATS_TTEST_CRATE_PATHS,
+        ),
     ] {
-        for (path, code) in sources(dir, 2) {
+        for (path, code) in sources(dir, 1) {
             statements += use_statements(&code).len();
             found.extend(import_violations(&path, &code, crate_paths, verifier));
-            found.extend(crate_path_violations(&path, &code, crate_paths));
+            found.extend(crate_path_violations(&path, &code, inline));
         }
     }
     assert!(
@@ -450,6 +613,45 @@ fn imports_are_std_serde_serde_json_sha2_and_the_named_crate_paths_only() {
             assert!(
                 imported.iter().any(|i| i == name),
                 "stats_desc no longer imports {prefix}::{name}; update the list"
+            );
+        }
+    }
+    // So must stats_registry each item on its list.
+    let reg: String = sources(STATS_REGISTRY, 1)
+        .into_iter()
+        .map(|(_, c)| c)
+        .collect();
+    for (prefix, names) in REGISTRY_ITEMS {
+        let imported: Vec<String> = use_statements(&reg)
+            .iter()
+            .filter(|s| s.starts_with(prefix))
+            .flat_map(|s| imported_names(s, prefix))
+            .collect();
+        for name in *names {
+            assert!(
+                imported.iter().any(|i| i == name),
+                "stats_registry no longer imports {prefix}::{name}; update the list"
+            );
+        }
+    }
+    // And stats_ttest each item on its list (decision 62).
+    let ttest: String = sources(STATS_TTEST, 2)
+        .into_iter()
+        .map(|(_, c)| c)
+        .collect();
+    for (prefix, names) in TTEST_ITEMS {
+        let imported: Vec<String> = use_statements(&ttest)
+            .iter()
+            .filter(|s| {
+                s.starts_with(prefix)
+                    && STATS_TTEST_CRATE_PATHS.iter().find(|p| s.starts_with(*p)) == Some(prefix)
+            })
+            .flat_map(|s| imported_names(s, prefix))
+            .collect();
+        for name in *names {
+            assert!(
+                imported.iter().any(|i| i == name),
+                "stats_ttest no longer imports {prefix}::{name}; update the list"
             );
         }
     }
@@ -633,11 +835,116 @@ fn a_stats_desc_type_holding_text_prints_counts_through_its_own_debug() {
     }
 }
 
+/// Phase 4B-1: in `stats_ttest`, exactly the listed types derive
+/// `Serialize`, none names a cell, the dataset or the split, and `Split`
+/// derives nothing.
+#[test]
+fn only_the_listed_stats_ttest_types_derive_serialize_and_none_holds_a_cell() {
+    let items: Vec<Item> = sources(STATS_TTEST, 2)
+        .iter()
+        .flat_map(|(_, c)| items(c))
+        .collect();
+    let mut serialised: Vec<&str> = items
+        .iter()
+        .filter(|i| derives(i, "Serialize"))
+        .map(|i| i.name.as_str())
+        .collect();
+    serialised.sort_unstable();
+    let mut listed: Vec<&str> = TTEST_HOLDS_LABELS
+        .iter()
+        .chain(TTEST_HOLDS_NO_TEXT)
+        .copied()
+        .collect();
+    listed.sort_unstable();
+    assert_eq!(
+        serialised, listed,
+        "the types deriving Serialize in {STATS_TTEST} are not the listed ones"
+    );
+    for item in items.iter().filter(|i| derives(i, "Serialize")) {
+        for cell in CELL_TYPES {
+            assert!(
+                !identifiers(&item.body).contains(cell),
+                "{} derives Serialize and names `{cell}`",
+                item.name
+            );
+        }
+        if TTEST_HOLDS_NO_TEXT.contains(&item.name.as_str()) {
+            assert!(
+                !holds_string(&item.body),
+                "{} is listed as holding no text but has a String field",
+                item.name
+            );
+            for text in TTEST_HOLDS_LABELS {
+                assert!(
+                    !identifiers(&item.body).contains(text),
+                    "{} is listed as holding no text but holds a {text}",
+                    item.name
+                );
+            }
+        }
+    }
+    let split = items
+        .iter()
+        .find(|i| i.name == "Split")
+        .expect("the split exists");
+    assert!(
+        !split.attrs.contains("#[derive("),
+        "the split holds the outcome's values and derives nothing"
+    );
+}
+
+/// Phase 4B-1: a `stats_ttest` type with a `String` field does not derive
+/// `Debug`, prints counts through its own, and is listed.
+#[test]
+fn a_stats_ttest_type_holding_text_prints_counts_through_its_own_debug() {
+    let files = sources(STATS_TTEST, 2);
+    let all: String = files.iter().map(|(_, c)| c.as_str()).collect();
+    let texty: Vec<Item> = files
+        .iter()
+        .flat_map(|(_, c)| items(c))
+        .filter(|i| holds_string(&i.body))
+        .collect();
+    assert!(
+        !texty.is_empty(),
+        "no text-holding type found in {STATS_TTEST} — the scan is inert"
+    );
+    for item in &texty {
+        assert!(
+            !derives(item, "Debug"),
+            "{} holds a label and derives Debug",
+            item.name
+        );
+        let printable = all.contains(&format!("impl std::fmt::Debug for {}", item.name));
+        if derives(item, "Serialize") || printable {
+            assert!(
+                TTEST_HOLDS_LABELS.contains(&item.name.as_str()),
+                "{} holds a String and is not listed",
+                item.name
+            );
+            assert!(printable, "{} has no counts-only Debug", item.name);
+        } else {
+            // `Ready`, the checked columns and levels: neither printed nor
+            // serialised, so it must derive nothing.
+            assert!(
+                !item.attrs.contains("#[derive("),
+                "{} holds a String and derives something",
+                item.name
+            );
+        }
+    }
+}
+
 #[test]
 fn every_deserialised_struct_refuses_unknown_fields_and_wire_structs_are_camel_case() {
     let mut checked = 0;
-    for dir in [CONTRACTS, STATS_DESC] {
-        for (path, code) in sources(dir, 2) {
+    for dir in [
+        CONTRACTS,
+        STATS_DESC,
+        STATS_REGISTRY,
+        STATS_ADAPTERS,
+        STATS_TTEST,
+    ] {
+        for (path, code) in sources(dir, 1) {
             // Every check here reads a derive from ONE line. A derive list
             // wrapped over several lines would be invisible to them, so it
             // fails here instead of passing there.
@@ -723,6 +1030,30 @@ fn the_guard_catches_each_kind_of_violation() {
     assert!(
         !crate_path_violations("s.rs", inline, STATS_DESC_CRATE_PATHS).is_empty(),
         "an inline crate path"
+    );
+
+    // Phase 4A's lists refuse what they do not name.
+    let reader = "use crate::extract::docparse::parse_path;\n";
+    assert!(
+        !import_violations("a.rs", reader, STATS_ADAPTERS_CRATE_PATHS, ADAPTER_ITEMS).is_empty(),
+        "an extract item off the list"
+    );
+    let inline_reader = "fn x(p: &std::path::Path) { let _ = crate::extract::extract_path(p); }\n";
+    assert!(
+        !crate_path_violations("a.rs", inline_reader, STATS_ADAPTERS_INLINE_PATHS).is_empty(),
+        "an inline path to extract's file reader"
+    );
+    let input = "use crate::extract::ExtractionResult;\n";
+    assert!(import_violations("a.rs", input, STATS_ADAPTERS_CRATE_PATHS, ADAPTER_ITEMS).is_empty());
+    let binding = "use crate::stats_l1::binding::confirm;\n";
+    assert!(
+        !import_violations("r.rs", binding, STATS_REGISTRY_CRATE_PATHS, REGISTRY_ITEMS).is_empty(),
+        "the registry names the catalogue and Level 1's registry only"
+    );
+    let helper = "use crate::stats_assist::spec::HelperTask;\n";
+    assert!(
+        !forbidden_in("a.rs", &code_only(helper)).is_empty(),
+        "the helper layer"
     );
 
     let leak = "#[derive(Debug, Clone, Serialize)]\n#[serde(rename_all = \"camelCase\")]\npub struct Leak {\n    pub rows: Vec<String>,\n}\n";

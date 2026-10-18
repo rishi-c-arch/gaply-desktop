@@ -175,7 +175,15 @@ fn the_list_has_three_descriptors_and_leaves_entitlement_to_the_frontend() {
             ("design".into(), "missing".into(), Value::Null),
         ]
     );
-    assert_eq!(rows[0]["capabilityIds"], json!(["stats.describe"]));
+    // Phase 4A (decision 47): the registry's ids, one list.
+    assert_eq!(
+        rows[0]["capabilityIds"],
+        json!(gaply_core::stats_registry::Registry::statistics()
+            .ids()
+            .iter()
+            .map(|i| i.as_str())
+            .collect::<Vec<_>>())
+    );
     assert_eq!(rows[0]["displayNameCode"], "workspace.name.statistics");
     assert_eq!(rows[1]["capabilityIds"], json!([]));
     assert_eq!(
@@ -393,8 +401,9 @@ fn deactivation_is_refused_during_a_run_and_allowed_after_it_is_cancelled() {
         s["state"],
         json!({ "phase": "active", "workspace": "statistics" })
     );
-    assert_eq!(s["activeRun"], run);
-    assert_eq!(s["latestRun"], run);
+    // Each run names its kind (Phase 4B-2, decision 80).
+    assert_eq!(s["activeRun"], json!({ "runId": run, "kind": "describe" }));
+    assert_eq!(s["latestRun"], json!({ "runId": run, "kind": "describe" }));
     assert_eq!(
         call(&w.w, "stats_desc_status", json!({ "runId": run })).unwrap()["state"],
         "running",
@@ -407,7 +416,7 @@ fn deactivation_is_refused_during_a_run_and_allowed_after_it_is_cancelled() {
     assert_eq!(until_terminal(&w.w, run)["state"], "cancelled");
     let s = state(&w);
     assert_eq!(s["activeRun"], Value::Null);
-    assert_eq!(s["latestRun"], run);
+    assert_eq!(s["latestRun"], json!({ "runId": run, "kind": "describe" }));
 
     let v = deactivate(&w).expect("no run is going");
     assert_eq!(v["state"], json!({ "phase": "no_workspace" }));

@@ -187,7 +187,10 @@ pub fn run_shadow_synthesis(
         Some(p) => match p.verify(request.payload()) {
             Ok(resp) => (gate_reviewer_narrative(&resp, &request), true),
             Err(e) => {
-                tracing::warn!(error = %e, "shadow synthesis cloud narrative failed; degrading");
+                tracing::warn!(
+                    error_kind = e.code(),
+                    "shadow synthesis cloud narrative failed; degrading"
+                );
                 (ReviewerNarrative::unavailable(), false)
             }
         },

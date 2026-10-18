@@ -19,13 +19,16 @@
 //!   space in it, and a diagnostic's parameters are integers or closed words.
 //!
 //! Left out on purpose: an `ArtifactRef` (Phase 2 stores nothing); the
-//! blueprint's assumptions, variants, units, resource policy and
-//! confirmation refs (Phase 4 adds what the Level 1 wrap needs); and any
-//! free-form map.
+//! blueprint's assumptions, variants, units and resource policy; and any
+//! free-form map. Confirmation refs arrived with Phase 4A
+//! ([`OperationSpec::confirmation_refs`], decision 50).
 //!
 //! [`workspace`] (Phase 3) holds the workspace descriptors and the one state
-//! machine that says which workspace is active.
+//! machine that says which workspace is active. [`capability`] (Phase 4A)
+//! holds the capability descriptor, the lifecycle rule and the
+//! confirmation id.
 
+pub mod capability;
 pub mod codes;
 pub mod workspace;
 
@@ -35,6 +38,7 @@ use serde::de::{Deserializer, Error as _};
 use serde::ser::Serializer;
 use serde::{Deserialize, Serialize};
 
+use self::capability::{ConfirmationId, Lifecycle};
 use self::codes::{closed, RunCode};
 use self::workspace::{Availability, WorkspaceEventKind, WorkspacePhase};
 
@@ -240,6 +244,13 @@ pub struct OperationSpec<P> {
     pub inputs: Vec<InputRef>,
     pub parameters: P,
     pub random_seed: Option<u64>,
+    /// The confirmations the run needs, by id (blueprint §8.2, decision 50):
+    /// empty for a capability that needs none. Level 1's confirmation tokens
+    /// travel here, one spec per method. Always written; a payload without
+    /// the key reads as none, so a capability that needs no confirmation
+    /// may leave it out, and one that needs one is refused without it.
+    #[serde(default)]
+    pub confirmation_refs: Vec<ConfirmationId>,
 }
 
 /* ------------------------------------------------------------------------ *
@@ -272,6 +283,8 @@ pub enum ParamKey {
     Workspace,
     /// A run, by its number (Phase 3).
     Run,
+    /// A capability's lifecycle (Phase 4A).
+    Lifecycle,
 }
 
 /// A diagnostic's parameter: an integer or a closed word. Never text. Every
@@ -287,6 +300,7 @@ pub enum ParamValue<C> {
     Workspace(WorkspaceId),
     Phase(WorkspacePhase),
     WorkspaceEvent(WorkspaceEventKind),
+    Lifecycle(Lifecycle),
 }
 
 pub type Params<C> = BTreeMap<ParamKey, ParamValue<C>>;
