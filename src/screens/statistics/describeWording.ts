@@ -131,6 +131,7 @@ export const WORDS: Record<string, Words> = {
   'run.resource_limit': () => 'This run passed a resource limit and was stopped, so it has no result.',
   'run.illegal_transition': () => 'Gaply could not change this run in that way.',
   'run.already_terminal': () => 'This run has already ended.',
+  'run.wrong_kind': () => 'This run is not a descriptive summary, so this screen cannot read it.',
 };
 
 /** The sentence for a diagnostic. */

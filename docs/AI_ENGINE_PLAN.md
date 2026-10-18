@@ -23941,3 +23941,139 @@ unchanged). The departures above are accepted.
 | Independent reference comparison completed | R `t.test`, effectsize, `qt` | done |
 | Unsupported designs return explicit reasons | closed codes; undetectable designs listed | core done; shown in 4B-2 |
 | Result manifest and export verified | `ttest_export` | core done; save dialog 4B-2 |
+
+### D278 — Research OS, Phase 4B-2: the t-test's app side: run manager, commands, wire, privacy matrix, method selector and screen `[src]` `[test]` `[measured]`
+
+**Added** on `feat/research-os-4` (from `8e3f843`, after D277's `ee244bc` and
+the two test fixes). Decisions 74 to 80 of 18 Oct 2026 apply
+(`~/gaply-corpus/os/decisions.md`), with 5, 9, 46, 64 to 66. The core
+(`gaply_core::stats_ttest`) is D277's and unchanged; `stats_l0`, `stats_l1`
+and `stats_assist` are unchanged. `stats_adapters` gains one function,
+`ttest_admit`, the registry's answer as the registry words it.
+
+**The run manager (decision 75)** (`src-tauri/src/runs.rs`): a record holds a
+closed enum of result kinds, `Held::{Describe, Ttest}`, each its own
+validation, result and failure in its own codes; `RunKind` (`describe`,
+`ttest`) is the app crate's closed word, so `contracts` stays domain-free.
+`Runs::start` keeps its signature; `Runs::start_ttest` is its sibling, and
+each calls its own façade's `validate` in its own body (the 4A guard
+`verifier_facade_guards.rs` reads `start`). Both make the record through one
+`open_record` (one foreground run across both kinds: `run.run_busy`), and
+queue it through one `queue`. The worker runs the summary's
+`describe_until` or the t-test's `ttest_run` with the same check point (the
+t-test calls it once, before its arithmetic) and the same ceiling, and ends
+with ONE cancel-wins check for both kinds (F1, F2): a set flag ends the run
+`Cancelled` whatever the work produced. Eviction, the run ids and the slot
+counter (F8) are shared. A not-computable t-test (both groups constant, an
+overflow) ends `Failed` with its code, as a summary's refusal does;
+`NumericalFailure` still has no producer. `snapshot`, `cancel` and `result`
+refuse a t-test's run with the new `run.wrong_kind`; `ttest_snapshot`,
+`ttest_cancel` and `ttest_result` refuse a summary's (decision 74).
+`RunSnapshot<C = DescCode>` is generic over its kind's codes.
+
+**The commands (decision 74)** (`src-tauri/src/stats_ttest_commands.rs`,
+registered in `lib.rs` after the `stats_desc_*` ones): `stats_ttest_validate
+{slot, spec}`, `stats_ttest_run {slot, spec} → {runId}`, `stats_ttest_status`
+and `stats_ttest_cancel {runId} → TTestRunStateView` (describe's
+`RunStateView` without `columnsDone` and `columnsTotal`),
+`stats_ttest_result {runId} → TTestResultView {runId, status, result,
+diagnostics, manifest}`, `stats_ttest_export {runId, format} → {bytes,
+sha256}`. Each is `#[tracing::instrument(skip_all)]`, checks the workspace
+first (`workspace.inactive`), then the spec's workspace
+(`workspace.wrong_workspace`), then the registry, whose `capability.*`
+refusal it returns as it is (`capability.unknown_capability`,
+`capability.version_mismatch {expected, found}`); only the describe
+commands word theirs as `stats.desc.*`. The dataset is opened and closed
+with `stats_desc_open` and `stats_desc_close`, unchanged. `capability_list()`
+→ `[{id, version, lifecycle, titleCode, descriptionCode, licenseNotes,
+knownLimitations, runnable}]` is exempt from the workspace check (decision
+76): it reads only the static registry, and `runnable` is
+`stats_registry::require_runnable` with this build. `workspace_guards.rs`
+lists the six as gated and `capability_list` as exempt, and fails on an
+unclassified `stats_ttest_commands` command. `run.wrong_kind` joins
+`RunCode` (pin in `contracts_wire.rs`) and `describeCodes.json`, with a
+sentence on each screen. Describe's views and fixtures are byte-identical.
+
+**The shell (decision 80)**: `WorkspaceStateView`'s `activeRun` and
+`latestRun` are `{runId, kind} | null` (`workspace::RunEntryView`; fixture
+and pins in Rust and TypeScript updated). The job area and the switch
+dialog read a run, and Cancel cancels it, through its kind's commands.
+
+**The wire, as in Phase 2B**: four fixtures (`ttestValidationReportView`,
+`ttestRunStateView`, `ttestResultView`, `capabilityList`), each byte-equal to
+its Rust view (`tests/stats_ttest_wire.rs`) and deep-equal to a copy typed
+`satisfies` (`ttestTypes.vitest.ts`, which also pins every key, the seven
+command names and their argument keys). `ttestCodes.json`, the 28
+`stats.ttest.*`, 11 `run.*`, 6 `workspace.*` and 5 `capability.*` codes, and
+`capabilityCodes.json`, the 24 `StatsWording` codes, are pinned to the Rust
+sets.
+
+**The screens** (behind `REACT_APP_FEATURE_STATS_DESCRIBE`, off):
+`StatisticsHome.tsx` at `/app/statistics` reads `capability_list`, needs no
+workspace, and gives a card if and only if Rust says runnable; Planned
+capabilities appear only on a roadmap panel, Deprecated only in a list of
+retired methods; the runnable `stats.verify.*` are one Stats Verifier card
+naming its methods, with `useEntitlement('stats_verifier')`; `stats.check`
+links to the Stats Check only while `REACT_APP_FEATURE_STATS_CHECK` is on;
+the describe and t-test cards show no entitlement (decisions 9, 66).
+**Placement (decision 77):** with only the describe flag on, the hub's tile is
+"Statistical Methods" → `/app/statistics` (it replaced "Descriptive
+Summary"); with `REACT_APP_FEATURE_WORKSPACES` on too, the tile leaves the
+hub and the Statistics workspace's tools link to the selector instead of the
+summary; with the describe flag off, the selector, the t-test and the
+summary are all hidden. `TTestFlow.tsx` at `/app/statistics/ttest`, inside
+`RequireWorkspace id="statistics"` with the describe screen's explicit
+button and its own sentence: Import → Profile → Settings → Validate → Run →
+Results → Export, focus on each heading; the outcome from the numeric
+columns, the group from the columns whose profile lists at least two levels,
+the two levels chosen by label and sent as positions in the profile's list
+(never sorted in JavaScript; tested with "ｚ" and "😀", whose UTF-16 and
+code-point orders differ), the variant asked with no default, a candidate
+missing code in the outcome asked as a question; a neutral result card (the
+variant, t, df, p, the mean difference with its se and 95% interval, d with
+the SD it used and the sentence that it has no interval, each group's label,
+n, mean and SD, the SD ratio as information, exclusions, limitations and the
+manifest panel); export through the save dialog. No sentence or rendered
+card says "significant" or shows a star (tested). The five StatsWording
+codes 4B-1 left wordless have sentences (`capabilityWording.ts`).
+
+**The privacy matrix** (`tests/stats_ttest_privacy_matrix.rs`, global
+subscriber): a header, a level label, the file name and folder, an outcome
+value no statistic can equal (61.8129, group 1's largest; R 4.6.1 under both
+variants: no statistic equals it, and none printed with 15 or 17 digits
+contains it), a number in an unselected column and a text cell in another.
+Over 119 surfaces, 13 refusals, 87 tracing lines and the three database
+files: the header, label, display name and text cell only in `DatasetView`,
+the label only in the result view and the CSV body besides; nothing in the
+spec, either manifest, any refusal, any trace or any file; the app-data
+folder SHA-256-identical before and after. The no-write guard scans
+`stats_ttest_commands.rs` and `gaply-core/src/stats_ttest/` too.
+
+**Found on the way:** comparing the result view with `compute`'s through a
+JSON `Value` differed in p's last bit (0.10922441798986729 read back as
+…728): serde_json is built without `float_roundtrip`, so its parse of the
+text may land one ulp off. The view is compared through the same text, and
+the bit-for-bit claim rests on the output hash and the CSV bytes; a
+webview's `JSON.parse` rounds correctly. And the profile lists levels only
+for a categorical column, so a group coded in numbers (0/1) is not offered
+as a group on this screen.
+
+**Measured, 18 Oct 2026, macOS aarch64** (logs in
+`~/gaply-corpus/os/phase4b2/logs/`): `cargo test --workspace` exit 0, 105
+targets (103 Running + 2 Doc-tests), 2,736 passed, 12 ignored: the
+baseline at `8e3f843` (102 targets, 2,715 passed, measured first in this
+step) plus three new targets (`stats_ttest_commands` 14, `stats_ttest_wire`
+4, `stats_ttest_privacy_matrix` 1), the app lib 523 → 524 (the cross-kind
+eviction test) and `workspace_guards` 4 → 5; no other target's count moved.
+`cargo test -p app --features devtools`: 40 targets, 689 passed, 9 ignored.
+vitest over the statistics, workspace, Stats Verifier, Level 1, Stats Check
+and home folders: 33 files, 281 passed. `npx tsc --noEmit`, CI's eslint and
+`npm run build` exit 0 (`public/sitemap.xml` written back from HEAD).
+Mutation probes, each predicted, run with every target and restored to its
+SHA-256: the workspace check removed from `stats_ttest_run` (2 red: the
+guard and the inactive-workspace test), `stats_desc_result` reading a
+t-test's run (1 red: the wrong-kind test), the shared cancel-wins check
+removed (5 red: describe's three race tests and the t-test's two),
+"significant" in a result sentence (2 red: the wording rule and the card),
+and a card for a capability that is not runnable (2 red: the placement and
+the card test).

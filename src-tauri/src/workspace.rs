@@ -59,7 +59,7 @@ use gaply_core::contracts::{Diagnostic, ParamKey, ParamValue, WorkspaceId};
 use gaply_core::stats_registry;
 use gaply_core::GaplyError;
 
-use crate::runs::{DatasetSlots, Runs};
+use crate::runs::{DatasetSlots, RunKind, Runs};
 
 /// A readiness check's answer (blueprint §9.2's `health_check`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -163,14 +163,19 @@ impl WorkspaceSession {
             .expect("the Statistics engine exists while Statistics is active"))
     }
 
-    /// The unfinished run of the active workspace, if any, and its newest run.
-    pub fn runs_brief(&self) -> (Option<u64>, Option<u64>) {
+    /// The unfinished run of the active workspace, if any, and its newest run,
+    /// each with its kind (decision 80).
+    pub fn runs_brief(&self) -> (Option<RunEntryView>, Option<RunEntryView>) {
         let engine = lock(&self.inner).statistics.clone();
         match engine {
-            Some(e) => (
-                e.runs.unfinished().map(|r| r.0),
-                e.runs.latest().map(|r| r.0),
-            ),
+            Some(e) => {
+                let brief = e.runs.brief();
+                let view = |(run, kind): (gaply_core::contracts::RunId, RunKind)| RunEntryView {
+                    run_id: run.0,
+                    kind,
+                };
+                (brief.unfinished.map(view), brief.latest.map(view))
+            }
             None => (None, None),
         }
     }
@@ -284,16 +289,26 @@ pub struct WorkspaceDescriptorView {
     pub entitled: Option<bool>,
 }
 
+/// A Statistics run as the shell names it: its id and its kind, so the shell
+/// reads it through that kind's status and cancel commands (Research OS,
+/// Phase 4B-2, decision 80).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunEntryView {
+    pub run_id: u64,
+    pub kind: RunKind,
+}
+
 /// The window's workspace state, and the Statistics runs the shell's job area
-/// reads (by id, through `stats_desc_status`).
+/// and switch dialog read (by id, through their kind's `*_status`).
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceStateView {
     pub state: WorkspaceState,
     /// The run that is queued or running, if any.
-    pub active_run: Option<u64>,
+    pub active_run: Option<RunEntryView>,
     /// The newest run held, finished or not.
-    pub latest_run: Option<u64>,
+    pub latest_run: Option<RunEntryView>,
 }
 
 /// A workspace refusal as the webview reads it: the diagnostic in JSON,

@@ -35,7 +35,8 @@ describe('describeWording', () => {
   });
 
   it('has a sentence for every code, and no code it does not know', () => {
-    expect(CODES.length).toBe(28);
+    // 18 DescCode + 11 RunCode (run.wrong_kind joined in Phase 4B-2).
+    expect(CODES.length).toBe(29);
     for (const code of CODES) {
       const d = { code, params: { column: 2, count: 3, value: -99, index: 0, expected: 1, found: 2 }, severity: 'error' } as Diagnostic;
       const s = diagnosticSentence(d, (a) => `"col${a}"`);

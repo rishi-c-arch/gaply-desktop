@@ -1,7 +1,8 @@
 // Where the workspace screens are reached (Research OS, Phase 3): with
 // REACT_APP_FEATURE_WORKSPACES off, the chooser, the shell and the hub tile
 // are hidden; with it on, they appear, and with the describe flag on too the
-// descriptive summary moves from the hub into the Statistics workspace. The
+// Statistics method selector (Phase 4B-2; the descriptive summary's entry
+// before it) moves from the hub into the Statistics workspace. The
 // gate in front of the describe screen shows it only while Rust says
 // Statistics is active, and opens Statistics only on the user's click.
 import React from 'react';
@@ -80,15 +81,16 @@ describe('REACT_APP_FEATURE_WORKSPACES', () => {
     expect(screen.getAllByText(/Statistical Analysis Verifier/).length).toBeGreaterThan(0);
   });
 
-  it('with the describe flag on too, the descriptive summary leaves the hub for the workspace', () => {
+  it('with the describe flag on too, the method selector leaves the hub for the workspace', () => {
     flags.workspaces = true;
     flags.describe = true;
     hub();
+    expect(screen.queryByText('Statistical Methods')).toBeNull();
     expect(screen.queryByText('Descriptive Summary')).toBeNull();
     cleanup();
     flags.workspaces = false;
     hub();
-    expect(screen.getAllByText('Descriptive Summary').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Statistical Methods').length).toBeGreaterThan(0);
   });
 });
 

@@ -40,7 +40,8 @@ export type RunCode =
   | 'run.timed_out'
   | 'run.resource_limit'
   | 'run.illegal_transition'
-  | 'run.already_terminal';
+  | 'run.already_terminal'
+  | 'run.wrong_kind';
 
 export type RunState =
   | 'draft'

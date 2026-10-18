@@ -8,10 +8,11 @@ It computes the t-test on the user's own data: a numeric outcome split by a
 group with two chosen levels. It is **not** a reproduction of a reported
 result; that is Level 1's `stats.verify.independent_t`, which this capability
 does not change. The pure core is `gaply_core::stats_ttest`; its façade is
-`stats_adapters::ttest_validate` / `ttest_run`. The run manager, commands,
-screen and method selector are Phase 4B-2: nothing here is reachable from the
-app yet, and the analysis area stays behind `REACT_APP_FEATURE_STATS_DESCRIBE`,
-which is off (decision 66). The tier is decided before it ships.
+`stats_adapters::ttest_validate` / `ttest_run`. Phase 4B-2 (D278) added the
+run manager's t-test kind, the `stats_ttest_*` commands, the method selector
+at `/app/statistics` and the screen at `/app/statistics/ttest`; the analysis
+area stays behind `REACT_APP_FEATURE_STATS_DESCRIBE`, which is off (decision
+66). The tier is decided before it ships.
 
 ## 1. Inputs and the spec
 
@@ -226,7 +227,7 @@ values).
 | Formula/method and variant documented | this page §2, §4; `stats_ttest/mod.rs` header | done |
 | Golden fixtures and edge cases pass | `ttest_r_golden` (32 computed, 4 refused pairs), `ttest_validate`, `ttest_quantile` | done |
 | Missing values, ties, weights, precision and sample size handled according to the method | §5 (exclusions, codes), ties fixture, §8 (no weights), §6 (gates), `group_too_small` | done; weights not supported, stated |
-| Diagnostic meanings and limitations documented | §5, §8; `TTestCode` doc comments | done; their screen sentences are 4B-2 |
+| Diagnostic meanings and limitations documented | §5, §8; `TTestCode` doc comments; a sentence for each of the 50 codes the screen can show in `src/screens/statistics/ttestWording.ts`, the list `ttestCodes.json` pinned to the Rust sets by `src-tauri/tests/stats_ttest_wire.rs`, every code covered and no sentence saying "significant" (`ttestWording.vitest.ts`); the five limitation and title codes' sentences in `capabilityWording.ts` | done |
 | Independent reference comparison completed | R `t.test` and effectsize, §6, §9 | done |
-| Unsupported designs return explicit reasons | §5 (`group_one_level`, `levels_not_chosen`, `variant_not_chosen`, …); undetectable designs listed in §8 | done in the core; shown to a user in 4B-2 |
-| Result manifest and export verified | `ttest_export` (CSV round trip, guard apostrophes, sentinels, rows add up, ten runs byte-identical) | done in the core; the save dialog is 4B-2 |
+| Unsupported designs return explicit reasons | §5 (`group_one_level`, `levels_not_chosen`, `variant_not_chosen`, …); undetectable designs listed in §8; at the command boundary each refusal's exact code (`src-tauri/tests/stats_ttest_commands.rs`, `each_refusal_has_its_exact_code`), and on the screen the sentence for each and the NeedsUserInput questions (`TTestFlow.vitest.tsx`) | done |
+| Result manifest and export verified | `ttest_export` (CSV round trip, guard apostrophes, sentinels, rows add up, ten runs byte-identical); through IPC the CSV bytes and output hash equal `compute`'s, and csv, tsv, xlsx and BOM-plus-CRLF files give the same result, hash and CSV (`stats_ttest_commands.rs`); the manifest panel and the export through the save dialog, the written text checked against Rust's bytes (`TTestFlow.vitest.tsx`); the privacy matrix (`stats_ttest_privacy_matrix.rs`) | done |

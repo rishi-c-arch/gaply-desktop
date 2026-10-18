@@ -624,6 +624,7 @@ fn the_code_and_word_lists_are_pinned() {
             "run.resource_limit",
             "run.illegal_transition",
             "run.already_terminal",
+            "run.wrong_kind",
         ]
     );
     assert_eq!(

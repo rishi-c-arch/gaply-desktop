@@ -346,6 +346,14 @@ fn ttest_entry(
     no_confirmation(spec)
 }
 
+/// The registry's answer for a t-test spec, as the registry gives it: the
+/// app's `stats_ttest_*` commands return a `capability.*` refusal as it is
+/// (Research OS, Phase 4B-2, decision 74), before the façade below, which
+/// still checks and words its own refusal for any other caller.
+pub fn ttest_admit(spec: &OperationSpec<TTestParams>, build: Build) -> Result<(), Refusal> {
+    ttest_entry(&Registry::statistics(), spec, build)
+}
+
 /// `stats.analyze.independent_t`'s validation: the registry first, so a
 /// spec the registry refuses is `Unsupported` before anything reads the
 /// dataset; then `stats_ttest::validate`, unchanged.

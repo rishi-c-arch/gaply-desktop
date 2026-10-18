@@ -3,6 +3,12 @@
     "phase": "active",
     "workspace": "statistics"
   },
-  "activeRun": 3,
-  "latestRun": 3
+  "activeRun": {
+    "runId": 3,
+    "kind": "ttest"
+  },
+  "latestRun": {
+    "runId": 3,
+    "kind": "ttest"
+  }
 }

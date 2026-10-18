@@ -33,6 +33,8 @@ import PublishReadyPage from './publishready/PublishReadyPage';
 import GapFinderPage from './gapfinder/GapFinderPage';
 import StatsVerifierPage from './statsverifier/StatsVerifierPage';
 import { DescribePage } from './statistics/DescribeFlow';
+import { StatisticsHomePage } from './statistics/StatisticsHome';
+import { TTestPage } from './statistics/TTestFlow';
 import { WorkspaceChooser } from './workspace/WorkspaceChooser';
 import { WorkspaceShell } from './workspace/WorkspaceShell';
 import { RequireWorkspace } from './workspace/RequireWorkspace';
@@ -221,6 +223,31 @@ export const DescribeRoute: React.FC = () => (
     <RequireAuth>
       <RequireWorkspace id="statistics">
         <DescribePage />
+      </RequireWorkspace>
+    </RequireAuth>
+  </GaplySessionProvider>
+);
+
+/** /app/statistics — the Statistics method selector (Research OS, Phase
+ *  4B-2), only while the describe flag is on (see
+ *  statistics/statisticsRoute). It reads only the static capability
+ *  registry, so it needs no workspace (decision 76). */
+export const StatisticsHomeRoute: React.FC = () => (
+  <GaplySessionProvider>
+    <RequireAuth>
+      <StatisticsHomePage />
+    </RequireAuth>
+  </GaplySessionProvider>
+);
+
+/** /app/statistics/ttest — the independent-samples t-test (Research OS,
+ *  Phase 4B-2), shown only while the Statistics workspace is active, with
+ *  the describe screen's explicit button to open it (decision 77). */
+export const TTestRoute: React.FC = () => (
+  <GaplySessionProvider>
+    <RequireAuth>
+      <RequireWorkspace id="statistics" body="Open the Statistics workspace to use the t-test.">
+        <TTestPage />
       </RequireWorkspace>
     </RequireAuth>
   </GaplySessionProvider>

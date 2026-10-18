@@ -9,6 +9,8 @@
 //! and `gaply-core/src/stats_desc/`, for any way to write, create, rename,
 //! copy or remove a file or folder. Phase 3 added `src/workspace.rs`, which
 //! holds the engine these use (decision 20: the slice writes nothing).
+//! Phase 4B-2 added `src/stats_ttest_commands.rs` and
+//! `gaply-core/src/stats_ttest/` (decision 79).
 //!
 //! It constrains what was TYPED in these files, not what a callee does: the
 //! commands call Level 1's ingest, which reads and does not write, and the
@@ -23,6 +25,9 @@ const SCANNED: &[&str] = &[
     "src/workspace.rs",
     "gaply-core/src/contracts",
     "gaply-core/src/stats_desc",
+    // Phase 4B-2: the t-test's commands and its operation.
+    "src/stats_ttest_commands.rs",
+    "gaply-core/src/stats_ttest",
 ];
 
 const FORBIDDEN: &[&str] = &[
@@ -99,7 +104,7 @@ fn the_run_manager_commands_contracts_and_operation_write_no_file() {
         rust_files(&root.join(s), &mut files);
     }
     assert!(
-        files.len() >= 6,
+        files.len() >= 9,
         "{} files scanned — the scan would pass vacuously",
         files.len()
     );

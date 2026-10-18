@@ -3,11 +3,13 @@
 // status area and settings, around the Statistics tools.
 //
 // The shell reads Rust's state and never decides it. The job area polls
-// workspace_state for the newest run's id and reads that run through Phase
-// 2B's stats_desc_status (polling only, decision 24). Switching asks Rust to
-// close the workspace; while a run is queued or running Rust refuses with the
-// run's id, and the shell shows that run with Wait and Cancel. Nothing is
-// abandoned silently.
+// workspace_state for the newest run's id and kind, and reads that run
+// through its kind's status command: Phase 2B's stats_desc_status for a
+// descriptive summary, stats_ttest_status for a t-test (polling only,
+// decision 24; Phase 4B-2, decision 80). Switching asks Rust to close the
+// workspace; while a run is queued or running Rust refuses with the run's
+// id, and the shell shows that run with Wait and Cancel, through its kind's
+// commands. Nothing is abandoned silently.
 //
 // Behind REACT_APP_FEATURE_WORKSPACES, which hides unfinished UI and is not
 // an authorization boundary.
@@ -16,18 +18,21 @@ import { useNavigate } from 'react-router-dom';
 import { AppShell, Button, Card, GaplyGlobe, HeaderBar, Modal, NavRail } from '../../design-system';
 import { isFeatureEnabled } from '../../config/featureFlags';
 import { describeBridge, type DescribeBridge } from '../statistics/describeBridge';
-import { DESCRIBE_PATH } from '../statistics/describeRoute';
 import { progressSentence, RUN_STATE_NAMES } from '../statistics/describeWording';
-import type { RunStateView } from '../statistics/describeTypes';
+import type { RunState } from '../statistics/describeTypes';
+import { statisticsTools as selectorTools } from '../statistics/statisticsRoute';
+import { ttestBridge, type TTestBridge } from '../statistics/ttestBridge';
 import { workspaceBridge, type WorkspaceBridge } from './workspaceBridge';
-import { isActive, workspaceRefusal, type WorkspaceStateView } from './workspaceTypes';
+import { isActive, workspaceRefusal, type RunEntry, type WorkspaceStateView } from './workspaceTypes';
 import { SHELL_TEXT, SWITCH_DIALOG, workspaceSentence } from './workspaceWording';
 import { CHOOSER_PATH } from './workspaceRoute';
 
 export interface WorkspaceShellProps {
   bridge?: WorkspaceBridge;
-  /** Reads and cancels a run (Phase 2B's commands). */
+  /** Reads and cancels a descriptive summary's run (Phase 2B's commands). */
   runs?: DescribeBridge;
+  /** Reads and cancels a t-test's run (Phase 4B-2's commands). */
+  ttestRuns?: TTestBridge;
   /** How often the state and the newest run are read. */
   pollMs?: number;
 }
@@ -37,18 +42,40 @@ export interface WorkspaceShellProps {
  *  (decision 27). */
 function statisticsTools(): Array<{ label: string; href: string }> {
   return [
-    ...(isFeatureEnabled('statsDescribe') ? [{ label: 'Descriptive Summary', href: DESCRIBE_PATH }] : []),
+    // The method selector replaced the descriptive summary's link here
+    // (Phase 4B-2, decision 77); both flows are reached from it.
+    ...selectorTools(),
     ...(isFeatureEnabled('statsCheck') ? [{ label: 'Statistical Analysis Check', href: '/app/check/stats' }] : []),
     { label: 'Statistical Analysis Verifier ★', href: '/app/statsverifier' },
   ];
 }
 
-const JobArea: React.FC<{ run: RunStateView | null }> = ({ run }) => (
+/** A run of either kind, as the shell shows it. */
+interface JobView {
+  runId: number;
+  state: RunState;
+  terminal: boolean;
+  /** The descriptive summary's column progress; a t-test has none. */
+  progress: string | null;
+  kind: RunEntry['kind'];
+}
+
+const KIND_NAMES: Record<RunEntry['kind'], string | null> = {
+  describe: null,
+  ttest: 'independent-samples t-test',
+};
+
+export function jobSentence(run: JobView): string {
+  const kind = KIND_NAMES[run.kind];
+  return `Run ${run.runId}${kind ? ` (${kind})` : ''}: ${RUN_STATE_NAMES[run.state]}.${run.progress ? ` ${run.progress}` : ''}`;
+}
+
+const JobArea: React.FC<{ run: JobView | null }> = ({ run }) => (
   <section aria-labelledby="ws-jobs-heading" data-testid="ws-jobs">
     <h2 id="ws-jobs-heading">{SHELL_TEXT.jobs}</h2>
     {run ? (
       <p role="status" aria-live="polite" data-testid="ws-job">
-        Run {run.runId}: {RUN_STATE_NAMES[run.state]}. {progressSentence(run.columnsDone, run.columnsTotal)}
+        {jobSentence(run)}
       </p>
     ) : (
       <p data-testid="ws-job-none">{SHELL_TEXT.jobsNone}</p>
@@ -56,16 +83,22 @@ const JobArea: React.FC<{ run: RunStateView | null }> = ({ run }) => (
   </section>
 );
 
-export const WorkspaceShell: React.FC<WorkspaceShellProps> = ({ bridge: given, runs: givenRuns, pollMs = 1000 }) => {
+export const WorkspaceShell: React.FC<WorkspaceShellProps> = ({
+  bridge: given,
+  runs: givenRuns,
+  ttestRuns: givenTTest,
+  pollMs = 1000,
+}) => {
   const navigate = useNavigate();
   const bridge = useMemo(() => given ?? workspaceBridge(), [given]);
   const runs = useMemo(() => givenRuns ?? describeBridge(), [givenRuns]);
+  const ttest = useMemo(() => givenTTest ?? ttestBridge(), [givenTTest]);
   const [view, setView] = useState<WorkspaceStateView | null>(null);
-  const [run, setRun] = useState<RunStateView | null>(null);
+  const [run, setRun] = useState<JobView | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   /** The run that blocked a switch: the dialog is open while this is set. */
-  const [blocking, setBlocking] = useState<number | null>(null);
-  const [blockingRun, setBlockingRun] = useState<RunStateView | null>(null);
+  const [blocking, setBlocking] = useState<RunEntry | null>(null);
+  const [blockingRun, setBlockingRun] = useState<JobView | null>(null);
   const [waiting, setWaiting] = useState(false);
   const alive = useRef(true);
 
@@ -76,13 +109,34 @@ export const WorkspaceShell: React.FC<WorkspaceShellProps> = ({ bridge: given, r
     };
   }, []);
 
+  /** A run's state, through its kind's status command (decision 80). */
+  const statusOf = useCallback(
+    async (e: RunEntry): Promise<JobView | null> => {
+      if (e.kind === 'ttest') {
+        const r = await ttest.status(e.runId).catch(() => null);
+        return r && { runId: r.runId, state: r.state, terminal: r.terminal, progress: null, kind: 'ttest' };
+      }
+      const r = await runs.status(e.runId).catch(() => null);
+      return (
+        r && {
+          runId: r.runId,
+          state: r.state,
+          terminal: r.terminal,
+          progress: progressSentence(r.columnsDone, r.columnsTotal),
+          kind: 'describe',
+        }
+      );
+    },
+    [runs, ttest]
+  );
+
   const read = useCallback(async () => {
     try {
       const s = await bridge.state();
       if (!alive.current) return;
       setView(s);
       if (s.latestRun !== null) {
-        const r = await runs.status(s.latestRun).catch(() => null);
+        const r = await statusOf(s.latestRun);
         if (alive.current) setRun(r);
       } else {
         setRun(null);
@@ -90,7 +144,7 @@ export const WorkspaceShell: React.FC<WorkspaceShellProps> = ({ bridge: given, r
     } catch {
       if (alive.current) setMessage('The workspace state could not be read.');
     }
-  }, [bridge, runs]);
+  }, [bridge, statusOf]);
 
   useEffect(() => {
     read();
@@ -107,7 +161,11 @@ export const WorkspaceShell: React.FC<WorkspaceShellProps> = ({ bridge: given, r
     } catch (e) {
       const r = workspaceRefusal(e);
       if (r?.code === 'workspace.run_active' && typeof r.params.run === 'number') {
-        setBlocking(r.params.run);
+        // The refusal names the run; the state names its kind.
+        const id = r.params.run;
+        const s = await bridge.state().catch(() => null);
+        const kind = s?.activeRun?.runId === id ? s.activeRun.kind : 'describe';
+        setBlocking({ runId: id, kind });
       } else {
         setMessage(r ? workspaceSentence(r) : 'The workspace could not be closed.');
       }
@@ -120,7 +178,7 @@ export const WorkspaceShell: React.FC<WorkspaceShellProps> = ({ bridge: given, r
     if (blocking === null) return;
     let stop = false;
     const tick = async () => {
-      const r = await runs.status(blocking).catch(() => null);
+      const r = await statusOf(blocking);
       if (stop || !alive.current) return;
       setBlockingRun(r);
       if (waiting && (r === null || r.terminal)) {
@@ -135,13 +193,15 @@ export const WorkspaceShell: React.FC<WorkspaceShellProps> = ({ bridge: given, r
       stop = true;
       clearInterval(t);
     };
-  }, [blocking, waiting, runs, pollMs, leave]);
+  }, [blocking, waiting, statusOf, pollMs, leave]);
 
   const cancelRun = useCallback(async () => {
     if (blocking === null) return;
     setWaiting(true);
-    await runs.cancel(blocking).catch(() => null);
-  }, [blocking, runs]);
+    // Through the run's own kind's cancel (decision 80).
+    if (blocking.kind === 'ttest') await ttest.cancel(blocking.runId).catch(() => null);
+    else await runs.cancel(blocking.runId).catch(() => null);
+  }, [blocking, runs, ttest]);
 
   const stay = useCallback(() => {
     setBlocking(null);
@@ -213,9 +273,7 @@ export const WorkspaceShell: React.FC<WorkspaceShellProps> = ({ bridge: given, r
         <div data-testid="ws-switch-dialog">
           <p>{SWITCH_DIALOG.body}</p>
           <p role="status" aria-live="polite" data-testid="ws-switch-run">
-            {blockingRun
-              ? `Run ${blockingRun.runId}: ${RUN_STATE_NAMES[blockingRun.state]}. ${progressSentence(blockingRun.columnsDone, blockingRun.columnsTotal)}`
-              : `Run ${blocking ?? ''}`}
+            {blockingRun ? jobSentence(blockingRun) : `Run ${blocking?.runId ?? ''}`}
           </p>
           {waiting && <p data-testid="ws-switch-waiting">{SWITCH_DIALOG.waiting}</p>}
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>

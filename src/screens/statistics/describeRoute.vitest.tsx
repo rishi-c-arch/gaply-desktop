@@ -1,12 +1,15 @@
-// The descriptive summary's route and hub tile (Research OS, Phase 2B): both
-// appear with REACT_APP_FEATURE_STATS_DESCRIBE on and are hidden with it off.
-// The flag hides unfinished UI; it is not an authorization boundary.
+// The descriptive summary's route and the hub tile that reaches it (Research
+// OS, Phase 2B): both appear with REACT_APP_FEATURE_STATS_DESCRIBE on and are
+// hidden with it off. Since Phase 4B-2 the tile is the method selector's
+// (decision 77), which opens the summary. The flag hides unfinished UI; it is
+// not an authorization boundary.
 import React from 'react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { DESCRIBE_PATH, describeRoute } from './describeRoute';
+import { STATISTICS_HOME_PATH } from './statisticsRoute';
 import AppHomeHero from '../home/AppHomeHero';
 import { ThemeProvider } from '../../contexts/ThemeContext';
 
@@ -48,9 +51,11 @@ describe('REACT_APP_FEATURE_STATS_DESCRIBE', () => {
     expect(screen.getByTestId('describe-here')).toBeTruthy();
     cleanup();
     hub();
-    const tiles = screen.getAllByText('Descriptive Summary');
+    // The selector replaced the summary's own tile (Phase 4B-2).
+    expect(screen.queryByText('Descriptive Summary')).toBeNull();
+    const tiles = screen.getAllByText('Statistical Methods');
     expect(tiles.length).toBeGreaterThan(0);
-    expect(tiles[0].closest('a')?.getAttribute('href')).toBe(DESCRIBE_PATH);
+    expect(tiles[0].closest('a')?.getAttribute('href')).toBe(STATISTICS_HOME_PATH);
   });
 
   it('off: both are hidden', () => {
@@ -61,6 +66,7 @@ describe('REACT_APP_FEATURE_STATS_DESCRIBE', () => {
     cleanup();
     hub();
     expect(screen.queryByText('Descriptive Summary')).toBeNull();
+    expect(screen.queryByText('Statistical Methods')).toBeNull();
     // The rest of the hub is unchanged.
     expect(screen.getAllByText(/Statistical Analysis Verifier/).length).toBeGreaterThan(0);
   });

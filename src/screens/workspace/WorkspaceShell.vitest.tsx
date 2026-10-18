@@ -1,5 +1,5 @@
 // The slim Statistics shell (Research OS, Phase 3): the job area reads Phase
-// 2B's run status; switching while a run is queued or running shows that run
+// 2B's run status, and since Phase 4B-2 a t-test's through its own commands; switching while a run is queued or running shows that run
 // with Wait and Cancel, and nothing is abandoned: the switch happens only
 // after Rust lets the workspace go.
 import React from 'react';
@@ -10,17 +10,19 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WorkspaceShell } from './WorkspaceShell';
 import { makeMockWorkspaceBridge } from './workspaceBridge';
 import { makeMockDescribeBridge } from '../statistics/describeBridge';
-import type { WorkspaceStateView } from './workspaceTypes';
+import { makeMockTTestBridge } from '../statistics/ttestBridge';
+import type { TTestRunStateView } from '../statistics/ttestTypes';
+import type { RunKind, WorkspaceStateView } from './workspaceTypes';
 import type { RunStateView } from '../statistics/describeTypes';
 
 vi.mock('../../design-system/GaplyGlobe', () => ({ GaplyGlobe: () => <div /> }));
 
 afterEach(cleanup);
 
-const ACTIVE = (run: number | null): WorkspaceStateView => ({
+const ACTIVE = (run: number | null, kind: RunKind = 'describe'): WorkspaceStateView => ({
   state: { phase: 'active', workspace: 'statistics' },
-  activeRun: run,
-  latestRun: run,
+  activeRun: run === null ? null : { runId: run, kind },
+  latestRun: run === null ? null : { runId: run, kind },
 });
 const NONE: WorkspaceStateView = { state: { phase: 'no_workspace' }, activeRun: null, latestRun: null };
 
@@ -40,11 +42,32 @@ const RUN_ACTIVE = Object.assign(
   { code: 'validation' }
 );
 
-function renderShell(ws: ReturnType<typeof makeMockWorkspaceBridge>, runs: ReturnType<typeof makeMockDescribeBridge>) {
+const ttestView = (state: TTestRunStateView['state'], terminal: boolean): TTestRunStateView => ({
+  runId: 5,
+  state,
+  terminal,
+  elapsedMs: 80,
+  cancelRequested: false,
+  diagnostics: [],
+});
+
+const TTEST_ACTIVE = Object.assign(
+  new Error(JSON.stringify({ code: 'workspace.run_active', params: { workspace: 'statistics', run: 5 }, severity: 'error' })),
+  { code: 'validation' }
+);
+
+function renderShell(
+  ws: ReturnType<typeof makeMockWorkspaceBridge>,
+  runs: ReturnType<typeof makeMockDescribeBridge>,
+  ttestRuns: ReturnType<typeof makeMockTTestBridge> = makeMockTTestBridge({})
+) {
   render(
     <MemoryRouter initialEntries={['/app/workspaces/statistics']}>
       <Routes>
-        <Route path="/app/workspaces/statistics" element={<WorkspaceShell bridge={ws} runs={runs} pollMs={20} />} />
+        <Route
+          path="/app/workspaces/statistics"
+          element={<WorkspaceShell bridge={ws} runs={runs} ttestRuns={ttestRuns} pollMs={20} />}
+        />
         <Route path="/app/workspaces" element={<div data-testid="chooser-here" />} />
       </Routes>
     </MemoryRouter>
@@ -150,6 +173,53 @@ describe('WorkspaceShell', () => {
     fireEvent.click(await screen.findByTestId('ws-switch-stay'));
     await waitFor(() => expect(screen.queryByTestId('ws-switch-dialog')).toBeNull());
     expect(screen.queryByTestId('chooser-here')).toBeNull();
+  });
+
+  // Phase 4B-2 (decision 80): a run's kind decides which commands read it.
+  it("reads a t-test run through the t-test's status command", async () => {
+    const ws = makeMockWorkspaceBridge({ workspace_state: ACTIVE(5, 'ttest') });
+    const desc = makeMockDescribeBridge({});
+    const ttest = makeMockTTestBridge({ stats_ttest_status: ttestView('running', false) });
+    renderShell(ws, desc, ttest);
+    await waitFor(() => expect(screen.getByTestId('ws-job').textContent).toBe('Run 5 (independent-samples t-test): Running.'));
+    expect(ttest.calls.every(([c]) => c === 'stats_ttest_status')).toBe(true);
+    expect(desc.calls).toEqual([]);
+  });
+
+  it('switching during a t-test run shows it, and Cancel cancels it through the t-test, then switches', async () => {
+    let ended = false;
+    let deactivations = 0;
+    const ws = makeMockWorkspaceBridge({
+      workspace_state: () => ACTIVE(ended ? null : 5, 'ttest'),
+      workspace_deactivate: () => {
+        deactivations += 1;
+        if (!ended) throw TTEST_ACTIVE;
+        return NONE;
+      },
+    });
+    const desc = makeMockDescribeBridge({});
+    const ttest = makeMockTTestBridge({
+      stats_ttest_status: () => (ended ? ttestView('cancelled', true) : ttestView('running', false)),
+      stats_ttest_cancel: () => {
+        ended = true;
+        return ttestView('running', false);
+      },
+    });
+    renderShell(ws, desc, ttest);
+    await waitFor(() => expect((screen.getByTestId('ws-switch') as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByTestId('ws-switch'));
+    await screen.findByTestId('ws-switch-dialog');
+    await waitFor(() =>
+      expect(screen.getByTestId('ws-switch-run').textContent).toBe('Run 5 (independent-samples t-test): Running.')
+    );
+    expect(deactivations).toBe(1);
+    fireEvent.click(screen.getByTestId('ws-switch-cancel'));
+    await screen.findByTestId('chooser-here');
+    expect(ttest.calls.filter(([c]) => c === 'stats_ttest_cancel')).toEqual([['stats_ttest_cancel', { runId: 5 }]]);
+    // Never through the descriptive summary's commands, which would refuse
+    // it with run.wrong_kind.
+    expect(desc.calls).toEqual([]);
+    expect(deactivations).toBe(2);
   });
 
   it('reads the state and does not decide it: with Statistics not open, it says so', async () => {

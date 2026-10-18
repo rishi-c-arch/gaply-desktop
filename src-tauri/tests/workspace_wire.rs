@@ -10,7 +10,8 @@
 
 use std::path::PathBuf;
 
-use app_lib::workspace::{list, WorkspaceStateView};
+use app_lib::runs::RunKind;
+use app_lib::workspace::{list, RunEntryView, WorkspaceStateView};
 use gaply_core::contracts::codes::Closed;
 use gaply_core::contracts::workspace::{transition, WorkspaceCode, WorkspaceEvent, WorkspaceState};
 use gaply_core::contracts::{Diagnostic, ParamKey, ParamValue, WorkspaceId};
@@ -33,8 +34,15 @@ fn every_workspace_view_serialises_to_its_fixture() {
         "workspaceStateView.json",
         &WorkspaceStateView {
             state: WorkspaceState::Active(WorkspaceId::Statistics),
-            active_run: Some(3),
-            latest_run: Some(3),
+            // Phase 4B-2 (decision 80): each run names its kind.
+            active_run: Some(RunEntryView {
+                run_id: 3,
+                kind: RunKind::Ttest,
+            }),
+            latest_run: Some(RunEntryView {
+                run_id: 3,
+                kind: RunKind::Ttest,
+            }),
         },
     );
     assert_bytes(

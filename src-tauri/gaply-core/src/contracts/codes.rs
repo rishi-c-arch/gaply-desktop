@@ -111,5 +111,9 @@ closed! {
         IllegalTransition => "illegal_transition",
         /// The run has ended; nothing leaves a terminal state.
         AlreadyTerminal => "already_terminal",
+        /// The run is of another kind than the command reads (Research OS,
+        /// Phase 4B-2, decision 74): a t-test run asked of a descriptive
+        /// summary's command, or the reverse.
+        WrongKind => "wrong_kind",
     }
 }

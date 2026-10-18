@@ -36,6 +36,7 @@ pub mod stats_l1_commands;
 pub mod stats_l1_ingest;
 pub mod stats_legacy;
 pub mod stats_reproduction;
+pub mod stats_ttest_commands;
 pub mod supplementary;
 pub mod workspace;
 
@@ -349,6 +350,16 @@ pub fn run() {
             stats_desc_commands::stats_desc_cancel,
             stats_desc_commands::stats_desc_export,
             stats_desc_commands::stats_desc_close,
+            // Research OS, Phase 4B-2: the independent-samples t-test, behind
+            // the workspace check (decision 74), and the method selector's
+            // list, which reads only the static registry (decision 76).
+            stats_ttest_commands::stats_ttest_validate,
+            stats_ttest_commands::stats_ttest_run,
+            stats_ttest_commands::stats_ttest_status,
+            stats_ttest_commands::stats_ttest_result,
+            stats_ttest_commands::stats_ttest_cancel,
+            stats_ttest_commands::stats_ttest_export,
+            stats_ttest_commands::capability_list,
             // Research OS, Phase 3: the window's one active workspace. Only
             // `workspace_activate` activates one.
             workspace::workspace_list,

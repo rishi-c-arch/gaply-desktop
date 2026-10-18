@@ -56,7 +56,12 @@ const list = [
   missing('design'),
 ] satisfies WorkspaceDescriptorView[];
 
-const state = { state: { phase: 'active', workspace: 'statistics' }, activeRun: 3, latestRun: 3 } satisfies WorkspaceStateView;
+// Phase 4B-2 (decision 80): each run names its kind.
+const state = {
+  state: { phase: 'active', workspace: 'statistics' },
+  activeRun: { runId: 3, kind: 'ttest' },
+  latestRun: { runId: 3, kind: 'ttest' },
+} satisfies WorkspaceStateView;
 const none = { state: { phase: 'no_workspace' }, activeRun: null, latestRun: null } satisfies WorkspaceStateView;
 const runActive = {
   code: 'workspace.run_active',

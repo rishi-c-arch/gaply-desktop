@@ -37,6 +37,7 @@ import { OfflineHintBanner } from './components/OfflineHintBanner';
 import { isTauri } from './utils/isTauri';
 import { isFeatureEnabled } from './config/featureFlags';
 import { describeRoute } from './screens/statistics/describeRoute';
+import { statisticsRoutes } from './screens/statistics/statisticsRoute';
 import { workspaceRoutes } from './screens/workspace/workspaceRoute';
 
 const CitationGeneratorPage = React.lazy(() => import('./features/citation-generator/CitationGeneratorPage'));
@@ -66,6 +67,8 @@ const GaplyCopilotRoute = React.lazy(() => import('./screens/GaplyScreens').then
 const GaplyGapFinderRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.GapFinderRoute })));
 const GaplyStatsVerifierRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.StatsVerifierRoute })));
 const GaplyDescribeRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.DescribeRoute })));
+const GaplyStatisticsHomeRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.StatisticsHomeRoute })));
+const GaplyTTestRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.TTestRoute })));
 const GaplyWorkspaceChooserRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.WorkspaceChooserRoute })));
 const GaplyWorkspaceShellRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.WorkspaceShellRoute })));
 const GaplyBillingRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.BillingRoute })));
@@ -669,6 +672,11 @@ const AppContent: React.FC = () => {
           <Route path="/app/statsverifier" element={<Suspense fallback={null}><GaplyStatsVerifierRoute /></Suspense>} />
           {/* The Research OS descriptive summary: only while its flag is on. */}
           {describeRoute(<Suspense fallback={null}><GaplyDescribeRoute /></Suspense>)}
+          {/* The Research OS method selector and the t-test: only while the same flag is on. */}
+          {statisticsRoutes(
+            <Suspense fallback={null}><GaplyStatisticsHomeRoute /></Suspense>,
+            <Suspense fallback={null}><GaplyTTestRoute /></Suspense>
+          )}
           {/* The Research OS workspace chooser and shell: only while their flag is on. */}
           {workspaceRoutes(
             <Suspense fallback={null}><GaplyWorkspaceChooserRoute /></Suspense>,

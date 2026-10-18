@@ -19,6 +19,10 @@
 //!    `stats_legacy`) is in exactly one of the two lists, so a new one must
 //!    be classified before it can ship.
 //!
+//! 5. Phase 4B-2 (decisions 74, 76): the six `stats_ttest_*` commands check
+//!    the workspace first, in the same form, and `capability_list`, which
+//!    reads only the static registry, does not check it at all.
+//!
 //! What this cannot see: a check written in a way that is not this exact
 //! call (an alias, a macro). The runtime tests in `workspace_session.rs` call
 //! every `stats_desc_*` command while no workspace is active and while one is
@@ -314,6 +318,87 @@ fn every_verifier_operation_command_checks_the_workspace_first_and_no_exempt_com
         VERIFIER_EXEMPT.len()
     );
     assert!(failures.is_empty(), "decision 49:\n{}", failures.join("\n"));
+}
+
+/// Phase 4B-2 (decision 74, 76): the t-test's operation commands, each
+/// checking the workspace first, in the same form. (registered path)
+const TTEST_OPERATIONS: &[&str] = &[
+    "stats_ttest_commands::stats_ttest_validate",
+    "stats_ttest_commands::stats_ttest_run",
+    "stats_ttest_commands::stats_ttest_status",
+    "stats_ttest_commands::stats_ttest_result",
+    "stats_ttest_commands::stats_ttest_cancel",
+    "stats_ttest_commands::stats_ttest_export",
+];
+
+/// Exempt: it reads only the static capability registry (decision 76).
+/// (registered path, why)
+const TTEST_EXEMPT: &[(&str, &str)] = &[(
+    "stats_ttest_commands::capability_list",
+    "reads the static registry; no workspace, no data",
+)];
+
+#[test]
+fn every_ttest_command_checks_the_workspace_first_and_capability_list_does_not() {
+    let all = registered();
+    assert!(all.len() > 100, "the handler parse is inert");
+    let mut family: Vec<&str> = all
+        .iter()
+        .map(|p| p.as_str())
+        .filter(|p| p.starts_with("stats_ttest_commands::"))
+        .collect();
+    family.sort_unstable();
+    let mut listed: Vec<&str> = TTEST_OPERATIONS.to_vec();
+    listed.extend(TTEST_EXEMPT.iter().map(|(p, _)| *p));
+    listed.sort_unstable();
+    assert_eq!(
+        family, listed,
+        "every registered stats_ttest_commands command is classified, and every classified one is registered"
+    );
+    // Nothing registers a stats_ttest_* command from another module.
+    for p in &all {
+        if p.rsplit("::")
+            .next()
+            .is_some_and(|n| n.starts_with("stats_ttest_"))
+        {
+            assert!(p.starts_with("stats_ttest_commands::"), "{p}");
+        }
+    }
+
+    let src = without_line_comments(&read(&root().join("src/stats_ttest_commands.rs")));
+    let mut failures = Vec::new();
+    for path in TTEST_OPERATIONS {
+        let name = path.rsplit("::").next().unwrap();
+        match fn_body(&src, name) {
+            Some(body) if checks_first(body) => {}
+            Some(body) => failures.push(format!(
+                "{path}: first statement is `{}`",
+                body.split(';').next().unwrap_or("").trim()
+            )),
+            None => failures.push(format!("{path}: no body found")),
+        }
+    }
+    for (path, why) in TTEST_EXEMPT {
+        let name = path.rsplit("::").next().unwrap();
+        let body: String = fn_body(&src, name)
+            .unwrap_or_else(|| panic!("{path}: no body found"))
+            .chars()
+            .filter(|c| !c.is_whitespace())
+            .collect();
+        if body.contains("require_statistics") {
+            failures.push(format!("{path} is gated, but it is exempt: {why}"));
+        }
+    }
+    println!(
+        "gated {} t-test commands; {} exempt",
+        TTEST_OPERATIONS.len(),
+        TTEST_EXEMPT.len()
+    );
+    assert!(
+        failures.is_empty(),
+        "decisions 74, 76:\n{}",
+        failures.join("\n")
+    );
 }
 
 #[test]
