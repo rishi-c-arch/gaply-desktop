@@ -69,7 +69,7 @@ fn every_code() -> Vec<WireCode> {
         all.push(codes::not_applicable_reason(r));
         all.push(codes::l0_could_not_check_reason(CouldNotCheckReason::NotApplicable(r)));
     }
-    for r in [CouldNotCheckReason::AdjustedP, CouldNotCheckReason::InvalidInput, CouldNotCheckReason::Uninformative, CouldNotCheckReason::NoMethodRan] {
+    for r in [CouldNotCheckReason::AdjustedP, CouldNotCheckReason::InvalidInput, CouldNotCheckReason::Uninformative, CouldNotCheckReason::DfBeyondMeasuredRange, CouldNotCheckReason::NoMethodRan] {
         all.push(codes::l0_could_not_check_reason(r));
     }
     for k in [NumberKind::Statistic, NumberKind::Df { index: 0 }, NumberKind::P, NumberKind::N { source: NSource::Stated }, NumberKind::N { source: NSource::ImpliedByDf }] {

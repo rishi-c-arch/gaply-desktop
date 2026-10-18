@@ -441,3 +441,66 @@ fn group_levels_are_the_indices_a_spec_names() {
     }
     assert_eq!(group_levels(&d, Alias(ColumnAlias(9))), None);
 }
+
+/// Decision 94 (the Phase 4 evaluation's F4): decision 87's limit of 50
+/// levels holds wherever a spec can be built, not only in the picker and in
+/// `stats_ttest_group_levels`. A group with 51 levels is refused by
+/// `validate` and by `run` with `too_many_levels {count, limit}`, even when
+/// the spec names two levels that each hold two rows and would compute; a
+/// group with exactly 50 is not refused for its count.
+#[test]
+fn a_group_with_more_than_50_levels_is_refused_by_validate_and_run() {
+    fn levels(k: usize) -> Dataset {
+        let rows: Vec<Vec<String>> = (0..k)
+            .flat_map(|i| {
+                [
+                    vec![format!("{}", i), format!("L{i:02}")],
+                    vec![format!("{}.5", i + 7), format!("L{i:02}")],
+                ]
+            })
+            .collect();
+        let refs: Vec<Vec<&str>> = rows
+            .iter()
+            .map(|r| r.iter().map(String::as_str).collect())
+            .collect();
+        let slices: Vec<&[&str]> = refs.iter().map(Vec::as_slice).collect();
+        table(&["y", "g"], &slices)
+    }
+    let welch = Some(Variant::Welch);
+
+    let wide = levels(51);
+    let r = validate(&wide, &spec(OperationId(1), &wide, p(Some([0, 1]), welch)));
+    assert_eq!(r.status, ValidationStatus::Invalid, "{r:?}");
+    let e = r
+        .errors
+        .iter()
+        .find(|e| e.code == TTestCode::TooManyLevels)
+        .unwrap_or_else(|| panic!("too_many_levels among the errors: {:?}", r.errors));
+    assert_eq!(e.params.get(&ParamKey::Count), Some(&ParamValue::Int(51)));
+    assert_eq!(e.params.get(&ParamKey::Limit), Some(&ParamValue::Int(50)));
+    // No levels named: still refused, not asked which two.
+    let (s, errors, questions) = status(&wide, p(None, welch));
+    assert_eq!(s, ValidationStatus::Invalid);
+    assert!(errors.contains(&TTestCode::TooManyLevels), "{errors:?}");
+    assert!(
+        !questions.contains(&TTestCode::LevelsNotChosen),
+        "{questions:?}"
+    );
+    // `run` refuses with the same code before its check point.
+    let mut reached = false;
+    let refused = run(&wide, &p(Some([0, 1]), welch), |_| {
+        reached = true;
+        ControlFlow::<()>::Continue(())
+    });
+    assert!(
+        matches!(&refused, Err(Halt::Refused(d)) if d.code == TTestCode::TooManyLevels),
+        "{refused:?}"
+    );
+    assert!(!reached, "a refused spec never reaches the check point");
+
+    // Exactly 50: the two named levels compute.
+    let fifty = levels(50);
+    let (s, errors, _) = status(&fifty, p(Some([0, 1]), welch));
+    assert_eq!(s, ValidationStatus::Valid, "{errors:?}");
+    assert!(compute(&fifty, &p(Some([0, 1]), welch)).is_ok());
+}

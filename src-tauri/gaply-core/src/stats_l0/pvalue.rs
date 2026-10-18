@@ -8,7 +8,11 @@
 //!
 //! Precision against R is a gate, not an assumption:
 //! `tests/l0_p_reference.rs` over `tests/fixtures/stats_l0/p_fixtures.csv`
-//! holds every row to a relative 1e-9 of R's p.
+//! holds every row to a relative 1e-9 of R's p (t to df 2,000), and
+//! `tests/l0_large_df.rs` over `p_large_df.csv` holds t to the same gate up to
+//! df [`T_DF_MEASURED_MAX`]. Above it the t engine is not within the gate
+//! (measured 18 Oct 2026: 1.4e-9 at df 2e5, 1.1e-7 at 1e7), so Level 0 does not
+//! judge a t or r p there (decision 90).
 //!
 //! Inputs are points, not [`super::number::ReportedNumber`] intervals: the
 //! caller evaluates an interval's endpoints. `None` means the arguments do not
@@ -27,12 +31,21 @@ use statrs::function::beta::checked_beta_reg;
 /// `engine_version_names_the_locked_statrs` fails when the two differ.
 pub const ENGINE_VERSION: &str = "stats_l0 pvalue 2; statrs 0.18.0";
 
-/// How far a recomputed p may sit from the true p through engine error alone:
-/// ten times the 1e-9 relative gate in `tests/l0_p_reference.rs`. It covers
-/// the ENGINE only, not rounding in the manuscript. Step 5's `p_consistency`
-/// widens each recomputed p endpoint outward by this relative margin. Nothing
-/// uses it yet.
+/// How far a recomputed p may sit from the true p through engine error alone,
+/// over the range where the engine is measured within its gate: ten times the
+/// 1e-9 relative gate in `tests/l0_p_reference.rs`. It covers the ENGINE only,
+/// not rounding in the manuscript. `p_consistency` widens each recomputed p
+/// endpoint outward by this relative margin. For t above
+/// [`T_DF_MEASURED_MAX`] it does not cover the engine (from df 5e6 the error
+/// passes 1e-8), which is why `p_consistency` gives no verdict there.
 pub const ENGINE_P_RELATIVE_MARGIN: f64 = 1e-8;
+
+/// The largest df at which the t distribution (and r, through t) is measured
+/// within Level 0's 1e-9 gate against R: one decade below the 2e5 where the
+/// Phase 4 evaluation measured it past the gate (decision 90). `p_consistency`
+/// answers `CouldNotCheck(DfBeyondMeasuredRange)` above it. A later verifier
+/// step may raise it once the engine is measured accurate there.
+pub const T_DF_MEASURED_MAX: f64 = 1e5;
 
 /// A df a printed result can carry: finite and above 0.
 fn df_ok(df: f64) -> Option<f64> {

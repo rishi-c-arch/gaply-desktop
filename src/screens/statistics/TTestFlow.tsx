@@ -483,17 +483,24 @@ const TTestFlow: React.FC<TTestFlowProps> = ({
             <fieldset data-testid="tt-variant">
               <legend>{VARIANT_QUESTION}</legend>
               {VARIANT_CHOICES.map((c) => (
-                <label key={c.variant} style={{ display: 'block' }}>
-                  <input
-                    type="radio"
-                    name="tt-variant"
-                    value={c.variant}
-                    checked={variant === c.variant}
-                    data-testid={`tt-variant-${c.variant}`}
-                    onChange={() => setVariant(c.variant)}
-                  />{' '}
-                  {c.label}
-                </label>
+                <div key={c.variant}>
+                  <label style={{ display: 'block' }}>
+                    <input
+                      type="radio"
+                      name="tt-variant"
+                      value={c.variant}
+                      checked={variant === c.variant}
+                      data-testid={`tt-variant-${c.variant}`}
+                      aria-describedby={`tt-variant-line-${c.variant}`}
+                      onChange={() => setVariant(c.variant)}
+                    />{' '}
+                    {c.label}
+                  </label>
+                  {/* Decision 93: what this test assumes, as information. */}
+                  <p id={`tt-variant-line-${c.variant}`} data-testid={`tt-variant-line-${c.variant}`} className="gds-jc__disclaimer" style={{ margin: '0 0 0.5em 1.5em' }}>
+                    {c.line}
+                  </p>
+                </div>
               ))}
             </fieldset>
             {outcomeColumn && offered.length > 0 && (

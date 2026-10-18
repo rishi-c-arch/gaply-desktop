@@ -423,16 +423,33 @@ impl Registry {
         Ok(entry)
     }
 
-    /// A copy with one capability's lifecycle changed: the test-only table
-    /// for the states the real one has no capability in.
-    #[cfg(test)]
-    pub(crate) fn with_lifecycle(mut self, word: &str, lifecycle: Lifecycle) -> Registry {
+    /// A copy with one capability's lifecycle changed: a table for the states
+    /// the real one has no capability in. For tests only: a test passes such
+    /// a table to the code under test as a parameter (decision 96), and
+    /// `src-tauri/tests/verifier_facade_guards.rs` fails if production source
+    /// calls this. A copy can never reach the wire: a descriptor has no
+    /// `Deserialize`, and the commands build their table with [`Self::statistics`].
+    pub fn with_lifecycle(mut self, word: &str, lifecycle: Lifecycle) -> Registry {
         let e = self
             .entries
             .iter_mut()
             .find(|e| e.descriptor.id.as_str() == word)
             .expect("the capability is in the table");
         e.descriptor.lifecycle = lifecycle;
+        self
+    }
+
+    /// A copy without one capability: a table in which `word` is not
+    /// registered. For tests only, under the same guard as
+    /// [`Self::with_lifecycle`].
+    pub fn without(mut self, word: &str) -> Registry {
+        let before = self.entries.len();
+        self.entries.retain(|e| e.descriptor.id.as_str() != word);
+        assert_eq!(
+            self.entries.len() + 1,
+            before,
+            "{word} is in the table once"
+        );
         self
     }
 }

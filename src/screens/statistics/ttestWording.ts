@@ -13,7 +13,8 @@ import { refusalOf, sentenceFor } from '../statsverifier/l1/l1Wording';
 import type { WireCode } from '../statsverifier/statsL1Types';
 import { workspaceSentence } from '../workspace/workspaceWording';
 import type { WorkspaceRefusal } from '../workspace/workspaceTypes';
-// The run manager's ceiling, pinned to runs::RUN_CEILING_MS (F11).
+// The run manager's ceiling and the runs it keeps, pinned to
+// runs::RUN_CEILING_MS (F11) and runs::MAX_RUNS (Phase 4 evaluation, F6).
 import LIMITS from './describeLimits.json';
 // The group limit, pinned to stats_ttest::MAX_GROUP_LEVELS (decision 87).
 import TTEST_LIMITS from './ttestLimits.json';
@@ -37,11 +38,21 @@ export const TTEST_ENTRY_TEXT =
 export const TTEST_LEVELS_RULE =
   "Levels follow Level 1's reading of cells: 1 and 1.0 are one level, and text is trimmed of spaces at either end. They are listed in the order Gaply reads them, and the first level you choose is group 1: the mean difference is group 1 minus group 2.";
 
-/** The variant question (decision 64): asked, never answered for the user. */
+/** The variant question (decision 64): asked, never answered for the user.
+ *  Each choice has one neutral line beside it (decision 93): what the test
+ *  assumes about the two variances. Information, never a recommendation. */
 export const VARIANT_QUESTION = 'Which t-test? Gaply does not choose one for you.';
-export const VARIANT_CHOICES: ReadonlyArray<{ variant: Variant; label: string }> = [
-  { variant: 'student', label: "Student's t-test: the two groups' variances are assumed equal" },
-  { variant: 'welch', label: "Welch's t-test: the two groups' variances are not assumed equal" },
+export const VARIANT_CHOICES: ReadonlyArray<{ variant: Variant; label: string; line: string }> = [
+  {
+    variant: 'student',
+    label: "Student's t-test",
+    line: "Assumes the two groups' variances are equal, and pools them into one estimate.",
+  },
+  {
+    variant: 'welch',
+    label: "Welch's t-test",
+    line: "Does not assume the two groups' variances are equal: it uses each group's own variance and adjusts the degrees of freedom.",
+  },
 ];
 
 export const VARIANT_NAMES: Record<Variant, string> = {
@@ -149,7 +160,7 @@ export const TTEST_WORDS: Record<string, Words> = {
   'stats.ttest.cohens_d_has_no_interval': () => "Cohen's d is shown without a confidence interval: Gaply does not compute one for d yet.",
   'stats.ttest.too_many_levels': (d) =>
     `This column has ${num(d, 'count') ?? '?'} distinct values, more than the ${num(d, 'limit') ?? TTEST_LIMITS.maxGroupLevels} a group may have, so its values are not listed.`,
-  'run.unknown_run': () => 'This run is no longer held. Gaply keeps the last 8 runs in memory only; run the t-test again.',
+  'run.unknown_run': () => `This run is no longer held. Gaply keeps the last ${LIMITS.maxRuns} runs in memory only; run the t-test again.`,
   'run.run_busy': () => 'Another run is going in this workspace. Wait for it to end, or cancel it.',
   'run.unknown_input': () => 'This file is no longer open. Open it again.',
   'run.not_finished': () => 'This run has not ended yet.',
@@ -225,13 +236,16 @@ export function ttestRunEndedSentence(state: string): string {
   }
 }
 
-/** A number as the card shows it: six digits. The CSV export keeps every
- *  digit. */
+/** A number as the card shows it: six figures, counted from the first digit
+ *  that is not zero (`toPrecision(6)`). The CSV export keeps every digit. */
 export function shownNumber(v: number): string {
   return String(Number.parseFloat(v.toPrecision(6)));
 }
 
-export const TTEST_DIGITS_NOTE = 'Numbers are shown rounded to six digits; the CSV export keeps every digit.';
+// Not "significant figures": the neutral-wording rule keeps that word off
+// this screen (decision 66), so the sentence says how the figures are counted.
+export const TTEST_DIGITS_NOTE =
+  'Numbers are shown rounded to six figures, counted from the first digit that is not zero; the CSV export keeps every digit.';
 
 export function statSentence(s: TTestStat): string {
   return 'value' in s ? shownNumber(s.value) : ttestSentence({ code: s.not_computable });
@@ -246,7 +260,7 @@ export const TTEST_EXPORT_CHOICES = [
 ] as const;
 
 export const TTEST_EXPORT_TEXT =
-  'Gaply writes only the file you name in the save dialog and keeps no copy. The manifest holds hashes, versions and counts, never your data, headers, level labels or file name.';
+  'Gaply writes only the file you name in the save dialog and keeps no copy. The result table carries the two group labels with the result. The manifest holds hashes, versions and counts, never your data, headers, level labels or file name.';
 
 /** Rows used is the two groups' n, so the three counts add up. */
 export const TTEST_ROWS_USED_NOTE = 'The two groups together. Rows read is rows used plus the rows left out above.';

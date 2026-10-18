@@ -10,6 +10,8 @@ import ttestCodes from './ttestCodes.json';
 import capabilityCodes from './capabilityCodes.json';
 import * as words from './ttestWording';
 import { CAPABILITY_WORDS, capabilitySentence, HOME_TEXT, LIFECYCLE_LABELS } from './capabilityWording';
+import LIMITS from './describeLimits.json';
+import { refusalSentence as describeRefusalSentence } from './describeWording';
 
 /** Parameters every sentence can be asked with: numbers for the t-test's
  *  and the registry's codes, closed words for the workspace's. */
@@ -95,5 +97,29 @@ describe('neutral wording (decision 66)', () => {
     expect(all.length).toBeGreaterThan(100);
     const bad = all.filter((s) => /significan/i.test(s) || /[*★☆]/.test(s));
     expect(bad).toEqual([]);
+  });
+});
+
+// The Phase 4 evaluation's F6: three sentences said less, or other, than the
+// code does.
+
+describe('the sentences say what the code does (evaluation F6)', () => {
+  it('(a) the export text says the result table carries the two group labels', () => {
+    expect(words.TTEST_EXPORT_TEXT).toContain('The result table carries the two group labels');
+    // The manifest sentence stays true and stays.
+    expect(words.TTEST_EXPORT_TEXT).toContain('The manifest holds hashes, versions and counts');
+  });
+
+  it('(b) the digits note says six figures from the first non-zero digit, as shownNumber rounds', () => {
+    expect(words.TTEST_DIGITS_NOTE).not.toContain('six digits');
+    expect(words.TTEST_DIGITS_NOTE).toContain('six figures, counted from the first digit that is not zero');
+    expect(words.shownNumber(0.000123456789)).toBe('0.000123457');
+    expect(words.shownNumber(1234.56789)).toBe('1234.57');
+  });
+
+  it('(c) "the last N runs" is read from describeLimits.json, on both screens', () => {
+    expect(LIMITS.maxRuns).toBe(8);
+    expect(words.ttestSentence({ code: 'run.unknown_run' })).toContain(`the last ${LIMITS.maxRuns} runs`);
+    expect(describeRefusalSentence(JSON.stringify({ code: 'run.unknown_run' }))).toContain(`the last ${LIMITS.maxRuns} runs`);
   });
 });

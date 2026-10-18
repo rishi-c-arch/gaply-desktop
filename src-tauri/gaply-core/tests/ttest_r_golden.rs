@@ -463,3 +463,34 @@ fn a_candidate_missing_code_in_the_outcome_is_a_warning_until_ticked() {
     assert_eq!(excluded(&r, TTestCode::MissingCode), 4);
     assert_eq!(excluded(&r, TTestCode::MissingGroup), 1);
 }
+
+/// Decision 91 (the Phase 4 evaluation's F2): the offset sentence in ADR-008
+/// and on the method page states what was measured. R's `t.test` and
+/// `effectsize::cohens_d` agree on `data_offset.csv` (2.2e-16 Student, 0
+/// Welch); the 1.2e-8 is between a one-pass mean, `sum(x)/n`, and R's `mean`.
+/// Both documents must say so, name the R call, and never repeat the old claim.
+#[test]
+fn the_offset_sentence_states_the_measured_comparison() {
+    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/");
+    for doc in [
+        "adr/ADR-008-statistical-reference-strategy.md",
+        "methods/independent_t.md",
+    ] {
+        let text = std::fs::read_to_string(format!("{root}{doc}"))
+            .unwrap_or_else(|e| panic!("{doc}: {e}"));
+        let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(
+            !flat.contains("disagree with each other by 1.2e-8"),
+            "{doc} still attributes 1.2e-8 to R against R"
+        );
+        assert!(flat.contains("sum(x)/n"), "{doc} names the one-pass mean");
+        assert!(
+            flat.contains("1.194e-8") && flat.contains("1.200e-8"),
+            "{doc} quotes the measured differences"
+        );
+        assert!(
+            flat.contains("effectsize::cohens_d"),
+            "{doc} names the R call"
+        );
+    }
+}

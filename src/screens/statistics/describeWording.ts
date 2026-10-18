@@ -120,7 +120,7 @@ export const WORDS: Record<string, Words> = {
     `${cells(num(d, 'count'))} of column ${col(num(d, 'column') ?? 0)} were empty or held a missing-value token, and were left out.`,
   'stats.desc.missing_code': (d, col) =>
     `${cells(num(d, 'count'))} of column ${col(num(d, 'column') ?? 0)} held a missing code you ticked, and were left out.`,
-  'run.unknown_run': () => 'This run is no longer held. Gaply keeps the last 8 runs in memory only; run the summary again.',
+  'run.unknown_run': () => `This run is no longer held. Gaply keeps the last ${LIMITS.maxRuns} runs in memory only; run the summary again.`,
   'run.run_busy': () => 'A summary is already running. Wait for it to end, or cancel it.',
   'run.unknown_input': () => 'This file is no longer open. Open it again.',
   'run.not_finished': () => 'This run has not ended yet.',

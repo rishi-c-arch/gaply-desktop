@@ -454,6 +454,10 @@ fn could_not_check_words(r: CouldNotCheckReason) -> (&'static str, String) {
             "uninformative",
             "Every value at the printed precision is possible with this sample size, so a match would say nothing.",
         ),
+        CouldNotCheckReason::DfBeyondMeasuredRange => (
+            "df_beyond_measured_range",
+            "The degrees of freedom are above 100,000. Gaply's p-value calculation has not been checked against its reference that far, so this p was not judged.",
+        ),
         CouldNotCheckReason::NotApplicable(n) => return not_applicable_words(n),
         CouldNotCheckReason::NoMethodRan => ("no_method_ran", "No check ran on this result."),
     };
@@ -891,6 +895,7 @@ mod tests {
             could_not_check_words(CouldNotCheckReason::AdjustedP),
             could_not_check_words(CouldNotCheckReason::InvalidInput),
             could_not_check_words(CouldNotCheckReason::Uninformative),
+            could_not_check_words(CouldNotCheckReason::DfBeyondMeasuredRange),
             could_not_check_words(CouldNotCheckReason::NoMethodRan),
         ];
         all.extend(na.iter().map(|n| could_not_check_words(CouldNotCheckReason::NotApplicable(*n))));
@@ -914,9 +919,10 @@ mod tests {
             assert!(!text.contains("  ") && !text.contains('\u{2014}'), "{code}: {text:?}");
             assert!(codes.insert(*code), "duplicate code {code}");
         }
-        // Notes 3 (part C added `double_rounded`), concerns 3, could-not-check 4;
-        // 7 not-applicable reasons, 7 not-read reasons, 11 number refusals.
-        assert_eq!(all.len(), 10 + 7 + 7 + 11);
+        // Notes 3 (part C added `double_rounded`), concerns 3, could-not-check 5
+        // (decision 90 added `df_beyond_measured_range`); 7 not-applicable
+        // reasons, 7 not-read reasons, 11 number refusals.
+        assert_eq!(all.len(), 11 + 7 + 7 + 11);
         // Inconsistent's words live in the screen and must never blame the p.
         for (_, text) in &all {
             assert!(!text.to_lowercase().contains("p-value is wrong"), "{text}");

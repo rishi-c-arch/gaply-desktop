@@ -1,6 +1,7 @@
 # ADR-008: How a statistical method is checked against a reference
 
-**Status: Proposed.** Not accepted until Rishi approves it.
+**Status: Accepted, 18 Oct 2026 (decision 91),** after the Phase 4
+evaluation's F2 correction below.
 Written 18 Oct 2026, Research OS Phase 4B-1 (decisions 60 to 67), from what
 Phases 2A and 4B-1 built: the descriptive summary's R golden set (D271) and the
 independent-samples t-test's (`docs/methods/independent_t.md`).
@@ -75,8 +76,16 @@ the Research OS, so the rule is fixed here before more methods follow it.
 
 - **One global epsilon for every method.** Rejected by blueprint §11.2: it is
   either too loose for well-conditioned statistics or fails the
-  ill-conditioned ones on correct code (on a 1e9 offset, R's `t.test` and
-  effectsize disagree with each other by 1.2e-8 in d).
+  ill-conditioned ones on correct code. On the 1e9-offset fixture
+  (`data_offset.csv`), d from a one-pass mean, `sum(x)/n`, differs from
+  `effectsize::cohens_d` by 1.194e-8 (Student) and 1.200e-8 (Welch), while R's
+  own `t.test` and `effectsize::cohens_d` agree to 2.2e-16 and exactly: the
+  difference is the means' rounding at that offset, not a disagreement inside
+  R. Measured 18 Oct 2026 with R 4.6.1 and effectsize 1.0.3, comparing
+  `(sum(y1)/n1 - sum(y2)/n2) / s` (s the standardizer each variant uses) with
+  `effectsize::cohens_d(y ~ f, pooled_sd = TRUE/FALSE, ci = NULL)`. (Before
+  the Phase 4 evaluation this sentence attributed the 1.2e-8 to R's `t.test`
+  against effectsize, which does not reproduce.)
 - **Vendoring a reference implementation's source**, or translating it, to
   compare in-process. Rejected: Prompt 0 forbids copying reference tools into
   Gaply, and an oracle inside the system under test is not independent.

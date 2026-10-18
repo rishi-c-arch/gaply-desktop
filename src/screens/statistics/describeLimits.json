@@ -1,3 +1,4 @@
 {
-  "runCeilingMs": 30000
+  "runCeilingMs": 30000,
+  "maxRuns": 8
 }

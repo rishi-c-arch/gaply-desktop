@@ -201,14 +201,16 @@ fn the_helper_commands_make_proposals_and_text_only() {
         ("user_ticked", "a stated variant"),
     ];
     let mut scanned = 0;
-    for f in ["helper_preview", "helper_send", "transmit", "record_usage", "helper_revoke", "helper_cancel"] {
+    // `helper_send` delegates to `helper_send_in`, which holds the body
+    // (decision 96); both are scanned.
+    for f in ["helper_preview", "helper_send", "helper_send_in", "transmit", "record_usage", "helper_revoke", "helper_cancel"] {
         let body = fn_body(&src, f);
         scanned += body.lines().count();
         for (needle, what) in FORBIDDEN {
             assert!(!body.contains(needle), "`{f}` contains `{needle}`: {what} must never come from the helper path");
         }
     }
-    // helper_send alone is over 100 lines; far fewer and the cut is wrong.
+    // helper_send_in alone is over 100 lines; far fewer and the cut is wrong.
     assert!(scanned > 180, "only {scanned} lines scanned: the body cut is wrong");
     // The scan itself: a body with a confirmation is caught.
     assert!(fn_body("\npub fn helper_send(x) {\n    s.confirm(p);\n}\nfn other() {}\n", "helper_send").contains(".confirm("));

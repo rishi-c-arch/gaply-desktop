@@ -114,8 +114,8 @@ carry; or Phase 4's Level 1 wrap needs a confirmation step that
 
 ## Addendum: 4A: the capability registry
 
-**Status: Proposed, 18 Oct 2026.** Research OS Phase 4A (decisions 44 to
-51). Not accepted until Rishi approves it; the accepted text above stands.
+**Status: Accepted, 18 Oct 2026 (decision 91).** Research OS Phase 4A
+(decisions 44 to 51), accepted after the evaluation of Phase 4.
 
 1. **The descriptor is a contract, domain-free**
    (`gaply_core::contracts::capability`): `CapabilityDescriptor<W>` with the

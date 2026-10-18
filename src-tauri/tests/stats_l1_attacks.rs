@@ -28,6 +28,8 @@ use gaply_core::GaplyError;
 use l1_support::*;
 
 use app_lib::stats_ai::{CredentialStore, RequestTimeout};
+use gaply_core::contracts::capability::Lifecycle;
+use gaply_core::stats_registry::Registry;
 
 /* ---- the table ------------------------------------------------------------ */
 
@@ -103,6 +105,18 @@ struct Exchange {
 }
 
 fn exchange(input: &HelperTaskInput, categories: &[&str], replies: &[String]) -> Exchange {
+    exchange_in(&Registry::statistics(), input, categories, replies).0
+}
+
+/// [`exchange`] with the capability table `helper_send_in` checks a reply's
+/// method against (decision 96), and the run's proposals before and after the
+/// send.
+fn exchange_in(
+    registry: &Registry,
+    input: &HelperTaskInput,
+    categories: &[&str],
+    replies: &[String],
+) -> (Exchange, usize, usize) {
     let mut mock = MockTransport::new();
     for r in replies {
         mock = mock.reply(r);
@@ -114,13 +128,15 @@ fn exchange(input: &HelperTaskInput, categories: &[&str], replies: &[String]) ->
     ai_on(&w, true);
     let cats: Vec<String> = categories.iter().map(|c| c.to_string()).collect();
     let p = l1::helper_preview(&w.runs, &w.ai, v.run, input, &cats).expect("preview");
-    let result = l1::helper_send(&w.runs, &w.ai, v.run, p.preview, 1_792_000_000);
+    let proposals_before = l1::proposals(&w.runs, v.run).unwrap().len();
+    let result = l1::helper_send_in(registry, &w.runs, &w.ai, v.run, p.preview, 1_792_000_000);
+    let proposals_after = l1::proposals(&w.runs, v.run).unwrap().len();
     let recomputed = serde_json::to_string(&l1::compute(&w.runs, v.run, &[token]).unwrap()).unwrap();
     // With no token every claim is skipped: no result, counted as skipped
     // (part C, M-4; before, a Could-not-check "not bound" result).
     let none = l1::compute(&w.runs, v.run, &[]).unwrap();
     let unbound = format!("results {}, skipped {} of {}", none.claims.len(), none.skipped, v.claims.len());
-    Exchange { result, recomputed, requests: w.mock.sent_count(), unbound }
+    (Exchange { result, recomputed, requests: w.mock.sent_count(), unbound }, proposals_before, proposals_after)
 }
 
 fn claim_method() -> HelperTaskInput {
@@ -291,6 +307,85 @@ fn hostile_claim_method_replies() {
         }
     }
     t.assert_all(13 * 4);
+}
+
+/// Decision 92 (the Phase 4 evaluation's F1): the check that a method an AI
+/// reply names is registered and runnable, through the real reply path: the
+/// real preview and send, the mock transport, the real validators and the two
+/// call sites in `helper_send_in`, with the capability table passed in
+/// (decision 96). With `stats.verify.independent_t` absent from the table, or
+/// Planned, a `claim_method` reply naming it and a `binding_suggestion` reply
+/// for it are each refused with the validator's own `unknown_method`; nothing
+/// downstream sees them (no proposal, the confirmed claim's result unchanged,
+/// one request). With the real table the same replies are accepted, so the
+/// refusal is the table's. Removing either call site turns this red (the
+/// evaluation's mutation M3), not only the source scan.
+#[test]
+fn a_reply_naming_a_method_the_registry_does_not_let_run_is_refused_through_the_reply_path() {
+    let base = baseline();
+    let mut t = Table::new();
+    let id = "stats.verify.independent_t";
+    let role = |r: &str, a: &str, n: Value| json!({"role": r, "alias": a, "levels_to_select": n});
+    let binding_reply = json_reply(
+        json!({"roles": [role("outcome", "C1", Value::Null), role("group", "C2", json!(2))], "reason": "x", "relied_on": ["schema"]}),
+    );
+    let cases = [
+        (
+            "claim_method",
+            claim_method(),
+            cm_reply("independent_t", "student", "A t-test."),
+            "text + an unconfirmed proposal for independent_t",
+        ),
+        (
+            "binding_suggestion",
+            binding(),
+            binding_reply,
+            "text + an unconfirmed proposal",
+        ),
+    ];
+    let tables = [
+        (
+            "unregistered",
+            Registry::statistics().without(id),
+            reply_rejected("unknown_method"),
+        ),
+        (
+            "planned",
+            Registry::statistics().with_lifecycle(id, Lifecycle::Planned),
+            reply_rejected("unknown_method"),
+        ),
+    ];
+    for (task, input, reply, accepted) in &cases {
+        // The control: the real table accepts the reply.
+        let (x, before, after) = exchange_in(
+            &Registry::statistics(),
+            input,
+            &[],
+            std::slice::from_ref(reply),
+        );
+        t.row(
+            &format!("{task}, real table"),
+            accepted,
+            &outcome(&x.result),
+        );
+        t.row(
+            &format!("{task}, real table: proposals added"),
+            "1",
+            &(after - before).to_string(),
+        );
+        for (state, table, refused) in &tables {
+            let attack = format!("{task}, method {state}");
+            let (x, before, after) = exchange_in(table, input, &[], std::slice::from_ref(reply));
+            t.row(&attack, refused, &outcome(&x.result));
+            t.row(
+                &format!("{attack}: proposals added"),
+                "0",
+                &(after - before).to_string(),
+            );
+            invariants(&mut t, &attack, &x, &base, 1);
+        }
+    }
+    t.assert_all(2 * 2 + 2 * 2 * 5);
 }
 
 fn envelope_refusal() -> String {

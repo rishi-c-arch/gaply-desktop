@@ -201,6 +201,11 @@ pub enum CouldNotCheckReason {
     /// GRIM: every value at the printed precision is reachable with this many
     /// units, so a match says nothing.
     Uninformative,
+    /// The p goes through the t distribution at a df above
+    /// [`super::pvalue::T_DF_MEASURED_MAX`], where the engine has not been
+    /// measured within Level 0's gate (decision 90): a verdict there could be
+    /// the engine's error, so none is given.
+    DfBeyondMeasuredRange,
     /// A registered method did not judge this claim. Produced only by
     /// [`super::outcome::claim_verdict`]; a method never returns it.
     NotApplicable(NotApplicableReason),

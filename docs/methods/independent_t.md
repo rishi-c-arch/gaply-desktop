@@ -115,7 +115,7 @@ read.
 | df above 1e4 | not computable, `quantile_out_of_range` (unreachable through the ingest's 5,000 rows) |
 | the outcome holds text, NaN or an infinity | invalid, `outcome_holds_text` / `outcome_non_finite` |
 | the group has fewer than 2 levels | invalid, `group_one_level` |
-| the group column has more than 50 levels | its levels are not listed: `stats_ttest_group_levels` refuses with `too_many_levels` {count, limit}, and the screen does not offer the column (decision 87) |
+| the group column has more than 50 levels | its levels are not listed: `stats_ttest_group_levels` refuses with `too_many_levels` {count, limit}, and the screen does not offer the column (decision 87); `validate` and `run` refuse it as the group with the same code, so a spec built anywhere is held to the limit (decision 94) |
 | more than 2 levels and none chosen | `NeedsUserInput`, `levels_not_chosen` {count} |
 | a level index out of range, or both the same | invalid, `level_out_of_range` {index, limit} / `levels_equal` |
 | a missing code that is NaN or infinite | invalid, `missing_code_not_finite` |
@@ -141,8 +141,23 @@ refused with a closed code.
 | p | 1e-9 · p + 1e-15 + 2 f(\|t\|) · (t's gate) | Level 0's gate against R, an absolute floor so a tiny p cannot pass or fail on its relative error alone, and t's permitted error carried through the t density f |
 
 The cancellation terms are not slack: on `offset_1e9` (values near 1e9, sd 10)
-R's own `t.test` and `effectsize` disagree with each other by 1.2e-8 in d,
-because they sum in different orders.
+d from a one-pass mean, `sum(x)/n`, differs from `effectsize::cohens_d` by
+1.194e-8 (Student) and 1.200e-8 (Welch), while R's own `t.test` and
+`effectsize::cohens_d` agree with each other to 2.2e-16 and exactly. That is
+the means' rounding at this offset, about one ulp of M whoever sums them, and
+the M term is what carries it. Measured 18 Oct 2026, R 4.6.1, effectsize
+1.0.3 (decision 91; the Phase 4 evaluation's F2 corrected an earlier sentence
+that put the 1.2e-8 between `t.test` and effectsize):
+
+```r
+x  <- read.csv("data_offset.csv", comment.char = "#")
+lv <- sort(unique(x$g), method = "radix"); f <- factor(x$g, levels = lv)
+y1 <- x$y[f == lv[1]]; y2 <- x$y[f == lv[2]]
+s  <- t.test(y ~ f, data = data.frame(y = x$y, f), var.equal = TRUE)$stderr /
+      sqrt(1 / length(y1) + 1 / length(y2))      # Welch: sqrt((var(y1) + var(y2)) / 2)
+(sum(y1) / length(y1) - sum(y2) / length(y2)) / s -
+  effectsize::cohens_d(y ~ f, data = data.frame(y = x$y, f), pooled_sd = TRUE, ci = NULL)$Cohens_d
+```
 
 **Measured** (18 Oct 2026, macOS aarch64, debug build), the largest
 |gaply − R| / gate over 32 computed (case, variant) pairs: ci_upper 9.989e-3

@@ -172,7 +172,8 @@ closed! {
         /// Limitation: Cohen's d has no confidence interval (decision 63).
         CohensDHasNoInterval => "cohens_d_has_no_interval",
         /// A column has more levels than a group may (decision 87): its
-        /// levels are not listed. Params `count`, `limit`
+        /// levels are not listed, and `validate` and `run` refuse it as the
+        /// group (decision 94). Params `count`, `limit`
         /// ([`MAX_GROUP_LEVELS`]).
         TooManyLevels => "too_many_levels",
     }
@@ -502,6 +503,14 @@ fn check<'d>(dataset: &'d Dataset, params: &TTestParams) -> Checked<'d> {
                     Diagnostic::error(TTestCode::GroupOneLevel)
                         .with(ParamKey::Column, column_param(params.group))
                         .int(ParamKey::Count, i64::from(k)),
+                );
+            } else if levels.len() > MAX_GROUP_LEVELS {
+                // Decision 94: decision 87's limit is the capability's, so it
+                // holds for a spec built anywhere, not only by the picker.
+                errors.push(
+                    Diagnostic::error(TTestCode::TooManyLevels)
+                        .int(ParamKey::Count, i64::from(k))
+                        .int(ParamKey::Limit, MAX_GROUP_LEVELS as i64),
                 );
             } else {
                 match params.levels {

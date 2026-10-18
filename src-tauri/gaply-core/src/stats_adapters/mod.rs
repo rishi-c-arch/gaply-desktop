@@ -42,7 +42,7 @@ use crate::contracts::{
 use crate::extract::ExtractionResult;
 use crate::stats_desc::{self, DescCode, DescribeParams, DescribeResult, Halt};
 use crate::stats_l0::outcome::{check_reading, StatsConsistencyOutcome};
-use crate::stats_l0::result::{read_results, TableStructure};
+use crate::stats_l0::result::{read_results, ResultReading, TableStructure};
 use crate::stats_l1::catalogue::L1MethodId;
 use crate::stats_l1::claim::RevisionHash;
 use crate::stats_l1::dataset::{Dataset, L1IngestRefusal};
@@ -129,12 +129,34 @@ pub(crate) fn check_in(
     ex: &ExtractionResult,
     tables: TableStructure,
 ) -> Result<StatsConsistencyOutcome, Refusal> {
+    admit_check(registry, spec, build)?;
+    Ok(check_reading(ex, read_results(ex, tables)))
+}
+
+/// `stats.check` on a reading the caller already made from `ex` with
+/// `read_results`: the same registry check, then Level 0 on that reading, so
+/// a caller that needs the reading itself (Level 1's open, for the document
+/// context and the claims) does not read the results twice (the Phase 4
+/// evaluation's F5). `read_results` is deterministic, so the outcome equals
+/// [`check`]'s for the same extraction and table structure.
+pub fn check_with_reading(
+    spec: &OperationSpec<()>,
+    build: Build,
+    ex: &ExtractionResult,
+    reading: ResultReading,
+) -> Result<StatsConsistencyOutcome, Refusal> {
+    admit_check(&Registry::statistics(), spec, build)?;
+    Ok(check_reading(ex, reading))
+}
+
+/// The registry's answer for a `stats.check` spec: runnable, the check's own
+/// kind, and no confirmation.
+fn admit_check(registry: &Registry, spec: &OperationSpec<()>, build: Build) -> Result<(), Refusal> {
     let entry = runnable(registry, spec, build)?;
     if entry.kind != Kind::Check {
         return Err(refused(CapabilityCode::UnknownCapability));
     }
-    no_confirmation(spec)?;
-    Ok(check_reading(ex, read_results(ex, tables)))
+    no_confirmation(spec)
 }
 
 /* ------------------------------------------------------------------------ *
@@ -419,13 +441,12 @@ pub(crate) fn ttest_run_in<B>(
  * ------------------------------------------------------------------------ */
 
 /// Whether a Level 1 method that an AI task's answer names may be used: only
-/// when its capability is runnable in this build. The app refuses the answer
-/// otherwise, with the validator's own `unknown_method` (Phase 4A, item 5).
-pub fn method_is_runnable(method: L1MethodId, build: Build) -> bool {
-    method_is_runnable_in(&Registry::statistics(), method, build)
-}
-
-pub(crate) fn method_is_runnable_in(registry: &Registry, method: L1MethodId, build: Build) -> bool {
+/// when its capability is registered in `registry` and runnable in this
+/// build. The app refuses the answer otherwise, with the validator's own
+/// `unknown_method` (Phase 4A, item 5). The app passes
+/// `Registry::statistics()`; a test passes a table with the method Planned or
+/// absent (decision 96, the Phase 4 evaluation's F1).
+pub fn method_is_runnable_in(registry: &Registry, method: L1MethodId, build: Build) -> bool {
     registry
         .entries()
         .iter()

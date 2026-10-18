@@ -202,7 +202,9 @@ fn each_view_serialises_to_exactly_its_fixtures_bytes() {
 
 /// Evaluation of Phases 2 and 3, F11: the screen words the run ceiling from
 /// `describeLimits.json`, so that file is exactly the run manager's ceiling,
-/// and a change to one cannot leave the other's sentence false.
+/// and a change to one cannot leave the other's sentence false. The Phase 4
+/// evaluation's F6(c): the same holds for the number of runs kept
+/// (`runs::MAX_RUNS`), which both screens' `run.unknown_run` sentence names.
 #[test]
 fn the_screens_run_ceiling_is_the_run_managers() {
     let file: serde_json::Value = serde_json::from_str(
@@ -212,8 +214,8 @@ fn the_screens_run_ceiling_is_the_run_managers() {
     .unwrap();
     assert_eq!(
         file,
-        serde_json::json!({ "runCeilingMs": app_lib::runs::RUN_CEILING_MS }),
-        "describeLimits.json and runs::RUN_CEILING_MS differ"
+        serde_json::json!({ "runCeilingMs": app_lib::runs::RUN_CEILING_MS, "maxRuns": app_lib::runs::MAX_RUNS }),
+        "describeLimits.json and runs::RUN_CEILING_MS or runs::MAX_RUNS differ"
     );
 }
 

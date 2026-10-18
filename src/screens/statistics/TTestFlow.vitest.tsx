@@ -415,3 +415,33 @@ describe('TTestFlow', () => {
 // Keep the fixture's shape honest: the card above reads exactly this view.
 const _typed: TTestResultView = ttestResultView;
 void _typed;
+
+// Decision 93 (the Phase 4 evaluation's F7): beside the variant question, one
+// neutral line for each variant from the wording table, saying what Student
+// assumes and what Welch does not. Information, never a recommendation, and
+// still no default (decision 64).
+describe('the variant question (decision 93)', () => {
+  it('shows one neutral line for each variant from the wording table, and no default', async () => {
+    const { VARIANT_CHOICES } = await import('./ttestWording');
+    setup({ stats_ttest_validate: report('needs_user_input') });
+    await toSettings();
+    const box = screen.getByTestId('tt-variant');
+    expect(VARIANT_CHOICES.map((c) => c.variant)).toEqual(['student', 'welch']);
+    for (const c of VARIANT_CHOICES) {
+      const line = screen.getByTestId(`tt-variant-line-${c.variant}`);
+      expect(box.contains(line)).toBe(true);
+      expect(line.textContent).toBe(c.line);
+      // The line describes the radio it sits beside.
+      const radio = screen.getByTestId(`tt-variant-${c.variant}`);
+      expect(radio.getAttribute('aria-describedby')).toBe(line.id);
+    }
+    expect(screen.getByTestId('tt-variant-line-student').textContent).toMatch(/assumes the two groups' variances are equal/i);
+    expect(screen.getByTestId('tt-variant-line-welch').textContent).toMatch(/does not assume the two groups' variances are equal/i);
+    // Information only: no line advises, and nothing is chosen for the user.
+    for (const c of VARIANT_CHOICES) {
+      expect(c.line).not.toMatch(/recommend|should|better|prefer|safer|default|usually|choose/i);
+    }
+    const radios = within(box).getAllByRole('radio') as HTMLInputElement[];
+    expect(radios.every((r) => !r.checked)).toBe(true);
+  });
+});

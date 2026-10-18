@@ -88,6 +88,8 @@ export const WORDS: Record<string, Words> = {
     'The printed p is larger than the recomputed one and the paper names a correction for multiple testing, so it may be an adjusted p.',
   invalid_input: () => 'The printed numbers do not define this computation, so it was not made.',
   uninformative: () => 'Every value at the printed precision is possible here, so a match would say nothing.',
+  df_beyond_measured_range: () =>
+    "The degrees of freedom are above 100,000, where Gaply's p-value calculation has not been checked against its reference, so the p was not judged.",
   not_applicable: (c, w) => w(nested(c, 'reason')),
   no_method_ran: () => 'No check ran on this result.',
 

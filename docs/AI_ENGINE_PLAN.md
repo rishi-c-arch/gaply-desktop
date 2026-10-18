@@ -24128,3 +24128,75 @@ Tests, red before: `a_group_with_51_levels_is_refused_and_one_with_50_is_listed`
 `expected [ '', 'C1', 'C2', 'C3', 'C4', 'C5' ] to not include 'C4'`); green
 after. The disk rule is checked before every build, test run and commit,
 and a build never starts under 15 GiB (decision 88).
+
+### D280 — Research OS, Phase 4: evaluation fixes `[src]` `[test]` `[measured]`
+
+**Added** on `feat/research-os-4` after `3c2b7db` (D279). The independent
+evaluation of Phase 4 (`~/gaply-corpus/os/eval4/evaluation.md`) found no
+Blocker, two Majors (F1, F2), five Minors (F3 to F7) and twelve Notes.
+Decisions 89 to 96 of 18 Oct 2026 apply (`~/gaply-corpus/os/decisions.md`).
+Every Major and Minor is fixed here, each with a regression test that was run
+red, then green; where the code already held the guard (F1), the test was
+shown red by the evaluation's own mutation, the file restored to its SHA-256.
+
+| finding | fix | regression test | decisions |
+|---|---|---|---|
+| **F1** (Major) the AI helper's runnable check held only by a source scan | `runnable_method(registry, m)`; `helper_send` passes `Registry::statistics()` to `helper_send_in`, which holds the two call sites; `stats_adapters::method_is_runnable_in` is the one predicate (`method_is_runnable` removed); `Registry::with_lifecycle` and `Registry::without` are plain `pub` constructors for tests, and `no_production_source_builds_a_modified_capability_table` fails if non-test source calls either. No cargo feature. `#[tracing::instrument(skip_all)]` is back on `helper_send` (4A's insertion had left it on `runnable_method`) | `stats_l1_attacks.rs` `a_reply_naming_a_method_the_registry_does_not_let_run_is_refused_through_the_reply_path`: through the mock transport, a `claim_method` and a `binding_suggestion` reply for `independent_t`, with that capability absent and Planned, are refused `unknown_method`, add no proposal, leave the confirmed result unchanged, one request each; the real table accepts both (the control). Red under each mutation: the `claim_method` call site removed (4 rows), the `binding_suggestion` one removed (its rows); restored to SHA `39599f5c…`, green | 92, 96 |
+| **F2** (Major) ADR-008 and the method page put a 1.2e-8 difference in d between R's `t.test` and effectsize | both say what was measured on `data_offset.csv` (R 4.6.1, effectsize 1.0.3): `t.test` and `effectsize::cohens_d` agree to 2.2e-16 (Student) and 0 (Welch); d from a one-pass mean `sum(x)/n` differs by 1.194e-8 and 1.200e-8; the R call is on the method page. ADR-008 and ADR-003's 4A addendum Accepted, 18 Oct 2026; ADR-010 stays Proposed (decision 53) | `ttest_r_golden.rs` `the_offset_sentence_states_the_measured_comparison` (red: ADR-008 still had the old sentence) | 91 |
+| **F3** (Minor) Level 0 judged a t or r p at df where its engine is outside its gate | `pvalue::T_DF_MEASURED_MAX = 1e5`; `p_consistency`'s own evaluation answers `CouldNotCheck(DfBeyondMeasuredRange)` for a t or r whose df reaches above it at either end of its printed interval, after `InvalidInput` and before any rule; `compare_p`, which Level 1 shares, is unchanged. Wire word `df_beyond_measured_range`, with a sentence in the Stats Check's table (`stats_consistency.rs`) and in Level 1's (`l1Codes.json`, `l1Wording.ts`); one arm in `stats_l1/codes.rs` (decision 95). `pvalue.rs`'s two sentences narrowed to the measured range. `ENGINE_VERSION` unchanged: no formula in `pvalue.rs` changed | new target `tests/l0_large_df.rs` over `p_large_df.csv` (`make_p_large_df.R`, `/usr/local/bin/Rscript`, the evaluation's 13 × 14 grid, rows identical to its `pt_reference.csv`): above 1e5 every read sentence at 3 and 10 digits is `DfBeyondMeasuredRange` (red: 144 of 144 judged); the boundary, a fractional df and r (red: `t(100001)` Consistent); at or below 1e5 every verdict Consistent and the engine within 1e-9 (green before and after: the pin that nothing there changed) | 90, 95 |
+| **F4** (Minor) decision 87's 50-level limit held by the picker and the levels command only | `stats_ttest::check` refuses a group with more than `MAX_GROUP_LEVELS` levels with `too_many_levels {count, limit}`, so `validate` and `run` do | `ttest_validate.rs` `a_group_with_more_than_50_levels_is_refused_by_validate_and_run` (red: 51 levels, `Valid`); 50 levels still compute | 94 |
+| **F5** (Minor) `stats_l1_open` read Level 0's results twice | `stats_adapters::check_with_reading` (the same registry check, then Level 0 on the caller's reading); `open` hands it the reading it already made | `verifier_facade_guards.rs` `level_1s_open_reads_level_0s_results_once` (red: `open` called the façade that reads again); `stats_check_facade.rs` `the_check_facade_on_a_given_reading_equals_level_0_on_every_input` (12 inputs, equal to Level 0 and to `check`) | 89 |
+| **F6** (Minor) three t-test sentences | (a) the export text adds "The result table carries the two group labels with the result"; (b) the digits note says "six figures, counted from the first digit that is not zero" (not "significant figures", which the neutral-wording rule keeps off this screen); (c) `run.unknown_run` on both screens reads `maxRuns` from `describeLimits.json`, pinned to `runs::MAX_RUNS` | `ttestWording.vitest.ts` (a), (b), (c) (red: each sentence as before); `stats_desc_wire.rs` `the_screens_run_ceiling_is_the_run_managers` (red: no `maxRuns`) | 89 |
+| **F7** (Minor) the variant asked with no information beside it | each choice has one neutral line from the wording table (`VARIANT_CHOICES[].line`): Student assumes equal variances and pools them; Welch does not assume equal variances, uses each group's own and adjusts the df; the radio is `aria-describedby` the line; still no default | `TTestFlow.vitest.tsx` `shows one neutral line for each variant from the wording table, and no default` (red: no line) | 93, 64 |
+
+**Notes (decision 89), one line each:**
+N1 Tauri's deserialisation refusals are raw strings: needs a no-echo rule on every deserialised IPC type, a contract change across all commands; with eval23 F20, before the describe flag ships.
+N2 `stats_desc_close` is gated: harmless (the engine and its slots drop with the workspace); the next ADR-001 addendum lists it, when a second workspace exists.
+N3 `DatasetView` lists every level of a text column: Phase 2 behaviour kept by decision 81; the profile's level list is capped when the describe flag's tier is decided.
+N4 `CapabilityDescriptor`'s Serialize-only derive is unpinned: a compile-time check needs a dev-dependency or a trait trick; the next registry change.
+N5 `examples/` are not scanned by the façade guards: dev binaries by decision 7; Phase 5, when examples are reorganised.
+N6 the Level 1 golden header names no architecture: changing it regenerates Level 1's fixtures, a verifier step.
+N7 `arithmetic_refused`, `overflow` and `underflow` say "double" and give no next step: a wording pass with eval23 F12 ("Level 1" in sentences), before the describe flag ships.
+N8 `EnterStatistics` polls five seconds, then `illegal_transition`: unreachable while readiness is constant; when a workspace has a real readiness check.
+N9 the switch dialog stays open after a cancel from the t-test screen: needs a shell state change; when a second workspace exists.
+N10 `stats_ttest_group_levels` builds the full map before refusing: 3 ms and 31 MB at 5,000 levels; nothing to fix.
+N11 D278's privacy-matrix counts are its own commit's: recorded here; the matrix prints 132/16/96 at `3c2b7db`.
+N12 ADR-008's "at least 100× inside its gate" is about its own 18 cases (20× over the evaluation's 2,800): stated as such in its Evidence; kept.
+
+**The evaluation's probes, re-run** (`~/gaply-corpus/os/eval4/fixes/`, the
+evaluation's probe copies and data; each probe in `examples/` for its run
+only): §5 `eval4_l0_df` output byte-identical (the engine is unchanged);
+a verdict probe through Level 0's reader over the same grid at 1 to 17
+printed digits: at HEAD 94 false Inconsistent (df 5e6 and 1e7), after 0;
+above 1e5 every read sentence (1,102) `DfBeyondMeasuredRange`; at or below
+1e5 all 1,667 lines byte-identical to HEAD's. §6 `gaply.tsv` (151,200 rows)
+and `compare.out` byte-identical. §7 metamorphic byte-identical (80 pairs,
+0 failures); 10 of 10 processes per variant one line, the evaluation's.
+§8 `runmgr` 500 identical. §9 privacy: same matrix rows and the same four
+describe min/max cells; 160 surfaces, 14 refusals, 110 tracing lines in
+three of four runs (one run 161/111, inferred one more status poll); the
+app-data folder unchanged, the fresh TMPDIR empty. §10 32 hostile and 200
+fuzz files, outcomes identical, no alarm, peaks 0.63 s and 73.9 MiB;
+5,000 levels: `validate` now `invalid` `too_many_levels {5000, 50}` where it
+was `needs_user_input`. §2 forged specs identical.
+
+**Measured, 18 Oct 2026, macOS aarch64** (logs in
+`~/gaply-corpus/os/eval4/fixes/logs/`): `cargo test --workspace` at
+`3c2b7db` first: 105 targets (103 Running + 2 Doc-tests), 2,742 passed, 12
+ignored. After: exit 0, 106 targets (104 Running + 2 Doc-tests), 2,752
+passed, 12 ignored: the new `l0_large_df` (4), `ttest_validate` 12 → 13,
+`ttest_r_golden` 3 → 4, `verifier_facade_guards` 4 → 6, `stats_check_facade`
+2 → 3, `stats_l1_attacks` 7 → 8; no other target's count moved. `cargo test
+-p app --features devtools`: exit 0, 41 targets (40 Running + 1 Doc-tests),
+698 passed, 9 ignored (not measured at `3c2b7db` in this step). vitest, the
+whole suite: 100 files, 1,173 passed (1,169 + 4). `npx tsc --noEmit`, CI's
+eslint and `npm run build` exit 0 (`public/sitemap.xml` written back from
+HEAD). rustfmt by path: every changed file has HEAD's hunk count, the new
+test file none. `git diff 3c2b7db` is empty under `stats_assist`, is the one
+arm under `stats_l1`, and is decision 90's change under `stats_l0`. No
+GRRB-watched file is touched. **Found on the way:** `helper_send`'s
+`#[tracing::instrument(skip_all)]` had been on `runnable_method` since 4A and
+is back; and the two helper-path scans (`stats_l1_guards.rs`,
+`verifier_facade_guards.rs`) now name `helper_send_in`. The first failed on
+its own line count when the body moved; the second has no count and would
+have passed vacuously. A planted `.confirm(` / `reproduce(` turned both red.

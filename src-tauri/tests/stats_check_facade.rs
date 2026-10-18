@@ -256,3 +256,49 @@ fn the_files_the_seam_refused_it_still_refuses() {
     );
     assert!(run_stats_consistency_measured(&db, &dir.0.join("missing.txt")).is_err());
 }
+
+/// The Phase 4 evaluation's F5: Level 1's open hands its own reading to
+/// `stats_adapters::check_with_reading` instead of letting the façade read the
+/// results again. On every input above, that façade's outcome equals Level 0
+/// called directly, and so equals `stats_adapters::check` (which reads them
+/// itself).
+#[test]
+fn the_check_facade_on_a_given_reading_equals_level_0_on_every_input() {
+    use gaply_core::contracts::capability::Build;
+    use gaply_core::stats_adapters::{check, check_spec, check_with_reading};
+    let dir = TempDir::new("check-facade-reading");
+    let mut compared = 0;
+    let inputs: Vec<(String, Vec<u8>)> = existing_inputs()
+        .into_iter()
+        .map(|(n, b)| (n.to_string(), b))
+        .chain(
+            per_fixture()
+                .into_iter()
+                .map(|(_, m, _, b)| (format!("{m}.txt"), b)),
+        )
+        .collect();
+    for (name, bytes) in inputs {
+        let p = dir.write(&name, &bytes);
+        let ex = extract::extract_path(&p).expect("extracts");
+        let tables = if name.ends_with(".docx") {
+            TableStructure::Declared
+        } else {
+            TableStructure::NotAvailable
+        };
+        let given = check_with_reading(
+            &check_spec(),
+            Build::Standard,
+            &ex,
+            read_results(&ex, tables),
+        )
+        .expect("runnable");
+        assert_eq!(given, direct(&p), "{name}");
+        assert_eq!(
+            given,
+            check(&check_spec(), Build::Standard, &ex, tables).expect("runnable"),
+            "{name}"
+        );
+        compared += 1;
+    }
+    assert_eq!(compared, 8 + 4);
+}

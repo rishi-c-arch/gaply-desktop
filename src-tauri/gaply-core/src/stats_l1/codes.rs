@@ -107,6 +107,7 @@ pub fn l0_could_not_check_reason(r: CouldNotCheckReason) -> WireCode {
         CouldNotCheckReason::AdjustedP => c("adjusted_p"),
         CouldNotCheckReason::InvalidInput => c("invalid_input"),
         CouldNotCheckReason::Uninformative => c("uninformative"),
+        CouldNotCheckReason::DfBeyondMeasuredRange => c("df_beyond_measured_range"),
         CouldNotCheckReason::NotApplicable(why) => c("not_applicable").with("reason", not_applicable_reason(why)),
         CouldNotCheckReason::NoMethodRan => c("no_method_ran"),
     }
