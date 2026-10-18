@@ -82,6 +82,7 @@ pub mod stats_desc;
 pub mod stats_l0;
 pub mod stats_l1;
 pub mod stats_registry;
+pub mod stats_ttest;
 pub mod stats_verdict;
 pub mod stats_verify;
 pub mod swarm;

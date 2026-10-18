@@ -5,9 +5,11 @@
 //!
 //! * `max_rows` = `supplementary::MAX_ROWS`, `max_columns` = `MAX_COLS` and
 //!   `max_input_bytes` = `MAX_TOTAL_CHARS` (cell text, UTF-8 bytes) for
-//!   `stats.verify.*` and `stats.describe`;
-//! * `ceiling_ms` = `runs::RUN_CEILING_MS` for `stats.describe`, and none for
-//!   Level 0 and Level 1, which have no time ceiling;
+//!   `stats.verify.*`, `stats.describe` and `stats.analyze.independent_t`;
+//! * `ceiling_ms` = `runs::RUN_CEILING_MS` for `stats.describe` and
+//!   `stats.analyze.independent_t` (Phase 4B-1: the same run manager's
+//!   ceiling and check point), and none for Level 0 and Level 1, which have
+//!   no time ceiling;
 //! * the table formats = `stats_l1_ingest::TABLE_EXTENSIONS`.
 //!
 //! Level 0's manuscript cap is pinned to `import_guard::MAX_BYTES` in
@@ -32,7 +34,7 @@ fn every_profile_literal_is_the_app_constant_it_copies() {
     for e in t.entries() {
         let p = e.descriptor.resource_profile;
         match e.kind {
-            Kind::Verify(_) | Kind::Describe => {
+            Kind::Verify(_) | Kind::Describe | Kind::AnalyzeIndependentT => {
                 tables += 1;
                 assert_eq!(
                     p.max_rows,
@@ -80,7 +82,7 @@ fn every_profile_literal_is_the_app_constant_it_copies() {
             }
         }
         match e.kind {
-            Kind::Describe => {
+            Kind::Describe | Kind::AnalyzeIndependentT => {
                 assert_eq!(p.ceiling_ms, Some(runs::RUN_CEILING_MS));
                 assert_eq!(
                     p.cancel,
@@ -97,7 +99,7 @@ fn every_profile_literal_is_the_app_constant_it_copies() {
         assert!(!p.uses_gpu && !p.temp_disk, "{}", e.descriptor.id.as_str());
     }
     assert_eq!(
-        tables, 8,
-        "seven Level 1 capabilities and the descriptive summary"
+        tables, 9,
+        "seven Level 1 capabilities, the descriptive summary and the t-test"
     );
 }

@@ -4,12 +4,15 @@
 //!   method's version raised, a capability added or a lifecycle changed
 //!   turns it red, and the failure prints the list it saw.
 //! * Every capability id written in production source is registered: string
-//!   literals that are exactly `stats.check`, `stats.describe` or
-//!   `stats.verify.<word>`, in non-test code under `src-tauri/src`,
-//!   `gaply-core/src` and the frontend's `src/`. The `stats.desc.*` codes are
-//!   not ids and do not match.
+//!   literals that are exactly `stats.check`, `stats.describe`,
+//!   `stats.verify.<word>` or `stats.analyze.<word>` (Phase 4B-1), in
+//!   non-test code under `src-tauri/src`, `gaply-core/src` and the frontend's
+//!   `src/`. The `stats.desc.*` and `stats.ttest.*` codes are not ids and do
+//!   not match.
 //! * The table is derived from the catalogue, every suite and decision record
-//!   it names exists, and Level 0's input cap is `import_guard::MAX_BYTES`.
+//!   it names exists (a documentation id is a D-number with its heading in
+//!   `docs/AI_ENGINE_PLAN.md`, or, since Phase 4B-1, a page `docs/<id>.md`),
+//!   and Level 0's input cap is `import_guard::MAX_BYTES`.
 //! * The Statistics workspace descriptor's capability ids are the table's.
 //! * `ConfirmationId` holds 64 lowercase hex digits only and never prints them.
 
@@ -23,9 +26,10 @@ use gaply_core::stats_l1::compute::L1Registry;
 use gaply_core::stats_registry::{self, Kind, Registry};
 
 /// The sorted list, one `id version lifecycle` line each, measured 18 Oct
-/// 2026 (Phase 4A):
+/// 2026 (Phase 4B-1; Phase 4A's nine plus `stats.analyze.independent_t`):
 ///
 /// ```text
+/// stats.analyze.independent_t 1 beta
 /// stats.check 1 stable
 /// stats.describe 1 beta
 /// stats.verify.chi_square_independence 1 beta
@@ -36,7 +40,7 @@ use gaply_core::stats_registry::{self, Kind, Registry};
 /// stats.verify.pearson 1 beta
 /// stats.verify.spearman 1 beta
 /// ```
-const PIN: &str = "9bc76ee09c9d26c2a0d4fdcdc0b95ca9d4fea50225371e305d312018536b8401";
+const PIN: &str = "20128c37f40c1d9e3a09437d273422a1f84abf4bce5f1d9ea79817968b49c052";
 
 fn listing() -> String {
     let mut lines: Vec<String> = Registry::statistics()
@@ -106,16 +110,28 @@ fn the_table_is_derived_from_the_catalogue_and_names_what_exists() {
             d.id.as_str(),
             d.validation_suite_id.0
         );
-        let plan = std::fs::read_to_string(
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/AI_ENGINE_PLAN.md"),
-        )
-        .expect("the plan");
-        assert!(
-            plan.contains(&format!("\n### {} — ", d.documentation_id.0)),
-            "{}: no decision record {}",
-            d.id.as_str(),
-            d.documentation_id.0
-        );
+        let doc = d.documentation_id.0;
+        let docs = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs");
+        let is_record = doc
+            .strip_prefix('D')
+            .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()));
+        if is_record {
+            let plan = std::fs::read_to_string(docs.join("AI_ENGINE_PLAN.md")).expect("the plan");
+            assert!(
+                plan.contains(&format!("\n### {doc} — ")),
+                "{}: no decision record {doc}",
+                d.id.as_str()
+            );
+        } else {
+            assert!(
+                doc.bytes()
+                    .all(|b| b.is_ascii_lowercase() || b == b'_' || b == b'/')
+                    && !doc.contains("..")
+                    && docs.join(format!("{doc}.md")).is_file(),
+                "{}: no documentation page docs/{doc}.md",
+                d.id.as_str()
+            );
+        }
     }
     let kinds: Vec<Kind> = t.entries().iter().map(|e| e.kind).collect();
     assert_eq!(kinds.iter().filter(|k| **k == Kind::Check).count(), 1);
@@ -255,7 +271,10 @@ fn is_capability_id(s: &str) -> bool {
             && t.bytes()
                 .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
     };
-    s == "stats.check" || s == "stats.describe" || s.strip_prefix("stats.verify.").is_some_and(tail)
+    s == "stats.check"
+        || s == "stats.describe"
+        || s.strip_prefix("stats.verify.").is_some_and(tail)
+        || s.strip_prefix("stats.analyze.").is_some_and(tail)
 }
 
 fn ids_in_source(roots: &[(&Path, &[&str], bool)]) -> Vec<(String, String)> {
@@ -319,9 +338,14 @@ fn the_id_scan_sees_what_it_is_for() {
         is_capability_id("stats.check")
             && is_capability_id("stats.verify.ols")
             && is_capability_id("stats.verify.x_2")
+            && is_capability_id("stats.analyze.independent_t")
     );
     for not in [
         "stats.desc.unknown_capability",
+        "stats.ttest.both_groups_constant",
+        "stats.ttest.unknown_capability",
+        "stats.analyze.",
+        "stats.capability.analyze.independent_t.title",
         "stats.verify.",
         "stats.checks",
         "stats.verify.Ols",

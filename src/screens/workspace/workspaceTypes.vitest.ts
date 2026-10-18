@@ -46,6 +46,7 @@ const list = [
       'stats.verify.chi_square_independence',
       'stats.verify.ols',
       'stats.describe',
+      'stats.analyze.independent_t',
     ],
     supportsOffline: true,
     supportedPlatforms: ['macos', 'windows', 'linux'],

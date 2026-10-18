@@ -22,6 +22,10 @@
 //!   refusal is worded with the existing `stats.desc.unknown_capability` or
 //!   `stats.desc.capability_version_mismatch`, so the describe wire keeps
 //!   its codes.
+//! * [`ttest_validate`] and [`ttest_run`] (`stats.analyze.independent_t`,
+//!   Phase 4B-1): `stats_ttest::validate` and `stats_ttest::run`, the same
+//!   way, a registry refusal worded `stats.ttest.unknown_capability` or
+//!   `stats.ttest.capability_version_mismatch`.
 //!
 //! The Level 0 and Level 1 specs carry no parameters (`()`) and no
 //! `InputRef`: their inputs are the manuscript's extraction and Level 1's
@@ -46,6 +50,7 @@ use crate::stats_l1::reproduce::{reproduce, ReproductionOutcome};
 use crate::stats_l1::run_state::L1RunState;
 use crate::stats_l1::token::ConfirmationToken;
 use crate::stats_registry::{Entry, Kind, Registry, CHECK_ID, VERIFY_PREFIX};
+use crate::stats_ttest::{self, TTestCode, TTestParams, TTestResult};
 
 type Refusal = Diagnostic<CapabilityCode>;
 
@@ -309,6 +314,99 @@ pub(crate) fn describe_until_in<B>(
 }
 
 /* ------------------------------------------------------------------------ *
+ *  stats.analyze.independent_t
+ * ------------------------------------------------------------------------ */
+
+/// A registry refusal in the t-test's own codes, as [`describe_refusal`]
+/// does for the descriptive summary.
+fn ttest_refusal(r: &Refusal) -> Diagnostic<TTestCode> {
+    match r.code {
+        CapabilityCode::VersionMismatch => {
+            let int = |k| match r.params.get(&k) {
+                Some(ParamValue::Int(n)) => *n,
+                _ => 0,
+            };
+            Diagnostic::error(TTestCode::CapabilityVersionMismatch)
+                .int(ParamKey::Expected, int(ParamKey::Expected))
+                .int(ParamKey::Found, int(ParamKey::Found))
+        }
+        _ => Diagnostic::error(TTestCode::UnknownCapability),
+    }
+}
+
+fn ttest_entry(
+    registry: &Registry,
+    spec: &OperationSpec<TTestParams>,
+    build: Build,
+) -> Result<(), Refusal> {
+    let entry = runnable(registry, spec, build)?;
+    if entry.kind != Kind::AnalyzeIndependentT {
+        return Err(refused(CapabilityCode::UnknownCapability));
+    }
+    no_confirmation(spec)
+}
+
+/// `stats.analyze.independent_t`'s validation: the registry first, so a
+/// spec the registry refuses is `Unsupported` before anything reads the
+/// dataset; then `stats_ttest::validate`, unchanged.
+pub fn ttest_validate(
+    spec: &OperationSpec<TTestParams>,
+    build: Build,
+    dataset: &Dataset,
+) -> ValidationReport<TTestCode> {
+    ttest_validate_in(&Registry::statistics(), spec, build, dataset)
+}
+
+pub(crate) fn ttest_validate_in(
+    registry: &Registry,
+    spec: &OperationSpec<TTestParams>,
+    build: Build,
+    dataset: &Dataset,
+) -> ValidationReport<TTestCode> {
+    match ttest_entry(registry, spec, build) {
+        Ok(()) => stats_ttest::validate(dataset, spec),
+        Err(r) => {
+            let rows = dataset.rows() as u64;
+            let estimate = ResourceEstimate {
+                rows,
+                columns: 2,
+                cells: rows.saturating_mul(2),
+            };
+            ValidationReport::new(
+                vec![ttest_refusal(&r)],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                estimate,
+            )
+        }
+    }
+}
+
+/// `stats.analyze.independent_t`'s run: the registry again, then
+/// `stats_ttest::run`, unchanged.
+pub fn ttest_run<B>(
+    spec: &OperationSpec<TTestParams>,
+    build: Build,
+    dataset: &Dataset,
+    checkpoint: impl FnMut(usize) -> ControlFlow<B>,
+) -> Result<TTestResult, stats_ttest::Halt<B>> {
+    ttest_run_in(&Registry::statistics(), spec, build, dataset, checkpoint)
+}
+
+pub(crate) fn ttest_run_in<B>(
+    registry: &Registry,
+    spec: &OperationSpec<TTestParams>,
+    build: Build,
+    dataset: &Dataset,
+    checkpoint: impl FnMut(usize) -> ControlFlow<B>,
+) -> Result<TTestResult, stats_ttest::Halt<B>> {
+    ttest_entry(registry, spec, build)
+        .map_err(|r| stats_ttest::Halt::Refused(ttest_refusal(&r)))?;
+    stats_ttest::run(dataset, &spec.parameters, checkpoint)
+}
+
+/* ------------------------------------------------------------------------ *
  *  AI: a method a model's answer names
  * ------------------------------------------------------------------------ */
 
@@ -333,3 +431,122 @@ pub(crate) fn method_is_runnable_in(registry: &Registry, method: L1MethodId, bui
 
 #[cfg(test)]
 mod tests;
+
+/// The t-test's façade refuses forged specs (Phase 4B-1): an unknown id, a
+/// wrong version, and a Planned capability (a test-only table), and runs the
+/// real spec exactly as `stats_ttest` does.
+#[cfg(test)]
+mod ttest_facade_tests {
+    use super::*;
+    use crate::contracts::capability::Lifecycle;
+    use crate::stats_desc::Alias;
+    use crate::stats_l1::dataset::{
+        build_dataset, ColumnAlias, DataFingerprint, RawTable, TableRef,
+    };
+    use crate::stats_ttest::{Halt, Variant};
+
+    fn data() -> Dataset {
+        let rows: Vec<Vec<String>> = [
+            ("1.5", "a"),
+            ("2.5", "a"),
+            ("4", "a"),
+            ("3", "b"),
+            ("6.5", "b"),
+            ("7", "b"),
+        ]
+        .iter()
+        .map(|(y, g)| vec![y.to_string(), g.to_string()])
+        .collect();
+        build_dataset(
+            RawTable::from_rows(vec!["y".into(), "g".into()], rows),
+            DataFingerprint::of_bytes(b"facade", "test", TableRef::FirstTable),
+        )
+        .expect("dataset")
+    }
+
+    fn forged(d: &Dataset, id: &str, version: u32) -> OperationSpec<TTestParams> {
+        let mut s = stats_ttest::spec(
+            OperationId(3),
+            d,
+            TTestParams {
+                outcome: Alias(ColumnAlias(1)),
+                group: Alias(ColumnAlias(2)),
+                levels: None,
+                variant: Some(Variant::Welch),
+                missing_codes: Vec::new(),
+            },
+        );
+        s.capability_id = CapabilityId::parse(id).unwrap();
+        s.capability_version = version;
+        s
+    }
+
+    fn real() -> Registry {
+        Registry::statistics()
+    }
+
+    fn go(_: usize) -> ControlFlow<()> {
+        ControlFlow::Continue(())
+    }
+
+    #[test]
+    fn the_ttest_facade_refuses_an_unknown_id_a_wrong_version_and_a_planned_capability() {
+        let d = data();
+        let b = Build::Devtools;
+        let codes =
+            |r: &ValidationReport<TTestCode>| r.errors.iter().map(|e| e.code).collect::<Vec<_>>();
+        // Unknown: not in the table at all, and a registered id of another façade.
+        for id in ["stats.analyze.welch_t", "stats.describe"] {
+            let r = ttest_validate_in(&real(), &forged(&d, id, 1), b, &d);
+            assert_eq!(codes(&r), [TTestCode::UnknownCapability], "{id}");
+            assert!(!r.may_run());
+            assert_eq!(
+                ttest_run_in(&real(), &forged(&d, id, 1), b, &d, go).unwrap_err(),
+                Halt::Refused(Diagnostic::error(TTestCode::UnknownCapability))
+            );
+        }
+        let v = ttest_validate_in(&real(), &forged(&d, stats_ttest::CAPABILITY_ID, 2), b, &d);
+        assert_eq!(codes(&v), [TTestCode::CapabilityVersionMismatch]);
+        assert_eq!(
+            v.errors[0].params.get(&ParamKey::Expected),
+            Some(&ParamValue::Int(1))
+        );
+        assert_eq!(
+            v.errors[0].params.get(&ParamKey::Found),
+            Some(&ParamValue::Int(2))
+        );
+        let planned = real().with_lifecycle(stats_ttest::CAPABILITY_ID, Lifecycle::Planned);
+        let good = forged(&d, stats_ttest::CAPABILITY_ID, 1);
+        for build in [Build::Standard, Build::Devtools] {
+            assert_eq!(
+                codes(&ttest_validate_in(&planned, &good, build, &d)),
+                [TTestCode::UnknownCapability]
+            );
+            assert_eq!(
+                ttest_run_in(&planned, &good, build, &d, go).unwrap_err(),
+                Halt::Refused(Diagnostic::error(TTestCode::UnknownCapability))
+            );
+        }
+        // A confirmation on a capability that takes none.
+        let mut confirmed = good.clone();
+        confirmed.confirmation_refs = vec![ConfirmationId::parse(&"ab".repeat(32)).unwrap()];
+        assert_eq!(
+            codes(&ttest_validate_in(&real(), &confirmed, b, &d)),
+            [TTestCode::UnknownCapability]
+        );
+
+        // The real spec: exactly the direct calls.
+        assert_eq!(
+            ttest_validate_in(&real(), &good, b, &d),
+            stats_ttest::validate(&d, &good)
+        );
+        assert_eq!(
+            ttest_run_in(&real(), &good, b, &d, go).unwrap(),
+            stats_ttest::compute(&d, &good.parameters).unwrap()
+        );
+        assert_eq!(
+            ttest_validate(&good, Build::Standard, &d),
+            stats_ttest::validate(&d, &good)
+        );
+    }
+}

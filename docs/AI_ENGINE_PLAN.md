@@ -23819,3 +23819,125 @@ changed are the four Latin-1 and UTF-16 files (`malformed` →
 plus the 5); Level 1's golden set unchanged. `cargo test -p app --features
 devtools`: 37 targets, 666 passed. No GRRB-watched file is touched.
 F14 does not cover `.ods` or `.xlsb`; a later step decides whether they need the same check.
+
+### D277 — Research OS, Phase 4B-1: the independent-samples t-test as an analysis, the pure core `[src]` `[test]` `[measured]`
+
+**Added** on `feat/research-os-4` (from `6c63bea`). Decisions 60 to 68 of
+18 Oct 2026 apply (`~/gaply-corpus/os/decisions.md`). New capability
+`stats.analyze.independent_t`, version 1, Beta: the t-test on the user's own
+data, not a reproduction (Level 1's `stats.verify.independent_t` is
+unchanged). Pure core only; the run manager, commands, wire, privacy matrix,
+method selector and screen are Phase 4B-2, and nothing new is reachable from
+the app. The method's page is `docs/methods/independent_t.md` (its
+`documentation_id`); `docs/adr/ADR-008-statistical-reference-strategy.md` is
+Proposed.
+
+**The module** (`gaply_core::stats_ttest`, pure; `export.rs`):
+`TTestParams { outcome, group, levels: Option<[u32; 2]>, variant:
+Option<Student | Welch>, missing_codes }`; `validate`; `run(dataset, params,
+checkpoint)`, one check point before the arithmetic, returning
+`Result<TTestResult, Halt<B>>` (`compute` is `run` with a check point that
+never stops); `manifest`; `export::result_csv`, `manifest_json`. 28 codes,
+`stats.ttest.*`, pinned in `contracts_wire.rs`. The variant is never chosen
+for the user (`variant_not_chosen`, NeedsUserInput); more than two levels need
+two chosen by index in code-point order (`levels_not_chosen`); group 1 minus
+group 2. A row is left out once, by the first of `missing_group`,
+`other_level`, `missing_outcome`, `missing_code` (outcome only). Refused:
+`group_too_small` (fewer than 2 values after exclusions); not computable:
+`both_groups_constant`, `overflow`, `underflow` (read from
+`stats_verify::RangeFault`, decision 70), `arithmetic_refused`,
+`quantile_out_of_range`; one
+constant group computes, its sd ratio `sd_ratio_undefined`. Every result
+carries `normality_not_assessed` and `cohens_d_has_no_interval`.
+
+**Reuse (decision 62).** t, df and the standard error from
+`stats_verify::t_test_student` / `t_test_welch`: their `TTestResult` gained
+one field, `se`, the number t already divided by (set at the three
+constructors; Level 1's golden targets unchanged). p from
+`stats_l0::pvalue::t_two_tailed`; group means and variances from
+`stats_verify::mean` / `sample_variance` over ascending values. Student's d
+divides by the pooled sd recovered from Student's own se; Welch's d by
+√((v₁+v₂)/2), effectsize's `pooled_sd = FALSE` standardizer (documentation
+and source read 18 Oct 2026, effectsize 1.0.3). The CSV's text fields go
+through `stats_desc::export::text` (made `pub(crate)`), the one formula-
+injection rule. No change under `stats_l0`, `stats_l1` or `stats_assist`.
+
+**The quantile.** statrs's `StudentsT::inverse_cdf` was measured first against
+R's `qt(0.975, df)` over 33 df: within 6.1e-13 up to df 4,998, but 3.5e-6 off
+at 1e5, 6.1e-5 at 1e6 and 6.8e-2 at 1e7, so it fails the 1e-12 gate. Shipped:
+bisection of `t_two_tailed(q, df) = 0.05` on [0, 1e3], within 5.2e-13 up to
+df 1e4 and not above (1.8e-11 at 1e5, 3.6e-9 at 1e7, the error of
+`t_two_tailed` itself at large df); above df 1e4 the quantile is refused,
+`quantile_out_of_range`. A table opened through the ingest has at most 5,000
+rows, so df ≤ 4,998.
+
+**The registry.** `stats.analyze.independent_t` is the tenth Statistics
+capability (`Kind::AnalyzeIndependentT`), with the descriptive summary's
+resource profile (the ingest's caps, `runs::RUN_CEILING_MS`, a cooperative
+check point; pinned in `src-tauri/tests/capability_profiles.rs`),
+`validation_suite_id` `ttest_r_golden`, `documentation_id`
+`methods/independent_t` and five limitation wording codes. Pin `20128c37…`.
+The id scan reads `stats.analyze.<word>`; a `stats.ttest.*` code is not an id.
+`workspace_list` lists ten ids (fixture and TypeScript pin). The façade
+(`stats_adapters::ttest_validate`, `ttest_run`) asks the registry first and
+words a refusal `stats.ttest.unknown_capability` or
+`capability_version_mismatch`; forged specs (an unknown id, another façade's
+id, a wrong version, a Planned table, a confirmation) are refused.
+
+**R and the gates.** `make_ttest_fixtures.R` (`/usr/local/bin/Rscript`, R
+4.6.1 aarch64, effectsize 1.0.3, `set.seed(20261018)`): 16 data files, 18
+cases × 2 variants, `t.test(var.equal = TRUE/FALSE)` and
+`effectsize::cohens_d`; 5,613 cells' bits equal to Gaply's. 32 pairs
+computed and 4 refused as expected (`both_constant`, `group_of_one`). The
+gates (ε = 1e-12, M = |m₁| + |m₂|) are per statistic and justified in the
+method's page §6; the worst measured |gaply − R| / gate is 9.989e-3 (ci_upper,
+heavy_tail). Properties (proptest, seed 20261018, 6 × 512 cases, both
+variants, 0.58 s debug): the level swap negates bit for bit, a row permutation
+changes no byte, shift and scale within the sum of both sides' gates, p in
+[0, 1], the interval contains the difference, Welch's df in its bounds.
+
+**Measured, 18 Oct 2026, macOS aarch64** (logs in
+`~/gaply-corpus/os/phase4b1/logs/`): `cargo test --workspace` exit 0, 102
+targets (100 Running + 2 Doc-tests), 2,712 passed, 12 ignored: D276's 97 and
+2,685 plus five new targets (`ttest_r_golden` 3, `ttest_quantile` 2,
+`ttest_properties` 6, `ttest_export` 3, `ttest_validate` 10), the `gaply_core`
+lib 1,826 → 1,827 (the façade's forged-spec test) and `contracts_are_pure` 7 →
+9; every other target's counts unchanged. `cargo test -p app --features
+devtools`: 37 targets, 666 passed, 9 ignored (D276's counts). vitest over the workspace, describe, Stats Check and
+Stats Verifier folders: 27 files, 238 passed; `npx tsc --noEmit` and CI's
+eslint exit 0. Mutation probes, each predicted, run with `--no-fail-fast` and
+restored to its SHA-256: unregistered (4 red: the pin, the id scan, the
+registry's lifecycle count, the façade test), Planned (2: the pin, the façade
+test), version 2 with the pin unchanged (3: the pin, the façade test,
+`another_capability_or_version_is_unsupported`), Student and Welch swapped (3:
+the R golden, the Welch-df property, the df-range test), the variant defaulted
+to Welch (3: `the_variant_is_never_chosen_for_the_user` and two others).
+**Found on the way:** `stats_l0::pvalue::t_two_tailed` loses accuracy at very
+large df (inverting it misses `qt` by 3.6e-9 at df 1e7), outside this
+capability's reach and not changed; and two app-lib tests in `models/mod.rs`
+set and remove the same tokenizer-path environment variable on parallel
+threads, which failed one of three workspace runs
+(`stage1_lm_paths_honor_env_and_absent_model_is_none`); decision 72 fixes
+them in a commit of their own, after this one.
+
+**Review (decisions 69 to 73, 18 Oct 2026).** The quantile's limit stands.
+`RangeFault` joins `stats_ttest`'s import list (decision 70), so a range fault
+is `stats.ttest.overflow` or `stats.ttest.underflow`, as in the descriptive
+summary; `arithmetic_refused` is left for a refusal that names no fault.
+`overflow_and_underflow_keep_their_own_codes_as_in_the_descriptive_summary`
+was red first (`arithmetic_refused` where `overflow` was expected) and is
+green; the code pin lists 28 codes. `cargo test --workspace` after it: 102
+targets, 2,713 passed, 12 ignored (`ttest_validate` 10 → 11, every other target
+unchanged). The departures above are accepted.
+
+**Acceptance (blueprint §18.2):**
+
+| item | evidence | status |
+|---|---|---|
+| Formula/method and variant documented | `docs/methods/independent_t.md` §2, §4 | done |
+| Golden fixtures and edge cases pass | `ttest_r_golden`, `ttest_validate`, `ttest_quantile` | done |
+| Missing values, ties, weights, precision, sample size | exclusions and codes, ties fixture, gates; weights not supported (stated) | done |
+| Diagnostic meanings and limitations documented | method page §5, §8; `TTestCode` docs | done; screen sentences 4B-2 |
+| Independent reference comparison completed | R `t.test`, effectsize, `qt` | done |
+| Unsupported designs return explicit reasons | closed codes; undetectable designs listed | core done; shown in 4B-2 |
+| Result manifest and export verified | `ttest_export` | core done; save dialog 4B-2 |

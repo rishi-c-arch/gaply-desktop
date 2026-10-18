@@ -120,7 +120,8 @@ fn no_header_label_cell_manuscript_text_file_name_or_path_reaches_a_new_surface(
     // 3. The list view.
     let list = call(&w.w, "workspace_list", json!({})).unwrap();
     clean("workspace_list", &list.to_string());
-    assert_eq!(list[0]["capabilityIds"].as_array().unwrap().len(), 9);
+    // Phase 4B-1: the registry's ten ids, `stats.analyze.independent_t` the tenth.
+    assert_eq!(list[0]["capabilityIds"].as_array().unwrap().len(), 10);
 
     // 4. Active: the operation commands read the sentinel files.
     call(&w.w, "workspace_activate", json!({ "id": "statistics" })).expect("Statistics activates");

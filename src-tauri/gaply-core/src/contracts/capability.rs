@@ -227,7 +227,9 @@ pub enum OfflineBehavior {
 #[serde(transparent)]
 pub struct SuiteId(pub &'static str);
 
-/// The decision record that documents a capability, by its number.
+/// What documents a capability: a decision record by its number (`D271`),
+/// or a page under `docs/` by its path without `.md` (`methods/independent_t`,
+/// Phase 4B-1). The registry's tests check that each one exists.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 #[serde(transparent)]
 pub struct DocId(pub &'static str);

@@ -15,6 +15,9 @@
 //!   the catalogue is Planned. Today all seven are implemented.
 //! * `stats.describe`: the descriptive summary, Beta, with Phase 2A's id and
 //!   version (`stats_desc::CAPABILITY_ID`, `CAPABILITY_VERSION`).
+//! * `stats.analyze.independent_t`: the independent-samples t-test as an
+//!   analysis of the user's own data, Beta (Phase 4B-1, decision 61), with
+//!   `stats_ttest`'s id and version.
 //!
 //! `run_stats_preview` and `run_stats_verify` are the legacy lane, not
 //! capabilities: they are not here.
@@ -41,6 +44,7 @@ use crate::contracts::{CapabilityId, Diagnostic, ParamKey, ParamValue, Workspace
 use crate::stats_desc::{CAPABILITY_ID, CAPABILITY_VERSION};
 use crate::stats_l1::catalogue::{L1MethodId, MethodCatalogue};
 use crate::stats_l1::compute::L1Registry;
+use crate::stats_ttest::{CAPABILITY_ID as TTEST_ID, CAPABILITY_VERSION as TTEST_VERSION};
 
 /// The free Stats Check's id.
 pub const CHECK_ID: &str = "stats.check";
@@ -83,6 +87,15 @@ closed! {
         /// Cells are left out, never rows, so rows used equals rows read
         /// (evaluation F6).
         LimitDescribeRowsUsedEqualsRowsRead => "limit.describe.rows_used_equals_rows_read",
+        AnalyzeIndependentTTitle => "analyze.independent_t.title",
+        AnalyzeIndependentTDescription => "analyze.independent_t.description",
+        /// The group's levels follow Level 1's reading of cells (decision 17),
+        /// in code-point order, and are named by index (decision 65).
+        LimitAnalyzeLevelsFollowLevel1 => "limit.analyze.levels_follow_level_1",
+        /// Normality is not assessed (decision 64).
+        LimitAnalyzeNormalityNotAssessed => "limit.analyze.normality_not_assessed",
+        /// Cohen's d has no confidence interval (decision 63).
+        LimitAnalyzeCohensDHasNoInterval => "limit.analyze.cohens_d_has_no_interval",
     }
 }
 
@@ -95,6 +108,8 @@ pub enum Kind {
     Check,
     Verify(L1MethodId),
     Describe,
+    /// `stats.analyze.independent_t` (Phase 4B-1).
+    AnalyzeIndependentT,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -108,6 +123,7 @@ pub struct Entry {
 const LIFECYCLES: &[(&str, Lifecycle)] = &[
     (CHECK_ID, Lifecycle::Stable),
     (CAPABILITY_ID, Lifecycle::Beta),
+    (TTEST_ID, Lifecycle::Beta),
 ];
 /// A Level 1 method `L1Registry` implements.
 const VERIFY_IMPLEMENTED: Lifecycle = Lifecycle::Beta;
@@ -299,6 +315,51 @@ fn describe() -> Entry {
     }
 }
 
+fn analyze_independent_t() -> Entry {
+    Entry {
+        kind: Kind::AnalyzeIndependentT,
+        descriptor: StatsDescriptor {
+            id: id(TTEST_ID),
+            version: TTEST_VERSION,
+            workspace_id: WorkspaceId::Statistics,
+            title_code: StatsWording::AnalyzeIndependentTTitle,
+            description_code: StatsWording::AnalyzeIndependentTDescription,
+            lifecycle: lifecycle_of(TTEST_ID),
+            input_schema_version: 1,
+            output_schema_version: 1,
+            method_schema_version: 1,
+            supported_formats: TABLE_FORMATS.to_vec(),
+            dependency_ids: Vec::new(),
+            // p and the interval's quantile come from statrs's Student t
+            // through `stats_l0::pvalue`.
+            license_notes: vec![StatsWording::LicenseStatrsMit],
+            // The descriptive summary's profile: the same ingest, and the
+            // same run manager's ceiling and check point (Phase 4B-2).
+            resource_profile: ResourceProfile {
+                ram_class: RamClass::Gb8,
+                max_rows: Some(TABLE_MAX_ROWS),
+                max_columns: Some(TABLE_MAX_COLUMNS),
+                max_input_bytes: Some(TABLE_MAX_CELL_TEXT_BYTES),
+                ceiling_ms: Some(DESCRIBE_CEILING_MS),
+                cancel: Cancel::Cooperative,
+                uses_gpu: false,
+                temp_disk: false,
+            },
+            offline_behavior: OfflineBehavior::RunsOffline,
+            validation_suite_id: SuiteId("ttest_r_golden"),
+            known_limitation_codes: vec![
+                StatsWording::LimitTableTextFilesUtf8Only,
+                StatsWording::LimitTableCellTextCap,
+                StatsWording::LimitAnalyzeLevelsFollowLevel1,
+                StatsWording::LimitAnalyzeNormalityNotAssessed,
+                StatsWording::LimitAnalyzeCohensDHasNoInterval,
+            ],
+            export_kinds: vec![ExportKind::Csv, ExportKind::Json],
+            documentation_id: DocId("methods/independent_t"),
+        },
+    }
+}
+
 /// A capability table. The Statistics one is [`Registry::statistics`]; a
 /// different table exists only inside this crate's own unit tests.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -308,11 +369,13 @@ pub struct Registry {
 
 impl Registry {
     /// THE Statistics table: `stats.check`, one `stats.verify.<method_id>`
-    /// per catalogue entry in its order, then `stats.describe`.
+    /// per catalogue entry in its order, `stats.describe`, then
+    /// `stats.analyze.independent_t`.
     pub fn statistics() -> Registry {
         let mut entries = vec![check()];
         entries.extend(MethodCatalogue::ENTRIES.iter().map(|e| verify(e.id)));
         entries.push(describe());
+        entries.push(analyze_independent_t());
         Registry { entries }
     }
 
@@ -466,7 +529,7 @@ mod tests {
                 checked += 1;
             }
         }
-        assert_eq!(checked, 2 * 9, "nine capabilities, two builds");
+        assert_eq!(checked, 2 * 10, "ten capabilities, two builds");
     }
 
     #[test]
