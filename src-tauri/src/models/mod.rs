@@ -920,16 +920,33 @@ mod deep_plan_gate_tests {
 mod mini_loader_tests {
     use super::{slm1_mini_model, slm1_mini_paths};
 
+    /// Both tests below set and remove `GAPLY_SLM1_TOKENIZER`, which is
+    /// process-wide, and the test harness runs them on parallel threads: one
+    /// could remove it between the other's set and read, and the read then
+    /// fell back to the home folder's tokenizer (seen once in a workspace run,
+    /// 18 Oct 2026). Each holds this lock for its whole set → assert → remove.
+    /// A poisoned lock (the other test failed) is taken anyway, so one
+    /// failure does not fail both.
+    static TOKENIZER_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+        TOKENIZER_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     /// The mini resolver honors `GAPLY_SLM1_MINI_GGUF` for the model and shares
     /// the SLM-1 tokenizer (`GAPLY_SLM1_TOKENIZER`), and `slm1_mini_model`
     /// honestly returns `None` when the GGUF path doesn't exist — never a silent
     /// stand-in, and (critically) never loads the real ~945MB model in tests.
     ///
-    /// One test, done sequentially, so it doesn't race itself on the shared
-    /// process env. Mirrors the existing env-in-tests pattern (aicheck.rs).
+    /// Done sequentially within the test, and under `env_lock` against the
+    /// other test that shares the tokenizer variable. Mirrors the existing
+    /// env-in-tests pattern (aicheck.rs, `FLOW_ENV_LOCK`).
     #[test]
     fn mini_paths_honor_env_and_absent_model_is_none() {
-        // SAFETY: single-threaded within this test; set → assert → restore.
+        let _env = env_lock();
+        // Set → assert → restore, with the lock held throughout.
         std::env::set_var("GAPLY_SLM1_MINI_GGUF", "/nonexistent/mini.gguf");
         std::env::set_var("GAPLY_SLM1_TOKENIZER", "/nonexistent/tokenizer.json");
 
@@ -949,6 +966,7 @@ mod mini_loader_tests {
     /// never a silent stand-in, never loads a real model in tests.
     #[test]
     fn stage1_lm_paths_honor_env_and_absent_model_is_none() {
+        let _env = env_lock();
         std::env::set_var("GAPLY_STAGE1_LM_GGUF", "/nonexistent/stage1.gguf");
         std::env::set_var("GAPLY_SLM1_TOKENIZER", "/nonexistent/tokenizer.json");
 
