@@ -322,6 +322,91 @@ pub fn count_zip_inflation(bytes: &[u8], limit: u64) -> ZipInflation {
     ZipInflation::Within { total }
 }
 
+/// Whether any worksheet of a zip workbook (`xl/worksheets/*.xml`) nests
+/// elements more than `max_depth` deep (Research OS evaluation of Phases 2 and
+/// 3, F14; decision 52). SpreadsheetML goes eight deep in a rich-text cell
+/// (`worksheet/sheetData/row/c/is/r/rPr/b`); a sheet far past that is not one,
+/// and the parser read 200,000 nested elements in one cell as an empty table.
+/// Comments, processing instructions and CDATA are skipped, attribute values
+/// are read past with their quotes, and a self-closing tag adds nothing.
+/// Called after [`count_zip_inflation`] has bounded what may be inflated; an
+/// archive it cannot read answers `false` and the parser decides.
+pub fn worksheet_nests_deeper_than(bytes: &[u8], max_depth: usize) -> bool {
+    use std::io::Read;
+    let Ok(mut archive) = zip::ZipArchive::new(std::io::Cursor::new(bytes)) else {
+        return false;
+    };
+    for i in 0..archive.len() {
+        let Ok(mut part) = archive.by_index(i) else {
+            return false;
+        };
+        let name = part.name().to_string();
+        if !(name.starts_with("xl/worksheets/") && name.ends_with(".xml")) {
+            continue;
+        }
+        let mut xml = Vec::new();
+        if part.read_to_end(&mut xml).is_err() {
+            return false;
+        }
+        if xml_depth_exceeds(&xml, max_depth) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Whether element nesting in `xml` goes past `max_depth`.
+fn xml_depth_exceeds(xml: &[u8], max_depth: usize) -> bool {
+    let skip_to = |from: usize, end: &[u8]| -> usize {
+        xml[from..]
+            .windows(end.len())
+            .position(|w| w == end)
+            .map_or(xml.len(), |p| from + p + end.len())
+    };
+    let (mut depth, mut i) = (0usize, 0usize);
+    while i < xml.len() {
+        if xml[i] != b'<' {
+            i += 1;
+            continue;
+        }
+        let rest = &xml[i..];
+        if rest.starts_with(b"<!--") {
+            i = skip_to(i, b"-->");
+        } else if rest.starts_with(b"<![CDATA[") {
+            i = skip_to(i, b"]]>");
+        } else if rest.starts_with(b"<?") || rest.starts_with(b"<!") {
+            i = skip_to(i, b">");
+        } else if rest.starts_with(b"</") {
+            depth = depth.saturating_sub(1);
+            i = skip_to(i, b">");
+        } else {
+            let mut j = i + 1;
+            let mut quote = 0u8;
+            while j < xml.len() {
+                let c = xml[j];
+                if quote != 0 {
+                    if c == quote {
+                        quote = 0;
+                    }
+                } else if c == b'"' || c == b'\'' {
+                    quote = c;
+                } else if c == b'>' {
+                    break;
+                }
+                j += 1;
+            }
+            if !(j > i + 1 && xml[j - 1] == b'/') {
+                depth += 1;
+                if depth > max_depth {
+                    return true;
+                }
+            }
+            i = j + 1;
+        }
+    }
+    false
+}
+
 /// The refusal [`preflight`] gives a path that is not a regular file.
 const NOT_A_REGULAR_FILE: &str = "This is not a regular file (it may be a pipe, a device or a socket), so it was not read.";
 

@@ -28,6 +28,7 @@
   "double_rounded",
   "double_rounded_in_magnitude",
   "empty_row_or_column",
+  "encoding_not_utf8",
   "engine_version",
   "estimate_direction",
   "exact",

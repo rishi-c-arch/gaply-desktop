@@ -98,6 +98,10 @@ const ZIP_EXTENSIONS: &[&str] = &["xlsx", "xlsm", "xlsb", "ods"];
 /// compressed bytes it reads, not the inflated output.
 pub const MAX_WORKBOOK_UNCOMPRESSED_BYTES: u64 = 64 * 1024 * 1024;
 
+/// The deepest element nesting a worksheet may have (F14, decision 52). A
+/// rich-text cell goes eight deep; this leaves room for any extension.
+pub const MAX_SHEET_XML_DEPTH: usize = 64;
+
 /// The file at `path` as a Level 1 dataset.
 #[doc(hidden)]
 #[tracing::instrument(skip(path))]
@@ -149,6 +153,11 @@ pub fn check_file(path: &Path) -> Result<CheckedFile, L1IngestRefusal> {
         if let ZipInflation::Over { counted } = import_guard::count_zip_inflation(&before, MAX_WORKBOOK_UNCOMPRESSED_BYTES) {
             return Err(L1IngestRefusal::ArchiveTooLarge { declared: counted, limit: MAX_WORKBOOK_UNCOMPRESSED_BYTES });
         }
+        // F14 (decision 52): a sheet that nests far past any SpreadsheetML
+        // is not one; the parser read it as an empty table.
+        if import_guard::worksheet_nests_deeper_than(&before, MAX_SHEET_XML_DEPTH) {
+            return Err(L1IngestRefusal::Malformed);
+        }
     }
     // A .zsav's trailer, read before ambers allocates from it (part C
     // follow-up 2, item 3).
@@ -191,6 +200,9 @@ pub fn dataset_from_checked(checked: CheckedFile) -> Result<Dataset, L1IngestRef
             L1IngestRefusal::ContentTooLarge { limit_bytes: supplementary::MAX_TOTAL_CHARS }
         } else if supplementary::xls_not_compound_document_bytes(&before, &ext) {
             L1IngestRefusal::XlsNotReadable
+        } else if supplementary::not_utf8_text_bytes(&before, &ext) {
+            // F10 (decision 52): text in another encoding, not malformed.
+            L1IngestRefusal::EncodingNotUtf8
         } else {
             L1IngestRefusal::Malformed
         }

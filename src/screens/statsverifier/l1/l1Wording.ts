@@ -250,6 +250,10 @@ export const WORDS: Record<string, Words> = {
   // name Level 1.
   content_too_large: (c) =>
     `This file holds more than ${megabytes(num(c, 'limit_bytes'))} of text across its cells, more than Gaply reads from one file, so it was not opened. A copy with only the columns you need may fit.`,
+  // Text saved in another encoding, Latin-1 or UTF-16 (Research OS
+  // evaluation, F10). Shown by the descriptive summary too.
+  encoding_not_utf8: () =>
+    'This file is text saved in an encoding other than UTF-8, such as Latin-1 or UTF-16, so it was not opened. Save a copy in UTF-8 and open that copy instead.',
 
   /* ---- why a claim could not be checked ---------------------------------- */
   spearman_exact_p: () => "Gaply does not compute Spearman's exact p.",

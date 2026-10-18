@@ -23791,3 +23791,31 @@ on a value or message argument that renders a path through `.display()` or
 which now log the model's kind, its source as `env`, `bundled` or `home`, and
 whether the model and tokenizer files exist, and the suites' counts are
 unchanged (2,680 and 661).
+
+### D276 — Research OS, Phase 4A follow-up: two ingest refusals told apart (F10, F14) `[src]` `[test]` `[measured]`
+
+**Added** on `feat/research-os-4` after 4A's commit (`1797817`), decision 52.
+Level 1's shared ingest, which the descriptive summary also reads through,
+now names two refusals it used to hide. **F10:** a CSV or TSV that is text in
+another encoding (a UTF-16 byte-order mark, or invalid UTF-8 with no control
+character but tab, line feed and carriage return) is refused as the new
+`encoding_not_utf8` (`L1IngestRefusal::EncodingNotUtf8`;
+`supplementary::not_utf8_text_bytes`), with one sentence in Level 1's table
+and `l1Codes.json`; it is told apart only after the parse has failed, so no
+file that opens can change, and bytes that are not text stay `malformed`.
+**F14:** a zip workbook whose worksheet XML nests more than 64 elements deep
+(`stats_l1_ingest::MAX_SHEET_XML_DEPTH`; a rich-text cell goes eight deep) is
+refused as `malformed` before any parser sees it
+(`import_guard::worksheet_nests_deeper_than`, over the parts already bounded by
+the inflation count); the evaluation's file nested 200,000 inside one cell and
+opened as an empty table. Tests: `src-tauri/tests/stats_l1_ingest_followup.rs`
+(5; red before on exactly the two fixes), `l1WordingEncoding.vitest.ts` (2;
+red with the sentence removed). The evaluation's 31 hostile files, re-run
+through `stats_desc_open`: 26 identical to the fixes step's re-run apart from
+timing, every file that opens included (same content hashes); the five that
+changed are the four Latin-1 and UTF-16 files (`malformed` →
+`encoding_not_utf8`) and `deep_xml.xlsx` (an empty table → `malformed`).
+`cargo test --workspace`: 97 targets, 2,685 passed, 12 ignored (D275's 2,680
+plus the 5); Level 1's golden set unchanged. `cargo test -p app --features
+devtools`: 37 targets, 666 passed. No GRRB-watched file is touched.
+F14 does not cover `.ods` or `.xlsb`; a later step decides whether they need the same check.
