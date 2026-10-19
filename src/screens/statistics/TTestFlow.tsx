@@ -32,6 +32,7 @@ import { AppShell, Button, Card, GaplyGlobe, HeaderBar, NavRail, Panel } from '.
 import { pickManuscriptPath } from '../common/pickFile';
 import { saveTextFile } from '../../utils/saveTextFile';
 import { ttestBridge, type TTestBridge } from './ttestBridge';
+import { savableOnScreen, SaveToProject } from './projects/SaveToProject';
 import type { ColumnProfile, DatasetView, ExportFormat } from './describeTypes';
 import type {
   GroupLevel,
@@ -570,6 +571,8 @@ const TTestFlow: React.FC<TTestFlowProps> = ({
             <>
               <p data-testid="tt-run-ended">{ttestRunEndedSentence(runView.state)}</p>
               <DiagnosticList items={runView.diagnostics} names={names} testId="tt-run-diagnostics" />
+              {/* A failed run is saved where its failure is shown (decision 140). */}
+              {runView.terminal && savableOnScreen(runView) && <SaveToProject runId={runView.runId} testId="tt-project-save" />}
             </>
           )}
           <div style={{ display: 'flex', gap: 8 }}>
@@ -596,6 +599,7 @@ const TTestFlow: React.FC<TTestFlowProps> = ({
         <Card>
           {title}
           <ResultCard result={result} names={names} />
+          <SaveToProject runId={result.runId} testId="tt-project-save" />
           <div style={{ display: 'flex', gap: 8 }}>
             <Button variant="secondary" onClick={() => setStage('settings')} data-testid="tt-results-back">
               Change the settings

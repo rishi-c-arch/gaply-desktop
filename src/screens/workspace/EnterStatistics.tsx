@@ -16,6 +16,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { isTauri } from '../../utils/isTauri';
 import { workspaceBridge, type WorkspaceBridge } from './workspaceBridge';
+import { openProjectStore } from '../statistics/projects/projectSession';
 import { isActive, workspaceRefusal, type WorkspaceStateView } from './workspaceTypes';
 import { ENTER_TEXT, workspaceSentence } from './workspaceWording';
 
@@ -40,7 +41,10 @@ export function enterStatistics(bridge: WorkspaceBridge): Promise<WorkspaceState
         now = await bridge.state();
       }
       if (isActive(now.state, 'statistics')) return now;
-      return bridge.activate('statistics');
+      const activated = await bridge.activate('statistics');
+      // Activating closes any open project in Rust (decision 122).
+      openProjectStore.clear();
+      return activated;
     })().finally(() => {
       inFlight = null;
     });

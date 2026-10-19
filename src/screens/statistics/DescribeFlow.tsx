@@ -20,6 +20,7 @@ import { AppShell, Button, Card, GaplyGlobe, HeaderBar, NavRail, Panel } from '.
 import { pickManuscriptPath } from '../common/pickFile';
 import { saveTextFile } from '../../utils/saveTextFile';
 import { describeBridge, type DescribeBridge } from './describeBridge';
+import { savableOnScreen, SaveToProject } from './projects/SaveToProject';
 import type {
   ColumnProfile,
   ColumnResult,
@@ -570,6 +571,8 @@ const DescribeFlow: React.FC<DescribeFlowProps> = ({
             <>
               <p data-testid="desc-run-ended">{runEndedSentence(runView.state)}</p>
               <DiagnosticList items={runView.diagnostics} name={name} testId="desc-run-diagnostics" />
+              {/* A failed run is saved where its failure is shown (decisions 136, 140). */}
+              {runView.terminal && savableOnScreen(runView) && <SaveToProject runId={runView.runId} testId="desc-project-save" />}
             </>
           )}
           <div style={{ display: 'flex', gap: 8 }}>
@@ -635,6 +638,7 @@ const DescribeFlow: React.FC<DescribeFlowProps> = ({
               </dd>
             </dl>
           </aside>
+          <SaveToProject runId={result.runId} testId="desc-project-save" />
           <div style={{ display: 'flex', gap: 8 }}>
             <Button variant="secondary" onClick={() => setStage('settings')} data-testid="desc-results-back">
               Change the settings

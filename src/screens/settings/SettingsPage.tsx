@@ -35,6 +35,8 @@ import {
 } from './settingsStore';
 import { ConnectivityIndicator } from './connectivity';
 import { AiStatusPanel } from '../ai/AiStatusPanel';
+import { projectsShown } from '../statistics/projects/projectGate';
+import { PROJECT_TEXT, SETTINGS_SENTENCE } from '../statistics/projects/projectWording';
 import './settings.css';
 
 /** Bundled offline packs (shipped inside the app, usable with zero network). */
@@ -379,6 +381,18 @@ const Inner: React.FC<SettingsPageProps> = ({ profileService }) => {
               <section id="set-ai">
                 <AiStatusPanel />
               </section>
+
+              {/* Research OS projects (decisions 100, 133): only when the
+                  project screens show. */}
+              {projectsShown() && (
+                <section id="set-projects">
+                  <Card title={PROJECT_TEXT.settingsHeading}>
+                    <p className="gds-set__muted" data-testid="settings-projects-sentence">
+                      {SETTINGS_SENTENCE}
+                    </p>
+                  </Card>
+                </section>
+              )}
 
               <section id="set-about">
                 <Card title="About">

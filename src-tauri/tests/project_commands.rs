@@ -26,7 +26,8 @@
 
 mod project_support;
 
-use std::path::PathBuf;
+use std::collections::BTreeSet;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Barrier};
 
 use serde_json::{json, Value};
@@ -53,6 +54,76 @@ fn into_open(id: &str) -> SaveTarget {
     SaveTarget::OpenProject {
         project_id: id.to_string(),
     }
+}
+
+/// The names under `dir`, sorted, without exactly what the locks folder may
+/// hold (Phase 5B-3a, decisions 132 and 144): `projects/.locks` itself, a real
+/// owner-only folder, and in it only empty owner-only lock files named
+/// `<id>.lock` for a project that is still listed. Anything else in the locks
+/// folder fails here; anything else anywhere is returned, so the caller's own
+/// rule still sees it.
+fn names_without_the_locks(w: &World, dir: &Path) -> Vec<String> {
+    let locks = w.root().join("projects").join(".locks");
+    let live: BTreeSet<String> = pc::list(&w.root(), &w.ws)
+        .unwrap()
+        .into_iter()
+        .map(|e| format!("{}.lock", e.project_id))
+        .collect();
+    let mut skip: Vec<PathBuf> = Vec::new();
+    if let Ok(m) = std::fs::symlink_metadata(&locks) {
+        assert!(
+            m.is_dir() && !m.file_type().is_symlink(),
+            "the locks folder is a real folder"
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                m.permissions().mode() & 0o777,
+                0o700,
+                "the locks folder is owner-only"
+            );
+        }
+        skip.push(locks.clone());
+        for e in std::fs::read_dir(&locks).unwrap().flatten() {
+            let name = e.file_name().to_string_lossy().into_owned();
+            let m = std::fs::symlink_metadata(e.path()).unwrap();
+            assert!(
+                live.contains(&name),
+                "the locks folder holds {name}, which is no live project's lock file"
+            );
+            assert!(
+                m.file_type().is_file() && m.len() == 0,
+                "{name} is an empty file"
+            );
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                assert_eq!(
+                    m.permissions().mode() & 0o777,
+                    0o600,
+                    "{name} is owner-only"
+                );
+            }
+            skip.push(e.path());
+        }
+    }
+    let mut out = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
+            let p = e.path();
+            if skip.contains(&p) {
+                continue;
+            }
+            out.push(e.file_name().to_string_lossy().into_owned());
+            if e.file_type().unwrap().is_dir() {
+                stack.push(p);
+            }
+        }
+    }
+    out.sort();
+    out
 }
 
 /// A world with one project holding one describe run: (world, project id).
@@ -357,13 +428,17 @@ fn a_save_that_would_pass_a_cap_is_refused_before_anything_is_written() {
     let slot = w.open("a.csv", CSV);
     let run = w.describe(slot);
     assert!(pc::list(&w.root(), &w.ws).unwrap().is_empty());
-    let before = names(&w.root());
+    let before = names_without_the_locks(&w, &w.root());
     let e = pc::save_run(&w.root(), &w.ws, run, new_project("p")).unwrap_err();
     let r = refusal(&e);
     assert_eq!(r["code"], "project.project_cap");
     assert!(r["needed"].as_u64().unwrap() > r["limit"].as_u64().unwrap());
     assert_eq!(r["limit"], json!(tiny.project));
-    assert_eq!(names(&w.root()), before, "no project, no staging folder");
+    assert_eq!(
+        names_without_the_locks(&w, &w.root()),
+        before,
+        "no project, no staging folder"
+    );
 }
 
 /* ---- deleting --------------------------------------------------------------- */
@@ -490,7 +565,7 @@ fn a_deactivation_during_a_save_leaves_the_save_whole_or_not_at_all() {
             .iter()
             .all(|e| e.refused.is_none() && e.run_count == Some(1)));
         assert!(
-            names(&w.root().join("projects"))
+            names_without_the_locks(&w, &w.root().join("projects"))
                 .iter()
                 .all(|n| !n.starts_with('.')),
             "no leftover"

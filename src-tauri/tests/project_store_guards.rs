@@ -116,6 +116,10 @@ const JOIN_ARGUMENTS: &[&str] = &[
     "format!(\"{CREATING_PREFIX}{}\", id.as_str())",
     "format!(\"{DELETING_PREFIX}{}\", id.as_str())",
     "format!(\"{TMP_PREFIX}{}\", random_hex32()?)",
+    // Phase 5B-3a (decisions 132, 144): the locks folder, a fixed name, and
+    // a lock file named by a parsed id.
+    "LOCKS_DIR",
+    "format!(\"{}{LOCK_SUFFIX}\", id.as_str())",
 ];
 
 fn rust_files(p: &Path, out: &mut Vec<PathBuf>) {

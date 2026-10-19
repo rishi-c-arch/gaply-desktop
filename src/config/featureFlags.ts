@@ -24,7 +24,13 @@ export type FeatureName =
   // The Research OS workspace chooser and shell (Phase 3). Default OFF. Hides
   // unfinished UI; not an authorization boundary (Rust checks the active
   // workspace on every stats_desc_* command whatever this says).
-  | 'workspaces';
+  | 'workspaces'
+  // The Research OS project screens (Phase 5B-3a, decisions 119 and 136):
+  // Save, the Projects panel, the delete dialog and the Settings sentence.
+  // Default OFF, and shown only with 'workspaces' on too and only in the
+  // desktop app (projects/projectGate.ts). Hides unfinished UI; not an
+  // authorization boundary (Rust checks every project_* command).
+  | 'projects';
 
 /** Parse a CRA env string as a boolean (default false). Only 'true'/'1' enable. */
 function envBool(v: string | undefined): boolean {
@@ -42,6 +48,7 @@ export const FEATURE_FLAGS: Record<FeatureName, boolean> = {
   statsL1: envBool(process.env.REACT_APP_FEATURE_STATS_L1),
   statsDescribe: envBool(process.env.REACT_APP_FEATURE_STATS_DESCRIBE),
   workspaces: envBool(process.env.REACT_APP_FEATURE_WORKSPACES),
+  projects: envBool(process.env.REACT_APP_FEATURE_PROJECTS),
 };
 
 export function isFeatureEnabled(name: FeatureName): boolean {

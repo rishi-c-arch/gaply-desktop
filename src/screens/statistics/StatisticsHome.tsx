@@ -26,6 +26,7 @@ import { capabilitySentence, HOME_TEXT, LIFECYCLE_LABELS } from './capabilityWor
 import type { CapabilityView } from './ttestTypes';
 import { DESCRIBE_PATH } from './describeRoute';
 import { TTEST_PATH } from './statisticsRoute';
+import { ProjectsPanel } from './projects/ProjectsPanel';
 
 export const VERIFY_PREFIX = 'stats.verify.';
 const CHECK_ID = 'stats.check';
@@ -243,6 +244,9 @@ export const StatisticsHome: React.FC<StatisticsHomeProps> = ({ bridge: given, f
           )}
         </>
       )}
+      {/* Shown only when projectsShown() says so (decision 136); it does not
+          wait for the capability list. */}
+      <ProjectsPanel />
     </div>
   );
 };

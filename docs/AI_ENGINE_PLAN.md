@@ -24504,3 +24504,103 @@ sentinel sweep; the commands module writing a file → the no-write guard; the
 process-wide lock dropped at all six sites → both paused-Save lock tests
 (their first form aborted the test binary after the assertion fired, with a
 paused worker left waiting; they now release the worker before asserting).
+
+### D283 — Research OS, Phase 5B-3a: the first project screens and the lock between two copies `[src]` `[test]` `[measured]`
+
+**Added** on `feat/research-os-5` after `c135cd8`. Decisions 131 to 144 of 19
+Oct 2026 apply (`~/gaply-corpus/os/decisions.md`), with 99 to 130. Every
+screen is behind `REACT_APP_FEATURE_PROJECTS` (off) and shows only with
+`REACT_APP_FEATURE_WORKSPACES` on too and only in the desktop app; a flag
+only hides, and Rust's checks are the boundary. Open, an open project's page,
+the exports and the hand-test checklist are 5B-3b (decision 137).
+
+**The lock (decision 132).** No single-instance plugin on macOS; an open
+project holds an operating-system lock on its empty lock file,
+`<root>/projects/.locks/<project_id>.lock`, which the system releases if the
+app quits or crashes. `src-tauri/src/project_store.rs`: opening a project and
+a first Save take `File::try_lock_shared`, held by the `ProjectHandle` until
+it closes; a delete closes this copy's open project first (in
+`project_commands::delete`), then takes `File::try_lock` and holds it until
+the folder is gone, and only then removes the lock file; recovery at start
+takes it exclusive before it finishes a `.deleting-` tombstone or clears a
+`.creating-` staging folder, and skips one another copy holds. The order is
+always the lock, then the folder check. Only the `try_` calls: `WouldBlock`
+is `project.open_elsewhere` for a delete and `project.being_deleted` for an
+open; any other failure is `project.lock_failed` (three codes appended to
+`ProjectCode`, pinned in `projectCodes.json`). **A delete refused by the lock
+still leaves the project closed in this copy.** The locks folder is 0700,
+never followed as a symlink, never a valid project id, made only by a call
+that takes a lock (listing and sizing write nothing), and skipped by the
+list, the sizes and the caps (`projects_bytes`) and by recovery; a lock file
+is 0600 and empty, and one an open of a missing project or a refused first
+Save made is removed under the exclusive lock. The app crate's
+`rust-version` is 1.89 (decision 138); `gaply_core`'s stays.
+
+**Decision 143.** A run's notes are its validation's warnings, and the
+missing-value warning carried the value found in a column's cells; the
+report printed it. `research_project::render::shown_in_export` (an exhaustive
+match over `ParamKey`, so a new key must be decided) keeps `value` out of
+both exports, applied where parameters are collected and again where the
+report prints them; the note is shown by its column's position and cell
+count. The golden report changed in that one line; the PROV JSON printed no
+parameters and is unchanged.
+
+**The screens** (`src/screens/statistics/projects/`). `projectGate.ts`
+`projectsShown()` is the one helper. `projectBridge.ts` is the only file that
+names a project command. `SaveToProject.tsx`: a Save button on the summary's
+and the t-test's results screens and on their run stage for a run that
+Failed with its code (decision 140), and a dialog with a new project (named,
+checked by `projectName.ts`, Rust's rule mirrored code point for code point
+and read from the same test vectors) or the open project (decision 142:
+known only from a Save's response, in memory, `projectSession.ts`, cleared
+whenever the screens see Statistics not active and after each activate).
+`ProjectsPanel.tsx` on the Statistics home: names, sizes, saved dates, saved
+runs, the totals in MiB against both caps, loading, empty and error states,
+and a delete dialog (Cancel focused, Escape cancels, prepare then delete on
+the click, every refusal as its sentence, focus to the heading after).
+`ProjectDialog.tsx` keeps focus inside and returns it (decision 139; the
+shell's `Modal` is unchanged). Settings shows decision 133's sentence.
+`projectWording.ts` has a sentence for each of the 48 codes, a fallback, and
+decision 133's sentences word for word; a raw error message is never shown.
+A name is always text inside `<bdi>`; no screen uses raw HTML.
+
+**Guards.** `tests/workspace_guards.rs` pins where the store takes a lock,
+the three commands that can answer with a lock code, and that every lock is
+a `try_` call; `projectGuards.vitest.ts` holds the command names to the
+bridge and raw HTML, the console, storage, `document.title` and the router
+out of the project screens. Under decision 144, three existing tests allow
+exactly the locks folder (the join guard's list gains `LOCKS_DIR` and the
+lock file's name; two command tests skip `.locks` and its lock files only
+after checking each is an empty owner-only file of a listed project).
+
+**Measured, 19 Oct 2026, macOS aarch64** (logs in
+`~/gaply-corpus/os/phase5/5b3a_logs/`): `cargo test --workspace
+--no-fail-fast`, both `lib.rs` touched, prediction written first: exit 0, 115
+targets (113 Running + 2 Doc-tests), 2,864 passed, 12 ignored, as predicted
+from D282's 112 / 2,852 / 12 (+`project_locks` 9, +`research_project_names`
+1, +`research_project_no_data_values` 1, `workspace_guards` 7 → 8). `cargo
+test -p app --features devtools --no-fail-fast`: exit 0, 46 targets (45
+Running + 1 Doc-tests), 779 passed, 9 ignored, as predicted. No warning
+location in a changed file. vitest: 100 files / 1,173 tests before, 108 /
+1,394 after, as predicted; `tsc --noEmit` and CI's eslint exit 0; `npm run
+build` exit 0, `public/sitemap.xml` written back from HEAD. rustfmt by path:
+every changed file's hunks equal HEAD's (0). `git diff --check` clean; `git
+diff c135cd8` empty under `stats_l0`, `stats_l1` and `stats_assist`. No
+GRRB-watched file changed.
+
+**Mutation record** (SHA-256, broken once, red, restored with a fresh mtime,
+SHA-256 equal, green; logs in `5b3a_logs/mutations/`): a delete taking the
+lock shared; `.locks` counted in the sizes; recovery not locking; a blocking
+`file.lock()`; a project call outside the bridge; a name through
+`dangerouslySetInnerHTML`; the panel not reading the workspace state; Save's
+and Delete's in-flight checks removed (the first form stayed green, because
+the disabled button stopped the second click first: a same-turn double click
+was added and goes red); the gate ignoring desktop; and, for decision 144, an
+unexpected entry beside `.locks` in each of the three tests. Decision 143's
+regression test was red before the fix and green after.
+
+**Not tested:** a real second process or a crash holding the lock (two
+handles in one process stand in, as `flock` and `LockFileEx` treat them as
+holders); Windows (compiled by CI's `--no-run` step only); the lock-then-check
+order (no single-thread test can tell the orders apart); the real app.
+Departures are listed in `~/gaply-corpus/os/phase5/phase5b3a_report.md` §5.

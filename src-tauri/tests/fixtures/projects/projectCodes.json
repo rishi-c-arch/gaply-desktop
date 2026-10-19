@@ -43,5 +43,8 @@
   "project.confirmation_expired",
   "project.confirmation_other_project",
   "project.stored_run_unknown",
-  "project.result_too_large"
+  "project.result_too_large",
+  "project.open_elsewhere",
+  "project.being_deleted",
+  "project.lock_failed"
 ]

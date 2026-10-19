@@ -22,6 +22,7 @@ import { progressSentence, RUN_STATE_NAMES } from '../statistics/describeWording
 import type { RunState } from '../statistics/describeTypes';
 import { statisticsTools as selectorTools } from '../statistics/statisticsRoute';
 import { ttestBridge, type TTestBridge } from '../statistics/ttestBridge';
+import { noteWorkspaceState, openProjectStore } from '../statistics/projects/projectSession';
 import { workspaceBridge, type WorkspaceBridge } from './workspaceBridge';
 import { isActive, workspaceRefusal, type RunEntry, type WorkspaceStateView } from './workspaceTypes';
 import { SHELL_TEXT, SWITCH_DIALOG, workspaceSentence } from './workspaceWording';
@@ -133,6 +134,8 @@ export const WorkspaceShell: React.FC<WorkspaceShellProps> = ({
   const read = useCallback(async () => {
     try {
       const s = await bridge.state();
+      // Statistics not active: no project is open (decision 135).
+      noteWorkspaceState(s);
       if (!alive.current) return;
       setView(s);
       if (s.latestRun !== null) {
@@ -156,6 +159,8 @@ export const WorkspaceShell: React.FC<WorkspaceShellProps> = ({
     setMessage(null);
     try {
       await bridge.deactivate();
+      // Leaving Statistics closed the open project in Rust (decision 135).
+      openProjectStore.clear();
       setBlocking(null);
       navigate(CHOOSER_PATH);
     } catch (e) {

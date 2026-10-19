@@ -161,6 +161,15 @@ closed! {
         StoredRunUnknown => "stored_run_unknown",
         /// A run's result is larger than a read returns.
         ResultTooLarge => "result_too_large",
+        // Phase 5B-3a: two copies of the app (decision 132).
+        /// Another copy of the app has the project open, so it is not
+        /// deleted.
+        OpenElsewhere => "open_elsewhere",
+        /// Another copy of the app is deleting the project, so it is not
+        /// opened.
+        BeingDeleted => "being_deleted",
+        /// The project's lock file could not be made or locked.
+        LockFailed => "lock_failed",
     }
 }
 
@@ -635,6 +644,9 @@ mod tests {
                 "project.confirmation_other_project",
                 "project.stored_run_unknown",
                 "project.result_too_large",
+                "project.open_elsewhere",
+                "project.being_deleted",
+                "project.lock_failed",
             ]
         );
         let kinds: Vec<&str> = ArtifactKind::ALL.iter().map(|c| c.wire()).collect();

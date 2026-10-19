@@ -263,8 +263,9 @@ Each step is its own commit.
 
 `workspace_home` is `statistics`, the only value Phase 5 stores. The
 commands of 5B-2 that create, open, save to or read a project check that
-Statistics is active first; listing, closing and deleting are never gated
-(decision 49). `installed_workspaces` and `active_workspace` of blueprint
+Statistics is active first; listing, the sizes, preparing a delete and
+deleting are never gated (decision 120). Closing a project needs Statistics
+active, and leaving Statistics closes it (decision 135). `installed_workspaces` and `active_workspace` of blueprint
 §10.1 are not stored: the first is a build fact, the second the session's
 state (ADR-001), and a stored copy would be a second source of truth.
 
@@ -308,10 +309,13 @@ by an 8-character hash prefix.
 - The store is the one Research OS module allowed to write
   (`stats_desc_writes_nothing.rs`), and no non-test code calls it in 5B-1
   (`project_store_guards.rs`).
-- Two app instances can open the same project (macOS has no single-instance
-  plugin; `src-tauri/src/lib.rs:68-79` adds it on Windows and Linux only).
+- Two copies of the app can open the same project (macOS has no
+  single-instance plugin; `src-tauri/src/lib.rs:68-79` adds it on Windows and
+  Linux only). They share it through SQLite and the decision 132 lock:
   `BEGIN IMMEDIATE` and `busy_timeout` keep the database consistent, and a
-  second writer gets `project.busy`. Recorded as a limitation.
+  second writer gets `project.busy`; an open project holds its lock file,
+  `projects/.locks/<project_id>.lock`, shared, and a delete refuses with
+  `project.open_elsewhere` while another copy has the project open.
 
 ## Evidence
 
@@ -356,3 +360,16 @@ Windows CI running the store's tests and finding a difference.
     Proposed.
 11. Two edge tables named `run_inputs` and `run_outputs`, `artifacts` with an
     integer id: now `used`, `generated`, `derived`, keyed by hash. Proposed.
+
+## Revisions
+
+- 19 Oct 2026, Phase 5B-3a (decision 141): §15 corrected to decision 135.
+  It said closing a project is never gated (decision 49); closing needs
+  Statistics active, and leaving Statistics closes the project. The
+  commands as built in 5B-2 already did this (D282's table:
+  `project_close` is gated).
+- 19 Oct 2026, Phase 5B-3a (decision 146): Consequences corrected to
+  decision 132. It recorded two app instances on one project as a
+  limitation with only SQLite between them; they now share it through
+  SQLite and the decision 132 lock, and a delete refuses while another copy
+  has the project open (D283).

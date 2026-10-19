@@ -53,7 +53,7 @@ A Gaply project report. It holds fingerprints (SHA-256) of the data file, the an
 
 ### Notes
 
-- `stats.desc.suspect_missing_code` (column 2, count 3, value 99)
+- `stats.desc.suspect_missing_code` (column 2, count 3)
 
 ## Run 2: `stats.analyze.independent_t`, version 1
 

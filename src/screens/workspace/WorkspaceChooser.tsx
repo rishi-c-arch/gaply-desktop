@@ -14,6 +14,7 @@ import { useNavigate } from 'react-router-dom';
 import { Button, Card } from '../../design-system';
 import { useEntitlement, type EntitlementStatus } from '../subscription/entitlement';
 import { workspaceBridge, type WorkspaceBridge } from './workspaceBridge';
+import { openProjectStore } from '../statistics/projects/projectSession';
 import { isActive, workspaceRefusal, type WorkspaceDescriptorView, type WorkspaceId, type WorkspaceState } from './workspaceTypes';
 import {
   AVAILABILITY_TEXT,
@@ -133,6 +134,8 @@ export const WorkspaceChooser: React.FC<WorkspaceChooserProps> = ({ bridge: give
       setMessage(null);
       try {
         const s = await bridge.activate(id);
+        // Activating closes any open project in Rust (decision 122).
+        openProjectStore.clear();
         setState(s.state);
         if (isActive(s.state, id)) go(id);
       } catch (e) {

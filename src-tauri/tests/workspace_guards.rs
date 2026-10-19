@@ -32,6 +32,14 @@
 //!    (listing, sizes, preparing a delete, deleting) names
 //!    `require_statistics` in neither.
 //!
+//! 7. Phase 5B-3a (decision 132): the lock codes (`project.open_elsewhere`,
+//!    `project.being_deleted`, `project.lock_failed`) come only from the
+//!    commands that take a project's lock: `project_open`, a first Save
+//!    through `project_save_run`, and `project_delete`. The store takes the
+//!    lock in a pinned set of functions and only through `File::try_lock` and
+//!    `File::try_lock_shared`; every other `.lock()` in it is a `Mutex`'s,
+//!    with its poisoning taken as it is.
+//!
 //! What this cannot see: a check written in a way that is not this exact
 //! call (an alias, a macro). The runtime tests in `workspace_session.rs` call
 //! every `stats_desc_*` command while no workspace is active and while one is
@@ -615,5 +623,138 @@ fn only_workspace_activate_activates_a_workspace() {
     assert!(
         body.contains(line.as_str()),
         "the one caller is workspace_activate: {line}"
+    );
+}
+
+/// Phase 5B-3a (decision 132): where the store takes a project's lock, by
+/// function. A lock taken anywhere else must be added here, deliberately.
+const LOCK_TAKERS: &[&str] = &[
+    "finish_leftovers",
+    "create_with_save",
+    "open_parsed",
+    "discard_orphan_lock",
+    "delete",
+];
+
+/// The store functions that take a lock, as the commands call them, and the
+/// command whose work function calls each: these are the commands that can
+/// answer with a lock code. (store call, work function, registered command)
+const LOCK_COMMANDS: &[(&str, &str, &str)] = &[
+    ("store.open(", "open", "project_commands::project_open"),
+    (
+        "store.create_with_save(",
+        "save_run",
+        "project_commands::project_save_run",
+    ),
+    (
+        "store.delete(",
+        "delete",
+        "project_commands::project_delete",
+    ),
+];
+
+/// The name of the `fn` whose body holds byte `at` of `src`.
+fn enclosing_fn(src: &str, at: usize) -> String {
+    let start = src[..at].rfind("fn ").expect("inside a function") + 3;
+    src[start..]
+        .chars()
+        .take_while(|c| c.is_alphanumeric() || *c == '_')
+        .collect()
+}
+
+#[test]
+fn the_lock_codes_come_only_from_the_commands_that_take_a_lock() {
+    let store = without_line_comments(&read(&root().join("src/project_store.rs")));
+    let store = &store[..store.find("#[cfg(test)]\nmod tests").unwrap_or(store.len())];
+    let commands = without_line_comments(&read(&root().join("src/project_commands.rs")));
+    let mut failures = Vec::new();
+
+    // Where the store takes the lock.
+    let mut takers: Vec<String> = store
+        .match_indices("self.lock(")
+        .map(|(i, _)| enclosing_fn(store, i))
+        .collect();
+    takers.sort();
+    takers.dedup();
+    let mut pinned: Vec<String> = LOCK_TAKERS.iter().map(|s| s.to_string()).collect();
+    pinned.sort();
+    if takers != pinned {
+        failures.push(format!(
+            "the lock is taken in {takers:?}, pinned {pinned:?}"
+        ));
+    }
+    // The two refusal codes of a WouldBlock name which side refused.
+    for (code, side) in [("OpenElsewhere", "delete"), ("BeingDeleted", "open")] {
+        let at = store.match_indices(&format!("ProjectCode::{code}")).count();
+        if at == 0 {
+            failures.push(format!("project.{code} is never given ({side})"));
+        }
+    }
+
+    // Only the try_ calls, in one place.
+    let try_lock = fn_body(store, "try_lock_file").unwrap_or_default();
+    for call in ["file.try_lock_shared()", "file.try_lock()"] {
+        if !try_lock.contains(call) {
+            failures.push(format!("try_lock_file does not call {call}"));
+        }
+    }
+    let flat: String = store.chars().filter(|c| !c.is_whitespace()).collect();
+    for blocking in [".lock_shared(", "libc::flock", "LockFileEx", "fs2::"] {
+        if flat.contains(blocking) {
+            failures.push(format!(
+                "the store calls {blocking}: a blocking or second lock"
+            ));
+        }
+    }
+    for (i, _) in flat.match_indices(".lock()") {
+        let after = &flat[i + ".lock()".len()..];
+        if !after.starts_with(".unwrap_or_else(|p|p.into_inner())") {
+            failures.push(format!(
+                "a .lock() that is not a Mutex's: …{}…",
+                &flat[i.saturating_sub(40)..(i + 40).min(flat.len())]
+            ));
+        }
+    }
+    if flat.matches(".lock()").count() < 3 {
+        failures.push("the Mutex scan found too few sites: it is inert".to_string());
+    }
+
+    // The commands that can answer with a lock code, and their classes.
+    let gated: Vec<&str> = PROJECT_GATED.iter().map(|(p, _)| *p).collect();
+    let exempt: Vec<&str> = PROJECT_EXEMPT.iter().map(|(p, _, _)| *p).collect();
+    for (call, work, command) in LOCK_COMMANDS {
+        match fn_body(&commands, work) {
+            Some(body) if body.contains(call) => {}
+            _ => failures.push(format!("{work} does not call {call}")),
+        }
+        let classified = gated.contains(command) || exempt.contains(command);
+        if !classified {
+            failures.push(format!("{command} is not classified"));
+        }
+    }
+    let mut callers: Vec<String> = ["store.open(", "store.create_with_save(", "store.delete("]
+        .iter()
+        .flat_map(|c| {
+            commands
+                .match_indices(c)
+                .map(|(i, _)| enclosing_fn(&commands, i))
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    callers.sort();
+    if callers != ["delete", "open", "save_run"] {
+        failures.push(format!(
+            "the lock-taking store calls are made from {callers:?}"
+        ));
+    }
+    println!(
+        "lock taken in {} store functions; {} commands can answer with a lock code",
+        LOCK_TAKERS.len(),
+        LOCK_COMMANDS.len()
+    );
+    assert!(
+        failures.is_empty(),
+        "decision 132:\n{}",
+        failures.join("\n")
     );
 }

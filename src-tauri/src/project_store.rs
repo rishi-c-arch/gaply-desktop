@@ -12,6 +12,20 @@
 //! and a delete never runs during a Save. Opening a project and its recovery
 //! do not take it; each project's own `BEGIN IMMEDIATE` orders those.
 //!
+//! **Two copies of the app (Phase 5B-3a, decision 132).** An open project
+//! holds an operating-system lock on its empty lock file,
+//! `.locks/<project_id>.lock`, shared, until it closes; the system releases
+//! it if the app quits or crashes. Opening a project and a first Save take it
+//! shared; a delete takes it exclusive and holds it until the folder is gone,
+//! and only then removes the lock file; recovery at start takes it exclusive
+//! before it finishes a tombstone or clears a staging folder, and skips one
+//! it cannot lock. The order is always the same: the lock first, then the
+//! check that the project's folder exists. Only `File::try_lock` and
+//! `File::try_lock_shared` are called, never a blocking lock: `WouldBlock` is
+//! `project.open_elsewhere` for a delete and `project.being_deleted` for an
+//! open, and any other error is `project.lock_failed`. The locks folder is
+//! never a project: the list, the sizes, the caps and recovery skip it.
+//!
 //! **A first Save** ([`ProjectRoot::create_with_save`], decision 121) is
 //! written inside the project's `.creating-<id>/` folder, whose database
 //! already holds its schema and its row, and the folder is renamed into place
@@ -31,6 +45,8 @@
 //!       .tmp-<32 hex>                  a write in progress
 //!   .creating-<project_id>/            a create in progress
 //!   .deleting-<project_id>/            a tombstone: a delete in progress
+//!   .locks/                            0700, never a project (decision 132)
+//!     <project_id>.lock                0600, empty: locked while open
 //! ```
 //!
 //! Every path is joined from a parsed [`ProjectId`] or [`ArtifactHash`] or a
@@ -87,6 +103,10 @@ const ARTIFACTS_DIR: &str = "artifacts";
 const TMP_PREFIX: &str = ".tmp-";
 const CREATING_PREFIX: &str = ".creating-";
 const DELETING_PREFIX: &str = ".deleting-";
+/// The locks folder, beside the project folders (decision 132). Never a
+/// valid project id, so the list never reads it as one.
+const LOCKS_DIR: &str = ".locks";
+const LOCK_SUFFIX: &str = ".lock";
 /// Bytes per write and per read while hashing.
 const CHUNK: usize = 64 * 1024;
 /// How long a second connection waits for the write lock before `busy`.
@@ -338,6 +358,26 @@ pub(crate) fn tree_bytes(dir: &Path) -> io::Result<u64> {
     let mut n = 0u64;
     for entry in entries {
         let entry = entry?;
+        let ft = entry.file_type()?;
+        if ft.is_dir() {
+            n = n.saturating_add(tree_bytes(&entry.path())?);
+        } else if ft.is_file() {
+            n = n.saturating_add(entry.metadata()?.len());
+        }
+    }
+    Ok(n)
+}
+
+/// The bytes under the projects folder that count toward the caps and the
+/// sizes: every project folder, staging folder and tombstone, and not the
+/// locks folder, which is not a project (decision 132).
+fn projects_bytes(projects: &Path) -> io::Result<u64> {
+    let mut n = 0u64;
+    for entry in fs::read_dir(projects)? {
+        let entry = entry?;
+        if entry.file_name() == LOCKS_DIR {
+            continue;
+        }
         let ft = entry.file_type()?;
         if ft.is_dir() {
             n = n.saturating_add(tree_bytes(&entry.path())?);
@@ -614,6 +654,82 @@ fn is_open(dir: &Path) -> bool {
 }
 
 /* ------------------------------------------------------------------------ *
+ *  The lock between copies of the app (Phase 5B-3a, decision 132)
+ * ------------------------------------------------------------------------ */
+
+/// Which lock is taken on a project's lock file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LockKind {
+    /// Opening a project, or a first Save: other copies may open it too.
+    Shared,
+    /// Deleting a project, or recovery finishing one: no other holder.
+    Exclusive,
+}
+
+/// A project's lock file, locked. The operating system releases the lock
+/// when this is dropped, or when the process ends however it ends; the file
+/// itself stays until an exclusive holder removes it.
+struct ProjectLock {
+    /// Held for its lock, which the system releases when it is closed.
+    _file: File,
+    path: PathBuf,
+}
+
+impl ProjectLock {
+    /// Removes the lock file. Only an exclusive holder calls this, and only
+    /// once the project's folder is gone.
+    fn remove_file(&self) -> io::Result<()> {
+        remove_file_any(&self.path)
+    }
+}
+
+/// Opens, or makes empty and owner-only, the lock file at `p`. Never one
+/// that is a symlink, and never anything but a regular file.
+fn open_lock_file(p: &Path) -> Result<File, ProjectRefusal> {
+    match fs::symlink_metadata(p) {
+        Ok(m) if m.file_type().is_symlink() => return Err(ProjectCode::SymlinkRefused.into()),
+        Ok(m) if !m.file_type().is_file() => return Err(ProjectCode::LockFailed.into()),
+        _ => {}
+    }
+    let mut o = OpenOptions::new();
+    o.read(true).write(true).create(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        o.mode(0o600).custom_flags(libc::O_NOFOLLOW);
+    }
+    let f = o
+        .open(p)
+        .map_err(|_| ProjectRefusal::from(ProjectCode::LockFailed))?;
+    match f.metadata() {
+        Ok(m) if m.is_file() => Ok(f),
+        _ => Err(ProjectCode::LockFailed.into()),
+    }
+}
+
+/// `kind` on the lock file at `p`, through the `try_` calls only:
+/// `WouldBlock` is `would_block`, any other failure `project.lock_failed`.
+fn try_lock_file(
+    p: &Path,
+    kind: LockKind,
+    would_block: ProjectCode,
+) -> Result<ProjectLock, ProjectRefusal> {
+    let file = open_lock_file(p)?;
+    let taken = match kind {
+        LockKind::Shared => file.try_lock_shared(),
+        LockKind::Exclusive => file.try_lock(),
+    };
+    match taken {
+        Ok(()) => Ok(ProjectLock {
+            _file: file,
+            path: p.to_path_buf(),
+        }),
+        Err(std::fs::TryLockError::WouldBlock) => Err(would_block.into()),
+        Err(std::fs::TryLockError::Error(_)) => Err(ProjectCode::LockFailed.into()),
+    }
+}
+
+/* ------------------------------------------------------------------------ *
  *  The store
  * ------------------------------------------------------------------------ */
 
@@ -705,10 +821,15 @@ impl ProjectRoot {
 
     /// The store's own leftovers at start: a tombstone is finished, a
     /// staging folder removed. Only folders named by the store's own
-    /// prefixes and a parsable id are touched.
+    /// prefixes and a parsable id are touched, and each only under its
+    /// project's exclusive lock (decision 132): one another copy of the app
+    /// holds, mid-delete or mid-create, is skipped and left to that copy. The
+    /// lock file is removed once the leftover is gone and no project folder
+    /// has the id.
     fn finish_leftovers(&self) -> Result<(), ProjectRefusal> {
         let mut tombstones = 0u64;
         let mut staged = 0u64;
+        let mut skipped = 0u64;
         for entry in fs::read_dir(&self.projects).map_err(io_refusal)? {
             let entry = entry.map_err(io_refusal)?;
             let Some(name) = entry.file_name().to_str().map(str::to_string) else {
@@ -717,21 +838,40 @@ impl ProjectRoot {
             if !entry.file_type().map_err(io_refusal)?.is_dir() {
                 continue;
             }
-            if let Some(rest) = name.strip_prefix(DELETING_PREFIX) {
-                if ProjectId::parse(rest).is_ok() {
-                    remove_tree(&entry.path()).map_err(io_refusal)?;
-                    tombstones += 1;
-                }
+            let (rest, tombstone) = if let Some(rest) = name.strip_prefix(DELETING_PREFIX) {
+                (rest, true)
             } else if let Some(rest) = name.strip_prefix(CREATING_PREFIX) {
-                if ProjectId::parse(rest).is_ok() {
-                    remove_tree(&entry.path()).map_err(io_refusal)?;
-                    staged += 1;
-                }
+                (rest, false)
+            } else {
+                continue;
+            };
+            let Ok(id) = ProjectId::parse(rest) else {
+                continue;
+            };
+            let Ok(lock) = self.lock(&id, LockKind::Exclusive, ProjectCode::OpenElsewhere) else {
+                skipped += 1;
+                continue;
+            };
+            remove_tree(&entry.path()).map_err(io_refusal)?;
+            if real_dir(&self.project_dir(&id)).is_err() {
+                let _ = lock.remove_file();
+            }
+            if tombstone {
+                tombstones += 1;
+            } else {
+                staged += 1;
             }
         }
         if tombstones + staged > 0 {
             sync_dir(&self.projects).map_err(io_refusal)?;
-            tracing::info!(tombstones, staged, "project store finished leftovers");
+        }
+        if tombstones + staged + skipped > 0 {
+            tracing::info!(
+                tombstones,
+                staged,
+                skipped,
+                "project store finished leftovers"
+            );
         }
         Ok(())
     }
@@ -750,6 +890,55 @@ impl ProjectRoot {
             .join(format!("{DELETING_PREFIX}{}", id.as_str()))
     }
 
+    /// The locks folder, made owner-only if absent; refused if it is a
+    /// symlink or not a folder. Made only by a call that takes a lock, so
+    /// listing and sizing never write.
+    fn locks_dir(&self) -> Result<PathBuf, ProjectRefusal> {
+        let d = self.projects.join(LOCKS_DIR);
+        match fs::symlink_metadata(&d) {
+            Ok(m) if m.file_type().is_symlink() => Err(ProjectCode::SymlinkRefused.into()),
+            Ok(m) if m.is_dir() => Ok(d),
+            Ok(_) => Err(ProjectCode::LockFailed.into()),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                match make_private_dir(&d) {
+                    Ok(()) => {}
+                    // Another copy made it first.
+                    Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
+                        real_dir(&d).map_err(|_| ProjectRefusal::from(ProjectCode::LockFailed))?
+                    }
+                    Err(_) => return Err(ProjectCode::LockFailed.into()),
+                }
+                Ok(d)
+            }
+            Err(_) => Err(ProjectCode::LockFailed.into()),
+        }
+    }
+
+    /// `kind` on `id`'s lock file, made empty if absent (decision 132).
+    fn lock(
+        &self,
+        id: &ProjectId,
+        kind: LockKind,
+        would_block: ProjectCode,
+    ) -> Result<ProjectLock, ProjectRefusal> {
+        let p = self
+            .locks_dir()?
+            .join(format!("{}{LOCK_SUFFIX}", id.as_str()));
+        try_lock_file(&p, kind, would_block)
+    }
+
+    /// After a refusal because `id`'s folder is not a real folder: removes
+    /// the lock file a lock may have just made, under the exclusive lock and
+    /// only while the folder is still not there. Best effort: a lock file
+    /// left behind is empty, and is not a project.
+    fn discard_orphan_lock(&self, id: &ProjectId) {
+        if let Ok(l) = self.lock(id, LockKind::Exclusive, ProjectCode::OpenElsewhere) {
+            if real_dir(&self.project_dir(id)).is_err() {
+                let _ = l.remove_file();
+            }
+        }
+    }
+
     /// Creates a project titled `title` and opens it. It is made in
     /// `.creating-<id>/` and renamed into place only when its database holds
     /// its schema and its row, so a folder named by an id is never half-made.
@@ -758,7 +947,7 @@ impl ProjectRoot {
     pub fn create(&self, title: &str) -> Result<ProjectHandle, ProjectRefusal> {
         let _w = write_lock();
         let title = ProjectTitle::parse(title)?;
-        let all = tree_bytes(&self.projects).map_err(io_refusal)?;
+        let all = projects_bytes(&self.projects).map_err(io_refusal)?;
         self.caps.admit(0, all, 0)?;
         let id = ProjectId::parse(&random_hex32()?)?;
         let staging = self.staging_dir(&id);
@@ -771,7 +960,7 @@ impl ProjectRoot {
         fs::rename(&staging, self.project_dir(&id)).map_err(io_refusal)?;
         sync_dir(&self.projects).map_err(io_refusal)?;
         tracing::info!(project = %id.as_str(), "project created");
-        self.open_parsed(&id)
+        self.open_parsed(&id, None)
     }
 
     /// Creates a project titled `title` by its first Save, in one write with
@@ -787,25 +976,35 @@ impl ProjectRoot {
     ) -> Result<(ProjectHandle, StoredRunId), ProjectRefusal> {
         let _w = write_lock();
         let id = ProjectId::parse(&random_hex32()?)?;
+        // The new project is opened by this Save (decision 122), so its lock
+        // is taken first, shared, and held by the handle returned (decision
+        // 132): another copy's recovery skips a staging folder it cannot lock.
+        let lock = self.lock(&id, LockKind::Shared, ProjectCode::BeingDeleted)?;
         let staging = self.staging_dir(&id);
-        make_private_dir(&staging).map_err(io_refusal)?;
+        let refused = |r: ProjectRefusal, lock: ProjectLock| {
+            let _ = remove_tree(&staging);
+            drop(lock);
+            self.discard_orphan_lock(&id);
+            r
+        };
+        if let Err(e) = make_private_dir(&staging) {
+            return Err(refused(io_refusal(e), lock));
+        }
         let run = match self.fill_and_save(&staging, &id, title, req) {
             Ok(run) => run,
             Err(r) => {
-                let _ = remove_tree(&staging);
                 tracing::warn!(project = %id.as_str(), code = r.code.wire(), "first save refused");
-                return Err(r);
+                return Err(refused(r, lock));
             }
         };
         #[cfg(test)]
         fault::hit(fault::Point::BeforeStagingRename);
         if let Err(e) = fs::rename(&staging, self.project_dir(&id)) {
-            let _ = remove_tree(&staging);
-            return Err(io_refusal(e));
+            return Err(refused(io_refusal(e), lock));
         }
         sync_dir(&self.projects).map_err(io_refusal)?;
         tracing::info!(project = %id.as_str(), run = run.0, "project created by its first save");
-        let handle = self.open_parsed(&id)?;
+        let handle = self.open_parsed(&id, Some(lock))?;
         Ok((handle, run))
     }
 
@@ -828,6 +1027,7 @@ impl ProjectRoot {
             projects: self.projects.clone(),
             conn,
             caps: self.caps,
+            _lock: None,
         };
         staged.save_inner(req)
     }
@@ -866,12 +1066,29 @@ impl ProjectRoot {
     /// which case nothing in the project is touched); then recovers it.
     pub fn open(&self, raw_id: &str) -> Result<ProjectHandle, ProjectRefusal> {
         let id = ProjectId::parse(raw_id)?;
-        self.open_parsed(&id)
+        self.open_parsed(&id, None)
     }
 
-    fn open_parsed(&self, id: &ProjectId) -> Result<ProjectHandle, ProjectRefusal> {
+    /// Opens `id` holding its lock shared: `held`, or one taken now. The
+    /// lock comes first and the folder check after it (decision 132), so a
+    /// copy that is deleting the project, which holds the lock exclusive
+    /// until the folder is gone, refuses this open with
+    /// `project.being_deleted`, and one that has finished leaves no folder.
+    fn open_parsed(
+        &self,
+        id: &ProjectId,
+        held: Option<ProjectLock>,
+    ) -> Result<ProjectHandle, ProjectRefusal> {
+        let lock = match held {
+            Some(l) => l,
+            None => self.lock(id, LockKind::Shared, ProjectCode::BeingDeleted)?,
+        };
         let dir = self.project_dir(id);
-        real_dir(&dir)?;
+        if let Err(r) = real_dir(&dir) {
+            drop(lock);
+            self.discard_orphan_lock(id);
+            return Err(r);
+        }
         let db_path = dir.join(DB_FILE);
         match file_state(&db_path)? {
             FileState::Missing => return Err(ProjectCode::DbMissing.into()),
@@ -906,6 +1123,7 @@ impl ProjectRoot {
             projects: self.projects.clone(),
             conn,
             caps: self.caps,
+            _lock: Some(lock),
         };
         let r = handle.recover()?;
         tracing::info!(
@@ -999,7 +1217,7 @@ impl ProjectRoot {
     /// many project folders it holds.
     pub fn usage(&self) -> Result<(u64, u64), ProjectRefusal> {
         let _w = write_lock();
-        let total = tree_bytes(&self.projects).map_err(io_refusal)?;
+        let total = projects_bytes(&self.projects).map_err(io_refusal)?;
         let mut count = 0u64;
         for entry in fs::read_dir(&self.projects).map_err(io_refusal)? {
             let entry = entry.map_err(io_refusal)?;
@@ -1024,17 +1242,24 @@ impl ProjectRoot {
     }
 
     /// Deletes the project `raw_id` names (decision 104): refused while this
-    /// process holds it open; its folder is renamed to `.deleting-<id>`, then
-    /// removed. An interrupted delete is finished by the next
-    /// [`ProjectRoot::open_root`]. A symlinked folder is refused and its
-    /// target untouched.
+    /// process holds it open (`project.still_open`), and while another copy
+    /// of the app does (`project.open_elsewhere`: its lock cannot be taken
+    /// exclusive, decision 132). The lock is taken first and held until the
+    /// folder is gone; the folder is renamed to `.deleting-<id>`, then
+    /// removed, and only then is the lock file removed. An interrupted
+    /// delete is finished by the next [`ProjectRoot::open_root`]. A symlinked
+    /// folder is refused and its target untouched.
     pub fn delete(&self, raw_id: &str) -> Result<(), ProjectRefusal> {
         let _w = write_lock();
         let id = ProjectId::parse(raw_id)?;
         let dir = self.project_dir(&id);
-        real_dir(&dir)?;
         if is_open(&dir) {
             return Err(ProjectCode::StillOpen.into());
+        }
+        let lock = self.lock(&id, LockKind::Exclusive, ProjectCode::OpenElsewhere)?;
+        if let Err(r) = real_dir(&dir) {
+            let _ = lock.remove_file();
+            return Err(r);
         }
         let tomb = self.tombstone_dir(&id);
         fs::rename(&dir, &tomb).map_err(io_refusal)?;
@@ -1043,6 +1268,10 @@ impl ProjectRoot {
         fault::hit(fault::Point::AfterTombstone);
         remove_tree(&tomb).map_err(io_refusal)?;
         sync_dir(&self.projects).map_err(io_refusal)?;
+        if lock.remove_file().is_err() {
+            tracing::warn!(project = %id.as_str(), "project deleted; its empty lock file was left");
+        }
+        drop(lock);
         tracing::info!(project = %id.as_str(), "project deleted");
         Ok(())
     }
@@ -1095,13 +1324,17 @@ pub struct SaveRequest {
     pub artifacts: Vec<ArtifactInput>,
 }
 
-/// An open project. Dropping it closes its connection.
+/// An open project. Dropping it closes its connection, then releases its
+/// lock (fields drop in order, so the connection is closed first).
 pub struct ProjectHandle {
     id: ProjectId,
     dir: PathBuf,
     projects: PathBuf,
     conn: Connection,
     caps: Caps,
+    /// The project's lock, shared (decision 132); `None` only for a first
+    /// Save's staging handle, whose lock `create_with_save` holds.
+    _lock: Option<ProjectLock>,
 }
 
 impl Drop for ProjectHandle {
@@ -1329,7 +1562,7 @@ impl ProjectHandle {
             }
         }
         let project_now = tree_bytes(&project_dir).map_err(io_refusal)?;
-        let all_now = tree_bytes(&projects).map_err(io_refusal)?;
+        let all_now = projects_bytes(&projects).map_err(io_refusal)?;
         caps.admit(project_now, all_now, incoming)?;
         #[cfg(test)]
         fault::hit(fault::Point::AfterCaps);
@@ -2191,13 +2424,30 @@ mod tests {
         let crashed = catch_unwind(AssertUnwindSafe(|| store.delete(&id)));
         assert!(crashed.is_err());
         let projects = t.root().join(PROJECTS_DIR);
-        assert_eq!(files_in(&projects), [format!("{DELETING_PREFIX}{id}")]);
+        // Phase 5B-3a: the locks folder is beside the projects, and the
+        // crashed delete left its project's lock file (decision 132).
+        assert_eq!(
+            files_in(&projects),
+            [format!("{DELETING_PREFIX}{id}"), LOCKS_DIR.to_string()]
+        );
+        assert_eq!(
+            files_in(&projects.join(LOCKS_DIR)),
+            [format!("{id}{LOCK_SUFFIX}")]
+        );
         assert!(
             store.list().unwrap().is_empty(),
             "a tombstone is not listed"
         );
         let again = ProjectRoot::open_root(&t.root()).unwrap();
-        assert!(files_in(&projects).is_empty(), "the next start finished it");
+        assert_eq!(
+            files_in(&projects),
+            [LOCKS_DIR],
+            "the next start finished it"
+        );
+        assert!(
+            files_in(&projects.join(LOCKS_DIR)).is_empty(),
+            "and its lock file"
+        );
         assert!(again.list().unwrap().is_empty());
         let mut stack = vec![t.0.clone()];
         while let Some(d) = stack.pop() {
@@ -2608,7 +2858,12 @@ mod tests {
         assert_eq!(store.delete(&id).unwrap_err().code, ProjectCode::StillOpen);
         h.close();
         store.delete(&id).unwrap();
-        assert!(files_in(&t.root().join(PROJECTS_DIR)).is_empty());
+        let projects = t.root().join(PROJECTS_DIR);
+        assert_eq!(files_in(&projects), [LOCKS_DIR]);
+        assert!(
+            files_in(&projects.join(LOCKS_DIR)).is_empty(),
+            "the lock file went last"
+        );
         assert_eq!(
             store.open(&id).err().map(|r| r.code),
             Some(ProjectCode::NotFound)
@@ -2654,7 +2909,8 @@ mod tests {
             "a staging folder is not a project"
         );
         ProjectRoot::open_root(&t.root()).unwrap();
-        assert!(files_in(&projects).is_empty());
+        assert_eq!(files_in(&projects), [LOCKS_DIR]);
+        assert!(files_in(&projects.join(LOCKS_DIR)).is_empty());
     }
 
     #[test]
@@ -2707,8 +2963,13 @@ mod tests {
         let projects = t.root().join(PROJECTS_DIR);
         assert_eq!(
             files_in(&projects),
-            [h.id().as_str().to_string()],
+            [LOCKS_DIR.to_string(), h.id().as_str().to_string()],
             "no staging folder left"
+        );
+        assert_eq!(
+            files_in(&projects.join(LOCKS_DIR)),
+            [format!("{}{LOCK_SUFFIX}", h.id().as_str())],
+            "the open project's lock file"
         );
         let id = h.id().clone();
         drop(h);
@@ -2741,14 +3002,19 @@ mod tests {
             assert!(
                 files_in(&projects)
                     .iter()
-                    .all(|n| n.starts_with(CREATING_PREFIX)),
+                    .all(|n| n.starts_with(CREATING_PREFIX) || n == LOCKS_DIR),
                 "{at:?}: only a staging folder: {:?}",
                 files_in(&projects)
             );
             ProjectRoot::open_root(&t.root()).unwrap();
-            assert!(
-                files_in(&projects).is_empty(),
+            assert_eq!(
+                files_in(&projects),
+                [LOCKS_DIR],
                 "{at:?}: the next start cleared it"
+            );
+            assert!(
+                files_in(&projects.join(LOCKS_DIR)).is_empty(),
+                "{at:?}: and its lock file"
             );
         }
     }
@@ -2779,7 +3045,12 @@ mod tests {
                 .map(|r| r.code),
             Some(ProjectCode::RunNotFinished)
         );
-        assert!(files_in(&t.root().join(PROJECTS_DIR)).is_empty());
+        let projects = t.root().join(PROJECTS_DIR);
+        assert_eq!(files_in(&projects), [LOCKS_DIR]);
+        assert!(
+            files_in(&projects.join(LOCKS_DIR)).is_empty(),
+            "a refused first Save leaves no lock file"
+        );
     }
 
     /// A Save in another thread, paused just after its cap check until the

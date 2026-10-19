@@ -123,9 +123,32 @@ impl ExportCount {
     }
 }
 
+/// Whether an integer under `k` may be printed in an export: never a value
+/// from the user's data (decision 143). `Value` is the value a missing-code
+/// warning found in a column's cells; the warning is shown by its column's
+/// position and its cell count instead, and the value stays inside the
+/// project's own artifacts. Every other key is a position, a count, an index
+/// into a list, a limit, a version or a run's number. The match has no
+/// catch-all, so a key added later must be decided here before it compiles.
+fn shown_in_export(k: ParamKey) -> bool {
+    match k {
+        ParamKey::Value => false,
+        ParamKey::Column
+        | ParamKey::Count
+        | ParamKey::Index
+        | ParamKey::Limit
+        | ParamKey::Expected
+        | ParamKey::Found
+        | ParamKey::Run => true,
+        // Closed words, never integers; `ints` drops them anyway.
+        ParamKey::From | ParamKey::Event | ParamKey::Workspace | ParamKey::Lifecycle => false,
+    }
+}
+
 fn ints<C>(params: &BTreeMap<ParamKey, ParamValue<C>>) -> Vec<(ParamKey, i64)> {
     params
         .iter()
+        .filter(|(k, _)| shown_in_export(**k))
         .filter_map(|(k, v)| match v {
             ParamValue::Int(n) => Some((*k, *n)),
             _ => None,
@@ -229,14 +252,18 @@ fn reproducibility_words(r: Reproducibility) -> String {
     }
 }
 
+/// A code's parameters as the report prints them. The fields are public, so
+/// the rule of [`shown_in_export`] is applied here too, where the report
+/// prints, whatever built them.
 fn params_words(params: &[(ParamKey, i64)]) -> String {
-    if params.is_empty() {
-        return String::new();
-    }
     let inner: Vec<String> = params
         .iter()
+        .filter(|(k, _)| shown_in_export(*k))
         .map(|(k, v)| format!("{} {v}", param_word(*k)))
         .collect();
+    if inner.is_empty() {
+        return String::new();
+    }
     format!(" ({})", inner.join(", "))
 }
 
