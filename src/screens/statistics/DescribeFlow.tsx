@@ -144,6 +144,118 @@ const DiagnosticList: React.FC<{ items: Diagnostic[]; name: (a: number) => strin
     </ul>
   );
 
+/** The summary's tables: one for the numeric columns, one per categorical
+ *  column. */
+function resultTable(columns: ColumnResult[]) {
+  const numeric = columns.flatMap((c) => ('numeric' in c ? [c.numeric] : []));
+  const categorical = columns.flatMap((c) => ('categorical' in c ? [c.categorical] : []));
+  return (
+    <>
+      {numeric.length > 0 && (
+        <table data-testid="desc-numeric-table" style={{ borderCollapse: 'collapse' }}>
+          <caption style={{ textAlign: 'left' }}>Numeric columns</caption>
+          <thead>
+            <tr>
+              {['Column', 'n', 'Missing', 'Mean', 'SD', 'Min', 'Q1', 'Median', 'Q3', 'Max'].map((h) => (
+                <th key={h} scope="col" style={{ textAlign: 'left', paddingRight: 12 }}>
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {numeric.map((s) => (
+              <tr key={s.alias}>
+                <th scope="row" style={{ textAlign: 'left' }}>
+                  {s.header}
+                </th>
+                <td className="gds-mono">{s.n}</td>
+                <td className="gds-mono">{s.missing}</td>
+                {[s.mean, s.sd, s.min, s.q1, s.median, s.q3, s.max].map((st, i) => (
+                  <StatCell key={i} stat={st} />
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {categorical.map((s) => (
+        <table key={s.alias} data-testid="desc-levels-table" style={{ borderCollapse: 'collapse' }}>
+          <caption style={{ textAlign: 'left' }}>
+            {s.header}: n {s.n}, missing {s.missing}
+          </caption>
+          <thead>
+            <tr>
+              <th scope="col" style={{ textAlign: 'left', paddingRight: 12 }}>
+                Level
+              </th>
+              <th scope="col" style={{ textAlign: 'left' }}>
+                Count
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {s.levels.map((l) => (
+              <tr key={l.label}>
+                <td>{l.label}</td>
+                <td className="gds-mono">{l.count}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ))}
+    </>
+  );
+}
+
+/** The summary's result: its notes, the tables, the digits note and the run
+ *  manifest. The live results screen renders it, and so does a saved result
+ *  (Research OS, Phase 5B-3b, decision 150), from the same props. */
+export const DescribeResult: React.FC<{ result: ResultBundleView; name: (alias: number) => string }> = ({ result, name }) => (
+  <>
+    <DiagnosticList items={result.diagnostics} name={name} testId="desc-result-notes" />
+    {resultTable(result.columns)}
+    <p className="gds-jc__disclaimer">{SHOWN_DIGITS_NOTE}</p>
+    <aside aria-label="Run manifest" data-testid="desc-manifest">
+      <h4 style={{ margin: '8px 0 4px' }}>Run manifest</h4>
+      <dl style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '2px 12px', margin: 0 }}>
+        <dt>Data file (SHA-256)</dt>
+        <dd className="gds-mono" data-testid="desc-manifest-input">
+          {result.manifest.inputs.map(shortHash).join(', ')}
+        </dd>
+        <dt>Capability</dt>
+        <dd data-testid="desc-manifest-capability">
+          {result.manifest.capabilityId}, version {result.manifest.capabilityVersion}
+        </dd>
+        <dt>Engine version</dt>
+        <dd data-testid="desc-manifest-engine">{result.manifest.engineVersion}</dd>
+        <dt>Rows read</dt>
+        <dd className="gds-mono" data-testid="desc-manifest-rows-read">
+          {result.manifest.rowsRead}
+        </dd>
+        <dt>Rows used</dt>
+        <dd>
+          <span className="gds-mono" data-testid="desc-manifest-rows-used">
+            {result.manifest.rowsUsed}
+          </span>
+          <br />
+          <span data-testid="desc-manifest-rows-used-note">{ROWS_USED_NOTE}</span>
+        </dd>
+        <dt>Time to compute</dt>
+        <dd data-testid="desc-manifest-compute-time">{computeTimeSentence(result.manifest.elapsedMs)}</dd>
+        <dt>Platform</dt>
+        <dd data-testid="desc-manifest-platform">{platformName(result.manifest.platform)}</dd>
+        <dt>Reproducibility</dt>
+        <dd data-testid="desc-manifest-reproducibility">{reproducibilitySentence(result.manifest.reproducibility)}</dd>
+        <dt>Result (SHA-256)</dt>
+        <dd className="gds-mono" data-testid="desc-manifest-output">
+          {shortHash(result.manifest.outputHash)}
+        </dd>
+      </dl>
+    </aside>
+  </>
+);
+
 const DescribeFlow: React.FC<DescribeFlowProps> = ({
   bridge,
   pickPath = () => pickManuscriptPath(DATA_EXTENSIONS, 'Data file'),
@@ -332,67 +444,6 @@ const DescribeFlow: React.FC<DescribeFlowProps> = ({
     );
   };
 
-  const resultTable = (columns: ColumnResult[]) => {
-    const numeric = columns.flatMap((c) => ('numeric' in c ? [c.numeric] : []));
-    const categorical = columns.flatMap((c) => ('categorical' in c ? [c.categorical] : []));
-    return (
-      <>
-        {numeric.length > 0 && (
-          <table data-testid="desc-numeric-table" style={{ borderCollapse: 'collapse' }}>
-            <caption style={{ textAlign: 'left' }}>Numeric columns</caption>
-            <thead>
-              <tr>
-                {['Column', 'n', 'Missing', 'Mean', 'SD', 'Min', 'Q1', 'Median', 'Q3', 'Max'].map((h) => (
-                  <th key={h} scope="col" style={{ textAlign: 'left', paddingRight: 12 }}>
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {numeric.map((s) => (
-                <tr key={s.alias}>
-                  <th scope="row" style={{ textAlign: 'left' }}>
-                    {s.header}
-                  </th>
-                  <td className="gds-mono">{s.n}</td>
-                  <td className="gds-mono">{s.missing}</td>
-                  {[s.mean, s.sd, s.min, s.q1, s.median, s.q3, s.max].map((st, i) => (
-                    <StatCell key={i} stat={st} />
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-        {categorical.map((s) => (
-          <table key={s.alias} data-testid="desc-levels-table" style={{ borderCollapse: 'collapse' }}>
-            <caption style={{ textAlign: 'left' }}>
-              {s.header}: n {s.n}, missing {s.missing}
-            </caption>
-            <thead>
-              <tr>
-                <th scope="col" style={{ textAlign: 'left', paddingRight: 12 }}>
-                  Level
-                </th>
-                <th scope="col" style={{ textAlign: 'left' }}>
-                  Count
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {s.levels.map((l) => (
-                <tr key={l.label}>
-                  <td>{l.label}</td>
-                  <td className="gds-mono">{l.count}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        ))}
-      </>
-    );
-  };
 
   return (
     <div style={{ display: 'grid', gap: 12 }} data-testid="desc-flow">
@@ -598,46 +649,7 @@ const DescribeFlow: React.FC<DescribeFlowProps> = ({
       {stage === 'results' && result && (
         <Card>
           {title}
-          <DiagnosticList items={result.diagnostics} name={name} testId="desc-result-notes" />
-          {resultTable(result.columns)}
-          <p className="gds-jc__disclaimer">{SHOWN_DIGITS_NOTE}</p>
-          <aside aria-label="Run manifest" data-testid="desc-manifest">
-            <h4 style={{ margin: '8px 0 4px' }}>Run manifest</h4>
-            <dl style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '2px 12px', margin: 0 }}>
-              <dt>Data file (SHA-256)</dt>
-              <dd className="gds-mono" data-testid="desc-manifest-input">
-                {result.manifest.inputs.map(shortHash).join(', ')}
-              </dd>
-              <dt>Capability</dt>
-              <dd data-testid="desc-manifest-capability">
-                {result.manifest.capabilityId}, version {result.manifest.capabilityVersion}
-              </dd>
-              <dt>Engine version</dt>
-              <dd data-testid="desc-manifest-engine">{result.manifest.engineVersion}</dd>
-              <dt>Rows read</dt>
-              <dd className="gds-mono" data-testid="desc-manifest-rows-read">
-                {result.manifest.rowsRead}
-              </dd>
-              <dt>Rows used</dt>
-              <dd>
-                <span className="gds-mono" data-testid="desc-manifest-rows-used">
-                  {result.manifest.rowsUsed}
-                </span>
-                <br />
-                <span data-testid="desc-manifest-rows-used-note">{ROWS_USED_NOTE}</span>
-              </dd>
-              <dt>Time to compute</dt>
-              <dd data-testid="desc-manifest-compute-time">{computeTimeSentence(result.manifest.elapsedMs)}</dd>
-              <dt>Platform</dt>
-              <dd data-testid="desc-manifest-platform">{platformName(result.manifest.platform)}</dd>
-              <dt>Reproducibility</dt>
-              <dd data-testid="desc-manifest-reproducibility">{reproducibilitySentence(result.manifest.reproducibility)}</dd>
-              <dt>Result (SHA-256)</dt>
-              <dd className="gds-mono" data-testid="desc-manifest-output">
-                {shortHash(result.manifest.outputHash)}
-              </dd>
-            </dl>
-          </aside>
+          <DescribeResult result={result} name={name} />
           <SaveToProject runId={result.runId} testId="desc-project-save" />
           <div style={{ display: 'flex', gap: 8 }}>
             <Button variant="secondary" onClick={() => setStage('settings')} data-testid="desc-results-back">

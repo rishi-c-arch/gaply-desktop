@@ -1,0 +1,15 @@
+{
+  "bundleJson": "{\"schemaVersion\":1,\"runId\":2,\"status\":\"succeeded\",\"primaryOutputs\":{\"variant\":\"welch\",\"t\":-2.6832815729997472,\"df\":3.6697247706422016,\"p\":0.06030869539647984,\"meanDifference\":-1.9999999999999996,\"standardError\":0.7453559924999299,\"confidenceLevel\":0.95,\"ciLower\":-4.145003852537223,\"ciUpper\":0.14500385253722392,\"cohensD\":-2.190890230020664,\"dStandardizer\":\"root_mean_variance\",\"dStandardizerValue\":0.9128709291752769,\"groups\":[{\"level\":0,\"label\":\"a\",\"n\":3,\"mean\":2.3333333333333335,\"sd\":0.7637626158259733},{\"level\":1,\"label\":\"b\",\"n\":3,\"mean\":4.333333333333333,\"sd\":1.0408329997330665}],\"sdRatio\":{\"value\":1.3627702877384942},\"exclusions\":[],\"limitations\":[\"stats.ttest.normality_not_assessed\",\"stats.ttest.cohens_d_has_no_interval\"]},\"diagnostics\":[],\"limitations\":[{\"code\":\"stats.ttest.normality_not_assessed\",\"params\":{},\"severity\":\"note\"},{\"code\":\"stats.ttest.cohens_d_has_no_interval\",\"params\":{},\"severity\":\"note\"}],\"manifest\":{\"schemaVersion\":1,\"capabilityId\":\"stats.analyze.independent_t\",\"capabilityVersion\":1,\"engineVersion\":1,\"inputs\":[\"71dd6fa21cc7d91451fbd4e29854706c89847306d4f6b525361f9d04481d94aa\"],\"parametersHash\":\"36a23b484361f9a5a4ee9231c4037c478522e782543362e2825a42d809d8f2b3\",\"seed\":null,\"rowsRead\":6,\"rowsUsed\":6,\"exclusions\":[],\"platform\":{\"os\":\"macos\",\"arch\":\"aarch64\"},\"elapsedMs\":0,\"outputHash\":\"306f702e5a15bb669b7e7a8ff209202ef0bc164024c8dd9a95e66dcb6a81b583\",\"reproducibility\":\"bitwise\"}}",
+  "capabilityId": "stats.analyze.independent_t",
+  "dataFile": {
+    "bytes": 48,
+    "format": "csv",
+    "kind": "data_file",
+    "sha256": "71dd6fa21cc7d91451fbd4e29854706c89847306d4f6b525361f9d04481d94aa"
+  },
+  "failureJson": null,
+  "manifestJson": "{\"schemaVersion\":1,\"capabilityId\":\"stats.analyze.independent_t\",\"capabilityVersion\":1,\"engineVersion\":1,\"inputs\":[\"71dd6fa21cc7d91451fbd4e29854706c89847306d4f6b525361f9d04481d94aa\"],\"parametersHash\":\"36a23b484361f9a5a4ee9231c4037c478522e782543362e2825a42d809d8f2b3\",\"seed\":null,\"rowsRead\":6,\"rowsUsed\":6,\"exclusions\":[],\"platform\":{\"os\":\"macos\",\"arch\":\"aarch64\"},\"elapsedMs\":0,\"outputHash\":\"306f702e5a15bb669b7e7a8ff209202ef0bc164024c8dd9a95e66dcb6a81b583\",\"reproducibility\":\"bitwise\"}",
+  "specJson": "{\"schemaVersion\":1,\"operationId\":2,\"workspaceId\":\"statistics\",\"capabilityId\":\"stats.analyze.independent_t\",\"capabilityVersion\":1,\"inputs\":[{\"contentHash\":\"71dd6fa21cc7d91451fbd4e29854706c89847306d4f6b525361f9d04481d94aa\",\"rows\":6,\"columns\":2,\"semanticRole\":\"table\"}],\"parameters\":{\"outcome\":\"C1\",\"group\":\"C2\",\"levels\":null,\"variant\":\"welch\",\"missingCodes\":[]},\"randomSeed\":null,\"confirmationRefs\":[]}",
+  "state": "succeeded",
+  "storedRunId": 2
+}

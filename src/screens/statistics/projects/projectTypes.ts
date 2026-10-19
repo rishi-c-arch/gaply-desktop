@@ -121,6 +121,12 @@ export interface ProjectClosedView {
   closed: boolean;
 }
 
+/** project_current (5B-3b, decision 148): the id of the project this copy of
+ *  the app has open, or null. Never its name. */
+export interface ProjectCurrentView {
+  projectId: string | null;
+}
+
 /** project_runs (5B-3b): one saved run, as its row holds it. */
 export interface StoredRunView {
   storedRunId: number;

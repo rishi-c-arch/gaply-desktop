@@ -12,6 +12,11 @@
 //    project's name may reach none of them.
 // 3. Every component that shows a project screen asks projectsShown(), and so
 //    does Settings for its sentence.
+// 4. Phase 5B-3b: the page around the project page (ProjectPageScreen.tsx,
+//    outside this folder because it navigates) uses no raw HTML, writes to
+//    no console, storage, title or history, and navigates only to fixed
+//    paths; and in the new code of 5B-3b no `throw` builds its message from
+//    anything but a string literal, so no error there can carry data.
 //
 // Comments are removed first (a block comment, and a `//` at a line's start
 // or after white space), so documentation may name a command; code may not.
@@ -53,7 +58,8 @@ const BRIDGE = path.join(HERE, 'projectBridge.ts');
 describe('only the project bridge names a project command', () => {
   it('no other file, inside or outside the project screens', () => {
     const names = Object.values(PROJECT_COMMANDS);
-    expect(names).toHaveLength(11);
+    // Twelve since Phase 5B-3b: project_current (decision 148).
+    expect(names).toHaveLength(12);
     const files = walk(SRC);
     expect(files.length).toBeGreaterThan(200);
     const bridge = fs.readFileSync(BRIDGE, 'utf8');
@@ -120,11 +126,71 @@ describe('the project screens', () => {
   });
 
   it('each screen asks projectsShown(), and so does Settings', () => {
-    for (const f of ['SaveToProject.tsx', 'ProjectsPanel.tsx']) {
+    for (const f of ['SaveToProject.tsx', 'ProjectsPanel.tsx', 'ProjectPage.tsx']) {
       expect(fs.readFileSync(path.join(HERE, f), 'utf8'), f).toMatch(/projectsShown\(props\.desktop\)/);
     }
     const settings = fs.readFileSync(path.join(SRC, 'screens/settings/SettingsPage.tsx'), 'utf8');
     expect(settings).toMatch(/projectsShown\(\) && \(/);
     expect(settings).toContain('SETTINGS_SENTENCE');
+  });
+});
+
+/* ---- Phase 5B-3b ------------------------------------------------------------ */
+
+const PAGE_SCREEN = path.join(SRC, 'screens/statistics/ProjectPageScreen.tsx');
+
+/** The files of 5B-3b's new code: the page, the saved result view and its
+ *  check, the export's checks, the counter, the route and the page around it. */
+const NEW_CODE = [
+  path.join(HERE, 'ProjectPage.tsx'),
+  path.join(HERE, 'SavedResult.tsx'),
+  path.join(HERE, 'storedShape.ts'),
+  path.join(HERE, 'projectExport.ts'),
+  path.join(HERE, 'useGeneration.ts'),
+  path.join(HERE, 'projectRoute.tsx'),
+  PAGE_SCREEN,
+];
+
+/** Every `throw` in `src` whose operand is anything but `new Error('…')`
+ *  with one plain string literal: a variable, a template with `${`, a
+ *  concatenation, a call, or a rethrown error all can carry data. */
+function throwsBuiltFromData(src: string): string[] {
+  const out: string[] = [];
+  const re = /\bthrow\b([^;]*);?/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(src)) !== null) {
+    const operand = m[1].trim();
+    if (!/^new Error\((['"])[^'"`$\\]*\1\)$/.test(operand)) out.push(`throw ${operand}`);
+  }
+  return out;
+}
+
+describe("Phase 5B-3b's new code", () => {
+  it('the page around the project page uses no raw HTML, sends nothing where a name must not go, and navigates only to fixed paths', () => {
+    const typed = code(fs.readFileSync(PAGE_SCREEN, 'utf8'));
+    for (const w of ['dangerouslySetInnerHTML', 'innerHTML', 'console.', 'localStorage', 'sessionStorage', 'indexedDB', 'document.title', 'history.', 'fetch(']) {
+      expect(typed, w).not.toContain(w);
+    }
+    const calls = typed.match(/navigate\(([^)]*)\)/g) ?? [];
+    expect(calls.length).toBeGreaterThan(0);
+    for (const c of calls) expect(c, c).toMatch(/^navigate\((STATISTICS_HOME_PATH|'\/app')\)$/);
+    // No router state: navigate takes one argument here, a fixed path.
+    expect(typed).not.toMatch(/navigate\([^)]*,/);
+  });
+
+  it('no throw builds its message from data', () => {
+    const files = NEW_CODE.filter((f) => fs.existsSync(f));
+    expect(files).toHaveLength(NEW_CODE.length);
+    const offenders = files.flatMap((f) => throwsBuiltFromData(code(fs.readFileSync(f, 'utf8'))).map((t) => `${path.basename(f)}: ${t}`));
+    expect(offenders).toEqual([]);
+  });
+
+  it('the throw scan sees a throw built from data, and passes a fixed one', () => {
+    expect(throwsBuiltFromData("throw new Error('fixed words');")).toEqual([]);
+    expect(throwsBuiltFromData('throw new Error(`x ${v}`);')).toHaveLength(1);
+    expect(throwsBuiltFromData("throw new Error('a' + v);")).toHaveLength(1);
+    expect(throwsBuiltFromData('throw e;')).toHaveLength(1);
+    expect(throwsBuiltFromData('throw new Error(String(v));')).toHaveLength(1);
+    expect(throwsBuiltFromData("if (x) throw { code: v };")).toHaveLength(1);
   });
 });

@@ -19,8 +19,9 @@
 //! a project's runs, reading a run and rendering either export need
 //! Statistics active: the Tauri command's first statement is the check, and
 //! so is the work function's (`tests/workspace_guards.rs`). Listing
-//! projects, the sizes and caps, preparing a delete and deleting never need a
-//! workspace, and never check it.
+//! projects, the sizes and caps, preparing a delete, deleting and asking
+//! which project is open (`project_current`, Phase 5B-3b, decision 148)
+//! never need a workspace, and never check it.
 //!
 //! **The session (decision 122).** At most one project is open, held in
 //! [`ProjectSession`] beside the active workspace. Leaving Statistics closes
@@ -348,6 +349,14 @@ pub struct ProjectClosedView {
     pub closed: bool,
 }
 
+/// The project open in this copy of the app, by its id, or none (decision
+/// 148). Never its name: a screen reads that from the list.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectCurrentView {
+    pub project_id: Option<String>,
+}
+
 /// A saved run, as its row holds it.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -648,6 +657,15 @@ pub fn delete(
     Ok(ProjectDeletedView {
         project_id: id.as_str().to_string(),
         closed,
+    })
+}
+
+/// Which project this copy of the app has open, or none (decision 148). It
+/// reads this session only: another copy's open project is not known here.
+/// Leaving Statistics, Close and deleting the open project each leave none.
+pub fn current(ws: &WorkspaceSession) -> Res<ProjectCurrentView> {
+    Ok(ProjectCurrentView {
+        project_id: ws.projects().open_id().map(|id| id.as_str().to_string()),
     })
 }
 
@@ -1237,6 +1255,13 @@ pub async fn project_delete(
     let root = root_of(&app)?;
     let ws = state.workspace.clone();
     blocking(move || delete(&root, &ws, &project_id, confirmation.as_deref())).await
+}
+
+#[tauri::command]
+#[tracing::instrument(skip_all)]
+pub async fn project_current(state: St<'_>) -> Result<ProjectCurrentView, GaplyError> {
+    let ws = state.workspace.clone();
+    blocking(move || current(&ws)).await
 }
 
 #[tauri::command]

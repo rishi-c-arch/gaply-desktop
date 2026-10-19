@@ -16,6 +16,7 @@ import {
   PROJECT_CODES,
   type DeleteConfirmationView,
   type ProjectClosedView,
+  type ProjectCurrentView,
   type ProjectDeletedView,
   type ProjectExportView,
   type ProjectListEntryView,
@@ -59,6 +60,7 @@ const typed: Array<[string, unknown]> = [
   ['projectSaveRun.json', { projectId: ID, storedRunId: 1, created: true } satisfies SavedRunView],
   ['projectOpen.json', { projectId: ID, name: 'Chapter 3', createdAt: 1792396351, runCount: 2, bytes: 40960 } satisfies ProjectOpenView],
   ['projectClose.json', { closed: true } satisfies ProjectClosedView],
+  ['projectCurrent.json', [{ projectId: ID }, { projectId: null }] satisfies ProjectCurrentView[]],
   [
     'projectRuns.json',
     [
@@ -127,12 +129,13 @@ describe('the project view fixtures Rust writes', () => {
 });
 
 describe('the project bridge', () => {
-  it('sends each of the eleven commands with the argument keys its wrapper reads', async () => {
+  it('sends each of the twelve commands with the argument keys its wrapper reads', async () => {
     const b = new TauriProjectBridge();
     await b.list();
     await b.sizes();
     await b.prepareDelete(ID);
     await b.delete(ID, HASH);
+    await b.current();
     await b.saveRun(5, { into: 'newProject', name: 'Chapter 3' });
     await b.saveRun(6, { into: 'openProject', projectId: ID });
     await b.open(ID);
@@ -146,6 +149,7 @@ describe('the project bridge', () => {
       ['project_sizes', {}],
       ['project_prepare_delete', { projectId: ID }],
       ['project_delete', { projectId: ID, confirmation: HASH }],
+      ['project_current', {}],
       ['project_save_run', { runId: 5, target: { into: 'newProject', name: 'Chapter 3' } }],
       ['project_save_run', { runId: 6, target: { into: 'openProject', projectId: ID } }],
       ['project_open', { projectId: ID }],
@@ -155,7 +159,7 @@ describe('the project bridge', () => {
       ['project_report', { projectId: ID }],
       ['project_provenance', { projectId: ID }],
     ]);
-    expect(Object.keys(PROJECT_COMMANDS)).toHaveLength(11);
+    expect(Object.keys(PROJECT_COMMANDS)).toHaveLength(12);
   });
 
   it('names exactly the commands Rust registers', () => {

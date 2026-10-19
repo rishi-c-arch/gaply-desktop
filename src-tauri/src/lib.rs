@@ -382,6 +382,7 @@ pub fn run() {
             project_commands::project_sizes,
             project_commands::project_prepare_delete,
             project_commands::project_delete,
+            project_commands::project_current,
             project_commands::project_save_run,
             project_commands::project_open,
             project_commands::project_close,

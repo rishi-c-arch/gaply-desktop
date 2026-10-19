@@ -1,6 +1,6 @@
 // Gaply — the Projects panel on the Statistics home, and its delete dialog
-// (Research OS, Phase 5B-3a; decisions 103, 104, 107, 120, 124, 132 to 136).
-// Open comes in 5B-3b.
+// (Research OS, Phases 5B-3a and 5B-3b; decisions 103, 104, 107, 120, 124,
+// 132 to 136, 148 and 149).
 //
 // * Shown only when projectsShown() says so: both flags on, desktop app.
 // * Everything comes from project_list and project_sizes, read when the
@@ -10,9 +10,14 @@
 //   number of saved runs; one that cannot be read shows its code's sentence
 //   and its size, and can still be deleted. The total against both limits,
 //   in MiB, the unit named once. Loading, empty and error states.
-// * "Open now" marks the project this window saved into last (decision
-//   142), and never while Statistics is not active (decision 135): the
-//   panel reads the workspace state when it appears.
+// * "Open now" marks the project Rust says is open: the panel asks
+//   project_current when it appears (decision 148), and never marks one
+//   while Statistics is not active (decision 135): it reads the workspace
+//   state too.
+// * Open (decision 149), on each project that can be read: project_open on
+//   that click only, then the project's page. A refusal shows its sentence.
+// * One generation counter covers every read and action here, the delete
+//   dialog's included: a late answer never overwrites a newer one.
 // * Delete opens a dialog: the name, the size and decision 133's sentence;
 //   Cancel has the focus, Escape cancels. Its Delete calls prepare delete,
 //   then delete, on that click only; a refusal shows its sentence (another
@@ -23,16 +28,20 @@ import { Button, Card } from '../../../design-system';
 import { workspaceBridge, type WorkspaceBridge } from '../../workspace/workspaceBridge';
 import { projectBridge, type ProjectBridge } from './projectBridge';
 import { projectsShown } from './projectGate';
-import { noteDeleted, noteWorkspaceState, useOpenProject } from './projectSession';
+import { noteCurrent, noteDeleted, noteWorkspaceState, openProjectStore, useOpenProject } from './projectSession';
 import type { ProjectListEntryView, ProjectSizesView } from './projectTypes';
 import { DELETE_SENTENCE, PROJECT_TEXT, PROJECT_WORDS, projectSentence, savedOn, sizeSentence, totalsSentence } from './projectWording';
 import ProjectDialog from './ProjectDialog';
+import { useGeneration, type Generation } from './useGeneration';
 
 export interface ProjectsPanelProps {
   /** Test seams. */
   bridge?: ProjectBridge;
   workspace?: WorkspaceBridge;
   desktop?: boolean;
+  /** After an Open: where the project's page is (the Statistics home passes
+   *  its navigation). Without it the panel only marks the project open. */
+  onOpened?: (projectId: string) => void;
 }
 
 export const ProjectsPanel: React.FC<ProjectsPanelProps> = (props) =>
@@ -40,45 +49,66 @@ export const ProjectsPanel: React.FC<ProjectsPanelProps> = (props) =>
 
 type Listed = { list: ProjectListEntryView[]; sizes: ProjectSizesView };
 
-const ProjectsPanelShown: React.FC<ProjectsPanelProps> = ({ bridge: given, workspace: givenWorkspace }) => {
+const ProjectsPanelShown: React.FC<ProjectsPanelProps> = ({ bridge: given, workspace: givenWorkspace, onOpened }) => {
   const bridge = useMemo(() => given ?? projectBridge(), [given]);
   const workspace = useMemo(() => givenWorkspace ?? workspaceBridge(), [givenWorkspace]);
   const open = useOpenProject();
+  const gen = useGeneration();
   const [listed, setListed] = useState<Listed | null>(null);
   const [unread, setUnread] = useState(false);
   const [target, setTarget] = useState<ProjectListEntryView | null>(null);
   const [message, setMessage] = useState('');
-  const alive = useRef(true);
+  const [opening, setOpening] = useState<string | null>(null);
+  const openInFlight = useRef(false);
   const heading = useRef<HTMLHeadingElement>(null);
   // The Delete button that opened the dialog, recorded from its click.
   const opener = useRef<HTMLElement | null>(null);
 
-  useEffect(() => {
-    alive.current = true;
-    return () => {
-      alive.current = false;
-    };
-  }, []);
-
+  // Reads only: the list, the sizes, which project Rust has open, and the
+  // workspace state. A failed project_current means none is open.
   const read = useCallback(async () => {
-    try {
-      const [list, sizes] = await Promise.all([bridge.list(), bridge.sizes()]);
-      if (!alive.current) return;
-      setListed({ list, sizes });
+    const g = gen.next();
+    const [list, sizes, current, state] = await Promise.allSettled([
+      bridge.list(),
+      bridge.sizes(),
+      bridge.current(),
+      workspace.state(),
+    ]);
+    if (!gen.is(g)) return;
+    const entries = list.status === 'fulfilled' ? list.value : null;
+    noteCurrent(current.status === 'fulfilled' ? current.value : null, entries);
+    if (state.status === 'fulfilled') noteWorkspaceState(state.value);
+    if (entries !== null && sizes.status === 'fulfilled') {
+      setListed({ list: entries, sizes: sizes.value });
       setUnread(false);
-    } catch {
-      if (alive.current) setUnread(true);
+    } else {
+      setUnread(true);
     }
-  }, [bridge]);
+  }, [bridge, workspace, gen]);
 
-  // Reads only: the list, the sizes and the workspace state.
   useEffect(() => {
     void read();
-    workspace.state().then(
-      (s) => noteWorkspaceState(s),
-      () => undefined
-    );
-  }, [read, workspace]);
+  }, [read]);
+
+  // Open, on its click only (decision 149): then the project's page.
+  const openProject = async (projectId: string) => {
+    if (openInFlight.current) return;
+    openInFlight.current = true;
+    const g = gen.next();
+    setOpening(projectId);
+    setMessage('');
+    try {
+      const r = await bridge.open(projectId);
+      if (!gen.is(g)) return;
+      openProjectStore.set({ projectId: r.projectId, name: r.name });
+      onOpened?.(r.projectId);
+    } catch (e) {
+      if (gen.is(g)) setMessage(projectSentence(e));
+    } finally {
+      openInFlight.current = false;
+      if (gen.is(g)) setOpening(null);
+    }
+  };
 
   const deleted = useCallback(() => {
     setTarget(null);
@@ -130,6 +160,16 @@ const ProjectsPanelShown: React.FC<ProjectsPanelProps> = ({ bridge: given, works
                       {p.savedAt !== null && ` ${PROJECT_TEXT.savedOn} ${savedOn(p.savedAt)}.`}
                       {p.runCount !== null && ` ${PROJECT_TEXT.results(p.runCount)}.`}
                     </span>{' '}
+                    {p.name !== null && (
+                      <Button
+                        variant="secondary"
+                        onClick={() => void openProject(p.projectId)}
+                        disabled={opening !== null}
+                        data-testid={`project-open-button-${p.projectId}`}
+                      >
+                        {opening === p.projectId ? PROJECT_TEXT.opening : PROJECT_TEXT.open}
+                      </Button>
+                    )}{' '}
                     <Button
                       variant="ghost"
                       onClick={(e) => {
@@ -152,6 +192,7 @@ const ProjectsPanelShown: React.FC<ProjectsPanelProps> = ({ bridge: given, works
         <DeleteDialog
           project={target}
           bridge={bridge}
+          gen={gen}
           headingAfter={() => heading.current}
           openerAfter={() => opener.current}
           onCancel={() => setTarget(null)}
@@ -165,13 +206,15 @@ const ProjectsPanelShown: React.FC<ProjectsPanelProps> = ({ bridge: given, works
 interface DeleteDialogProps {
   project: ProjectListEntryView;
   bridge: ProjectBridge;
+  /** The panel's counter: the dialog is part of the panel's screen. */
+  gen: Generation;
   headingAfter: () => HTMLElement | null;
   openerAfter: () => HTMLElement | null;
   onCancel: () => void;
   onDeleted: () => void;
 }
 
-const DeleteDialog: React.FC<DeleteDialogProps> = ({ project, bridge, headingAfter, openerAfter, onCancel, onDeleted }) => {
+const DeleteDialog: React.FC<DeleteDialogProps> = ({ project, bridge, gen, headingAfter, openerAfter, onCancel, onDeleted }) => {
   const [pending, setPending] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
   const alive = useRef(true);
@@ -196,18 +239,19 @@ const DeleteDialog: React.FC<DeleteDialogProps> = ({ project, bridge, headingAft
   const remove = async () => {
     if (inFlight.current) return;
     inFlight.current = true;
+    const g = gen.next();
     setPending(true);
     setRefusal(null);
     try {
       const c = await bridge.prepareDelete(project.projectId);
-      if (!alive.current) return;
+      if (!alive.current || !gen.is(g)) return;
       const r = await bridge.delete(project.projectId, c.confirmation);
-      if (!alive.current) return;
+      if (!alive.current || !gen.is(g)) return;
       noteDeleted(r.projectId);
       done.current = true;
       onDeleted();
     } catch (e) {
-      if (!alive.current) return;
+      if (!alive.current || !gen.is(g)) return;
       setRefusal(projectSentence(e));
     } finally {
       inFlight.current = false;

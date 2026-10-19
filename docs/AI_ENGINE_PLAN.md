@@ -24604,3 +24604,167 @@ handles in one process stand in, as `flock` and `LockFileEx` treat them as
 holders); Windows (compiled by CI's `--no-run` step only); the lock-then-check
 order (no single-thread test can tell the orders apart); the real app.
 Departures are listed in `~/gaply-corpus/os/phase5/phase5b3a_report.md` §5.
+
+### D284 — Research OS, Phase 5B-3b: Open, an open project's page, the saved result view and the exports `[src]` `[test]` `[measured]`
+
+**Added** on `feat/research-os-5` after `468537d`. Decisions 148 to 152 of 19
+Oct 2026 apply (`~/gaply-corpus/os/decisions.md`), with 99 to 147. Every new
+screen is behind the same helper as 5B-3a, `projectsShown()`
+(`REACT_APP_FEATURE_PROJECTS` and `REACT_APP_FEATURE_WORKSPACES` on, desktop
+app only), and the page's route also needs `REACT_APP_FEATURE_STATS_DESCRIBE`,
+the flag the Statistics home sits behind. A flag only hides; Rust's checks are
+the boundary. This step ends Phase 5B.
+
+**`project_current` (decision 148).** A twelfth command, exempt from the
+workspace check: `{projectId}` of the project open in this copy of the app, or
+`{projectId: null}`; nothing else, and nothing of another copy
+(`src-tauri/src/project_commands.rs`, `current` and `ProjectCurrentView`). It
+reads the session's `open_id()`, so Close, leaving Statistics and deleting the
+open project each leave none. `tests/workspace_guards.rs` lists it as exempt;
+`tests/fixtures/projects/projectCurrent.json` pins both shapes;
+`tests/project_current.rs` checks none before any Open or Save (with and
+without a workspace), the id after a first Save and after an Open, none after
+Close, after leaving Statistics and after the open project's delete, and that
+another project's delete leaves the open one. Every project screen now asks it
+when it appears (with `project_list` for the name, through
+`projectSession.noteCurrent`), in place of 5B-3a's memory: the panel, the Save
+dialog and the page. This closes decision 147's gap.
+
+**Open and the page (decision 149).** Open is on each readable project in the
+Projects panel: `project_open` on that click only, then
+`/app/statistics/projects/<id>`, a route that holds the id and nothing else
+(`projects/projectRoute.tsx`). `projects/ProjectPage.tsx` reads the workspace
+state, `project_current`, the list and the sizes when it appears, and for the
+open project its saved results, newest first, each with its kind, status,
+saved date and closed code. A listed project that is not open says so and
+offers Open; it never opens one by itself. An id that is not listed or is not
+an id, and an unreadable project, show a sentence and no Open; Statistics not
+active shows nothing of the project. Close calls `project_close` and returns
+to the home. The project screens never navigate themselves (the 5B-3a guard
+forbids the router in them): `ProjectPageScreen.tsx`, outside the folder,
+reads the id from the route and goes to fixed paths only, and the route sits
+behind `RequireWorkspace`. **One generation counter per screen**
+(`projects/useGeneration.ts`) covers every project read and action, the delete
+dialog's and the saved view's included, so a late answer never overwrites a
+newer state: a `project_current` that lands after an Open is dropped, and so
+is one that lands after a Save.
+
+**The saved result view (decision 150).** `projects/SavedResult.tsx` reads
+`project_run_result` and checks the stored JSON first
+(`projects/storedShape.ts`): the capability must be the summary or the
+t-test, every schema version 1 (the literal type in `describeTypes.ts` and
+`ttestTypes.ts`, and Rust's `SchemaVersion::NUMBER`), every number a component
+prints a finite number, every closed word in its set and every code in its
+kind's list, so no sentence repeats a stored string. Parsing drops the error.
+Only then does it render, through the live components with the live props:
+the t-test's `ResultCard`, and the summary's results, **moved unchanged out of
+`DescribeFlow.tsx` into an exported `DescribeResult`** (the summary had no
+result component; approved during this step). Each other case has its own
+sentence and shows nothing of the stored JSON: an unknown capability, an
+unknown schema version, a wrong shape, a damaged artifact (its code's
+sentence), and a saved summary while `REACT_APP_FEATURE_STATS_DESCRIBE` is off
+(then the result is not even read; that flag gates the summary, the t-test and
+the home alike, so in the app this case cannot be reached and stands as a
+guard). A failed run shows its code's sentence. The data file is shown by its
+kind, format and size; its fingerprint appears only in the live manifest's
+"Data file (SHA-256)" row, as on the live screen. No Save, re-run, edit or AI
+control. Rendering sits inside an error boundary keyed to the result whose
+fallback is one fixed sentence and which records nothing; React 19 itself
+still logs a caught error to the console (`react-dom-client`'s
+`defaultOnCaughtError`), which is why the check runs before rendering.
+
+**Rust snapshots of stored results (approved during this step).** No snapshot
+of a stored result existed (`projectRunResult.json` pins the envelope with
+placeholder strings). `stored_results_have_the_layout_of_their_fixtures` in
+`tests/project_commands.rs` saves a real summary, a real t-test and a failed
+t-test, reads each back through `run_result`, and pins its layout (every key,
+nesting and JSON type, the stored texts parsed) against
+`tests/fixtures/projects/stored/`: the layout, not the bytes, because a
+p-value's last digit or an elapsed time may differ on Linux or Windows. The
+vitest shape check is tested against these three files.
+
+**The exports (decision 151).** On the page, Export report and Export
+provenance each open a small dialog with decision 133's sentence, Cancel
+focused. Export renders on that click; `projects/projectExport.ts` refuses
+any file name but the fixed one for that export, refuses bytes whose SHA-256
+taken in the webview differs from the one returned, and refuses bytes that do
+not decode as UTF-8 and encode back to exactly the same bytes. Today's export
+path (`utils/saveTextFile.ts`) takes text and writes it with `TextEncoder`, so
+that round trip is what makes the bytes written the bytes Rust returned; no
+Rust change was needed. A refusal shows its sentence and saves nothing; a
+closed save dialog writes nothing and says so in the status line; a failed
+write says so without its message.
+
+**One fix found by this step's tests.** `projectSentence` passed a workspace
+refusal to `workspaceSentence`, which reads `params.expected` and threw when
+the refusal had no parameters, so a malformed refusal became an unhandled
+rejection inside a `catch`. It now gives the fallback sentence (regression
+test red before, green after). Rust always sends the parameters, so this was
+reachable only with a malformed refusal.
+
+**Guards.** `projectGuards.vitest.ts`: twelve commands, all named only by the
+bridge; the page asks `projectsShown()`; `ProjectPageScreen.tsx` uses no raw
+HTML, console, storage, title or history and navigates only to fixed paths
+with no router state; and no `throw` in 5B-3b's new code builds its message
+from anything but a string literal (with a self-test of the scan). Rust: the
+command-list guard and both wire pins.
+
+**The hand test (decision 152).** `~/gaply-corpus/os/phase5/hand_test_5e.md`,
+for the founder, with the synthetic files in
+`~/gaply-corpus/os/phase5/hand_test_files/` (`HTFILE_summary.csv`,
+`HTFILE_ttest.csv`, `HTFILE_summary.xlsx` whose author is `HTAUTHOR`; every
+header `HTHEAD_`, every group label `HTLABEL_`, each holding 8675309.25). It
+backs up `~/Library/Application Support/ai.gaply.app` first (the identifier
+`ai.gaply.app` in `tauri.conf.json`), starts the dev app with the three flags
+on one command line, saves into `HTPROJ_TEST`, restarts, opens, exports and
+searches both exports for every sentinel, starts a second copy from
+`/Users/rishi/dev/gaply-stats-l0/src-tauri/target/debug/app` (the target
+directory `.cargo/config.toml` sets) to see its delete refused, deletes the
+project, trashes the exports and restarts with the flags off. Every command in
+it is inferred; none was run.
+
+**Measured, 20 Oct 2026, macOS aarch64** (logs in
+`~/gaply-corpus/os/phase5/5b3b_logs/`): `cargo test --workspace
+--no-fail-fast`, both `lib.rs` touched (`git diff --stat` unchanged by the
+touch), prediction written first: exit 0, 116 targets (114 Running + 2
+Doc-tests), 2,868 passed, 12 ignored, as predicted from D283's 115 / 2,864 /
+12 (+`project_current` 3, `project_commands` 22 → 23). `cargo test -p app
+--features devtools --no-fail-fast`: exit 0, 47 targets (46 Running + 1
+Doc-tests), 783 passed, 9 ignored, as predicted. No warning location in a
+changed file. vitest: 108 files / 1,394 tests at `468537d`, 112 / 1,467
+after, as predicted (four new files, 69 tests; `projectTypes` 16 → 17,
+`projectGuards` 4 → 7). `tsc --noEmit` and CI's eslint exit 0; `npm run
+build` exit 0, `public/sitemap.xml` written back from HEAD (`cmp` equal).
+rustfmt by path, hunks HEAD → now: `project_commands.rs` 0 → 0, `lib.rs` 11
+→ 11, `tests/project_commands.rs` 0 → 0, `tests/workspace_guards.rs` 0 → 0,
+new `tests/project_current.rs` 0. `git diff --check` clean; `git diff
+468537d` empty under `stats_l0`, `stats_l1` and `stats_assist`. No
+GRRB-watched file changed. Mutation record (SHA-256, broken once, red,
+restored with a fresh mtime, SHA-256 equal, green): a stored fixture's key
+renamed; `current` gated; the summary's flag not checked; a null group mean
+accepted; the page's generation check dropped; the export's SHA-256
+comparison dropped; a `throw` built from data. Each went red where
+predicted.
+
+**After the report (decisions 153 to 158).** Route analytics never run in the desktop app
+(decision 155): `src/analytics/GtagRouteListener.tsx` reads no measurement id when
+`isTauri`, so neither the gtag script nor any `page_view` is requested there, and a
+project's id in the route never leaves the device; the browser build is unchanged
+(`GtagRouteListener.vitest.tsx`, red before in the desktop case, green after).
+
+**What Phase 5B delivers, and what is left.** A project store on the user's
+own disk (5B-1), commands that save a finished summary or t-test with an exact
+copy of its data file, read it back verified, and render a report and a PROV
+JSON with no value from the data (5B-2), and screens behind a flag that is
+off: Save, the Projects panel with Open and Delete, an open project's page
+with its saved results, read only, and both exports, with a delete refused
+while another copy of the app has the project open (5B-3a, 5B-3b). Nothing is
+written except on a Save or a delete, and Rust checks every command whatever
+the screens show. Left: **5C**, reruns of a saved run, and Level 0 and Level 1
+runs in projects, each blocked on its own approval; **5D**, the Stored data
+screen for the old database and the stop-writing changes; **5E**, the hand
+test above on this Mac, Windows (the store's tests running there, and a hand
+test of save, reopen and delete), the evaluation of the Proposed parts of
+ADR-009 and ADR-004, and the release-list items (single instance on macOS is
+settled by the lock; the Statistics flag and the tiers are not decided).
+Departures are listed in `~/gaply-corpus/os/phase5/phase5b3b_report.md` §5.

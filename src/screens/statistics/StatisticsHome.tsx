@@ -27,6 +27,7 @@ import type { CapabilityView } from './ttestTypes';
 import { DESCRIBE_PATH } from './describeRoute';
 import { TTEST_PATH } from './statisticsRoute';
 import { ProjectsPanel } from './projects/ProjectsPanel';
+import { projectPagePath } from './projects/projectRoute';
 
 export const VERIFY_PREFIX = 'stats.verify.';
 const CHECK_ID = 'stats.check';
@@ -245,8 +246,9 @@ export const StatisticsHome: React.FC<StatisticsHomeProps> = ({ bridge: given, f
         </>
       )}
       {/* Shown only when projectsShown() says so (decision 136); it does not
-          wait for the capability list. */}
-      <ProjectsPanel />
+          wait for the capability list. Open leads to the project's page, by
+          its id only (decision 149). */}
+      <ProjectsPanel onOpened={(projectId) => navigate(projectPagePath(projectId))} />
     </div>
   );
 };

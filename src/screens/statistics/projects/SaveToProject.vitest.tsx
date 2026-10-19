@@ -42,8 +42,14 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-function setup(saveRun: unknown = { projectId: ID, storedRunId: 1, created: true }, wrap = false) {
-  const bridge = makeMockProjectBridge({ project_save_run: saveRun });
+function setup(saveRun: unknown = { projectId: ID, storedRunId: 1, created: true }, wrap = false, open: { projectId: string; name: string } | null = null) {
+  const bridge = makeMockProjectBridge({
+    project_save_run: saveRun,
+    // Phase 5B-3b (decision 148): the dialog asks which project Rust has
+    // open, and the list for its name, when it appears.
+    project_current: { projectId: open ? open.projectId : null },
+    project_list: open ? [{ projectId: open.projectId, name: open.name, bytes: 4096, savedAt: 1792396351, runCount: 1, refused: null }] : [],
+  });
   const ui = <SaveToProject runId={5} bridge={bridge} desktop />;
   const view = render(wrap ? <React.StrictMode>{ui}</React.StrictMode> : ui);
   return { bridge, view };
@@ -85,7 +91,7 @@ describe('the Save dialog', () => {
 
   it('with an open project: two choices, none chosen, Save disabled until one is', () => {
     openProjectStore.set({ projectId: ID, name: 'Thesis' });
-    const { bridge } = setup({ projectId: ID, storedRunId: 2, created: false });
+    const { bridge } = setup({ projectId: ID, storedRunId: 2, created: false }, false, { projectId: ID, name: 'Thesis' });
     fireEvent.click(button());
     const open = screen.getByTestId('project-save-choice-open') as HTMLInputElement;
     const fresh = screen.getByTestId('project-save-choice-new') as HTMLInputElement;
@@ -138,7 +144,7 @@ describe('the Save dialog', () => {
 
   it('saves into the open project', async () => {
     openProjectStore.set({ projectId: ID, name: 'Thesis' });
-    const { bridge } = setup({ projectId: ID, storedRunId: 2, created: false });
+    const { bridge } = setup({ projectId: ID, storedRunId: 2, created: false }, false, { projectId: ID, name: 'Thesis' });
     fireEvent.click(button());
     fireEvent.click(screen.getByTestId('project-save-choice-open'));
     fireEvent.click(confirm());
@@ -171,9 +177,9 @@ describe('the Save dialog', () => {
     expect(document.body.innerHTML).not.toContain('RAW_SENTINEL');
   });
 
-  it('calls nothing without a click on Save: opening, typing, choosing, Escape and Cancel', () => {
+  it('calls nothing but its reads without a click on Save: opening, typing, choosing, Escape and Cancel', () => {
     openProjectStore.set({ projectId: ID, name: 'Thesis' });
-    const { bridge } = setup();
+    const { bridge } = setup(undefined, false, { projectId: ID, name: 'Thesis' });
     fireEvent.click(button());
     fireEvent.click(screen.getByTestId('project-save-choice-new'));
     fireEvent.change(nameField(), { target: { value: 'Chapter 3' } });
@@ -182,7 +188,9 @@ describe('the Save dialog', () => {
     expect(screen.queryByTestId('project-save-dialog')).toBeNull();
     fireEvent.click(button());
     fireEvent.click(screen.getByTestId('project-save-cancel'));
-    expect(bridge.calls).toEqual([]);
+    // Each time the dialog appeared it read which project is open, and the
+    // list (decision 148); nothing else.
+    expect(bridge.calls.map(([c]) => c)).toEqual(['project_current', 'project_list', 'project_current', 'project_list']);
   });
 
   it('makes one call for a double click, with Save disabled while it is pending', async () => {
@@ -253,7 +261,9 @@ describe('the Save dialog', () => {
     fireEvent.click(confirm());
     await waitFor(() => expect(screen.queryByTestId('project-save-dialog')).toBeNull());
     expect(saves(bridge)).toHaveLength(1);
-    expect(bridge.calls).toHaveLength(1);
+    // The rest are the dialog's reads (decision 148), made again by
+    // StrictMode's second effect run.
+    expect(bridge.calls.filter(([c]) => c !== 'project_current' && c !== 'project_list')).toHaveLength(1);
   });
 
   it('is not there when the helper says no', () => {

@@ -455,6 +455,12 @@ const PROJECT_EXEMPT: &[(&str, &str, &str)] = &[
         "delete",
         "deletes a project",
     ),
+    // Phase 5B-3b (decision 148): which project this copy has open, by id.
+    (
+        "project_commands::project_current",
+        "current",
+        "reads which project is open",
+    ),
 ];
 
 /// The work function's first statement is the check, on the session it is

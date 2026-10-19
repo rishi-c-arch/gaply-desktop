@@ -1,6 +1,7 @@
-// Gaply — the project bridge (Research OS, Phase 5B-3a): the one wrapper that
-// calls the eleven project_* commands in src-tauri/src/project_commands.rs
-// (D282's table). Rust owns every decision and every check; the screens show
+// Gaply — the project bridge (Research OS, Phases 5B-3a and 5B-3b): the one
+// wrapper that calls the twelve project_* commands in
+// src-tauri/src/project_commands.rs (D282's table, and project_current,
+// decision 148). Rust owns every decision and every check; the screens show
 // what comes back. No other file may name a project command
 // (projectGuards.vitest.ts).
 //
@@ -10,6 +11,7 @@ import { isTauri } from '../../../utils/isTauri';
 import type {
   DeleteConfirmationView,
   ProjectClosedView,
+  ProjectCurrentView,
   ProjectDeletedView,
   ProjectExportView,
   ProjectListEntryView,
@@ -27,6 +29,8 @@ export interface ProjectBridge {
   sizes(): Promise<ProjectSizesView>;
   prepareDelete(projectId: string): Promise<DeleteConfirmationView>;
   delete(projectId: string, confirmation: string): Promise<ProjectDeletedView>;
+  /** Which project this copy has open, by id (decision 148). */
+  current(): Promise<ProjectCurrentView>;
   /** Need Statistics active. */
   saveRun(runId: number, target: SaveTarget): Promise<SavedRunView>;
   open(projectId: string): Promise<ProjectOpenView>;
@@ -43,6 +47,7 @@ export const PROJECT_COMMANDS = {
   sizes: 'project_sizes',
   prepareDelete: 'project_prepare_delete',
   delete: 'project_delete',
+  current: 'project_current',
   saveRun: 'project_save_run',
   open: 'project_open',
   close: 'project_close',
@@ -72,6 +77,9 @@ export class TauriProjectBridge implements ProjectBridge {
   }
   delete(projectId: string, confirmation: string) {
     return this.invoke<ProjectDeletedView>(C.delete, { projectId, confirmation });
+  }
+  current() {
+    return this.invoke<ProjectCurrentView>(C.current);
   }
   saveRun(runId: number, target: SaveTarget) {
     return this.invoke<SavedRunView>(C.saveRun, { runId, target });
@@ -121,6 +129,7 @@ export function makeMockProjectBridge(
     sizes: () => call(C.sizes),
     prepareDelete: (projectId) => call(C.prepareDelete, { projectId }),
     delete: (projectId, confirmation) => call(C.delete, { projectId, confirmation }),
+    current: () => call(C.current),
     saveRun: (runId, target) => call(C.saveRun, { runId, target }),
     open: (projectId) => call(C.open, { projectId }),
     close: () => call(C.close),

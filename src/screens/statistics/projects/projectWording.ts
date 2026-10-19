@@ -140,7 +140,15 @@ export function projectSentence(e: unknown): string {
   const r = projectRefusal(e);
   if (r) return PROJECT_WORDS[r.code](r);
   const w = workspaceRefusal(e);
-  if (w) return workspaceSentence(w);
+  // A workspace sentence reads the refusal's parameters; one that arrives
+  // without them gives the fallback rather than a throw (Phase 5B-3b).
+  if (w) {
+    try {
+      return workspaceSentence(w);
+    } catch {
+      return FALLBACK_SENTENCE;
+    }
+  }
   return FALLBACK_SENTENCE;
 }
 
@@ -181,6 +189,68 @@ export const PROJECT_TEXT = {
   deleted: 'The project was deleted.',
   unnamed: 'A project that cannot be read',
   settingsHeading: 'Projects',
+  // Phase 5B-3b: Open, the project page, the saved result view and the exports.
+  open: 'Open',
+  opening: 'Opening…',
+  pageHeading: 'Project',
+  pageLoading: 'Reading this project…',
+  pageUnread: 'This project could not be read.',
+  tryAgain: 'Try again',
+  pageInactive: 'A project is shown only while the Statistics workspace is open.',
+  pageNotFound: 'There is no such project on this computer.',
+  pageNotOpen: 'This project is not open.',
+  backToStatistics: 'Back to Statistics',
+  close: 'Close the project',
+  closing: 'Closing…',
+  savedResults: 'Saved results',
+  runsLoading: 'Reading the saved results…',
+  runsUnread: "This project's saved results could not be read.",
+  runsEmpty: 'This project holds no saved results.',
+  openResult: 'Open this result',
+  backToResults: 'Back to the saved results',
+  resultLoading: 'Reading this saved result…',
+  exportReport: 'Export report…',
+  exportProvenance: 'Export provenance…',
+  exportReportTitle: 'Export the project report',
+  exportProvenanceTitle: 'Export the provenance file',
+  exportConfirm: 'Export',
+  exporting: 'Exporting…',
+  exportCancelled: 'Nothing was saved: the save dialog was closed.',
+  unknownState: 'In a state this version of Gaply does not know',
+} as const;
+
+/* ---- the project page (Phase 5B-3b) ---------------------------------------- */
+
+/** What a saved run is, by its capability. A capability this version does not
+ *  know is named as such, never shown as its id. */
+export function capabilityName(capabilityId: string): string {
+  if (capabilityId === 'stats.describe') return 'Descriptive summary';
+  if (capabilityId === 'stats.analyze.independent_t') return 'Independent-samples t-test';
+  return 'An analysis this version of Gaply does not know';
+}
+
+/** The line above a saved result (decision 150). */
+export const savedResultLine = (secs: number) => `Saved result, saved ${savedOn(secs)}.`;
+
+/** The saved result view's sentences, one per case it cannot show
+ *  (decision 150). None of them repeats anything from the stored result. */
+export const SAVED_TEXT = {
+  unknownCapability: 'This result was saved by an analysis this version of Gaply does not know, so it is not shown.',
+  unknownSchema: 'This result was saved in a form this version of Gaply does not read, so it is not shown.',
+  badShape: 'This saved result is not in the form Gaply expects, so it is not shown.',
+  summaryHidden: 'Descriptive summaries are not shown in this build of Gaply, so this saved result is not shown.',
+  cannotShow: 'This saved result could not be shown.',
+  failed: 'This run failed. Gaply saved its reason:',
+  dataFile: (format: string, bytes: number) => `Data file: ${format.toUpperCase()} file, ${mib(bytes)} MiB.`,
+} as const;
+
+/** The export dialog's and the export's own sentences (decision 151). */
+export const EXPORT_WORDS = {
+  wrongName: 'Gaply did not save this export: it did not come with the file name expected.',
+  wrongHash: 'Gaply did not save this export: its bytes did not match their fingerprint (SHA-256).',
+  notExact: 'Gaply did not save this export: it could not be saved exactly as Gaply made it.',
+  writeFailed: 'The file could not be written where you chose. Nothing else was changed.',
+  saved: (sha256: string) => `Saved. SHA-256 of the file: ${sha256.slice(0, 12)}…`,
 } as const;
 
 /** The storage line: the total against both limits, in MiB, named once. */

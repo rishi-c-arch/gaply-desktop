@@ -1,12 +1,16 @@
-// Gaply — Save to a project (Research OS, Phase 5B-3a; decisions 105, 121 to
-// 123, 133, 136, 140 and 142). A button on the summary's and the t-test's
-// screens, for a run that Succeeded or Failed with its code, and the dialog
-// it opens.
+// Gaply — Save to a project (Research OS, Phases 5B-3a and 5B-3b; decisions
+// 105, 121 to 123, 133, 136, 140, 142 and 148). A button on the summary's and
+// the t-test's screens, for a run that Succeeded or Failed with its code, and
+// the dialog it opens.
 //
 // * Shown only when projectsShown() says so: both flags on, desktop app.
-// * Two choices: a new project, named here, or the open project, if this
-//   window knows one (decision 142). Save stays disabled until the choice is
-//   complete; a name the rule refuses shows its sentence before any call.
+// * Two choices: a new project, named here, or the open project. When the
+//   dialog appears it asks Rust which project is open (project_current, and
+//   project_list for its name; decision 148) and offers that one, or none.
+//   Save stays disabled until the choice is complete; a name the rule
+//   refuses shows its sentence before any call.
+// * One generation counter covers the dialog's read and the Save, so a late
+//   answer to the read never undoes a Save.
 // * Nothing is saved without a click on Save (decision 105): no call from an
 //   effect or a cleanup, one call per click (a second click while one is
 //   pending does nothing), and a response that arrives after the screen has
@@ -19,9 +23,10 @@ import { Button } from '../../../design-system';
 import { checkName } from './projectName';
 import { projectBridge, type ProjectBridge } from './projectBridge';
 import { projectsShown } from './projectGate';
-import { openProjectStore, useOpenProject } from './projectSession';
+import { noteCurrent, openProjectStore, useOpenProject } from './projectSession';
 import { NAME_WORDS, PROJECT_TEXT, projectSentence, SAVE_SENTENCE } from './projectWording';
 import ProjectDialog from './ProjectDialog';
+import { useGeneration } from './useGeneration';
 
 /** A run the screens offer to save: one that Succeeded, or Failed with its
  *  code (decision 123). A failed run's state view ends with its failure, the
@@ -61,19 +66,29 @@ const SaveToProjectShown: React.FC<SaveToProjectProps> = ({ runId, bridge: given
   const [pending, setPending] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
   const [saved, setSaved] = useState<Saved | null>(null);
-  const alive = useRef(true);
+  const gen = useGeneration();
   const inFlight = useRef(false);
   const nameField = useRef<HTMLInputElement>(null);
   // The Save button, recorded from its click: focus returns to it.
   const opener = useRef<HTMLElement | null>(null);
   const returnFocus = useRef<(() => HTMLElement | null) | null>(() => opener.current);
 
+  // Reads only, when the dialog appears: which project Rust has open, and the
+  // list for its name (decision 148). A failed read means none is offered.
   useEffect(() => {
-    alive.current = true;
-    return () => {
-      alive.current = false;
-    };
-  }, []);
+    if (!dialog) return;
+    const g = gen.next();
+    void Promise.allSettled([bridge.current(), bridge.list()]).then(([current, list]) => {
+      if (!gen.is(g)) return;
+      noteCurrent(current.status === 'fulfilled' ? current.value : null, list.status === 'fulfilled' ? list.value : null);
+    });
+  }, [dialog, bridge, gen]);
+
+  // The open project went away while the dialog was up: a new project is the
+  // one choice left.
+  useEffect(() => {
+    if (dialog && open === null && choice !== 'new') setChoice('new');
+  }, [dialog, open, choice]);
 
   const checked = checkName(name);
   const nameSentence = choice === 'new' && typed && !checked.ok ? NAME_WORDS[checked.reason] : null;
@@ -105,20 +120,21 @@ const SaveToProjectShown: React.FC<SaveToProjectProps> = ({ runId, bridge: given
     if (!target) return;
     const shownName = target.into === 'openProject' ? (open as { name: string }).name : target.name;
     inFlight.current = true;
+    const g = gen.next();
     setPending(true);
     setRefusal(null);
     try {
       const r = await bridge.saveRun(runId, target);
-      if (!alive.current) return;
+      if (!gen.is(g)) return;
       openProjectStore.set({ projectId: r.projectId, name: shownName });
       setSaved({ created: r.created, name: shownName });
       setDialog(false);
     } catch (e) {
-      if (!alive.current) return;
+      if (!gen.is(g)) return;
       setRefusal(projectSentence(e));
     } finally {
       inFlight.current = false;
-      if (alive.current) setPending(false);
+      if (gen.is(g)) setPending(false);
     }
   };
 

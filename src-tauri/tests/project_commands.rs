@@ -33,9 +33,10 @@ use std::sync::{Arc, Barrier};
 use serde_json::{json, Value};
 
 use app_lib::project_commands::{
-    self as pc, DeleteConfirmationView, ProjectClosedView, ProjectDeletedView, ProjectExportView,
-    ProjectListEntryView, ProjectOpenView, ProjectRefusalView, ProjectSizesView, RunResultView,
-    SaveTarget, SavedRunView, StoredArtifactView, StoredRunView, CONFIRMATION_LIFETIME_MS,
+    self as pc, DeleteConfirmationView, ProjectClosedView, ProjectCurrentView, ProjectDeletedView,
+    ProjectExportView, ProjectListEntryView, ProjectOpenView, ProjectRefusalView, ProjectSizesView,
+    RunResultView, SaveTarget, SavedRunView, StoredArtifactView, StoredRunView,
+    CONFIRMATION_LIFETIME_MS,
 };
 use app_lib::runs::Point;
 use gaply_core::contracts::codes::Closed;
@@ -950,6 +951,16 @@ fn every_response_serialises_to_its_fixture() {
         },
     );
     assert_fixture("projectClose.json", &ProjectClosedView { closed: true });
+    // Phase 5B-3b (decision 148): an id, or none.
+    assert_fixture(
+        "projectCurrent.json",
+        &vec![
+            ProjectCurrentView {
+                project_id: Some(ID.into()),
+            },
+            ProjectCurrentView { project_id: None },
+        ],
+    );
     assert_fixture(
         "projectRuns.json",
         &vec![StoredRunView {
@@ -1014,6 +1025,150 @@ fn every_response_serialises_to_its_fixture() {
                 limit: None,
             },
         ],
+    );
+}
+
+/* ---- the wire: stored results, as run_result returns them (Phase 5B-3b) --- */
+
+/// Every (path, JSON type) in `v`, arrays read through. The layout of a value
+/// without the values themselves.
+fn layout(v: &Value, at: &str, out: &mut BTreeSet<String>) {
+    let kind = match v {
+        Value::Null => "null",
+        Value::Bool(_) => "bool",
+        Value::Number(_) => "number",
+        Value::String(_) => "string",
+        Value::Array(_) => "array",
+        Value::Object(_) => "object",
+    };
+    out.insert(format!("{at}: {kind}"));
+    match v {
+        Value::Array(items) => items
+            .iter()
+            .for_each(|x| layout(x, &format!("{at}[]"), out)),
+        Value::Object(m) => m
+            .iter()
+            .for_each(|(k, x)| layout(x, &format!("{at}.{k}"), out)),
+        _ => {}
+    }
+}
+
+/// A run read back, as JSON, with each stored text parsed in place.
+fn stored_layout(mut v: Value) -> BTreeSet<String> {
+    for k in ["specJson", "bundleJson", "manifestJson", "failureJson"] {
+        if let Some(text) = v[k].as_str() {
+            v[k] = serde_json::from_str(text).expect("stored JSON");
+        }
+    }
+    let mut out = BTreeSet::new();
+    layout(&v, "", &mut out);
+    out
+}
+
+/// The elapsed time and the platform fixed, so a regenerated fixture does not
+/// change with the machine that wrote it.
+fn steady(text: &str) -> String {
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(i) = rest.find("\"elapsedMs\":") {
+        let (head, tail) = rest.split_at(i + "\"elapsedMs\":".len());
+        out.push_str(head);
+        let digits = tail.chars().take_while(|c| c.is_ascii_digit()).count();
+        out.push('0');
+        rest = &tail[digits..];
+    }
+    out.push_str(rest);
+    for (os, arch) in [
+        ("macos", "aarch64"),
+        ("macos", "x86_64"),
+        ("linux", "x86_64"),
+        ("linux", "aarch64"),
+        ("windows", "x86_64"),
+        ("windows", "aarch64"),
+    ] {
+        out = out.replace(
+            &format!("\"platform\":{{\"os\":\"{os}\",\"arch\":\"{arch}\"}}"),
+            "\"platform\":{\"os\":\"macos\",\"arch\":\"aarch64\"}",
+        );
+    }
+    out
+}
+
+/// Pins a stored result's layout against `tests/fixtures/projects/stored/`,
+/// for the webview's shape check (`storedShape.ts`, tested against these
+/// files). The layout, not the bytes: a fixture holds real values from the
+/// Mac that wrote it, and a p-value's last digit or an elapsed time may differ
+/// on Linux or Windows; every key, every nesting and every JSON type must be
+/// the same. Written with `GAPLY_WRITE_PROJECT_FIXTURES` set, as the others.
+fn assert_stored_fixture(name: &str, view: &RunResultView) {
+    let mut got = serde_json::to_value(view).unwrap();
+    for k in ["specJson", "bundleJson", "manifestJson", "failureJson"] {
+        if let Some(text) = got[k].as_str() {
+            got[k] = Value::String(steady(text));
+        }
+    }
+    let p = fixtures().join("stored").join(name);
+    if std::env::var_os("GAPLY_WRITE_PROJECT_FIXTURES").is_some() {
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(&p, serde_json::to_string_pretty(&got).unwrap() + "\n").unwrap();
+    }
+    let want: Value = serde_json::from_str(
+        &std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("{name}: {e}")),
+    )
+    .unwrap();
+    assert_eq!(
+        stored_layout(got),
+        stored_layout(want),
+        "{name}: the stored result and its fixture differ in layout"
+    );
+}
+
+#[test]
+fn stored_results_have_the_layout_of_their_fixtures() {
+    let w = World::new("stored");
+    let slot = w.open("a.csv", CSV);
+    let d = w.describe(slot);
+    let t = w.ttest(slot);
+    let id = pc::save_run(&w.root(), &w.ws, d, new_project("Stored"))
+        .unwrap()
+        .project_id;
+    pc::save_run(&w.root(), &w.ws, t, into_open(&id)).unwrap();
+    let constant = w.open("constant.csv", CONSTANT);
+    let f = w.ttest(constant);
+    assert_eq!(w.wait(f), RunState::Failed);
+    pc::save_run(&w.root(), &w.ws, f, into_open(&id)).unwrap();
+    for (n, name, state, capability) in [
+        (1, "summary.json", RunState::Succeeded, "stats.describe"),
+        (
+            2,
+            "ttest.json",
+            RunState::Succeeded,
+            "stats.analyze.independent_t",
+        ),
+        (
+            3,
+            "ttest_failed.json",
+            RunState::Failed,
+            "stats.analyze.independent_t",
+        ),
+    ] {
+        let back = pc::run_result(&w.root(), &w.ws, &id, n).expect("read back");
+        assert_eq!(back.state, state, "{name}");
+        assert_eq!(back.capability_id, capability, "{name}");
+        assert_stored_fixture(name, &back);
+    }
+    // The layout check is not inert: a summary is not laid out as a t-test.
+    let a = stored_layout(
+        serde_json::to_value(pc::run_result(&w.root(), &w.ws, &id, 1).unwrap()).unwrap(),
+    );
+    let b = stored_layout(
+        serde_json::to_value(pc::run_result(&w.root(), &w.ws, &id, 2).unwrap()).unwrap(),
+    );
+    assert_ne!(a, b);
+    assert!(
+        a.len() > 40,
+        "the layout reads into the stored JSON: {}",
+        a.len()
     );
 }
 

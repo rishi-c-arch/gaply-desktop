@@ -47,6 +47,8 @@ function setup(responses: Record<string, unknown> = {}, state: WorkspaceStateVie
     project_sizes: SIZES,
     project_prepare_delete: ({ projectId }: Record<string, unknown>) => ({ projectId, confirmation: CONFIRMATION, bytes: 4096, expiresInMs: 300000 }),
     project_delete: ({ projectId }: Record<string, unknown>) => ({ projectId, closed: false }),
+    // Phase 5B-3b (decision 148): the panel asks which project is open.
+    project_current: { projectId: null },
     ...responses,
   });
   const workspace = makeMockWorkspaceBridge({ workspace_state: state });
@@ -101,21 +103,20 @@ describe('the Projects panel', () => {
   });
 
   it('marks the open project only while Statistics is active (decision 135)', async () => {
-    openProjectStore.set({ projectId: A, name: 'Chapter 3' });
-    setup();
+    setup({ project_current: { projectId: A } });
     expect(await screen.findByTestId(`project-open-${A}`)).toBeTruthy();
     cleanup();
-    setup({}, NONE);
+    setup({ project_current: { projectId: A } }, NONE);
     await screen.findByTestId(`project-row-${A}`);
     await waitFor(() => expect(screen.queryByTestId(`project-open-${A}`)).toBeNull());
     expect(openProjectStore.get()).toBeNull();
   });
 
-  it('reads the list, the sizes and the workspace state, and calls nothing else, under StrictMode too', async () => {
+  it('reads the list, the sizes, which project is open and the workspace state, and calls nothing else, under StrictMode too', async () => {
     const { bridge } = setup({}, ACTIVE, true);
     await screen.findByTestId(`project-row-${A}`);
     const names = bridge.calls.map(([c]) => c);
-    expect(names.every((c) => c === 'project_list' || c === 'project_sizes')).toBe(true);
+    expect(names.every((c) => c === 'project_list' || c === 'project_sizes' || c === 'project_current')).toBe(true);
   });
 
   it('is not there when the helper says no, and calls nothing', () => {
@@ -232,7 +233,7 @@ describe('the delete dialog', () => {
     const pending = new Promise((r) => {
       release = r;
     });
-    const { view } = setup({ project_delete: () => pending });
+    const { view } = setup({ project_delete: () => pending, project_current: { projectId: A } });
     await openDialog();
     fireEvent.click(screen.getByTestId('project-delete-confirm'));
     view.unmount();

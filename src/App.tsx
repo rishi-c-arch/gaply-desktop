@@ -38,6 +38,7 @@ import { isTauri } from './utils/isTauri';
 import { isFeatureEnabled } from './config/featureFlags';
 import { describeRoute } from './screens/statistics/describeRoute';
 import { statisticsRoutes } from './screens/statistics/statisticsRoute';
+import { projectRoutes } from './screens/statistics/projects/projectRoute';
 import { workspaceRoutes } from './screens/workspace/workspaceRoute';
 
 const CitationGeneratorPage = React.lazy(() => import('./features/citation-generator/CitationGeneratorPage'));
@@ -69,6 +70,7 @@ const GaplyStatsVerifierRoute = React.lazy(() => import('./screens/GaplyScreens'
 const GaplyDescribeRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.DescribeRoute })));
 const GaplyStatisticsHomeRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.StatisticsHomeRoute })));
 const GaplyTTestRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.TTestRoute })));
+const GaplyProjectPageRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.ProjectPageRoute })));
 const GaplyWorkspaceChooserRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.WorkspaceChooserRoute })));
 const GaplyWorkspaceShellRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.WorkspaceShellRoute })));
 const GaplyBillingRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.BillingRoute })));
@@ -677,6 +679,8 @@ const AppContent: React.FC = () => {
             <Suspense fallback={null}><GaplyStatisticsHomeRoute /></Suspense>,
             <Suspense fallback={null}><GaplyTTestRoute /></Suspense>
           )}
+          {/* An open project's page: only while the project screens show (Phase 5B-3b). */}
+          {projectRoutes(<Suspense fallback={null}><GaplyProjectPageRoute /></Suspense>)}
           {/* The Research OS workspace chooser and shell: only while their flag is on. */}
           {workspaceRoutes(
             <Suspense fallback={null}><GaplyWorkspaceChooserRoute /></Suspense>,

@@ -266,8 +266,9 @@ describe('with the project screens shown', () => {
     cleanup();
     settings();
     expect((await screen.findByTestId('settings-projects-sentence')).textContent).toBe(SETTINGS_SENTENCE);
-    // Reading the list and the sizes is all that showing them calls.
-    expect(projectCalls().every(([c]) => c === 'project_list' || c === 'project_sizes')).toBe(true);
+    // Reading the list, the sizes and which project is open (decision 148)
+    // is all that showing them calls.
+    expect(projectCalls().every(([c]) => c === 'project_list' || c === 'project_sizes' || c === 'project_current')).toBe(true);
   });
 
   it('a cancelled t-test offers no Save (savableOnScreen covers every state; the screen agrees)', async () => {
@@ -323,6 +324,8 @@ const HOSTILE = '<img src=x onerror="window.__hit=1"> **bold** [a](javascript:x)
 describe('a name holding HTML, Markdown and a right-to-left override', () => {
   it('is text inside <bdi> in the panel, the delete dialog and the Save dialog', async () => {
     tauri.answers.project_list = [{ projectId: ID, name: HOSTILE, bytes: 4096, savedAt: 1792396351, runCount: 1, refused: null }];
+    // Rust has it open (decision 148): the screens read that, not memory.
+    tauri.answers.project_current = { projectId: ID };
     openProjectStore.set({ projectId: ID, name: HOSTILE });
     home();
     const name = await screen.findByTestId(`project-name-${ID}`);
