@@ -165,6 +165,26 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+      # Research OS decision 114 (D282): compile the app crate and every one of
+      # its test targets, without running them, so the project store's and the
+      # project commands' cfg(windows) branches at least compile on Windows.
+      # The binaries still die at load here (above), so nothing runs.
+      # tauri-build only checks that the bundle resources exist, so empty
+      # placeholders stand in for the two gitignored models, as app-tests.yml
+      # does; this step comes after the installer steps, whose gate reads those
+      # same paths, so it cannot make them build an installer.
+      # generate_context! needs no frontend dist in a test build: Linux
+      # app-tests.yml compiles the same crate with none.
+      - name: Compile the app crate and its tests (no run)
+        if: steps.detect_tauri.outputs.present == 'true'
+        working-directory: src-tauri
+        shell: bash
+        run: |
+          for f in Qwen2.5-0.5B-Instruct-Q4_K_M.gguf tokenizer.json; do
+            test -e "bundled-models/$f" || : > "bundled-models/$f"
+          done
+          cargo test -p app --no-run
+
       # DIAGNOSTIC (Option C) — records exactly which DLL/entrypoint the IPC test
       # binary fails to resolve at load on Windows. Non-fatal (continue-on-error)
       # so it never turns the job red; it's here to name the culprit for the

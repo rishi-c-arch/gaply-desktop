@@ -1,11 +1,22 @@
 //! **The project store: the one Research OS module that writes to disk
 //! (Phase 5B-1; decisions 99 to 112; ADR-009, ADR-004 §004b).**
 //!
-//! Nothing calls it in 5B-1: no command and no screen reaches it, so nothing
-//! new is written to a user's disk until 5B-2 wires it to a Save click
-//! (decision 105). `tests/project_store_guards.rs` fails if any non-test code
-//! outside this file names it, and `tests/stats_desc_writes_nothing.rs` lists
-//! it as the only Research OS module allowed to write.
+//! Its one caller is `crate::project_commands` (Phase 5B-2, decisions 118 to
+//! 127): `tests/project_store_guards.rs` fails if any other non-test code
+//! names it, and `tests/stats_desc_writes_nothing.rs` lists it as the only
+//! Research OS module allowed to write.
+//!
+//! **One process-wide write lock** ([`write_lock`], Phase 5B-2) covers every
+//! Save, create and delete, from the cap check to the commit, and the list:
+//! two Saves into two projects cannot pass the all-projects cap together,
+//! and a delete never runs during a Save. Opening a project and its recovery
+//! do not take it; each project's own `BEGIN IMMEDIATE` orders those.
+//!
+//! **A first Save** ([`ProjectRoot::create_with_save`], decision 121) is
+//! written inside the project's `.creating-<id>/` folder, whose database
+//! already holds its schema and its row, and the folder is renamed into place
+//! only after the Save's commit: a project folder named by an id always holds
+//! its first run.
 //!
 //! **The layout** (ADR-009 §2), under the root [`projects_root`] resolves
 //! (Tauri's local app data directory, decision 99) or a folder a test passes:
@@ -56,7 +67,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::time::Duration;
 
 use gaply_core::contracts::codes::Closed;
@@ -558,6 +569,20 @@ fn load_graph(conn: &Connection) -> Result<ProvGraph, ProjectRefusal> {
 }
 
 /* ------------------------------------------------------------------------ *
+ *  The process-wide write lock
+ * ------------------------------------------------------------------------ */
+
+/// The store's one write lock, for every root (Phase 5B-2): held by a Save
+/// from its cap check to its commit, by a create and a delete throughout,
+/// and by the list. A thread that panicked holding it leaves nothing for the
+/// next to trust but the disk, which every operation re-reads, so a poisoned
+/// lock is taken as it is.
+fn write_lock() -> MutexGuard<'static, ()> {
+    static LOCK: Mutex<()> = Mutex::new(());
+    LOCK.lock().unwrap_or_else(|p| p.into_inner())
+}
+
+/* ------------------------------------------------------------------------ *
  *  Projects open in this process
  * ------------------------------------------------------------------------ */
 
@@ -599,14 +624,25 @@ pub struct ProjectRoot {
     busy: Duration,
 }
 
-/// One project in the list: its id, its title if its database could be read
-/// (or the code it was refused with), and its size on disk.
+/// One project in the list: its id, its title, run count and last saved
+/// time if its database could be read (or the code it was refused with), and
+/// its size on disk.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProjectEntry {
     pub id: ProjectId,
     pub title: Option<ProjectTitle>,
     pub refused: Option<ProjectCode>,
     pub bytes: u64,
+    /// The newest run's saved time, or the project's creation time.
+    pub saved_at: Option<i64>,
+    pub run_count: Option<u64>,
+}
+
+/// What [`ProjectRoot::list`] reads from a project's database.
+struct Summary {
+    title: ProjectTitle,
+    saved_at: i64,
+    run_count: u64,
 }
 
 /// What recovery did when a project opened, as counts.
@@ -717,7 +753,10 @@ impl ProjectRoot {
     /// Creates a project titled `title` and opens it. It is made in
     /// `.creating-<id>/` and renamed into place only when its database holds
     /// its schema and its row, so a folder named by an id is never half-made.
+    /// The commands make a project only through [`ProjectRoot::create_with_save`]
+    /// (decision 121); this one serves the store's own tests.
     pub fn create(&self, title: &str) -> Result<ProjectHandle, ProjectRefusal> {
+        let _w = write_lock();
         let title = ProjectTitle::parse(title)?;
         let all = tree_bytes(&self.projects).map_err(io_refusal)?;
         self.caps.admit(0, all, 0)?;
@@ -733,6 +772,64 @@ impl ProjectRoot {
         sync_dir(&self.projects).map_err(io_refusal)?;
         tracing::info!(project = %id.as_str(), "project created");
         self.open_parsed(&id)
+    }
+
+    /// Creates a project titled `title` by its first Save, in one write with
+    /// it (decision 121): the project's database and row are made inside
+    /// `.creating-<id>/`, the Save is written there under the caps, and the
+    /// folder is renamed into place only after the Save's commit. A refused
+    /// or failed Save removes the folder; a crash leaves it to the next
+    /// start, which removes it. Returns the open project and the run's id.
+    pub fn create_with_save(
+        &self,
+        title: &ProjectTitle,
+        req: SaveRequest,
+    ) -> Result<(ProjectHandle, StoredRunId), ProjectRefusal> {
+        let _w = write_lock();
+        let id = ProjectId::parse(&random_hex32()?)?;
+        let staging = self.staging_dir(&id);
+        make_private_dir(&staging).map_err(io_refusal)?;
+        let run = match self.fill_and_save(&staging, &id, title, req) {
+            Ok(run) => run,
+            Err(r) => {
+                let _ = remove_tree(&staging);
+                tracing::warn!(project = %id.as_str(), code = r.code.wire(), "first save refused");
+                return Err(r);
+            }
+        };
+        #[cfg(test)]
+        fault::hit(fault::Point::BeforeStagingRename);
+        if let Err(e) = fs::rename(&staging, self.project_dir(&id)) {
+            let _ = remove_tree(&staging);
+            return Err(io_refusal(e));
+        }
+        sync_dir(&self.projects).map_err(io_refusal)?;
+        tracing::info!(project = %id.as_str(), run = run.0, "project created by its first save");
+        let handle = self.open_parsed(&id)?;
+        Ok((handle, run))
+    }
+
+    /// The new project's database and row in `staging`, then the Save, in
+    /// its own connection, closed before the rename.
+    fn fill_and_save(
+        &self,
+        staging: &Path,
+        id: &ProjectId,
+        title: &ProjectTitle,
+        req: SaveRequest,
+    ) -> Result<StoredRunId, ProjectRefusal> {
+        self.fill_new_project(staging, id, title)?;
+        let conn = open_conn(&staging.join(DB_FILE), self.busy)?;
+        configure(&conn)?;
+        // Not marked open: nothing outside this call can reach it.
+        let mut staged = ProjectHandle {
+            id: id.clone(),
+            dir: staging.to_path_buf(),
+            projects: self.projects.clone(),
+            conn,
+            caps: self.caps,
+        };
+        staged.save_inner(req)
     }
 
     fn fill_new_project(
@@ -827,6 +924,7 @@ impl ProjectRoot {
     /// opened and nothing is hashed. Tombstones and staging folders are not
     /// listed. A symlinked project folder is listed as refused, unread.
     pub fn list(&self) -> Result<Vec<ProjectEntry>, ProjectRefusal> {
+        let _w = write_lock();
         let mut out = Vec::new();
         for entry in fs::read_dir(&self.projects).map_err(io_refusal)? {
             let entry = entry.map_err(io_refusal)?;
@@ -843,6 +941,8 @@ impl ProjectRoot {
                     title: None,
                     refused: Some(ProjectCode::SymlinkRefused),
                     bytes: 0,
+                    saved_at: None,
+                    run_count: None,
                 });
                 continue;
             }
@@ -851,22 +951,30 @@ impl ProjectRoot {
             }
             let dir = entry.path();
             let bytes = tree_bytes(&dir).map_err(io_refusal)?;
-            let (title, refused) = match self.read_title(&dir, &id) {
-                Ok(t) => (Some(t), None),
-                Err(r) => (None, Some(r.code)),
-            };
-            out.push(ProjectEntry {
-                id,
-                title,
-                refused,
-                bytes,
+            out.push(match self.read_summary(&dir, &id) {
+                Ok(s) => ProjectEntry {
+                    id,
+                    title: Some(s.title),
+                    refused: None,
+                    bytes,
+                    saved_at: Some(s.saved_at),
+                    run_count: Some(s.run_count),
+                },
+                Err(r) => ProjectEntry {
+                    id,
+                    title: None,
+                    refused: Some(r.code),
+                    bytes,
+                    saved_at: None,
+                    run_count: None,
+                },
             });
         }
         out.sort_by(|a, b| a.id.cmp(&b.id));
         Ok(out)
     }
 
-    fn read_title(&self, dir: &Path, id: &ProjectId) -> Result<ProjectTitle, ProjectRefusal> {
+    fn read_summary(&self, dir: &Path, id: &ProjectId) -> Result<Summary, ProjectRefusal> {
         let db_path = dir.join(DB_FILE);
         match file_state(&db_path)? {
             FileState::Missing => return Err(ProjectCode::DbMissing.into()),
@@ -874,7 +982,45 @@ impl ProjectRoot {
             FileState::Regular { .. } => {}
         }
         let conn = open_conn(&db_path, self.busy)?;
-        Ok(check_db(&conn, id)?.title)
+        let record = check_db(&conn, id)?;
+        let (count, newest): (i64, Option<i64>) = conn
+            .query_row("SELECT COUNT(*), MAX(saved_at) FROM runs", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .map_err(|_| ProjectRefusal::from(ProjectCode::DbUnreadable))?;
+        Ok(Summary {
+            title: record.title,
+            saved_at: newest.unwrap_or(record.created_at),
+            run_count: count as u64,
+        })
+    }
+
+    /// Every byte under the projects folder (tombstones included) and how
+    /// many project folders it holds.
+    pub fn usage(&self) -> Result<(u64, u64), ProjectRefusal> {
+        let _w = write_lock();
+        let total = tree_bytes(&self.projects).map_err(io_refusal)?;
+        let mut count = 0u64;
+        for entry in fs::read_dir(&self.projects).map_err(io_refusal)? {
+            let entry = entry.map_err(io_refusal)?;
+            let named = entry
+                .file_name()
+                .to_str()
+                .is_some_and(|n| ProjectId::parse(n).is_ok());
+            if named && !entry.file_type().map_err(io_refusal)?.is_file() {
+                count += 1;
+            }
+        }
+        Ok((total, count))
+    }
+
+    /// One project folder's size on disk: refused for a missing or
+    /// symlinked folder, read from metadata only, so a project whose
+    /// database cannot be read still has a size.
+    pub fn project_bytes(&self, id: &ProjectId) -> Result<u64, ProjectRefusal> {
+        let dir = self.project_dir(id);
+        real_dir(&dir)?;
+        tree_bytes(&dir).map_err(io_refusal)
     }
 
     /// Deletes the project `raw_id` names (decision 104): refused while this
@@ -883,6 +1029,7 @@ impl ProjectRoot {
     /// [`ProjectRoot::open_root`]. A symlinked folder is refused and its
     /// target untouched.
     pub fn delete(&self, raw_id: &str) -> Result<(), ProjectRefusal> {
+        let _w = write_lock();
         let id = ProjectId::parse(raw_id)?;
         let dir = self.project_dir(&id);
         real_dir(&dir)?;
@@ -970,6 +1117,11 @@ impl ProjectHandle {
 
     /// Closes the project.
     pub fn close(self) {}
+
+    /// Every byte in the project's folder, from metadata.
+    pub fn size_on_disk(&self) -> Result<u64, ProjectRefusal> {
+        tree_bytes(&self.dir).map_err(io_refusal)
+    }
 
     fn artifacts_dir(&self) -> PathBuf {
         self.dir.join(ARTIFACTS_DIR)
@@ -1072,6 +1224,7 @@ impl ProjectHandle {
     /// Saves one finished run and its artifacts (ADR-009 §5), all or
     /// nothing. Returns the run's id in this project.
     pub fn save(&mut self, req: SaveRequest) -> Result<StoredRunId, ProjectRefusal> {
+        let _w = write_lock();
         let result = self.save_inner(req);
         if let Err(r) = &result {
             tracing::warn!(project = %self.id.as_str(), code = r.code.wire(), "save refused");
@@ -1178,6 +1331,8 @@ impl ProjectHandle {
         let project_now = tree_bytes(&project_dir).map_err(io_refusal)?;
         let all_now = tree_bytes(&projects).map_err(io_refusal)?;
         caps.admit(project_now, all_now, incoming)?;
+        #[cfg(test)]
+        fault::hit(fault::Point::AfterCaps);
 
         // 3. The files: each verified and renamed into place, or reused.
         let mut created: Vec<PathBuf> = Vec::new();
@@ -1487,6 +1642,8 @@ pub(crate) mod fault {
         BeforeRename,
         BeforeCommit,
         AfterTombstone,
+        AfterCaps,
+        BeforeStagingRename,
     }
 
     pub enum Fault {
@@ -1567,7 +1724,7 @@ pub(crate) mod fault {
 mod tests {
     use super::*;
     use std::panic::{catch_unwind, AssertUnwindSafe};
-    use std::sync::mpsc;
+    use std::sync::{mpsc, Arc};
 
     /// A folder under the OS temp folder that the test made and removes.
     struct TempRoot(PathBuf);
@@ -2529,6 +2686,191 @@ mod tests {
                 .map(|r| r.code),
             Some(ProjectCode::RootUnavailable)
         );
+    }
+
+    // ---- Phase 5B-2: the first Save, and the process-wide lock -------------
+
+    fn title(t: &str) -> ProjectTitle {
+        ProjectTitle::parse(t).unwrap()
+    }
+
+    #[test]
+    fn a_first_save_makes_its_project_and_its_run_in_one_step() {
+        let t = TempRoot::new();
+        let store = ProjectRoot::open_root(&t.root()).unwrap();
+        let (mut h, run) = store
+            .create_with_save(&title("Chapter 3"), request(b"d", b"s", b"b"))
+            .unwrap();
+        assert_eq!(run, StoredRunId(1));
+        assert_eq!(h.record().unwrap().title.as_str(), "Chapter 3");
+        assert_eq!(h.read_artifact(hash_of(b"d").as_hex()).unwrap(), b"d");
+        let projects = t.root().join(PROJECTS_DIR);
+        assert_eq!(
+            files_in(&projects),
+            [h.id().as_str().to_string()],
+            "no staging folder left"
+        );
+        let id = h.id().clone();
+        drop(h);
+        let listed = store.list().unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].id, id);
+        assert_eq!(listed[0].run_count, Some(1));
+        assert!(listed[0].saved_at.is_some());
+    }
+
+    #[test]
+    fn a_crash_during_a_first_save_leaves_no_project() {
+        for at in [
+            fault::Point::AfterCaps,
+            fault::Point::BeforeCommit,
+            fault::Point::BeforeStagingRename,
+        ] {
+            let t = TempRoot::new();
+            let store = ProjectRoot::open_root(&t.root()).unwrap();
+            fault::set(fault::Fault::Crash(at));
+            let crashed = catch_unwind(AssertUnwindSafe(|| {
+                store.create_with_save(&title("p"), request(b"d", b"s", b"b"))
+            }));
+            assert!(crashed.is_err(), "{at:?}: the crash fired");
+            assert!(
+                store.list().unwrap().is_empty(),
+                "{at:?}: no project is listed"
+            );
+            let projects = t.root().join(PROJECTS_DIR);
+            assert!(
+                files_in(&projects)
+                    .iter()
+                    .all(|n| n.starts_with(CREATING_PREFIX)),
+                "{at:?}: only a staging folder: {:?}",
+                files_in(&projects)
+            );
+            ProjectRoot::open_root(&t.root()).unwrap();
+            assert!(
+                files_in(&projects).is_empty(),
+                "{at:?}: the next start cleared it"
+            );
+        }
+    }
+
+    #[test]
+    fn a_refused_first_save_leaves_no_folder() {
+        let t = TempRoot::new();
+        let store = ProjectRoot::open_root_with(
+            &t.root(),
+            Caps {
+                project: 1024,
+                all_projects: u64::MAX,
+                db_allowance: 0,
+            },
+        )
+        .unwrap();
+        let r = store
+            .create_with_save(&title("p"), request(&[7u8; 2048], b"s", b"b"))
+            .err()
+            .map(|r| r.code);
+        assert_eq!(r, Some(ProjectCode::ProjectCap));
+        let mut bad = request(b"d", b"s", b"b");
+        bad.run.state = RunState::Running;
+        assert_eq!(
+            store
+                .create_with_save(&title("p"), bad)
+                .err()
+                .map(|r| r.code),
+            Some(ProjectCode::RunNotFinished)
+        );
+        assert!(files_in(&t.root().join(PROJECTS_DIR)).is_empty());
+    }
+
+    /// A Save in another thread, paused just after its cap check until the
+    /// test lets it go.
+    fn paused_save(
+        mut h: ProjectHandle,
+        req: SaveRequest,
+    ) -> (
+        std::thread::JoinHandle<(ProjectHandle, Result<StoredRunId, ProjectRefusal>)>,
+        mpsc::Receiver<()>,
+        mpsc::Sender<()>,
+    ) {
+        let (reached_tx, reached_rx) = mpsc::channel();
+        let (resume_tx, resume_rx) = mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            fault::set(fault::Fault::Pause(
+                fault::Point::AfterCaps,
+                reached_tx,
+                resume_rx,
+            ));
+            let r = h.save(req);
+            (h, r)
+        });
+        (worker, reached_rx, resume_tx)
+    }
+
+    #[test]
+    fn two_saves_into_two_projects_cannot_pass_the_all_projects_cap_together() {
+        let t = TempRoot::new();
+        let store = ProjectRoot::open_root(&t.root()).unwrap();
+        let mut a = store.create("a").unwrap();
+        let mut b = store.create("b").unwrap();
+        let (data_a, data_b) = (vec![1u8; 4000], vec![2u8; 4000]);
+        // Room for one of the two Saves, not both.
+        let all = tree_bytes(&t.root().join(PROJECTS_DIR)).unwrap();
+        let caps = Caps {
+            project: u64::MAX,
+            all_projects: all + 4000 + 2 + 2 + 100 + 3000,
+            db_allowance: 100,
+        };
+        a.caps = caps;
+        b.caps = caps;
+        let (worker, reached, resume) = paused_save(a, request(&data_a, b"sa", b"ba"));
+        reached.recv().unwrap();
+        // A has passed its cap check and holds the lock. B's Save runs in its
+        // own thread: it must wait for A, then see A's bytes.
+        let (done_tx, done_rx) = mpsc::channel();
+        let other = std::thread::spawn(move || {
+            let r = b.save(request(&data_b, b"sb", b"bb"));
+            done_tx.send(()).unwrap();
+            r
+        });
+        // Observed first, asserted after A is let go, so a failure is a red
+        // test rather than a paused thread left waiting.
+        let early = done_rx.recv_timeout(Duration::from_millis(300)).is_ok();
+        resume.send(()).unwrap();
+        let (_a, ra) = worker.join().unwrap();
+        let rb = other.join().unwrap();
+        assert!(!early, "B's Save finished while A held the lock");
+        ra.expect("A fits");
+        assert_eq!(
+            rb.unwrap_err().code,
+            ProjectCode::AllProjectsCap,
+            "B sees A's bytes"
+        );
+    }
+
+    #[test]
+    fn a_delete_waits_for_a_save_in_flight() {
+        let t = TempRoot::new();
+        let store = Arc::new(ProjectRoot::open_root(&t.root()).unwrap());
+        let a = store.create("a").unwrap();
+        let other = store.create("other").unwrap();
+        let other_id = other.id().as_str().to_string();
+        drop(other);
+        let (worker, reached, resume) = paused_save(a, request(b"d", b"s", b"b"));
+        reached.recv().unwrap();
+        let (done_tx, done_rx) = mpsc::channel();
+        let s2 = Arc::clone(&store);
+        let deleter = std::thread::spawn(move || {
+            let r = s2.delete(&other_id);
+            done_tx.send(()).unwrap();
+            r
+        });
+        let early = done_rx.recv_timeout(Duration::from_millis(300)).is_ok();
+        resume.send(()).unwrap();
+        let saved = worker.join().unwrap().1;
+        let deleted = deleter.join().unwrap();
+        assert!(!early, "the delete ran during the Save");
+        saved.expect("the Save completes");
+        deleted.expect("then the delete");
     }
 
     #[test]

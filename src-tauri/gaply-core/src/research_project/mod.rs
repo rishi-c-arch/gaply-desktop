@@ -25,8 +25,14 @@
 //! letter.
 
 mod graph;
+mod render;
 
 pub use self::graph::{ProvEdge, ProvGraph, ProvNode};
+pub use self::render::{
+    escape_markdown, iso_utc, render_prov_json, render_report_markdown, ColumnRole, ExportCode,
+    ExportCount, ExportManifest, ExportParameter, ExportRun, ProjectExportInput, TestVariant,
+    PROV_FILE_NAME, PROV_NAMESPACE, REPORT_FILE_NAME, REPORT_PREAMBLE,
+};
 
 use crate::contracts::codes::{closed, Closed};
 use crate::contracts::{CapabilityId, ContentHash, RunState, WorkspaceId};
@@ -47,8 +53,8 @@ pub const ALL_PROJECTS_CAP_BYTES: u64 = 10 * 1024 * 1024 * 1024;
 /// before it writes.
 pub const DB_GROWTH_ALLOWANCE_BYTES: u64 = 1024 * 1024;
 
-/// The longest title, in characters.
-pub const TITLE_MAX_CHARS: usize = 200;
+/// The longest title, in characters (decision 121).
+pub const TITLE_MAX_CHARS: usize = 100;
 
 /// How many hex characters of a hash a log line may carry.
 pub const HASH_PREFIX_LEN: usize = 8;
@@ -118,6 +124,43 @@ closed! {
         /// A run's end code: it was left unfinished, and recovery marked it
         /// failed.
         RunInterrupted => "run_interrupted",
+        // Phase 5B-2: the commands' refusals (decisions 120 to 124).
+        /// No project is open, or the id given is not the open project's.
+        NotOpen => "not_open",
+        /// No run of the registry has that id, and none ever had.
+        RunUnknown => "run_unknown",
+        /// The run is no longer held: evicted, or its workspace was left.
+        RunEvicted => "run_evicted",
+        /// The run was cancelled; a cancelled run is never saved.
+        RunCancelled => "run_cancelled",
+        /// The run ended in a state a project does not keep: refused,
+        /// waiting on the user, timed out or over a budget.
+        RunNotSaveable => "run_not_saveable",
+        /// The run failed without a closed code to keep.
+        RunFailedWithoutCode => "run_failed_without_code",
+        /// This project already holds that run.
+        RunAlreadySaved => "run_already_saved",
+        /// The data file the run read is no longer held: its dataset was
+        /// closed or evicted, so its bytes cannot be shown to be the same.
+        DataUnavailable => "data_unavailable",
+        /// The data file held does not hash to what the run read.
+        DataMismatch => "data_mismatch",
+        /// A delete came with no confirmation.
+        ConfirmationMissing => "confirmation_missing",
+        /// The confirmation is not one this session issued.
+        ConfirmationUnknown => "confirmation_unknown",
+        /// The confirmation was used already.
+        ConfirmationUsed => "confirmation_used",
+        /// A newer confirmation replaced it.
+        ConfirmationReplaced => "confirmation_replaced",
+        /// The confirmation is more than five minutes old.
+        ConfirmationExpired => "confirmation_expired",
+        /// The confirmation was issued for another project.
+        ConfirmationOtherProject => "confirmation_other_project",
+        /// The open project holds no run with that id.
+        StoredRunUnknown => "stored_run_unknown",
+        /// A run's result is larger than a read returns.
+        ResultTooLarge => "result_too_large",
     }
 }
 
@@ -230,19 +273,66 @@ impl std::fmt::Debug for ArtifactHash {
 #[derive(Clone, PartialEq, Eq)]
 pub struct ProjectTitle(String);
 
+/// A character a reader cannot see that changes how text around it reads:
+/// Unicode's format characters (category Cf: the bidirectional overrides and
+/// isolates, zero-width spaces and joiners, the soft hyphen, the byte-order
+/// mark, the tag characters), the line and paragraph separators, the
+/// combining grapheme joiner and the Hangul fillers. Listed by code point,
+/// from the Unicode 15.1 character database, read 19 Oct 2026; `std` has no
+/// category lookup and no crate is added for one.
+pub fn is_invisible_format(c: char) -> bool {
+    matches!(
+        c as u32,
+        0x00AD
+            | 0x034F
+            | 0x0600..=0x0605
+            | 0x061C
+            | 0x06DD
+            | 0x070F
+            | 0x0890..=0x0891
+            | 0x08E2
+            | 0x115F..=0x1160
+            | 0x180E
+            | 0x200B..=0x200F
+            | 0x2028..=0x202E
+            | 0x2060..=0x2064
+            | 0x2066..=0x206F
+            | 0x3164
+            | 0xFEFF
+            | 0xFFA0
+            | 0xFFF9..=0xFFFB
+            | 0x110BD
+            | 0x110CD
+            | 0x13430..=0x1343F
+            | 0x1BCA0..=0x1BCA3
+            | 0x1D173..=0x1D17A
+            | 0xE0001
+            | 0xE0020..=0xE007F
+    )
+}
+
 impl ProjectTitle {
-    /// 1 to [`TITLE_MAX_CHARS`] characters, not all whitespace, no control
-    /// character.
+    /// 1 to [`TITLE_MAX_CHARS`] characters, with no whitespace at either
+    /// end, no control character and no invisible formatting character
+    /// ([`is_invisible_format`]) (decision 121).
     pub fn parse(raw: &str) -> Result<ProjectTitle, ProjectCode> {
         let n = raw.chars().count();
         if n == 0
             || n > TITLE_MAX_CHARS
-            || raw.trim().is_empty()
-            || raw.chars().any(char::is_control)
+            || raw.trim() != raw
+            || raw
+                .chars()
+                .any(|c| c.is_control() || is_invisible_format(c))
         {
             return Err(ProjectCode::BadTitle);
         }
         Ok(ProjectTitle(raw.to_string()))
+    }
+
+    /// The name as the user typed it: trimmed, then [`ProjectTitle::parse`]'s
+    /// rule (decision 121).
+    pub fn from_typed(raw: &str) -> Result<ProjectTitle, ProjectCode> {
+        ProjectTitle::parse(raw.trim())
     }
 
     pub fn as_str(&self) -> &str {
@@ -288,6 +378,11 @@ closed! {
         OperationSpec => "operation_spec",
         /// The run's `ResultBundle`, its manifest inside, as canonical JSON.
         ResultBundle => "result_bundle",
+        /// The run's `RunManifest` on its own, as canonical JSON (Phase 5B-2).
+        RunManifest => "run_manifest",
+        /// A failed run's failure record: its closed code and parameters, as
+        /// JSON (Phase 5B-2, decision 123).
+        RunFailure => "run_failure",
     }
 }
 
@@ -314,7 +409,10 @@ impl ArtifactKind {
     pub fn admits(self, format: DataFormat) -> bool {
         match self {
             ArtifactKind::DataFile => format != DataFormat::Json,
-            ArtifactKind::OperationSpec | ArtifactKind::ResultBundle => format == DataFormat::Json,
+            ArtifactKind::OperationSpec
+            | ArtifactKind::ResultBundle
+            | ArtifactKind::RunManifest
+            | ArtifactKind::RunFailure => format == DataFormat::Json,
         }
     }
 }
@@ -339,6 +437,23 @@ pub struct ArtifactRef {
     pub schema_version: u32,
     /// `None`, or one of the four damage codes.
     pub damage: Option<ProjectCode>,
+}
+
+/// A closed code's wire word with its type left behind, so codes of several
+/// sets can sit in one list (the exports' input). Made only from a member of
+/// a [`Closed`] set, so its text is always one of that set's `'static` words,
+/// never user text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ClosedWord(&'static str);
+
+impl ClosedWord {
+    pub fn of<C: Closed>(code: C) -> ClosedWord {
+        ClosedWord(code.wire())
+    }
+
+    pub fn as_str(self) -> &'static str {
+        self.0
+    }
 }
 
 /// A run's id inside one project.
@@ -503,10 +618,36 @@ mod tests {
                 "project.io_failed",
                 "project.db_failed",
                 "project.run_interrupted",
+                "project.not_open",
+                "project.run_unknown",
+                "project.run_evicted",
+                "project.run_cancelled",
+                "project.run_not_saveable",
+                "project.run_failed_without_code",
+                "project.run_already_saved",
+                "project.data_unavailable",
+                "project.data_mismatch",
+                "project.confirmation_missing",
+                "project.confirmation_unknown",
+                "project.confirmation_used",
+                "project.confirmation_replaced",
+                "project.confirmation_expired",
+                "project.confirmation_other_project",
+                "project.stored_run_unknown",
+                "project.result_too_large",
             ]
         );
         let kinds: Vec<&str> = ArtifactKind::ALL.iter().map(|c| c.wire()).collect();
-        assert_eq!(kinds, ["data_file", "operation_spec", "result_bundle"]);
+        assert_eq!(
+            kinds,
+            [
+                "data_file",
+                "operation_spec",
+                "result_bundle",
+                "run_manifest",
+                "run_failure"
+            ]
+        );
         let formats: Vec<&str> = DataFormat::ALL.iter().map(|c| c.wire()).collect();
         assert_eq!(
             formats,
@@ -649,6 +790,61 @@ mod tests {
                 "{bad:?}"
             );
         }
+    }
+
+    #[test]
+    fn a_typed_name_is_trimmed_and_invisible_formatting_is_refused() {
+        assert_eq!(
+            ProjectTitle::from_typed("  Thesis  ").map(|t| t.as_str().to_string()),
+            Ok("Thesis".into())
+        );
+        assert_eq!(
+            ProjectTitle::parse(" Thesis"),
+            Err(ProjectCode::BadTitle),
+            "a stored name has no space at either end"
+        );
+        assert!(ProjectTitle::from_typed(&"é".repeat(100)).is_ok());
+        assert_eq!(
+            ProjectTitle::from_typed(&"é".repeat(101)),
+            Err(ProjectCode::BadTitle),
+            "counted in characters, not bytes"
+        );
+        for bad in [
+            "",
+            " \t ",
+            "a\u{7}b",
+            "evil\u{202E}gpj.exe",
+            "a\u{2066}b",
+            "zero\u{200B}width",
+            "soft\u{00AD}hyphen",
+            "bom\u{FEFF}",
+            "tag\u{E0041}",
+            "line\u{2028}sep",
+        ] {
+            assert_eq!(
+                ProjectTitle::from_typed(bad),
+                Err(ProjectCode::BadTitle),
+                "{bad:?}"
+            );
+        }
+        // Visible text in any script is a name.
+        for good in [
+            "Kapitel 3: Ergebnisse",
+            "第三章",
+            "Résumé — v2",
+            "a + b = c",
+        ] {
+            assert!(ProjectTitle::from_typed(good).is_ok(), "{good:?}");
+        }
+    }
+
+    #[test]
+    fn a_closed_word_is_a_closed_sets_word() {
+        assert_eq!(
+            ClosedWord::of(ProjectCode::NotOpen).as_str(),
+            "project.not_open"
+        );
+        assert_eq!(ClosedWord::of(RunState::Failed).as_str(), "failed");
     }
 
     #[test]

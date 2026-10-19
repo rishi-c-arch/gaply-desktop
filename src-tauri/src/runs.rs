@@ -47,6 +47,13 @@
 //! For tests, [`Runs::with_hooks`] takes a clock, a hook the check point
 //! calls first (a test parks a run there at column k) and the ceiling.
 //!
+//! Phase 5B-2 (decision 123): a slot opened through `stats_desc_open` also
+//! holds the original file's bytes, with their SHA-256 taken at ingest and
+//! their format ([`SourceFile`]), for as long as the slot is held: closing or
+//! evicting the slot drops them. Each record keeps its spec's canonical bytes
+//! and the slot and hash of the data it read ([`RunInput`]), and
+//! [`Runs::copy_for_save`] hands a project Save a copy of what it keeps.
+//!
 //! Phase 3: the run manager and the slots belong to the Statistics workspace
 //! (`crate::workspace`), built when it is activated and dropped when it is
 //! left. [`Runs::seal`] is how it is left: under the records' lock it either
@@ -61,9 +68,11 @@ use std::time::Instant;
 
 use gaply_core::contracts::codes::{Closed, RunCode};
 use gaply_core::contracts::{
-    transition, Diagnostic, OperationId, OperationSpec, Platform, ResultBundle, RunEvent, RunId,
-    RunRecord, RunState, SchemaVersion, ValidationReport, ValidationStatus,
+    transition, CapabilityId, ContentHash, Diagnostic, OperationId, OperationSpec, Platform,
+    ResultBundle, RunEvent, RunId, RunRecord, RunState, SchemaVersion, ValidationReport,
+    ValidationStatus,
 };
+use gaply_core::research_project::DataFormat;
 use gaply_core::stats_adapters;
 use gaply_core::stats_desc::{self, DescCode, DescribeParams, DescribeResult, Halt};
 use gaply_core::stats_l1::dataset::Dataset;
@@ -117,19 +126,56 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
  *  Dataset slots
  * ------------------------------------------------------------------------ */
 
-/// One opened dataset and its file's display name. Never `Debug`, never
+/// The original file's bytes, as the ingest read them, with their SHA-256
+/// taken at ingest and their format (Phase 5B-2, decision 123): what a
+/// project Save copies. Never `Debug`, never `Serialize`.
+pub struct SourceFile {
+    bytes: Vec<u8>,
+    sha256: ContentHash,
+    format: DataFormat,
+}
+
+impl SourceFile {
+    pub fn new(bytes: Vec<u8>, sha256: ContentHash, format: DataFormat) -> SourceFile {
+        SourceFile {
+            bytes,
+            sha256,
+            format,
+        }
+    }
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+    pub fn sha256(&self) -> &ContentHash {
+        &self.sha256
+    }
+    pub fn format(&self) -> DataFormat {
+        self.format
+    }
+}
+
+/// One opened dataset, its slot number, its file's display name and, when
+/// the ingest kept them, the original bytes. Never `Debug`, never
 /// `Serialize`: it holds the user's rows.
 pub struct Slot {
+    id: u64,
     display_name: String,
     dataset: Dataset,
+    source: Option<SourceFile>,
 }
 
 impl Slot {
+    pub fn id(&self) -> u64 {
+        self.id
+    }
     pub fn display_name(&self) -> &str {
         &self.display_name
     }
     pub fn dataset(&self) -> &Dataset {
         &self.dataset
+    }
+    pub fn source(&self) -> Option<&SourceFile> {
+        self.source.as_ref()
     }
 }
 
@@ -155,13 +201,26 @@ impl DatasetSlots {
     /// Holds the dataset and returns its slot. A fifth drops the oldest; a run
     /// already using it keeps its own handle until it ends.
     pub fn insert(&self, display_name: String, dataset: Dataset) -> u64 {
+        self.insert_with_source(display_name, dataset, None)
+    }
+
+    /// [`DatasetSlots::insert`], with the original file's bytes held beside
+    /// the dataset for as long as the slot is (Phase 5B-2).
+    pub fn insert_with_source(
+        &self,
+        display_name: String,
+        dataset: Dataset,
+        source: Option<SourceFile>,
+    ) -> u64 {
         let id = self.next.fetch_add(1, Ordering::SeqCst) + 1;
         let mut slots = lock(&self.slots);
         slots.push_back((
             id,
             Arc::new(Slot {
+                id,
                 display_name,
                 dataset,
+                source,
             }),
         ));
         while slots.len() > MAX_SLOTS {
@@ -219,12 +278,30 @@ pub enum RunKind {
     Ttest,
 }
 
+/// The data a run read: its slot, and the SHA-256 of the original bytes the
+/// slot held when the run started (Phase 5B-2, decision 123).
+#[derive(Clone)]
+pub struct RunInput {
+    pub slot: u64,
+    pub sha256: ContentHash,
+}
+
+/// A record's spec, as canonical JSON, and the capability it names.
+struct HeldSpec {
+    json: Vec<u8>,
+    capability_id: CapabilityId,
+    capability_version: u32,
+}
+
 /// What one kind of run keeps: its validation, its result and the reason it
-/// failed, in that kind's own codes.
+/// failed, in that kind's own codes; since Phase 5B-2 also its spec and the
+/// data it read.
 struct Outputs<R, C> {
     validation: Option<ValidationReport<C>>,
     bundle: Option<ResultBundle<R, C>>,
     failure: Option<Diagnostic<C>>,
+    spec: Option<HeldSpec>,
+    input: Option<RunInput>,
 }
 
 impl<R, C> Default for Outputs<R, C> {
@@ -233,8 +310,78 @@ impl<R, C> Default for Outputs<R, C> {
             validation: None,
             bundle: None,
             failure: None,
+            spec: None,
+            input: None,
         }
     }
+}
+
+impl<R: Serialize, C: Serialize> Outputs<R, C> {
+    /// The copy a Save takes, in this kind's codes made JSON.
+    fn copy(&self) -> SavedParts {
+        let json = "a record's parts are ids, words, numbers and the user's labels";
+        SavedParts {
+            spec: self.spec.as_ref().map(|s| {
+                (
+                    s.json.clone(),
+                    s.capability_id.clone(),
+                    s.capability_version,
+                )
+            }),
+            input: self.input.clone(),
+            bundle_json: self
+                .bundle
+                .as_ref()
+                .map(|b| serde_json::to_vec(b).expect(json)),
+            manifest_json: self
+                .bundle
+                .as_ref()
+                .map(|b| serde_json::to_vec(&b.manifest).expect(json)),
+            manifest_inputs: self
+                .bundle
+                .as_ref()
+                .map(|b| b.manifest.inputs.clone())
+                .unwrap_or_default(),
+            failure: self
+                .failure
+                .as_ref()
+                .map(|d| serde_json::to_value(d).expect(json)),
+        }
+    }
+}
+
+/// What [`Outputs::copy`] takes, before the record's own fields join it.
+struct SavedParts {
+    spec: Option<(Vec<u8>, CapabilityId, u32)>,
+    input: Option<RunInput>,
+    bundle_json: Option<Vec<u8>>,
+    manifest_json: Option<Vec<u8>>,
+    manifest_inputs: Vec<ContentHash>,
+    failure: Option<serde_json::Value>,
+}
+
+/// A finished run as a project Save needs it (Phase 5B-2): copies, never
+/// handles. The bundle's bytes hold the user's headers and level labels, so
+/// this is never `Debug` or `Serialize`; it goes only into the store.
+pub struct RunCopy {
+    pub kind: RunKind,
+    pub state: RunState,
+    pub started_ms: u64,
+    pub ended_ms: Option<u64>,
+    /// The manager's clock when the copy was taken, so the run's times can be
+    /// placed on the wall clock.
+    pub now_ms: u64,
+    /// The spec as canonical JSON, and the capability it names; `None` only
+    /// before the record was queued.
+    pub spec_json: Option<Vec<u8>>,
+    pub capability: Option<(CapabilityId, u32)>,
+    pub input: Option<RunInput>,
+    pub bundle_json: Option<Vec<u8>>,
+    pub manifest_json: Option<Vec<u8>>,
+    /// The manifest's input hashes, in the spec's order.
+    pub manifest_inputs: Vec<ContentHash>,
+    /// A failed run's diagnostic: its closed code and parameters.
+    pub failure: Option<serde_json::Value>,
 }
 
 /// A record's outputs, by its kind: the closed enum of result kinds
@@ -302,6 +449,29 @@ pub enum NotStarted {
 enum Job {
     Describe(OperationSpec<DescribeParams>),
     Ttest(OperationSpec<TTestParams>),
+}
+
+impl Job {
+    /// The spec as canonical JSON, and the capability it names.
+    fn held(&self) -> HeldSpec {
+        let (json, id, version) = match self {
+            Job::Describe(s) => (
+                serde_json::to_vec(s),
+                s.capability_id.clone(),
+                s.capability_version,
+            ),
+            Job::Ttest(s) => (
+                serde_json::to_vec(s),
+                s.capability_id.clone(),
+                s.capability_version,
+            ),
+        };
+        HeldSpec {
+            json: json.expect("a spec of ids, words and numbers serialises"),
+            capability_id: id,
+            capability_version: version,
+        }
+    }
 }
 
 /// A validation's report, in its kind's codes.
@@ -524,6 +694,11 @@ impl Runs {
     /// After the validation: the record's next state from its report, and,
     /// if it may run, the worker on its own thread.
     fn queue(self: &Arc<Self>, run: RunId, slot: Arc<Slot>, job: Job, report: Report) {
+        let held_spec = job.held();
+        let input = slot.source().map(|s| RunInput {
+            slot: slot.id(),
+            sha256: s.sha256().clone(),
+        });
         let queued = {
             let now = self.clock.now_ms();
             let mut entries = lock(&self.entries);
@@ -544,8 +719,16 @@ impl Runs {
                 }
             };
             match (&mut entry.held, report) {
-                (Held::Describe(o), Report::Describe(r)) => o.validation = Some(r),
-                (Held::Ttest(o), Report::Ttest(r)) => o.validation = Some(r),
+                (Held::Describe(o), Report::Describe(r)) => {
+                    o.validation = Some(r);
+                    o.spec = Some(held_spec);
+                    o.input = input;
+                }
+                (Held::Ttest(o), Report::Ttest(r)) => {
+                    o.validation = Some(r);
+                    o.spec = Some(held_spec);
+                    o.input = input;
+                }
                 _ => unreachable!("a record's report is of the record's kind"),
             }
             queued
@@ -909,6 +1092,43 @@ impl Runs {
         }
     }
 
+    /// A copy of `run` for a project Save (Phase 5B-2), of either kind:
+    /// `run.unknown_run` when no record has that id.
+    pub fn copy_for_save(&self, run: RunId) -> Result<RunCopy, RunCode> {
+        let now_ms = self.clock.now_ms();
+        let mut entries = lock(&self.entries);
+        let entry = Self::find(&mut entries, run).ok_or(RunCode::UnknownRun)?;
+        let parts = match &entry.held {
+            Held::Describe(o) => o.copy(),
+            Held::Ttest(o) => o.copy(),
+        };
+        let (spec_json, capability) = match parts.spec {
+            Some((json, id, version)) => (Some(json), Some((id, version))),
+            None => (None, None),
+        };
+        Ok(RunCopy {
+            kind: entry.held.kind(),
+            state: entry.record.state,
+            started_ms: entry.record.started_ms,
+            ended_ms: entry.record.ended_ms,
+            now_ms,
+            spec_json,
+            capability,
+            input: parts.input,
+            bundle_json: parts.bundle_json,
+            manifest_json: parts.manifest_json,
+            manifest_inputs: parts.manifest_inputs,
+            failure: parts.failure,
+        })
+    }
+
+    /// Whether this manager, or an engine before it, ever handed out `run`:
+    /// an id that was issued and is not held was evicted, or its workspace
+    /// was left.
+    pub fn was_issued(&self, run: RunId) -> bool {
+        run.0 >= 1 && run.0 <= self.last_id()
+    }
+
     /// How many records are held.
     pub fn held(&self) -> usize {
         lock(&self.entries).len()
@@ -1117,8 +1337,10 @@ mod tests {
             },
         );
         let slot = Arc::new(Slot {
+            id: 1,
             display_name: "synthetic".into(),
             dataset,
+            source: None,
         });
         assert_eq!(runs.start(slot, spec), Err(NotStarted::Sealed));
         assert_eq!(runs.held(), 1, "no record was made");

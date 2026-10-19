@@ -41,6 +41,13 @@
 //! * [`build`] is what every façade is told about this build: Experimental
 //!   capabilities run only with the `devtools` feature (decision 48).
 //!
+//! * **The open project (Research OS, Phase 5B-2, decision 122)** is held
+//!   beside the active workspace, in the session's
+//!   [`ProjectSession`](crate::project_commands::ProjectSession). Leaving
+//!   Statistics closes it: after the state has left `Active`, outside the
+//!   session's lock, so a Save that holds the project finishes whole first and
+//!   one that has not yet checked the state again is refused whole.
+//!
 //! Every command is `#[tracing::instrument(skip_all)]` and returns a view, or
 //! a refusal that is a closed code with closed-word or numeric parameters.
 //! Nothing here holds or logs user data.
@@ -59,6 +66,7 @@ use gaply_core::contracts::{Diagnostic, ParamKey, ParamValue, WorkspaceId};
 use gaply_core::stats_registry;
 use gaply_core::GaplyError;
 
+use crate::project_commands::ProjectSession;
 use crate::runs::{DatasetSlots, RunKind, Runs};
 
 /// A readiness check's answer (blueprint §9.2's `health_check`).
@@ -109,6 +117,8 @@ pub struct WorkspaceSession {
     inner: Mutex<Inner>,
     health: HealthCheck,
     runs: RunsFactory,
+    /// The open project and the delete confirmations (decision 122).
+    projects: Arc<ProjectSession>,
 }
 
 impl Default for WorkspaceSession {
@@ -124,6 +134,16 @@ fn lock(m: &Mutex<Inner>) -> MutexGuard<'_, Inner> {
 impl WorkspaceSession {
     /// A session with an injected readiness check and run-manager factory.
     pub fn with_hooks(health: HealthCheck, runs: RunsFactory) -> WorkspaceSession {
+        WorkspaceSession::with_projects(health, runs, Arc::new(ProjectSession::default()))
+    }
+
+    /// [`WorkspaceSession::with_hooks`], with the project session given: tests
+    /// pass one with small caps and a clock they move.
+    pub fn with_projects(
+        health: HealthCheck,
+        runs: RunsFactory,
+        projects: Arc<ProjectSession>,
+    ) -> WorkspaceSession {
         WorkspaceSession {
             inner: Mutex::new(Inner {
                 state: WorkspaceState::NoWorkspace,
@@ -133,7 +153,13 @@ impl WorkspaceSession {
             }),
             health,
             runs,
+            projects,
         }
+    }
+
+    /// The open project and the delete confirmations, beside the workspace.
+    pub fn projects(&self) -> &Arc<ProjectSession> {
+        &self.projects
     }
 
     pub fn state(&self) -> WorkspaceState {
@@ -218,7 +244,13 @@ impl WorkspaceSession {
                 inner.state = workspace::transition(inner.state, WorkspaceEvent::Activated)?;
                 inner.statistics = Some(engine);
                 tracing::info!(workspace = workspace_word(id), "workspace: active");
-                Ok(inner.state)
+                let state = inner.state;
+                drop(inner);
+                // Activating a workspace closes any project (decision 122).
+                // None can be open here, since leaving closed it; this keeps
+                // the rule true however the state was reached.
+                self.projects.close_on_leave();
+                Ok(state)
             }
             Err(code) => {
                 inner.state =
@@ -238,6 +270,16 @@ impl WorkspaceSession {
     /// `Active`. Otherwise `Active → Deactivating`, the engine dropped,
     /// `→ NoWorkspace`.
     pub fn deactivate(&self) -> Result<WorkspaceState, Diagnostic<WorkspaceCode>> {
+        let state = self.leave()?;
+        // Decision 122: leaving Statistics closes the open project. After the
+        // state left `Active` and outside the session's lock: a Save holding
+        // the project's lock finishes whole first, and every project command
+        // checks the state again under that lock.
+        self.projects.close_on_leave();
+        Ok(state)
+    }
+
+    fn leave(&self) -> Result<WorkspaceState, Diagnostic<WorkspaceCode>> {
         let mut inner = lock(&self.inner);
         let WorkspaceState::Active(id) = inner.state else {
             return Err(

@@ -2,11 +2,13 @@
 //! 112; ADR-009 §1, §2, §16).** Four source scans, each with a self-check
 //! that its matcher still matches and a snippet it must catch:
 //!
-//! 1. **No caller.** No non-test code outside `src/project_store.rs` names the
-//!    store or any item it declares, in either crate, so nothing reaches it
-//!    until 5B-2 wires a Save click (decision 105). The item list is read from
-//!    the store's source. The one allowed mention is its `pub mod` line in
-//!    `src/lib.rs`. `#[cfg(test)]` modules elsewhere are not scanned.
+//! 1. **One caller.** No non-test code outside `src/project_store.rs` and
+//!    `src/project_commands.rs` names the store or any item it declares, in
+//!    either crate (Phase 5B-2: the commands module is the only module that
+//!    may call the store). The item list is read from the store's source. The
+//!    one other allowed mention is its `pub mod` line in `src/lib.rs`.
+//!    `#[cfg(test)]` modules elsewhere are not scanned. The commands module
+//!    must name the store, so the exemption cannot outlive the caller.
 //! 2. **One resolver.** `projects_root` resolves the folder through
 //!    `app_local_data_dir()` (decision 99), and the store's non-test code
 //!    names no other path resolver, home folder, temp folder or environment
@@ -20,7 +22,15 @@
 //!    `http_fetcher.rs`, `verify_agent`, `refverify`) and no file of the
 //!    frontend's Supabase service names the project modules or any type they
 //!    declare (read from their source); and the project modules name no HTTP
-//!    client, transport, proxy, helper layer or Supabase.
+//!    client, transport, proxy, helper layer or Supabase. Since Phase 5B-2 the
+//!    project modules are the store, the pure model with its two renderers
+//!    (`research_project/render.rs`) and the commands module, and the types
+//!    are theirs, every response view included.
+//! 5. **Logs (Phase 5B-2).** Every tracing event in the commands module names
+//!    a project only through a parsed id's `as_str()`, and none names the
+//!    project's name, a hash in full, a path or a byte count of content: a
+//!    project appears in a log by its id, an artifact by its prefix (the
+//!    store's own rule, unchanged).
 //!
 //! **What it cannot see.** It constrains what was TYPED. A third module that
 //! reads a project's artifact into a plain `String` or `Vec<u8>` and copies
@@ -37,6 +47,8 @@ use std::path::{Path, PathBuf};
 const ROOT: &str = env!("CARGO_MANIFEST_DIR");
 const STORE: &str = "src/project_store.rs";
 const MODEL: &str = "gaply-core/src/research_project";
+/// The one module that may call the store (Phase 5B-2).
+const COMMANDS: &str = "src/project_commands.rs";
 
 /// Outbound structs, transports and HTTP seams, in both crates.
 const OUTBOUND: &[&str] = &[
@@ -219,6 +231,27 @@ fn store_items() -> Vec<String> {
     declared_pub_names(&without_test_modules(&code_only(&src)))
 }
 
+/// The commands module's types: its views, its session and its refusal.
+/// Its work functions are left out; they are called `open`, `close`,
+/// `list` and `delete`, words an outbound file uses for its own things.
+fn commands_items() -> Vec<String> {
+    let src = std::fs::read_to_string(Path::new(ROOT).join(COMMANDS)).expect("the commands");
+    let code = without_test_modules(&code_only(&src));
+    let functions: Vec<String> = code
+        .lines()
+        .filter_map(|l| l.strip_prefix("pub fn "))
+        .map(|r| {
+            r.chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_')
+                .collect()
+        })
+        .collect();
+    declared_pub_names(&code)
+        .into_iter()
+        .filter(|n| !functions.contains(n))
+        .collect()
+}
+
 fn model_items() -> Vec<String> {
     let mut files = Vec::new();
     rust_files(&Path::new(ROOT).join(MODEL), &mut files);
@@ -275,6 +308,7 @@ fn no_non_test_code_outside_the_store_calls_it() {
     );
     let mut found = Vec::new();
     let mut declarations = 0;
+    let mut caller_mentions = 0;
     for f in &files {
         let rel = f
             .strip_prefix(root)
@@ -282,6 +316,11 @@ fn no_non_test_code_outside_the_store_calls_it() {
             .to_string_lossy()
             .replace('\\', "/");
         if rel == STORE {
+            continue;
+        }
+        if rel == COMMANDS {
+            caller_mentions =
+                mentions(&rel, &std::fs::read_to_string(f).unwrap(), &forbidden).len();
             continue;
         }
         let src = std::fs::read_to_string(f).unwrap();
@@ -309,8 +348,12 @@ fn no_non_test_code_outside_the_store_calls_it() {
         "src/lib.rs declares the store exactly once"
     );
     assert!(
+        caller_mentions >= 5,
+        "{COMMANDS} names the store {caller_mentions} times: an exemption for a module that does not call it is a hole"
+    );
+    assert!(
         found.is_empty(),
-        "the project store is called from outside it before 5B-2:\n{}",
+        "the project store is called from outside the commands module:\n{}",
         found.join("\n")
     );
 }
@@ -407,6 +450,7 @@ fn every_path_the_store_joins_is_a_parsed_id_a_hash_or_a_fixed_name() {
 fn no_project_type_reaches_an_outbound_struct_a_transport_or_supabase() {
     let mut types = model_items();
     types.extend(store_items());
+    types.extend(commands_items());
     for expected in [
         "ProjectId",
         "ArtifactHash",
@@ -416,6 +460,14 @@ fn no_project_type_reaches_an_outbound_struct_a_transport_or_supabase() {
         "ProjectCode",
         "ProjectRoot",
         "ArtifactInput",
+        // Phase 5B-2: the renderers' input, and the commands' views.
+        "ProjectExportInput",
+        "render_report_markdown",
+        "render_prov_json",
+        "ProjectSession",
+        "RunResultView",
+        "ProjectExportView",
+        "ProjectListEntryView",
     ] {
         assert!(
             types.iter().any(|t| t == expected),
@@ -430,6 +482,7 @@ fn no_project_type_reaches_an_outbound_struct_a_transport_or_supabase() {
     let mut forbidden = types;
     forbidden.push("research_project".to_string());
     forbidden.push("project_store".to_string());
+    forbidden.push("project_commands".to_string());
 
     let root = Path::new(ROOT);
     let mut files = Vec::new();
@@ -486,9 +539,9 @@ fn no_project_type_reaches_an_outbound_struct_a_transport_or_supabase() {
 #[test]
 fn the_project_modules_name_no_client_transport_proxy_or_helper() {
     let root = Path::new(ROOT);
-    let mut files = vec![root.join(STORE)];
+    let mut files = vec![root.join(STORE), root.join(COMMANDS)];
     rust_files(&root.join(MODEL), &mut files);
-    assert!(files.len() >= 3);
+    assert!(files.len() >= 5);
     let words: Vec<String> = NETWORK_WORDS.iter().map(|w| w.to_string()).collect();
     let mut found = Vec::new();
     for f in &files {
@@ -503,6 +556,92 @@ fn the_project_modules_name_no_client_transport_proxy_or_helper() {
         }
     }
     assert!(found.is_empty(), "{}", found.join("\n"));
+}
+
+/// Each tracing event in `src`, from its macro name to its closing `);`.
+fn tracing_events(src: &str) -> Vec<String> {
+    let code = code_only(src);
+    let mut out = Vec::new();
+    let mut rest = code.as_str();
+    while let Some(i) = rest.find("tracing::") {
+        let tail = &rest[i..];
+        let end = tail.find(");").map(|e| e + 2).unwrap_or(tail.len());
+        out.push(tail[..end].to_string());
+        rest = &tail[end..];
+    }
+    out
+}
+
+/// What a tracing event of the commands module may not name.
+const NOT_IN_A_LOG: &[&str] = &[
+    "title",
+    "name",
+    "as_hex()",
+    "display()",
+    "path",
+    "root",
+    "bytes",
+    "spec_json",
+    "bundle",
+];
+
+fn log_violations(src: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for e in tracing_events(src) {
+        if e.starts_with("tracing::instrument") {
+            continue;
+        }
+        let words = identifiers(&e).join(" ");
+        for bad in NOT_IN_A_LOG {
+            let hit = if bad.contains('(') {
+                e.contains(bad)
+            } else {
+                identifiers(&e).iter().any(|w| w == bad)
+            };
+            if hit {
+                out.push(format!("`{bad}` in {e}"));
+            }
+        }
+        if e.contains("project =") && !e.contains(".as_str()") {
+            out.push(format!("a project not by its id's as_str(): {words}"));
+        }
+    }
+    out
+}
+
+#[test]
+fn the_commands_log_a_project_by_its_id_and_nothing_of_its_content() {
+    let src = std::fs::read_to_string(Path::new(ROOT).join(COMMANDS)).unwrap();
+    let events: Vec<String> = tracing_events(&src)
+        .into_iter()
+        .filter(|e| !e.starts_with("tracing::instrument"))
+        .collect();
+    assert!(
+        events.len() >= 8,
+        "{} tracing events found in {COMMANDS} — the scan is inert",
+        events.len()
+    );
+    let found = log_violations(&src);
+    assert!(found.is_empty(), "{}", found.join("\n"));
+    // Every Tauri command's span records nothing of its arguments.
+    let commands = src.matches("#[tauri::command]").count();
+    let skipped = src
+        .matches("#[tauri::command]\n#[tracing::instrument(skip_all)]")
+        .count();
+    assert!(commands >= 11, "{commands} commands found");
+    assert_eq!(skipped, commands, "every command's span is skip_all");
+}
+
+#[test]
+fn the_log_scan_catches_a_name_a_hash_and_a_project_not_by_its_id() {
+    for planted in [
+        "tracing::info!(name = %record.title.as_str(), \"x\");",
+        "tracing::info!(artifact = %h.as_hex(), \"x\");",
+        "tracing::info!(project = ?id, \"x\");",
+    ] {
+        assert!(!log_violations(planted).is_empty(), "{planted}");
+    }
+    assert!(log_violations("tracing::info!(project = %id.as_str(), run = 1, \"x\");").is_empty());
 }
 
 #[test]

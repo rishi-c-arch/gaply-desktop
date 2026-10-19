@@ -193,6 +193,41 @@ impl ProvGraph {
         removed == adj.len()
     }
 
+    /// The `wasDerivedFrom` edges the `used` and `wasGeneratedBy` edges
+    /// imply (Phase 5B-2): every artifact a run generated was derived, by that
+    /// run, from every artifact it used. Sorted, and without any already
+    /// present. The store keeps no derivation for a Save; the PROV JSON is
+    /// given these.
+    pub fn derivations(&self) -> Vec<ProvEdge> {
+        let mut found: BTreeSet<(StoredRunId, ArtifactHash, ArtifactHash)> = BTreeSet::new();
+        for g in &self.edges {
+            let ProvEdge::WasGeneratedBy { artifact, run } = g else {
+                continue;
+            };
+            for u in &self.edges {
+                if let ProvEdge::Used {
+                    run: r,
+                    artifact: from,
+                    ..
+                } = u
+                {
+                    if r == run && from != artifact {
+                        found.insert((*run, artifact.clone(), from.clone()));
+                    }
+                }
+            }
+        }
+        found
+            .into_iter()
+            .map(|(via, artifact, from)| ProvEdge::WasDerivedFrom {
+                artifact,
+                from,
+                via,
+            })
+            .filter(|e| !self.edges.contains(e))
+            .collect()
+    }
+
     /// For tests of [`ProvGraph::is_acyclic`]: pushes an edge with no check,
     /// as a forged or corrupted store could hold one.
     #[cfg(test)]
@@ -304,6 +339,60 @@ mod tests {
             }),
             Err(ProjectCode::ProvUnlinkedDerivation)
         );
+    }
+
+    #[test]
+    fn derivations_follow_from_used_and_generated_and_add_no_cycle() {
+        let mut g = ProvGraph::from_edges([
+            ProvEdge::Used {
+                run: StoredRunId(1),
+                artifact: h('a'),
+                role: UsedRole::Data,
+            },
+            ProvEdge::Used {
+                run: StoredRunId(1),
+                artifact: h('e'),
+                role: UsedRole::Spec,
+            },
+            ProvEdge::WasGeneratedBy {
+                artifact: h('b'),
+                run: StoredRunId(1),
+            },
+            ProvEdge::WasGeneratedBy {
+                artifact: h('c'),
+                run: StoredRunId(1),
+            },
+            ProvEdge::Used {
+                run: StoredRunId(2),
+                artifact: h('a'),
+                role: UsedRole::Data,
+            },
+        ])
+        .expect("a DAG");
+        let d = g.derivations();
+        let pairs: Vec<(char, char)> = d
+            .iter()
+            .map(|e| match e {
+                ProvEdge::WasDerivedFrom {
+                    artifact,
+                    from,
+                    via,
+                } => {
+                    assert_eq!(*via, StoredRunId(1));
+                    (
+                        artifact.as_hex().chars().next().unwrap(),
+                        from.as_hex().chars().next().unwrap(),
+                    )
+                }
+                other => panic!("{other:?}"),
+            })
+            .collect();
+        assert_eq!(pairs, [('b', 'a'), ('b', 'e'), ('c', 'a'), ('c', 'e')]);
+        for e in d {
+            g.add(e).expect("each links its run's two ends");
+        }
+        assert!(g.is_acyclic());
+        assert!(g.derivations().is_empty(), "none left to add");
     }
 
     #[test]

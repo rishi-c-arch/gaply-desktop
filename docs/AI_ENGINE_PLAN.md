@@ -24328,3 +24328,179 @@ compiled by the devtools run above. No CI workflow changed: the Windows job runs
 binaries do not load on Windows (`windows-build-check.yml:115-125`), so the
 store's tests and its `cfg(windows)` branches are not tested on Windows. No
 GRRB-watched file changed.
+
+### D282 — Research OS, Phase 5B-2: the project commands, the session and the exports `[src]` `[test]` `[measured]`
+
+**Added** on `feat/research-os-5` after `50c0626`. Decisions 118 to 127 of 19
+Oct 2026 apply (`~/gaply-corpus/os/decisions.md`), with 99 to 117. **These
+commands are callable from the app's own frontend once merged, with or
+without a screen**: no screen calls them until 5B-3, which hides every
+project screen behind `REACT_APP_FEATURE_PROJECTS` (decision 119), and a flag
+only hides; the checks below are the boundary. **ADR-009's Accepted parts
+(decisions 99 to 111) cover the writes they make**: a project folder under
+`app_local_data_dir()/projects/`, owner-only, kept until the user deletes it,
+a data file copied in by hash, nothing written except on a Save, 100 MiB per
+project and 10 GiB for all. No file under `src/` changed; no dependency or
+crate was added.
+
+**Where the code is.** `src-tauri/src/project_commands.rs`, the one module
+that calls the store: `ProjectSession`, eleven plain work functions over a
+root and the window's `WorkspaceSession`, and eleven thin Tauri wrappers that
+resolve the root through `project_store::projects_root` and run the work
+under `spawn_blocking`. The renderers are pure, in
+`gaply_core::research_project::render`.
+
+**The commands and their checks (decision 120).**
+
+| command | check | takes | returns |
+|---|---|---|---|
+| `project_list` | exempt | — | `[{projectId, name?, bytes, savedAt?, runCount?, refused?}]` |
+| `project_sizes` | exempt | — | `{totalBytes, projectCount, projectCapBytes, allProjectsCapBytes}` |
+| `project_prepare_delete` | exempt | `projectId` | `{projectId, confirmation, bytes, expiresInMs}` |
+| `project_delete` | exempt | `projectId`, `confirmation?` | `{projectId, closed}` |
+| `project_save_run` | Statistics | `runId`, `target: {into:"newProject", name} \| {into:"openProject", projectId}` | `{projectId, storedRunId, created}` |
+| `project_open` | Statistics | `projectId` | `{projectId, name, createdAt, runCount, bytes}` |
+| `project_close` | Statistics | — | `{closed}` |
+| `project_runs` | Statistics | `projectId` | `[{storedRunId, capabilityId, capabilityVersion, state, endCode?, startedAt, endedAt?, savedAt, agentVersion}]` |
+| `project_run_result` | Statistics | `projectId`, `storedRunId` | `{storedRunId, capabilityId, state, dataFile: {sha256, kind, format, bytes}, specJson, bundleJson?, manifestJson?, failureJson?}` |
+| `project_report` | Statistics | `projectId` | `{fileName: "gaply_project_report.md", bytes, sha256}` |
+| `project_provenance` | Statistics | `projectId` | `{fileName: "gaply_project_provenance.json", bytes, sha256}` |
+
+A refusal is `{"code":"project.…"}`, with `needed` and `limit` for a cap; a
+workspace refusal keeps its diagnostic shape (`workspace.inactive`). Each
+shape is pinned by a JSON snapshot in `src-tauri/tests/fixtures/projects/`
+(one file per response, `projectRefusal.json`, `projectCodes.json`), for
+5B-3's wire types. A gated command's first statement is the check, and so is
+its work function's; `tests/workspace_guards.rs` classifies all eleven by
+name. A command never takes a path or a file name. The project id is the only
+handle; every command that takes one checks it against the open project
+(`project.not_open`).
+
+**The session (decision 122).** `ProjectSession` lives in the
+`WorkspaceSession` (`projects()`), beside the active workspace: at most one
+open project, the delete confirmations, and the runs each project saved in
+this process. Leaving Statistics closes the open project after the state has
+left `Active` and outside the session's lock; activating closes any too.
+Every command that reads or writes the open project holds its lock to the end
+and checks the workspace again under it, so a Save that a deactivation
+overtakes is refused whole (`workspace.inactive`) and one already past the
+check completes whole before the close. The store gained **one process-wide
+write lock** (`project_store::write_lock`), taken by every Save from the cap
+check to the commit, by create and delete throughout, and by the list and the
+sizes, so two Saves into two projects cannot pass the all-projects cap
+together and a delete never runs during a Save. Opening a project does not
+take it. The store under a root is opened once per session, so its start-up
+clean-up never runs beside a create.
+
+**The Save (decisions 121, 123, 127).** By run id, only while the registry
+holds it: `project.run_unknown` (never issued), `project.run_evicted` (issued,
+no longer held), `project.run_not_finished`, `project.run_cancelled`,
+`project.run_not_saveable` (refused, waiting on input, timed out, over a
+budget), `project.run_failed_without_code`, `project.run_already_saved`. The
+data file: `stats_desc_open` now reads through
+`stats_l1_ingest::load_dataset_keeping_bytes` (the same checks, read and
+parse) and the slot keeps the bytes, their SHA-256 taken at ingest (the
+fingerprint) and their format for as long as the dataset is open; each run
+records its slot and that hash when it is queued. A Save expects the data
+file to hash to the run's recorded hash, so the store refuses any other bytes;
+it also refuses when the slot's hash, the spec's input hash or the manifest's
+disagree (`project.data_mismatch`), and when the slot is closed or evicted
+(`project.data_unavailable`). A name is trimmed, 1 to 100 characters, with no
+control and no invisible formatting character
+(`research_project::is_invisible_format`: Unicode Cf, the line separators,
+the combining grapheme joiner and the Hangul fillers, listed by code point).
+One store write then holds the data file, the spec, and the bundle and
+manifest (or, for a failed run, a failure record of its code and numeric
+parameters), the run row, `used` (data, spec), `generated` (the outputs) and
+`wasAssociatedWith` (the app). A first Save goes through
+`ProjectRoot::create_with_save`: the project's database and row are made in
+`.creating-<id>/`, the Save is written there under the caps, and the folder
+is renamed after the commit; a refusal removes the folder and a crash leaves
+it for the next start. The same data file saved twice is one artifact. A copy
+is the user's file exactly as it is, an Excel file's author and last-saved
+folder included, and none of that leaves it (decision 127).
+
+**Reading a run back** needs the open project; every artifact of the run is
+hash-verified first, the data file's included, whose bytes are then dropped.
+Its spec, bundle, manifest or failure record come back as the exact JSON text
+stored, under 4 MiB together (`project.result_too_large`). Not re-parsed:
+`serde_json`'s default float parser read two of a t-test's stored values one
+unit in the last place away (measured in this step), and `JSON.parse` reads
+them exactly. A damaged artifact gives its code and nothing else.
+
+**The confirmation (decision 124).** `project_prepare_delete` issues 32
+random bytes as a `contracts::capability::ConfirmationId` (reused: 64
+lowercase hex, a `Debug` that prints no digit); the session holds the last 16
+in memory. Delete refuses none (`confirmation_missing`), an unknown one, a
+used one, one replaced by a newer one (any newer one, for any project), an
+expired one (five minutes) and one for another project; a matching one is
+used up whatever the outcome. A restart forgets them all.
+
+**The renderers (decisions 111, 125).** One input, `ProjectExportInput`, whose
+only free string is the title. A run's settings are `ExportParameter`s
+(columns by position and role, level indexes, the variant, counts), its codes
+`ClosedWord`s, made only from a closed set's member. Each field of a saved
+spec is listed as reported, counted or excluded
+(`project_commands::SPEC_FIELDS`), and a test fails on a field not listed.
+The report is Markdown: the title escaped (`&`, `<`, `>`, `"` as entities,
+every other ASCII punctuation mark backslash-escaped) and nowhere else, a
+preamble saying it holds fingerprints and none of the data, then each run's
+capability, version, status, codes, times, inputs and outputs by hash,
+settings, fingerprints, counts, exclusions, limitations and notes. The PROV
+JSON follows the PROV-JSON layout (`entity`, `activity`, `agent`, `used`,
+`wasGeneratedBy`, `wasDerivedFrom`, `wasAssociatedWith`), the agent the app
+and its version, `wasDerivedFrom` derived from `used` and `wasGeneratedBy`
+(`ProvGraph::derivations`), refused with `project.prov_cycle` when not
+acyclic. Both are deterministic; golden files pin them, and ten fresh
+processes print the goldens' hashes. Neither command writes: 5B-3's save
+dialog writes the file the user picks (decision 125).
+
+**Guards.** `workspace_guards.rs` classifies every project command as gated or
+exempt and checks both the command and its work function;
+`project_store_guards.rs` names the commands module as the store's one caller
+(and requires it to call it), extends the AI and Supabase boundary to the
+commands module's types and to the renderers, and adds a log rule (a project
+by its id's `as_str()` only, no name, full hash, path or content in a
+commands-module event; every command `skip_all`);
+`stats_desc_writes_nothing.rs` scans the commands module, which writes
+nothing itself; the tracing guards scan both new files unchanged. The
+sentinel sweep (`tests/project_commands_sentinels.rs`) reads every response,
+refusal, tracing line, export and file of a session.
+
+**Windows (decision 114).** `windows-build-check.yml` gains one step after the
+installer steps: empty placeholders for the two gitignored models, then
+`cargo test -p app --no-run`. It runs on the next pull request or push to
+main; not verified on this Mac.
+
+**Departures from the prompt and the proposal** are listed in
+`~/gaply-corpus/os/phase5/phase5b2_report.md` §5.
+
+**Measured, 19 Oct 2026, macOS aarch64** (logs in
+`~/gaply-corpus/os/phase5/5b2_logs/`): `cargo test --workspace --no-fail-fast`
+at `50c0626` first: exit 0, 109 targets (107 Running + 2 Doc-tests), 2,800
+passed, 12 ignored. After, both `lib.rs` touched: exit 0, 112 targets (110
+Running + 2 Doc-tests), 2,852 passed, 12 ignored, as predicted before the run:
+app lib 549 → 560 (the store +5, the commands +6), `gaply_core` lib 1,840 →
+1,848 (the model +2, the graph +1, the renderers +5), `workspace_guards` 5 →
+7, `project_store_guards` 6 → 8, and the new `project_commands` (22),
+`project_commands_sentinels` (1) and `research_project_render` (6); no other
+target moved, and no warning location the baseline lacks. (A first run of the
+same command was cut off by a machine restart inside its first test binary;
+it is not counted.) `cargo test -p app --features devtools --no-fail-fast` (both `lib.rs` touched; predicted before the run from 5B-1's 43 / 731 / 9 at this tree, plus app lib +11, `project_commands` 22, `project_commands_sentinels` 1, `workspace_guards` +2, `project_store_guards` +2): `CARGO_EXIT=0 targets=45 running=44 passed=769 ignored=9 failed_blocks=0`, as predicted. Its five warning lines beyond the workspace log are the devtools-only ones 5B-1 recorded (`src/bin/grrb.rs:53`, `:81`, `src/bin/grrb-gate.rs:45`, `:52`, `tests/ai_eval_cli.rs:324`), in files unchanged since `50c0626` (`git diff --quiet`). No workflow runs clippy. rustfmt by path:
+every new file clean; changed files' hunks equal HEAD's (`src/lib.rs` 11,
+`stats_l1_ingest.rs` 63, all others 0). `git diff --check` clean; `git diff
+50c0626` empty under `stats_l0`, `stats_l1`, `stats_assist` and `src/`. No
+GRRB-watched file changed.
+
+**Mutation record** (each: SHA-256 recorded, broken once, red, restored by
+plain copy with a fresh mtime, SHA-256 equal, green; logs in
+`5b2_logs/mutations/`): `close` with its workspace check removed →
+`each_gated_command_refuses_…` and the command-list guard; a used
+confirmation accepted → the delete test and the confirmation unit test; a
+cancelled run let through the state check → `runs_that_may_not_be_saved_…`;
+the hash check skipped on read → `a_damaged_artifact_gives_its_code_…` and
+the store's read test; a header put into the report through the title → the
+sentinel sweep; the commands module writing a file → the no-write guard; the
+process-wide lock dropped at all six sites → both paused-Save lock tests
+(their first form aborted the test binary after the assertion fired, with a
+paused worker left waiting; they now release the worker before asserting).

@@ -1,0 +1,10 @@
+[
+  {
+    "code": "project.project_cap",
+    "needed": 104857601,
+    "limit": 104857600
+  },
+  {
+    "code": "project.not_open"
+  }
+]

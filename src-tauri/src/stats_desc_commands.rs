@@ -20,6 +20,12 @@
 //! import-guard rate, is called only by the citation-link and open-access
 //! imports).
 //!
+//! Since Research OS Phase 5B-2 (decision 123), `stats_desc_open` reads
+//! through [`load_dataset_keeping_bytes`], the same ingest, and the slot holds
+//! the bytes it read, with their SHA-256 (the fingerprint's) and their format,
+//! for as long as the dataset is open: a project Save copies those bytes and
+//! no others. They never cross IPC.
+//!
 //! The file's display name, its base name, crosses into [`DatasetView`] only
 //! (decision 4). The manifest holds hashes and counts (decision 12). Export
 //! returns bytes, and Rust writes nothing: the screen's save dialog writes
@@ -55,8 +61,10 @@ use gaply_core::GaplyError;
 use gaply_core::contracts::workspace::check_spec;
 use gaply_core::contracts::WorkspaceId;
 
-use crate::runs::{DatasetSlots, NotStarted, RunSnapshot, Runs};
-use crate::stats_l1_ingest::load_dataset;
+use gaply_core::research_project::DataFormat;
+
+use crate::runs::{DatasetSlots, NotStarted, RunSnapshot, Runs, SourceFile};
+use crate::stats_l1_ingest::load_dataset_keeping_bytes;
 use crate::workspace::{refuse as refuse_workspace, refuse_inactive};
 
 /* ------------------------------------------------------------------------ *
@@ -173,13 +181,18 @@ fn display_name(path: &Path) -> String {
  * ------------------------------------------------------------------------ */
 
 pub fn open(slots: &DatasetSlots, path: &Path) -> Result<DatasetView, GaplyError> {
-    let dataset = load_dataset(path).map_err(|r| refuse_ingest(l1_ingest_refusal(r)))?;
+    let (dataset, bytes, ext) =
+        load_dataset_keeping_bytes(path).map_err(|r| refuse_ingest(l1_ingest_refusal(r)))?;
     let display_name = display_name(path);
     let profile = stats_desc::profile(&dataset);
     let input_ref = stats_desc::input_ref(&dataset);
     let (rows, columns) = (profile.rows, profile.columns.len());
     tracing::info!(rows, columns, "stats_desc: dataset opened");
-    let slot = slots.insert(display_name.clone(), dataset);
+    // The fingerprint is the SHA-256 of exactly these bytes, taken at ingest;
+    // the ingest's extensions are the store's data formats, word for word.
+    let source = DataFormat::from_wire(&ext)
+        .map(|format| SourceFile::new(bytes, input_ref.content_hash.clone(), format));
+    let slot = slots.insert_with_source(display_name.clone(), dataset, source);
     Ok(DatasetView {
         slot,
         display_name,

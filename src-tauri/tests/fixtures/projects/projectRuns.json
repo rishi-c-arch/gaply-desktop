@@ -1,0 +1,13 @@
+[
+  {
+    "storedRunId": 1,
+    "capabilityId": "stats.analyze.independent_t",
+    "capabilityVersion": 1,
+    "state": "failed",
+    "endCode": "project.run_interrupted",
+    "startedAt": 1792396340,
+    "endedAt": 1792396341,
+    "savedAt": 1792396351,
+    "agentVersion": "0.1.0"
+  }
+]

@@ -109,6 +109,20 @@ pub fn load_dataset(path: &Path) -> Result<Dataset, L1IngestRefusal> {
     dataset_from_checked(check_file(path)?)
 }
 
+/// [`load_dataset`], keeping the bytes it read and their extension
+/// (Research OS, Phase 5B-2, decision 123): `stats_desc_open` holds them in
+/// the dataset's slot, so a project Save copies exactly the bytes the
+/// fingerprint names. The same checks, the same one read and the same parse.
+#[doc(hidden)]
+#[tracing::instrument(skip_all)]
+pub fn load_dataset_keeping_bytes(
+    path: &Path,
+) -> Result<(Dataset, Vec<u8>, String), L1IngestRefusal> {
+    let checked = check_file(path)?;
+    let dataset = dataset_from_parts(&checked.bytes, &checked.ext)?;
+    Ok((dataset, checked.bytes, checked.ext))
+}
+
 /// A data file opened, checked and read once: its bytes and its extension.
 /// It holds no path, so nothing after the check can open the file again (part
 /// C follow-up, item 3). Never `Debug`: the bytes are the user's data.
@@ -184,7 +198,11 @@ pub fn check_file(path: &Path) -> Result<CheckedFile, L1IngestRefusal> {
 /// the path, so they are the bytes fingerprinted.
 #[doc(hidden)]
 pub fn dataset_from_checked(checked: CheckedFile) -> Result<Dataset, L1IngestRefusal> {
-    let CheckedFile { bytes: before, ext } = checked;
+    dataset_from_parts(&checked.bytes, &checked.ext)
+}
+
+/// [`dataset_from_checked`]'s body, over the checked bytes and extension.
+fn dataset_from_parts(before: &[u8], ext: &str) -> Result<Dataset, L1IngestRefusal> {
     // A failed parse is classified by a typed check of its own
     // (`exceeds_row_cap`), never by reading the parser's message, which the
     // existing Stats Verifier shows unchanged.

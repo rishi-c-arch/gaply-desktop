@@ -25,6 +25,11 @@
 //! its wire word `project.symlink_refused`. The test below pins that the
 //! purity guard still covers it.
 //!
+//! Phase 5B-2 added `src/project_commands.rs`, the one module that calls the
+//! store: it writes nothing itself, so every write a command makes goes
+//! through the store. The exports it renders reach the disk only through the
+//! frontend's save dialog, today's export path (decision 125).
+//!
 //! It constrains what was TYPED in these files, not what a callee does: the
 //! commands call Level 1's ingest, which reads and does not write, and the
 //! privacy matrix (`stats_desc_privacy_matrix.rs`) checks at run time that
@@ -41,6 +46,8 @@ const SCANNED: &[&str] = &[
     // Phase 4B-2: the t-test's commands and its operation.
     "src/stats_ttest_commands.rs",
     "gaply-core/src/stats_ttest",
+    // Phase 5B-2: the project commands write nothing themselves.
+    "src/project_commands.rs",
 ];
 
 /// The one Research OS module allowed to write (Phase 5B-1, ADR-009): the

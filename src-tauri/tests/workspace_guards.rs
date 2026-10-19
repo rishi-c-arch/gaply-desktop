@@ -23,6 +23,15 @@
 //!    the workspace first, in the same form, and `capability_list`, which
 //!    reads only the static registry, does not check it at all.
 //!
+//! 6. Phase 5B-2 (decision 120): every `project_commands` command is in
+//!    exactly one of two lists. A gated one checks the workspace first, in
+//!    the same form, and so does the plain function it runs under
+//!    `spawn_blocking`, whose first statement is
+//!    `let … = ws.require_statistics()…?`: the work function is what tests
+//!    drive and what the command reaches after its own check. An exempt one
+//!    (listing, sizes, preparing a delete, deleting) names
+//!    `require_statistics` in neither.
+//!
 //! What this cannot see: a check written in a way that is not this exact
 //! call (an alias, a macro). The runtime tests in `workspace_session.rs` call
 //! every `stats_desc_*` command while no workspace is active and while one is
@@ -401,6 +410,144 @@ fn every_ttest_command_checks_the_workspace_first_and_capability_list_does_not()
         "decisions 74, 76:\n{}",
         failures.join("\n")
     );
+}
+
+/// Phase 5B-2 (decision 120): the project commands that need Statistics,
+/// with the work function each runs. (registered path, work function)
+const PROJECT_GATED: &[(&str, &str)] = &[
+    ("project_commands::project_save_run", "save_run"),
+    ("project_commands::project_open", "open"),
+    ("project_commands::project_close", "close"),
+    ("project_commands::project_runs", "runs"),
+    ("project_commands::project_run_result", "run_result"),
+    ("project_commands::project_report", "report"),
+    ("project_commands::project_provenance", "provenance"),
+];
+
+/// The project commands that never need a workspace: seeing and deleting what
+/// is stored (decision 120). (registered path, work function, why)
+const PROJECT_EXEMPT: &[(&str, &str, &str)] = &[
+    (
+        "project_commands::project_list",
+        "list",
+        "lists what is stored",
+    ),
+    (
+        "project_commands::project_sizes",
+        "sizes",
+        "reads sizes and caps",
+    ),
+    (
+        "project_commands::project_prepare_delete",
+        "prepare_delete",
+        "issues a delete confirmation",
+    ),
+    (
+        "project_commands::project_delete",
+        "delete",
+        "deletes a project",
+    ),
+];
+
+/// The work function's first statement is the check, on the session it is
+/// given: `let … = ws.require_statistics()…?`.
+fn work_checks_first(body: &str) -> bool {
+    let first: String = body
+        .split(';')
+        .next()
+        .unwrap_or_default()
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect();
+    first.starts_with("let") && first.contains("=ws.require_statistics()") && first.ends_with(")?")
+}
+
+#[test]
+fn every_project_command_is_gated_or_exempt_as_decision_120_says() {
+    let all = registered();
+    assert!(all.len() > 100, "the handler parse is inert");
+    let mut family: Vec<&str> = all
+        .iter()
+        .map(|p| p.as_str())
+        .filter(|p| p.starts_with("project_commands::"))
+        .collect();
+    family.sort_unstable();
+    let mut listed: Vec<&str> = PROJECT_GATED.iter().map(|(p, _)| *p).collect();
+    listed.extend(PROJECT_EXEMPT.iter().map(|(p, _, _)| *p));
+    listed.sort_unstable();
+    assert_eq!(
+        family, listed,
+        "every registered project command is classified, and every classified one is registered"
+    );
+    // Nothing registers a project_* command from another module.
+    for p in &all {
+        if p.rsplit("::")
+            .next()
+            .is_some_and(|n| n.starts_with("project_"))
+        {
+            assert!(p.starts_with("project_commands::"), "{p}");
+        }
+    }
+
+    let src = without_line_comments(&read(&root().join("src/project_commands.rs")));
+    let mut failures = Vec::new();
+    for (path, work) in PROJECT_GATED {
+        let name = path.rsplit("::").next().unwrap();
+        match fn_body(&src, name) {
+            Some(body) if checks_first(body) => {}
+            Some(body) => failures.push(format!(
+                "{path}: first statement is `{}`",
+                body.split(';').next().unwrap_or("").trim()
+            )),
+            None => failures.push(format!("{path}: no body found")),
+        }
+        match fn_body(&src, name).map(|b| b.contains(&format!("{work}(&root, &ws"))) {
+            Some(true) => {}
+            _ => failures.push(format!("{path} does not run `{work}`")),
+        }
+        match fn_body(&src, work) {
+            Some(body) if work_checks_first(body) => {}
+            Some(body) => failures.push(format!(
+                "{work}: first statement is `{}`",
+                body.split(';').next().unwrap_or("").trim()
+            )),
+            None => failures.push(format!("{work}: no body found")),
+        }
+    }
+    for (path, work, why) in PROJECT_EXEMPT {
+        let name = path.rsplit("::").next().unwrap();
+        for f in [name, *work] {
+            let body: String = fn_body(&src, f)
+                .unwrap_or_else(|| panic!("{f}: no body found"))
+                .chars()
+                .filter(|c| !c.is_whitespace())
+                .collect();
+            if body.contains("require_statistics") {
+                failures.push(format!("{f} is gated, but {path} is exempt: {why}"));
+            }
+        }
+    }
+    println!(
+        "gated {} project commands; {} exempt",
+        PROJECT_GATED.len(),
+        PROJECT_EXEMPT.len()
+    );
+    assert!(
+        failures.is_empty(),
+        "decision 120:\n{}",
+        failures.join("\n")
+    );
+}
+
+#[test]
+fn the_project_check_catches_a_missing_check() {
+    assert!(work_checks_first(
+        " let engine = ws.require_statistics().map_err(refuse_workspace)?; x()"
+    ));
+    assert!(!work_checks_first(
+        " let store = ws.projects(); ws.require_statistics()?;"
+    ));
+    assert!(!work_checks_first(" // nothing\n x()"));
 }
 
 #[test]
