@@ -20,6 +20,10 @@ pub mod journal_verify;
 pub mod oa_fetch;
 pub mod paper_corpus;
 pub mod pipeline;
+// Research OS Phase 5B-1: the project store. `pub` so its sentinel sweep can
+// run in its own test binary; no non-test code calls it until 5B-2
+// (`tests/project_store_guards.rs`).
+pub mod project_store;
 // §11 D103. The IPC wire contract, enumerated from the command signatures
 // rather than a hand-maintained list. See the module docs for why the sibling
 // guard in `ai::event_wire_tests` did not catch `FetchReport`.

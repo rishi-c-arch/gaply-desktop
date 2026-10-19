@@ -61,6 +61,15 @@
 //! * `stats_registry` may also name `stats_ttest`'s id and version, and
 //!   `stats_adapters` may name `crate::stats_ttest`.
 //!
+//! Phase 5B-1 adds `src/research_project/`, the pure project model
+//! (decisions 99 to 112, ADR-009), to checks 1, 2, 3 and 6: no route to a
+//! file, a database, the clock or a log (its I/O lives in the app crate's
+//! `project_store`, the one module allowed to write); `use` roots `std`,
+//! `serde`, `serde_json`, `sha2`, and inside the crate `crate::contracts`
+//! only; and `contracts` never names it or a type it declares. Its property
+//! test is in `tests/research_project_properties.rs`, since this scan reads
+//! test code too.
+//!
 //! What it cannot see: a route through a helper in an allowed module (a
 //! function of `stats_l1::dataset` that read a file would not be caught
 //! here; `stats_l1_is_llm_free_and_offline.rs` guards that directory), and
@@ -73,6 +82,7 @@ const STATS_DESC: &str = "src/stats_desc";
 const STATS_REGISTRY: &str = "src/stats_registry";
 const STATS_ADAPTERS: &str = "src/stats_adapters";
 const STATS_TTEST: &str = "src/stats_ttest";
+const RESEARCH_PROJECT: &str = "src/research_project";
 
 const FORBIDDEN: &[(&str, &str)] = &[
     ("std::fs", "the filesystem"),
@@ -115,6 +125,8 @@ const FORBIDDEN: &[(&str, &str)] = &[
 const EXTERNAL_ROOTS: &[&str] = &["std", "serde", "serde_json", "sha2"];
 
 const CONTRACTS_CRATE_PATHS: &[&str] = &["crate::contracts"];
+/// What the pure project model may name inside the crate (Phase 5B-1).
+const RESEARCH_PROJECT_CRATE_PATHS: &[&str] = &["crate::contracts"];
 const STATS_DESC_CRATE_PATHS: &[&str] = &[
     "crate::contracts",
     "crate::stats_l1::dataset",
@@ -228,6 +240,7 @@ const DOMAIN_MODULES: &[&str] = &[
     "stats_registry",
     "stats_adapters",
     "stats_ttest",
+    "research_project",
 ];
 /// Where their types are declared, read to build the type list.
 const DOMAIN_SOURCES: &[&str] = &[
@@ -239,6 +252,7 @@ const DOMAIN_SOURCES: &[&str] = &[
     "src/stats_registry",
     "src/stats_adapters",
     "src/stats_ttest",
+    "src/research_project",
 ];
 
 /// `stats_desc` types that hold a column header or a level label. They may
@@ -542,12 +556,13 @@ fn contracts_and_stats_desc_reach_no_file_network_process_clock_model_or_log() {
         .chain(sources(STATS_REGISTRY, 1).iter())
         .chain(sources(STATS_ADAPTERS, 2).iter())
         .chain(sources(STATS_TTEST, 2).iter())
+        .chain(sources(RESEARCH_PROJECT, 2).iter())
     {
         found.extend(forbidden_in(path, code));
     }
     assert!(
         found.is_empty(),
-        "contracts, stats_desc, stats_registry, stats_adapters and stats_ttest are pure. Found:\n{}",
+        "contracts, stats_desc, stats_registry, stats_adapters, stats_ttest and research_project are pure. Found:\n{}",
         found.join("\n")
     );
 }
@@ -586,6 +601,12 @@ fn imports_are_std_serde_serde_json_sha2_and_the_named_crate_paths_only() {
             STATS_TTEST_CRATE_PATHS,
             TTEST_ITEMS,
             STATS_TTEST_CRATE_PATHS,
+        ),
+        (
+            RESEARCH_PROJECT,
+            RESEARCH_PROJECT_CRATE_PATHS,
+            &[][..],
+            RESEARCH_PROJECT_CRATE_PATHS,
         ),
     ] {
         for (path, code) in sources(dir, 1) {
@@ -943,6 +964,7 @@ fn every_deserialised_struct_refuses_unknown_fields_and_wire_structs_are_camel_c
         STATS_REGISTRY,
         STATS_ADAPTERS,
         STATS_TTEST,
+        RESEARCH_PROJECT,
     ] {
         for (path, code) in sources(dir, 1) {
             // Every check here reads a derive from ONE line. A derive list

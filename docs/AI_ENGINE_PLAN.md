@@ -24200,3 +24200,131 @@ is back; and the two helper-path scans (`stats_l1_guards.rs`,
 `verifier_facade_guards.rs`) now name `helper_send_in`. The first failed on
 its own line count when the body moved; the second has no count and would
 have passed vacuously. A planted `.confirm(` / `reproduce(` turned both red.
+
+### D281 — Research OS, Phase 5B-1: the project store's core `[src]` `[test]` `[measured]`
+
+**Added** on `feat/research-os-5` after `2a38121`. Decisions 99 to 112 of 19
+Oct 2026 apply (`~/gaply-corpus/os/decisions.md`); ADR-009 and the revised
+ADR-004 record them (Accepted for what the decisions cover, the rest
+Proposed). **Nothing calls the store yet**: no command and no screen reaches
+it, so nothing new is written to a user's disk until 5B-2 wires it to a Save
+click. The PROV JSON export and the project report are 5B-2's (decision 111).
+
+**Where the code is.** The pure parts in `gaply_core::research_project`
+(`mod.rs`, `graph.rs`), beside `contracts` and under the purity guard: the
+project id and artifact hash, each made only by its parser (32 or 64
+lowercase hex, else `project.bad_project_id` / `project.bad_hash`); the
+title, the agent version, the artifact reference, the stored run, the
+project record, the caps, recovery's two rules (`recovered_state`,
+`damage_of`), the 28 closed `project.*` codes, and the provenance graph.
+Named `research_project` because the dormant `gaply_core::projects` stays
+(decision 110). The store, which does I/O, is one module in the app crate,
+`src-tauri/src/project_store.rs`.
+
+**The layout.** `<root>/projects/<project_id>/project.db` and
+`artifacts/<sha256>`; the folder is named by the id. A create is built in
+`.creating-<id>/` and renamed into place; a delete renames the folder to
+`.deleting-<id>/` and removes it; both leftovers are finished when the store
+next starts. The root is a parameter; `projects_root(app)` resolves it
+through `app_local_data_dir()` for 5B-2 (decision 99). Every path is joined
+from a parsed id or hash or a fixed name (pinned exactly), and no symlink is
+followed: `SQLITE_OPEN_NOFOLLOW`, `O_NOFOLLOW`, and `symlink_metadata`
+before every open, rename and removal. Because `NOFOLLOW` refuses a symlink
+anywhere in a path (`unixFullPathname`), and macOS's temp folder is under
+`/var`, the store resolves the root's ancestors once at start.
+
+**`project.db`.** Its own schema version in `PRAGMA user_version` (1); the
+`gaply.db` runner is hard-wired to its own list (`migrations.rs:1140-1143`)
+and is unchanged. **Journal mode WAL, `synchronous=FULL`**, `foreign_keys=ON`,
+a 5 s busy timeout. Tables `project`, `artifacts`, `runs`, `used`,
+`generated`, `derived`. A row holds ids, hashes, the capability id and
+version, a state, closed codes, sizes and times; the one user-typed column is
+`project.title`; the spec, the bundle and the data file are artifacts.
+Created at 0600 before SQLite opens it, so `-wal` and `-shm` take 0600.
+
+**The write.** One `BEGIN IMMEDIATE` from first to last: the caps; for each
+artifact a temporary `artifacts/.tmp-<hex>` created new, written, flushed,
+`sync_all`, set 0400, re-read and verified, renamed, the folder synced (on
+Windows a folder cannot be synced; the rename's durability rests on NTFS's
+journal, inferred, and a lost rename is marked damaged at the next open);
+then the rows and the commit. If the rows or the commit fail, this Save's
+renamed files are removed at once. An existing artifact is re-verified and
+reused, never overwritten; one that does not verify is refused with its
+damage code.
+
+**Recovery at open**, in its own `BEGIN IMMEDIATE`: temporary files removed;
+artifact files with no row removed; a row whose file is missing, not a
+regular file or of the wrong size marked damaged; a run left `Queued` or
+`Running` becomes `Failed` with `project.run_interrupted`, never
+`Succeeded`. A file is hashed whenever it is read; a mismatch marks it
+damaged and refuses the read. A missing, unreadable or newer `project.db` is
+refused with its own code and nothing in the project is touched.
+
+**The caps (decision 107).** 104,857,600 bytes per project and 10,737,418,240
+for all projects, plus `DB_GROWTH_ALLOWANCE_BYTES` = 1,048,576 per Save, each
+pinned by a test; a project's size is every file in its folder; a tombstone
+counts until removed; the caps are store parameters, so tests use small ones.
+A full disk (`ENOSPC`, `EDQUOT`, `SQLITE_FULL`) is `project.disk_full`.
+
+**Dependencies.** `rusqlite =0.32.1` (features `bundled`) and `getrandom
+=0.2.17` became direct dependencies of the app crate; both were in
+`Cargo.lock` at those versions with those features enabled (`cargo tree -e
+features`). `Cargo.lock` gained two lines in the `app` package's dependency
+list and no package (743 before and after).
+
+**Guards.** `stats_desc_writes_nothing.rs` names the store as the one Research
+OS module allowed to write and checks it exists and writes;
+`contracts_are_pure.rs` holds `research_project` to no I/O, `std`, `serde` and
+`crate::contracts`; the new `project_store_guards.rs` (no non-test caller, one
+resolver, joins from parsed values, the AI and Supabase boundary both ways)
+and `project_store_sentinels.rs` (every file, error and tracing line of a
+session); the two tracing guards scan the store unchanged.
+
+**Mutation record** (each: SHA-256 recorded, broken once, red, restored by
+plain copy with a fresh mtime, SHA-256 equal, green; logs in
+`~/gaply-corpus/os/phase5/5b1_logs/mutations/`): the re-read hash check on
+write removed → `bytes_that_read_back_differently_are_refused_and_nothing_is_left`;
+the hash check on read disabled → `a_file_whose_hash_does_not_match_its_row_is_refused_on_read`;
+the rows committed before the rename → `an_interrupted_write_leaves_no_artifact_and_no_row`
+("no artifact row: 3, expected 0") and five others; an interrupted run
+recovered `Succeeded` → the pure rule's test and
+`a_run_left_running_reads_failed_after_reopening`; `delete` joined from the raw
+id → `bad_ids_and_hashes_are_refused_and_nothing_outside_the_root_is_touched`
+and the join pin; a command calling the store → `no_non_test_code_outside_the_store_calls_it`;
+a project type imported in `stats_assist/outbound.rs` → the boundary guard
+(the existing `stats_assist_is_offline_and_inert.rs` stayed green: before this
+step nothing stopped that import); the resolver swapped to `app_data_dir` →
+the resolver scan (the runtime test stays green on macOS, where both folders
+are one, so the scan is the pin); a rendered path logged → `no_path_in_tracing`
+and the sweep; the title logged → the sweep and `no_path_in_tracing`'s text
+rule (predicted: the sweep only); the title copied into a second table → the
+sweep only, every static guard green; `std::fs` in `research_project` →
+`contracts_are_pure`.
+
+**Measured, 19 Oct 2026, macOS aarch64** (logs in
+`~/gaply-corpus/os/phase5/5b1_logs/`): `cargo test --workspace` at `2a38121`
+first: exit 0, 106 targets (104 Running + 2 Doc-tests), 2,752 passed, 12
+ignored. After: exit 0, 109 targets (107 Running + 2 Doc-tests), 2,800 passed,
+12 ignored, as predicted before the run: app lib 524 → 549, `gaply_core` lib
+1,827 → 1,840, `stats_desc_writes_nothing` 2 → 3, and the new
+`project_store_guards` (6), `project_store_sentinels` (1),
+`research_project_properties` (2); no other target moved; no warning line that
+the baseline log lacks. `cargo test -p app --features devtools` (after decision 113 freed
+the disk; both `lib.rs` touched, so it also compiled the header comment
+changed after the workspace run): exit 0, 43 targets (42 Running + 1
+Doc-tests), 731 passed, 9 ignored, as predicted before the run from D280's 41
+targets and 698 passed at `e29f6d6` (the same tree as `2a38121`): app lib +25
+(549), `stats_desc_writes_nothing` +1, the new `project_store_guards` (6) and
+`project_store_sentinels` (1). Five warning lines that the workspace log lacks,
+all in devtools-only targets unchanged since `2a38121` (`src/bin/grrb.rs:53`,
+`:81`, `src/bin/grrb-gate.rs:45`, `:52`, `tests/ai_eval_cli.rs:324`). rustfmt by path: the six new files clean; the changed
+files' hunks equal HEAD's (`stats_desc_writes_nothing.rs` 0, `contracts_are_pure.rs`
+0, the two `lib.rs` 8 and 11, measured with stub modules). `git diff --check`
+clean; `git diff 2a38121` empty under `stats_l0`, `stats_l1`, `stats_assist`
+and `src/`. After the workspace run, one comment in `project_store.rs`'s
+header (a doc link to an item not in scope) was reworded; rustfmt clean, and
+compiled by the devtools run above. No CI workflow changed: the Windows job runs
+`gaply_core`'s tests (the pure model's run there); the app crate's test
+binaries do not load on Windows (`windows-build-check.yml:115-125`), so the
+store's tests and its `cfg(windows)` branches are not tested on Windows. No
+GRRB-watched file changed.

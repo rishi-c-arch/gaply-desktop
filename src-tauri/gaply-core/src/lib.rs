@@ -24,6 +24,7 @@ pub mod citation_library;
 pub mod config;
 pub mod consistency;
 pub mod contracts;
+pub mod research_project;
 pub mod page_locate;
 pub mod db;
 pub mod editor;
