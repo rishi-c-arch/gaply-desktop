@@ -146,6 +146,13 @@
   color: var(--g-text, #fff);
   font-family: var(--g-font-ui, 'Inter', sans-serif);
 }
+/* The panel also carries gds-root, so the scoped rules reach its buttons and
+   controls. .gds-root sets the page's black background with the same
+   specificity as .gds-modal, and the built chunks hold the two files in
+   either order, so two classes keep the panel's own surface. */
+.gds-modal.gds-root {
+  background: var(--g-bg-layer1);
+}
 .gds-modal__header {
   display: flex;
   align-items: center;

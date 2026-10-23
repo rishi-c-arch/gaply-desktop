@@ -46,6 +46,9 @@
   --g-glass-border: rgba(75, 75, 75, 0.45);
 
   /* base application */
+  /* Native drop-downs, radios, checkboxes and scrollbars draw dark too;
+     without it a select inherits the white text on the platform's light box. */
+  color-scheme: dark;
   background: var(--g-bg-base);
   color: var(--g-text);
   font-family: var(--g-font-ui);
@@ -57,6 +60,12 @@
 .gds-root ::selection {
   background: var(--g-accent);
   color: #fff;
+}
+
+/* The checked radio or checkbox shows in the theme's accent. */
+.gds-root input[type='radio'],
+.gds-root input[type='checkbox'] {
+  accent-color: var(--g-accent);
 }
 
 .gds-root .gds-mono {

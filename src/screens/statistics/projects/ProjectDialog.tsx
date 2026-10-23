@@ -81,7 +81,7 @@ export const ProjectDialog: React.FC<ProjectDialogProps> = ({ title, onClose, in
     <div className="gds-modal-overlay" data-testid={`${testId}-overlay`}>
       <div
         ref={box}
-        className="gds-modal"
+        className="gds-modal gds-root"
         role="dialog"
         aria-modal="true"
         aria-labelledby={headingId}

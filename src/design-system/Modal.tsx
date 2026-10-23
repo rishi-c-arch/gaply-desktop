@@ -22,7 +22,7 @@ export const Modal: React.FC<ModalProps> = ({ open, title, onClose, children }) 
   return createPortal(
     <div className="gds-modal-overlay" onClick={onClose} data-testid="gds-modal-overlay">
       <div
-        className="gds-modal"
+        className="gds-modal gds-root"
         role="dialog"
         aria-modal="true"
         aria-label={title}

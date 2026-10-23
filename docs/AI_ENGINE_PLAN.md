@@ -24768,3 +24768,149 @@ test of save, reopen and delete), the evaluation of the Proposed parts of
 ADR-009 and ADR-004, and the release-list items (single instance on macOS is
 settled by the lock; the Statistics flag and the tiers are not decided).
 Departures are listed in `~/gaply-corpus/os/phase5/phase5b3b_report.md` §5.
+
+### D285 — Research OS, Phase 5B-4a: the hand test's first fixes (the text exports, the globe, the theme and the dialogs, a flaky test) `[src]` `[test]` `[measured]`
+
+**Added** on `feat/research-os-5` after `aba12f9`. Decisions 159 to 161, 164
+to 167 and 168 to 170 of 23 Oct 2026 apply (`~/gaply-corpus/os/decisions.md`). **Three of the
+four fixes change features that ship today with every flag off.** (1) The Note
+Creator's and the Citation Manager's text exports could not write a file in
+the desktop app from 6 Jul 2026, when the capability file was created, until
+this step; they now can. (2) The brand globe in the rail of every AppShell
+screen, whose failed image replaced the whole page with "Something went
+wrong", now leaves its own box empty. (3) Native drop-downs, radios,
+checkboxes and scrollbars on every `.gds-root` screen now draw in the dark
+scheme, a checked radio or checkbox takes the accent colour, and the design
+system's `Modal`, used by the citation editor and the PDF viewer, gets its
+buttons' styles. Twenty shipped page modules render under `.gds-root`,
+among them the Citation Manager, AI Check, Settings, the Stats Verifier, the
+Thesis Audit and the report pages; the rest are behind flags. The fourth fix is
+test-only. Findings b, e, f, g and k are 5B-4b's (decision 159); finding i
+needs no code (decision 167).
+
+**(a) The text exports (decision 160).** *Cause:* `saveTextFile` calls the fs
+plugin's `writeTextFile`, which invokes `plugin:fs|write_text_file`. The
+window's capability listed `fs:allow-write-file`, which at tauri-plugin-fs
+2.5.1 allows `write_file`, `open` and `write` only; `write_text_file` is
+allowed only by `allow-write-text-file`, `write-files` or `write-all`, and
+`fs:default` grants no write. The command was refused before any path was
+considered. *Fix:* `"fs:allow-write-text-file"` in
+`src-tauri/capabilities/default.json`; nothing else in the file changed, and
+the fs scope is still `$APPDATA` plus the paths a save dialog adds. *Guard:*
+`src-tauri/tests/every_fs_call_is_permitted.rs`, in the shape of
+`no_link_bypasses_the_recheck.rs`. A hand-pinned map from each plugin-fs
+function to its command and to every permission that allows it (from the
+plugin's `dist-js/index.js` and `permissions/` at 2.5.1, the per-directory
+sets deliberately left out, so relying on one fails closed); a scan of every
+non-test frontend file that names `@tauri-apps/plugin-fs`, the aliased
+`fs()` of `noteImages.ts` included, where a file the scan reads no function
+from fails; the set found pinned to six functions (`writeTextFile`,
+`writeFile`, `readFile`, `exists`, `mkdir`, `remove`); and no direct
+`plugin:fs|` invoke. `readFile`, `exists` and `mkdir` are also allowed by
+`fs:default`, so removing `fs:allow-exists` or `fs:allow-mkdir` would not
+redden it, correctly.
+
+**(h) The globe.** *Cause:* `GaplyGlobe` wrapped the lazy `ThreeJSGlobe` in
+`Suspense` only. drei's `useTexture` rethrows a failed load through R3F's
+`Canvas`, and the first boundary above was `AppErrorBoundary` at the app's
+root. *Fix:* a small boundary around the `Suspense` in `GaplyGlobe.tsx`
+whose fallback renders nothing and which logs nothing (React itself still
+reports a caught error on the console). It also catches a lazy chunk that
+fails to load. The landing page's `GlobeFrame` is unchanged. The home screen's
+hero renders no globe. The web build's marketing hero (`App.tsx:376`,
+`AppleHeroSection`, not reachable in the desktop app) renders `ThreeJSGlobe`
+with no boundary and is unchanged. *Test:* `GaplyGlobe.vitest.tsx` mocks
+`ThreeJSGlobe` to throw, renders it in a rail inside `AppErrorBoundary`
+beside a body, waits for the lazy load, and asserts the body is there, the
+globe's box is empty and "Something went wrong" is absent. **Its first version
+passed at HEAD**, a deletion-test finding: React 19 holds the commit after a
+Suspense retry for up to `FALLBACK_THROTTLE_MS` (300 in react-dom 19.2.0), and
+the test read the DOM 50 ms after the throw, before the root fallback was
+committed. With a 1,000 ms settle it is red at HEAD and green after.
+
+**(c, d) The theme and the dialogs (decision 161).** *Causes:* `.gds-root`
+set white text and no `color-scheme`, so a native select inherited the white
+text through Tailwind's preflight while the platform drew its light box, and
+radios hid their checked state. Both dialogs portal into `document.body`,
+outside every `.gds-root`, where every `.gds-btn` rule is scoped. *Fix:*
+`color-scheme: dark` on `.gds-root` and an `accent-color: var(--g-accent)`
+rule for radios and checkboxes under it (`tokens.css`); `color-scheme: light`
+in AI Check's light block (`aicheck.css`); the `gds-root` class on the
+`.gds-modal` panel of `Modal.tsx` and `ProjectDialog.tsx`, the overlay
+unchanged. **A departure from the prompt, approved during the step and accepted by
+decision 168:**
+`.gds-root` sets `background: var(--g-bg-base)` (black) with the same
+specificity as `.gds-modal`, and the last build's chunks hold the two files in
+either order (`910.4d0dec18.chunk.css` has `.gds-modal` at byte 4112 before
+`.gds-root` at 17227; `961.c39087e3` the reverse), so the panel would have
+turned black where `tokens.css` comes later. `.gds-modal.gds-root {
+background: var(--g-bg-layer1); }` in `primitives.css` keeps the panel's
+surface in any order. *Tests:* `dialogTheme.vitest.tsx`: a `.gds-btn` inside
+an open `Modal` (its own Close included) and inside an open `ProjectDialog`
+has a `.gds-root` ancestor; the overlay's class is exactly
+`gds-modal-overlay` and the panel carries both classes; and the four CSS
+lines are pinned as text inside their own rules. jsdom draws no native
+control, so the colours are checked in the real app (the checklist's Part 8).
+
+**(j) The flaky test.** `{ timeout: 5000 }` on each of the seven `waitFor`
+calls in `src/screens/ai/ai.vitest.tsx`, nothing else changed; testing-library's
+default is 1,000 ms, and the `aba12f9` run's first attempt failed one of them
+at 1,227 ms. No test can catch a timing flake; the measure is the re-run rate.
+
+**The checklist (decisions 164 to 167).** `~/gaply-corpus/os/phase5/hand_test_5e.md`
+has a new first page, "Rerun after 5B-4a": do not rerun Part 0 (it would
+overwrite the backup); start once, delete the first run's `HTPROJ_TEST`
+(nothing in the store refuses a duplicate name), run Parts 2 to 6 with what
+each should now look like; the second copy started from the shared folder's
+debug binary right after that build; "This build has no account service"
+expected; then Part 7 with a new Part 8 inside the flags-off run: a note
+`HTNOTE_one` and a reference `HTREF_…` exported into `hand_test_files/exports/`
+and read in TextEdit, then deleted; a look at an AppShell screen, the Citation
+Manager and its editor, AI Check in both modes and the Stats Verifier page; the
+PDF viewer optional, with a synthetic one-page `HTFILE_viewer.pdf` (parsed by
+the app's own pdfjs-dist 4.8.69: one page, three made-up lines), because
+linking runs the embedding model unoptimised in a dev build. The workspace
+switch dialog opens only while a run is still going, which the synthetic files
+cannot hold, so it is marked as probably unreachable by hand.
+
+**Measured, 23 Oct 2026, macOS aarch64** (logs in
+`~/gaply-corpus/os/phase5/5b4a_logs/`), each prediction written before its
+run. Red before, green after: the capability guard at HEAD's capability
+(red on `writeTextFile` alone, `saveTextFile.ts`), the globe test (red with
+"Something went wrong" committed), and all seven `dialogTheme` tests (each
+for its own reason). `cargo check --workspace --all-targets` exit 0, no
+warning in a changed file. `cargo test -p gaply_core --no-fail-fast` exit 0,
+75 targets (74 Running + 1 Doc-tests), 2,102 passed, 3 ignored (no
+`gaply_core` file changed). `cargo test --workspace --no-fail-fast`, both
+`lib.rs` touched (`git status` unchanged by the touch): exit 0, 117 targets
+(115 Running + 2 Doc-tests), 2,871 passed, 12 ignored, as predicted from
+D284's 116 / 2,868 / 12 (+the new guard, 3 tests). `cargo test -p app
+--features devtools --no-fail-fast`: exit 0, 48 targets (47 Running + 1
+Doc-tests), 786 passed, 9 ignored, as predicted from 47 / 783 / 9. Between
+the two, free space fell to 12 GiB with nothing building, and the shared
+`debug/incremental` (5.4 GiB) was deleted as Prompt 0's disk rule allows.
+vitest: 113 files / 1,469 tests at `aba12f9`, 115 / 1,477 after, as predicted
+(two new files: `GaplyGlobe` 1, `dialogTheme` 7; `ai.vitest.tsx` 21 → 21).
+`tsc --noEmit` and CI's eslint exit 0. `npm run build` exit 0,
+`build/index.html` present, `public/sitemap.xml` written back from HEAD
+(`cmp` equal); the built chunks carry `color-scheme:dark`,
+`color-scheme:light` (AI Check's chunk), the accent rule and
+`.gds-modal.gds-root`, and chunk `910.6d847f18` still puts `.gds-root` after
+`.gds-modal`. rustfmt by path: the new guard 3 hunks → 0 after formatting;
+no other Rust file changed. `git diff --check` clean; `git diff aba12f9`
+empty under `stats_l0`, `stats_l1` and `stats_assist`. No GRRB-watched file
+changed. Mutation record (SHA-256, broken once, red, restored with a fresh
+mtime, SHA-256 equal, green): `fs:allow-write-file` removed (red on
+`writeFile` in four files, `noteImages.ts`'s alias among them);
+`fs:allow-remove` removed (red on `remove`); a temporary file of this step's
+using the module through a namespace (red: "the scan read no function");
+the globe's boundary unwrapped; the `gds-root` class dropped from each
+dialog's panel; each of the four CSS lines removed or changed. Each went red
+where predicted.
+
+**Not tested:** any colour, which jsdom cannot draw (the checklist's Part 8 and
+Parts 2 to 5 are the check); a real failed texture load (the mock throws during
+render instead); Windows (the guard's paths are built with `Path::join` and
+compared as strings only in its messages, but only `windows-build-check` can
+say so); the real app. Departures are listed in
+`~/gaply-corpus/os/phase5/phase5b4a_report.md` §5.
