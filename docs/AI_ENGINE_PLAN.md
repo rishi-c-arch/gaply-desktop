@@ -24914,3 +24914,176 @@ render instead); Windows (the guard's paths are built with `Path::join` and
 compared as strings only in its messages, but only `windows-build-check` can
 say so); the real app. Departures are listed in
 `~/gaply-corpus/os/phase5/phase5b4a_report.md` §5.
+
+### D286 — Research OS, Phase 5B-4b: the hand test's remaining fixes (table spacing, links, a Projects line, the delete dialog after a refusal, one project size and its wording, export failures, CI) `[src]` `[test]` `[measured]`
+
+**Added** on `feat/research-os-5` after `621cb8f` (D285). Decisions 171 to 176
+of 23 Oct 2026 apply (`~/gaply-corpus/os/decisions.md`), with 159, 162 and 163
+as they refine. **One fix changes features that ship today with every flag
+off: the Note Creator's and the Citation Manager's export failures (decision
+176).** A failed export of all shown notes, of a note from either note editor,
+or of a BibTeX or RIS file showed the error's own message (`e.message`, or
+"Export failed: …"), which can hold a path or a file name; a failed
+bibliography export showed nothing at all and left an unhandled rejection, so
+the error reached the console. Each now shows "Gaply could not save the
+export. No file was written." and logs nothing of the error. The other raw
+messages on those two screens (loading notes, saving a note, importing,
+resolving a paper, the open-access fetch, the DOI and retraction checks, the
+local library's warnings) are unchanged and wait for a later step (decision
+176). Everything else here is behind `REACT_APP_FEATURE_PROJECTS`,
+`REACT_APP_FEATURE_WORKSPACES` or `REACT_APP_FEATURE_STATS_DESCRIBE`, or is CI.
+
+**(b) Table spacing.** *Cause:* the six tables (`desc-numeric-table`,
+`desc-levels-table`, `desc-profile`, `desc-settings`, `tt-profile`,
+`tt-groups`) gave their column headers `paddingRight: 12` and their data
+cells, their row headers and two headers (the levels table's "Count", the
+settings table's "Summarise as") nothing, under `borderCollapse: collapse`;
+on the live results screen the table sits at content width in a `Card`, so a
+number that was its column's widest cell touched the next column. The saved
+view looked clean because its `display: grid` section stretches the table
+(inferred, not rendered). *Fix:* one exported constant, `CELL_PADDING =
+{ paddingRight: 12 }`, in `src/design-system/primitives.tsx`, on every `th`
+and `td` of the six tables in `DescribeFlow.tsx` and `TTestFlow.tsx`; the
+per-header copies are gone. An inline style, because vitest runs with
+`css: false`. *Tests:* each flow's own test file walks to every table and
+asserts every `th` and `td` has a 12 px right padding; `SavedResult.vitest.tsx`
+does the same for a saved summary and a saved t-test. Red before (unpadded
+`td`s and row headers), green after. One existing assertion changed:
+"Could not compute" was pinned as having no `style` at all; it now has the
+same style as its row's other cells, which is what the assertion meant.
+
+**(e) Links that look like links.** *Cause:* Tailwind's preflight sets
+`a{color:inherit;text-decoration:inherit}` app-wide, and no rule under
+`.gds-root` restored a link. *Fix:* `.gds-root .gds-link { color:
+var(--g-accent); }` and an underline on `:hover` and `:focus`, in
+`primitives.css`; the class on the three "Open:" anchors of the Statistics
+home (four `stats-open-*` elements), the Tools card's links and the settings
+link in `WorkspaceShell.tsx`. No rule for every `a`. *Tests:* each
+`stats-open-*` element and each shell link carries the class; in
+`dialogTheme.vitest.tsx` the rule is pinned as text, and a scan of
+`primitives.css` with comments stripped finds no selector for a bare `a`
+(the rule's own comment quotes preflight's `a{…}`, which the first version of
+the scan matched). Red before, green after; mutation: a global `a {…}` rule
+appended, red.
+
+**A "Projects" line (decision 172).** The rerun found the projects hard to
+find. *Change:* a line in the Statistics workspace page's Tools card,
+`ws-tools-projects`, keyed apart from the Statistical methods line (both lead
+to `/app/statistics`), shown only when `projectsShown()` and the describe flag
+are both on, the condition under which the project routes exist
+(`projectRoute.tsx`). It navigates with router state `FOCUS_PROJECTS`
+(`{ focus: 'projects' }`, a fixed word, never an id or a name), and the
+Statistics home, once its method list has loaded or failed, moves the focus to
+`projects-heading`, which scrolls the panel into view. Opened any other way,
+it moves no focus. *Tests:* a new
+`src/screens/statistics/projects/projectsLine.vitest.tsx` (the only folder whose
+tests may name project commands, by `projectGuards.vitest.ts`, which caught
+its first location in `screens/workspace/`) with the real shell, the real home and the real panel over a mocked invoke:
+the line shows with both flags on in the desktop app and React warns of no
+duplicate key; it is absent with the projects flag off, with the describe flag
+off and in the browser; clicking it focuses the heading only after the list
+has resolved, and also after it fails; opening the page directly, or from the
+Statistical methods line, moves no focus. The three positive tests were red
+before; the five absence and no-focus tests were green before and are kept.
+
+**The delete dialog after a refusal (decision 175).** *Change:* after a
+refusal, `project-delete-cancel` reads `PROJECT_TEXT.closeDialog` ("Close")
+and takes the focus once it is enabled again; `PROJECT_TEXT.close` ("Close
+the project") is unchanged; Delete stays. *Tests:* red before: the button
+reads Close and has the focus. Already green and kept: the refusal shows,
+Delete is there and enabled, Close and Escape each close the dialog, and the
+focus returns to `project-delete-<id>`. **A deletion test of the focus move
+first stayed green**: `fireEvent.click` moves no focus, so the focus was
+still on Cancel from when the dialog opened. The test now focuses Delete
+before pressing it, as a keyboard user does, and goes red without the move.
+
+**(f) One project size (decisions 162 and 173).** *Cause:* `tree_bytes`
+counted `project.db-wal` and `project.db-shm`, which SQLite creates while a
+connection is open and removes when the last one closes, so `list()`,
+`usage()` and the page each counted a different pair (0.10, 0.04 and 0.07
+MiB in the hand test). *Fix* in `src-tauri/src/project_store.rs` only:
+`tree_bytes`, changed in place, skips files named exactly `project.db-wal` and
+`project.db-shm`, at any depth; every other file counts as before, a
+tombstone's leftovers included. Every size and the caps go through it
+(`list`, `usage` and `projects_bytes`, `project_bytes`, `size_on_disk`, the
+Save's cap check). `PRAGMA wal_checkpoint(TRUNCATE)`, through `query_row`,
+runs after a Save's commit and in `ProjectHandle`'s `Drop` (which `close`
+runs). A busy or failed checkpoint logs `project.checkpoint_busy` or
+`project.checkpoint_failed` and nothing else, and the Save still returns
+`Ok`. The checkpoint waits under the 5 s busy timeout while another
+connection reads, so a Save or a close can take that long when a second copy
+is reading the same project (inferred from SQLite's documentation; not
+measured). *Tests:* `a_projects_size_read_while_it_is_open_equals_its_size_after_it_is_closed`
+(all four sizes agree while open and equal the size after close; red at HEAD:
+107,682 open against 33,682 closed);
+`after_a_second_save_the_log_is_empty_while_the_project_is_open` (red at
+HEAD: 41,232 bytes); `a_size_skips_exactly_the_log_and_the_shared_memory_file`
+(red at HEAD). **The first size test passed with the Save's checkpoint
+deleted**: two small Saves rewrite pages `project.db` already has, so folding
+the log in leaves its size the same. It now makes 41 Saves and asserts
+`project.db` grew while open, and goes red without the checkpoint. The close
+checkpoint has no red test: SQLite folds the log in when the last connection
+closes anyway, and a deletion of it stays green, as predicted. Every existing
+size and cap test passes unchanged, and the tests that expect a `-wal` file
+still find one (TRUNCATE leaves it at 0 bytes).
+
+**(g) The size wording (decisions 163 and 174).** `projectWording.ts`: `mib`
+is replaced by `mb`, decimal MB to two decimals, "0 MB" for 0 bytes and
+"under 0.01 MB" below 10,000 bytes. "Your projects use 0.05 MB of their 10 GB
+limit. A project can hold up to 100 MB."; "Size: 0.07 MB."; the two cap
+refusals name "100 MB" and "10 GB"; "Data file: CSV file, 0.05 MB.". The
+limits are the fixed words `PROJECT_LIMIT` and `ALL_PROJECTS_LIMIT`, never
+formatted from a cap or a refusal's `limit`, and a test reads
+`projectSizes.json` and asserts 100,000,000 and 10,000,000,000 are each no
+more than its cap. `totalsSentence` takes the total only.
+
+**(k) CI.** `actions/checkout` v4 → v7, `actions/setup-node` v4 → v7,
+`actions/upload-artifact` v4 → v7, `actions/download-artifact` v4 → v8, each
+the newest major, each `runs.using: node24` in its `action.yml` at that tag
+(read 23 Oct 2026). The five `ubuntu-latest` jobs, `latex-compile`'s container
+job included, are pinned to `ubuntu-24.04`; `windows-latest` and
+`macos-latest` are unchanged; `latex-compile.yml` installs Node 22. No step
+needed changing: no workflow runs on `pull_request_target` or `workflow_run`
+(checkout v7 blocks fork-PR checkout there), none uses `registry-url` or
+`NODE_AUTH_TOKEN` (setup-node v7 removed the dummy export), `package.json`
+has no `packageManager` field (setup-node v5's automatic caching), and the
+one download is by name of a zipped upload (download-artifact v5's by-ID path
+change and v8's content-type decompression do not apply). Unverified until the
+branch is pushed: the pull request's six checks are the measure.
+
+**Measured, 23 Oct 2026, macOS aarch64** (logs in
+`~/gaply-corpus/os/phase5/5b4b_logs/`), each prediction written before its
+run. Red before, green after: the three padding tests, the three link tests,
+the three positive Projects-line tests, the Close test, the three store tests,
+eight wording tests and the six export-failure tests (each list in
+`~/gaply-corpus/os/phase5/phase5b4b_report.md`). `cargo check --workspace
+--all-targets` exit 0, 45 warnings, none in a changed file. `cargo test -p
+gaply_core --no-fail-fast` exit 0, 75 targets (74 Running + 1 Doc-tests),
+2,102 passed, 3 ignored, unchanged as predicted. `cargo test --workspace
+--no-fail-fast`, both `lib.rs` touched: exit 0, 117 targets (115 + 2),
+2,874 passed, 12 ignored, as predicted from D285's 2,871 + 3. `cargo test -p
+app --features devtools --no-fail-fast`: exit 0, 48 targets (47 + 1), 789
+passed, 9 ignored, as predicted from 786 + 3. Between the two, free space fell
+to 12 GiB with nothing building, and the shared `debug/incremental` (6.4 GiB)
+was deleted as Prompt 0's disk rule allows. vitest: 115 files / 1,477 tests
+at `621cb8f`, 118 / 1,502 after, as predicted (three new files with 14 tests;
+11 new tests in existing files). The first whole-suite run was 1 failed, 1,501
+passed: `projectGuards.vitest.ts` on the new file's first location, fixed by
+the move above and re-checked by a mutation. `tsc --noEmit` and CI's eslint
+exit 0. `npm run build` exit 0, `build/index.html` present, `public/sitemap.xml`
+written back from HEAD (`cmp` equal); both `.gds-root` chunks carry the link
+rules. rustfmt by path on `project_store.rs`: 0 hunks at HEAD, 2 after the
+change (whitespace only), formatted, 0. The workspace run used the file before
+formatting; the devtools run used it after. `git diff --check` clean; `git diff
+621cb8f` empty under `stats_l0`, `stats_l1` and `stats_assist`. No
+GRRB-watched file changed. Mutation record (SHA-256, broken once, red,
+restored with a fresh mtime, SHA-256 equal, green): a global `a {…}` rule in
+`primitives.css`; the focus move after a refusal; the Save's checkpoint (two
+store tests red); the Drop's checkpoint (green, as predicted); the Projects
+line hidden (three tests red).
+
+**Not tested:** any rendered spacing, colour or scrolling, which jsdom cannot
+draw (`~/gaply-corpus/os/phase5/realapp_5b4b.md` is the check); a checkpoint
+that is busy because a second copy is reading, and how long a Save waits then;
+Windows (`windows-build-check` only); the CI changes, which run only when the
+branch is next pushed; the real app. Departures are listed in the report's §5.

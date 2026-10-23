@@ -20,9 +20,12 @@ import { isFeatureEnabled } from '../../config/featureFlags';
 import { describeBridge, type DescribeBridge } from '../statistics/describeBridge';
 import { progressSentence, RUN_STATE_NAMES } from '../statistics/describeWording';
 import type { RunState } from '../statistics/describeTypes';
-import { statisticsTools as selectorTools } from '../statistics/statisticsRoute';
+import { STATISTICS_HOME_PATH, statisticsTools as selectorTools } from '../statistics/statisticsRoute';
+import { FOCUS_PROJECTS } from '../statistics/StatisticsHome';
 import { ttestBridge, type TTestBridge } from '../statistics/ttestBridge';
+import { projectsShown } from '../statistics/projects/projectGate';
 import { noteWorkspaceState, openProjectStore } from '../statistics/projects/projectSession';
+import { PROJECT_TEXT } from '../statistics/projects/projectWording';
 import { workspaceBridge, type WorkspaceBridge } from './workspaceBridge';
 import { isActive, workspaceRefusal, type RunEntry, type WorkspaceStateView } from './workspaceTypes';
 import { SHELL_TEXT, SWITCH_DIALOG, workspaceSentence } from './workspaceWording';
@@ -41,13 +44,19 @@ export interface WorkspaceShellProps {
 /** The Statistics tools the shell lists. Each keeps its own flag; the Stats
  *  Check and the Stats Verifier stay reachable without a workspace too
  *  (decision 27). */
-function statisticsTools(): Array<{ label: string; href: string }> {
+function statisticsTools(): Array<{ key: string; label: string; href: string; state?: object; testId?: string }> {
   return [
     // The method selector replaced the descriptive summary's link here
     // (Phase 4B-2, decision 77); both flows are reached from it.
-    ...selectorTools(),
-    ...(isFeatureEnabled('statsCheck') ? [{ label: 'Statistical Analysis Check', href: '/app/check/stats' }] : []),
-    { label: 'Statistical Analysis Verifier ★', href: '/app/statsverifier' },
+    ...selectorTools().map((t) => ({ key: t.href, ...t })),
+    // The projects (decision 172), only where their pages can open: the
+    // project screens show and the methods page they sit on exists. It leads
+    // to that same page, which then brings its Projects panel into view.
+    ...(projectsShown() && isFeatureEnabled('statsDescribe')
+      ? [{ key: 'projects', label: PROJECT_TEXT.panelHeading, href: STATISTICS_HOME_PATH, state: FOCUS_PROJECTS, testId: 'ws-tools-projects' }]
+      : []),
+    ...(isFeatureEnabled('statsCheck') ? [{ key: '/app/check/stats', label: 'Statistical Analysis Check', href: '/app/check/stats' }] : []),
+    { key: '/app/statsverifier', label: 'Statistical Analysis Verifier ★', href: '/app/statsverifier' },
   ];
 }
 
@@ -252,8 +261,16 @@ export const WorkspaceShell: React.FC<WorkspaceShellProps> = ({
             <Card title={SHELL_TEXT.tools}>
               <ul data-testid="ws-tools">
                 {statisticsTools().map((t) => (
-                  <li key={t.href}>
-                    <a href={t.href} onClick={(e) => { e.preventDefault(); navigate(t.href); }}>
+                  <li key={t.key}>
+                    <a
+                      href={t.href}
+                      className="gds-link"
+                      data-testid={t.testId}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        navigate(t.href, t.state ? { state: t.state } : undefined);
+                      }}
+                    >
                       {t.label}
                     </a>
                   </li>
@@ -268,7 +285,7 @@ export const WorkspaceShell: React.FC<WorkspaceShellProps> = ({
             <JobArea run={run} />
           </Card>
           <Card title={SHELL_TEXT.settings}>
-            <a href="/app/settings" onClick={(e) => { e.preventDefault(); navigate('/app/settings'); }}>
+            <a href="/app/settings" className="gds-link" onClick={(e) => { e.preventDefault(); navigate('/app/settings'); }}>
               {SHELL_TEXT.settings}
             </a>
           </Card>

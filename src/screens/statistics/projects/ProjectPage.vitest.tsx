@@ -190,7 +190,7 @@ describe('the page of the open project', () => {
     const name = await screen.findByTestId('project-page-name');
     expect(name.tagName).toBe('BDI');
     expect(name.textContent).toBe('Chapter 3');
-    expect(screen.getByTestId('project-page-size').textContent).toBe('Size: 3 MiB.');
+    expect(screen.getByTestId('project-page-size').textContent).toBe('Size: 3.15 MB.');
     const list = await screen.findByTestId('project-runs-list');
     const rows = within(list).getAllByRole('listitem');
     expect(rows.map((r) => r.getAttribute('data-testid'))).toEqual(['project-run-3', 'project-run-2', 'project-run-1']);

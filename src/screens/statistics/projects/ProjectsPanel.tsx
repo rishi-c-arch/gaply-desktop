@@ -9,7 +9,7 @@
 // * Each project: its name (as text, inside <bdi>), size, saved date and
 //   number of saved runs; one that cannot be read shows its code's sentence
 //   and its size, and can still be deleted. The total against both limits,
-//   in MiB, the unit named once. Loading, empty and error states.
+//   in decimal MB (decisions 163 and 174). Loading, empty and error states.
 // * "Open now" marks the project Rust says is open: the panel asks
 //   project_current when it appears (decision 148), and never marks one
 //   while Statistics is not active (decision 135): it reads the workspace
@@ -21,7 +21,8 @@
 // * Delete opens a dialog: the name, the size and decision 133's sentence;
 //   Cancel has the focus, Escape cancels. Its Delete calls prepare delete,
 //   then delete, on that click only; a refusal shows its sentence (another
-//   copy of the app having it open included) and the dialog stays open.
+//   copy of the app having it open included) and the dialog stays open;
+//   Cancel then reads Close and takes the focus (decision 175).
 //   After a delete, focus moves to the panel's heading.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Card } from '../../../design-system';
@@ -134,7 +135,7 @@ const ProjectsPanelShown: React.FC<ProjectsPanelProps> = ({ bridge: given, works
         {listed && (
           <>
             <p data-testid="projects-totals">
-              {totalsSentence(listed.sizes.totalBytes, listed.sizes.projectCapBytes, listed.sizes.allProjectsCapBytes)}
+              {totalsSentence(listed.sizes.totalBytes)}
             </p>
             {listed.list.length === 0 ? (
               <p data-testid="projects-empty">{PROJECT_TEXT.empty}</p>
@@ -232,6 +233,12 @@ const DeleteDialog: React.FC<DeleteDialogProps> = ({ project, bridge, gen, headi
     };
   }, []);
 
+  // After a refusal the dialog stays open so it can be read, and its Cancel
+  // reads Close and takes the focus once it is enabled again (decision 175).
+  useEffect(() => {
+    if (refusal !== null && !pending) cancelButton.current?.focus();
+  }, [refusal, pending]);
+
   const cancel = () => {
     if (!pending) onCancel();
   };
@@ -289,7 +296,7 @@ const DeleteDialog: React.FC<DeleteDialogProps> = ({ project, bridge, gen, headi
           disabled={pending}
           data-testid="project-delete-cancel"
         >
-          {PROJECT_TEXT.cancel}
+          {refusal !== null ? PROJECT_TEXT.closeDialog : PROJECT_TEXT.cancel}
         </button>
         <Button onClick={() => void remove()} disabled={pending} data-testid="project-delete-confirm">
           {PROJECT_TEXT.deleteConfirm}

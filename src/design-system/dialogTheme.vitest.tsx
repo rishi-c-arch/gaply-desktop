@@ -99,6 +99,20 @@ describe('the theme reaches native controls', () => {
     expect(body).toMatch(/^\s*color-scheme: light;$/m);
   });
 
+  // Finding e (Research OS, 5B-4b): preflight sets a{color:inherit;
+  // text-decoration:inherit} for the whole app, so a link drew as text. One
+  // class, under .gds-root only: no rule for every a.
+  it('the link class draws in the accent colour and underlines on hover and focus, and no rule styles every a', () => {
+    expect(ruleBody(primitives, '.gds-root .gds-link')).toMatch(/^\s*color: var\(--g-accent\);$/m);
+    const hover = ruleBody(primitives, '.gds-root .gds-link:hover,\n.gds-root .gds-link:focus');
+    expect(hover, 'the hover and focus rule is missing').not.toBe('');
+    expect(hover).toMatch(/^\s*text-decoration: underline;$/m);
+    // Comments stripped first: the rule's own comment quotes preflight's a{…}.
+    const rules = primitives.replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(rules).toContain('.gds-root .gds-link');
+    expect(rules).not.toMatch(/(^|[\s,}])a\s*[{,:[]/);
+  });
+
   it("a panel that is also a .gds-root keeps the panel's background in any stylesheet order", () => {
     // .gds-root and .gds-modal are one class each, so the later rule would
     // win, and .gds-root's background is the page's black. The built chunks

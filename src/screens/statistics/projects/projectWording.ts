@@ -32,15 +32,23 @@ export const SETTINGS_SENTENCE =
 
 /* ---- sizes ----------------------------------------------------------------- */
 
-const MIB = 1024 * 1024;
+/** The limits, as fixed words (decisions 163 and 174). The caps in code are
+ *  100 MiB and 10 GiB (decision 107), in binary bytes; these name less than
+ *  that, so no sentence promises more than the app allows. They are never
+ *  formatted from a cap or a refusal's limit. The byte counts beside them
+ *  exist only so a test can pin that each is no more than its cap. */
+export const PROJECT_LIMIT = '100 MB';
+export const ALL_PROJECTS_LIMIT = '10 GB';
+export const PROJECT_LIMIT_BYTES = 100000000;
+export const ALL_PROJECTS_LIMIT_BYTES = 10000000000;
 
-/** Bytes as a number of MiB, the unit the limits are set in (decision 107).
- *  The unit is named once, by the line that shows the numbers. */
-export function mib(bytes: number): string {
-  if (bytes > 0 && bytes < MIB / 100) return 'under 0.01';
-  const v = bytes / MIB;
-  const digits = Number.isInteger(v) ? 0 : 2;
-  return v.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits });
+/** Bytes in decimal MB, as the Mac's Finder shows them (decision 163), to
+ *  two decimals, unit included. 0 bytes is "0 MB"; above 0 and below 0.01
+ *  MB is "under 0.01 MB" (decision 174). */
+export function mb(bytes: number): string {
+  if (bytes === 0) return '0 MB';
+  if (bytes < 10000) return 'under 0.01 MB';
+  return `${(bytes / 1000000).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MB`;
 }
 
 /* ---- every code ------------------------------------------------------------ */
@@ -72,10 +80,9 @@ export const PROJECT_WORDS: Record<ProjectCode, Say> = {
   'project.artifact_wrong_hash': () => 'A file in this project no longer matches its fingerprint, so it was not read.',
   'project.prov_cycle': () => "This project's record of what came from what has a loop, so it cannot be exported.",
   'project.prov_unlinked_derivation': () => "This project's record of what came from what is incomplete, so it cannot be exported.",
-  'project.project_cap': (r) =>
-    `Saving this would take the project past its limit of ${mib(r.limit ?? 0)} MiB, so nothing was saved.`,
-  'project.all_projects_cap': (r) =>
-    `Saving this would take all projects together past their limit of ${mib(r.limit ?? 0)} MiB, so nothing was saved.`,
+  'project.project_cap': () => `Saving this would take the project past its limit of ${PROJECT_LIMIT}, so nothing was saved.`,
+  'project.all_projects_cap': () =>
+    `Saving this would take all projects together past their limit of ${ALL_PROJECTS_LIMIT}, so nothing was saved.`,
   'project.disk_full': () => "This computer's disk is full, so nothing was saved.",
   'project.io_failed': () => 'Gaply could not read or write a file in its projects folder.',
   'project.db_failed': () => "Gaply could not update this project's record file.",
@@ -172,6 +179,8 @@ export const PROJECT_TEXT = {
   saveConfirm: 'Save',
   saving: 'Saving…',
   cancel: 'Cancel',
+  // The delete dialog's Cancel, once a refusal shows (decision 175).
+  closeDialog: 'Close',
   savedNew: 'Saved. This run is the first in the new project',
   savedInto: 'Saved. This run was added to the project',
   panelHeading: 'Projects',
@@ -241,7 +250,7 @@ export const SAVED_TEXT = {
   summaryHidden: 'Descriptive summaries are not shown in this build of Gaply, so this saved result is not shown.',
   cannotShow: 'This saved result could not be shown.',
   failed: 'This run failed. Gaply saved its reason:',
-  dataFile: (format: string, bytes: number) => `Data file: ${format.toUpperCase()} file, ${mib(bytes)} MiB.`,
+  dataFile: (format: string, bytes: number) => `Data file: ${format.toUpperCase()} file, ${mb(bytes)}.`,
 } as const;
 
 /** The export dialog's and the export's own sentences (decision 151). */
@@ -253,13 +262,14 @@ export const EXPORT_WORDS = {
   saved: (sha256: string) => `Saved. SHA-256 of the file: ${sha256.slice(0, 12)}…`,
 } as const;
 
-/** The storage line: the total against both limits, in MiB, named once. */
-export function totalsSentence(totalBytes: number, projectCapBytes: number, allProjectsCapBytes: number): string {
-  return `Sizes in MiB. All projects use ${mib(totalBytes)} of ${mib(allProjectsCapBytes)}; each project can hold up to ${mib(projectCapBytes)}.`;
+/** The storage line: the total against both limits (decisions 163 and 174),
+ *  worded so it cannot be read as free disk space. */
+export function totalsSentence(totalBytes: number): string {
+  return `Your projects use ${mb(totalBytes)} of their ${ALL_PROJECTS_LIMIT} limit. A project can hold up to ${PROJECT_LIMIT}.`;
 }
 
 /** A project's size, for a row and the delete dialog. */
-export const sizeSentence = (bytes: number) => `Size: ${mib(bytes)} MiB.`;
+export const sizeSentence = (bytes: number) => `Size: ${mb(bytes)}.`;
 
 /** A saved time, in seconds since the epoch, in this computer's time zone. */
 export function savedOn(secs: number): string {

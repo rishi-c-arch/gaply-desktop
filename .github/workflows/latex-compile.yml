@@ -36,19 +36,19 @@ on:
 jobs:
   emit:
     name: Emit golden bundles
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
-          node-version: '20'
+          node-version: '22'
           cache: npm
       - run: npm ci --no-audit --no-fund
       - name: Build one bundle per scaffold, plus the edge cases
         run: npx vitest run --config scripts/latex-goldens/vitest.config.ts
         env:
           LATEX_GOLDEN_DIR: ${{ github.workspace }}/latex-goldens
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: latex-goldens
           path: latex-goldens/
@@ -57,13 +57,13 @@ jobs:
   compile:
     name: latexmk
     needs: emit
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Full TeX Live: the preamble uses amsmath, graphicx, booktabs, ulem,
     # hyperref, geometry, lineno and adjustbox, and a partial install would fail
     # for reasons that have nothing to do with the exporter.
     container: texlive/texlive:latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: latex-goldens
           path: latex-goldens
@@ -103,7 +103,7 @@ jobs:
           echo "All bundles compiled."
       - name: Keep the PDFs, so a layout regression can be looked at
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: latex-pdfs
           path: latex-goldens/*/main.pdf

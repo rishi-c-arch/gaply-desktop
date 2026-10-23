@@ -16,7 +16,7 @@
 // Behind REACT_APP_FEATURE_STATS_DESCRIBE, which hides unfinished UI and is
 // not an authorization boundary.
 import React, { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { AppShell, Card, GaplyGlobe, HeaderBar, NavRail, Panel } from '../../design-system';
 import { isFeatureEnabled } from '../../config/featureFlags';
 import { useEntitlement, type EntitlementStatus } from '../subscription/entitlement';
@@ -102,6 +102,7 @@ const CapabilityCard: React.FC<{ c: CapabilityView; open: (path: string) => void
           <a
             href={route}
             data-testid={`stats-open-${c.id}`}
+            className="gds-link"
             onClick={(e) => {
               e.preventDefault();
               open(route);
@@ -144,6 +145,7 @@ const VerifierCard: React.FC<{
         <a
           href={VERIFIER_PATH}
           data-testid="stats-open-verifier"
+          className="gds-link"
           onClick={(e) => {
             e.preventDefault();
             open(VERIFIER_PATH);
@@ -156,8 +158,13 @@ const VerifierCard: React.FC<{
   );
 };
 
+/** The router state the Statistics workspace page's "Projects" line sends
+ *  (decision 172): a fixed word, never a project's id or name. */
+export const FOCUS_PROJECTS = { focus: 'projects' } as const;
+
 export const StatisticsHome: React.FC<StatisticsHomeProps> = ({ bridge: given, forceEntitlement }) => {
   const navigate = useNavigate();
+  const location = useLocation();
   const bridge = useMemo(() => given ?? capabilityBridge(), [given]);
   const [list, setList] = useState<CapabilityView[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -172,6 +179,16 @@ export const StatisticsHome: React.FC<StatisticsHomeProps> = ({ bridge: given, f
       alive = false;
     };
   }, [bridge]);
+
+  // Opened from the "Projects" line (decision 172): once the method list has
+  // loaded or failed, so the cards above the panel are drawn, the focus moves
+  // to the Projects panel's heading, which brings the panel into view. Opened
+  // any other way, the page moves no focus.
+  const toProjects = (location.state as { focus?: unknown } | null)?.focus === FOCUS_PROJECTS.focus;
+  const settled = list !== null || error !== null;
+  useEffect(() => {
+    if (toProjects && settled) document.getElementById('projects-heading')?.focus();
+  }, [toProjects, settled]);
 
   const placed = list ? place(list, isFeatureEnabled('statsCheck')) : null;
 
@@ -203,6 +220,7 @@ export const StatisticsHome: React.FC<StatisticsHomeProps> = ({ bridge: given, f
                   <a
                     href={STATS_CHECK_PATH}
                     data-testid="stats-open-check"
+                    className="gds-link"
                     onClick={(e) => {
                       e.preventDefault();
                       navigate(STATS_CHECK_PATH);

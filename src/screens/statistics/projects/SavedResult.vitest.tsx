@@ -288,6 +288,24 @@ describe('a saved summary and a saved t-test', () => {
     expect(within(screen.getByTestId('saved-result')).queryAllByRole('button')).toHaveLength(0);
   });
 
+  // Finding b (Research OS, 5B-4b): the saved view draws the same tables, so
+  // its cells carry the same right padding.
+  it("pads every header and data cell of a saved result's tables on the right", async () => {
+    const padded = (table: HTMLElement) => {
+      const cells = Array.from(table.querySelectorAll<HTMLElement>('th, td'));
+      expect(cells.length).toBeGreaterThan(0);
+      expect(cells.filter((c) => c.style.paddingRight !== '12px').map((c) => `${c.tagName} ${c.textContent}`)).toEqual([]);
+    };
+    saved(stored('summary.json'), RUN('stats.describe', 'succeeded'));
+    padded(await screen.findByTestId('desc-numeric-table'));
+    const levels = screen.getAllByTestId('desc-levels-table');
+    expect(levels.length).toBeGreaterThan(0);
+    levels.forEach(padded);
+    cleanup();
+    saved(stored('ttest.json'), RUN('stats.analyze.independent_t', 'succeeded', 2));
+    padded(await screen.findByTestId('tt-groups'));
+  });
+
   it('has no Save, re-run, edit or AI-explanation control, and shows the data file only as its kind, format and size', async () => {
     for (const [name, run] of [
       ['summary.json', RUN('stats.describe', 'succeeded')],

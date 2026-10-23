@@ -933,6 +933,10 @@ const Inner: React.FC<CitationManagerPageProps> = ({
     return true;
   };
 
+  /** Every failed export (Research OS, 5B-4b; decision 176). The error's own
+   *  message is never shown or logged: it can hold a path or a file name. */
+  const EXPORT_FAILED = 'Gaply could not save the export. No file was written.';
+
   const exportBibliography = async () => {
     if (nothingToExport()) return;
     // Full-CSL when the style is prepared (Set 3), legacy formatter otherwise
@@ -943,9 +947,13 @@ const Inner: React.FC<CitationManagerPageProps> = ({
     } catch {
       text = formatBibliography(visible.map((c) => c.csl), style);
     }
-    const saved = await saveExportToFile(`bibliography-${style}.txt`, text);
-    if (!wasSaved(saved)) return; // cancelled — say nothing, nothing happened
-    toast(`Bibliography exported — ${visible.length} of ${citations.length}`, 'certain');
+    try {
+      const saved = await saveExportToFile(`bibliography-${style}.txt`, text);
+      if (!wasSaved(saved)) return; // cancelled — say nothing, nothing happened
+      toast(`Bibliography exported — ${visible.length} of ${citations.length}`, 'certain');
+    } catch {
+      toast(EXPORT_FAILED, 'flagged');
+    }
   };
 
   const exportAs = async (format: 'bibtex' | 'ris') => {
@@ -961,9 +969,8 @@ const Inner: React.FC<CitationManagerPageProps> = ({
         `${format === 'bibtex' ? 'BibTeX' : 'RIS'} exported — ${visible.length} of ${citations.length}`,
         'certain',
       );
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      toast(`Export failed: ${msg}`, 'flagged');
+    } catch {
+      toast(EXPORT_FAILED, 'flagged');
     }
   };
 

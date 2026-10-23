@@ -54,7 +54,7 @@ jobs:
 
       - name: Checkout
         if: ${{ contains(matrix.enabled_on, inputs.platform) }}
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Rust (stable)
         if: ${{ contains(matrix.enabled_on, inputs.platform) }}
@@ -68,7 +68,7 @@ jobs:
 
       - name: Install Node.js
         if: ${{ contains(matrix.enabled_on, inputs.platform) }}
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm
@@ -146,7 +146,7 @@ jobs:
 
       - name: Upload installer artifacts
         if: ${{ contains(matrix.enabled_on, inputs.platform) }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: gaply-installers-${{ matrix.os }}
           path: |

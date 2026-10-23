@@ -42,7 +42,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # This workflow builds/tests the Tauri desktop project, which lives under
       # src-tauri/. That directory is NOT present on every ref (e.g. main, before
@@ -77,7 +77,7 @@ jobs:
 
       - name: Install Node.js
         # Node 22.x to match package.json "engines": { "node": "22.x" }.
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: '22'
           cache: npm
@@ -156,7 +156,7 @@ jobs:
 
       - name: Upload Windows installer(s)
         if: steps.detect_tauri.outputs.present == 'true' && steps.detect_models.outputs.present == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: gaply-windows-installer
           path: |
@@ -240,7 +240,7 @@ jobs:
       - name: (diagnostic) upload IPC import dump
         if: always() && steps.detect_tauri.outputs.present == 'true'
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: commands_test-imports-diagnostic
           path: src-tauri/diag/*.txt

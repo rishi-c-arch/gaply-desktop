@@ -39,7 +39,8 @@
 //! <root>/projects/                     0700
 //!   <project_id>/                      0700, named by the id, never the title
 //!     project.db                       0600, created before SQLite opens it
-//!     project.db-wal, project.db-shm   SQLite's own, the db's mode
+//!     project.db-wal, project.db-shm   SQLite's own, the db's mode; no size
+//!                                      counts them (decision 173)
 //!     artifacts/                       0700
 //!       <sha256>                       0400, never overwritten
 //!       .tmp-<32 hex>                  a write in progress
@@ -99,6 +100,10 @@ use sha2::{Digest, Sha256};
 
 const PROJECTS_DIR: &str = "projects";
 const DB_FILE: &str = "project.db";
+/// SQLite's own companions of `project.db` in WAL mode. No size counts them
+/// (decision 173): they come and go with connections.
+const WAL_FILE: &str = "project.db-wal";
+const SHM_FILE: &str = "project.db-shm";
 const ARTIFACTS_DIR: &str = "artifacts";
 const TMP_PREFIX: &str = ".tmp-";
 const CREATING_PREFIX: &str = ".creating-";
@@ -349,6 +354,10 @@ fn remove_tree(dir: &Path) -> io::Result<()> {
 
 /// The bytes of every regular file under `dir`, from metadata alone: nothing
 /// is opened or hashed, and no symlink is followed. A missing folder is 0.
+/// Files named exactly `project.db-wal` or `project.db-shm` are skipped
+/// (decision 173): SQLite makes and removes them with its connections, so
+/// counting them gave one project a different size at each reading. Every
+/// other file counts, a tombstone's leftovers included.
 pub(crate) fn tree_bytes(dir: &Path) -> io::Result<u64> {
     let entries = match fs::read_dir(dir) {
         Ok(e) => e,
@@ -361,11 +370,15 @@ pub(crate) fn tree_bytes(dir: &Path) -> io::Result<u64> {
         let ft = entry.file_type()?;
         if ft.is_dir() {
             n = n.saturating_add(tree_bytes(&entry.path())?);
-        } else if ft.is_file() {
+        } else if ft.is_file() && !is_sqlite_companion(&entry.file_name()) {
             n = n.saturating_add(entry.metadata()?.len());
         }
     }
     Ok(n)
+}
+
+fn is_sqlite_companion(name: &std::ffi::OsStr) -> bool {
+    name == WAL_FILE || name == SHM_FILE
 }
 
 /// The bytes under the projects folder that count toward the caps and the
@@ -462,6 +475,25 @@ fn open_conn(path: &Path, busy: Duration) -> Result<Connection, ProjectRefusal> 
 fn user_version(conn: &Connection) -> Result<i64, ProjectRefusal> {
     conn.query_row("PRAGMA user_version", [], |r| r.get(0))
         .map_err(opening_refusal)
+}
+
+/// Folds the write-ahead log into `project.db` and truncates it to 0 bytes
+/// (decision 173), so `project.db` holds what was saved and its size is honest
+/// while the project is open. Best effort: a checkpoint that is busy (another
+/// connection is reading, past the busy timeout) or fails is logged by a
+/// closed code only, and never fails its caller; SQLite folds the log in at a
+/// later checkpoint or when the last connection closes.
+fn checkpoint(conn: &Connection) {
+    match conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| {
+        r.get::<_, i64>(0)
+    }) {
+        Ok(0) => {}
+        Ok(_) => tracing::warn!(code = "project.checkpoint_busy", "checkpoint not completed"),
+        Err(_) => tracing::warn!(
+            code = "project.checkpoint_failed",
+            "checkpoint not completed"
+        ),
+    }
 }
 
 /// WAL, so a reader never blocks the one writer; `synchronous=FULL`, so a
@@ -1339,6 +1371,7 @@ pub struct ProjectHandle {
 
 impl Drop for ProjectHandle {
     fn drop(&mut self) {
+        checkpoint(&self.conn);
         mark_closed(&self.dir);
     }
 }
@@ -1348,7 +1381,8 @@ impl ProjectHandle {
         &self.id
     }
 
-    /// Closes the project.
+    /// Closes the project. Its `Drop` checkpoints the log first (decision
+    /// 173), then the connection closes and the lock is released.
     pub fn close(self) {}
 
     /// Every byte in the project's folder, from metadata.
@@ -1660,6 +1694,8 @@ impl ProjectHandle {
             cleanup(&created);
             return Err(db_refusal(e));
         }
+        // Committed: the Save stands whatever the checkpoint does.
+        checkpoint(&self.conn);
         for h in &written {
             tracing::debug!(project = %id.as_str(), artifact = %h.prefix(), "artifact written");
         }
@@ -2677,6 +2713,86 @@ mod tests {
             h.save(request(b"dd", b"ss", b"bb")).unwrap_err().code,
             ProjectCode::AllProjectsCap
         );
+    }
+
+    /// Decision 173 (Research OS, 5B-4b): one size, whenever it is read. The
+    /// hand test saw 0.10, 0.04 and 0.07 for one project, because each count
+    /// took SQLite's `-wal` and `-shm` as they were at that moment.
+    #[test]
+    fn a_projects_size_read_while_it_is_open_equals_its_size_after_it_is_closed() {
+        let t = TempRoot::new();
+        let store = ProjectRoot::open_root(&t.root()).unwrap();
+        let mut h = store.create("p").unwrap();
+        let db = h.dir.join(DB_FILE);
+        let db_at_create = fs::metadata(&db).unwrap().len();
+        // Enough Saves to add pages to project.db: a Save that only rewrites
+        // pages the file already has leaves its size the same whether or not
+        // the log was folded in, and this test then could not see the
+        // checkpoint (a deletion test of it stayed green with two Saves).
+        for i in 0..40u8 {
+            h.save(request(&[i; 64], &[i, 1], &[i, 2])).unwrap();
+        }
+        h.save(request(&[7u8; 5000], b"s2", b"b2")).unwrap();
+        assert!(
+            fs::metadata(&db).unwrap().len() > db_at_create,
+            "project.db grew while open, so the size below includes what the Saves wrote"
+        );
+        let id = h.id().clone();
+        let open = [
+            store.list().unwrap()[0].bytes,
+            store.usage().unwrap().0,
+            store.project_bytes(&id).unwrap(),
+            h.size_on_disk().unwrap(),
+        ];
+        assert!(open[0] > 5000, "the artifacts and the database count");
+        assert!(
+            open.iter().all(|&b| b == open[0]),
+            "every size agrees while open: {open:?}"
+        );
+        h.close();
+        let closed = [
+            store.list().unwrap()[0].bytes,
+            store.usage().unwrap().0,
+            store.project_bytes(&id).unwrap(),
+        ];
+        assert_eq!(closed, [open[0]; 3], "the same size after it is closed");
+    }
+
+    /// The log is checkpointed and truncated after each Save (decision 173),
+    /// so `project.db` holds what was saved while the project is open.
+    /// `TRUNCATE` leaves the file there, at 0 bytes.
+    #[test]
+    fn after_a_second_save_the_log_is_empty_while_the_project_is_open() {
+        let t = TempRoot::new();
+        let store = ProjectRoot::open_root(&t.root()).unwrap();
+        let mut h = store.create("p").unwrap();
+        h.save(request(b"d1", b"s1", b"b1")).unwrap();
+        h.save(request(b"d2", b"s2", b"b2")).unwrap();
+        let wal = h.dir.join(WAL_FILE);
+        assert!(wal.exists(), "open, so the log is there");
+        assert_eq!(fs::metadata(&wal).unwrap().len(), 0, "and empty");
+        assert_eq!(run_count(&h), 2);
+    }
+
+    /// `tree_bytes` skips exactly the two files SQLite owns, by their full
+    /// names; every other file counts, a tombstone's included.
+    #[test]
+    fn a_size_skips_exactly_the_log_and_the_shared_memory_file() {
+        let t = TempRoot::new();
+        let dir = t.root().join("sized");
+        fs::create_dir_all(dir.join("inner")).unwrap();
+        for (name, len) in [
+            (WAL_FILE, 1000usize),
+            (SHM_FILE, 2000),
+            ("inner/project.db-wal", 4000),
+            ("project.db", 3),
+            ("x.db-wal", 5),
+            ("project.db-wal.old", 7),
+            ("inner/project.db-journal", 11),
+        ] {
+            fs::write(dir.join(name), vec![0u8; len]).unwrap();
+        }
+        assert_eq!(tree_bytes(&dir).unwrap(), 3 + 5 + 7 + 11);
     }
 
     #[test]

@@ -66,10 +66,10 @@ describe('the Projects panel', () => {
     const name = screen.getByTestId(`project-name-${A}`);
     expect(name.tagName).toBe('BDI');
     expect(name.textContent).toBe('Chapter 3');
-    expect(screen.getByTestId(`project-facts-${A}`).textContent).toBe(`Size: 3 MiB. Saved ${savedOn(1792396351)}. 2 saved runs.`);
+    expect(screen.getByTestId(`project-facts-${A}`).textContent).toBe(`Size: 3.15 MB. Saved ${savedOn(1792396351)}. 2 saved runs.`);
     expect(within(row).getByTestId(`project-delete-${A}`)).toBeTruthy();
     expect(screen.getByTestId('projects-totals').textContent).toBe(
-      'Sizes in MiB. All projects use 3.00 of 10,240; each project can hold up to 100.'
+      'Your projects use 3.15 MB of their 10 GB limit. A project can hold up to 100 MB.'
     );
   });
 
@@ -77,7 +77,7 @@ describe('the Projects panel', () => {
     setup();
     const shown = await screen.findByTestId(`project-unreadable-${B}`);
     expect(shown.textContent).toBe(`${PROJECT_TEXT.unreadable} ${PROJECT_WORDS['project.db_unreadable']({ code: 'project.db_unreadable' })}`);
-    expect(screen.getByTestId(`project-facts-${B}`).textContent).toBe('Size: under 0.01 MiB.');
+    expect(screen.getByTestId(`project-facts-${B}`).textContent).toBe('Size: under 0.01 MB.');
     fireEvent.click(screen.getByTestId(`project-delete-${B}`));
     expect(screen.getByTestId('project-delete-name').textContent).toBe(PROJECT_TEXT.unnamed);
   });
@@ -139,7 +139,7 @@ describe('the delete dialog', () => {
     const dialog = await openDialog();
     expect(dialog.getAttribute('role')).toBe('dialog');
     expect(within(dialog).getByTestId('project-delete-name').querySelector('bdi')?.textContent).toBe('Chapter 3');
-    expect(within(dialog).getByTestId('project-delete-size').textContent).toBe('Size: 3 MiB.');
+    expect(within(dialog).getByTestId('project-delete-size').textContent).toBe('Size: 3.15 MB.');
     expect(within(dialog).getByTestId('project-delete-sentence').textContent).toBe(DELETE_SENTENCE);
     expect(document.activeElement).toBe(screen.getByTestId('project-delete-cancel'));
     fireEvent.keyDown(dialog, { key: 'Escape' });
@@ -177,6 +177,61 @@ describe('the delete dialog', () => {
     );
     expect(screen.getByTestId('project-delete-dialog')).toBeTruthy();
     expect((screen.getByTestId('project-delete-confirm') as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  // Decision 175 (Research OS, 5B-4b): after a refusal the dialog stays open
+  // so the refusal can be read; nothing said it was finished. Cancel now
+  // reads Close and takes the focus; Delete stays, to try again.
+  describe('after a refusal', () => {
+    const refused = async () => {
+      setup({
+        project_delete: () => {
+          throw refusal({ code: 'project.open_elsewhere' });
+        },
+      });
+      await openDialog();
+      // As a keyboard user does: Tab to Delete, then press it. A click alone
+      // moves no focus, so the focus would still be on Cancel from when the
+      // dialog opened, and the check below could not tell whether the dialog
+      // moved it (a deletion test of the focus move stayed green that way).
+      const del = screen.getByTestId('project-delete-confirm');
+      del.focus();
+      fireEvent.click(del);
+      await screen.findByTestId('project-delete-refusal');
+    };
+
+    it('Cancel reads Close and has the focus', async () => {
+      await refused();
+      const close = screen.getByTestId('project-delete-cancel') as HTMLButtonElement;
+      await waitFor(() => expect(close.disabled).toBe(false));
+      expect(close.textContent).toBe('Close');
+      expect(PROJECT_TEXT.close).toBe('Close the project');
+      await waitFor(() => expect(document.activeElement).toBe(close));
+    });
+
+    it('still shows the refusal and an enabled Delete', async () => {
+      await refused();
+      expect(screen.getByTestId('project-delete-refusal').textContent).toBe(
+        'Another copy of Gaply has this project open, so it was not deleted. Close it there first.'
+      );
+      await waitFor(() => expect((screen.getByTestId('project-delete-confirm') as HTMLButtonElement).disabled).toBe(false));
+    });
+
+    it('Close closes it, and the focus goes back to the project\'s Delete button', async () => {
+      await refused();
+      await waitFor(() => expect((screen.getByTestId('project-delete-cancel') as HTMLButtonElement).disabled).toBe(false));
+      fireEvent.click(screen.getByTestId('project-delete-cancel'));
+      expect(screen.queryByTestId('project-delete-dialog')).toBeNull();
+      expect(document.activeElement).toBe(screen.getByTestId(`project-delete-${A}`));
+    });
+
+    it('Escape closes it, and the focus goes back to the project\'s Delete button', async () => {
+      await refused();
+      await waitFor(() => expect((screen.getByTestId('project-delete-cancel') as HTMLButtonElement).disabled).toBe(false));
+      fireEvent.keyDown(screen.getByTestId('project-delete-dialog'), { key: 'Escape' });
+      expect(screen.queryByTestId('project-delete-dialog')).toBeNull();
+      expect(document.activeElement).toBe(screen.getByTestId(`project-delete-${A}`));
+    });
   });
 
   it.each(PROJECT_CODES.map((c) => [c]))('shows %s from either call as its sentence', async (code) => {

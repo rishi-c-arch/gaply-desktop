@@ -17,6 +17,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppShell, Button, Card, GaplyGlobe, HeaderBar, NavRail, Panel } from '../../design-system';
+import { CELL_PADDING } from '../../design-system/primitives';
 import { pickManuscriptPath } from '../common/pickFile';
 import { saveTextFile } from '../../utils/saveTextFile';
 import { describeBridge, type DescribeBridge } from './describeBridge';
@@ -125,9 +126,9 @@ function buildSpec(view: DatasetView, picks: Record<string, Pick>, missingCodes:
 /** A statistic's cell: its value, or "Could not compute" and why, styled
  *  like any other cell. */
 const StatCell: React.FC<{ stat: Stat }> = ({ stat }) => {
-  if ('value' in stat) return <td className="gds-mono">{shown(stat.value)}</td>;
+  if ('value' in stat) return <td className="gds-mono" style={CELL_PADDING}>{shown(stat.value)}</td>;
   return (
-    <td data-tone="neutral" data-testid="desc-not-computable">
+    <td data-tone="neutral" data-testid="desc-not-computable" style={CELL_PADDING}>
       {COULD_NOT_COMPUTE}
       <br />
       <small>{notComputableReason(stat.not_computable)}</small>
@@ -157,7 +158,7 @@ function resultTable(columns: ColumnResult[]) {
           <thead>
             <tr>
               {['Column', 'n', 'Missing', 'Mean', 'SD', 'Min', 'Q1', 'Median', 'Q3', 'Max'].map((h) => (
-                <th key={h} scope="col" style={{ textAlign: 'left', paddingRight: 12 }}>
+                <th key={h} scope="col" style={{ textAlign: 'left', ...CELL_PADDING }}>
                   {h}
                 </th>
               ))}
@@ -166,11 +167,11 @@ function resultTable(columns: ColumnResult[]) {
           <tbody>
             {numeric.map((s) => (
               <tr key={s.alias}>
-                <th scope="row" style={{ textAlign: 'left' }}>
+                <th scope="row" style={{ textAlign: 'left', ...CELL_PADDING }}>
                   {s.header}
                 </th>
-                <td className="gds-mono">{s.n}</td>
-                <td className="gds-mono">{s.missing}</td>
+                <td className="gds-mono" style={CELL_PADDING}>{s.n}</td>
+                <td className="gds-mono" style={CELL_PADDING}>{s.missing}</td>
                 {[s.mean, s.sd, s.min, s.q1, s.median, s.q3, s.max].map((st, i) => (
                   <StatCell key={i} stat={st} />
                 ))}
@@ -186,10 +187,10 @@ function resultTable(columns: ColumnResult[]) {
           </caption>
           <thead>
             <tr>
-              <th scope="col" style={{ textAlign: 'left', paddingRight: 12 }}>
+              <th scope="col" style={{ textAlign: 'left', ...CELL_PADDING }}>
                 Level
               </th>
-              <th scope="col" style={{ textAlign: 'left' }}>
+              <th scope="col" style={{ textAlign: 'left', ...CELL_PADDING }}>
                 Count
               </th>
             </tr>
@@ -197,8 +198,8 @@ function resultTable(columns: ColumnResult[]) {
           <tbody>
             {s.levels.map((l) => (
               <tr key={l.label}>
-                <td>{l.label}</td>
-                <td className="gds-mono">{l.count}</td>
+                <td style={CELL_PADDING}>{l.label}</td>
+                <td className="gds-mono" style={CELL_PADDING}>{l.count}</td>
               </tr>
             ))}
           </tbody>
@@ -428,18 +429,18 @@ const DescribeFlow: React.FC<DescribeFlowProps> = ({
     const levels = c.levels ?? [];
     return (
       <tr key={c.alias}>
-        <td>
+        <td style={CELL_PADDING}>
           <span className="gds-mono">{c.alias}</span> {c.header}
         </td>
-        <td>{KIND_NAMES[c.kind]}</td>
-        <td className="gds-mono">{c.n}</td>
-        <td className="gds-mono">{c.missing}</td>
-        <td className="gds-mono">{c.distinct}</td>
-        <td>
+        <td style={CELL_PADDING}>{KIND_NAMES[c.kind]}</td>
+        <td className="gds-mono" style={CELL_PADDING}>{c.n}</td>
+        <td className="gds-mono" style={CELL_PADDING}>{c.missing}</td>
+        <td className="gds-mono" style={CELL_PADDING}>{c.distinct}</td>
+        <td style={CELL_PADDING}>
           {levels.slice(0, 12).map((l) => `${l.label} (${l.count})`).join(', ')}
           {levels.length > 12 ? `, and ${levels.length - 12} more` : ''}
         </td>
-        <td className="gds-mono">{c.suspectMissingCodes.map((s) => s.code).join(', ')}</td>
+        <td className="gds-mono" style={CELL_PADDING}>{c.suspectMissingCodes.map((s) => s.code).join(', ')}</td>
       </tr>
     );
   };
@@ -487,7 +488,7 @@ const DescribeFlow: React.FC<DescribeFlowProps> = ({
             <thead>
               <tr>
                 {['Column', 'Kind', 'n', 'Missing', 'Distinct', 'Levels', 'Candidate missing codes'].map((h) => (
-                  <th key={h} scope="col" style={{ textAlign: 'left', paddingRight: 12 }}>
+                  <th key={h} scope="col" style={{ textAlign: 'left', ...CELL_PADDING }}>
                     {h}
                   </th>
                 ))}
@@ -507,13 +508,13 @@ const DescribeFlow: React.FC<DescribeFlowProps> = ({
           <table data-testid="desc-settings" style={{ borderCollapse: 'collapse' }}>
             <thead>
               <tr>
-                <th scope="col" style={{ textAlign: 'left', paddingRight: 12 }}>
+                <th scope="col" style={{ textAlign: 'left', ...CELL_PADDING }}>
                   Include
                 </th>
-                <th scope="col" style={{ textAlign: 'left', paddingRight: 12 }}>
+                <th scope="col" style={{ textAlign: 'left', ...CELL_PADDING }}>
                   Column
                 </th>
-                <th scope="col" style={{ textAlign: 'left' }}>
+                <th scope="col" style={{ textAlign: 'left', ...CELL_PADDING }}>
                   Summarise as
                 </th>
               </tr>
@@ -523,7 +524,7 @@ const DescribeFlow: React.FC<DescribeFlowProps> = ({
                 const p = picks[c.alias];
                 return (
                   <tr key={c.alias}>
-                    <td>
+                    <td style={CELL_PADDING}>
                       <input
                         type="checkbox"
                         checked={p?.include ?? false}
@@ -532,10 +533,10 @@ const DescribeFlow: React.FC<DescribeFlowProps> = ({
                         onChange={(e) => setPicks({ ...picks, [c.alias]: { ...p, include: e.target.checked } })}
                       />
                     </td>
-                    <td>
+                    <td style={CELL_PADDING}>
                       <span className="gds-mono">{c.alias}</span> {c.header} <small>({KIND_NAMES[c.kind]})</small>
                     </td>
-                    <td>
+                    <td style={CELL_PADDING}>
                       <select
                         value={p?.treatAs}
                         aria-label={`Summarise ${c.header} as`}

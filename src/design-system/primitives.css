@@ -27,6 +27,17 @@
 .gds-root .gds-btn--danger { background: var(--g-flagged); color: #fff; }
 .gds-root .gds-btn--danger:hover:not(:disabled) { filter: brightness(0.92); }
 
+/* ---------- Link ---------- */
+/* Tailwind's preflight sets a{color:inherit;text-decoration:inherit} for the
+   whole app, so a link drew as plain text. A class, not a rule for every a. */
+.gds-root .gds-link {
+  color: var(--g-accent);
+}
+.gds-root .gds-link:hover,
+.gds-root .gds-link:focus {
+  text-decoration: underline;
+}
+
 /* ---------- Card ---------- */
 .gds-root .gds-card {
   background: var(--g-bg-layer2);

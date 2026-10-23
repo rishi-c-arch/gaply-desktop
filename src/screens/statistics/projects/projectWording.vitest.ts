@@ -11,17 +11,23 @@ import { describe, expect, it } from 'vitest';
 
 import {
   DELETE_SENTENCE,
+  ALL_PROJECTS_LIMIT,
+  ALL_PROJECTS_LIMIT_BYTES,
   FALLBACK_SENTENCE,
-  mib,
+  mb,
   NAME_WORDS,
   PROJECT_TEXT,
   PROJECT_WORDS,
   projectRefusal,
   projectSentence,
+  PROJECT_LIMIT,
+  PROJECT_LIMIT_BYTES,
   PROVENANCE_EXPORT_SENTENCE,
   REPORT_EXPORT_SENTENCE,
   SAVE_SENTENCE,
+  SAVED_TEXT,
   SETTINGS_SENTENCE,
+  sizeSentence,
   totalsSentence,
 } from './projectWording';
 
@@ -58,12 +64,18 @@ describe('every project code has one plain sentence', () => {
     expect(projectSentence(err({ code: 'project.lock_failed' }))).toMatch(/another copy of the app/);
   });
 
-  it('gives a cap its limit in MiB', () => {
+  // Decisions 163 and 174: the limits are fixed words, never formatted from
+  // the refusal's limit, which is in binary bytes.
+  it('gives a cap its limit as fixed words in decimal units', () => {
     expect(projectSentence(err({ code: 'project.project_cap', needed: 104857601, limit: 104857600 }))).toBe(
-      'Saving this would take the project past its limit of 100 MiB, so nothing was saved.'
+      'Saving this would take the project past its limit of 100 MB, so nothing was saved.'
     );
     expect(projectSentence(err({ code: 'project.all_projects_cap', needed: 1, limit: 10737418240 }))).toBe(
-      'Saving this would take all projects together past their limit of 10,240 MiB, so nothing was saved.'
+      'Saving this would take all projects together past their limit of 10 GB, so nothing was saved.'
+    );
+    // The same words whatever limit the refusal carries.
+    expect(projectSentence(err({ code: 'project.project_cap', needed: 9, limit: 7 }))).toBe(
+      'Saving this would take the project past its limit of 100 MB, so nothing was saved.'
     );
   });
 
@@ -132,7 +144,7 @@ describe("decision 133's sentences, word for word", () => {
 });
 
 describe("the screens' other words", () => {
-  it('pass no verdict and name the unit of the totals once', () => {
+  it('pass no verdict, the storage line included', () => {
     const all: string[] = [
       ...Object.values(NAME_WORDS),
       ...(Object.values(PROJECT_TEXT).filter((v) => typeof v === 'string') as string[]),
@@ -141,15 +153,35 @@ describe("the screens' other words", () => {
       FALLBACK_SENTENCE,
     ];
     for (const s of all) expect(s, s).not.toMatch(VERDICT);
-    const totals = totalsSentence(45056, 104857600, 10737418240);
-    expect(totals).toBe('Sizes in MiB. All projects use 0.04 of 10,240; each project can hold up to 100.');
-    expect(totals.match(/MiB/g)).toHaveLength(1);
+    expect(totalsSentence(45056)).toBe('Your projects use 0.05 MB of their 10 GB limit. A project can hold up to 100 MB.');
   });
 
-  it('shows sizes in MiB', () => {
-    expect(mib(0)).toBe('0');
-    expect(mib(1)).toBe('under 0.01');
-    expect(mib(1048576)).toBe('1');
-    expect(mib(1572864)).toBe('1.50');
+  // Decisions 163 and 174: decimal MB, as the Finder shows them, to two
+  // decimals; 0 bytes is "0 MB", and anything above 0 and below 0.01 MB is
+  // "under 0.01 MB".
+  it('shows sizes in decimal MB', () => {
+    expect(mb(0)).toBe('0 MB');
+    expect(mb(1)).toBe('under 0.01 MB');
+    expect(mb(9999)).toBe('under 0.01 MB');
+    expect(mb(10000)).toBe('0.01 MB');
+    expect(mb(70000)).toBe('0.07 MB');
+    expect(mb(1048576)).toBe('1.05 MB');
+    expect(mb(1234567890)).toBe('1,234.57 MB');
+    expect(sizeSentence(0)).toBe('Size: 0 MB.');
+    expect(sizeSentence(4096)).toBe('Size: under 0.01 MB.');
+    expect(sizeSentence(70000)).toBe('Size: 0.07 MB.');
+    expect(SAVED_TEXT.dataFile('csv', 500)).toBe('Data file: CSV file, under 0.01 MB.');
+    expect(SAVED_TEXT.dataFile('xlsx', 52000)).toBe('Data file: XLSX file, 0.05 MB.');
+    expect(totalsSentence(0)).toBe('Your projects use 0 MB of their 10 GB limit. A project can hold up to 100 MB.');
+  });
+
+  it('names limits no larger than the caps in code', () => {
+    const sizes = JSON.parse(
+      fs.readFileSync(path.join(__dirname, '../../../../src-tauri/tests/fixtures/projects/projectSizes.json'), 'utf8')
+    ) as { projectCapBytes: number; allProjectsCapBytes: number };
+    expect([PROJECT_LIMIT, ALL_PROJECTS_LIMIT]).toEqual(['100 MB', '10 GB']);
+    expect([PROJECT_LIMIT_BYTES, ALL_PROJECTS_LIMIT_BYTES]).toEqual([100000000, 10000000000]);
+    expect(PROJECT_LIMIT_BYTES).toBeLessThanOrEqual(sizes.projectCapBytes);
+    expect(ALL_PROJECTS_LIMIT_BYTES).toBeLessThanOrEqual(sizes.allProjectsCapBytes);
   });
 });
