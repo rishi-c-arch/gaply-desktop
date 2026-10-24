@@ -9,6 +9,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
+import type { StoredRunView } from './projectTypes';
+
 import {
   DELETE_SENTENCE,
   ALL_PROJECTS_LIMIT,
@@ -24,7 +26,11 @@ import {
   PROJECT_LIMIT_BYTES,
   PROVENANCE_EXPORT_SENTENCE,
   REPORT_EXPORT_SENTENCE,
+  RERUN_SENTENCE,
+  RERUN_WORDS,
+  rerunLines,
   SAVE_SENTENCE,
+  savedOn,
   SAVED_TEXT,
   SETTINGS_SENTENCE,
   sizeSentence,
@@ -204,5 +210,92 @@ describe("the screens' other words", () => {
     expect([PROJECT_LIMIT_BYTES, ALL_PROJECTS_LIMIT_BYTES]).toEqual([100000000, 10000000000]);
     expect(PROJECT_LIMIT_BYTES).toBeLessThanOrEqual(sizes.projectCapBytes);
     expect(ALL_PROJECTS_LIMIT_BYTES).toBeLessThanOrEqual(sizes.allProjectsCapBytes);
+  });
+});
+
+/* ---- reruns (Phase 5C-1b; decisions 191, 198 and 199) ---------------------- */
+
+/** The words a sentence about a rerun must never hold (the step's rules): a
+ *  rerun's result is compared byte for byte, never judged. */
+const RERUN_VERDICT = /\b(reproduced|verified|correct|confirmed|failed to reproduce|matches the paper)\b/i;
+
+/** Every string literal in a source, comments removed first: single and
+ *  double quotes, and template literals with their placeholders kept. */
+function literals(src: string): string[] {
+  const code = src
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n')
+    .map((l) => l.replace(/(^|\s)\/\/.*$/, '$1'))
+    .join('\n');
+  return code.match(/'(?:[^'\\\n]|\\.)*'|"(?:[^"\\\n]|\\.)*"|`(?:[^`\\]|\\.)*`/g) ?? [];
+}
+
+describe('the rerun words', () => {
+  const run = (over: Partial<StoredRunView>): StoredRunView => ({
+    storedRunId: 4,
+    capabilityId: 'stats.describe',
+    capabilityVersion: 1,
+    state: 'succeeded',
+    endCode: null,
+    startedAt: 1,
+    endedAt: 2,
+    savedAt: 1792396400,
+    agentVersion: '0.1.0',
+    rerunOf: 1,
+    comparison: 'identical',
+    engineVersionDiffers: false,
+    ...over,
+  });
+  const repeated = run({ storedRunId: 1, savedAt: 1792396100, rerunOf: null, comparison: null, engineVersionDiffers: null });
+
+  it("are decisions 191's and 198's, word for word", () => {
+    expect(RERUN_SENTENCE).toBe(
+      'Run this again? Gaply runs the same method, with the same settings, on the copy of the data file kept in this project. When it finishes, the new run is saved in this project, beside the saved one, which does not change.'
+    );
+    expect(PROJECT_TEXT.runAgain).toBe('Run again');
+    expect(PROJECT_TEXT.runningAgain).toBe('Running again…');
+    expect(RERUN_WORDS.repeatsOn(1792396100)).toBe(`Repeats the result saved on ${savedOn(1792396100)}.`);
+    expect(RERUN_WORDS.repeatsEarlier).toBe('Repeats an earlier result.');
+    expect(RERUN_WORDS.identical).toBe('Identical, byte for byte, to that result.');
+    expect(RERUN_WORDS.different).toBe(
+      'Not identical, byte for byte, to that result. Both are kept; Gaply does not judge which is right.'
+    );
+    expect(RERUN_WORDS.notCompared).toBe('Gaply could not compare it with that result.');
+    expect(RERUN_WORDS.engineDiffers).toBe("It ran on a different version of Gaply's engine.");
+    expect(RERUN_WORDS.saved).toBe('The new run is saved in this project.');
+    expect(RERUN_WORDS.notSaved).toBe('The new run was not saved.');
+  });
+
+  it('say which result a rerun repeats, then how it compares, and the engine line when it differs', () => {
+    const first = RERUN_WORDS.repeatsOn(repeated.savedAt);
+    expect(rerunLines(run({}), repeated)).toEqual([first, RERUN_WORDS.identical]);
+    expect(rerunLines(run({ comparison: 'different', engineVersionDiffers: true }), repeated)).toEqual([
+      first,
+      RERUN_WORDS.different,
+      RERUN_WORDS.engineDiffers,
+    ]);
+    expect(rerunLines(run({ comparison: 'not_compared', engineVersionDiffers: null }), repeated)).toEqual([first, RERUN_WORDS.notCompared]);
+    expect(rerunLines(run({}), null)).toEqual([RERUN_WORDS.repeatsEarlier, RERUN_WORDS.identical]);
+    for (const state of ['failed', 'cancelled', 'timed_out'] as const) {
+      expect(rerunLines(run({ state, comparison: null, engineVersionDiffers: null }), repeated), state).toEqual([first]);
+    }
+    expect(rerunLines(repeated, null)).toEqual([]);
+  });
+
+  it('no sentence in projectWording.ts holds a verdict word', () => {
+    const src = fs.readFileSync(path.join(__dirname, 'projectWording.ts'), 'utf8');
+    const found = literals(src);
+    expect(found.length).toBeGreaterThan(100);
+    expect(found.some((l) => l.includes('Identical, byte for byte'))).toBe(true);
+    expect(found.filter((l) => RERUN_VERDICT.test(l))).toEqual([]);
+  });
+
+  it('the scan sees a verdict word in a literal, and not in a comment', () => {
+    expect(literals("const a = 'It was reproduced.'; // verified")).toEqual(["'It was reproduced.'"]);
+    expect(literals('const b = "This result is correct."; /* confirmed */').filter((l) => RERUN_VERDICT.test(l))).toHaveLength(1);
+    expect(literals('const c = `Run ${n} matches the paper.`;').filter((l) => RERUN_VERDICT.test(l))).toHaveLength(1);
+    expect(literals("const d = \"Gaply's run failed to reproduce it.\";").filter((l) => RERUN_VERDICT.test(l))).toHaveLength(1);
+    expect(literals("// It was verified.\n/* correct */ const e = 'plain';").filter((l) => RERUN_VERDICT.test(l))).toEqual([]);
+    expect(RERUN_VERDICT.test('a new confirmation')).toBe(false);
   });
 });

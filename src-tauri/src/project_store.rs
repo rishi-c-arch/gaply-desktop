@@ -3587,4 +3587,51 @@ mod tests {
             "the result stays in memory"
         );
     }
+
+    /// Phase 5C-1b (decisions 193 and 201): a panic inside a rerun's save at
+    /// the end, on its worker (the store's crash point, armed there), with the
+    /// session kept. The rerun is recorded as not saved with
+    /// `project.io_failed` and is no longer going: `rerun_going()` and
+    /// `not_rerunning()`, which `leave()` and Close check (5C-1a's M3 and M4
+    /// tie them to those commands), allow them again, and a second rerun
+    /// starts. Without the guard, the wait below times out.
+    #[test]
+    fn a_panic_in_a_reruns_save_at_the_end_leaves_it_not_saved_and_no_longer_going() {
+        let r = rerunning();
+        *r.armed.lock().unwrap() = Some(fault::Fault::Crash(fault::Point::BeforeCommit));
+        let started = r
+            .projects
+            .rerun_for_test(&r.runs, 1)
+            .expect("the rerun starts");
+        wait_until("the rerun is still going after its save panicked", || {
+            r.projects.rerun_going().is_none()
+        });
+        let rerun = r
+            .projects
+            .current_for_test()
+            .rerun
+            .expect("the rerun is shown");
+        assert_eq!(
+            (rerun.run_id, rerun.status, rerun.stored_run_id, rerun.code),
+            (
+                started.run_id,
+                crate::project_commands::RerunProgress::NotSaved,
+                None,
+                Some(ProjectCode::IoFailed)
+            )
+        );
+        assert_eq!(
+            r.projects.not_rerunning_for_test(),
+            Ok(()),
+            "Close and decision 190's other actions are allowed again"
+        );
+        let again = r
+            .projects
+            .rerun_for_test(&r.runs, 1)
+            .expect("a second rerun starts");
+        assert_ne!(again.run_id, started.run_id);
+        wait_until("the second rerun ended", || {
+            r.projects.rerun_going().is_none()
+        });
+    }
 }

@@ -15,6 +15,9 @@
 // * A failed run shows its code's sentence.
 // * Its data file appears only as its kind, format and size.
 // * No Save, re-run, edit or AI-explanation control.
+// * Phase 5C-1b (decision 197): a rerun says, under its "Saved result" line,
+//   which saved result it repeats and how its result compares, in the same
+//   words as its line in the list (RerunWords, drawn here for both).
 // * Rendering sits inside an error boundary keyed to the result, whose
 //   fallback is one fixed sentence; it logs nothing. The check runs before
 //   rendering, so rendering cannot throw on stored data.
@@ -28,7 +31,7 @@ import type { Diagnostic } from '../describeTypes';
 import type { TTestDiagnostic, TTestResultView } from '../ttestTypes';
 import type { ProjectBridge } from './projectBridge';
 import type { StoredRunView } from './projectTypes';
-import { capabilityName, PROJECT_TEXT, projectSentence, SAVED_TEXT, savedResultLine } from './projectWording';
+import { capabilityName, PROJECT_TEXT, projectSentence, rerunLines, SAVED_TEXT, savedResultLine } from './projectWording';
 import { checkStored, SUMMARY_CAPABILITY, type Checked } from './storedShape';
 import type { Generation } from './useGeneration';
 
@@ -102,9 +105,29 @@ export const SavedResultBody: React.FC<{ checked: Checked }> = ({ checked }) => 
   }
 };
 
+/** A rerun's words, under its own line (decisions 191, 197 and 198): the
+ *  saved result it repeats, then how its result compares. Nothing for a run
+ *  that is not a rerun. The one place they are drawn, in the project's list
+ *  and in the saved result view alike. */
+export const RerunWords: React.FC<{ run: StoredRunView; repeated: StoredRunView | null; testId: string }> = ({
+  run,
+  repeated,
+  testId,
+}) => {
+  const lines = rerunLines(run, repeated);
+  if (lines.length === 0) return null;
+  return (
+    <p data-testid={testId} style={{ margin: 0 }}>
+      {lines.join(' ')}
+    </p>
+  );
+};
+
 export interface SavedResultProps {
   projectId: string;
   run: StoredRunView;
+  /** For a rerun, the saved run it repeats, from the page's list, or null. */
+  repeated?: StoredRunView | null;
   bridge: ProjectBridge;
   /** The page's counter: this view is part of the page. */
   gen: Generation;
@@ -112,7 +135,7 @@ export interface SavedResultProps {
 
 type Shown = { kind: 'loading' } | { kind: 'refused'; sentence: string } | { kind: 'hidden' } | { kind: 'checked'; checked: Checked };
 
-export const SavedResult: React.FC<SavedResultProps> = ({ projectId, run, bridge, gen }) => {
+export const SavedResult: React.FC<SavedResultProps> = ({ projectId, run, repeated = null, bridge, gen }) => {
   const [shown, setShown] = useState<Shown>({ kind: 'loading' });
 
   useEffect(() => {
@@ -138,6 +161,7 @@ export const SavedResult: React.FC<SavedResultProps> = ({ projectId, run, bridge
       <p data-testid="saved-result-line" style={{ margin: 0, fontWeight: 600 }}>
         {savedResultLine(run.savedAt)}
       </p>
+      <RerunWords run={run} repeated={repeated} testId="saved-result-repeats" />
       <p data-testid="saved-result-kind" style={{ margin: 0 }}>
         {capabilityName(run.capabilityId)}
       </p>

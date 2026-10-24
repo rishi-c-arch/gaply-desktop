@@ -181,6 +181,50 @@ pub struct ProjectSession {
     tickets: AtomicU64,
 }
 
+/// Decision 193: armed while a rerun's save at the end runs, under `open`'s
+/// lock. If that save panics, its drop during the unwind records the rerun as
+/// not saved with `project.io_failed` and clears the going flag, so the
+/// project is not left going until the app restarts. It does not catch the
+/// panic, which unwinds on with Rust's own report.
+struct EndGuard<'a> {
+    session: &'a ProjectSession,
+    ticket: u64,
+    project: &'a ProjectId,
+    of: StoredRunId,
+    run: RunId,
+    armed: bool,
+}
+
+impl Drop for EndGuard<'_> {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        let s = self.session;
+        let code = ProjectCode::IoFailed;
+        *lock(&s.rerun_runs).entry(self.run.0).or_insert(false) = false;
+        {
+            let mut state = lock(&s.rerun);
+            if state.as_ref().map(|r| r.ticket) == Some(self.ticket) {
+                *state = Some(RerunState {
+                    ticket: self.ticket,
+                    project: self.project.clone(),
+                    of: self.of,
+                    run: Some(self.run.0),
+                    status: RerunStatus::NotSaved(code),
+                });
+            }
+        }
+        s.going.store(false, Ordering::SeqCst);
+        tracing::warn!(
+            project = %self.project.as_str(),
+            run = self.run.0,
+            code = code.wire(),
+            "project: a rerun's save at the end panicked; not saved"
+        );
+    }
+}
+
 /// Where a rerun stands (decision 187).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RerunStatus {
@@ -358,6 +402,16 @@ impl ProjectSession {
         // returned to `project_rerun`.
         self.going_run.store(run.0, Ordering::SeqCst);
         let mut open = lock(&self.open);
+        // Decision 193: dropped by a panic in the save below while still
+        // armed, it records the rerun as not saved and no longer going.
+        let mut guard = EndGuard {
+            session: self,
+            ticket,
+            project,
+            of,
+            run,
+            armed: true,
+        };
         let status = match saveable(copy) {
             Err(code) => RerunStatus::NotSaved(code),
             Ok(()) => match open.as_mut() {
@@ -368,6 +422,7 @@ impl ProjectSession {
                 _ => RerunStatus::NotSaved(ProjectCode::NotOpen),
             },
         };
+        guard.armed = false;
         let saved = matches!(status, RerunStatus::Saved(_));
         if saved {
             lock(&self.saved).insert((project.clone(), run.0));
@@ -441,6 +496,13 @@ impl ProjectSession {
     #[cfg(test)]
     pub(crate) fn current_for_test(&self) -> ProjectCurrentView {
         self.current_view()
+    }
+
+    /// The store's own tests: what Close and decision 190's other refused
+    /// actions check.
+    #[cfg(test)]
+    pub(crate) fn not_rerunning_for_test(&self) -> Result<(), ProjectCode> {
+        self.not_rerunning()
     }
 
     /// The last rerun, as `project_current` shows it, if it is in `project`

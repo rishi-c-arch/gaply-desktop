@@ -24,12 +24,16 @@
 //   copy of the app having it open included) and the dialog stays open;
 //   Cancel then reads Close and takes the focus (decision 175).
 //   After a delete, focus moves to the panel's heading.
+// * Phase 5C-1b (decision 199): when project_current, read with the rest,
+//   says a rerun is going in a project, that project's Delete… is disabled,
+//   with project.rerun_in_progress's sentence beside it, until the panel is
+//   next read.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Card } from '../../../design-system';
 import { workspaceBridge, type WorkspaceBridge } from '../../workspace/workspaceBridge';
 import { projectBridge, type ProjectBridge } from './projectBridge';
 import { projectsShown } from './projectGate';
-import { noteCurrent, noteDeleted, noteWorkspaceState, openProjectStore, useOpenProject } from './projectSession';
+import { currentId, noteCurrent, noteDeleted, noteWorkspaceState, openProjectStore, useOpenProject } from './projectSession';
 import type { ProjectListEntryView, ProjectSizesView } from './projectTypes';
 import { DELETE_SENTENCE, PROJECT_TEXT, PROJECT_WORDS, projectSentence, savedOn, sizeSentence, totalsSentence } from './projectWording';
 import ProjectDialog from './ProjectDialog';
@@ -60,6 +64,8 @@ const ProjectsPanelShown: React.FC<ProjectsPanelProps> = ({ bridge: given, works
   const [target, setTarget] = useState<ProjectListEntryView | null>(null);
   const [message, setMessage] = useState('');
   const [opening, setOpening] = useState<string | null>(null);
+  // The project a rerun was going in when the panel was last read.
+  const [rerunIn, setRerunIn] = useState<string | null>(null);
   const openInFlight = useRef(false);
   const heading = useRef<HTMLHeadingElement>(null);
   // The Delete button that opened the dialog, recorded from its click.
@@ -77,7 +83,9 @@ const ProjectsPanelShown: React.FC<ProjectsPanelProps> = ({ bridge: given, works
     ]);
     if (!gen.is(g)) return;
     const entries = list.status === 'fulfilled' ? list.value : null;
-    noteCurrent(current.status === 'fulfilled' ? current.value : null, entries);
+    const answer = current.status === 'fulfilled' ? current.value : null;
+    noteCurrent(answer, entries);
+    setRerunIn(answer && typeof answer === 'object' && answer.rerun?.status === 'going' ? currentId(answer) : null);
     if (state.status === 'fulfilled') noteWorkspaceState(state.value);
     if (entries !== null && sizes.status === 'fulfilled') {
       setListed({ list: entries, sizes: sizes.value });
@@ -172,16 +180,23 @@ const ProjectsPanelShown: React.FC<ProjectsPanelProps> = ({ bridge: given, works
                       </Button>
                     )}{' '}
                     <Button
-                      variant="ghost"
+                      variant="secondary"
                       onClick={(e) => {
                         opener.current = e.currentTarget;
                         setMessage('');
                         setTarget(p);
                       }}
+                      disabled={rerunIn === p.projectId}
                       data-testid={`project-delete-${p.projectId}`}
                     >
                       {PROJECT_TEXT.delete}
                     </Button>
+                    {rerunIn === p.projectId && (
+                      <span data-testid={`project-delete-going-${p.projectId}`}>
+                        {' '}
+                        {PROJECT_WORDS['project.rerun_in_progress']({ code: 'project.rerun_in_progress' })}
+                      </span>
+                    )}
                   </li>
                 ))}
               </ul>

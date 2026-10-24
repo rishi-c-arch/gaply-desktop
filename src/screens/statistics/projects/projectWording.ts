@@ -11,7 +11,7 @@
 import { workspaceRefusal } from '../../workspace/workspaceTypes';
 import { workspaceSentence } from '../../workspace/workspaceWording';
 import type { NameRefusal } from './projectName';
-import { PROJECT_CODES, type ProjectCode, type ProjectRefusalView } from './projectTypes';
+import { PROJECT_CODES, type ProjectCode, type ProjectRefusalView, type StoredRunView } from './projectTypes';
 
 /* ---- decision 133, word for word ------------------------------------------ */
 
@@ -235,6 +235,12 @@ export const PROJECT_TEXT = {
   exporting: 'Exporting…',
   exportCancelled: 'Nothing was saved: the save dialog was closed.',
   unknownState: 'In a state this version of Gaply does not know',
+  // Phase 5C-1b: reruns (decisions 191, 198 and 199).
+  runAgain: 'Run again',
+  runAgainTitle: 'Run a saved result again',
+  starting: 'Starting…',
+  runningAgain: 'Running again…',
+  cancelling: 'Cancelling…',
 } as const;
 
 /* ---- the project page (Phase 5B-3b) ---------------------------------------- */
@@ -270,6 +276,40 @@ export const EXPORT_WORDS = {
   writeFailed: 'The file could not be written where you chose. Nothing else was changed.',
   saved: (sha256: string) => `Saved. SHA-256 of the file: ${sha256.slice(0, 12)}…`,
 } as const;
+
+/* ---- reruns (Phase 5C-1b) --------------------------------------------------- */
+
+/** The Run again dialog's sentence (decision 191), word for word. */
+export const RERUN_SENTENCE =
+  'Run this again? Gaply runs the same method, with the same settings, on the copy of the data file kept in this project. When it finishes, the new run is saved in this project, beside the saved one, which does not change.';
+
+/** A rerun's words (decisions 191 and 198). Each states a fact about two
+ *  saved runs' output hashes or engine versions; none passes a verdict. */
+export const RERUN_WORDS = {
+  repeatsOn: (secs: number) => `Repeats the result saved on ${savedOn(secs)}.`,
+  repeatsEarlier: 'Repeats an earlier result.',
+  identical: 'Identical, byte for byte, to that result.',
+  different: 'Not identical, byte for byte, to that result. Both are kept; Gaply does not judge which is right.',
+  notCompared: 'Gaply could not compare it with that result.',
+  engineDiffers: "It ran on a different version of Gaply's engine.",
+  saved: 'The new run is saved in this project.',
+  notSaved: 'The new run was not saved.',
+} as const;
+
+/** What a saved run says of the run it repeats, in order, or nothing when it
+ *  is not a rerun. `repeated` is that run, if the list still holds it. A
+ *  rerun that did not succeed says only its first line (decision 191). */
+export function rerunLines(run: StoredRunView, repeated: StoredRunView | null): string[] {
+  if (run.rerunOf === null) return [];
+  const first = repeated ? RERUN_WORDS.repeatsOn(repeated.savedAt) : RERUN_WORDS.repeatsEarlier;
+  if (run.state !== 'succeeded') return [first];
+  const lines = [first];
+  if (run.comparison === 'identical') lines.push(RERUN_WORDS.identical);
+  else if (run.comparison === 'different') lines.push(RERUN_WORDS.different);
+  else lines.push(RERUN_WORDS.notCompared);
+  if (run.engineVersionDiffers === true) lines.push(RERUN_WORDS.engineDiffers);
+  return lines;
+}
 
 /** The storage line: the total against both limits (decisions 163 and 174),
  *  worded so it cannot be read as free disk space. */

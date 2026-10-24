@@ -25247,3 +25247,154 @@ check` only); a real second process (a second connection in this process
 holds the write lock); a different engine version from a real engine (built
 from a test row); a panic inside the save at the end, which would leave the
 rerun going until the app restarts (open question 1 of the report).
+
+### D288 — Research OS, Phase 5C-1b: reruns on screen (Run again, its dialog, the status line, the rerun's words), the guard on a panicking save at the end, and the project screens' buttons `[src]` `[test]` `[measured]`
+
+**Added** on `feat/research-os-5` after `a87a494` (D287). Decisions 191 and
+193 of 24 Oct 2026 apply, with 197 to 201 (`~/gaply-corpus/os/decisions.md`).
+This step changes screens, so it is done only when the real-app checklist
+`~/gaply-corpus/os/phase5/realapp_5c1b.md` has been run (decision 166). That
+checklist also carries 5B-4b's deferred Parts D to H (decision 182).
+
+**The guard (decision 193).** A panic inside a rerun's save at the end used to
+unwind past `end_rerun`'s last steps, so the rerun stayed "going" until the
+app restarted: Close, leaving Statistics and further reruns stayed refused.
+`end_rerun` (`src-tauri/src/project_commands.rs`) now holds an `EndGuard` from
+the moment it takes `open`'s lock until the save's status is known. If it is
+dropped while still armed, by a panic, it records the rerun as not saved with
+`project.io_failed`, marks its run as never saved, clears the going flag
+(under `open`'s lock, which the unwind has not yet released) and writes one
+tracing line (`warn`, with the project's id, the run's number and the code).
+It does not catch the panic, so Rust's own panic report is unchanged
+(`thread 'stats-desc-run' panicked at src/project_store.rs:2007:38`, seen with
+`--nocapture`). The test,
+`a_panic_in_a_reruns_save_at_the_end_leaves_it_not_saved_and_no_longer_going`,
+is in `project_store.rs`'s tests and takes 5C-1a's route (decision 201):
+`rerun_for_test` on `rerunning()`'s fault-arming run manager, with no
+workspace session, since `only_workspace_activate_activates_a_workspace`
+forbids `.activate(` anywhere under `src/`. It asserts that `project_current`
+says not saved with `project.io_failed`, that `rerun_going()` is none and
+`not_rerunning()` is Ok (what `leave()` and Close check; 5C-1a's M3 and M4 tie
+them to those commands), and that a second rerun starts. `not_rerunning()`
+is reached through a new `#[cfg(test)]` `not_rerunning_for_test`, beside
+5C-1a's other test entry points.
+
+**Run again and its dialog (decisions 191 and 199).** `ProjectPage.tsx` shows
+"Run again" on each saved result whose state is succeeded and on no other. It
+opens a dialog in the export dialog's pattern with decision 191's sentence;
+its Run again calls the bridge's `rerun` with that row's id, once per click. A
+refusal shows its code's sentence, and the dialog's Cancel then reads Close
+and takes the focus, as the delete dialog does (decision 175). A start closes
+the dialog and shows the status line.
+
+**While it runs (decisions 198 and 199).**
+- **The status line.** While `project_current` says a rerun of this project
+  is going, whether this page started it or found it when it appeared, the
+  page shows "Running again…" with Cancel.
+- **The poll.** It reads `project_current` every `pollMs` (250 ms, a prop
+  for tests), in an effect with its own `live` flag as `DescribeFlow`'s poll
+  has, never the page's generation counter. So it neither waits on nor
+  discards a saved result being read or an export.
+- **Cancel** calls the kind's own cancel: the describe or t-test bridge's
+  `cancel`, by the kind `project_rerun` returned, or from the repeated run's
+  capability once `project_runs` has answered. Until then it is disabled. The
+  page never calls either bridge's `status`.
+- **The outcome.** When the poll sees going turn into saved, it reads the
+  runs once and says "The new run is saved in this project."; into not
+  saved, it says "The new run was not saved." and the code's sentence. An
+  outcome `project_current` already held when the page appeared shows
+  nothing.
+- **The disabled controls.** Every Run again and Close the project are
+  disabled, with `project.rerun_in_progress`'s sentence beside Close and once
+  above the list. The Projects panel disables that project's Delete…, with
+  the same sentence, when `project_current` says going on its read.
+- **A failed poll** shows `PROJECT_TEXT.pageUnread` with Try again, stops,
+  and leaves the controls disabled until the page is read again.
+
+**The rerun's words (decisions 191, 197 and 198).** `RerunWords`
+(`SavedResult.tsx`) draws them once, for the list's row and for the saved
+result view under its "Saved result" line. They are "Repeats the result saved
+on {date}." (or "Repeats an earlier result." when the repeated run is not in
+the list), then the comparison's sentence, and the engine line when the
+version differs. A rerun that did not succeed gets only its first line. The
+sentences live in `projectWording.ts` (`RERUN_SENTENCE`, `RERUN_WORDS`,
+`rerunLines`). A scan of every string literal in that file finds no
+"reproduced", "verified", "correct", "confirmed", "failed to reproduce" or
+"matches the paper".
+
+**The polish (decisions 183 and 200).** "Open this result", "Run again" and
+the panel's "Delete…" use the design system's secondary button, each changed
+once, in the component that draws it.
+
+**Departures**, listed with reasons in
+`~/gaply-corpus/os/phase5/phase5c1b_report.md` §5:
+- **the first stop:** the guard's test as the prompt first described it
+  would have broken `only_workspace_activate_activates_a_workspace`; decision
+  201 answered it;
+- **the new screen tests are a new file**, `projectReruns.vitest.tsx;
+- **new words not in the decisions:** a dialog title ("Run a saved result
+  again"), "Starting…" and "Cancelling…";
+- **Try again** beside a failed poll's sentence;
+- **a failed Cancel** shows `projectSentence`, since the flows' own refusal
+  functions print an unrecognised error's raw message;
+- **an answer about another rerun** is treated as a failed poll.
+
+**Measured, 24 Oct 2026, macOS aarch64** (logs in
+`~/gaply-corpus/os/phase5/5c1b_logs/`), each prediction written before its
+run.
+- **The guard's test:** red before the guard, by the wait's 20 s timeout
+  ("the rerun is still going after its save panicked", 20.19 s); green after
+  it (0.14 s).
+- **`cargo test --workspace --no-fail-fast`**, both `lib.rs` touched, and
+  `git status` and `git diff --stat` unchanged by the touch:
+  - exit 0, 120 targets (118 Running + 2 Doc-tests), 2,903 passed, 12
+    ignored, as predicted from D287's 2,902;
+  - app lib 573 → 574, no other target moved.
+- **`cargo test -p app --features devtools --no-fail-fast`:** exit 0, 50
+  targets (49 + 1), 812 passed, 9 ignored, as predicted.
+- **`cargo test -p gaply_core --no-fail-fast`:** 75 Running + 1 Doc-tests,
+  2,108 passed, 3 ignored, unchanged.
+- **`cargo check --workspace --all-targets`:** exit 0, 45 warnings, none in a
+  changed file.
+- **Disk:** the shared `debug/incremental` was deleted once (7.4 GiB) as
+  Prompt 0's disk rule allows (12 GiB free, nothing building).
+- **vitest, the new and changed files:**
+  - `projectReruns.vitest.tsx`: 24 tests. Against the HEAD copies of
+    `ProjectPage.tsx`, `SavedResult.tsx` and `ProjectsPanel.tsx` (put in
+    place from `git show`, then mine copied back, each SHA-256 equal), 22
+    failed and 2 passed: the browser build and a run that is not a rerun,
+    both absence tests that hold at HEAD by design. On the new code, 24
+    passed.
+  - `projectWording.vitest.ts`: 22 tests. Against HEAD's `projectWording.ts`,
+    3 failed and 19 passed (the scan's own self-test holds at HEAD by
+    design); on the new code, 22 passed.
+- **vitest, the wider runs:** the projects folder 14 files / 350; with
+  `statistics/`, `checks/` and `statsverifier/`, 41 files / 603; the whole
+  suite 119 files / 1,544, as predicted from decision 195's 118 / 1,516.
+- **`tsc --noEmit`:** exit 0, after the new test's `save` option was typed as
+  `SaveFile` (first run TS2322).
+- **CI's eslint:** exit 0.
+- **`npm run build`:** exit 0, `build/index.html` present;
+  `public/sitemap.xml` written back from HEAD, `cmp` equal.
+- **rustfmt by path:** `project_commands.rs` 0 → 0 hunks, `project_store.rs`
+  0 → 0.
+- **`git diff --check`:** clean, and the new file has no trailing white
+  space.
+- **The protected folders:** `git diff a87a494` is empty under `stats_l0`,
+  `stats_l1`, `stats_assist`, `stats_desc`, `stats_ttest` and
+  `stats_adapters`, which all exist.
+- **GRRB:** no file it watches changed.
+
+**Mutation record** (SHA-256, broken once, red, restored by plain copy with a
+fresh mtime, SHA-256 equal, green):
+- **the guard armed false:** the guard's test went red by its timeout
+  (20.15 s); after the restore, all 37 of `project_store::tests` passed;
+- **a sentence holding "confirmed" added to `projectWording.ts`:** only the
+  scan went red; after the restore, 22 passed.
+
+**Not tested:**
+- the real app, which is the checklist's job;
+- a panic in the real app, which only the store's test fault can make;
+- Windows, which only `windows-build-check` reaches;
+- the status line in the real app, since the test files' reruns end within a
+  poll or two.

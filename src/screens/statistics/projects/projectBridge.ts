@@ -1,7 +1,7 @@
 // Gaply — the project bridge (Research OS, Phases 5B-3a, 5B-3b and 5C-1a): the
 // one wrapper that calls the thirteen project_* commands in
 // src-tauri/src/project_commands.rs (D282's table, project_current, decision
-// 148, and project_rerun, decision 185, which no screen calls until 5C-1b). Rust owns every decision and every check; the screens show
+// 148, and project_rerun, decision 185, which the project page calls since 5C-1b). Rust owns every decision and every check; the screens show
 // what comes back. No other file may name a project command
 // (projectGuards.vitest.ts).
 //
