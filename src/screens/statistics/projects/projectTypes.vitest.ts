@@ -23,6 +23,7 @@ import {
   type ProjectOpenView,
   type ProjectRefusalView,
   type ProjectSizesView,
+  type RerunStartedView,
   type RunResultView,
   type SavedRunView,
   type StoredRunView,
@@ -60,7 +61,23 @@ const typed: Array<[string, unknown]> = [
   ['projectSaveRun.json', { projectId: ID, storedRunId: 1, created: true } satisfies SavedRunView],
   ['projectOpen.json', { projectId: ID, name: 'Chapter 3', createdAt: 1792396351, runCount: 2, bytes: 40960 } satisfies ProjectOpenView],
   ['projectClose.json', { closed: true } satisfies ProjectClosedView],
-  ['projectCurrent.json', [{ projectId: ID }, { projectId: null }] satisfies ProjectCurrentView[]],
+  [
+    'projectCurrent.json',
+    [
+      { projectId: ID, rerun: null },
+      { projectId: ID, rerun: { runId: 7, rerunOf: 1, status: 'going', storedRunId: null, code: null } },
+      { projectId: ID, rerun: { runId: 7, rerunOf: 1, status: 'saved', storedRunId: 3, code: null } },
+      { projectId: ID, rerun: { runId: 7, rerunOf: 1, status: 'not_saved', storedRunId: null, code: 'project.disk_full' } },
+      { projectId: null, rerun: null },
+    ] satisfies ProjectCurrentView[],
+  ],
+  [
+    'projectRerun.json',
+    [
+      { runId: 7, kind: 'describe' },
+      { runId: 8, kind: 'ttest' },
+    ] satisfies RerunStartedView[],
+  ],
   [
     'projectRuns.json',
     [
@@ -74,6 +91,23 @@ const typed: Array<[string, unknown]> = [
         endedAt: 1792396341,
         savedAt: 1792396351,
         agentVersion: '0.1.0',
+        rerunOf: null,
+        comparison: null,
+        engineVersionDiffers: null,
+      },
+      {
+        storedRunId: 2,
+        capabilityId: 'stats.describe',
+        capabilityVersion: 1,
+        state: 'succeeded',
+        endCode: null,
+        startedAt: 1792396360,
+        endedAt: 1792396361,
+        savedAt: 1792396362,
+        agentVersion: '0.1.0',
+        rerunOf: 1,
+        comparison: 'identical',
+        engineVersionDiffers: false,
       },
     ] satisfies StoredRunView[],
   ],
@@ -120,16 +154,24 @@ describe('the project view fixtures Rust writes', () => {
     expect(keys(copy)).toEqual(keys(json));
   });
 
-  it('the code list is PROJECT_CODES, in order, the three lock codes included', () => {
+  it('the code list is PROJECT_CODES, in order, the three lock codes and the six rerun codes included', () => {
     const codes = fixture('projectCodes.json') as string[];
     expect(codes).toEqual([...PROJECT_CODES]);
-    expect(codes).toHaveLength(48);
-    expect(codes.slice(-3)).toEqual(['project.open_elsewhere', 'project.being_deleted', 'project.lock_failed']);
+    expect(codes).toHaveLength(54);
+    expect(codes.slice(45, 48)).toEqual(['project.open_elsewhere', 'project.being_deleted', 'project.lock_failed']);
+    expect(codes.slice(-6)).toEqual([
+      'project.rerun_unsupported',
+      'project.rerun_not_succeeded',
+      'project.rerun_busy',
+      'project.rerun_refused',
+      'project.rerun_in_progress',
+      'project.rerun_data_unreadable',
+    ]);
   });
 });
 
 describe('the project bridge', () => {
-  it('sends each of the twelve commands with the argument keys its wrapper reads', async () => {
+  it('sends each of the thirteen commands with the argument keys its wrapper reads', async () => {
     const b = new TauriProjectBridge();
     await b.list();
     await b.sizes();
@@ -144,6 +186,7 @@ describe('the project bridge', () => {
     await b.runResult(ID, 1);
     await b.report(ID);
     await b.provenance(ID);
+    await b.rerun(3);
     expect(invoke.mock.calls).toEqual([
       ['project_list', {}],
       ['project_sizes', {}],
@@ -158,8 +201,9 @@ describe('the project bridge', () => {
       ['project_run_result', { projectId: ID, storedRunId: 1 }],
       ['project_report', { projectId: ID }],
       ['project_provenance', { projectId: ID }],
+      ['project_rerun', { runId: 3 }],
     ]);
-    expect(Object.keys(PROJECT_COMMANDS)).toHaveLength(12);
+    expect(Object.keys(PROJECT_COMMANDS)).toHaveLength(13);
   });
 
   it('names exactly the commands Rust registers', () => {

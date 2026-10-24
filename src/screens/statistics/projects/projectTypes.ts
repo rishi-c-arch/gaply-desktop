@@ -59,6 +59,12 @@ export const PROJECT_CODES = [
   'project.open_elsewhere',
   'project.being_deleted',
   'project.lock_failed',
+  'project.rerun_unsupported',
+  'project.rerun_not_succeeded',
+  'project.rerun_busy',
+  'project.rerun_refused',
+  'project.rerun_in_progress',
+  'project.rerun_data_unreadable',
 ] as const;
 
 export type ProjectCode = (typeof PROJECT_CODES)[number];
@@ -122,10 +128,38 @@ export interface ProjectClosedView {
 }
 
 /** project_current (5B-3b, decision 148): the id of the project this copy of
- *  the app has open, or null. Never its name. */
+ *  the app has open, or null. Never its name. Since 5C-1a (decision 187), the
+ *  last rerun this copy started in that project, or null. */
 export interface ProjectCurrentView {
   projectId: string | null;
+  rerun: RerunView | null;
 }
+
+/** Where a rerun stands (5C-1a, decision 187): going until its save at the
+ *  end has returned, then saved or not saved. */
+export type RerunProgress = 'going' | 'saved' | 'not_saved';
+
+/** A rerun, as project_current shows it: its in-memory run, the saved run it
+ *  repeats, where it stands, and the saved run it became or the code it was
+ *  not saved with. */
+export interface RerunView {
+  runId: number;
+  rerunOf: number;
+  status: RerunProgress;
+  storedRunId: number | null;
+  code: ProjectCode | null;
+}
+
+/** project_rerun (5C-1a): the rerun's in-memory run and its kind, whose
+ *  status and cancel commands read it. */
+export interface RerunStartedView {
+  runId: number;
+  kind: 'describe' | 'ttest';
+}
+
+/** A rerun's result beside the result of the run it repeats (decision 189):
+ *  a fact about two output hashes, never a verdict. */
+export type RerunComparison = 'identical' | 'different' | 'not_compared';
 
 /** project_runs (5B-3b): one saved run, as its row holds it. */
 export interface StoredRunView {
@@ -138,6 +172,13 @@ export interface StoredRunView {
   endedAt: number | null;
   savedAt: number;
   agentVersion: string;
+  /** 5C-1a: the saved run this one repeats, if it is a rerun. */
+  rerunOf: number | null;
+  /** 5C-1a: for a rerun that Succeeded, its comparison; otherwise null. */
+  comparison: RerunComparison | null;
+  /** 5C-1a: for a rerun that Succeeded, whether it ran on another engine
+   *  version; null when that is not known. */
+  engineVersionDiffers: boolean | null;
 }
 
 export interface StoredArtifactView {

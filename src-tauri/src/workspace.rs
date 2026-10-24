@@ -287,6 +287,17 @@ impl WorkspaceSession {
                     .expect_err("only Active has a deactivate edge"),
             );
         };
+        // Decision 190: a rerun is going until its save at the end has
+        // returned, which can be after its run has ended, where the seal
+        // below no longer sees it. Read through an atomic flag, so this takes
+        // no project lock; before the seal, so a refusal leaves the manager
+        // open.
+        if let Some(run) = self.projects.rerun_going() {
+            tracing::info!(run, "workspace: deactivation refused, a rerun is going");
+            return Err(Diagnostic::error(WorkspaceCode::RunActive)
+                .int(ParamKey::Run, run as i64)
+                .with(ParamKey::Workspace, ParamValue::Workspace(id)));
+        }
         if let Some(engine) = &inner.statistics {
             if let Err(run) = engine.runs.seal() {
                 tracing::info!(

@@ -27,7 +27,11 @@
 //!
 //! Phase 5B-2 added `src/project_commands.rs`, the one module that calls the
 //! store: it writes nothing itself, so every write a command makes goes
-//! through the store. The exports it renders reach the disk only through the
+//! through the store.
+//!
+//! Phase 5C-1a added `rusqlite` and `execute(` to the forbidden words: a
+//! rerun's save at the end is made through the run manager's end hook, and
+//! no scanned file, `runs.rs` above all, may reach the database itself. The exports it renders reach the disk only through the
 //! frontend's save dialog, today's export path (decision 125).
 //!
 //! It constrains what was TYPED in these files, not what a callee does: the
@@ -68,6 +72,12 @@ const FORBIDDEN: &[&str] = &[
     "write_all",
     "hard_link",
     "symlink",
+    // Phase 5C-1a: a database write. A rerun's save at the end is the
+    // store's, called through the end hook `runs.rs` only calls: no scanned
+    // file may reach SQLite itself, so `runs.rs` cannot become a writer by
+    // that route either.
+    "rusqlite",
+    "execute(",
 ];
 
 fn rust_files(p: &Path, out: &mut Vec<PathBuf>) {
@@ -182,6 +192,8 @@ fn the_scan_catches_each_way_to_write() {
         "fn f() { std::fs::OpenOptions::new().append(true).open(p); }",
         "fn f() { std::fs::rename(a, b).ok(); }",
         "fn f() { f.write_all(b) }",
+        "fn f(c: &rusqlite::Connection) {}",
+        "fn f() { tx.execute(\"UPDATE runs SET state = 1\", []); }",
     ] {
         assert_eq!(violations("x.rs", snippet).len(), 1, "{snippet}");
     }

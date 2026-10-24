@@ -29,16 +29,18 @@ mod render;
 
 pub use self::graph::{ProvEdge, ProvGraph, ProvNode};
 pub use self::render::{
-    escape_markdown, iso_utc, render_prov_json, render_report_markdown, ColumnRole, ExportCode,
-    ExportCount, ExportManifest, ExportParameter, ExportRun, ProjectExportInput, TestVariant,
-    PROV_FILE_NAME, PROV_NAMESPACE, REPORT_FILE_NAME, REPORT_PREAMBLE,
+    escape_markdown, iso_utc, render_prov_json, render_report_markdown, rerun_sentence, ColumnRole,
+    ExportCode, ExportCount, ExportManifest, ExportParameter, ExportRun, ProjectExportInput,
+    TestVariant, PROV_FILE_NAME, PROV_NAMESPACE, REPORT_FILE_NAME, REPORT_PREAMBLE,
 };
 
 use crate::contracts::codes::{closed, Closed};
 use crate::contracts::{CapabilityId, ContentHash, RunState, WorkspaceId};
 
-/// `project.db`'s schema version, kept in `PRAGMA user_version`.
-pub const SCHEMA_VERSION: u32 = 1;
+/// `project.db`'s schema version, kept in `PRAGMA user_version`. Version 2
+/// (Phase 5C-1a, decision 186) adds `runs.rerun_of`; a project at an older
+/// version is migrated when it opens.
+pub const SCHEMA_VERSION: u32 = 2;
 
 /// The most one project may hold on disk: every file in its folder
 /// (decision 107).
@@ -170,6 +172,25 @@ closed! {
         BeingDeleted => "being_deleted",
         /// The project's lock file could not be made or locked.
         LockFailed => "lock_failed",
+        // Phase 5C-1a: reruns (decisions 185 to 190).
+        /// The stored run's capability, or its version, is not one this
+        /// build can run, or its stored spec does not read back to exactly
+        /// its stored bytes; nothing was run.
+        RerunUnsupported => "rerun_unsupported",
+        /// Only a run that Succeeded is run again; a saved failure is a
+        /// record only.
+        RerunNotSucceeded => "rerun_not_succeeded",
+        /// Another run is going, so the rerun was not started.
+        RerunBusy => "rerun_busy",
+        /// The stored settings did not pass validation this time; nothing
+        /// was run.
+        RerunRefused => "rerun_refused",
+        /// A rerun of this project is going, from its start until its save
+        /// at the end has returned.
+        RerunInProgress => "rerun_in_progress",
+        /// The project's copy of the data file was not read as a table this
+        /// time; nothing was run.
+        RerunDataUnreadable => "rerun_data_unreadable",
     }
 }
 
@@ -482,6 +503,44 @@ pub struct StoredRun {
     pub started_at: i64,
     pub ended_at: Option<i64>,
     pub saved_at: i64,
+    /// The run of the same project this one repeats, if it is a rerun
+    /// (Phase 5C-1a, decision 185).
+    pub rerun_of: Option<StoredRunId>,
+}
+
+closed! {
+    /// How a rerun's result stands beside the result of the run it repeats
+    /// (Phase 5C-1a, decision 189): a fact about two output hashes, never a
+    /// verdict on either.
+    pub enum RerunComparison in "" {
+        /// The two output hashes are equal: the same result bytes.
+        Identical => "identical",
+        /// The two output hashes differ.
+        Different => "different",
+        /// A manifest could not be read, so nothing was compared.
+        NotCompared => "not_compared",
+    }
+}
+
+/// The comparison of decision 189, from each run's manifest: its output hash
+/// and its engine version, `None` when that manifest could not be read. It
+/// compares the output hashes only, never artifact hashes; with it, whether
+/// the engine versions differ, which is known only when both were read.
+pub fn compare_rerun(
+    rerun: Option<(&ContentHash, u32)>,
+    original: Option<(&ContentHash, u32)>,
+) -> (RerunComparison, Option<bool>) {
+    match (rerun, original) {
+        (Some((a, ea)), Some((b, eb))) => (
+            if a == b {
+                RerunComparison::Identical
+            } else {
+                RerunComparison::Different
+            },
+            Some(ea != eb),
+        ),
+        _ => (RerunComparison::NotCompared, None),
+    }
 }
 
 /// The project's own row.
@@ -647,6 +706,12 @@ mod tests {
                 "project.open_elsewhere",
                 "project.being_deleted",
                 "project.lock_failed",
+                "project.rerun_unsupported",
+                "project.rerun_not_succeeded",
+                "project.rerun_busy",
+                "project.rerun_refused",
+                "project.rerun_in_progress",
+                "project.rerun_data_unreadable",
             ]
         );
         let kinds: Vec<&str> = ArtifactKind::ALL.iter().map(|c| c.wire()).collect();
@@ -682,7 +747,37 @@ mod tests {
                 db_allowance: 1_048_576
             }
         );
-        assert_eq!(SCHEMA_VERSION, 1);
+        assert_eq!(SCHEMA_VERSION, 2);
+    }
+
+    /// Phase 5C-1a (decision 189): equal output hashes are identical, unequal
+    /// ones different, whatever the engine versions, which are reported
+    /// beside; a manifest not read compares nothing.
+    #[test]
+    fn a_rerun_is_compared_by_its_output_hash_and_never_judged() {
+        let (a, b) = (ContentHash::of_bytes(b"a"), ContentHash::of_bytes(b"b"));
+        assert_eq!(
+            compare_rerun(Some((&a, 1)), Some((&a, 1))),
+            (RerunComparison::Identical, Some(false))
+        );
+        assert_eq!(
+            compare_rerun(Some((&a, 2)), Some((&a, 1))),
+            (RerunComparison::Identical, Some(true))
+        );
+        assert_eq!(
+            compare_rerun(Some((&b, 1)), Some((&a, 1))),
+            (RerunComparison::Different, Some(false))
+        );
+        assert_eq!(
+            compare_rerun(None, Some((&a, 1))),
+            (RerunComparison::NotCompared, None)
+        );
+        assert_eq!(
+            compare_rerun(Some((&a, 1)), None),
+            (RerunComparison::NotCompared, None)
+        );
+        let words: Vec<&str> = RerunComparison::ALL.iter().map(|c| c.wire()).collect();
+        assert_eq!(words, ["identical", "different", "not_compared"]);
     }
 
     #[test]

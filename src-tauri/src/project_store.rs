@@ -167,6 +167,16 @@ CREATE TABLE derived (
 ) WITHOUT ROWID;
 ";
 
+/// Version 2 (Phase 5C-1a, decision 186): a run may repeat an earlier run of
+/// the same project. Append-only: version 1's text is never edited.
+const SCHEMA_V2: &str = "
+ALTER TABLE runs ADD COLUMN rerun_of INTEGER REFERENCES runs(run_id);
+";
+
+/// Each version's step, in order: step `i` takes a database from version `i`
+/// to `i + 1`. Its length is `SCHEMA_VERSION` (pinned by a test).
+const MIGRATIONS: &[&str] = &[SCHEMA_V1, SCHEMA_V2];
+
 /// The folder projects live under: Tauri's local app data directory and no
 /// other resolver (decision 99; pinned by `tests/project_store_guards.rs`).
 /// 5B-2 calls it once and passes the result to [`ProjectRoot::open_root`].
@@ -509,20 +519,39 @@ fn configure(conn: &Connection) -> Result<(), ProjectRefusal> {
         .map_err(opening_refusal)
 }
 
-/// Brings an empty database to schema version 1. A database already at 1 is
-/// left as it is; one above it is refused, unchanged.
+/// Brings a database to [`SCHEMA_VERSION`], one step of [`MIGRATIONS`] at a
+/// time, each in its own `BEGIN IMMEDIATE` with the version it reaches. An
+/// empty database is made from the first step; a database at the current
+/// version is left as it is; one above it is refused, unchanged. Each step
+/// reads the version again under its lock, so a second copy of the app
+/// opening the same project at the same moment never runs a step twice.
 pub(crate) fn migrate(conn: &mut Connection) -> Result<(), ProjectRefusal> {
     let v = user_version(conn)?;
     if v > i64::from(SCHEMA_VERSION) {
         return Err(ProjectCode::DbNewerSchema.into());
     }
+    if v < 0 {
+        return Err(ProjectCode::DbUnreadable.into());
+    }
+    if v == i64::from(SCHEMA_VERSION) {
+        return Ok(());
+    }
     if v == 0 {
         configure(conn)?;
+    }
+    for (i, step) in MIGRATIONS.iter().enumerate() {
+        let to = i as i64 + 1;
         let tx = conn
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(db_refusal)?;
-        tx.execute_batch(SCHEMA_V1).map_err(db_refusal)?;
-        tx.pragma_update(None, "user_version", SCHEMA_VERSION)
+        let at: i64 = tx
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .map_err(db_refusal)?;
+        if at >= to {
+            continue;
+        }
+        tx.execute_batch(step).map_err(db_refusal)?;
+        tx.pragma_update(None, "user_version", to)
             .map_err(db_refusal)?;
         tx.commit().map_err(db_refusal)?;
     }
@@ -1061,7 +1090,7 @@ impl ProjectRoot {
             caps: self.caps,
             _lock: None,
         };
-        staged.save_inner(req)
+        staged.save_inner(req, None)
     }
 
     fn fill_new_project(
@@ -1145,9 +1174,12 @@ impl ProjectRoot {
             }
             Err(r) => return Err(r),
         }
-        let conn = open_conn(&db_path, self.busy)?;
+        let mut conn = open_conn(&db_path, self.busy)?;
         check_db(&conn, id)?;
         configure(&conn)?;
+        // An older schema is brought up to date before recovery reads it
+        // (decision 186): a write that adds no user data.
+        migrate(&mut conn)?;
         mark_open(&dir);
         let mut handle = ProjectHandle {
             id: id.clone(),
@@ -1491,15 +1523,39 @@ impl ProjectHandle {
     /// Saves one finished run and its artifacts (ADR-009 §5), all or
     /// nothing. Returns the run's id in this project.
     pub fn save(&mut self, req: SaveRequest) -> Result<StoredRunId, ProjectRefusal> {
+        self.save_locked(req, None)
+    }
+
+    /// [`ProjectHandle::save`] for a rerun (Phase 5C-1a, decisions 186 and
+    /// 187): the same lock, the same one transaction and the same guarantee,
+    /// with the run's row naming the stored run it repeats, which must be a
+    /// run of this project (`rerun_of` references `runs`).
+    pub fn save_rerun(
+        &mut self,
+        req: SaveRequest,
+        rerun_of: StoredRunId,
+    ) -> Result<StoredRunId, ProjectRefusal> {
+        self.save_locked(req, Some(rerun_of))
+    }
+
+    fn save_locked(
+        &mut self,
+        req: SaveRequest,
+        rerun_of: Option<StoredRunId>,
+    ) -> Result<StoredRunId, ProjectRefusal> {
         let _w = write_lock();
-        let result = self.save_inner(req);
+        let result = self.save_inner(req, rerun_of);
         if let Err(r) = &result {
             tracing::warn!(project = %self.id.as_str(), code = r.code.wire(), "save refused");
         }
         result
     }
 
-    fn save_inner(&mut self, req: SaveRequest) -> Result<StoredRunId, ProjectRefusal> {
+    fn save_inner(
+        &mut self,
+        req: SaveRequest,
+        rerun_of: Option<StoredRunId>,
+    ) -> Result<StoredRunId, ProjectRefusal> {
         let SaveRequest { run, artifacts } = req;
         if !run.state.is_terminal() {
             return Err(ProjectCode::RunNotFinished.into());
@@ -1657,7 +1713,7 @@ impl ProjectHandle {
                 )?;
             }
             tx.execute(
-                "INSERT INTO runs (run_id, capability_id, capability_version, state, end_code, agent_version, started_at, ended_at, saved_at) VALUES (?1, ?2, ?3, ?4, NULL, ?5, ?6, ?7, ?8)",
+                "INSERT INTO runs (run_id, capability_id, capability_version, state, end_code, agent_version, started_at, ended_at, saved_at, rerun_of) VALUES (?1, ?2, ?3, ?4, NULL, ?5, ?6, ?7, ?8, ?9)",
                 params![
                     next,
                     run.capability_id.as_str(),
@@ -1666,7 +1722,8 @@ impl ProjectHandle {
                     agent.as_str(),
                     run.started_at,
                     run.ended_at,
-                    now
+                    now,
+                    rerun_of.map(|r| r.0 as i64)
                 ],
             )?;
             for e in &new_edges {
@@ -1820,26 +1877,31 @@ impl ProjectHandle {
         let bad = || ProjectRefusal::from(ProjectCode::DbUnreadable);
         let mut st = self
             .conn
-            .prepare("SELECT run_id, capability_id, capability_version, state, end_code, agent_version, started_at, ended_at, saved_at FROM runs ORDER BY run_id")
+            .prepare("SELECT run_id, capability_id, capability_version, state, end_code, agent_version, started_at, ended_at, saved_at, rerun_of FROM runs ORDER BY run_id")
             .map_err(db_refusal)?;
         let rows = st
             .query_map([], |r| {
                 Ok((
-                    r.get::<_, i64>(0)?,
-                    r.get::<_, String>(1)?,
-                    r.get::<_, i64>(2)?,
-                    r.get::<_, String>(3)?,
-                    r.get::<_, Option<String>>(4)?,
-                    r.get::<_, String>(5)?,
-                    r.get::<_, i64>(6)?,
-                    r.get::<_, Option<i64>>(7)?,
-                    r.get::<_, i64>(8)?,
+                    (
+                        r.get::<_, i64>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, i64>(2)?,
+                        r.get::<_, String>(3)?,
+                        r.get::<_, Option<String>>(4)?,
+                    ),
+                    (
+                        r.get::<_, String>(5)?,
+                        r.get::<_, i64>(6)?,
+                        r.get::<_, Option<i64>>(7)?,
+                        r.get::<_, i64>(8)?,
+                        r.get::<_, Option<i64>>(9)?,
+                    ),
                 ))
             })
             .map_err(db_refusal)?;
         let mut out = Vec::new();
         for row in rows {
-            let (run_id, cap, version, state, end, agent, started, ended, saved) =
+            let ((run_id, cap, version, state, end), (agent, started, ended, saved, rerun_of)) =
                 row.map_err(db_refusal)?;
             out.push(StoredRun {
                 run_id: StoredRunId(run_id as u64),
@@ -1854,6 +1916,7 @@ impl ProjectHandle {
                 started_at: started,
                 ended_at: ended,
                 saved_at: saved,
+                rerun_of: rerun_of.map(|r| StoredRunId(r as u64)),
             });
         }
         Ok(out)
@@ -2144,7 +2207,7 @@ mod tests {
         let mut conn = open_conn(&p, BUSY_TIMEOUT).unwrap();
         assert_eq!(user_version(&conn).unwrap(), 0);
         migrate(&mut conn).unwrap();
-        assert_eq!(user_version(&conn).unwrap(), 1);
+        assert_eq!(user_version(&conn).unwrap(), 2);
         let tables: Vec<String> = {
             let mut st = conn
                 .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
@@ -2167,8 +2230,82 @@ mod tests {
                 "used"
             ]
         );
-        migrate(&mut conn).expect("a database at version 1 is left as it is");
-        assert_eq!(user_version(&conn).unwrap(), 1);
+        migrate(&mut conn).expect("a database at version 2 is left as it is");
+        assert_eq!(user_version(&conn).unwrap(), 2);
+    }
+
+    /// Phase 5C-1a (decision 186): a project as 5B wrote it, at schema
+    /// version 1, built here from `SCHEMA_V1` with 5B's rows copied in, opens.
+    /// Opening migrates it to version 2 before recovery, and every run, every
+    /// artifact and the project row read back as they were, with no run
+    /// repeating another.
+    #[test]
+    fn a_version_1_project_migrates_on_open_and_reads_every_run_unchanged() {
+        let t = TempRoot::new();
+        let store = ProjectRoot::open_root(&t.root()).unwrap();
+        let mut h = store.create("Version one").unwrap();
+        h.save(request(b"data-1", b"spec-1", b"bundle-1")).unwrap();
+        h.save(request(b"data-1", b"spec-2", b"bundle-2")).unwrap();
+        let (id, dir) = (h.id().clone(), h.dir.clone());
+        let (record, artifacts, runs) = (
+            h.record().unwrap(),
+            h.artifacts().unwrap(),
+            h.runs().unwrap(),
+        );
+        assert_eq!(runs.len(), 2);
+        drop(h);
+
+        let v1 = dir.join("v1.db");
+        create_new_private_file(&v1, 0o600).unwrap();
+        {
+            let c = open_conn(&v1, BUSY_TIMEOUT).unwrap();
+            configure(&c).unwrap();
+            c.execute_batch(SCHEMA_V1).unwrap();
+            c.pragma_update(None, "user_version", 1).unwrap();
+            c.execute(
+                "ATTACH DATABASE ?1 AS cur",
+                params![dir.join(DB_FILE).to_str().unwrap()],
+            )
+            .unwrap();
+            c.execute_batch(
+                "INSERT INTO project SELECT singleton, project_id, title, workspace_home, created_at, app_version FROM cur.project;
+                 INSERT INTO artifacts SELECT hash, kind, format, bytes, schema_version, created_at, damage FROM cur.artifacts;
+                 INSERT INTO runs SELECT run_id, capability_id, capability_version, state, end_code, agent_version, started_at, ended_at, saved_at FROM cur.runs;
+                 INSERT INTO used SELECT run_id, hash, role FROM cur.used;
+                 INSERT INTO generated SELECT hash, run_id FROM cur.generated;
+                 INSERT INTO derived SELECT hash, from_hash, via_run_id FROM cur.derived;
+                 DETACH DATABASE cur;",
+            )
+            .unwrap();
+        }
+        for f in [DB_FILE, WAL_FILE, SHM_FILE] {
+            let _ = fs::remove_file(dir.join(f));
+        }
+        fs::rename(&v1, dir.join(DB_FILE)).unwrap();
+        {
+            let c = open_conn(&dir.join(DB_FILE), BUSY_TIMEOUT).unwrap();
+            assert_eq!(user_version(&c).unwrap(), 1, "built as 5B wrote it");
+        }
+
+        let h = store.open(id.as_str()).expect("a version 1 project opens");
+        assert_eq!(user_version(&h.conn).unwrap(), 2, "migrated on open");
+        assert_eq!(h.record().unwrap(), record);
+        assert_eq!(h.artifacts().unwrap(), artifacts);
+        assert_eq!(h.runs().unwrap(), runs, "every run reads back unchanged");
+        let unrepeated: i64 = h
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM runs WHERE rerun_of IS NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(unrepeated, 2, "no run repeats another");
+        assert_eq!(
+            MIGRATIONS.len(),
+            SCHEMA_VERSION as usize,
+            "one step per version"
+        );
     }
 
     #[test]
@@ -2849,7 +2986,7 @@ mod tests {
         let (newer, dir_n) = make("newer");
         {
             let c = open_conn(&dir_n.join(DB_FILE), BUSY_TIMEOUT).unwrap();
-            c.pragma_update(None, "user_version", 2).unwrap();
+            c.pragma_update(None, "user_version", 3).unwrap();
         }
         let before = snapshot(&dir_n);
         assert_eq!(
@@ -3266,5 +3403,188 @@ mod tests {
         let app = tauri::test::mock_app();
         let want = app.path().app_local_data_dir().unwrap();
         assert_eq!(projects_root(app.handle()).unwrap(), want);
+    }
+
+    /* ---- Phase 5C-1a: faults in a rerun's save at the end (decision 187) - */
+
+    /// A clock for the run manager of these tests.
+    #[derive(Default)]
+    struct Ticks(std::sync::atomic::AtomicU64);
+
+    impl crate::runs::Clock for Ticks {
+        fn now_ms(&self) -> u64 {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+        }
+    }
+
+    const RERUN_CSV: &[u8] = b"score,group\n1.5,a\n2.5,a\n3.0,a\n3.5,b\n4.0,b\n5.5,b\n";
+
+    /// A project holding one saved summary of [`RERUN_CSV`], open in a
+    /// project session, and a run manager whose next worker arms the fault a
+    /// test puts in `armed`, from its `BeforeStart` hook: a fault is
+    /// thread-local, and a rerun's save at the end runs on its worker.
+    struct Rerunning {
+        t: TempRoot,
+        projects: Arc<crate::project_commands::ProjectSession>,
+        runs: Arc<crate::runs::Runs>,
+        armed: Arc<std::sync::Mutex<Option<fault::Fault>>>,
+        id: ProjectId,
+    }
+
+    fn rerunning() -> Rerunning {
+        use crate::runs::{CheckpointHook, Point, Runs, RUN_CEILING_MS};
+        use gaply_core::contracts::OperationId;
+        use gaply_core::stats_desc::{self, DescribeParams};
+
+        let t = TempRoot::new();
+        let store = ProjectRoot::open_root(&t.root()).unwrap();
+        let dataset =
+            crate::stats_l1_ingest::load_dataset_from_bytes(RERUN_CSV, DataFormat::Csv).unwrap();
+        let params = DescribeParams::defaults_for(&stats_desc::profile(&dataset));
+        let spec = serde_json::to_vec(&stats_desc::spec(OperationId(1), &dataset, params)).unwrap();
+        let (bundle, manifest) = (b"{\"saved\":\"bundle\"}", b"{\"saved\":\"manifest\"}");
+        let req = SaveRequest {
+            run: RunToSave {
+                capability_id: CapabilityId::parse("stats.describe").unwrap(),
+                capability_version: 1,
+                state: RunState::Succeeded,
+                started_at: 1_000,
+                ended_at: 1_001,
+                used: vec![
+                    (hash_of(RERUN_CSV), UsedRole::Data),
+                    (hash_of(&spec), UsedRole::Spec),
+                ],
+                generated: vec![hash_of(bundle), hash_of(manifest)],
+                derived: Vec::new(),
+            },
+            artifacts: vec![
+                art(ArtifactKind::DataFile, DataFormat::Csv, RERUN_CSV),
+                art(ArtifactKind::OperationSpec, DataFormat::Json, &spec),
+                art(ArtifactKind::ResultBundle, DataFormat::Json, bundle),
+                art(ArtifactKind::RunManifest, DataFormat::Json, manifest),
+            ],
+        };
+        let title = ProjectTitle::parse("Faults").unwrap();
+        let (h, stored) = store.create_with_save(&title, req).unwrap();
+        assert_eq!(stored, StoredRunId(1));
+        let id = h.id().clone();
+        let projects = Arc::new(crate::project_commands::ProjectSession::default());
+        projects.hold_open_for_test(h);
+        let armed: Arc<std::sync::Mutex<Option<fault::Fault>>> =
+            Arc::new(std::sync::Mutex::new(None));
+        let a = Arc::clone(&armed);
+        let hook: CheckpointHook = Arc::new(move |_run, p| {
+            if p == Point::BeforeStart {
+                if let Some(f) = a.lock().unwrap().take() {
+                    fault::set(f);
+                }
+            }
+        });
+        let runs = Arc::new(Runs::with_hooks(
+            Arc::new(Ticks::default()),
+            Some(hook),
+            RUN_CEILING_MS,
+        ));
+        Rerunning {
+            t,
+            projects,
+            runs,
+            armed,
+            id,
+        }
+    }
+
+    fn wait_until(what: &str, done: impl Fn() -> bool) {
+        let start = std::time::Instant::now();
+        while !done() {
+            assert!(start.elapsed() < Duration::from_secs(20), "{what}");
+            std::thread::sleep(Duration::from_millis(2));
+        }
+    }
+
+    /// A crash before the commit of a rerun's save at the end, on its worker
+    /// (the store's crash point, armed there). The session is gone once the
+    /// crash has unwound; the project is reopened, and only the disk is
+    /// asserted: the files the save renamed into place are swept, no row was
+    /// added, and the saved run is as it was.
+    #[test]
+    fn a_crash_before_the_commit_of_a_reruns_save_at_the_end_is_swept_at_reopen() {
+        let Rerunning {
+            t,
+            projects,
+            runs,
+            armed,
+            id,
+        } = rerunning();
+        let store = ProjectRoot::open_root(&t.root()).unwrap();
+        let art = store.projects.join(id.as_str()).join(ARTIFACTS_DIR);
+        let before_files = files_in(&art);
+        let before_runs = store.open(id.as_str()).unwrap().runs().unwrap();
+        assert_eq!(before_runs.len(), 1);
+
+        *armed.lock().unwrap() = Some(fault::Fault::Crash(fault::Point::BeforeCommit));
+        projects.rerun_for_test(&runs, 1).expect("the rerun starts");
+        // The save renames its files into place just before the crash point;
+        // until the crash unwinds, its end hook holds the session.
+        wait_until("the save at the end renamed its files into place", || {
+            files_in(&art).len() > before_files.len()
+        });
+        let session = Arc::downgrade(&projects);
+        drop(projects);
+        wait_until("the crash unwound and the session is gone", || {
+            session.strong_count() == 0
+        });
+
+        let h = store.open(id.as_str()).expect("the project opens again");
+        assert_eq!(files_in(&art), before_files, "its files are swept");
+        assert_eq!(
+            h.runs().unwrap(),
+            before_runs,
+            "no new row, the saved run unchanged"
+        );
+    }
+
+    /// A full disk at a rerun's save at the end: nothing partial is left, the
+    /// saved run is as it was, the rerun's result stays in memory, and
+    /// `project_current` says it was not saved, with the disk's code.
+    #[test]
+    fn a_full_disk_at_a_reruns_save_at_the_end_leaves_nothing_and_says_so() {
+        let r = rerunning();
+        let store = ProjectRoot::open_root(&r.t.root()).unwrap();
+        let art = store.projects.join(r.id.as_str()).join(ARTIFACTS_DIR);
+        let before_files = files_in(&art);
+        let before_runs = store.open(r.id.as_str()).unwrap().runs().unwrap();
+
+        *r.armed.lock().unwrap() = Some(fault::Fault::DiskFullAfter(0));
+        let started = r.projects.rerun_for_test(&r.runs, 1).unwrap();
+        wait_until("the save at the end returned", || {
+            r.projects.rerun_going().is_none()
+        });
+        let rerun = r
+            .projects
+            .current_for_test()
+            .rerun
+            .expect("the rerun is shown");
+        assert_eq!(
+            (rerun.run_id, rerun.status, rerun.stored_run_id, rerun.code),
+            (
+                started.run_id,
+                crate::project_commands::RerunProgress::NotSaved,
+                None,
+                Some(ProjectCode::DiskFull)
+            )
+        );
+        assert_eq!(files_in(&art), before_files, "nothing partial");
+        assert_eq!(temporaries(&art), 0);
+        assert_eq!(
+            store.open(r.id.as_str()).unwrap().runs().unwrap(),
+            before_runs
+        );
+        assert!(
+            r.runs
+                .result(gaply_core::contracts::RunId(started.run_id))
+                .is_ok(),
+            "the result stays in memory"
+        );
     }
 }

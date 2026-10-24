@@ -69,6 +69,9 @@ const RUN = (capabilityId: string, state: 'succeeded' | 'failed', storedRunId = 
   endedAt: 1792396001,
   savedAt: 1792396100,
   agentVersion: '0.1.0',
+  rerunOf: null,
+  comparison: null,
+  engineVersionDiffers: null,
 });
 
 /** Every path to a leaf (or a key) in a value: `["a", 0, "b"]`. */

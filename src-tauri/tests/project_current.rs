@@ -97,8 +97,12 @@ fn it_answers_an_id_and_nothing_else() {
         .expect("saved")
         .project_id;
     let open: Value = serde_json::to_value(pc::current(&w.ws).unwrap()).unwrap();
-    assert_eq!(open, json!({ "projectId": id }), "the id, and no name");
+    assert_eq!(
+        open,
+        json!({ "projectId": id, "rerun": null }),
+        "the id, and no name"
+    );
     pc::close(&w.root(), &w.ws).unwrap();
     let none: Value = serde_json::to_value(pc::current(&w.ws).unwrap()).unwrap();
-    assert_eq!(none, json!({ "projectId": null }));
+    assert_eq!(none, json!({ "projectId": null, "rerun": null }));
 }

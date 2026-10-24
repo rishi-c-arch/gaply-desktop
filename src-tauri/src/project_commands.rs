@@ -49,6 +49,20 @@
 //! after five minutes or when a newer one is issued, held only here, so a
 //! restart voids it.
 //!
+//! **A rerun (Phase 5C-1a, decisions 185 to 190)** runs a saved run that
+//! Succeeded again, in the open project: its stored spec, read back to
+//! exactly its stored bytes, on the project's copy of its data file, read
+//! through the ingest's own checks and parse into a slot only that run holds.
+//! It runs as an ordinary run, through the run manager and the façades. When
+//! it ends, its end hook saves it into the project in one write, through the
+//! same inner save a Save uses, with `rerun_of`, if it Succeeded or Failed
+//! with its code; any other end, or a project no longer open, writes nothing.
+//! Nothing is written while it runs. From `project_rerun` until that save has
+//! returned it is going: closing the project, opening another, a Save into a
+//! new project, deleting the open project and a second rerun are refused with
+//! `project.rerun_in_progress`, and leaving Statistics with the workspace's
+//! own `workspace.run_active`. `project_current` says where it stands.
+//!
 //! **What reaches the webview.** Ids, hashes, closed words and numbers; the
 //! project's name only in the list and the open view; a run's spec and
 //! result bundle only in [`RunResultView`], read back from the open project
@@ -57,9 +71,10 @@
 //! and never a path. A refusal is a closed code with numeric parameters.
 //! Logs carry a project by its id only.
 
-use std::collections::{BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::Instant;
 
 use serde::de::DeserializeOwned;
@@ -68,25 +83,29 @@ use serde_json::Value;
 
 use gaply_core::contracts::capability::ConfirmationId;
 use gaply_core::contracts::codes::Closed;
-use gaply_core::contracts::workspace::WorkspaceState;
+use gaply_core::contracts::workspace::{check_spec, WorkspaceState};
 use gaply_core::contracts::{
-    ContentHash, Diagnostic, InputRef, OperationSpec, RunId, RunManifest, RunState, WorkspaceId,
+    ContentHash, Diagnostic, InputRef, OperationSpec, RunId, RunManifest, RunState,
+    ValidationStatus, WorkspaceId,
 };
 use gaply_core::research_project::{
-    hex_lower, ArtifactHash, ArtifactKind, ArtifactRef, Caps, ColumnRole, DataFormat, ExportCode,
-    ExportCount, ExportManifest, ExportParameter, ExportRun, ProjectCode, ProjectExportInput,
-    ProjectId, ProjectRefusal, ProjectTitle, ProvEdge, StoredRun, StoredRunId, TestVariant,
-    UsedRole, PROV_FILE_NAME, REPORT_FILE_NAME,
+    compare_rerun, hex_lower, ArtifactHash, ArtifactKind, ArtifactRef, Caps, ColumnRole,
+    DataFormat, ExportCode, ExportCount, ExportManifest, ExportParameter, ExportRun, ProjectCode,
+    ProjectExportInput, ProjectId, ProjectRefusal, ProjectTitle, ProvEdge, RerunComparison,
+    StoredRun, StoredRunId, TestVariant, UsedRole, PROV_FILE_NAME, REPORT_FILE_NAME,
 };
 use gaply_core::research_project::{render_prov_json, render_report_markdown};
+use gaply_core::stats_adapters;
 use gaply_core::stats_desc::{self, DescCode, DescribeParams, TreatAs};
+use gaply_core::stats_registry;
 use gaply_core::stats_ttest::{self, TTestCode, TTestParams, Variant};
 use gaply_core::GaplyError;
 
 use crate::project_store::{
     projects_root, ArtifactInput, ProjectHandle, ProjectRoot, RunToSave, SaveRequest,
 };
-use crate::runs::{Clock, RunCopy};
+use crate::runs::{Clock, EndHook, NotStarted, RunCopy, RunInput, RunKind, Runs, Slot, SourceFile};
+use crate::stats_l1_ingest::load_dataset_from_bytes;
 use crate::workspace::{refuse as refuse_workspace, refuse_inactive, WorkspaceSession};
 
 /// How long a delete confirmation stays good (decision 124).
@@ -145,6 +164,40 @@ pub struct ProjectSession {
     /// The runs each project has saved in this process, by the run's id:
     /// a run is never saved twice into one project (decision 123).
     saved: Mutex<BTreeSet<(ProjectId, u64)>>,
+    /// The last rerun this copy started, and where it stands (decision 187):
+    /// in its own mutex, so `project_current` reads it without waiting for
+    /// a save at the end that holds `open`.
+    rerun: Mutex<Option<RerunState>>,
+    /// A rerun is going (decision 190), from `project_rerun` until its save
+    /// at the end has returned: written only under `open`'s lock, read
+    /// without it by `leave()` and `project_current`.
+    going: AtomicBool,
+    /// The going rerun's in-memory run, once known; 0 before.
+    going_run: AtomicU64,
+    /// Every rerun's in-memory run in this process, and whether its save at
+    /// the end succeeded: no such run is ever saved by hand (decision 187).
+    rerun_runs: Mutex<BTreeMap<u64, bool>>,
+    /// Numbers each rerun, so a late word about one never lands on another.
+    tickets: AtomicU64,
+}
+
+/// Where a rerun stands (decision 187).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RerunStatus {
+    Going,
+    Saved(StoredRunId),
+    NotSaved(ProjectCode),
+}
+
+/// The last rerun this copy started.
+#[derive(Debug, Clone)]
+struct RerunState {
+    ticket: u64,
+    project: ProjectId,
+    of: StoredRunId,
+    /// Its in-memory run, once `start` or its end hook has named it.
+    run: Option<u64>,
+    status: RerunStatus,
 }
 
 impl Default for ProjectSession {
@@ -168,6 +221,11 @@ impl ProjectSession {
             open: Mutex::new(None),
             book: Mutex::new(VecDeque::new()),
             saved: Mutex::new(BTreeSet::new()),
+            rerun: Mutex::new(None),
+            going: AtomicBool::new(false),
+            going_run: AtomicU64::new(0),
+            rerun_runs: Mutex::new(BTreeMap::new()),
+            tickets: AtomicU64::new(0),
         }
     }
 
@@ -195,6 +253,215 @@ impl ProjectSession {
             tracing::info!(project = %h.id().as_str(), "project: closed with the workspace");
             h.close();
         }
+    }
+
+    /// The going rerun's in-memory run (0 for the moment before its run is
+    /// named), or `None` when no rerun is going (decision 190). An atomic
+    /// read: `leave()` calls it under the workspace's lock and takes no
+    /// project lock.
+    pub fn rerun_going(&self) -> Option<u64> {
+        if self.going.load(Ordering::SeqCst) {
+            Some(self.going_run.load(Ordering::SeqCst))
+        } else {
+            None
+        }
+    }
+
+    /// `project.rerun_in_progress` while a rerun is going. Called under
+    /// `open`'s lock by each action decision 190 refuses.
+    fn not_rerunning(&self) -> Result<(), ProjectCode> {
+        if self.going.load(Ordering::SeqCst) {
+            Err(ProjectCode::RerunInProgress)
+        } else {
+            Ok(())
+        }
+    }
+
+    /// A rerun of `of` in `project` is going from now on; called under
+    /// `open`'s lock. Returns its ticket and the state it replaces, kept in
+    /// case the run does not start.
+    fn begin_rerun(&self, project: &ProjectId, of: StoredRunId) -> (u64, Option<RerunState>) {
+        let ticket = self.tickets.fetch_add(1, Ordering::SeqCst) + 1;
+        self.going_run.store(0, Ordering::SeqCst);
+        self.going.store(true, Ordering::SeqCst);
+        let before = lock(&self.rerun).replace(RerunState {
+            ticket,
+            project: project.clone(),
+            of,
+            run: None,
+            status: RerunStatus::Going,
+        });
+        (ticket, before)
+    }
+
+    /// The rerun's run was made: its id, unless its end hook named it first.
+    fn rerun_named(&self, ticket: u64, run: u64) {
+        let mut state = lock(&self.rerun);
+        if let Some(s) = state.as_mut().filter(|s| s.ticket == ticket) {
+            if s.run.is_none() {
+                s.run = Some(run);
+                if s.status == RerunStatus::Going {
+                    self.going_run.store(run, Ordering::SeqCst);
+                }
+            }
+        }
+        lock(&self.rerun_runs).entry(run).or_insert(false);
+    }
+
+    /// The run was not started (another run, or the workspace was left):
+    /// nothing is going, and the state before it stands again.
+    fn rerun_not_started(&self, before: Option<RerunState>) {
+        let _open = lock(&self.open);
+        *lock(&self.rerun) = before;
+        self.going.store(false, Ordering::SeqCst);
+    }
+
+    /// The rerun's end hook: the save at the end, holding only a weak
+    /// reference to this session, so once the session is gone (the app is
+    /// closing) the project counts as not open and nothing is written.
+    fn end_hook(
+        projects: &Arc<ProjectSession>,
+        ticket: u64,
+        project: ProjectId,
+        of: StoredRunId,
+        slot: Arc<Slot>,
+    ) -> EndHook {
+        let session: Weak<ProjectSession> = Arc::downgrade(projects);
+        Box::new(move |run: RunId, copy: RunCopy| match session.upgrade() {
+            Some(s) => s.end_rerun(ticket, &project, of, run, &copy, &slot),
+            None => tracing::info!(
+                run = run.0,
+                "project: a rerun ended after its session; nothing written"
+            ),
+        })
+    }
+
+    /// The save at the end (decisions 186 and 187), called once a rerun's
+    /// run has ended, with no lock held, on the thread that ended it. It
+    /// takes `open`'s lock, then the store's write lock inside
+    /// [`ProjectHandle::save_rerun`], then SQLite's; never the workspace's or
+    /// the run manager's, since it has the copy it was handed and the run's
+    /// own slot. A run that Succeeded, or Failed with its code, is saved,
+    /// with `rerun_of`, if `project` is still the one open here; any other
+    /// end, or a project no longer open, writes nothing and is recorded as
+    /// not saved with its closed code. Then the rerun is no longer going.
+    fn end_rerun(
+        &self,
+        ticket: u64,
+        project: &ProjectId,
+        of: StoredRunId,
+        run: RunId,
+        copy: &RunCopy,
+        slot: &Slot,
+    ) {
+        // Named for `leave()` at once: the run may end before `start` has
+        // returned to `project_rerun`.
+        self.going_run.store(run.0, Ordering::SeqCst);
+        let mut open = lock(&self.open);
+        let status = match saveable(copy) {
+            Err(code) => RerunStatus::NotSaved(code),
+            Ok(()) => match open.as_mut() {
+                Some(h) if h.id() == project => match save_rerun_into(h, copy, slot, of) {
+                    Ok(stored) => RerunStatus::Saved(stored),
+                    Err(r) => RerunStatus::NotSaved(r.code),
+                },
+                _ => RerunStatus::NotSaved(ProjectCode::NotOpen),
+            },
+        };
+        let saved = matches!(status, RerunStatus::Saved(_));
+        if saved {
+            lock(&self.saved).insert((project.clone(), run.0));
+        }
+        *lock(&self.rerun_runs).entry(run.0).or_insert(false) = saved;
+        {
+            let mut state = lock(&self.rerun);
+            if state.as_ref().map(|s| s.ticket) == Some(ticket) {
+                *state = Some(RerunState {
+                    ticket,
+                    project: project.clone(),
+                    of,
+                    run: Some(run.0),
+                    status,
+                });
+            }
+        }
+        self.going.store(false, Ordering::SeqCst);
+        drop(open);
+        match status {
+            RerunStatus::Saved(stored) => tracing::info!(
+                project = %project.as_str(),
+                run = run.0,
+                stored = stored.0,
+                "project: rerun saved"
+            ),
+            RerunStatus::NotSaved(code) => tracing::info!(
+                project = %project.as_str(),
+                run = run.0,
+                code = code.wire(),
+                "project: rerun not saved"
+            ),
+            RerunStatus::Going => {}
+        }
+    }
+
+    /// `project_current`'s answer (decisions 148 and 187).
+    fn current_view(&self) -> ProjectCurrentView {
+        let going = lock(&self.rerun)
+            .as_ref()
+            .filter(|s| s.status == RerunStatus::Going)
+            .map(|s| s.project.clone());
+        let open = match going {
+            Some(project) => Some(project),
+            None => self.open_id(),
+        };
+        ProjectCurrentView {
+            rerun: self.rerun_view(open.as_ref()),
+            project_id: open.map(|id| id.as_str().to_string()),
+        }
+    }
+
+    /// The store's own tests, which arm a fault on a rerun's worker and so
+    /// run with no workspace session: `h` becomes the open project.
+    #[cfg(test)]
+    pub(crate) fn hold_open_for_test(&self, h: ProjectHandle) {
+        *lock(&self.open) = Some(h);
+    }
+
+    /// The store's own tests: `project_rerun` after its workspace check, on
+    /// `runs`, and `project_current`'s answer.
+    #[cfg(test)]
+    pub(crate) fn rerun_for_test(
+        self: &Arc<Self>,
+        runs: &Arc<Runs>,
+        run_id: u64,
+    ) -> Res<RerunStartedView> {
+        rerun_open(self, lock(&self.open), runs, run_id)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn current_for_test(&self) -> ProjectCurrentView {
+        self.current_view()
+    }
+
+    /// The last rerun, as `project_current` shows it, if it is in `project`
+    /// and its run has been named.
+    fn rerun_view(&self, project: Option<&ProjectId>) -> Option<RerunView> {
+        let state = lock(&self.rerun).clone()?;
+        if Some(&state.project) != project {
+            return None;
+        }
+        let (status, stored_run_id, code) = match state.status {
+            RerunStatus::Going => (RerunProgress::Going, None, None),
+            RerunStatus::Saved(s) => (RerunProgress::Saved, Some(s.0), None),
+            RerunStatus::NotSaved(c) => (RerunProgress::NotSaved, None, Some(c)),
+        };
+        Some(RerunView {
+            run_id: state.run?,
+            rerun_of: state.of.0,
+            status,
+            stored_run_id,
+            code,
+        })
     }
 
     /// A new confirmation for `project`; the one before it, for any
@@ -355,6 +622,41 @@ pub struct ProjectClosedView {
 #[serde(rename_all = "camelCase")]
 pub struct ProjectCurrentView {
     pub project_id: Option<String>,
+    /// The last rerun this copy started in that project, once its run has a
+    /// number (Phase 5C-1a, decision 187); `null` otherwise.
+    pub rerun: Option<RerunView>,
+}
+
+/// Where a rerun stands (decision 187): going until its save at the end has
+/// returned, then saved or not saved.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RerunProgress {
+    Going,
+    Saved,
+    NotSaved,
+}
+
+/// A rerun, as `project_current` shows it: its in-memory run, the saved run
+/// it repeats, where it stands, and the saved run it became or the closed
+/// code it was not saved with. Ids, a word and a code; never a value.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RerunView {
+    pub run_id: u64,
+    pub rerun_of: u64,
+    pub status: RerunProgress,
+    pub stored_run_id: Option<u64>,
+    pub code: Option<ProjectCode>,
+}
+
+/// `project_rerun`'s answer: the rerun's in-memory run, and its kind, whose
+/// status and cancel commands read it.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RerunStartedView {
+    pub run_id: u64,
+    pub kind: RunKind,
 }
 
 /// A saved run, as its row holds it.
@@ -371,6 +673,14 @@ pub struct StoredRunView {
     pub ended_at: Option<i64>,
     pub saved_at: i64,
     pub agent_version: String,
+    /// The stored run this one repeats, if it is a rerun (Phase 5C-1a).
+    pub rerun_of: Option<u64>,
+    /// For a rerun that Succeeded, its result beside the repeated run's, by
+    /// their manifests' output hashes (decision 189); `null` otherwise.
+    pub comparison: Option<RerunComparison>,
+    /// For a rerun that Succeeded, whether it ran on another engine version
+    /// than the run it repeats; `null` when that is not known.
+    pub engine_version_differs: Option<bool>,
 }
 
 /// An artifact by its row: hash, kind, format and size.
@@ -576,6 +886,89 @@ fn request_for(
     })
 }
 
+/// The data file a Save keeps: `slot`'s copy of the original bytes, only
+/// when it is byte for byte the file the run read (decision 123): it hashes
+/// to what the run recorded when it started, which is also the spec's input
+/// hash and, for a run that Succeeded, the manifest's. A Save and a rerun's
+/// save at the end check their slot here, the same way.
+fn data_of(
+    copy: &RunCopy,
+    input: &RunInput,
+    slot: &Slot,
+) -> Result<(Vec<u8>, DataFormat, ArtifactHash), ProjectCode> {
+    let source = slot.source().ok_or(ProjectCode::DataUnavailable)?;
+    let manifest_agrees = copy.state != RunState::Succeeded
+        || copy.manifest_inputs.as_slice() == std::slice::from_ref(&input.sha256);
+    if source.sha256() != &input.sha256
+        || copy.spec_json.as_deref().and_then(spec_input).as_ref() != Some(&input.sha256)
+        || !manifest_agrees
+    {
+        return Err(ProjectCode::DataMismatch);
+    }
+    Ok((
+        source.bytes().to_vec(),
+        source.format(),
+        ArtifactHash::parse(input.sha256.as_hex())?,
+    ))
+}
+
+/// A rerun, saved (decision 186): the same request a Save builds, its data
+/// file the run's own slot's copy, checked as a Save checks a slot's, through
+/// the one inner save a Save uses, with `rerun_of`.
+fn save_rerun_into(
+    h: &mut ProjectHandle,
+    copy: &RunCopy,
+    slot: &Slot,
+    of: StoredRunId,
+) -> Result<StoredRunId, ProjectRefusal> {
+    let input = copy.input.as_ref().ok_or(ProjectCode::DataUnavailable)?;
+    let data = data_of(copy, input, slot)?;
+    let req = request_for(copy, data, gaply_core::now_epoch())?;
+    h.save_rerun(req, of)
+}
+
+/// What a rerun runs: its stored spec, read back, of its kind.
+enum RerunJob {
+    Describe(OperationSpec<DescribeParams>),
+    Ttest(OperationSpec<TTestParams>),
+}
+
+/// The kind of a stored run, if this build can run it again (decision 188):
+/// its capability and capability version, from its row, are runnable here,
+/// and the capability is the summary's or the t-test's.
+fn rerun_kind(stored: &StoredRun) -> Result<RunKind, ProjectCode> {
+    stats_registry::require_runnable(
+        &stored.capability_id,
+        stored.capability_version,
+        crate::workspace::build(),
+    )
+    .map_err(|_| ProjectCode::RerunUnsupported)?;
+    match stored.capability_id.as_str() {
+        stats_desc::CAPABILITY_ID => Ok(RunKind::Describe),
+        stats_ttest::CAPABILITY_ID => Ok(RunKind::Ttest),
+        _ => Err(ProjectCode::RerunUnsupported),
+    }
+}
+
+/// A stored spec, read back, only if it serialises again to exactly its
+/// stored bytes (decision 188): a number read back one unit in the last
+/// place away would make an honest rerun look different (decision 129).
+fn exact<T: Serialize + DeserializeOwned>(stored: &[u8]) -> Result<T, ProjectCode> {
+    let spec: T = serde_json::from_slice(stored).map_err(|_| ProjectCode::RerunUnsupported)?;
+    match serde_json::to_vec(&spec) {
+        Ok(again) if again == stored => Ok(spec),
+        _ => Err(ProjectCode::RerunUnsupported),
+    }
+}
+
+/// Whether a validation lets a run be queued.
+fn passes(status: ValidationStatus) -> bool {
+    matches!(
+        status,
+        ValidationStatus::Valid | ValidationStatus::ValidWithWarnings
+    )
+}
+
 /* ------------------------------------------------------------------------ *
  *  The commands' bodies: exempt (decision 120)
  * ------------------------------------------------------------------------ */
@@ -647,6 +1040,8 @@ pub fn delete(
     let mut open = lock(&projects.open);
     let closed = open.as_ref().is_some_and(|h| h.id() == &id);
     if closed {
+        // Decision 190: not the open project while a rerun is going.
+        projects.not_rerunning().map_err(refuse)?;
         if let Some(h) = open.take() {
             h.close();
         }
@@ -663,10 +1058,13 @@ pub fn delete(
 /// Which project this copy of the app has open, or none (decision 148). It
 /// reads this session only: another copy's open project is not known here.
 /// Leaving Statistics, Close and deleting the open project each leave none.
+///
+/// With it, the last rerun this copy started in that project (decision 187).
+/// While a rerun is going, the open project cannot change and its save at
+/// the end may hold the open project's lock, so the answer is read from the
+/// rerun's own state, without waiting for that lock.
 pub fn current(ws: &WorkspaceSession) -> Res<ProjectCurrentView> {
-    Ok(ProjectCurrentView {
-        project_id: ws.projects().open_id().map(|id| id.as_str().to_string()),
-    })
+    Ok(ws.projects().current_view())
 }
 
 /* ------------------------------------------------------------------------ *
@@ -695,7 +1093,11 @@ pub fn save_run(
         Err(_) => return Err(refuse(ProjectCode::RunUnknown)),
     };
     let into = match &target {
-        SaveTarget::NewProject { .. } => None,
+        // Decision 190: a Save into a new project would close the open one.
+        SaveTarget::NewProject { .. } => {
+            projects.not_rerunning().map_err(refuse)?;
+            None
+        }
         SaveTarget::OpenProject { project_id } => Some(
             the_open(&mut open, project_id)
                 .map_err(refuse)?
@@ -707,6 +1109,16 @@ pub fn save_run(
         if lock(&projects.saved).contains(&(id.clone(), run_id)) {
             return Err(refuse(ProjectCode::RunAlreadySaved));
         }
+    }
+    // Decision 187: a rerun's run is saved only by its save at the end, into
+    // either project; by hand it is already saved, or its data is held by
+    // no open dataset.
+    if let Some(saved) = lock(&projects.rerun_runs).get(&run_id).copied() {
+        return Err(refuse(if saved {
+            ProjectCode::RunAlreadySaved
+        } else {
+            ProjectCode::DataUnavailable
+        }));
     }
     // The state first: an unfinished or cancelled run has its own code
     // whatever its data.
@@ -726,27 +1138,8 @@ pub fn save_run(
         .datasets
         .get(input.slot)
         .map_err(|_| refuse(ProjectCode::DataUnavailable))?;
-    let source = slot
-        .source()
-        .ok_or_else(|| refuse(ProjectCode::DataUnavailable))?;
-    let manifest_agrees = copy.state != RunState::Succeeded
-        || copy.manifest_inputs.as_slice() == std::slice::from_ref(&input.sha256);
-    if source.sha256() != &input.sha256
-        || copy.spec_json.as_deref().and_then(spec_input).as_ref() != Some(&input.sha256)
-        || !manifest_agrees
-    {
-        return Err(refuse(ProjectCode::DataMismatch));
-    }
-    let req = request_for(
-        &copy,
-        (
-            source.bytes().to_vec(),
-            source.format(),
-            ArtifactHash::parse(input.sha256.as_hex()).map_err(refuse)?,
-        ),
-        gaply_core::now_epoch(),
-    )
-    .map_err(refuse)?;
+    let data = data_of(&copy, input, &slot).map_err(refuse)?;
+    let req = request_for(&copy, data, gaply_core::now_epoch()).map_err(refuse)?;
 
     let (id, stored, created) = match title {
         Some(title) => {
@@ -781,6 +1174,8 @@ pub fn open(root: &Path, ws: &WorkspaceSession, project_id: &str) -> Res<Project
     still_active(ws)?;
     let id = ProjectId::parse(project_id).map_err(refuse)?;
     if open.as_ref().map(|h| h.id()) != Some(&id) {
+        // Decision 190: opening another project would close the open one.
+        projects.not_rerunning().map_err(refuse)?;
         let handle = store.open(id.as_str()).map_err(refuse)?;
         if let Some(previous) = open.replace(handle) {
             previous.close();
@@ -803,7 +1198,11 @@ pub fn open(root: &Path, ws: &WorkspaceSession, project_id: &str) -> Res<Project
 /// Closes the open project, if any.
 pub fn close(_root: &Path, ws: &WorkspaceSession) -> Res<ProjectClosedView> {
     let _engine = ws.require_statistics().map_err(refuse_workspace)?;
-    let closed = match lock(&ws.projects().open).take() {
+    let projects = ws.projects();
+    let mut open = lock(&projects.open);
+    // Decision 190: not while a rerun is going.
+    projects.not_rerunning().map_err(refuse)?;
+    let closed = match open.take() {
         Some(h) => {
             tracing::info!(project = %h.id().as_str(), "project: closed");
             h.close();
@@ -814,16 +1213,29 @@ pub fn close(_root: &Path, ws: &WorkspaceSession) -> Res<ProjectClosedView> {
     Ok(ProjectClosedView { closed })
 }
 
-/// The open project's saved runs.
+/// The open project's saved runs. For each rerun that Succeeded, its
+/// comparison with the run it repeats (decision 189), read from the two
+/// manifests, each verified as it is read: a manifest that cannot be read
+/// leaves the pair not compared, and is marked damaged as any read marks it.
 pub fn runs(_root: &Path, ws: &WorkspaceSession, project_id: &str) -> Res<Vec<StoredRunView>> {
     let _engine = ws.require_statistics().map_err(refuse_workspace)?;
     let mut open = lock(&ws.projects().open);
     still_active(ws)?;
     let h = the_open(&mut open, project_id).map_err(refuse)?;
-    Ok(h.runs()
-        .map_err(refuse)?
-        .into_iter()
-        .map(|r| StoredRunView {
+    let mut out = Vec::new();
+    for r in h.runs().map_err(refuse)? {
+        let (comparison, engine_version_differs) = match r.rerun_of {
+            Some(of) if r.state == RunState::Succeeded => {
+                let (again, before) = (manifest_facts(h, r.run_id), manifest_facts(h, of));
+                let (c, e) = compare_rerun(
+                    again.as_ref().map(|(o, e)| (o, *e)),
+                    before.as_ref().map(|(o, e)| (o, *e)),
+                );
+                (Some(c), e)
+            }
+            _ => (None, None),
+        };
+        out.push(StoredRunView {
             stored_run_id: r.run_id.0,
             capability_id: r.capability_id.as_str().to_string(),
             capability_version: r.capability_version,
@@ -833,8 +1245,26 @@ pub fn runs(_root: &Path, ws: &WorkspaceSession, project_id: &str) -> Res<Vec<St
             ended_at: r.ended_at,
             saved_at: r.saved_at,
             agent_version: r.agent.as_str().to_string(),
-        })
-        .collect())
+            rerun_of: r.rerun_of.map(|s| s.0),
+            comparison,
+            engine_version_differs,
+        });
+    }
+    Ok(out)
+}
+
+/// A run's manifest's output hash and engine version, if its manifest reads
+/// back whole: the two fields decision 189 compares.
+fn manifest_facts(h: &mut ProjectHandle, run: StoredRunId) -> Option<(ContentHash, u32)> {
+    let (_, arts) = artifacts_of(h, run).ok()?;
+    let manifest = arts
+        .generated
+        .iter()
+        .find(|a| a.kind == ArtifactKind::RunManifest)?;
+    let v = read_json(h, manifest).ok()?;
+    let output = ContentHash::from_hex(v.get("outputHash")?.as_str()?)?;
+    let engine = u32::try_from(v.get("engineVersion")?.as_u64()?).ok()?;
+    Some((output, engine))
 }
 
 /// A run's artifacts by what they were to it: the data file, the spec, and
@@ -957,6 +1387,115 @@ pub fn run_result(
         manifest_json: manifest,
         failure_json: failure,
     })
+}
+
+/// Runs the open project's saved run `run_id` again (decisions 185 to 190).
+/// Each refusal writes nothing, except the damage mark that reading a
+/// damaged artifact makes. The rerun's save at the end is its end hook's,
+/// never the screen's.
+pub fn rerun(_root: &Path, ws: &WorkspaceSession, run_id: u64) -> Res<RerunStartedView> {
+    let engine = ws.require_statistics().map_err(refuse_workspace)?;
+    let projects = ws.projects();
+    let open = lock(&projects.open);
+    still_active(ws)?;
+    rerun_open(projects, open, &engine.runs, run_id)
+}
+
+/// [`rerun`] after its workspace check: checks 2 to 9, in order, under the
+/// open project's lock; then the rerun is going, and the lock is released
+/// before the run starts, because a run that ends at once (a refusal in the
+/// run manager's queue, a failed spawn) calls its end hook on this thread,
+/// and the hook takes that lock. The store's own tests call this with a
+/// session and a run manager of their own, to arm a fault on the worker.
+fn rerun_open(
+    projects: &Arc<ProjectSession>,
+    mut open: MutexGuard<'_, Option<ProjectHandle>>,
+    runs: &Arc<Runs>,
+    run_id: u64,
+) -> Res<RerunStartedView> {
+    // 2. A project is open in this copy.
+    let h = open.as_mut().ok_or_else(|| refuse(ProjectCode::NotOpen))?;
+    let project = h.id().clone();
+    // 3. The stored run exists.
+    let of = StoredRunId(run_id);
+    let stored = h
+        .runs()
+        .map_err(refuse)?
+        .into_iter()
+        .find(|r| r.run_id == of)
+        .ok_or_else(|| refuse(ProjectCode::StoredRunUnknown))?;
+    // 4. It Succeeded: a saved failure is a record only.
+    if stored.state != RunState::Succeeded {
+        return Err(refuse(ProjectCode::RerunNotSucceeded));
+    }
+    // 5. Its capability and capability version are runnable in this build.
+    let kind = rerun_kind(&stored).map_err(refuse)?;
+    // 6. No run is going, a rerun included.
+    projects.not_rerunning().map_err(refuse)?;
+    if runs.unfinished().is_some() {
+        return Err(refuse(ProjectCode::RerunBusy));
+    }
+    // 7. The data file and the spec read back with their hashes.
+    let (_, arts) = artifacts_of(h, of).map_err(refuse)?;
+    let data = h.read_artifact(arts.data.hash.as_hex()).map_err(refuse)?;
+    let spec = h.read_artifact(arts.spec.hash.as_hex()).map_err(refuse)?;
+    // 8. The spec reads back to exactly its stored bytes.
+    let job = match kind {
+        RunKind::Describe => RerunJob::Describe(exact(&spec).map_err(refuse)?),
+        RunKind::Ttest => RerunJob::Ttest(exact(&spec).map_err(refuse)?),
+    };
+    // The project's copy of the data file, through the ingest's own checks
+    // and parse, as `stats_desc_open` reads a file.
+    let dataset = load_dataset_from_bytes(&data, arts.data.format)
+        .map_err(|_| refuse(ProjectCode::RerunDataUnreadable))?;
+    // 9. The spec passes validation, as an ordinary run's must.
+    let build = crate::workspace::build();
+    let valid = match &job {
+        RerunJob::Describe(s) => {
+            check_spec(WorkspaceId::Statistics, s.workspace_id, &s.capability_id).is_ok()
+                && passes(stats_adapters::describe_validate(s, build, &dataset).status)
+        }
+        RerunJob::Ttest(s) => {
+            check_spec(WorkspaceId::Statistics, s.workspace_id, &s.capability_id).is_ok()
+                && passes(stats_adapters::ttest_validate(s, build, &dataset).status)
+        }
+    };
+    if !valid {
+        return Err(refuse(ProjectCode::RerunRefused));
+    }
+
+    // Going from here until its save at the end has returned (decision 190).
+    let source = SourceFile::new(
+        data,
+        arts.data.hash.content_hash().clone(),
+        arts.data.format,
+    );
+    let slot = Arc::new(Slot::for_one_run(dataset, source));
+    let (ticket, before) = projects.begin_rerun(&project, of);
+    drop(open);
+    let end = ProjectSession::end_hook(projects, ticket, project.clone(), of, Arc::clone(&slot));
+    let started = match job {
+        RerunJob::Describe(spec) => runs.start_then(slot, spec, end),
+        RerunJob::Ttest(spec) => runs.start_ttest_then(slot, spec, end),
+    };
+    match started {
+        Ok(run) => {
+            projects.rerun_named(ticket, run.0);
+            tracing::info!(project = %project.as_str(), of = of.0, run = run.0, "project: rerun started");
+            Ok(RerunStartedView {
+                run_id: run.0,
+                kind,
+            })
+        }
+        Err(n) => {
+            projects.rerun_not_started(before);
+            Err(match n {
+                NotStarted::Busy => refuse(ProjectCode::RerunBusy),
+                // The workspace was left between the check and the start.
+                NotStarted::Sealed => refuse_inactive(),
+            })
+        }
+    }
 }
 
 /* ------------------------------------------------------------------------ *
@@ -1343,6 +1882,22 @@ pub async fn project_run_result(
     let root = root_of(&app)?;
     let ws = state.workspace.clone();
     blocking(move || run_result(&root, &ws, &project_id, stored_run_id)).await
+}
+
+#[tauri::command]
+#[tracing::instrument(skip_all)]
+pub async fn project_rerun(
+    app: tauri::AppHandle,
+    state: St<'_>,
+    run_id: u64,
+) -> Result<RerunStartedView, GaplyError> {
+    let _engine = state
+        .workspace
+        .require_statistics()
+        .map_err(refuse_workspace)?;
+    let root = root_of(&app)?;
+    let ws = state.workspace.clone();
+    blocking(move || rerun(&root, &ws, run_id)).await
 }
 
 #[tauri::command]

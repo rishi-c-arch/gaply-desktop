@@ -35,13 +35,13 @@ use serde_json::{json, Value};
 use app_lib::project_commands::{
     self as pc, DeleteConfirmationView, ProjectClosedView, ProjectCurrentView, ProjectDeletedView,
     ProjectExportView, ProjectListEntryView, ProjectOpenView, ProjectRefusalView, ProjectSizesView,
-    RunResultView, SaveTarget, SavedRunView, StoredArtifactView, StoredRunView,
-    CONFIRMATION_LIFETIME_MS,
+    RerunProgress, RerunStartedView, RerunView, RunResultView, SaveTarget, SavedRunView,
+    StoredArtifactView, StoredRunView, CONFIRMATION_LIFETIME_MS,
 };
-use app_lib::runs::Point;
+use app_lib::runs::{Point, RunKind};
 use gaply_core::contracts::codes::Closed;
 use gaply_core::contracts::{RunId, RunState};
-use gaply_core::research_project::{ArtifactKind, Caps, DataFormat, ProjectCode};
+use gaply_core::research_project::{ArtifactKind, Caps, DataFormat, ProjectCode, RerunComparison};
 
 use project_support::*;
 
@@ -165,11 +165,12 @@ fn each_gated_command_refuses_while_statistics_is_inactive_and_writes_nothing() 
         ("result", pc::run_result(&r, &w.ws, &id, 1).unwrap_err()),
         ("report", pc::report(&r, &w.ws, &id).unwrap_err()),
         ("provenance", pc::provenance(&r, &w.ws, &id).unwrap_err()),
+        ("rerun", pc::rerun(&r, &w.ws, 1).unwrap_err()),
     ];
     for (name, e) in &refusals {
         assert_eq!(code(e), "workspace.inactive", "{name}");
     }
-    assert_eq!(refusals.len(), 8);
+    assert_eq!(refusals.len(), 9);
     assert_eq!(files(&w.root()), before, "nothing was written");
 }
 
@@ -951,29 +952,89 @@ fn every_response_serialises_to_its_fixture() {
         },
     );
     assert_fixture("projectClose.json", &ProjectClosedView { closed: true });
-    // Phase 5B-3b (decision 148): an id, or none.
+    // Phase 5B-3b (decision 148): an id, or none. Phase 5C-1a (decision
+    // 187): with the last rerun, going, saved or not saved, or none.
+    let rerun = |status, stored_run_id, code| {
+        Some(RerunView {
+            run_id: 7,
+            rerun_of: 1,
+            status,
+            stored_run_id,
+            code,
+        })
+    };
     assert_fixture(
         "projectCurrent.json",
         &vec![
             ProjectCurrentView {
                 project_id: Some(ID.into()),
+                rerun: None,
             },
-            ProjectCurrentView { project_id: None },
+            ProjectCurrentView {
+                project_id: Some(ID.into()),
+                rerun: rerun(RerunProgress::Going, None, None),
+            },
+            ProjectCurrentView {
+                project_id: Some(ID.into()),
+                rerun: rerun(RerunProgress::Saved, Some(3), None),
+            },
+            ProjectCurrentView {
+                project_id: Some(ID.into()),
+                rerun: rerun(RerunProgress::NotSaved, None, Some(ProjectCode::DiskFull)),
+            },
+            ProjectCurrentView {
+                project_id: None,
+                rerun: None,
+            },
+        ],
+    );
+    // Phase 5C-1a: project_rerun's answer.
+    assert_fixture(
+        "projectRerun.json",
+        &vec![
+            RerunStartedView {
+                run_id: 7,
+                kind: RunKind::Describe,
+            },
+            RerunStartedView {
+                run_id: 8,
+                kind: RunKind::Ttest,
+            },
         ],
     );
     assert_fixture(
         "projectRuns.json",
-        &vec![StoredRunView {
-            stored_run_id: 1,
-            capability_id: "stats.analyze.independent_t".into(),
-            capability_version: 1,
-            state: RunState::Failed,
-            end_code: Some(ProjectCode::RunInterrupted),
-            started_at: 1_792_396_340,
-            ended_at: Some(1_792_396_341),
-            saved_at: 1_792_396_351,
-            agent_version: "0.1.0".into(),
-        }],
+        &vec![
+            StoredRunView {
+                stored_run_id: 1,
+                capability_id: "stats.analyze.independent_t".into(),
+                capability_version: 1,
+                state: RunState::Failed,
+                end_code: Some(ProjectCode::RunInterrupted),
+                started_at: 1_792_396_340,
+                ended_at: Some(1_792_396_341),
+                saved_at: 1_792_396_351,
+                agent_version: "0.1.0".into(),
+                rerun_of: None,
+                comparison: None,
+                engine_version_differs: None,
+            },
+            StoredRunView {
+                // Phase 5C-1a (decision 189): a rerun, compared.
+                stored_run_id: 2,
+                capability_id: "stats.describe".into(),
+                capability_version: 1,
+                state: RunState::Succeeded,
+                end_code: None,
+                started_at: 1_792_396_360,
+                ended_at: Some(1_792_396_361),
+                saved_at: 1_792_396_362,
+                agent_version: "0.1.0".into(),
+                rerun_of: Some(1),
+                comparison: Some(RerunComparison::Identical),
+                engine_version_differs: Some(false),
+            },
+        ],
     );
     assert_fixture(
         "projectRunResult.json",

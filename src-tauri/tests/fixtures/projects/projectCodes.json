@@ -46,5 +46,11 @@
   "project.result_too_large",
   "project.open_elsewhere",
   "project.being_deleted",
-  "project.lock_failed"
+  "project.lock_failed",
+  "project.rerun_unsupported",
+  "project.rerun_not_succeeded",
+  "project.rerun_busy",
+  "project.rerun_refused",
+  "project.rerun_in_progress",
+  "project.rerun_data_unreadable"
 ]

@@ -8,6 +8,23 @@
     "startedAt": 1792396340,
     "endedAt": 1792396341,
     "savedAt": 1792396351,
-    "agentVersion": "0.1.0"
+    "agentVersion": "0.1.0",
+    "rerunOf": null,
+    "comparison": null,
+    "engineVersionDiffers": null
+  },
+  {
+    "storedRunId": 2,
+    "capabilityId": "stats.describe",
+    "capabilityVersion": 1,
+    "state": "succeeded",
+    "endCode": null,
+    "startedAt": 1792396360,
+    "endedAt": 1792396361,
+    "savedAt": 1792396362,
+    "agentVersion": "0.1.0",
+    "rerunOf": 1,
+    "comparison": "identical",
+    "engineVersionDiffers": false
   }
 ]

@@ -109,6 +109,15 @@ export const PROJECT_WORDS: Record<ProjectCode, Say> = {
   'project.being_deleted': () => 'Another copy of Gaply is deleting this project, so it was not opened.',
   'project.lock_failed': () =>
     'Gaply could not check whether another copy of the app is using this project, so it did nothing.',
+  // 5C-1a: reruns (decisions 185 to 190).
+  'project.rerun_unsupported': () =>
+    'This result was made by a method, or with settings, that this version of Gaply cannot run again, so nothing was run.',
+  'project.rerun_not_succeeded': () => 'Only a result that finished can be run again.',
+  'project.rerun_busy': () => 'Another run is going. Wait for it to finish, or cancel it, then run this again.',
+  'project.rerun_refused': () => "This result's settings were not accepted this time, so nothing was run.",
+  'project.rerun_in_progress': () => 'A run is still going in this project. Wait for it to finish, or cancel it, first.',
+  'project.rerun_data_unreadable': () =>
+    'The copy of the data file kept in this project could not be read this time, so nothing was run.',
 };
 
 /** For a refusal this table does not know. */

@@ -42,7 +42,7 @@ const VERDICT = /\b(significant|correct|incorrect|accurate|inaccurate|reliable|u
 
 describe('every project code has one plain sentence', () => {
   it('for each code in projectCodes.json, and for no other', () => {
-    expect(CODES).toHaveLength(48);
+    expect(CODES).toHaveLength(54);
     expect(Object.keys(PROJECT_WORDS).sort()).toEqual([...CODES].sort());
     for (const code of CODES) {
       const s = projectSentence(err({ code, needed: 2097152, limit: 1048576 }));
@@ -51,6 +51,27 @@ describe('every project code has one plain sentence', () => {
       expect(s, code).not.toContain('undefined');
       expect(s, code).not.toMatch(/project\.[a-z_]/);
       expect(s, code).not.toMatch(VERDICT);
+    }
+  });
+
+  // 5C-1a (decisions 185 to 190): each rerun refusal in the prompt's words,
+  // and none passes a verdict on either result.
+  it('words the six rerun codes plainly and passes no verdict', () => {
+    const want: Record<string, string> = {
+      'project.rerun_unsupported':
+        'This result was made by a method, or with settings, that this version of Gaply cannot run again, so nothing was run.',
+      'project.rerun_not_succeeded': 'Only a result that finished can be run again.',
+      'project.rerun_busy': 'Another run is going. Wait for it to finish, or cancel it, then run this again.',
+      'project.rerun_refused': "This result's settings were not accepted this time, so nothing was run.",
+      'project.rerun_in_progress': 'A run is still going in this project. Wait for it to finish, or cancel it, first.',
+      'project.rerun_data_unreadable':
+        'The copy of the data file kept in this project could not be read this time, so nothing was run.',
+    };
+    expect(CODES.filter((c) => c.startsWith('project.rerun_')).sort()).toEqual(Object.keys(want).sort());
+    for (const [code, sentence] of Object.entries(want)) {
+      const s = projectSentence(err({ code }));
+      expect(s, code).toBe(sentence);
+      expect(s, code).not.toMatch(/reproduced|verified|correct|failed to reproduce/i);
     }
   });
 

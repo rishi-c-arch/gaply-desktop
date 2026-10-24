@@ -54,12 +54,22 @@
 //! and the slot and hash of the data it read ([`RunInput`]), and
 //! [`Runs::copy_for_save`] hands a project Save a copy of what it keeps.
 //!
+//! Phase 5C-1a (decisions 186 and 190): a rerun starts with
+//! [`Runs::start_then`] or [`Runs::start_ttest_then`], on a [`Slot`] made by
+//! [`Slot::for_one_run`] that no [`DatasetSlots`] holds, and with an
+//! [`EndHook`]. The hook is kept with the record and taken out at whichever
+//! step ends it: a refusal in `queue`, a failed spawn, a cancel while queued,
+//! or the worker's last step. It is called once, after the records' lock is
+//! released, with the copy taken under that lock. Runs started with
+//! [`Runs::start`] and [`Runs::start_ttest`] have no hook and behave as
+//! before. This module still writes nothing: the hook is its caller's.
+//!
 //! Phase 3: the run manager and the slots belong to the Statistics workspace
 //! (`crate::workspace`), built when it is activated and dropped when it is
 //! left. [`Runs::seal`] is how it is left: under the records' lock it either
 //! names the unfinished run, or closes the manager so no run can start after.
 
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::ops::ControlFlow;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -118,6 +128,18 @@ pub enum Point {
 /// Tests only: a test parks a run here.
 pub type CheckpointHook = Arc<dyn Fn(RunId, Point) + Send + Sync>;
 
+/// Called once a run started with it has ended, whatever the end (Research
+/// OS, Phase 5C-1a, decision 186): with the run's id and the [`RunCopy`]
+/// taken under the records' lock at its terminal step, after that lock is
+/// released. Exactly once per record: it is taken out of the manager at the
+/// terminal step. A start that makes no record (`Busy`, `Sealed`) never
+/// calls it. This module only calls it; what it does is its caller's.
+pub type EndHook = Box<dyn FnOnce(RunId, RunCopy) + Send>;
+
+/// The number of a [`Slot`] that no [`DatasetSlots`] holds (Phase 5C-1a,
+/// decision 190). `DatasetSlots` numbers from 1, so no open dataset has it.
+pub const ONE_RUN_SLOT: u64 = 0;
+
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|p| p.into_inner())
 }
@@ -165,6 +187,20 @@ pub struct Slot {
 }
 
 impl Slot {
+    /// A dataset held by one run only (Phase 5C-1a, decision 190): a rerun's
+    /// copy of a project's data file. No [`DatasetSlots`] holds it, so it is
+    /// never among the open datasets, evicts none of them, and no screen can
+    /// reach it by a slot number. It has no display name. It is dropped with
+    /// the last handle the run's worker and its end hook hold.
+    pub fn for_one_run(dataset: Dataset, source: SourceFile) -> Slot {
+        Slot {
+            id: ONE_RUN_SLOT,
+            display_name: String::new(),
+            dataset,
+            source: Some(source),
+        }
+    }
+
     pub fn id(&self) -> u64 {
         self.id
     }
@@ -502,6 +538,20 @@ enum Done {
     ),
 }
 
+/// An end hook that is due, with what it is called with: called only once
+/// the records' lock is released (Phase 5C-1a).
+struct Due {
+    end: EndHook,
+    run: RunId,
+    copy: RunCopy,
+}
+
+impl Due {
+    fn call(self) {
+        (self.end)(self.run, self.copy)
+    }
+}
+
 /// The newest record held and the unfinished one, each with its kind.
 pub struct RunsBrief {
     pub unfinished: Option<(RunId, RunKind)>,
@@ -516,6 +566,10 @@ pub struct Runs {
     clock: Arc<dyn Clock>,
     hook: Option<CheckpointHook>,
     ceiling_ms: u64,
+    /// The end hooks of records started with one, by run id (Phase 5C-1a):
+    /// added when the record is made and taken out at its terminal step, both
+    /// under `entries`' lock, which is always taken first.
+    ends: Mutex<BTreeMap<u64, EndHook>>,
 }
 
 impl Default for Runs {
@@ -554,6 +608,7 @@ impl Runs {
             clock,
             hook,
             ceiling_ms,
+            ends: Mutex::new(BTreeMap::new()),
         }
     }
 
@@ -626,11 +681,32 @@ impl Runs {
         spec: OperationSpec<DescribeParams>,
     ) -> Result<RunId, NotStarted> {
         let held = Held::Describe(Outputs::default());
-        let run = self.open_record(spec.operation_id, spec.parameters.columns.len(), held)?;
+        let run = self.open_record(spec.operation_id, spec.parameters.columns.len(), held, None)?;
         // Outside the lock, so a status poll does not wait on it; the record is
         // unfinished, so no second run can start meanwhile.
         // Through `stats.describe`'s façade: the capability registry first
         // (Research OS, Phase 4A), then `stats_desc::validate`, unchanged.
+        let report =
+            stats_adapters::describe_validate(&spec, crate::workspace::build(), slot.dataset());
+        self.queue(run, slot, Job::Describe(spec), Report::Describe(report));
+        Ok(run)
+    }
+
+    /// [`Runs::start`], with an end hook (Phase 5C-1a): a rerun. The same
+    /// record, façade and queue; the hook is kept with the record.
+    pub fn start_then(
+        self: &Arc<Self>,
+        slot: Arc<Slot>,
+        spec: OperationSpec<DescribeParams>,
+        end: EndHook,
+    ) -> Result<RunId, NotStarted> {
+        let held = Held::Describe(Outputs::default());
+        let run = self.open_record(
+            spec.operation_id,
+            spec.parameters.columns.len(),
+            held,
+            Some(end),
+        )?;
         let report =
             stats_adapters::describe_validate(&spec, crate::workspace::build(), slot.dataset());
         self.queue(run, slot, Job::Describe(spec), Report::Describe(report));
@@ -644,7 +720,7 @@ impl Runs {
         slot: Arc<Slot>,
         spec: OperationSpec<TTestParams>,
     ) -> Result<RunId, NotStarted> {
-        let run = self.open_record(spec.operation_id, 0, Held::Ttest(Outputs::default()))?;
+        let run = self.open_record(spec.operation_id, 0, Held::Ttest(Outputs::default()), None)?;
         // Through `stats.analyze.independent_t`'s façade: the registry first,
         // then `stats_ttest::validate`, unchanged.
         let report =
@@ -653,13 +729,35 @@ impl Runs {
         Ok(run)
     }
 
+    /// [`Runs::start_ttest`], with an end hook (Phase 5C-1a): a rerun.
+    pub fn start_ttest_then(
+        self: &Arc<Self>,
+        slot: Arc<Slot>,
+        spec: OperationSpec<TTestParams>,
+        end: EndHook,
+    ) -> Result<RunId, NotStarted> {
+        let run = self.open_record(
+            spec.operation_id,
+            0,
+            Held::Ttest(Outputs::default()),
+            Some(end),
+        )?;
+        let report =
+            stats_adapters::ttest_validate(&spec, crate::workspace::build(), slot.dataset());
+        self.queue(run, slot, Job::Ttest(spec), Report::Ttest(report));
+        Ok(run)
+    }
+
     /// Makes the record, `Draft → Validating`: refused while another run of
-    /// either kind is unfinished, and once the manager is sealed.
+    /// either kind is unfinished, and once the manager is sealed. Its end
+    /// hook, if any, is kept under the same lock, so it exists exactly when
+    /// the record does.
     fn open_record(
         &self,
         operation_id: OperationId,
         columns_total: usize,
         held: Held,
+        end: Option<EndHook>,
     ) -> Result<RunId, NotStarted> {
         let now = self.clock.now_ms();
         let mut entries = lock(&self.entries);
@@ -687,6 +785,9 @@ impl Runs {
         };
         Self::step(&mut entry, RunEvent::BeginValidation, now);
         entries.push_back(entry);
+        if let Some(end) = end {
+            lock(&self.ends).insert(run.0, end);
+        }
         Self::evict(&mut entries);
         Ok(run)
     }
@@ -699,7 +800,7 @@ impl Runs {
             slot: slot.id(),
             sha256: s.sha256().clone(),
         });
-        let queued = {
+        let (queued, due) = {
             let now = self.clock.now_ms();
             let mut entries = lock(&self.entries);
             let entry =
@@ -731,18 +832,46 @@ impl Runs {
                 }
                 _ => unreachable!("a record's report is of the record's kind"),
             }
-            queued
+            // A refused or waiting record has ended here: its end hook, after
+            // the lock is released, on this thread.
+            let due = if queued {
+                None
+            } else {
+                self.take_end(entry, now)
+            };
+            (queued, due)
         };
+        if let Some(due) = due {
+            due.call();
+        }
         if queued {
             let me = Arc::clone(self);
-            let spawned = std::thread::Builder::new()
-                .name("stats-desc-run".into())
-                .spawn(move || me.work(run, slot, job));
+            // Tests only: a spawn the test refuses, for the end that a failed
+            // spawn makes (Phase 5C-1a).
+            #[cfg(test)]
+            let refused = tests::SPAWN_REFUSED.with(|r| r.replace(false));
+            #[cfg(not(test))]
+            let refused = false;
+            let spawned = if refused {
+                Err(())
+            } else {
+                std::thread::Builder::new()
+                    .name("stats-desc-run".into())
+                    .spawn(move || me.work(run, slot, job))
+                    .map(|_| ())
+                    .map_err(|_| ())
+            };
             if spawned.is_err() {
-                let now = self.clock.now_ms();
-                let mut entries = lock(&self.entries);
-                if let Some(entry) = Self::find(&mut entries, run) {
-                    Self::step(entry, RunEvent::Refuse, now);
+                let due = {
+                    let now = self.clock.now_ms();
+                    let mut entries = lock(&self.entries);
+                    Self::find(&mut entries, run).and_then(|entry| {
+                        Self::step(entry, RunEvent::Refuse, now);
+                        self.take_end(entry, now)
+                    })
+                };
+                if let Some(due) = due {
+                    due.call();
                 }
             }
         }
@@ -817,19 +946,26 @@ impl Runs {
                 tracing::warn!("stats_desc: the run's work panicked");
             }
             Self::step(entry, RunEvent::Cancel, now);
-            return;
+        } else {
+            let elapsed = now.saturating_sub(started);
+            // Each finish reads the record's outputs of its own kind: a
+            // record's work is always of the record's kind (`begin` made both
+            // from one job).
+            match done {
+                Done::Describe(outcome, spec) => {
+                    Self::finish_describe(entry, run, outcome, &spec, &slot, elapsed, now)
+                }
+                Done::Ttest(outcome, spec) => {
+                    Self::finish_ttest(entry, run, outcome, &spec, &slot, elapsed, now)
+                }
+            }
         }
-        let elapsed = now.saturating_sub(started);
-        // Each finish reads the record's outputs of its own kind: a record's
-        // work is always of the record's kind (`begin` made both from one
-        // job).
-        match done {
-            Done::Describe(outcome, spec) => {
-                Self::finish_describe(entry, run, outcome, &spec, &slot, elapsed, now)
-            }
-            Done::Ttest(outcome, spec) => {
-                Self::finish_ttest(entry, run, outcome, &spec, &slot, elapsed, now)
-            }
+        // Phase 5C-1a: the run has ended; its end hook, if any, is called on
+        // this worker once the lock is released, with the copy taken here.
+        let due = self.take_end(entry, now);
+        drop(entries);
+        if let Some(due) = due {
+            due.call();
         }
     }
 
@@ -1052,19 +1188,35 @@ impl Runs {
     /// Cancels a descriptive summary's run; `run.wrong_kind` for a t-test's.
     pub fn cancel(&self, run: RunId) -> Result<RunSnapshot, RunCode> {
         let now = self.clock.now_ms();
-        let mut entries = lock(&self.entries);
-        let entry = Self::find_kind(&mut entries, run, RunKind::Describe)?;
-        Self::cancel_entry(entry, now);
-        Ok(self.describe_snapshot(entry))
+        let (snapshot, due) = {
+            let mut entries = lock(&self.entries);
+            let entry = Self::find_kind(&mut entries, run, RunKind::Describe)?;
+            Self::cancel_entry(entry, now);
+            // A queued run has ended here (Phase 5C-1a): its end hook, after
+            // the lock is released, on this thread.
+            (self.describe_snapshot(entry), self.take_end(entry, now))
+        };
+        if let Some(due) = due {
+            due.call();
+        }
+        Ok(snapshot)
     }
 
     /// Cancels a t-test's run; `run.wrong_kind` for a descriptive summary's.
     pub fn ttest_cancel(&self, run: RunId) -> Result<RunSnapshot<TTestCode>, RunCode> {
         let now = self.clock.now_ms();
-        let mut entries = lock(&self.entries);
-        let entry = Self::find_kind(&mut entries, run, RunKind::Ttest)?;
-        Self::cancel_entry(entry, now);
-        Ok(self.ttest_snapshot_of(entry))
+        let (snapshot, due) = {
+            let mut entries = lock(&self.entries);
+            let entry = Self::find_kind(&mut entries, run, RunKind::Ttest)?;
+            Self::cancel_entry(entry, now);
+            // A queued run has ended here (Phase 5C-1a): its end hook, after
+            // the lock is released, on this thread.
+            (self.ttest_snapshot_of(entry), self.take_end(entry, now))
+        };
+        if let Some(due) = due {
+            due.call();
+        }
+        Ok(snapshot)
     }
 
     /// The result of a descriptive summary that succeeded. Otherwise the
@@ -1098,6 +1250,12 @@ impl Runs {
         let now_ms = self.clock.now_ms();
         let mut entries = lock(&self.entries);
         let entry = Self::find(&mut entries, run).ok_or(RunCode::UnknownRun)?;
+        Ok(Self::copy_of(entry, now_ms))
+    }
+
+    /// The copy of a record a Save takes, and the one an end hook is given,
+    /// read under the records' lock.
+    fn copy_of(entry: &Entry, now_ms: u64) -> RunCopy {
         let parts = match &entry.held {
             Held::Describe(o) => o.copy(),
             Held::Ttest(o) => o.copy(),
@@ -1106,7 +1264,7 @@ impl Runs {
             Some((json, id, version)) => (Some(json), Some((id, version))),
             None => (None, None),
         };
-        Ok(RunCopy {
+        RunCopy {
             kind: entry.held.kind(),
             state: entry.record.state,
             started_ms: entry.record.started_ms,
@@ -1119,6 +1277,22 @@ impl Runs {
             manifest_json: parts.manifest_json,
             manifest_inputs: parts.manifest_inputs,
             failure: parts.failure,
+        }
+    }
+
+    /// The end hook of a record that has just ended, with the copy of the
+    /// record as it ended (Phase 5C-1a): taken out under the records' lock,
+    /// so it is called at most once. `None` while the record is unfinished,
+    /// or when it has no hook or its hook was taken already.
+    fn take_end(&self, entry: &Entry, now: u64) -> Option<Due> {
+        if !entry.record.state.is_terminal() {
+            return None;
+        }
+        let end = lock(&self.ends).remove(&entry.record.run_id.0)?;
+        Some(Due {
+            end,
+            run: entry.record.run_id,
+            copy: Self::copy_of(entry, now),
         })
     }
 
@@ -1344,6 +1518,244 @@ mod tests {
         });
         assert_eq!(runs.start(slot, spec), Err(NotStarted::Sealed));
         assert_eq!(runs.held(), 1, "no record was made");
+    }
+
+    thread_local! {
+        /// Set by a test: the next spawn on this thread is refused.
+        pub(super) static SPAWN_REFUSED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    }
+
+    /* ---- Phase 5C-1a: the end hook (decision 186) ------------------------ */
+
+    use gaply_core::stats_desc::{Alias, ColumnRequest, TreatAs};
+    use gaply_core::stats_l1::dataset::{
+        build_dataset, ColumnAlias, DataFingerprint, RawTable, TableRef,
+    };
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    fn numbers() -> Dataset {
+        build_dataset(
+            RawTable::from_rows(
+                vec!["x".into()],
+                vec![vec!["1".into()], vec!["2".into()], vec!["4".into()]],
+            ),
+            DataFingerprint::of_bytes(b"synthetic", "unit", TableRef::FirstTable),
+        )
+        .expect("dataset")
+    }
+
+    /// A summary of column `column`: 1 exists, 9 does not.
+    fn summary_of(column: u32) -> (Arc<Slot>, OperationSpec<DescribeParams>) {
+        let dataset = numbers();
+        let spec = stats_desc::spec(
+            OperationId(1),
+            &dataset,
+            DescribeParams {
+                columns: vec![ColumnRequest {
+                    alias: Alias(ColumnAlias(column)),
+                    treat_as: TreatAs::Numeric,
+                }],
+                missing_codes: vec![],
+            },
+        );
+        let slot = Arc::new(Slot {
+            id: 1,
+            display_name: "synthetic".into(),
+            dataset,
+            source: None,
+        });
+        (slot, spec)
+    }
+
+    /// One call of an end hook: the run, its state in the copy, whether the
+    /// copy holds a result, the thread it ran on, and whether the records'
+    /// lock was free then.
+    type Call = (RunId, RunState, bool, std::thread::ThreadId, bool);
+
+    fn recorder(runs: &Arc<Runs>, calls: &Arc<Mutex<Vec<Call>>>) -> EndHook {
+        let (runs, calls) = (Arc::clone(runs), Arc::clone(calls));
+        Box::new(move |run, copy| {
+            let free = runs.entries.try_lock().is_ok();
+            calls.lock().unwrap().push((
+                run,
+                copy.state,
+                copy.bundle_json.is_some(),
+                std::thread::current().id(),
+                free,
+            ));
+        })
+    }
+
+    fn wait_for(what: &str, done: impl Fn() -> bool) {
+        let start = Instant::now();
+        while !done() {
+            assert!(start.elapsed() < Duration::from_secs(10), "{what}");
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+
+    /// A manager whose runs stop at `BeforeStart` until the test lets them go.
+    fn parking() -> (Arc<Runs>, mpsc::Receiver<()>, mpsc::Sender<()>) {
+        let (reached, at_start) = mpsc::channel::<()>();
+        let (go, gate) = mpsc::channel::<()>();
+        let gate = Mutex::new(gate);
+        let hook: CheckpointHook = Arc::new(move |_run, p| {
+            if p == Point::BeforeStart {
+                reached.send(()).unwrap();
+                let _ = gate.lock().unwrap().recv();
+            }
+        });
+        let runs = Arc::new(Runs::with_hooks(
+            Arc::new(SinceStart(Instant::now())),
+            Some(hook),
+            RUN_CEILING_MS,
+        ));
+        (runs, at_start, go)
+    }
+
+    /// The worker's last step: called once, on the worker, with the result in
+    /// the copy, after the records' lock is released.
+    #[test]
+    fn an_end_hook_is_called_once_on_the_worker_after_a_run_ends() {
+        let runs = Arc::new(Runs::default());
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let (slot, spec) = summary_of(1);
+        let run = runs
+            .start_then(slot, spec, recorder(&runs, &calls))
+            .unwrap();
+        wait_for("the hook was called", || calls.lock().unwrap().len() == 1);
+        let (id, state, result, thread, free) = calls.lock().unwrap()[0];
+        assert_eq!(
+            (id, state, result, free),
+            (run, RunState::Succeeded, true, true)
+        );
+        assert_ne!(thread, std::thread::current().id(), "on the worker");
+        assert_eq!(
+            runs.snapshot(run).unwrap().record.state,
+            RunState::Succeeded
+        );
+        assert!(lock(&runs.ends).is_empty(), "taken out once called");
+    }
+
+    /// A refusal in `queue()`: called once, at once, on the thread that
+    /// started the run.
+    #[test]
+    fn an_end_hook_is_called_once_when_validation_refuses_the_run() {
+        let runs = Arc::new(Runs::default());
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let (slot, spec) = summary_of(9);
+        let run = runs
+            .start_then(slot, spec, recorder(&runs, &calls))
+            .unwrap();
+        let got = calls.lock().unwrap().clone();
+        assert_eq!(got.len(), 1, "called before start returned");
+        let (id, state, result, thread, free) = got[0];
+        assert_eq!(
+            (id, state, result, free),
+            (run, RunState::Refused, false, true)
+        );
+        assert_eq!(thread, std::thread::current().id());
+    }
+
+    /// A failed spawn: called once, on the thread that started the run.
+    #[test]
+    fn an_end_hook_is_called_once_when_the_worker_cannot_be_spawned() {
+        let runs = Arc::new(Runs::default());
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let (slot, spec) = summary_of(1);
+        SPAWN_REFUSED.with(|r| r.set(true));
+        let run = runs
+            .start_then(slot, spec, recorder(&runs, &calls))
+            .unwrap();
+        let got = calls.lock().unwrap().clone();
+        assert_eq!(got.len(), 1);
+        let (id, state, result, thread, free) = got[0];
+        assert_eq!(
+            (id, state, result, free),
+            (run, RunState::Refused, false, true)
+        );
+        assert_eq!(thread, std::thread::current().id());
+    }
+
+    /// A cancel while queued: called once, on the cancelling thread; the
+    /// worker, let go afterwards, finds the run ended and calls nothing.
+    #[test]
+    fn an_end_hook_is_called_once_when_a_queued_run_is_cancelled() {
+        let (runs, at_start, go) = parking();
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let (slot, spec) = summary_of(1);
+        let held = Arc::downgrade(&slot);
+        let run = runs
+            .start_then(slot, spec, recorder(&runs, &calls))
+            .unwrap();
+        at_start.recv().unwrap();
+        assert!(calls.lock().unwrap().is_empty(), "not before it ends");
+        runs.cancel(run).unwrap();
+        let got = calls.lock().unwrap().clone();
+        assert_eq!(got.len(), 1);
+        let (id, state, _, thread, free) = got[0];
+        assert_eq!((id, state, free), (run, RunState::Cancelled, true));
+        assert_eq!(thread, std::thread::current().id());
+        go.send(()).unwrap();
+        wait_for("the worker returned", || held.strong_count() == 0);
+        assert_eq!(calls.lock().unwrap().len(), 1, "never twice");
+    }
+
+    /// A start that makes no record drops its hook unused; a run started
+    /// without one ends as before and leaves nothing in the manager.
+    #[test]
+    fn a_start_that_makes_no_record_never_calls_its_hook() {
+        struct Dropped(Arc<AtomicUsize>);
+        impl Drop for Dropped {
+            fn drop(&mut self) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+        let (runs, at_start, go) = parking();
+        let (slot, spec) = summary_of(1);
+        let parked = runs.start(slot, spec).unwrap();
+        at_start.recv().unwrap();
+        let dropped = Arc::new(AtomicUsize::new(0));
+        let called = Arc::new(AtomicUsize::new(0));
+        let hook = |dropped: &Arc<AtomicUsize>, called: &Arc<AtomicUsize>| -> EndHook {
+            let (d, c) = (Dropped(Arc::clone(dropped)), Arc::clone(called));
+            Box::new(move |_, _| {
+                let _keep = &d;
+                c.fetch_add(1, Ordering::SeqCst);
+            })
+        };
+        let (slot, spec) = summary_of(1);
+        assert_eq!(
+            runs.start_then(slot, spec, hook(&dropped, &called)),
+            Err(NotStarted::Busy)
+        );
+        assert_eq!(
+            (
+                dropped.load(Ordering::SeqCst),
+                called.load(Ordering::SeqCst)
+            ),
+            (1, 0)
+        );
+        go.send(()).unwrap();
+        wait_for("the parked run ended", || {
+            runs.snapshot(parked).unwrap().record.state.is_terminal()
+        });
+        assert_eq!(runs.seal(), Ok(()));
+        let (slot, spec) = summary_of(1);
+        assert_eq!(
+            runs.start_then(slot, spec, hook(&dropped, &called)),
+            Err(NotStarted::Sealed)
+        );
+        assert_eq!(
+            (
+                dropped.load(Ordering::SeqCst),
+                called.load(Ordering::SeqCst)
+            ),
+            (2, 0)
+        );
+        assert!(lock(&runs.ends).is_empty());
     }
 
     #[test]

@@ -390,6 +390,7 @@ pub fn run() {
             project_commands::project_run_result,
             project_commands::project_report,
             project_commands::project_provenance,
+            project_commands::project_rerun,
             external_links::open_external_link,
             commands::build_gapfinder_corpus,
             commands::run_gap_finder,

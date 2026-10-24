@@ -69,6 +69,9 @@ use gaply_core::stats_l1::compute::{self, L1Computation, L1Refusal};
 use gaply_core::stats_l1::run_state::L1RunState;
 use gaply_core::stats_l1::token::ConfirmationToken;
 
+use gaply_core::contracts::codes::Closed;
+use gaply_core::research_project::DataFormat;
+
 use crate::supplementary::{self, SupplementaryKind, MAX_FILE_SIZE_BYTES, MAX_ROWS, PARSER_VERSION};
 
 /// Defined in `gaply_core` since Phase 2, Step 4, so a Level 1 verdict can
@@ -123,6 +126,32 @@ pub fn load_dataset_keeping_bytes(
     Ok((dataset, checked.bytes, checked.ext))
 }
 
+/// The checks and the parse of [`load_dataset_keeping_bytes`] on bytes
+/// already held, with their format (Research OS, Phase 5C-1a, decision 185):
+/// a rerun reads the project's copy of a data file through this.
+#[doc(hidden)]
+///
+/// The same code as the path ingest, in the same order: the size rule of
+/// steps 1 and 2 ([`check_size`]), the byte checks of step 3
+/// ([`check_bytes`]), then [`dataset_from_parts`]. The format's word is the
+/// extension the ingest read when the file was saved (`stats_desc_open` maps
+/// one to the other, word for word); `Json`, which no data file has, is
+/// refused as unsupported. The refusals that need a path (not a regular
+/// file, unreadable, an unknown extension) have no bytes form.
+#[doc(hidden)]
+pub fn load_dataset_from_bytes(
+    bytes: &[u8],
+    format: DataFormat,
+) -> Result<Dataset, L1IngestRefusal> {
+    let ext = format.wire();
+    if format == DataFormat::Json || !TABLE_EXTENSIONS.contains(&ext) {
+        return Err(L1IngestRefusal::UnsupportedFormat);
+    }
+    check_size(bytes.len() as u64)?;
+    check_bytes(bytes, ext)?;
+    dataset_from_parts(bytes, ext)
+}
+
 /// A data file opened, checked and read once: its bytes and its extension.
 /// It holds no path, so nothing after the check can open the file again (part
 /// C follow-up, item 3). Never `Debug`: the bytes are the user's data.
@@ -138,34 +167,80 @@ pub fn check_file(path: &Path) -> Result<CheckedFile, L1IngestRefusal> {
     // 0. A regular file, judged on the opened handle; read through it.
     let (file, bytes_len) = open_regular(path)?;
 
-    // 1. import_guard's byte rule, from metadata, through the pure decision.
-    let shape = DocumentShape { pages: None, page_equivalents: 0, bytes: bytes_len, text_chars: 0 };
-    let pre = import_guard::assess(&shape, import_guard::SEED_SECONDS_PER_PAGE, EstimateBasis::Seeded);
-    if pre.is_refused() {
-        return Err(L1IngestRefusal::TooLarge { bytes: bytes_len, limit: import_guard::MAX_BYTES });
-    }
-    // 2. The ingest's own caps, before any content is read.
-    if bytes_len > MAX_FILE_SIZE_BYTES {
-        return Err(L1IngestRefusal::TooLarge { bytes: bytes_len, limit: MAX_FILE_SIZE_BYTES });
-    }
-    let ext = path.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase()).unwrap_or_default();
+    // 1 and 2, from metadata, before any content is read.
+    check_size(bytes_len)?;
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .unwrap_or_default();
     if !TABLE_EXTENSIONS.contains(&ext.as_str()) {
         return Err(L1IngestRefusal::UnsupportedFormat);
     }
 
     // 3. Hash the exact bytes, parse, hash again.
     let before = read_bounded(file)?;
-    if ZIP_EXTENSIONS.contains(&ext.as_str()) {
+    check_bytes(&before, &ext)?;
+    Ok(CheckedFile { bytes: before, ext })
+}
+
+/// Steps 1 and 2 on a size: `import_guard`'s byte rule through the pure
+/// decision, then the ingest's own cap. Shared by the path ingest, which
+/// reads the size from metadata, and [`load_dataset_from_bytes`] (Research
+/// OS, Phase 5C-1a).
+fn check_size(bytes_len: u64) -> Result<(), L1IngestRefusal> {
+    // 1. import_guard's byte rule, through the pure decision.
+    let shape = DocumentShape {
+        pages: None,
+        page_equivalents: 0,
+        bytes: bytes_len,
+        text_chars: 0,
+    };
+    let pre = import_guard::assess(
+        &shape,
+        import_guard::SEED_SECONDS_PER_PAGE,
+        EstimateBasis::Seeded,
+    );
+    if pre.is_refused() {
+        return Err(L1IngestRefusal::TooLarge {
+            bytes: bytes_len,
+            limit: import_guard::MAX_BYTES,
+        });
+    }
+    // 2. The ingest's own caps.
+    if bytes_len > MAX_FILE_SIZE_BYTES {
+        return Err(L1IngestRefusal::TooLarge {
+            bytes: bytes_len,
+            limit: MAX_FILE_SIZE_BYTES,
+        });
+    }
+    Ok(())
+}
+
+/// Step 3's checks on the bytes read, before any parser sees them: an
+/// archive's declared and inflated sizes and its sheets' depth, a `.zsav`
+/// trailer, a `.mat` file's compressed elements. Shared by the path ingest
+/// and [`load_dataset_from_bytes`] (Research OS, Phase 5C-1a).
+fn check_bytes(before: &[u8], ext: &str) -> Result<(), L1IngestRefusal> {
+    if ZIP_EXTENSIONS.contains(&ext) {
         if let Some(declared) = declared_uncompressed_total(&before) {
             if declared > MAX_WORKBOOK_UNCOMPRESSED_BYTES {
-                return Err(L1IngestRefusal::ArchiveTooLarge { declared, limit: MAX_WORKBOOK_UNCOMPRESSED_BYTES });
+                return Err(L1IngestRefusal::ArchiveTooLarge {
+                    declared,
+                    limit: MAX_WORKBOOK_UNCOMPRESSED_BYTES,
+                });
             }
         }
         // What the parts DECLARE is the archive's own claim. Count what they
         // actually inflate to, into a sink, before any parser sees them (part
         // C follow-up, item 2).
-        if let ZipInflation::Over { counted } = import_guard::count_zip_inflation(&before, MAX_WORKBOOK_UNCOMPRESSED_BYTES) {
-            return Err(L1IngestRefusal::ArchiveTooLarge { declared: counted, limit: MAX_WORKBOOK_UNCOMPRESSED_BYTES });
+        if let ZipInflation::Over { counted } =
+            import_guard::count_zip_inflation(&before, MAX_WORKBOOK_UNCOMPRESSED_BYTES)
+        {
+            return Err(L1IngestRefusal::ArchiveTooLarge {
+                declared: counted,
+                limit: MAX_WORKBOOK_UNCOMPRESSED_BYTES,
+            });
         }
         // F14 (decision 52): a sheet that nests far past any SpreadsheetML
         // is not one; the parser read it as an empty table.
@@ -178,8 +253,13 @@ pub fn check_file(path: &Path) -> Result<CheckedFile, L1IngestRefusal> {
     if ext == "sav" {
         match supplementary::zsav_trailer(&before) {
             supplementary::ZsavTrailer::Malformed => return Err(L1IngestRefusal::Malformed),
-            supplementary::ZsavTrailer::Declared { inflated } if inflated > MAX_WORKBOOK_UNCOMPRESSED_BYTES => {
-                return Err(L1IngestRefusal::ArchiveTooLarge { declared: inflated, limit: MAX_WORKBOOK_UNCOMPRESSED_BYTES });
+            supplementary::ZsavTrailer::Declared { inflated }
+                if inflated > MAX_WORKBOOK_UNCOMPRESSED_BYTES =>
+            {
+                return Err(L1IngestRefusal::ArchiveTooLarge {
+                    declared: inflated,
+                    limit: MAX_WORKBOOK_UNCOMPRESSED_BYTES,
+                });
             }
             _ => {}
         }
@@ -187,11 +267,16 @@ pub fn check_file(path: &Path) -> Result<CheckedFile, L1IngestRefusal> {
     // A .mat file's compressed elements, counted the same way before matfile
     // inflates them (part C follow-up 2).
     if ext == "mat" {
-        if let Err(counted) = supplementary::count_mat_inflation(&before, MAX_WORKBOOK_UNCOMPRESSED_BYTES) {
-            return Err(L1IngestRefusal::ArchiveTooLarge { declared: counted, limit: MAX_WORKBOOK_UNCOMPRESSED_BYTES });
+        if let Err(counted) =
+            supplementary::count_mat_inflation(&before, MAX_WORKBOOK_UNCOMPRESSED_BYTES)
+        {
+            return Err(L1IngestRefusal::ArchiveTooLarge {
+                declared: counted,
+                limit: MAX_WORKBOOK_UNCOMPRESSED_BYTES,
+            });
         }
     }
-    Ok(CheckedFile { bytes: before, ext })
+    Ok(())
 }
 
 /// Steps 3 and 4 on a checked file: the parse reads the checked bytes, never
@@ -1097,5 +1182,123 @@ mod tests {
     #[ignore]
     fn generate_l1_weighted_sav_fixture() {
         write_sav(&fixture("l1_weighted.sav"), 6, true);
+    }
+
+    /* ---- Research OS, Phase 5C-1a: the bytes entry (decision 185) ---------- */
+
+    /// A rerun reads the project's copy of a data file, by its bytes and its
+    /// stored format. For each format a fixture exists for, the dataset the
+    /// bytes entry makes equals the one the path ingest makes from the same
+    /// file: the same cells, schema and fingerprint. No fixture is an `.xls`,
+    /// `.xlsm`, `.xlsb` or `.ods`; those reach the same code by their
+    /// extension word.
+    #[test]
+    fn the_bytes_entry_makes_the_path_ingests_dataset_for_every_fixture_format() {
+        let cases: Vec<(std::path::PathBuf, DataFormat)> = vec![
+            (write("bytes_entry.csv", CSV), DataFormat::Csv),
+            (
+                write("bytes_entry.tsv", b"score\tgroup\n1.5\t1\n2.5\t2\n3.5\t1\n"),
+                DataFormat::Tsv,
+            ),
+            (fixture("sample.xlsx"), DataFormat::Xlsx),
+            (fixture("analysis.sav"), DataFormat::Sav),
+            (fixture("analysis_v7.mat"), DataFormat::Mat),
+            (fixture("analysis_mixed.mat"), DataFormat::Mat),
+        ];
+        for (p, format) in &cases {
+            let by_path = load_dataset(p).unwrap_or_else(|r| panic!("{format:?}: {r:?}"));
+            let bytes = std::fs::read(p).unwrap();
+            let by_bytes = load_dataset_from_bytes(&bytes, *format)
+                .unwrap_or_else(|r| panic!("{format:?}: {r:?}"));
+            assert!(
+                by_bytes == by_path,
+                "{format:?}: the bytes entry made another dataset"
+            );
+        }
+        for (p, _) in &cases[..2] {
+            let _ = std::fs::remove_file(p);
+        }
+    }
+
+    /// Every refusal the path ingest makes from a file's bytes, the bytes
+    /// entry makes the same way: the size cap, an archive that declares or
+    /// inflates past the limit, a sheet nested too deep, a `.zsav` trailer
+    /// that lies, a `.mat` that inflates past the limit, and the parser's own
+    /// refusals. `Json` is no data format and is refused as unsupported. The
+    /// refusals that need a path (not a regular file, unreadable, an unknown
+    /// extension) have no bytes form: the format stands for the extension.
+    #[test]
+    fn every_byte_level_refusal_of_the_path_ingest_is_the_bytes_entrys_too() {
+        let deep = {
+            let mut sheet = String::from("<worksheet><sheetData>");
+            sheet.push_str(&"<x>".repeat(MAX_SHEET_XML_DEPTH + 10));
+            sheet.push_str(&"</x>".repeat(MAX_SHEET_XML_DEPTH + 10));
+            sheet.push_str("</sheetData></worksheet>");
+            stored_zip(&[("xl/worksheets/sheet1.xml", sheet.into_bytes())], None)
+        };
+        let lying_sav = {
+            let (mut b, zt) = zsav();
+            let at = zt + 24 + 16;
+            b[at..at + 4].copy_from_slice(&i32::MAX.to_le_bytes());
+            b
+        };
+        let negative_sav = {
+            let (mut b, zt) = zsav();
+            let at = zt + 24 + 16;
+            b[at..at + 4].copy_from_slice(&(-1i32).to_le_bytes());
+            b
+        };
+        let cases: Vec<(&str, Vec<u8>, DataFormat)> = vec![
+            (
+                "huge.csv",
+                vec![b'0'; (MAX_FILE_SIZE_BYTES + 1024) as usize],
+                DataFormat::Csv,
+            ),
+            (
+                "bomb.xlsx",
+                xlsx(3, Some(MAX_WORKBOOK_UNCOMPRESSED_BYTES + 1)),
+                DataFormat::Xlsx,
+            ),
+            ("lying.xlsx", lying_xlsx(300_000, 4096), DataFormat::Xlsx),
+            ("deep.xlsx", deep, DataFormat::Xlsx),
+            ("lie.sav", lying_sav, DataFormat::Sav),
+            ("negative.sav", negative_sav, DataFormat::Sav),
+            ("big.mat", compressed_mat(9_000_000), DataFormat::Mat),
+            ("fake.xlsx", b"this is not a zip".to_vec(), DataFormat::Xlsx),
+            (
+                "broken.sav",
+                b"$FL2 not really an spss file at all".to_vec(),
+                DataFormat::Sav,
+            ),
+            ("empty.csv", Vec::new(), DataFormat::Csv),
+        ];
+        let mut kinds = std::collections::BTreeSet::new();
+        for (name, bytes, format) in &cases {
+            let p = write(name, bytes);
+            let by_path = load_dataset(&p).map(|_| ()).expect_err(name);
+            let by_bytes = load_dataset_from_bytes(bytes, *format)
+                .map(|_| ())
+                .expect_err(name);
+            assert_eq!(by_bytes, by_path, "{name}");
+            kinds.insert(
+                format!("{by_path:?}")
+                    .split([' ', '(', '{'])
+                    .next()
+                    .unwrap()
+                    .to_string(),
+            );
+            let _ = std::fs::remove_file(&p);
+        }
+        // The cases reach the refusals they are here for.
+        for want in ["TooLarge", "ArchiveTooLarge", "Malformed", "Dataset"] {
+            assert!(
+                kinds.contains(want),
+                "no case was refused as {want}: {kinds:?}"
+            );
+        }
+        assert_eq!(
+            load_dataset_from_bytes(CSV, DataFormat::Json).map(|_| ()),
+            Err(L1IngestRefusal::UnsupportedFormat)
+        );
     }
 }

@@ -430,6 +430,8 @@ const PROJECT_GATED: &[(&str, &str)] = &[
     ("project_commands::project_run_result", "run_result"),
     ("project_commands::project_report", "report"),
     ("project_commands::project_provenance", "provenance"),
+    // Phase 5C-1a (decision 185): it runs an operation.
+    ("project_commands::project_rerun", "rerun"),
 ];
 
 /// The project commands that never need a workspace: seeing and deleting what

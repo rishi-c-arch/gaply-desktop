@@ -21,18 +21,26 @@
 //!
 //! The file names are fixed ([`REPORT_FILE_NAME`], [`PROV_FILE_NAME`]): the
 //! save dialog suggests them, never the project's name (decision 125).
+//!
+//! Phase 5C-1a (decision 189): a rerun's section says which run it repeats
+//! and, for one that Succeeded, whether its result's bytes are identical to
+//! that run's, by the two manifests' output hashes ([`compare_rerun`]),
+//! never a verdict; the PROV JSON gains `wasInformedBy` from each rerun to
+//! the run it repeats, only in a project that has one, so a project with no
+//! rerun renders exactly the bytes it did before.
 
 use std::collections::BTreeMap;
 
 use serde_json::{json, Value};
 
 use super::{
-    AgentVersion, ArtifactHash, ArtifactRef, ClosedWord, ProjectCode, ProjectId, ProjectTitle,
-    ProvEdge, ProvGraph, StoredRun, StoredRunId, UsedRole,
+    compare_rerun, AgentVersion, ArtifactHash, ArtifactRef, ClosedWord, ProjectCode, ProjectId,
+    ProjectTitle, ProvEdge, ProvGraph, RerunComparison, StoredRun, StoredRunId, UsedRole,
 };
 use crate::contracts::codes::{closed, Closed};
 use crate::contracts::{
     Arch, ContentHash, Diagnostic, Exclusion, Os, ParamKey, ParamValue, Platform, Reproducibility,
+    RunState,
 };
 
 /// The report's file name in the save dialog (decision 125).
@@ -412,6 +420,41 @@ fn parameter_line(p: &ExportParameter) -> String {
     }
 }
 
+/// What the report says of a rerun of run `of` (decision 189), word for
+/// word: for one that Succeeded, whether its result's bytes are identical to
+/// the repeated run's, and that both are kept with no judgement; for any
+/// other rerun, or one whose manifests were not compared, only what it
+/// repeats. None of them passes a verdict on either result.
+pub fn rerun_sentence(of: u64, comparison: Option<RerunComparison>) -> String {
+    match comparison {
+        Some(RerunComparison::Identical) => format!(
+            "Repeats run {of}. Its result is identical, byte for byte, to run {of}'s."
+        ),
+        Some(RerunComparison::Different) => format!(
+            "Repeats run {of}. Its result is not identical, byte for byte, to run {of}'s. Both are kept; Gaply does not judge which is right."
+        ),
+        Some(RerunComparison::NotCompared) | None => format!("Repeats run {of}."),
+    }
+}
+
+/// A rerun's comparison with the run it repeats, from both runs' manifests in
+/// the input (decision 189): only for a rerun that Succeeded.
+fn rerun_comparison(input: &ProjectExportInput, r: &ExportRun) -> Option<RerunComparison> {
+    let of = r.run.rerun_of?;
+    if r.run.state != RunState::Succeeded {
+        return None;
+    }
+    fn facts(m: &ExportManifest) -> (&ContentHash, u32) {
+        (&m.output_hash, m.engine_version)
+    }
+    let original = input
+        .runs
+        .iter()
+        .find(|o| o.run.run_id == of)
+        .and_then(|o| o.manifest.as_ref());
+    Some(compare_rerun(r.manifest.as_ref().map(facts), original.map(facts)).0)
+}
+
 fn run_section(out: &mut String, input: &ProjectExportInput, r: &ExportRun) {
     let s = &r.run;
     out.push_str(&format!(
@@ -421,6 +464,12 @@ fn run_section(out: &mut String, input: &ProjectExportInput, r: &ExportRun) {
         s.capability_version
     ));
     out.push_str(&format!("- Status: {}\n", s.state.wire()));
+    if let Some(of) = s.rerun_of {
+        out.push_str(&format!(
+            "- {}\n",
+            rerun_sentence(of.0, rerun_comparison(input, r))
+        ));
+    }
     if let Some(f) = &r.failure {
         out.push_str(&format!(
             "- Failure code: `{}`{}\n",
@@ -593,6 +642,7 @@ pub fn render_prov_json(input: &ProjectExportInput) -> Result<Vec<u8>, ProjectCo
     let mut generated: BTreeMap<String, Value> = BTreeMap::new();
     let mut derived: BTreeMap<String, Value> = BTreeMap::new();
     let mut associated: BTreeMap<String, Value> = BTreeMap::new();
+    let mut informed: BTreeMap<String, Value> = BTreeMap::new();
 
     for a in &input.artifacts {
         let mut attrs: BTreeMap<&str, Value> = BTreeMap::new();
@@ -629,6 +679,17 @@ pub fn render_prov_json(input: &ProjectExportInput) -> Result<Vec<u8>, ProjectCo
             attrs.insert("gaply:outputSha256", json!(m.output_hash.as_hex()));
         }
         activity.insert(activity_id(s.run_id), json!(attrs));
+        // Phase 5C-1a (decision 189): a rerun is its own activity, informed
+        // by the run it repeats.
+        if let Some(of) = s.rerun_of {
+            informed.insert(
+                format!("_:informed-{}-{}", s.run_id.0, of.0),
+                json!({
+                    "prov:informed": activity_id(s.run_id),
+                    "prov:informant": activity_id(of),
+                }),
+            );
+        }
     }
 
     for e in graph.edges() {
@@ -704,6 +765,11 @@ pub fn render_prov_json(input: &ProjectExportInput) -> Result<Vec<u8>, ProjectCo
     doc.insert("wasGeneratedBy", json!(generated));
     doc.insert("wasDerivedFrom", json!(derived));
     doc.insert("wasAssociatedWith", json!(associated));
+    // Only in a project that has a rerun, so a project with none exports
+    // exactly the bytes it did before reruns existed.
+    if !informed.is_empty() {
+        doc.insert("wasInformedBy", json!(informed));
+    }
     let mut bytes =
         serde_json::to_vec_pretty(&doc).expect("a document of words, hashes and numbers");
     bytes.push(b'\n');

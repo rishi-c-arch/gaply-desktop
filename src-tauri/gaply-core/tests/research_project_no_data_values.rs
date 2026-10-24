@@ -54,6 +54,7 @@ fn run(id: u64, cap: &str, state: RunState) -> StoredRun {
         started_at: 1_792_396_351,
         ended_at: Some(1_792_396_352),
         saved_at: 1_792_396_400,
+        rerun_of: None,
     }
 }
 

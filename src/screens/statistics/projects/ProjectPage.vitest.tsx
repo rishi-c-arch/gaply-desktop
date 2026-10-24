@@ -62,6 +62,9 @@ const RUNS: StoredRunView[] = [
     endedAt: 1792396001,
     savedAt: 1792396100,
     agentVersion: '0.1.0',
+    rerunOf: null,
+    comparison: null,
+    engineVersionDiffers: null,
   },
   {
     storedRunId: 2,
@@ -73,6 +76,9 @@ const RUNS: StoredRunView[] = [
     endedAt: 1792396201,
     savedAt: 1792396300,
     agentVersion: '0.1.0',
+    rerunOf: null,
+    comparison: null,
+    engineVersionDiffers: null,
   },
   {
     storedRunId: 3,
@@ -84,6 +90,9 @@ const RUNS: StoredRunView[] = [
     endedAt: 1792396201,
     savedAt: 1792396300,
     agentVersion: '0.1.0',
+    rerunOf: null,
+    comparison: null,
+    engineVersionDiffers: null,
   },
 ];
 const refusal = (v: unknown) => ({ code: 'validation', message: JSON.stringify(v) });

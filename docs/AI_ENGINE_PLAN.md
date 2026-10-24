@@ -25087,3 +25087,163 @@ draw (`~/gaply-corpus/os/phase5/realapp_5b4b.md` is the check); a checkpoint
 that is busy because a second copy is reading, and how long a Save waits then;
 Windows (`windows-build-check` only); the CI changes, which run only when the
 branch is next pushed; the real app. Departures are listed in the report's §5.
+
+### D287 — Research OS, Phase 5C-1a: reruns, the Rust side (a stored summary or t-test run again on the project's copy of its data, saved once at the end) `[src]` `[test]` `[measured]`
+
+**Added** on `feat/research-os-5` after `ed64c5d` (D286). Decisions 184 to 191
+of 24 Oct 2026 apply (`~/gaply-corpus/os/decisions.md`), with 99 to 183.
+**No screen changes**: `project_rerun` is registered and the frontend's
+project bridge can call it, but no screen does until 5C-1b (decision 184), so
+this step has no real-app checklist. Level 0 and Level 1 in projects are 5C-2.
+
+**What a rerun is (decision 185).** `project_rerun { runId }`
+(`src-tauri/src/project_commands.rs`, `rerun` and `rerun_open`) runs a saved
+run that Succeeded again, in the open project: its stored `OperationSpec`, on
+the project's copy of its data file. It checks, in order, each refusal writing
+nothing but the damage mark a read of a damaged artifact makes: Statistics
+active (gated, `workspace_guards.rs`); a project open; the stored run exists
+(`project.stored_run_unknown`); it Succeeded (`project.rerun_not_succeeded`);
+its capability and capability version, from its row, pass
+`stats_registry::require_runnable` and name the summary or the t-test
+(`project.rerun_unsupported`); no rerun going (`project.rerun_in_progress`)
+and no run unfinished (`project.rerun_busy`); the data file and the spec read
+back with their hashes (the store's own codes); the spec parses and
+re-serialises to exactly its stored bytes (`project.rerun_unsupported`,
+decision 188); the data file reads as a table through the ingest
+(`project.rerun_data_unreadable`, a sixth code); the spec passes
+`check_spec` and its façade's validation (`project.rerun_refused`). The data
+is read by `stats_l1_ingest::load_dataset_from_bytes`, which runs the byte
+half of `check_file`'s checks (now `check_size` and `check_bytes`, shared
+with the path ingest) and the same `dataset_from_parts`; its dataset lives in
+a `Slot::for_one_run` (number 0, which `DatasetSlots` never hands out), held
+by the worker and the end hook only, so it evicts no open dataset (decision
+190). The run is an ordinary run: `Runs::start_then` / `start_ttest_then`,
+the same record, façade, queue, check point and last step as `start`.
+
+**Nothing is written while it runs; one write at the end (decisions 186 and
+187).** `runs.rs` gained an `EndHook`, kept beside the records under their
+lock and taken out at the step that ends the record (a refusal in `queue`, a
+failed spawn, a cancel while queued, the worker's last step), then called once
+the lock is released, with the `RunCopy` taken under it; `runs.rs` names no
+store, SQL or file. The hook holds the project session by a `Weak`: once the
+session is gone nothing is written. It takes the open-project lock, then the
+store's write lock inside `ProjectHandle::save_rerun` (which shares `save`'s
+lock and its one `save_inner`, with `rerun_of`), then SQLite; never the
+workspace's or the run manager's lock. A rerun that Succeeded, or Failed with
+its code, is saved with its own bundle and manifest (or failure record), the
+data file and spec reused by hash; any other end, or another project open,
+records "not saved" with saveable()'s code, `project.not_open` or the store's
+refusal. **This replaces the proposal's RunSink**, which would have written a
+row at Queued and every transition (decision 186): no run row exists until a
+rerun has ended, so a quit, a crash or a cancel leaves nothing, and a false
+Succeeded cannot be stored.
+
+**Going (decision 190).** From `project_rerun` until the save at the end has
+returned, an atomic flag set and cleared under the open-project lock refuses
+Close, Open of another project, a Save into a new project, the open project's
+delete and a second rerun with `project.rerun_in_progress`; `workspace.rs`'s
+`leave()` reads it, with no project lock, before the seal, and refuses with
+`workspace.run_active` and the rerun's run. `project_current` gains
+`rerun: {runId, rerunOf, status: going|saved|not_saved, storedRunId, code}`,
+read from its own mutex, so it answers during the save without waiting. A
+rerun's own in-memory run is refused by hand with `project.run_already_saved`
+or `project.data_unavailable` (decision 187).
+
+**Schema version 2 (decision 186).** An append-only step adds
+`runs.rerun_of INTEGER REFERENCES runs(run_id)`; `migrate` runs each step in
+its own `BEGIN IMMEDIATE`, re-reading the version under its lock, and opening
+a project migrates it before recovery; a version 3 database is refused
+untouched.
+
+**The comparison and the exports (decision 189).** `research_project::
+compare_rerun` compares the two manifests' output hashes (identical,
+different, or not compared when one cannot be read) and reports whether the
+engine versions differ, never a verdict. `project_runs` shows `rerunOf`,
+`comparison` and `engineVersionDiffers`. The report adds, for a rerun,
+"Repeats run {n}. Its result is identical, byte for byte, to run {n}'s." or
+"…is not identical, byte for byte, to run {n}'s. Both are kept; Gaply does
+not judge which is right.", and only "Repeats run {n}." otherwise; the PROV
+JSON adds `wasInformedBy` only in a project with a rerun. Both renderers stay
+pure; the existing goldens are byte-identical.
+
+**The wire.** Six codes appended to `ProjectCode` (54), `projectCodes.json`
+and `projectWording.ts`; `projectCurrent.json`, `projectRuns.json` and a new
+`projectRerun.json` pinned on both sides; `project_rerun` in the bridge
+(thirteen commands, `projectGuards.vitest.ts`).
+
+**Departures**, listed with reasons in
+`~/gaply-corpus/os/phase5/phase5c1a_report.md` §5: no privacy matrix held a
+project, so the rerun matrix is a new binary; `RunToSave` is unchanged and
+`save_rerun` carries `rerun_of`; the two store-fault tests are in
+`project_store.rs`'s tests, behind three `#[cfg(test)]` entry points on
+`ProjectSession`; a sixth code; check 6 split into its two codes; `rerunOf` in
+`project_current`'s rerun; a test-only spawn refusal in `runs.rs`.
+
+**What ADR-009 will need at 5E** (decision 158): schema version 2 and the
+migration at open; decision 186's amendment of §6 (a rerun's save at the end
+is a second click-triggered write; the RunSink and its recovery of a rerun
+row are not built, so recovery's interrupted-run rule now covers no path that
+writes); `rerun_of` and `wasInformedBy` in §3 and §7; the end hook, the going
+flag and the leave refusal; ADR-004's operations table row "rerun from a
+project", now built as the save at the end.
+
+**Measured, 24 Oct 2026, macOS aarch64** (logs in
+`~/gaply-corpus/os/phase5/5c1a_logs/`), each prediction written before its
+run. `cargo test --workspace --no-fail-fast` at `ed64c5d` first, both
+`lib.rs` touched: exit 0, 117 targets (115 Running + 2 Doc-tests), 2,874
+passed, 12 ignored. After, both `lib.rs` touched (`git status` and `git diff
+--stat` unchanged by the touch): exit 0, 120 targets (118 Running + 2
+Doc-tests), 2,902 passed, 12 ignored, as predicted: app lib 563 → 573 (the
+store +3, the ingest +2, the run manager +5), `gaply_core` lib 1,848 → 1,849,
+and the new `project_rerun` (11), `project_rerun_privacy_matrix` (1) and
+`research_project_reruns` (5); no other target moved. **The first run of the
+same command was exit 101**: `verifier_facade_guards.rs` pins that `runs.rs`'s
+`fn start` itself calls `stats_adapters::describe_validate(`, and a refactor
+had moved that body into a private function; `start` and `start_ttest` were
+given back their own bodies (the `_then` siblings repeat the three
+statements), and the guard is unchanged. `cargo test -p app --features
+devtools --no-fail-fast`: exit 0, 50 targets (49 Running + 1 Doc-tests), 811
+passed, 9 ignored, as predicted from D286's 48 / 789 / 9. `cargo test -p
+gaply_core --no-fail-fast`: exit 0, 76 targets, 2,108 passed, 3 ignored. `cargo
+check --workspace --all-targets`: exit 0, 45 warnings, none in a changed file.
+The shared `debug/incremental` was deleted four times as Prompt 0's disk rule
+allows (free space 13 to 14 GiB, nothing building). vitest: 118 files / 1,516
+tests, exit 0; the three touched pin files count 41 at HEAD (their HEAD copies
+run beside the code, then removed) and 43 after, so the whole suite was 1,514
+at `ed64c5d`, not D286's 1,502 (inferred: no other test file changed). A first
+whole-suite run had 4 timeouts in three untouched files, each green alone
+twice. `tsc --noEmit` exit 0 after the new `StoredRunView` fields were added
+to the typed literals of `ProjectPage.vitest.tsx` and `SavedResult.vitest.tsx`
+(red before: TS2739); CI's eslint exit 0; `npm run build` exit 0,
+`build/index.html` present, `public/sitemap.xml` written back from HEAD (`cmp`
+equal). rustfmt by path: every new file 0 hunks; changed files 0 → 0 but
+`stats_l1_ingest.rs`, 63 at HEAD → 57 (its split `check_file` formatted);
+`lib.rs` 0 → 0 with stub modules. `git diff --check` clean; `git diff ed64c5d`
+empty under `stats_l0`, `stats_l1`, `stats_assist`, `stats_desc`,
+`stats_ttest` and `stats_adapters`. No GRRB-watched file changed.
+
+**Red before, green after:** the version 1 migration (user_version stayed 1);
+the bytes entry's two tests against a stub; four of the end hook's five tests
+against a stub (the fifth, no record no call, is green by design); the five
+rerun-export tests against a stub `rerun_sentence`. The rerun commands' 11
+integration tests and the two fault tests were written after the code; their
+red is the mutation record. **Mutation record** (SHA-256, broken once, red,
+restored by plain copy with a fresh mtime, SHA-256 equal, green; logs in
+`5c1a_logs/mutations/`): an `UPDATE` through `rusqlite` in `runs.rs` (the
+no-write guard, both words); `rerun`'s workspace check moved second
+(`workspace_guards`); `leave()`'s rerun check off (the leave test alone);
+`close` without the going check; `rerun_of` written NULL (three tests); the
+spec's exact-bytes check off; a queued cancel not calling the hook (three
+tests, the lib's included); `project_current` waiting for the open lock (5.6
+s); `wasInformedBy` in every project (both old goldens and the "only then"
+test); `project_rerun` dropped from the bridge (three vitest tests). **One
+stayed green**: the end hook holding the session strongly instead of weakly.
+The quit test read the disk 200 ms after the late end, and under parallel load
+the save had not landed; the test now asserts the dropped session has no
+strong reference, and the repeat went red there.
+
+**Not tested:** the real app (5C-1b's checklist); Windows (`windows-build-
+check` only); a real second process (a second connection in this process
+holds the write lock); a different engine version from a real engine (built
+from a test row); a panic inside the save at the end, which would leave the
+rerun going until the app restarts (open question 1 of the report).
