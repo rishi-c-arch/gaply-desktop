@@ -29,6 +29,7 @@
  * the shell silently stays dark. */
 .gds-aicheck[data-theme='light'],
 .gds-aicheck[data-theme='light'] .gds-root {
+  color-scheme: light;
   --g-bg-base: #f6f7f9;
   --g-bg-layer1: #ffffff;
   --g-bg-layer2: #ffffff;

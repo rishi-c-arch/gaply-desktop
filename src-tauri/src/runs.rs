@@ -47,12 +47,29 @@
 //! For tests, [`Runs::with_hooks`] takes a clock, a hook the check point
 //! calls first (a test parks a run there at column k) and the ceiling.
 //!
+//! Phase 5B-2 (decision 123): a slot opened through `stats_desc_open` also
+//! holds the original file's bytes, with their SHA-256 taken at ingest and
+//! their format ([`SourceFile`]), for as long as the slot is held: closing or
+//! evicting the slot drops them. Each record keeps its spec's canonical bytes
+//! and the slot and hash of the data it read ([`RunInput`]), and
+//! [`Runs::copy_for_save`] hands a project Save a copy of what it keeps.
+//!
+//! Phase 5C-1a (decisions 186 and 190): a rerun starts with
+//! [`Runs::start_then`] or [`Runs::start_ttest_then`], on a [`Slot`] made by
+//! [`Slot::for_one_run`] that no [`DatasetSlots`] holds, and with an
+//! [`EndHook`]. The hook is kept with the record and taken out at whichever
+//! step ends it: a refusal in `queue`, a failed spawn, a cancel while queued,
+//! or the worker's last step. It is called once, after the records' lock is
+//! released, with the copy taken under that lock. Runs started with
+//! [`Runs::start`] and [`Runs::start_ttest`] have no hook and behave as
+//! before. This module still writes nothing: the hook is its caller's.
+//!
 //! Phase 3: the run manager and the slots belong to the Statistics workspace
 //! (`crate::workspace`), built when it is activated and dropped when it is
 //! left. [`Runs::seal`] is how it is left: under the records' lock it either
 //! names the unfinished run, or closes the manager so no run can start after.
 
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::ops::ControlFlow;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -61,9 +78,11 @@ use std::time::Instant;
 
 use gaply_core::contracts::codes::{Closed, RunCode};
 use gaply_core::contracts::{
-    transition, Diagnostic, OperationId, OperationSpec, Platform, ResultBundle, RunEvent, RunId,
-    RunRecord, RunState, SchemaVersion, ValidationReport, ValidationStatus,
+    transition, CapabilityId, ContentHash, Diagnostic, OperationId, OperationSpec, Platform,
+    ResultBundle, RunEvent, RunId, RunRecord, RunState, SchemaVersion, ValidationReport,
+    ValidationStatus,
 };
+use gaply_core::research_project::DataFormat;
 use gaply_core::stats_adapters;
 use gaply_core::stats_desc::{self, DescCode, DescribeParams, DescribeResult, Halt};
 use gaply_core::stats_l1::dataset::Dataset;
@@ -109,6 +128,18 @@ pub enum Point {
 /// Tests only: a test parks a run here.
 pub type CheckpointHook = Arc<dyn Fn(RunId, Point) + Send + Sync>;
 
+/// Called once a run started with it has ended, whatever the end (Research
+/// OS, Phase 5C-1a, decision 186): with the run's id and the [`RunCopy`]
+/// taken under the records' lock at its terminal step, after that lock is
+/// released. Exactly once per record: it is taken out of the manager at the
+/// terminal step. A start that makes no record (`Busy`, `Sealed`) never
+/// calls it. This module only calls it; what it does is its caller's.
+pub type EndHook = Box<dyn FnOnce(RunId, RunCopy) + Send>;
+
+/// The number of a [`Slot`] that no [`DatasetSlots`] holds (Phase 5C-1a,
+/// decision 190). `DatasetSlots` numbers from 1, so no open dataset has it.
+pub const ONE_RUN_SLOT: u64 = 0;
+
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|p| p.into_inner())
 }
@@ -117,19 +148,70 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
  *  Dataset slots
  * ------------------------------------------------------------------------ */
 
-/// One opened dataset and its file's display name. Never `Debug`, never
+/// The original file's bytes, as the ingest read them, with their SHA-256
+/// taken at ingest and their format (Phase 5B-2, decision 123): what a
+/// project Save copies. Never `Debug`, never `Serialize`.
+pub struct SourceFile {
+    bytes: Vec<u8>,
+    sha256: ContentHash,
+    format: DataFormat,
+}
+
+impl SourceFile {
+    pub fn new(bytes: Vec<u8>, sha256: ContentHash, format: DataFormat) -> SourceFile {
+        SourceFile {
+            bytes,
+            sha256,
+            format,
+        }
+    }
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+    pub fn sha256(&self) -> &ContentHash {
+        &self.sha256
+    }
+    pub fn format(&self) -> DataFormat {
+        self.format
+    }
+}
+
+/// One opened dataset, its slot number, its file's display name and, when
+/// the ingest kept them, the original bytes. Never `Debug`, never
 /// `Serialize`: it holds the user's rows.
 pub struct Slot {
+    id: u64,
     display_name: String,
     dataset: Dataset,
+    source: Option<SourceFile>,
 }
 
 impl Slot {
+    /// A dataset held by one run only (Phase 5C-1a, decision 190): a rerun's
+    /// copy of a project's data file. No [`DatasetSlots`] holds it, so it is
+    /// never among the open datasets, evicts none of them, and no screen can
+    /// reach it by a slot number. It has no display name. It is dropped with
+    /// the last handle the run's worker and its end hook hold.
+    pub fn for_one_run(dataset: Dataset, source: SourceFile) -> Slot {
+        Slot {
+            id: ONE_RUN_SLOT,
+            display_name: String::new(),
+            dataset,
+            source: Some(source),
+        }
+    }
+
+    pub fn id(&self) -> u64 {
+        self.id
+    }
     pub fn display_name(&self) -> &str {
         &self.display_name
     }
     pub fn dataset(&self) -> &Dataset {
         &self.dataset
+    }
+    pub fn source(&self) -> Option<&SourceFile> {
+        self.source.as_ref()
     }
 }
 
@@ -155,13 +237,26 @@ impl DatasetSlots {
     /// Holds the dataset and returns its slot. A fifth drops the oldest; a run
     /// already using it keeps its own handle until it ends.
     pub fn insert(&self, display_name: String, dataset: Dataset) -> u64 {
+        self.insert_with_source(display_name, dataset, None)
+    }
+
+    /// [`DatasetSlots::insert`], with the original file's bytes held beside
+    /// the dataset for as long as the slot is (Phase 5B-2).
+    pub fn insert_with_source(
+        &self,
+        display_name: String,
+        dataset: Dataset,
+        source: Option<SourceFile>,
+    ) -> u64 {
         let id = self.next.fetch_add(1, Ordering::SeqCst) + 1;
         let mut slots = lock(&self.slots);
         slots.push_back((
             id,
             Arc::new(Slot {
+                id,
                 display_name,
                 dataset,
+                source,
             }),
         ));
         while slots.len() > MAX_SLOTS {
@@ -219,12 +314,30 @@ pub enum RunKind {
     Ttest,
 }
 
+/// The data a run read: its slot, and the SHA-256 of the original bytes the
+/// slot held when the run started (Phase 5B-2, decision 123).
+#[derive(Clone)]
+pub struct RunInput {
+    pub slot: u64,
+    pub sha256: ContentHash,
+}
+
+/// A record's spec, as canonical JSON, and the capability it names.
+struct HeldSpec {
+    json: Vec<u8>,
+    capability_id: CapabilityId,
+    capability_version: u32,
+}
+
 /// What one kind of run keeps: its validation, its result and the reason it
-/// failed, in that kind's own codes.
+/// failed, in that kind's own codes; since Phase 5B-2 also its spec and the
+/// data it read.
 struct Outputs<R, C> {
     validation: Option<ValidationReport<C>>,
     bundle: Option<ResultBundle<R, C>>,
     failure: Option<Diagnostic<C>>,
+    spec: Option<HeldSpec>,
+    input: Option<RunInput>,
 }
 
 impl<R, C> Default for Outputs<R, C> {
@@ -233,8 +346,78 @@ impl<R, C> Default for Outputs<R, C> {
             validation: None,
             bundle: None,
             failure: None,
+            spec: None,
+            input: None,
         }
     }
+}
+
+impl<R: Serialize, C: Serialize> Outputs<R, C> {
+    /// The copy a Save takes, in this kind's codes made JSON.
+    fn copy(&self) -> SavedParts {
+        let json = "a record's parts are ids, words, numbers and the user's labels";
+        SavedParts {
+            spec: self.spec.as_ref().map(|s| {
+                (
+                    s.json.clone(),
+                    s.capability_id.clone(),
+                    s.capability_version,
+                )
+            }),
+            input: self.input.clone(),
+            bundle_json: self
+                .bundle
+                .as_ref()
+                .map(|b| serde_json::to_vec(b).expect(json)),
+            manifest_json: self
+                .bundle
+                .as_ref()
+                .map(|b| serde_json::to_vec(&b.manifest).expect(json)),
+            manifest_inputs: self
+                .bundle
+                .as_ref()
+                .map(|b| b.manifest.inputs.clone())
+                .unwrap_or_default(),
+            failure: self
+                .failure
+                .as_ref()
+                .map(|d| serde_json::to_value(d).expect(json)),
+        }
+    }
+}
+
+/// What [`Outputs::copy`] takes, before the record's own fields join it.
+struct SavedParts {
+    spec: Option<(Vec<u8>, CapabilityId, u32)>,
+    input: Option<RunInput>,
+    bundle_json: Option<Vec<u8>>,
+    manifest_json: Option<Vec<u8>>,
+    manifest_inputs: Vec<ContentHash>,
+    failure: Option<serde_json::Value>,
+}
+
+/// A finished run as a project Save needs it (Phase 5B-2): copies, never
+/// handles. The bundle's bytes hold the user's headers and level labels, so
+/// this is never `Debug` or `Serialize`; it goes only into the store.
+pub struct RunCopy {
+    pub kind: RunKind,
+    pub state: RunState,
+    pub started_ms: u64,
+    pub ended_ms: Option<u64>,
+    /// The manager's clock when the copy was taken, so the run's times can be
+    /// placed on the wall clock.
+    pub now_ms: u64,
+    /// The spec as canonical JSON, and the capability it names; `None` only
+    /// before the record was queued.
+    pub spec_json: Option<Vec<u8>>,
+    pub capability: Option<(CapabilityId, u32)>,
+    pub input: Option<RunInput>,
+    pub bundle_json: Option<Vec<u8>>,
+    pub manifest_json: Option<Vec<u8>>,
+    /// The manifest's input hashes, in the spec's order.
+    pub manifest_inputs: Vec<ContentHash>,
+    /// A failed run's diagnostic: its closed code and parameters.
+    pub failure: Option<serde_json::Value>,
 }
 
 /// A record's outputs, by its kind: the closed enum of result kinds
@@ -304,6 +487,29 @@ enum Job {
     Ttest(OperationSpec<TTestParams>),
 }
 
+impl Job {
+    /// The spec as canonical JSON, and the capability it names.
+    fn held(&self) -> HeldSpec {
+        let (json, id, version) = match self {
+            Job::Describe(s) => (
+                serde_json::to_vec(s),
+                s.capability_id.clone(),
+                s.capability_version,
+            ),
+            Job::Ttest(s) => (
+                serde_json::to_vec(s),
+                s.capability_id.clone(),
+                s.capability_version,
+            ),
+        };
+        HeldSpec {
+            json: json.expect("a spec of ids, words and numbers serialises"),
+            capability_id: id,
+            capability_version: version,
+        }
+    }
+}
+
 /// A validation's report, in its kind's codes.
 enum Report {
     Describe(ValidationReport<DescCode>),
@@ -332,6 +538,20 @@ enum Done {
     ),
 }
 
+/// An end hook that is due, with what it is called with: called only once
+/// the records' lock is released (Phase 5C-1a).
+struct Due {
+    end: EndHook,
+    run: RunId,
+    copy: RunCopy,
+}
+
+impl Due {
+    fn call(self) {
+        (self.end)(self.run, self.copy)
+    }
+}
+
 /// The newest record held and the unfinished one, each with its kind.
 pub struct RunsBrief {
     pub unfinished: Option<(RunId, RunKind)>,
@@ -346,6 +566,10 @@ pub struct Runs {
     clock: Arc<dyn Clock>,
     hook: Option<CheckpointHook>,
     ceiling_ms: u64,
+    /// The end hooks of records started with one, by run id (Phase 5C-1a):
+    /// added when the record is made and taken out at its terminal step, both
+    /// under `entries`' lock, which is always taken first.
+    ends: Mutex<BTreeMap<u64, EndHook>>,
 }
 
 impl Default for Runs {
@@ -384,6 +608,7 @@ impl Runs {
             clock,
             hook,
             ceiling_ms,
+            ends: Mutex::new(BTreeMap::new()),
         }
     }
 
@@ -456,11 +681,32 @@ impl Runs {
         spec: OperationSpec<DescribeParams>,
     ) -> Result<RunId, NotStarted> {
         let held = Held::Describe(Outputs::default());
-        let run = self.open_record(spec.operation_id, spec.parameters.columns.len(), held)?;
+        let run = self.open_record(spec.operation_id, spec.parameters.columns.len(), held, None)?;
         // Outside the lock, so a status poll does not wait on it; the record is
         // unfinished, so no second run can start meanwhile.
         // Through `stats.describe`'s façade: the capability registry first
         // (Research OS, Phase 4A), then `stats_desc::validate`, unchanged.
+        let report =
+            stats_adapters::describe_validate(&spec, crate::workspace::build(), slot.dataset());
+        self.queue(run, slot, Job::Describe(spec), Report::Describe(report));
+        Ok(run)
+    }
+
+    /// [`Runs::start`], with an end hook (Phase 5C-1a): a rerun. The same
+    /// record, façade and queue; the hook is kept with the record.
+    pub fn start_then(
+        self: &Arc<Self>,
+        slot: Arc<Slot>,
+        spec: OperationSpec<DescribeParams>,
+        end: EndHook,
+    ) -> Result<RunId, NotStarted> {
+        let held = Held::Describe(Outputs::default());
+        let run = self.open_record(
+            spec.operation_id,
+            spec.parameters.columns.len(),
+            held,
+            Some(end),
+        )?;
         let report =
             stats_adapters::describe_validate(&spec, crate::workspace::build(), slot.dataset());
         self.queue(run, slot, Job::Describe(spec), Report::Describe(report));
@@ -474,7 +720,7 @@ impl Runs {
         slot: Arc<Slot>,
         spec: OperationSpec<TTestParams>,
     ) -> Result<RunId, NotStarted> {
-        let run = self.open_record(spec.operation_id, 0, Held::Ttest(Outputs::default()))?;
+        let run = self.open_record(spec.operation_id, 0, Held::Ttest(Outputs::default()), None)?;
         // Through `stats.analyze.independent_t`'s façade: the registry first,
         // then `stats_ttest::validate`, unchanged.
         let report =
@@ -483,13 +729,35 @@ impl Runs {
         Ok(run)
     }
 
+    /// [`Runs::start_ttest`], with an end hook (Phase 5C-1a): a rerun.
+    pub fn start_ttest_then(
+        self: &Arc<Self>,
+        slot: Arc<Slot>,
+        spec: OperationSpec<TTestParams>,
+        end: EndHook,
+    ) -> Result<RunId, NotStarted> {
+        let run = self.open_record(
+            spec.operation_id,
+            0,
+            Held::Ttest(Outputs::default()),
+            Some(end),
+        )?;
+        let report =
+            stats_adapters::ttest_validate(&spec, crate::workspace::build(), slot.dataset());
+        self.queue(run, slot, Job::Ttest(spec), Report::Ttest(report));
+        Ok(run)
+    }
+
     /// Makes the record, `Draft → Validating`: refused while another run of
-    /// either kind is unfinished, and once the manager is sealed.
+    /// either kind is unfinished, and once the manager is sealed. Its end
+    /// hook, if any, is kept under the same lock, so it exists exactly when
+    /// the record does.
     fn open_record(
         &self,
         operation_id: OperationId,
         columns_total: usize,
         held: Held,
+        end: Option<EndHook>,
     ) -> Result<RunId, NotStarted> {
         let now = self.clock.now_ms();
         let mut entries = lock(&self.entries);
@@ -517,6 +785,9 @@ impl Runs {
         };
         Self::step(&mut entry, RunEvent::BeginValidation, now);
         entries.push_back(entry);
+        if let Some(end) = end {
+            lock(&self.ends).insert(run.0, end);
+        }
         Self::evict(&mut entries);
         Ok(run)
     }
@@ -524,7 +795,12 @@ impl Runs {
     /// After the validation: the record's next state from its report, and,
     /// if it may run, the worker on its own thread.
     fn queue(self: &Arc<Self>, run: RunId, slot: Arc<Slot>, job: Job, report: Report) {
-        let queued = {
+        let held_spec = job.held();
+        let input = slot.source().map(|s| RunInput {
+            slot: slot.id(),
+            sha256: s.sha256().clone(),
+        });
+        let (queued, due) = {
             let now = self.clock.now_ms();
             let mut entries = lock(&self.entries);
             let entry =
@@ -544,22 +820,58 @@ impl Runs {
                 }
             };
             match (&mut entry.held, report) {
-                (Held::Describe(o), Report::Describe(r)) => o.validation = Some(r),
-                (Held::Ttest(o), Report::Ttest(r)) => o.validation = Some(r),
+                (Held::Describe(o), Report::Describe(r)) => {
+                    o.validation = Some(r);
+                    o.spec = Some(held_spec);
+                    o.input = input;
+                }
+                (Held::Ttest(o), Report::Ttest(r)) => {
+                    o.validation = Some(r);
+                    o.spec = Some(held_spec);
+                    o.input = input;
+                }
                 _ => unreachable!("a record's report is of the record's kind"),
             }
-            queued
+            // A refused or waiting record has ended here: its end hook, after
+            // the lock is released, on this thread.
+            let due = if queued {
+                None
+            } else {
+                self.take_end(entry, now)
+            };
+            (queued, due)
         };
+        if let Some(due) = due {
+            due.call();
+        }
         if queued {
             let me = Arc::clone(self);
-            let spawned = std::thread::Builder::new()
-                .name("stats-desc-run".into())
-                .spawn(move || me.work(run, slot, job));
+            // Tests only: a spawn the test refuses, for the end that a failed
+            // spawn makes (Phase 5C-1a).
+            #[cfg(test)]
+            let refused = tests::SPAWN_REFUSED.with(|r| r.replace(false));
+            #[cfg(not(test))]
+            let refused = false;
+            let spawned = if refused {
+                Err(())
+            } else {
+                std::thread::Builder::new()
+                    .name("stats-desc-run".into())
+                    .spawn(move || me.work(run, slot, job))
+                    .map(|_| ())
+                    .map_err(|_| ())
+            };
             if spawned.is_err() {
-                let now = self.clock.now_ms();
-                let mut entries = lock(&self.entries);
-                if let Some(entry) = Self::find(&mut entries, run) {
-                    Self::step(entry, RunEvent::Refuse, now);
+                let due = {
+                    let now = self.clock.now_ms();
+                    let mut entries = lock(&self.entries);
+                    Self::find(&mut entries, run).and_then(|entry| {
+                        Self::step(entry, RunEvent::Refuse, now);
+                        self.take_end(entry, now)
+                    })
+                };
+                if let Some(due) = due {
+                    due.call();
                 }
             }
         }
@@ -634,19 +946,26 @@ impl Runs {
                 tracing::warn!("stats_desc: the run's work panicked");
             }
             Self::step(entry, RunEvent::Cancel, now);
-            return;
+        } else {
+            let elapsed = now.saturating_sub(started);
+            // Each finish reads the record's outputs of its own kind: a
+            // record's work is always of the record's kind (`begin` made both
+            // from one job).
+            match done {
+                Done::Describe(outcome, spec) => {
+                    Self::finish_describe(entry, run, outcome, &spec, &slot, elapsed, now)
+                }
+                Done::Ttest(outcome, spec) => {
+                    Self::finish_ttest(entry, run, outcome, &spec, &slot, elapsed, now)
+                }
+            }
         }
-        let elapsed = now.saturating_sub(started);
-        // Each finish reads the record's outputs of its own kind: a record's
-        // work is always of the record's kind (`begin` made both from one
-        // job).
-        match done {
-            Done::Describe(outcome, spec) => {
-                Self::finish_describe(entry, run, outcome, &spec, &slot, elapsed, now)
-            }
-            Done::Ttest(outcome, spec) => {
-                Self::finish_ttest(entry, run, outcome, &spec, &slot, elapsed, now)
-            }
+        // Phase 5C-1a: the run has ended; its end hook, if any, is called on
+        // this worker once the lock is released, with the copy taken here.
+        let due = self.take_end(entry, now);
+        drop(entries);
+        if let Some(due) = due {
+            due.call();
         }
     }
 
@@ -869,19 +1188,35 @@ impl Runs {
     /// Cancels a descriptive summary's run; `run.wrong_kind` for a t-test's.
     pub fn cancel(&self, run: RunId) -> Result<RunSnapshot, RunCode> {
         let now = self.clock.now_ms();
-        let mut entries = lock(&self.entries);
-        let entry = Self::find_kind(&mut entries, run, RunKind::Describe)?;
-        Self::cancel_entry(entry, now);
-        Ok(self.describe_snapshot(entry))
+        let (snapshot, due) = {
+            let mut entries = lock(&self.entries);
+            let entry = Self::find_kind(&mut entries, run, RunKind::Describe)?;
+            Self::cancel_entry(entry, now);
+            // A queued run has ended here (Phase 5C-1a): its end hook, after
+            // the lock is released, on this thread.
+            (self.describe_snapshot(entry), self.take_end(entry, now))
+        };
+        if let Some(due) = due {
+            due.call();
+        }
+        Ok(snapshot)
     }
 
     /// Cancels a t-test's run; `run.wrong_kind` for a descriptive summary's.
     pub fn ttest_cancel(&self, run: RunId) -> Result<RunSnapshot<TTestCode>, RunCode> {
         let now = self.clock.now_ms();
-        let mut entries = lock(&self.entries);
-        let entry = Self::find_kind(&mut entries, run, RunKind::Ttest)?;
-        Self::cancel_entry(entry, now);
-        Ok(self.ttest_snapshot_of(entry))
+        let (snapshot, due) = {
+            let mut entries = lock(&self.entries);
+            let entry = Self::find_kind(&mut entries, run, RunKind::Ttest)?;
+            Self::cancel_entry(entry, now);
+            // A queued run has ended here (Phase 5C-1a): its end hook, after
+            // the lock is released, on this thread.
+            (self.ttest_snapshot_of(entry), self.take_end(entry, now))
+        };
+        if let Some(due) = due {
+            due.call();
+        }
+        Ok(snapshot)
     }
 
     /// The result of a descriptive summary that succeeded. Otherwise the
@@ -907,6 +1242,65 @@ impl Runs {
             Held::Ttest(o) => result_of(entry.record.state, &o.bundle),
             Held::Describe(_) => unreachable!("found by kind"),
         }
+    }
+
+    /// A copy of `run` for a project Save (Phase 5B-2), of either kind:
+    /// `run.unknown_run` when no record has that id.
+    pub fn copy_for_save(&self, run: RunId) -> Result<RunCopy, RunCode> {
+        let now_ms = self.clock.now_ms();
+        let mut entries = lock(&self.entries);
+        let entry = Self::find(&mut entries, run).ok_or(RunCode::UnknownRun)?;
+        Ok(Self::copy_of(entry, now_ms))
+    }
+
+    /// The copy of a record a Save takes, and the one an end hook is given,
+    /// read under the records' lock.
+    fn copy_of(entry: &Entry, now_ms: u64) -> RunCopy {
+        let parts = match &entry.held {
+            Held::Describe(o) => o.copy(),
+            Held::Ttest(o) => o.copy(),
+        };
+        let (spec_json, capability) = match parts.spec {
+            Some((json, id, version)) => (Some(json), Some((id, version))),
+            None => (None, None),
+        };
+        RunCopy {
+            kind: entry.held.kind(),
+            state: entry.record.state,
+            started_ms: entry.record.started_ms,
+            ended_ms: entry.record.ended_ms,
+            now_ms,
+            spec_json,
+            capability,
+            input: parts.input,
+            bundle_json: parts.bundle_json,
+            manifest_json: parts.manifest_json,
+            manifest_inputs: parts.manifest_inputs,
+            failure: parts.failure,
+        }
+    }
+
+    /// The end hook of a record that has just ended, with the copy of the
+    /// record as it ended (Phase 5C-1a): taken out under the records' lock,
+    /// so it is called at most once. `None` while the record is unfinished,
+    /// or when it has no hook or its hook was taken already.
+    fn take_end(&self, entry: &Entry, now: u64) -> Option<Due> {
+        if !entry.record.state.is_terminal() {
+            return None;
+        }
+        let end = lock(&self.ends).remove(&entry.record.run_id.0)?;
+        Some(Due {
+            end,
+            run: entry.record.run_id,
+            copy: Self::copy_of(entry, now),
+        })
+    }
+
+    /// Whether this manager, or an engine before it, ever handed out `run`:
+    /// an id that was issued and is not held was evicted, or its workspace
+    /// was left.
+    pub fn was_issued(&self, run: RunId) -> bool {
+        run.0 >= 1 && run.0 <= self.last_id()
     }
 
     /// How many records are held.
@@ -1117,11 +1511,251 @@ mod tests {
             },
         );
         let slot = Arc::new(Slot {
+            id: 1,
             display_name: "synthetic".into(),
             dataset,
+            source: None,
         });
         assert_eq!(runs.start(slot, spec), Err(NotStarted::Sealed));
         assert_eq!(runs.held(), 1, "no record was made");
+    }
+
+    thread_local! {
+        /// Set by a test: the next spawn on this thread is refused.
+        pub(super) static SPAWN_REFUSED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    }
+
+    /* ---- Phase 5C-1a: the end hook (decision 186) ------------------------ */
+
+    use gaply_core::stats_desc::{Alias, ColumnRequest, TreatAs};
+    use gaply_core::stats_l1::dataset::{
+        build_dataset, ColumnAlias, DataFingerprint, RawTable, TableRef,
+    };
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    fn numbers() -> Dataset {
+        build_dataset(
+            RawTable::from_rows(
+                vec!["x".into()],
+                vec![vec!["1".into()], vec!["2".into()], vec!["4".into()]],
+            ),
+            DataFingerprint::of_bytes(b"synthetic", "unit", TableRef::FirstTable),
+        )
+        .expect("dataset")
+    }
+
+    /// A summary of column `column`: 1 exists, 9 does not.
+    fn summary_of(column: u32) -> (Arc<Slot>, OperationSpec<DescribeParams>) {
+        let dataset = numbers();
+        let spec = stats_desc::spec(
+            OperationId(1),
+            &dataset,
+            DescribeParams {
+                columns: vec![ColumnRequest {
+                    alias: Alias(ColumnAlias(column)),
+                    treat_as: TreatAs::Numeric,
+                }],
+                missing_codes: vec![],
+            },
+        );
+        let slot = Arc::new(Slot {
+            id: 1,
+            display_name: "synthetic".into(),
+            dataset,
+            source: None,
+        });
+        (slot, spec)
+    }
+
+    /// One call of an end hook: the run, its state in the copy, whether the
+    /// copy holds a result, the thread it ran on, and whether the records'
+    /// lock was free then.
+    type Call = (RunId, RunState, bool, std::thread::ThreadId, bool);
+
+    fn recorder(runs: &Arc<Runs>, calls: &Arc<Mutex<Vec<Call>>>) -> EndHook {
+        let (runs, calls) = (Arc::clone(runs), Arc::clone(calls));
+        Box::new(move |run, copy| {
+            let free = runs.entries.try_lock().is_ok();
+            calls.lock().unwrap().push((
+                run,
+                copy.state,
+                copy.bundle_json.is_some(),
+                std::thread::current().id(),
+                free,
+            ));
+        })
+    }
+
+    fn wait_for(what: &str, done: impl Fn() -> bool) {
+        let start = Instant::now();
+        while !done() {
+            assert!(start.elapsed() < Duration::from_secs(10), "{what}");
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+
+    /// A manager whose runs stop at `BeforeStart` until the test lets them go.
+    fn parking() -> (Arc<Runs>, mpsc::Receiver<()>, mpsc::Sender<()>) {
+        let (reached, at_start) = mpsc::channel::<()>();
+        let (go, gate) = mpsc::channel::<()>();
+        let gate = Mutex::new(gate);
+        let hook: CheckpointHook = Arc::new(move |_run, p| {
+            if p == Point::BeforeStart {
+                reached.send(()).unwrap();
+                let _ = gate.lock().unwrap().recv();
+            }
+        });
+        let runs = Arc::new(Runs::with_hooks(
+            Arc::new(SinceStart(Instant::now())),
+            Some(hook),
+            RUN_CEILING_MS,
+        ));
+        (runs, at_start, go)
+    }
+
+    /// The worker's last step: called once, on the worker, with the result in
+    /// the copy, after the records' lock is released.
+    #[test]
+    fn an_end_hook_is_called_once_on_the_worker_after_a_run_ends() {
+        let runs = Arc::new(Runs::default());
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let (slot, spec) = summary_of(1);
+        let run = runs
+            .start_then(slot, spec, recorder(&runs, &calls))
+            .unwrap();
+        wait_for("the hook was called", || calls.lock().unwrap().len() == 1);
+        let (id, state, result, thread, free) = calls.lock().unwrap()[0];
+        assert_eq!(
+            (id, state, result, free),
+            (run, RunState::Succeeded, true, true)
+        );
+        assert_ne!(thread, std::thread::current().id(), "on the worker");
+        assert_eq!(
+            runs.snapshot(run).unwrap().record.state,
+            RunState::Succeeded
+        );
+        assert!(lock(&runs.ends).is_empty(), "taken out once called");
+    }
+
+    /// A refusal in `queue()`: called once, at once, on the thread that
+    /// started the run.
+    #[test]
+    fn an_end_hook_is_called_once_when_validation_refuses_the_run() {
+        let runs = Arc::new(Runs::default());
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let (slot, spec) = summary_of(9);
+        let run = runs
+            .start_then(slot, spec, recorder(&runs, &calls))
+            .unwrap();
+        let got = calls.lock().unwrap().clone();
+        assert_eq!(got.len(), 1, "called before start returned");
+        let (id, state, result, thread, free) = got[0];
+        assert_eq!(
+            (id, state, result, free),
+            (run, RunState::Refused, false, true)
+        );
+        assert_eq!(thread, std::thread::current().id());
+    }
+
+    /// A failed spawn: called once, on the thread that started the run.
+    #[test]
+    fn an_end_hook_is_called_once_when_the_worker_cannot_be_spawned() {
+        let runs = Arc::new(Runs::default());
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let (slot, spec) = summary_of(1);
+        SPAWN_REFUSED.with(|r| r.set(true));
+        let run = runs
+            .start_then(slot, spec, recorder(&runs, &calls))
+            .unwrap();
+        let got = calls.lock().unwrap().clone();
+        assert_eq!(got.len(), 1);
+        let (id, state, result, thread, free) = got[0];
+        assert_eq!(
+            (id, state, result, free),
+            (run, RunState::Refused, false, true)
+        );
+        assert_eq!(thread, std::thread::current().id());
+    }
+
+    /// A cancel while queued: called once, on the cancelling thread; the
+    /// worker, let go afterwards, finds the run ended and calls nothing.
+    #[test]
+    fn an_end_hook_is_called_once_when_a_queued_run_is_cancelled() {
+        let (runs, at_start, go) = parking();
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let (slot, spec) = summary_of(1);
+        let held = Arc::downgrade(&slot);
+        let run = runs
+            .start_then(slot, spec, recorder(&runs, &calls))
+            .unwrap();
+        at_start.recv().unwrap();
+        assert!(calls.lock().unwrap().is_empty(), "not before it ends");
+        runs.cancel(run).unwrap();
+        let got = calls.lock().unwrap().clone();
+        assert_eq!(got.len(), 1);
+        let (id, state, _, thread, free) = got[0];
+        assert_eq!((id, state, free), (run, RunState::Cancelled, true));
+        assert_eq!(thread, std::thread::current().id());
+        go.send(()).unwrap();
+        wait_for("the worker returned", || held.strong_count() == 0);
+        assert_eq!(calls.lock().unwrap().len(), 1, "never twice");
+    }
+
+    /// A start that makes no record drops its hook unused; a run started
+    /// without one ends as before and leaves nothing in the manager.
+    #[test]
+    fn a_start_that_makes_no_record_never_calls_its_hook() {
+        struct Dropped(Arc<AtomicUsize>);
+        impl Drop for Dropped {
+            fn drop(&mut self) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+        let (runs, at_start, go) = parking();
+        let (slot, spec) = summary_of(1);
+        let parked = runs.start(slot, spec).unwrap();
+        at_start.recv().unwrap();
+        let dropped = Arc::new(AtomicUsize::new(0));
+        let called = Arc::new(AtomicUsize::new(0));
+        let hook = |dropped: &Arc<AtomicUsize>, called: &Arc<AtomicUsize>| -> EndHook {
+            let (d, c) = (Dropped(Arc::clone(dropped)), Arc::clone(called));
+            Box::new(move |_, _| {
+                let _keep = &d;
+                c.fetch_add(1, Ordering::SeqCst);
+            })
+        };
+        let (slot, spec) = summary_of(1);
+        assert_eq!(
+            runs.start_then(slot, spec, hook(&dropped, &called)),
+            Err(NotStarted::Busy)
+        );
+        assert_eq!(
+            (
+                dropped.load(Ordering::SeqCst),
+                called.load(Ordering::SeqCst)
+            ),
+            (1, 0)
+        );
+        go.send(()).unwrap();
+        wait_for("the parked run ended", || {
+            runs.snapshot(parked).unwrap().record.state.is_terminal()
+        });
+        assert_eq!(runs.seal(), Ok(()));
+        let (slot, spec) = summary_of(1);
+        assert_eq!(
+            runs.start_then(slot, spec, hook(&dropped, &called)),
+            Err(NotStarted::Sealed)
+        );
+        assert_eq!(
+            (
+                dropped.load(Ordering::SeqCst),
+                called.load(Ordering::SeqCst)
+            ),
+            (2, 0)
+        );
+        assert!(lock(&runs.ends).is_empty());
     }
 
     #[test]

@@ -4,7 +4,7 @@
 // after Rust lets the workspace go.
 import React from 'react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { WorkspaceShell } from './WorkspaceShell';
@@ -84,6 +84,18 @@ describe('WorkspaceShell', () => {
     expect(screen.getByTestId('ws-tools').textContent).toContain('Statistical Analysis Verifier');
     expect(screen.getAllByText('Settings').length).toBeGreaterThan(0);
     expect(runs.calls.every(([c]) => c === 'stats_desc_status')).toBe(true);
+  });
+
+  // Finding e (Research OS, 5B-4b): the tools' and the settings link drew as
+  // plain text under preflight's a{color:inherit}.
+  it("draws the tools' links and the settings link with the design system's link class", async () => {
+    const ws = makeMockWorkspaceBridge({ workspace_state: ACTIVE(null) });
+    renderShell(ws, makeMockDescribeBridge({}));
+    const tools = within(await screen.findByTestId('ws-tools')).getAllByRole('link');
+    expect(tools.length).toBeGreaterThan(0);
+    const settings = screen.getAllByRole('link').filter((a) => a.getAttribute('href') === '/app/settings');
+    expect(settings).toHaveLength(1);
+    for (const a of [...tools, ...settings]) expect(a.classList.contains('gds-link')).toBe(true);
   });
 
   it('switching with no run asks Rust once and goes to the chooser', async () => {

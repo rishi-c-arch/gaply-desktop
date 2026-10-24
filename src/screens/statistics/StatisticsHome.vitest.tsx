@@ -180,6 +180,30 @@ describe('StatisticsHome', () => {
     expect(screen.queryByTestId('stats-card-check')).toBeNull();
   });
 
+  // Finding e (Research OS, 5B-4b): preflight's a{color:inherit} drew the
+  // "Open:" lines as plain text. Each now carries the design system's link
+  // class; its colour is checked in the real app.
+  it('draws every "Open:" line with the design system\'s link class', async () => {
+    flags.statsCheck = true;
+    try {
+      renderHome();
+      await screen.findByTestId('stats-card-check');
+      const open = Array.from(document.querySelectorAll<HTMLElement>('[data-testid^="stats-open-"]'));
+      expect(open.map((a) => a.getAttribute('data-testid')).sort()).toEqual([
+        'stats-open-check',
+        'stats-open-stats.analyze.independent_t',
+        'stats-open-stats.describe',
+        'stats-open-verifier',
+      ]);
+      for (const a of open) {
+        expect(a.tagName).toBe('A');
+        expect(a.classList.contains('gds-link')).toBe(true);
+      }
+    } finally {
+      flags.statsCheck = false;
+    }
+  });
+
   it('says so when the list cannot be read, and draws no card', async () => {
     const bridge = makeMockCapabilityBridge({});
     render(

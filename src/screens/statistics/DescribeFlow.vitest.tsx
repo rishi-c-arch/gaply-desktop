@@ -86,6 +86,14 @@ const heading = () => screen.getByTestId('desc-stage-heading');
 const specsSent = (m: ReturnType<typeof setup>['m']) =>
   m.calls.filter(([c]) => c === 'stats_desc_validate').map(([, a]) => a.spec as OperationSpec);
 
+/** Every th and td of a table has the cells' right padding (finding b). The
+ *  row headers and the unpadded headers are among them. */
+function expectPadded(table: HTMLElement) {
+  const cells = Array.from(table.querySelectorAll<HTMLElement>('th, td'));
+  expect(cells.length).toBeGreaterThan(0);
+  expect(cells.filter((c) => c.style.paddingRight !== '12px').map((c) => `${c.tagName} ${c.textContent}`)).toEqual([]);
+}
+
 async function toSettings() {
   fireEvent.click(screen.getByTestId('desc-choose'));
   await screen.findByTestId('desc-profile');
@@ -218,13 +226,32 @@ describe('DescribeFlow', () => {
     expect(cell.textContent).toContain('Could not compute');
     expect(cell.textContent).toContain('The arithmetic went past the largest number a double can hold.');
     expect(cell.getAttribute('data-tone')).toBe('neutral');
-    expect(cell.getAttribute('style')).toBeNull();
+    // Styled like any other cell: the same style, the cells' right padding
+    // only (Research OS, 5B-4b, finding b), and nothing that marks it out.
+    const table = screen.getByTestId('desc-numeric-table');
+    expect(cell.getAttribute('style')).toBe(within(table).getByText('52.5').getAttribute('style'));
     expect(screen.queryByRole('alert')).toBeNull();
     // The rest of the row is numbers, and nothing scores the result.
-    const table = screen.getByTestId('desc-numeric-table');
     expect(within(table).getByText('52.5')).toBeTruthy();
     expect(table.textContent).not.toMatch(/score|pass|fail|%/i);
     expect(screen.getByTestId('desc-levels-table').textContent).toContain('a');
+  });
+
+  // Finding b (Research OS, 5B-4b): a data cell had no padding, so a number
+  // that was its column's widest cell touched the next column's text.
+  it('pads every header and data cell of its four tables on the right', async () => {
+    setup();
+    fireEvent.click(screen.getByTestId('desc-choose'));
+    expectPadded(await screen.findByTestId('desc-profile'));
+    fireEvent.click(screen.getByTestId('desc-to-settings'));
+    expectPadded(await screen.findByTestId('desc-settings'));
+    fireEvent.click(screen.getByTestId('desc-check'));
+    fireEvent.click(await screen.findByTestId('desc-run'));
+    fireEvent.click(await screen.findByTestId('desc-see-results'));
+    expectPadded(await screen.findByTestId('desc-numeric-table'));
+    const levels = screen.getAllByTestId('desc-levels-table');
+    expect(levels.length).toBeGreaterThan(0);
+    levels.forEach(expectPadded);
   });
 
   it('shows a read-only manifest: shortened hash, versions, rows, platform, reproducibility', async () => {

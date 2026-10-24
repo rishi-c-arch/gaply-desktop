@@ -1,0 +1,15 @@
+{
+  "storedRunId": 1,
+  "capabilityId": "stats.analyze.independent_t",
+  "state": "failed",
+  "dataFile": {
+    "sha256": "5fd0af5daee4d8dfcb466411096e7f26e513bf2cadfb0e1605ff085026fe5b4a",
+    "kind": "data_file",
+    "format": "xlsx",
+    "bytes": 2048
+  },
+  "specJson": "{\"capabilityId\":\"stats.analyze.independent_t\"}",
+  "bundleJson": "{\"status\":\"succeeded\"}",
+  "manifestJson": "{\"outputHash\":\"5fd0af5daee4d8dfcb466411096e7f26e513bf2cadfb0e1605ff085026fe5b4a\"}",
+  "failureJson": "{\"schemaVersion\":1,\"status\":\"failed\",\"failure\":{\"code\":\"stats.ttest.both_groups_constant\",\"params\":{},\"severity\":\"error\"}}"
+}

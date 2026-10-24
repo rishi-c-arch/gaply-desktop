@@ -1,9 +1,13 @@
 # ADR-004: Artifacts and run manifests
 
 **Status: Proposed**, except section 004a, which is **Accepted (17 Oct
-2026, decision 5)**. Written 17 Oct 2026, Research OS Phase 2B, from the
-Phase 0 audit's proposal (`~/gaply-corpus/os/phase0/phase0_audit.md` §6.6,
-§7) as updated by what Phases 2A and 2B built.
+2026, decision 5)**, and section 004b, which is **Accepted (19 Oct 2026,
+decisions 99 to 111) for what those decisions cover**; each part of 004b is
+marked. Written 17 Oct 2026, Research OS Phase 2B, from the Phase 0 audit's
+proposal (`~/gaply-corpus/os/phase0/phase0_audit.md` §6.6, §7) as updated by
+what Phases 2A and 2B built; revised 19 Oct 2026 (Phase 5A draft, made to say
+what decisions 99 to 111 say in Phase 5B-1, decision 112). The history is at
+the end.
 
 ## Context
 
@@ -13,6 +17,13 @@ kept past the run. The blueprint (§10) asks for immutable artifacts, a
 provenance graph and a reproducibility manifest; Prompt 0 forbids persisting
 user data until Rishi approves where it is stored, how it is protected and
 how the user deletes it.
+
+Revision of 19 Oct 2026: Phase 4 produced a second capability with its own
+manifest and export (`stats_ttest`, D277, D278); Level 0 and Level 1 still
+produce no `ResultBundle` and no manifest (decision 50: "their ResultBundle
+envelope and manifest wait for Phase 5's provenance"); and decisions 99 to
+111 approved where a project lives, how it is protected, how long it is kept
+and how it is deleted (ADR-009).
 
 ## Decision
 
@@ -43,14 +54,31 @@ to those bytes. Gaply keeps no copy. The suggested file names are fixed
 (`descriptive_summary.csv`, `descriptive_summary_manifest.json`) and do not
 carry the data file's name.
 
-### Everything else: blocked
+### 004b: a manifest and artifacts, stored inside a project
 
-Run records, datasets, profiles and result bundles stay in memory
-(ADR-003): at most 8 records and 4 slots, dropped on eviction, close or
-exit. An artifact store (files under `<app_data>/artifacts/<sha256>`,
-written atomically, indexed in SQLite with PROV-style edges) remains the
-proposal of the Phase 0 audit and is **blocked until the DATA ON DISK
-approval** of location, protection, retention and deletion.
+Run records, datasets, profiles and result bundles of unsaved work stay in
+memory (ADR-003): at most 8 records and 4 slots, dropped on eviction, close
+or exit (decision 6). **[Accepted, decision 105]** Nothing is written to a
+project except when the user clicks Save; there is no autosave.
+
+When the user saves a run to a project (ADR-009), these are stored under
+`projects/<id>/`:
+
+| what | where | holds user data? | status |
+|---|---|---|---|
+| the input data file, as the ingest read it | an artifact file, `artifacts/<sha256>`, kind `data_file`, its format a closed code | **yes**: rows, headers, labels | **[Accepted, decision 101]**: copied in, identified by its SHA-256, within the ingest caps, deleted with the project; its path and file name never stored |
+| the `OperationSpec` | an artifact file, kind `operation_spec` (canonical JSON) | no header or label: indices, a variant, a seed, hashes | **[Proposed]** |
+| the `ResultBundle` (`DescribeResult` or `TTestResult`, and the `RunManifest` inside it) | an artifact file, kind `result_bundle` (canonical JSON) | **yes**: headers and level labels (`stats_desc/mod.rs:45-46`, `:253`, `:308`) | **[Proposed]** |
+| the run | a row of `runs` in `project.db`: ids, the capability id and version, the state, closed codes, times; its links to the artifacts as edge rows, by hash | no | **[Proposed]** |
+| a Level 0 or Level 1 run (5C) | the sentences it checked inside the run's bundle artifact, never as a row | **yes**: manuscript sentences | **[Accepted, decision 102]**; the save sentence says so |
+| an AI explanation | not stored in Phase 5 | — | **[Accepted, decision 102]** |
+| the export bytes | not stored: regenerated from the bundle; the manifest's `output_hash` pins what the export was | — | **[Proposed]** |
+
+An artifact is never modified and never overwritten (ADR-009 §5). The data
+file's display name stays on the user's own screen (decision 4) and is never
+stored. **[Proposed]** The manifest's own schema stays at version 1 in 5B; 5C,
+which gives Level 0 and Level 1 their bundles, may add fields, and whether
+that is a schema bump is decided then by ADR-003's rule.
 
 ### Every operation that would write user data, and its status
 
@@ -58,10 +86,14 @@ approval** of location, protection, retention and deletion.
 |---|---|---|---|
 | export the result table (CSV) | headers, level labels, summary numbers | **allowed (004a)** | yes, the user names the file |
 | export the run manifest (JSON) | hashes, versions, counts | **allowed (004a)** | yes, the user names the file |
-| keep run records past the process | run states, manifests | blocked until approval | no |
-| keep datasets or profiles on disk | rows, headers, labels | blocked until approval | no |
-| an artifact store and provenance graph | results, manifests, edges | blocked until approval | no |
-| a project file | all of the above | blocked until approval | would be, if built |
+| create a project | a folder, `project.db`, the title | **approved (decisions 99, 100, 103, 106)**; built in 5B-1 with no caller, reachable from 5B-2 | no: an in-app form |
+| save a run to a project | the data file, spec and bundle artifacts, the run row and its edges | **approved (decisions 101, 105, 107)**; built in 5B-1 with no caller, reachable from 5B-2 | no: a click, with the sentence that says a copy is kept on this computer only |
+| recovery when a project opens | removes the store's own leftovers, marks states; never adds user data | **approved (decision 105)**; built in 5B-1 | no |
+| delete a project | removes all of the above, through a tombstone | **approved (decision 104)**; built in 5B-1 with no caller; the confirmation is 5B-2's | no: an in-app confirmation |
+| export the project report, export the provenance graph (JSON) | hashes, versions, counts, codes; ids, kinds, states, times | Proposed, 5B-2 (decision 111) | yes |
+| rerun from a project (5C) | run rows and transitions; a new bundle artifact | Proposed, 5C | no |
+| save a Level 0 or Level 1 run (5C) | a bundle holding the sentences checked | the storage rule is approved (decision 102); the feature is 5C's | no |
+| export or import a project as one file | a file the user names | later (decision 108) | would be |
 | the import-guard rate (`cache` key `import:seconds_per_page`) | a running mean of seconds per page, no user data | existing, outside this slice: not written by the descriptive summary's path (measured, D272) | no |
 
 ## Alternatives considered
@@ -76,13 +108,23 @@ approval** of location, protection, retention and deletion.
 - **The display name in the manifest.** Rejected (decision 4): a file name
   is often the manuscript's or the dataset's own title; the manifest carries
   the content hash.
+- **Store the export bytes as an artifact too** (revision). Rejected: they
+  are a function of the bundle and the format; the output hash in the
+  manifest pins what the export was.
+- **Store the spec, the manifest or the bundle as rows** (revision).
+  Rejected: headers and labels, and column positions tied to them, would
+  then be in `project.db`; rows hold ids, hashes, codes and times only.
+- **Store a manifest for every in-memory run automatically** (revision).
+  Rejected by decision 105.
 
 ## Consequences
 
-- A user can repeat a run and compare the output hash; nothing on disk links
-  two runs unless the user keeps both exports.
-- Blueprint §8.5's "persist terminal state even if the UI closes" is not met
-  until storage is approved.
+- A user can repeat a run and compare the output hash. Until 5B-2 wires the
+  store to a Save, nothing on disk links two runs unless the user keeps both
+  exports.
+- Blueprint §8.5's "persist terminal state even if the UI closes" is met for
+  saved runs once 5B-2 ships, and for project-started runs in 5C; it is not
+  met for unsaved runs, by decision 105.
 - The privacy matrix (`src-tauri/tests/stats_desc_privacy_matrix.rs`) checks
   that the manifest, in the view and as exported bytes, holds none of seven
   sentinels, and that the app-data folder is byte-identical after the whole
@@ -98,8 +140,29 @@ approval** of location, protection, retention and deletion.
 - `src/screens/statistics/DescribeFlow.vitest.tsx`: the export goes through
   a mocked save dialog and writes exactly the returned bytes; a closed
   dialog writes nothing.
+- 004b: Phase 5B-1's store tests and guards (D281; ADR-009 Evidence).
 
 ## Revision trigger
 
-Rishi's approval of storage location, protection, retention and deletion;
-or a platform reporting other output bytes than the pinned hashes.
+A platform reporting other output bytes than the pinned hashes; Phase 5C's
+Level 0 and Level 1 bundles; or an export or import format (decision 108).
+
+## History
+
+- 17 Oct 2026: written, Proposed (Research OS Phase 2B). Section 004a
+  Accepted the same day (decision 5).
+- 19 Oct 2026: revised. Phase 5A drafted the revision
+  (`~/gaply-corpus/os/phase5/ADR-004-revision.draft.md`). Phase 5B-1 made it
+  say what decisions 99 to 111 say (decision 112): "Everything else:
+  blocked" became 004b, Accepted where those decisions cover it; the
+  operations table records each operation's approval. Where the draft said
+  more than the decisions, and what this ADR says now: (a) the spec and
+  manifest as `runs.spec_json` and `runs.manifest_json`: now the spec and the
+  bundle are artifacts and rows hold no JSON, Proposed; (b) the project
+  report and provenance exports in Phase 5B: now 5B-2 (decision 111),
+  Proposed; (c) a writer guard naming `gaply-core/src/project/store.rs`: the
+  store is `src-tauri/src/project_store.rs` in the app crate, as the 5B-1
+  step prompt says; (d) the privacy matrices gaining a saved project and
+  `desc_output_hashes.rs` pinning the bundle artifact's hash: 5B-2, Proposed,
+  not in this revision's Evidence; (e) the data file "or a hash-only
+  reference": settled as a copy by decision 101.

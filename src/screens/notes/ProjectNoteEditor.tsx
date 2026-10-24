@@ -12,7 +12,7 @@ import { noteToMarkdown, exportFileName, ExportableNote } from './noteExport';
 import { saveNoteFile } from './saveNoteFile';
 import { IcBack, IcEye, IcExport, IcTrash, IcSave, IcEditNote } from './NotesIcons';
 import FontScale from './FontScale';
-import { readingMinutes } from './PaperNoteEditor';
+import { EXPORT_FAILED, readingMinutes } from './PaperNoteEditor';
 import { SaveState, DiscardWarning, useDirtyBaseline, useCloseGuard } from './editorSaveState';
 import './notes.css';
 
@@ -88,8 +88,8 @@ const ProjectNoteEditor: React.FC<ProjectNoteEditorProps> = ({ id, existing, onS
       // saveNoteFile returns null on cancel (silent) and only THROWS on a real
       // write failure — so only genuine failures reach this catch.
       await saveNoteFile(exportFileName(title, 'note'), md);
-    } catch (e) {
-      onError?.(e instanceof Error ? e.message : 'Could not save the export');
+    } catch {
+      onError?.(EXPORT_FAILED);
     }
   };
 

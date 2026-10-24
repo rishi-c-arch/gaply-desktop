@@ -36,11 +36,11 @@ concurrency:
 jobs:
   build:
     name: npm run build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           # 22.x to match package.json "engines".
           node-version: '22'

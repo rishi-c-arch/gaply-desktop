@@ -8,6 +8,7 @@ import { useNavigate } from 'react-router-dom';
 import { Button, Card } from '../../design-system';
 import { isFeatureEnabled } from '../../config/featureFlags';
 import { workspaceBridge, type WorkspaceBridge } from './workspaceBridge';
+import { openProjectStore } from '../statistics/projects/projectSession';
 import { CHOOSER_PATH } from './workspaceRoute';
 import { isActive, workspaceRefusal, type WorkspaceId } from './workspaceTypes';
 import { GATE_TEXT, SHELL_TEXT, workspaceSentence } from './workspaceWording';
@@ -45,6 +46,8 @@ export const RequireWorkspace: React.FC<RequireWorkspaceProps> = ({ id, bridge: 
     setMessage(null);
     try {
       const s = await bridge.activate(id);
+      // Activating closes any open project in Rust (decision 122).
+      openProjectStore.clear();
       setActive(isActive(s.state, id));
     } catch (e) {
       const r = workspaceRefusal(e);

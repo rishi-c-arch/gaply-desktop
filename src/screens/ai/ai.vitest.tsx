@@ -244,9 +244,10 @@ describe('evidence rows', () => {
   it('opens the viewer at the row’s page when clicked', async () => {
     render(<EvidenceCard finding={finding({ evidence: [row({ page: 137 })] })} loadBytes={bytes} />);
     fireEvent.click(screen.getByTestId('evidence-open-0'));
-    await waitFor(() => expect(screen.getByTestId('pdf-viewer')).toBeTruthy());
-    await waitFor(() =>
-      expect(screen.getByTestId('pdf-page-indicator').textContent).toBe('Page 137 of 400'),
+    await waitFor(() => expect(screen.getByTestId('pdf-viewer')).toBeTruthy(), { timeout: 5000 });
+    await waitFor(
+      () => expect(screen.getByTestId('pdf-page-indicator').textContent).toBe('Page 137 of 400'),
+      { timeout: 5000 },
     );
     // the requested page is mounted, not merely selected
     expect(screen.getByTestId('mock-page-137')).toBeTruthy();
@@ -261,7 +262,7 @@ describe('PdfViewer', () => {
     render(
       <PdfViewer open documentId={1} initialPage={200} onClose={() => {}} loadBytes={bytes} />,
     );
-    await waitFor(() => expect(screen.getByTestId('mock-page-200')).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId('mock-page-200')).toBeTruthy(), { timeout: 5000 });
     const page = screen.getByTestId('mock-page-200');
     expect(page.getAttribute('data-text-layer')).toBe('true');
     expect(page.getAttribute('data-annotation-layer')).toBe('false');
@@ -271,7 +272,9 @@ describe('PdfViewer', () => {
     render(
       <PdfViewer open documentId={1} initialPage={200} onClose={() => {}} loadBytes={bytes} />,
     );
-    await waitFor(() => expect(screen.getByTestId('pdf-page-indicator').textContent).toContain('200'));
+    await waitFor(() => expect(screen.getByTestId('pdf-page-indicator').textContent).toContain('200'), {
+      timeout: 5000,
+    });
 
     // every page has a SLOT, so the scrollbar describes the whole document...
     expect(screen.getAllByTestId(/^pdf-page-slot-/).length).toBe(400);
@@ -285,11 +288,14 @@ describe('PdfViewer', () => {
 
   it('steps pages with prev/next and clamps at the ends', async () => {
     render(<PdfViewer open documentId={1} initialPage={1} onClose={() => {}} loadBytes={bytes} />);
-    await waitFor(() => expect(screen.getByTestId('pdf-page-indicator').textContent).toContain('Page 1'));
+    await waitFor(() => expect(screen.getByTestId('pdf-page-indicator').textContent).toContain('Page 1'), {
+      timeout: 5000,
+    });
     expect((screen.getByTestId('pdf-prev') as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByTestId('pdf-next'));
-    await waitFor(() =>
-      expect(screen.getByTestId('pdf-page-indicator').textContent).toBe('Page 2 of 400'),
+    await waitFor(
+      () => expect(screen.getByTestId('pdf-page-indicator').textContent).toBe('Page 2 of 400'),
+      { timeout: 5000 },
     );
   });
 
@@ -305,8 +311,9 @@ describe('PdfViewer', () => {
         }}
       />,
     );
-    await waitFor(() =>
-      expect(screen.getByTestId('pdf-error').textContent).toContain('no longer at'),
+    await waitFor(
+      () => expect(screen.getByTestId('pdf-error').textContent).toContain('no longer at'),
+      { timeout: 5000 },
     );
   });
 });

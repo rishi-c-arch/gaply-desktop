@@ -1,0 +1,15 @@
+{
+  "bundleJson": null,
+  "capabilityId": "stats.analyze.independent_t",
+  "dataFile": {
+    "bytes": 28,
+    "format": "csv",
+    "kind": "data_file",
+    "sha256": "330f2058223e8b1738a7fe03e92b19e74c91c977a72561321b1d78ef7f344524"
+  },
+  "failureJson": "{\"failure\":{\"code\":\"stats.ttest.both_groups_constant\",\"params\":{},\"severity\":\"error\"},\"schemaVersion\":1,\"status\":\"failed\"}",
+  "manifestJson": null,
+  "specJson": "{\"schemaVersion\":1,\"operationId\":2,\"workspaceId\":\"statistics\",\"capabilityId\":\"stats.analyze.independent_t\",\"capabilityVersion\":1,\"inputs\":[{\"contentHash\":\"330f2058223e8b1738a7fe03e92b19e74c91c977a72561321b1d78ef7f344524\",\"rows\":4,\"columns\":2,\"semanticRole\":\"table\"}],\"parameters\":{\"outcome\":\"C1\",\"group\":\"C2\",\"levels\":null,\"variant\":\"welch\",\"missingCodes\":[]},\"randomSeed\":null,\"confirmationRefs\":[]}",
+  "state": "failed",
+  "storedRunId": 3
+}

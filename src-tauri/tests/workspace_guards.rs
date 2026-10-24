@@ -23,6 +23,23 @@
 //!    the workspace first, in the same form, and `capability_list`, which
 //!    reads only the static registry, does not check it at all.
 //!
+//! 6. Phase 5B-2 (decision 120): every `project_commands` command is in
+//!    exactly one of two lists. A gated one checks the workspace first, in
+//!    the same form, and so does the plain function it runs under
+//!    `spawn_blocking`, whose first statement is
+//!    `let … = ws.require_statistics()…?`: the work function is what tests
+//!    drive and what the command reaches after its own check. An exempt one
+//!    (listing, sizes, preparing a delete, deleting) names
+//!    `require_statistics` in neither.
+//!
+//! 7. Phase 5B-3a (decision 132): the lock codes (`project.open_elsewhere`,
+//!    `project.being_deleted`, `project.lock_failed`) come only from the
+//!    commands that take a project's lock: `project_open`, a first Save
+//!    through `project_save_run`, and `project_delete`. The store takes the
+//!    lock in a pinned set of functions and only through `File::try_lock` and
+//!    `File::try_lock_shared`; every other `.lock()` in it is a `Mutex`'s,
+//!    with its poisoning taken as it is.
+//!
 //! What this cannot see: a check written in a way that is not this exact
 //! call (an alias, a macro). The runtime tests in `workspace_session.rs` call
 //! every `stats_desc_*` command while no workspace is active and while one is
@@ -403,6 +420,225 @@ fn every_ttest_command_checks_the_workspace_first_and_capability_list_does_not()
     );
 }
 
+/// Phase 5B-2 (decision 120): the project commands that need Statistics,
+/// with the work function each runs. (registered path, work function)
+const PROJECT_GATED: &[(&str, &str)] = &[
+    ("project_commands::project_save_run", "save_run"),
+    ("project_commands::project_open", "open"),
+    ("project_commands::project_close", "close"),
+    ("project_commands::project_runs", "runs"),
+    ("project_commands::project_run_result", "run_result"),
+    ("project_commands::project_report", "report"),
+    ("project_commands::project_provenance", "provenance"),
+    // Phase 5C-1a (decision 185): it runs an operation.
+    ("project_commands::project_rerun", "rerun"),
+];
+
+/// The project commands that never need a workspace: seeing and deleting what
+/// is stored (decision 120). (registered path, work function, why)
+const PROJECT_EXEMPT: &[(&str, &str, &str)] = &[
+    (
+        "project_commands::project_list",
+        "list",
+        "lists what is stored",
+    ),
+    (
+        "project_commands::project_sizes",
+        "sizes",
+        "reads sizes and caps",
+    ),
+    (
+        "project_commands::project_prepare_delete",
+        "prepare_delete",
+        "issues a delete confirmation",
+    ),
+    (
+        "project_commands::project_delete",
+        "delete",
+        "deletes a project",
+    ),
+    // Phase 5B-3b (decision 148): which project this copy has open, by id.
+    (
+        "project_commands::project_current",
+        "current",
+        "reads which project is open",
+    ),
+];
+
+/// The work function's first statement is the check, on the session it is
+/// given: `let … = ws.require_statistics()…?`.
+fn work_checks_first(body: &str) -> bool {
+    let first: String = body
+        .split(';')
+        .next()
+        .unwrap_or_default()
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect();
+    first.starts_with("let") && first.contains("=ws.require_statistics()") && first.ends_with(")?")
+}
+
+#[test]
+fn every_project_command_is_gated_or_exempt_as_decision_120_says() {
+    let all = registered();
+    assert!(all.len() > 100, "the handler parse is inert");
+    let mut family: Vec<&str> = all
+        .iter()
+        .map(|p| p.as_str())
+        .filter(|p| p.starts_with("project_commands::"))
+        .collect();
+    family.sort_unstable();
+    let mut listed: Vec<&str> = PROJECT_GATED.iter().map(|(p, _)| *p).collect();
+    listed.extend(PROJECT_EXEMPT.iter().map(|(p, _, _)| *p));
+    listed.sort_unstable();
+    assert_eq!(
+        family, listed,
+        "every registered project command is classified, and every classified one is registered"
+    );
+    // Nothing registers a project_* command from another module.
+    for p in &all {
+        if p.rsplit("::")
+            .next()
+            .is_some_and(|n| n.starts_with("project_"))
+        {
+            assert!(p.starts_with("project_commands::"), "{p}");
+        }
+    }
+
+    let src = without_line_comments(&read(&root().join("src/project_commands.rs")));
+    let mut failures = Vec::new();
+    for (path, work) in PROJECT_GATED {
+        let name = path.rsplit("::").next().unwrap();
+        match fn_body(&src, name) {
+            Some(body) if checks_first(body) => {}
+            Some(body) => failures.push(format!(
+                "{path}: first statement is `{}`",
+                body.split(';').next().unwrap_or("").trim()
+            )),
+            None => failures.push(format!("{path}: no body found")),
+        }
+        match fn_body(&src, name).map(|b| b.contains(&format!("{work}(&root, &ws"))) {
+            Some(true) => {}
+            _ => failures.push(format!("{path} does not run `{work}`")),
+        }
+        match fn_body(&src, work) {
+            Some(body) if work_checks_first(body) => {}
+            Some(body) => failures.push(format!(
+                "{work}: first statement is `{}`",
+                body.split(';').next().unwrap_or("").trim()
+            )),
+            None => failures.push(format!("{work}: no body found")),
+        }
+    }
+    for (path, work, why) in PROJECT_EXEMPT {
+        let name = path.rsplit("::").next().unwrap();
+        for f in [name, *work] {
+            let body: String = fn_body(&src, f)
+                .unwrap_or_else(|| panic!("{f}: no body found"))
+                .chars()
+                .filter(|c| !c.is_whitespace())
+                .collect();
+            if body.contains("require_statistics") {
+                failures.push(format!("{f} is gated, but {path} is exempt: {why}"));
+            }
+        }
+    }
+    println!(
+        "gated {} project commands; {} exempt",
+        PROJECT_GATED.len(),
+        PROJECT_EXEMPT.len()
+    );
+    assert!(
+        failures.is_empty(),
+        "decision 120:\n{}",
+        failures.join("\n")
+    );
+}
+
+/// Phase 5D-1a (decision 206): the Stored data section's command counts what
+/// the old database and the app's folders keep, and never needs a workspace
+/// (decisions 49 and 120). It joins no other list. (registered path, work
+/// function, why)
+const STORED_DATA_EXEMPT: &[(&str, &str, &str)] = &[(
+    "stored_data_commands::stored_data_summary",
+    "summary",
+    "counts what is stored",
+)];
+
+#[test]
+fn every_stored_data_command_is_exempt_as_decision_206_says() {
+    let all = registered();
+    assert!(all.len() > 100, "the handler parse is inert");
+    let mut family: Vec<&str> = all
+        .iter()
+        .map(|p| p.as_str())
+        .filter(|p| p.starts_with("stored_data_commands::"))
+        .collect();
+    family.sort_unstable();
+    let mut listed: Vec<&str> = STORED_DATA_EXEMPT.iter().map(|(p, _, _)| *p).collect();
+    listed.sort_unstable();
+    assert_eq!(
+        family, listed,
+        "every registered stored data command is classified, and every classified one is registered"
+    );
+    // Nothing registers a stored_data_* command from another module.
+    for p in &all {
+        if p.rsplit("::")
+            .next()
+            .is_some_and(|n| n.starts_with("stored_data_"))
+        {
+            assert!(p.starts_with("stored_data_commands::"), "{p}");
+        }
+    }
+    // It joins no other list.
+    let mut elsewhere: Vec<&str> = VERIFIER_EXEMPT.iter().map(|(_, p, _)| *p).collect();
+    elsewhere.extend(VERIFIER_OPERATIONS.iter().map(|(_, p)| *p));
+    elsewhere.extend(TTEST_EXEMPT.iter().map(|(p, _)| *p));
+    elsewhere.extend(TTEST_OPERATIONS.iter().copied());
+    elsewhere.extend(PROJECT_GATED.iter().map(|(p, _)| *p));
+    elsewhere.extend(PROJECT_EXEMPT.iter().map(|(p, _, _)| *p));
+    for (path, _, _) in STORED_DATA_EXEMPT {
+        assert!(!elsewhere.contains(path), "{path} is in another list too");
+    }
+
+    let src = without_line_comments(&read(&root().join("src/stored_data_commands.rs")));
+    let mut failures = Vec::new();
+    for (path, work, why) in STORED_DATA_EXEMPT {
+        let name = path.rsplit("::").next().unwrap();
+        match fn_body(&src, name).map(|b| b.contains(&format!("{work}(&"))) {
+            Some(true) => {}
+            _ => failures.push(format!("{path} does not run `{work}`")),
+        }
+        for f in [name, *work] {
+            let body: String = fn_body(&src, f)
+                .unwrap_or_else(|| panic!("{f}: no body found"))
+                .chars()
+                .filter(|c| !c.is_whitespace())
+                .collect();
+            if body.contains("require_statistics") {
+                failures.push(format!("{f} is gated, but {path} is exempt: {why}"));
+            }
+        }
+    }
+    println!("{} stored data command exempt", STORED_DATA_EXEMPT.len());
+    assert!(
+        failures.is_empty(),
+        "decision 206:\n{}",
+        failures.join("\n")
+    );
+}
+
+#[test]
+fn the_project_check_catches_a_missing_check() {
+    assert!(work_checks_first(
+        " let engine = ws.require_statistics().map_err(refuse_workspace)?; x()"
+    ));
+    assert!(!work_checks_first(
+        " let store = ws.projects(); ws.require_statistics()?;"
+    ));
+    assert!(!work_checks_first(" // nothing\n x()"));
+}
+
 #[test]
 fn the_legacy_stats_chat_is_not_registered_or_defined() {
     let all = registered();
@@ -468,5 +704,138 @@ fn only_workspace_activate_activates_a_workspace() {
     assert!(
         body.contains(line.as_str()),
         "the one caller is workspace_activate: {line}"
+    );
+}
+
+/// Phase 5B-3a (decision 132): where the store takes a project's lock, by
+/// function. A lock taken anywhere else must be added here, deliberately.
+const LOCK_TAKERS: &[&str] = &[
+    "finish_leftovers",
+    "create_with_save",
+    "open_parsed",
+    "discard_orphan_lock",
+    "delete",
+];
+
+/// The store functions that take a lock, as the commands call them, and the
+/// command whose work function calls each: these are the commands that can
+/// answer with a lock code. (store call, work function, registered command)
+const LOCK_COMMANDS: &[(&str, &str, &str)] = &[
+    ("store.open(", "open", "project_commands::project_open"),
+    (
+        "store.create_with_save(",
+        "save_run",
+        "project_commands::project_save_run",
+    ),
+    (
+        "store.delete(",
+        "delete",
+        "project_commands::project_delete",
+    ),
+];
+
+/// The name of the `fn` whose body holds byte `at` of `src`.
+fn enclosing_fn(src: &str, at: usize) -> String {
+    let start = src[..at].rfind("fn ").expect("inside a function") + 3;
+    src[start..]
+        .chars()
+        .take_while(|c| c.is_alphanumeric() || *c == '_')
+        .collect()
+}
+
+#[test]
+fn the_lock_codes_come_only_from_the_commands_that_take_a_lock() {
+    let store = without_line_comments(&read(&root().join("src/project_store.rs")));
+    let store = &store[..store.find("#[cfg(test)]\nmod tests").unwrap_or(store.len())];
+    let commands = without_line_comments(&read(&root().join("src/project_commands.rs")));
+    let mut failures = Vec::new();
+
+    // Where the store takes the lock.
+    let mut takers: Vec<String> = store
+        .match_indices("self.lock(")
+        .map(|(i, _)| enclosing_fn(store, i))
+        .collect();
+    takers.sort();
+    takers.dedup();
+    let mut pinned: Vec<String> = LOCK_TAKERS.iter().map(|s| s.to_string()).collect();
+    pinned.sort();
+    if takers != pinned {
+        failures.push(format!(
+            "the lock is taken in {takers:?}, pinned {pinned:?}"
+        ));
+    }
+    // The two refusal codes of a WouldBlock name which side refused.
+    for (code, side) in [("OpenElsewhere", "delete"), ("BeingDeleted", "open")] {
+        let at = store.match_indices(&format!("ProjectCode::{code}")).count();
+        if at == 0 {
+            failures.push(format!("project.{code} is never given ({side})"));
+        }
+    }
+
+    // Only the try_ calls, in one place.
+    let try_lock = fn_body(store, "try_lock_file").unwrap_or_default();
+    for call in ["file.try_lock_shared()", "file.try_lock()"] {
+        if !try_lock.contains(call) {
+            failures.push(format!("try_lock_file does not call {call}"));
+        }
+    }
+    let flat: String = store.chars().filter(|c| !c.is_whitespace()).collect();
+    for blocking in [".lock_shared(", "libc::flock", "LockFileEx", "fs2::"] {
+        if flat.contains(blocking) {
+            failures.push(format!(
+                "the store calls {blocking}: a blocking or second lock"
+            ));
+        }
+    }
+    for (i, _) in flat.match_indices(".lock()") {
+        let after = &flat[i + ".lock()".len()..];
+        if !after.starts_with(".unwrap_or_else(|p|p.into_inner())") {
+            failures.push(format!(
+                "a .lock() that is not a Mutex's: …{}…",
+                &flat[i.saturating_sub(40)..(i + 40).min(flat.len())]
+            ));
+        }
+    }
+    if flat.matches(".lock()").count() < 3 {
+        failures.push("the Mutex scan found too few sites: it is inert".to_string());
+    }
+
+    // The commands that can answer with a lock code, and their classes.
+    let gated: Vec<&str> = PROJECT_GATED.iter().map(|(p, _)| *p).collect();
+    let exempt: Vec<&str> = PROJECT_EXEMPT.iter().map(|(p, _, _)| *p).collect();
+    for (call, work, command) in LOCK_COMMANDS {
+        match fn_body(&commands, work) {
+            Some(body) if body.contains(call) => {}
+            _ => failures.push(format!("{work} does not call {call}")),
+        }
+        let classified = gated.contains(command) || exempt.contains(command);
+        if !classified {
+            failures.push(format!("{command} is not classified"));
+        }
+    }
+    let mut callers: Vec<String> = ["store.open(", "store.create_with_save(", "store.delete("]
+        .iter()
+        .flat_map(|c| {
+            commands
+                .match_indices(c)
+                .map(|(i, _)| enclosing_fn(&commands, i))
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    callers.sort();
+    if callers != ["delete", "open", "save_run"] {
+        failures.push(format!(
+            "the lock-taking store calls are made from {callers:?}"
+        ));
+    }
+    println!(
+        "lock taken in {} store functions; {} commands can answer with a lock code",
+        LOCK_TAKERS.len(),
+        LOCK_COMMANDS.len()
+    );
+    assert!(
+        failures.is_empty(),
+        "decision 132:\n{}",
+        failures.join("\n")
     );
 }

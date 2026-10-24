@@ -14,7 +14,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom';
 import { NotesBridge, TauriNotesBridge, Note, NoteDraft, NoteType, parseFields } from './notesBridge';
 import { PaperSource, TauriPaperSource, PaperOption } from './paperSource';
-import PaperNoteEditor from './PaperNoteEditor';
+import PaperNoteEditor, { EXPORT_FAILED } from './PaperNoteEditor';
 import ProjectNoteEditor from './ProjectNoteEditor';
 import ManuscriptEditor from './ManuscriptEditor';
 import RecommendedToolsPanel from './RecommendedToolsPanel';
@@ -214,8 +214,8 @@ const NoteCreatorPage: React.FC<NoteCreatorPageProps> = ({ notes, papers }) => {
       // saveNoteFile returns null on cancel (silent no-op) and only THROWS on a
       // real write failure — so this catch surfaces genuine failures, not cancels.
       await saveNoteFile(bulkExportFileName(typeFilter, tagFilter, query), notesToMarkdown(list));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not save the export');
+    } catch {
+      setError(EXPORT_FAILED);
     }
   };
 

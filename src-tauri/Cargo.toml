@@ -10,7 +10,7 @@ authors = ["you"]
 license = ""
 repository = ""
 edition = "2021"
-rust-version = "1.77.2"
+rust-version = "1.89"
 # `src/bin/ai-eval.rs` made this package multi-binary, which left `cargo run`
 # (and so `tauri dev`) unable to choose. The app is the default; ai-eval is a
 # dev harness run explicitly with `--bin ai-eval`.
@@ -140,6 +140,14 @@ ambers = "=0.4.4"
 # 2026). Already in Cargo.lock through zip and ambers.
 flate2 = "=1.1.9"
 arrow = { version = "=57.3.1", default-features = false }
+# Research OS Phase 5B-1: the project store (`src/project_store.rs`) opens each
+# project's own `project.db` and mints project ids from the OS random source.
+# Both are already in Cargo.lock at these exact versions (rusqlite through
+# gaply_core, getrandom 0.2 through rand_core), and the features named are ones
+# the lock graph already enables (`cargo tree -e features`), so nothing new is
+# downloaded or built.
+rusqlite = { version = "=0.32.1", features = ["bundled"] }
+getrandom = "=0.2.17"
 
 # On Windows/Linux the OS launches a NEW process for the gaply:// deep link;
 # single-instance (with the deep-link feature) forwards the URL to the already

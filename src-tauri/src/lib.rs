@@ -20,6 +20,13 @@ pub mod journal_verify;
 pub mod oa_fetch;
 pub mod paper_corpus;
 pub mod pipeline;
+// Research OS Phase 5B-2: the project commands, the one module that calls
+// the store (decisions 118 to 127).
+pub mod project_commands;
+// Research OS Phase 5B-1: the project store. `pub` so its sentinel sweep can
+// run in its own test binary; `project_commands` is its one caller
+// (`tests/project_store_guards.rs`).
+pub mod project_store;
 // §11 D103. The IPC wire contract, enumerated from the command signatures
 // rather than a hand-maintained list. See the module docs for why the sibling
 // guard in `ai::event_wire_tests` did not catch `FetchReport`.
@@ -37,6 +44,8 @@ pub mod stats_l1_ingest;
 pub mod stats_legacy;
 pub mod stats_reproduction;
 pub mod stats_ttest_commands;
+// Research OS Phase 5D-1a: the Stored data section's command; read only.
+pub mod stored_data_commands;
 pub mod supplementary;
 pub mod workspace;
 
@@ -367,6 +376,27 @@ pub fn run() {
             workspace::workspace_state,
             workspace::workspace_activate,
             workspace::workspace_deactivate,
+            // Research OS, Phase 5B-2: projects (decisions 118 to 127). No
+            // screen calls these until 5B-3. Listing, the sizes and deleting
+            // need no workspace (decision 120); the rest check Statistics
+            // first (`tests/workspace_guards.rs`).
+            project_commands::project_list,
+            project_commands::project_sizes,
+            project_commands::project_prepare_delete,
+            project_commands::project_delete,
+            project_commands::project_current,
+            project_commands::project_save_run,
+            project_commands::project_open,
+            project_commands::project_close,
+            project_commands::project_runs,
+            project_commands::project_run_result,
+            project_commands::project_report,
+            project_commands::project_provenance,
+            project_commands::project_rerun,
+            // Research OS, Phase 5D-1a: what the older features keep, counted
+            // (decisions 205 to 207). Never gated (decision 206). No screen
+            // calls it unless REACT_APP_FEATURE_STORED_DATA is on.
+            stored_data_commands::stored_data_summary,
             external_links::open_external_link,
             commands::build_gapfinder_corpus,
             commands::run_gap_finder,

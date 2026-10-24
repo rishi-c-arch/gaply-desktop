@@ -42,9 +42,9 @@ concurrency:
 jobs:
   app:
     name: cargo test -p app
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Tauri 2's Linux build prerequisites (webkit2gtk-4.1 and friends), plus
       # the D-Bus/Secret Service pair clean-checkout needs for the same reason:

@@ -16,6 +16,11 @@ import FontScale from './FontScale';
 import { SaveState, DiscardWarning, useDirtyBaseline, useCloseGuard } from './editorSaveState';
 import './notes.css';
 
+/** Every failed note export, here and in the Note Creator and the project
+ *  note editor (Research OS, 5B-4b; decision 176). The error's own message is
+ *  never shown or logged: it can hold a path or a file name. */
+export const EXPORT_FAILED = 'Gaply could not save the export. No file was written.';
+
 /** Honest reading time from the actual export text (~200 wpm, ceil). */
 export const readingMinutes = (text: string): number =>
   Math.max(1, Math.ceil(text.split(/\s+/).filter(Boolean).length / 200));
@@ -130,8 +135,8 @@ const PaperNoteEditor: React.FC<PaperNoteEditorProps> = ({ base, existing, paper
       // saveNoteFile returns null on cancel (silent) and only THROWS on a real
       // write failure — so only genuine failures reach this catch.
       await saveNoteFile(exportFileName(title || base.paper_title, 'paper-note'), md);
-    } catch (e) {
-      onError?.(e instanceof Error ? e.message : 'Could not save the export');
+    } catch {
+      onError?.(EXPORT_FAILED);
     }
   };
 

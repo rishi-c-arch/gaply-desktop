@@ -111,6 +111,14 @@ async function chooseGroup(alias: string) {
   await waitFor(() => expect((screen.getByTestId('tt-level-1') as HTMLSelectElement).options.length).toBeGreaterThan(1));
 }
 
+/** Every th and td of a table has the cells' right padding (Research OS,
+ *  5B-4b, finding b). The row headers are among them. */
+function expectPadded(table: HTMLElement) {
+  const cells = Array.from(table.querySelectorAll<HTMLElement>('th, td'));
+  expect(cells.length).toBeGreaterThan(0);
+  expect(cells.filter((c) => c.style.paddingRight !== '12px').map((c) => `${c.tagName} ${c.textContent}`)).toEqual([]);
+}
+
 async function toSettings() {
   fireEvent.click(screen.getByTestId('tt-choose'));
   await expectFocusOn('Profile of the file');
@@ -333,6 +341,27 @@ describe('TTestFlow', () => {
     expect(screen.getByTestId('tt-run-state').textContent).toBe('Cancelled');
     expect(bridge.calls.filter(([c]) => c === 'stats_ttest_cancel')).toEqual([['stats_ttest_cancel', { runId: 5 }]]);
     expect(screen.queryByTestId('tt-see-results')).toBeNull();
+  });
+
+  // Finding b: a data cell had no padding, so neighbouring numbers touched.
+  it('pads every header and data cell of its two tables on the right', async () => {
+    setup({
+      stats_ttest_validate: report('valid'),
+      stats_ttest_run: { runId: 5 },
+      stats_ttest_status: state('succeeded', true),
+      stats_ttest_result: ttestResultView,
+    });
+    fireEvent.click(screen.getByTestId('tt-choose'));
+    expectPadded(await screen.findByTestId('tt-profile'));
+    fireEvent.click(screen.getByTestId('tt-to-settings'));
+    await expectFocusOn('Choose the outcome, the group and the test');
+    fireEvent.change(screen.getByTestId('tt-outcome'), { target: { value: 'C1' } });
+    await chooseGroup('C2');
+    fireEvent.click(screen.getByTestId('tt-variant-welch'));
+    fireEvent.click(screen.getByTestId('tt-check'));
+    fireEvent.click(await screen.findByTestId('tt-run'));
+    fireEvent.click(await screen.findByTestId('tt-see-results'));
+    expectPadded(await screen.findByTestId('tt-groups'));
   });
 
   it('shows a neutral result card: the numbers, what d used, the exclusions, the limitations and the manifest', async () => {
