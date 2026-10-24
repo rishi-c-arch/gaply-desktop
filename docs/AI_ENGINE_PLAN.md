@@ -25398,3 +25398,98 @@ fresh mtime, SHA-256 equal, green):
 - Windows, which only `windows-build-check` reaches;
 - the status line in the real app, since the test files' reruns end within a
   poll or two.
+
+### D289 — Research OS, Phase 5D-1a: what the old database and the app's folders keep, mapped and counted, and a read-only Stored data section in Settings behind REACT_APP_FEATURE_STORED_DATA `[src]` `[test]` `[measured]`
+
+**Added** on `feat/research-os-5` after `e0cca96` (D288). Decisions 109, 205,
+206 and 207 of 24 Oct 2026 apply (`~/gaply-corpus/os/decisions.md`). This
+step changes a screen, so it is done only when the real-app checklist
+`~/gaply-corpus/os/phase5/realapp_5d1a.md` has been run (decision 166).
+Nothing stored is changed or deleted: no code this step adds outside tests
+writes, deletes or vacuums anything.
+
+**The map.** `~/gaply-corpus/os/phase5/stored_data_map.md` and
+`stored_data_map.csv`, read from the code at `e0cca96`: one row for each of
+the 33 tables of `gaply.db` (the two virtual tables with their shadow
+tables), each file kind under the app data, local data and temp folders, the
+keychain entry and each webview storage key, with what it holds, its writers
+and readers, its foreign keys and ON DELETE rules, its links kept without a
+foreign key, and its class: one of the nine categories, "has its own
+delete", "no delete in the app" or "not user data". It lists the user text
+no category covers (F1 to F8): chiefly the `'paper'` documents with their
+`ai_chunks`, FTS index, vectors and citation links, which hold a linked
+file's whole text and its absolute path, and the evidence cards, which hold
+the manuscript sentence checked and hang from the source paper, not the
+audit.
+
+**The summary.** `gaply_core::stored_data` (`Database::stored_data_summary`)
+counts the nine categories from one deferred read transaction and from file
+metadata, given the app data folder, the temp folder and the time. Bytes are
+`length(CAST(col AS BLOB))` summed over every column of the counted rows that
+holds text or bytes (a test pins each list to the table's own schema); for
+files, their sizes. Only regular files directly in a counted folder count; a
+symlink, a counted folder's own or an entry's, is skipped and never followed.
+`embeddings` is a `vec0` table and holds no foreign key, so a Gap Finder
+paper's vectors are found by `source_type = 'chunk'` and `source_id`. An
+orphan note image is asked through `notes::search_notes`, the same search the
+Note Creator's clean-up uses. `stored_data_commands::stored_data_summary`
+resolves the folders, runs it under `spawn_blocking`, and answers any failure
+with one closed code, `stored_data.unavailable`, logging only the error's
+kind. It is exempt from the workspace check (decision 206):
+`STORED_DATA_EXEMPT` in `tests/workspace_guards.rs`, shaped like
+`PROJECT_EXEMPT`, in no other list.
+
+**The section.** `StoredDataSection` in Settings, after the Projects section
+and before About, whatever the Projects flags, shown only with
+`REACT_APP_FEATURE_STORED_DATA` on and in the desktop app
+(`storedDataGate.ts`). One line per category: its name, its sentence, its
+count and its size through `projectWording`'s `mb()` (decisions 163 and 174).
+It keeps only the two counts of each category after a shape check
+(`readStoredData`) and shows one fixed sentence when the summary fails or
+has another shape. There is no delete control. The nine sentences are
+approved by decision 208, with category 9 named "Unused note images".
+Sentence 7 names the Citation Manager and the thesis citation audit because
+both are traced to the writes in `oa_papers/`: each screen calls
+`aiBridge.fetchOpenAccess` → `citation_fetch_oa` (`commands.rs:2264`; a
+citation subject `:2300`, an audit's staged reference `:2311`) →
+`oa_fetch::fetch_one` (`:2376`), which writes the PDF (`oa_fetch.rs:337-340`)
+or the abstract (`:392-398`) whatever the subject. A vitest pins the sentence
+to the screens that call the fetch.
+
+**Tests.** `stored_data::tests` (10): zero on an empty database and folders;
+a fixture in every category, beside look-alike rows and files in none, with
+known counts and bytes; a report row moving from cached to expired at
+`created_at + ttl_seconds = now`; bytes, not characters; the summary writes
+nothing (every connection closed, every file hashed, reopened through
+`Database::open`, summarised, closed, hashed again); sentinels in every text
+column and none in the view; symlinks skipped (unix); the real writers
+landing in their categories; every counted column list equal to the schema's;
+every table of a fresh database classified, the shadow tables included.
+`stored_data_commands::tests` (3): nine categories from the given folders; a
+failure as the one closed code; the folder and file names the counting
+shares with `oa_fetch`, `harness_log` and the two export commands.
+`every_stored_data_command_is_exempt_as_decision_206_says`. In vitest,
+`storedDataGate.vitest.ts` (6) and `StoredDataSection.vitest.tsx` (22, two of
+them for decision 208: category 9's name, and sentence 7 against its callers).
+
+**Mutation checks**, each SHA-256 equal after the restore: M1 a
+`cache_evict_stale` planted in the summary turns
+`the_summary_writes_nothing` red on its byte comparison; M2 a workspace check
+added to `stored_data_summary` turns the exempt guard red; M3 the gate's `&&`
+made `||` turns the six hidden and absent tests red; M4 sentence 7 without
+the thesis audit turns its caller test red.
+
+**Measured** (macOS, at the step's end, both `lib.rs` touched first, each run
+in its own log): `cargo test --workspace --no-fail-fast` `running=118
+doctests=2 passed=2917 ignored=12 failed=0` (D288: 2,903; the gaply_core lib
++10, the app lib 574 → 577, `workspace_guards` 8 → 9); `cargo test -p
+gaply_core --no-fail-fast` `running=75 passed=2118 ignored=3`; `cargo test -p
+app --features devtools --no-fail-fast` `running=49 passed=816 ignored=9`;
+vitest 121 files, 1,572 tests after decision 208's two tests (D288: 119,
+1,544); `npx tsc --noEmit` and CI's
+eslint exit 0; `npm run build` exits 0.
+
+**What it does not do.** No delete, no `VACUUM`, no change to how any older
+feature writes or reads its data: those are 5D-1b's and 5D-2's, item by item.
+The section is not in the Settings outline; decision 211 settles the layout
+when 5D-1b ships.

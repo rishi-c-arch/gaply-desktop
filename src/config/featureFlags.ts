@@ -30,7 +30,13 @@ export type FeatureName =
   // Default OFF, and shown only with 'workspaces' on too and only in the
   // desktop app (projects/projectGate.ts). Hides unfinished UI; not an
   // authorization boundary (Rust checks every project_* command).
-  | 'projects';
+  | 'projects'
+  // The Settings section that shows what the older features keep on this
+  // computer, counted (Research OS, Phase 5D-1a; decision 206). Default OFF,
+  // and shown only in the desktop app (settings/storedDataGate.ts), until its
+  // deletes are built and evaluated. Hides unfinished UI; not an
+  // authorization boundary.
+  | 'storedData';
 
 /** Parse a CRA env string as a boolean (default false). Only 'true'/'1' enable. */
 function envBool(v: string | undefined): boolean {
@@ -49,6 +55,7 @@ export const FEATURE_FLAGS: Record<FeatureName, boolean> = {
   statsDescribe: envBool(process.env.REACT_APP_FEATURE_STATS_DESCRIBE),
   workspaces: envBool(process.env.REACT_APP_FEATURE_WORKSPACES),
   projects: envBool(process.env.REACT_APP_FEATURE_PROJECTS),
+  storedData: envBool(process.env.REACT_APP_FEATURE_STORED_DATA),
 };
 
 export function isFeatureEnabled(name: FeatureName): boolean {

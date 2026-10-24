@@ -44,6 +44,8 @@ pub mod stats_l1_ingest;
 pub mod stats_legacy;
 pub mod stats_reproduction;
 pub mod stats_ttest_commands;
+// Research OS Phase 5D-1a: the Stored data section's command; read only.
+pub mod stored_data_commands;
 pub mod supplementary;
 pub mod workspace;
 
@@ -391,6 +393,10 @@ pub fn run() {
             project_commands::project_report,
             project_commands::project_provenance,
             project_commands::project_rerun,
+            // Research OS, Phase 5D-1a: what the older features keep, counted
+            // (decisions 205 to 207). Never gated (decision 206). No screen
+            // calls it unless REACT_APP_FEATURE_STORED_DATA is on.
+            stored_data_commands::stored_data_summary,
             external_links::open_external_link,
             commands::build_gapfinder_corpus,
             commands::run_gap_finder,

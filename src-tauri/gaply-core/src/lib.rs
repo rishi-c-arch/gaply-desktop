@@ -86,6 +86,8 @@ pub mod stats_registry;
 pub mod stats_ttest;
 pub mod stats_verdict;
 pub mod stats_verify;
+// Research OS Phase 5D-1a: what the older features keep, counted; read only.
+pub mod stored_data;
 pub mod swarm;
 pub mod validate;
 pub mod verify_agent;

@@ -555,6 +555,79 @@ fn every_project_command_is_gated_or_exempt_as_decision_120_says() {
     );
 }
 
+/// Phase 5D-1a (decision 206): the Stored data section's command counts what
+/// the old database and the app's folders keep, and never needs a workspace
+/// (decisions 49 and 120). It joins no other list. (registered path, work
+/// function, why)
+const STORED_DATA_EXEMPT: &[(&str, &str, &str)] = &[(
+    "stored_data_commands::stored_data_summary",
+    "summary",
+    "counts what is stored",
+)];
+
+#[test]
+fn every_stored_data_command_is_exempt_as_decision_206_says() {
+    let all = registered();
+    assert!(all.len() > 100, "the handler parse is inert");
+    let mut family: Vec<&str> = all
+        .iter()
+        .map(|p| p.as_str())
+        .filter(|p| p.starts_with("stored_data_commands::"))
+        .collect();
+    family.sort_unstable();
+    let mut listed: Vec<&str> = STORED_DATA_EXEMPT.iter().map(|(p, _, _)| *p).collect();
+    listed.sort_unstable();
+    assert_eq!(
+        family, listed,
+        "every registered stored data command is classified, and every classified one is registered"
+    );
+    // Nothing registers a stored_data_* command from another module.
+    for p in &all {
+        if p.rsplit("::")
+            .next()
+            .is_some_and(|n| n.starts_with("stored_data_"))
+        {
+            assert!(p.starts_with("stored_data_commands::"), "{p}");
+        }
+    }
+    // It joins no other list.
+    let mut elsewhere: Vec<&str> = VERIFIER_EXEMPT.iter().map(|(_, p, _)| *p).collect();
+    elsewhere.extend(VERIFIER_OPERATIONS.iter().map(|(_, p)| *p));
+    elsewhere.extend(TTEST_EXEMPT.iter().map(|(p, _)| *p));
+    elsewhere.extend(TTEST_OPERATIONS.iter().copied());
+    elsewhere.extend(PROJECT_GATED.iter().map(|(p, _)| *p));
+    elsewhere.extend(PROJECT_EXEMPT.iter().map(|(p, _, _)| *p));
+    for (path, _, _) in STORED_DATA_EXEMPT {
+        assert!(!elsewhere.contains(path), "{path} is in another list too");
+    }
+
+    let src = without_line_comments(&read(&root().join("src/stored_data_commands.rs")));
+    let mut failures = Vec::new();
+    for (path, work, why) in STORED_DATA_EXEMPT {
+        let name = path.rsplit("::").next().unwrap();
+        match fn_body(&src, name).map(|b| b.contains(&format!("{work}(&"))) {
+            Some(true) => {}
+            _ => failures.push(format!("{path} does not run `{work}`")),
+        }
+        for f in [name, *work] {
+            let body: String = fn_body(&src, f)
+                .unwrap_or_else(|| panic!("{f}: no body found"))
+                .chars()
+                .filter(|c| !c.is_whitespace())
+                .collect();
+            if body.contains("require_statistics") {
+                failures.push(format!("{f} is gated, but {path} is exempt: {why}"));
+            }
+        }
+    }
+    println!("{} stored data command exempt", STORED_DATA_EXEMPT.len());
+    assert!(
+        failures.is_empty(),
+        "decision 206:\n{}",
+        failures.join("\n")
+    );
+}
+
 #[test]
 fn the_project_check_catches_a_missing_check() {
     assert!(work_checks_first(

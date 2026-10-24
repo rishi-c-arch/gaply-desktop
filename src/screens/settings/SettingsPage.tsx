@@ -37,6 +37,8 @@ import { ConnectivityIndicator } from './connectivity';
 import { AiStatusPanel } from '../ai/AiStatusPanel';
 import { projectsShown } from '../statistics/projects/projectGate';
 import { PROJECT_TEXT, SETTINGS_SENTENCE } from '../statistics/projects/projectWording';
+import { StoredDataSection } from './StoredDataSection';
+import { storedDataShown } from './storedDataGate';
 import './settings.css';
 
 /** Bundled offline packs (shipped inside the app, usable with zero network). */
@@ -391,6 +393,14 @@ const Inner: React.FC<SettingsPageProps> = ({ profileService }) => {
                       {SETTINGS_SENTENCE}
                     </p>
                   </Card>
+                </section>
+              )}
+
+              {/* Research OS, Phase 5D-1a (decisions 206, 207): what the older
+                  features keep on this computer, counted. Read only. */}
+              {storedDataShown() && (
+                <section id="set-stored-data">
+                  <StoredDataSection />
                 </section>
               )}
 
