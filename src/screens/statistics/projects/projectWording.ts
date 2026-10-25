@@ -118,6 +118,9 @@ export const PROJECT_WORDS: Record<ProjectCode, Say> = {
   'project.rerun_in_progress': () => 'A run is still going in this project. Wait for it to finish, or cancel it, first.',
   'project.rerun_data_unreadable': () =>
     'The copy of the data file kept in this project could not be read this time, so nothing was run.',
+  // 5E-fix-1 (F1 and F7, decision 223).
+  'project.folder_unchangeable': () =>
+    "Gaply cannot change this project's folder, so it cannot open or delete this project, and nothing in it was changed. The folder's permissions may have been changed outside Gaply.",
 };
 
 /** For a refusal this table does not know. */

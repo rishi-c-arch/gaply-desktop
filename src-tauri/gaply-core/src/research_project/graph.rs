@@ -78,6 +78,29 @@ impl ProvEdge {
 #[derive(Clone, Default)]
 pub struct ProvGraph {
     edges: Vec<ProvEdge>,
+    /// One adjacency map (dependent -> its dependencies), kept in step with
+    /// `edges` by [`ProvGraph::add`] so a cycle check never rebuilds it
+    /// (5E-fix-1, F3). [`ProvGraph::push_unchecked`] adds to `edges` only, so
+    /// `adj` can lack an edge `edges` holds; only [`ProvGraph::is_acyclic`],
+    /// which rebuilds its own adjacency from `edges`, reads such a graph.
+    adj: BTreeMap<ProvNode, Vec<ProvNode>>,
+}
+
+// How many times `ProvGraph::adjacency` rebuilt the whole map on this thread,
+// for the test that pins `add` not to rebuild it (5E-fix-1, F3).
+#[cfg(test)]
+thread_local! {
+    static ADJACENCY_REBUILDS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+pub(crate) fn adjacency_rebuilds() -> u32 {
+    ADJACENCY_REBUILDS.with(|c| c.get())
+}
+
+#[cfg(test)]
+pub(crate) fn reset_adjacency_rebuilds() {
+    ADJACENCY_REBUILDS.with(|c| c.set(0));
 }
 
 impl std::fmt::Debug for ProvGraph {
@@ -133,11 +156,17 @@ impl ProvGraph {
                 return Err(ProjectCode::ProvUnlinkedDerivation);
             }
         }
+        // F3: keep the adjacency in step with the edges, so no later `add`
+        // rebuilds it. `to` is both a key of its own and a value under `from`.
+        self.adj.entry(to.clone()).or_default();
+        self.adj.entry(from).or_default().push(to);
         self.edges.push(edge);
         Ok(())
     }
 
     fn adjacency(&self) -> BTreeMap<ProvNode, Vec<ProvNode>> {
+        #[cfg(test)]
+        ADJACENCY_REBUILDS.with(|c| c.set(c.get() + 1));
         let mut adj: BTreeMap<ProvNode, Vec<ProvNode>> = BTreeMap::new();
         for e in &self.edges {
             let (a, b) = e.ends();
@@ -147,8 +176,9 @@ impl ProvGraph {
         adj
     }
 
+    /// Whether `goal` is reachable from `start`, over the maintained
+    /// adjacency (F3: never a rebuild).
     fn reaches(&self, start: &ProvNode, goal: &ProvNode) -> bool {
-        let adj = self.adjacency();
         let mut seen = BTreeSet::new();
         let mut stack = vec![start.clone()];
         while let Some(n) = stack.pop() {
@@ -156,7 +186,7 @@ impl ProvGraph {
                 return true;
             }
             if seen.insert(n.clone()) {
-                if let Some(next) = adj.get(&n) {
+                if let Some(next) = self.adj.get(&n) {
                     stack.extend(next.iter().cloned());
                 }
             }
@@ -410,5 +440,45 @@ mod tests {
             run: StoredRunId(1),
         });
         assert!(!g.is_acyclic());
+    }
+
+    #[test]
+    fn add_maintains_the_adjacency_without_rebuilding_it() {
+        reset_adjacency_rebuilds();
+        let mut g = ProvGraph::new();
+        g.add(ProvEdge::Used {
+            run: StoredRunId(1),
+            artifact: h('a'),
+            role: UsedRole::Data,
+        })
+        .unwrap();
+        g.add(ProvEdge::WasGeneratedBy {
+            artifact: h('b'),
+            run: StoredRunId(1),
+        })
+        .unwrap();
+        g.add(ProvEdge::WasAssociatedWith {
+            run: StoredRunId(1),
+            agent: agent(),
+        })
+        .unwrap();
+        g.add(ProvEdge::Used {
+            run: StoredRunId(2),
+            artifact: h('b'),
+            role: UsedRole::Data,
+        })
+        .unwrap();
+        g.add(ProvEdge::WasGeneratedBy {
+            artifact: h('c'),
+            run: StoredRunId(2),
+        })
+        .unwrap();
+        assert_eq!(
+            adjacency_rebuilds(),
+            0,
+            "F3: add rebuilt the whole adjacency"
+        );
+        // The maintained map is exactly a rebuild from the edges.
+        assert_eq!(g.adj, g.adjacency());
     }
 }

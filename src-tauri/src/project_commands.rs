@@ -91,8 +91,9 @@ use gaply_core::contracts::{
 use gaply_core::research_project::{
     compare_rerun, ArtifactHash, ArtifactKind, ArtifactRef, Caps, ColumnRole, DataFormat,
     ExportCode, ExportCount, ExportManifest, ExportParameter, ExportRun, ProjectCode,
-    ProjectExportInput, ProjectId, ProjectRefusal, ProjectTitle, ProvEdge, RerunComparison,
-    StoredRun, StoredRunId, TestVariant, UsedRole, PROV_FILE_NAME, REPORT_FILE_NAME,
+    ProjectExportInput, ProjectId, ProjectRefusal, ProjectTitle, ProvEdge, ProvGraph,
+    RerunComparison, StoredRun, StoredRunId, TestVariant, UsedRole, PROV_FILE_NAME,
+    REPORT_FILE_NAME,
 };
 use gaply_core::research_project::{render_prov_json, render_report_markdown};
 use gaply_core::stats_adapters;
@@ -1047,14 +1048,20 @@ pub fn delete(
     let projects = ws.projects();
     let store = projects.store(root).map_err(refuse)?;
     let id = ProjectId::parse(project_id).map_err(refuse)?;
-    projects.redeem(&id, confirmation).map_err(refuse)?;
-    // Held to the end, so nothing opens the project between its close and
-    // its deletion.
+    // Held to the end, so nothing opens the project between its close and its
+    // deletion. F8 (decision 226): the confirmation is redeemed under this
+    // lock, after the rerun-going check, so a delete refused for a going
+    // rerun leaves its confirmation good. `redeem`/`issue` take only the
+    // confirmation book and acquire no other lock while holding it, so this
+    // open-then-book order cannot deadlock.
     let mut open = lock(&projects.open);
     let closed = open.as_ref().is_some_and(|h| h.id() == &id);
     if closed {
         // Decision 190: not the open project while a rerun is going.
         projects.not_rerunning().map_err(refuse)?;
+    }
+    projects.redeem(&id, confirmation).map_err(refuse)?;
+    if closed {
         if let Some(h) = open.take() {
             h.close();
         }
@@ -1235,11 +1242,13 @@ pub fn runs(_root: &Path, ws: &WorkspaceSession, project_id: &str) -> Res<Vec<St
     let mut open = lock(&ws.projects().open);
     still_active(ws)?;
     let h = the_open(&mut open, project_id).map_err(refuse)?;
+    let loaded = load(h).map_err(refuse)?;
     let mut out = Vec::new();
-    for r in h.runs().map_err(refuse)? {
+    for r in &loaded.runs {
         let (comparison, engine_version_differs) = match r.rerun_of {
             Some(of) if r.state == RunState::Succeeded => {
-                let (again, before) = (manifest_facts(h, r.run_id), manifest_facts(h, of));
+                let again = manifest_facts(h, &loaded, r.run_id);
+                let before = manifest_facts(h, &loaded, of);
                 let (c, e) = compare_rerun(
                     again.as_ref().map(|(o, e)| (o, *e)),
                     before.as_ref().map(|(o, e)| (o, *e)),
@@ -1266,10 +1275,33 @@ pub fn runs(_root: &Path, ws: &WorkspaceSession, project_id: &str) -> Res<Vec<St
     Ok(out)
 }
 
+/// The open project's runs, artifact rows and provenance graph, read once per
+/// command and passed down (5E-fix-1, F3): `project_runs`, both exports and a
+/// run's result load this once, never once per run.
+struct Loaded {
+    runs: Vec<StoredRun>,
+    artifacts: Vec<ArtifactRef>,
+    graph: ProvGraph,
+}
+
+/// Reads the runs, the artifact rows and the graph once. A single
+/// `load_graph` (F3): the counter `project_store` keeps goes up by one.
+fn load(h: &ProjectHandle) -> Result<Loaded, ProjectRefusal> {
+    Ok(Loaded {
+        runs: h.runs()?,
+        artifacts: h.artifacts()?,
+        graph: h.provenance()?,
+    })
+}
+
 /// A run's manifest's output hash and engine version, if its manifest reads
 /// back whole: the two fields decision 189 compares.
-fn manifest_facts(h: &mut ProjectHandle, run: StoredRunId) -> Option<(ContentHash, u32)> {
-    let (_, arts) = artifacts_of(h, run).ok()?;
+fn manifest_facts(
+    h: &mut ProjectHandle,
+    loaded: &Loaded,
+    run: StoredRunId,
+) -> Option<(ContentHash, u32)> {
+    let (_, arts) = artifacts_of(loaded, run).ok()?;
     let manifest = arts
         .generated
         .iter()
@@ -1288,25 +1320,28 @@ struct RunArtifacts {
     generated: Vec<ArtifactRef>,
 }
 
+/// A run's artifacts, from the already-loaded rows and graph (5E-fix-1, F3):
+/// no database read of its own.
 fn artifacts_of(
-    h: &ProjectHandle,
+    loaded: &Loaded,
     run: StoredRunId,
 ) -> Result<(StoredRun, RunArtifacts), ProjectRefusal> {
-    let stored = h
-        .runs()?
-        .into_iter()
+    let stored = loaded
+        .runs
+        .iter()
         .find(|r| r.run_id == run)
+        .cloned()
         .ok_or(ProjectCode::StoredRunUnknown)?;
-    let rows = h.artifacts()?;
     let row = |hash: &ArtifactHash| -> Result<ArtifactRef, ProjectRefusal> {
-        rows.iter()
+        loaded
+            .artifacts
+            .iter()
             .find(|a| &a.hash == hash)
             .cloned()
             .ok_or_else(|| ProjectCode::UnknownArtifact.into())
     };
-    let graph = h.provenance()?;
     let (mut data, mut spec, mut generated) = (None, None, Vec::new());
-    for e in graph.edges() {
+    for e in loaded.graph.edges() {
         match e {
             ProvEdge::Used {
                 run: r,
@@ -1361,7 +1396,8 @@ pub fn run_result(
     let mut open = lock(&ws.projects().open);
     still_active(ws)?;
     let h = the_open(&mut open, project_id).map_err(refuse)?;
-    let (stored, arts) = artifacts_of(h, StoredRunId(stored_run_id)).map_err(refuse)?;
+    let loaded = load(h).map_err(refuse)?;
+    let (stored, arts) = artifacts_of(&loaded, StoredRunId(stored_run_id)).map_err(refuse)?;
     let shown: u64 = arts.spec.bytes + arts.generated.iter().map(|a| a.bytes).sum::<u64>();
     if shown > RESULT_READ_LIMIT_BYTES {
         return Err(refuse(ProjectRefusal::over(
@@ -1449,7 +1485,8 @@ fn rerun_open(
         return Err(refuse(ProjectCode::RerunBusy));
     }
     // 7. The data file and the spec read back with their hashes.
-    let (_, arts) = artifacts_of(h, of).map_err(refuse)?;
+    let loaded = load(h).map_err(refuse)?;
+    let (_, arts) = artifacts_of(&loaded, of).map_err(refuse)?;
     let data = h.read_artifact(arts.data.hash.as_hex()).map_err(refuse)?;
     let spec = h.read_artifact(arts.spec.hash.as_hex()).map_err(refuse)?;
     // 8. The spec reads back to exactly its stored bytes.
@@ -1676,9 +1713,10 @@ fn outputs<C: Closed + DeserializeOwned>(
 /// text.
 fn export_input(h: &mut ProjectHandle) -> Result<ProjectExportInput, ProjectRefusal> {
     let record = h.record()?;
+    let loaded = load(h)?;
     let mut runs = Vec::new();
-    for stored in h.runs()? {
-        let (_, arts) = artifacts_of(h, stored.run_id)?;
+    for stored in &loaded.runs {
+        let (_, arts) = artifacts_of(&loaded, stored.run_id)?;
         let spec = read_json(h, &arts.spec)?;
         let mut run = ExportRun {
             run: stored.clone(),
@@ -1702,14 +1740,15 @@ fn export_input(h: &mut ProjectHandle) -> Result<ProjectExportInput, ProjectRefu
         }
         runs.push(run);
     }
+    let edges = loaded.graph.edges().to_vec();
     Ok(ProjectExportInput {
         title: record.title,
         project: record.id,
         created_at: record.created_at,
         created_by: record.app_version,
-        artifacts: h.artifacts()?,
+        artifacts: loaded.artifacts,
         runs,
-        edges: h.provenance()?.edges().to_vec(),
+        edges,
     })
 }
 
@@ -2261,5 +2300,218 @@ mod tests {
         assert!(!same_bytes("abc", "abd"));
         assert!(!same_bytes("abc", "ab"));
         assert!(!same_bytes("", "a"));
+    }
+
+    #[test]
+    fn activate_never_closes_a_project_under_a_going_rerun() {
+        // F4 (decision 225): workspace_activate closes an open project only in
+        // the Activating phase, before the switch is Active. This holds the
+        // open-project lock while an activation runs on another thread.
+        //
+        // OLD code: the activation reaches Active (its trailing close_on_leave
+        // blocks on the held lock), so this opens the project and starts a
+        // rerun before dropping the lock, and the activation then closes the
+        // project under the rerun — recorded not saved. FIXED code: the
+        // activation blocks in the Activating phase, so this releases the
+        // lock, lets it finish, then opens and reruns — the rerun saves. The
+        // rerun's worker is parked at a gate until this opens it, so the rerun
+        // cannot end before the race is set up.
+        //
+        // activate is reached by UFCS (`WorkspaceSession::activate(...)`), not
+        // `.activate(`, so `only_workspace_activate_activates_a_workspace`
+        // still counts one caller (decision 201's precedent, for the store's
+        // panic test, routes around that guard the same way).
+        use crate::runs::{CheckpointHook, Point, RUN_CEILING_MS};
+        use crate::workspace::{readiness, RunsFactory};
+        use gaply_core::contracts::CapabilityId;
+        use std::sync::Condvar;
+        use std::thread;
+        use std::time::Duration;
+
+        struct Gate {
+            open: Mutex<bool>,
+            cv: Condvar,
+        }
+        impl Gate {
+            fn hook(self: &Arc<Self>) -> CheckpointHook {
+                let g = Arc::clone(self);
+                let hook: CheckpointHook = Arc::new(move |_run, p| {
+                    if p == Point::BeforeStart {
+                        let mut open = g.open.lock().unwrap();
+                        while !*open {
+                            open = g.cv.wait(open).unwrap();
+                        }
+                    }
+                });
+                hook
+            }
+            fn release(&self) {
+                *self.open.lock().unwrap() = true;
+                self.cv.notify_all();
+            }
+        }
+        #[derive(Default)]
+        struct Tick(AtomicU64);
+        impl Clock for Tick {
+            fn now_ms(&self) -> u64 {
+                self.0.fetch_add(1, Ordering::SeqCst)
+            }
+        }
+        fn settled(projects: &ProjectSession) -> RerunView {
+            let start = Instant::now();
+            loop {
+                if let Some(r) = projects.current_view().rerun {
+                    if r.status != RerunProgress::Going {
+                        return r;
+                    }
+                }
+                assert!(
+                    start.elapsed() < Duration::from_secs(10),
+                    "the rerun never settled"
+                );
+                thread::sleep(Duration::from_millis(2));
+            }
+        }
+        fn build_summary_project(root: &Path) -> String {
+            let csv: &[u8] = b"score,group\n1.5,a\n2.5,a\n3.0,a\n3.5,b\n4.0,b\n5.5,b\n";
+            let dataset = load_dataset_from_bytes(csv, DataFormat::Csv).expect("csv parses");
+            let profile = stats_desc::profile(&dataset);
+            let spec = stats_desc::spec(
+                OperationId(1),
+                &dataset,
+                DescribeParams::defaults_for(&profile),
+            );
+            let spec_bytes = serde_json::to_vec(&spec).expect("spec serialises");
+            let bundle = br#"{"bundle":1}"#.to_vec();
+            let manifest = br#"{"manifest":1}"#.to_vec();
+            let h = |b: &[u8]| ArtifactHash::parse(ContentHash::of_bytes(b).as_hex()).unwrap();
+            let (dh, sh, bh, mh) = (h(csv), h(&spec_bytes), h(&bundle), h(&manifest));
+            let req = SaveRequest {
+                run: RunToSave {
+                    capability_id: CapabilityId::parse(stats_desc::CAPABILITY_ID).unwrap(),
+                    capability_version: 1,
+                    state: RunState::Succeeded,
+                    started_at: 1_700_000_000,
+                    ended_at: 1_700_000_001,
+                    used: vec![(dh.clone(), UsedRole::Data), (sh.clone(), UsedRole::Spec)],
+                    generated: vec![bh.clone(), mh.clone()],
+                    derived: vec![],
+                },
+                artifacts: vec![
+                    ArtifactInput {
+                        kind: ArtifactKind::DataFile,
+                        format: DataFormat::Csv,
+                        schema_version: 1,
+                        expected: dh,
+                        bytes: csv.to_vec(),
+                    },
+                    ArtifactInput {
+                        kind: ArtifactKind::OperationSpec,
+                        format: DataFormat::Json,
+                        schema_version: 1,
+                        expected: sh,
+                        bytes: spec_bytes,
+                    },
+                    ArtifactInput {
+                        kind: ArtifactKind::ResultBundle,
+                        format: DataFormat::Json,
+                        schema_version: 1,
+                        expected: bh,
+                        bytes: bundle,
+                    },
+                    ArtifactInput {
+                        kind: ArtifactKind::RunManifest,
+                        format: DataFormat::Json,
+                        schema_version: 1,
+                        expected: mh,
+                        bytes: manifest,
+                    },
+                ],
+            };
+            let store = ProjectRoot::open_root_with(root, Caps::REAL).expect("store opens");
+            let title = ProjectTitle::parse("f4").unwrap();
+            // UFCS, not `store.create_with_save(`, so the lock-codes guard
+            // (which scans this file's tests too) still counts only the three
+            // real commands as lock-taking store callers.
+            let (handle, _) =
+                ProjectRoot::create_with_save(&store, &title, req).expect("project created");
+            let id = handle.id().as_str().to_string();
+            handle.close();
+            id
+        }
+
+        let root = std::env::temp_dir().join(format!("gaply-f4-{}", std::process::id()));
+        let id = build_summary_project(&root);
+
+        for i in 0..50 {
+            let gate = Arc::new(Gate {
+                open: Mutex::new(false),
+                cv: Condvar::new(),
+            });
+            let projects = Arc::new(ProjectSession::with(
+                Caps::REAL,
+                Arc::new(Monotonic(Instant::now())),
+            ));
+            // A fresh gated run manager per activation, as production builds
+            // one per activation: the setup activate/deactivate seals its
+            // manager (Runs::seal), and reusing one sealed manager would make
+            // the race's rerun fail `NotStarted::Sealed`. The gate is shared,
+            // so one release frees whichever manager's worker is parked.
+            let factory: RunsFactory = {
+                let gate = Arc::clone(&gate);
+                Arc::new(move || {
+                    Arc::new(Runs::with_hooks(
+                        Arc::new(Tick::default()),
+                        Some(gate.hook()),
+                        RUN_CEILING_MS,
+                    ))
+                })
+            };
+            let ws = Arc::new(WorkspaceSession::with_projects(
+                Arc::new(readiness),
+                factory,
+                Arc::clone(&projects),
+            ));
+            WorkspaceSession::activate(&ws, WorkspaceId::Statistics).expect("Statistics activates");
+            ws.deactivate().expect("then left");
+
+            let mut g = lock(&projects.open);
+            let ws2 = Arc::clone(&ws);
+            let activating =
+                thread::spawn(move || WorkspaceSession::activate(&ws2, WorkspaceId::Statistics));
+            // OLD code reaches Active in microseconds; FIXED code blocks in the
+            // Activating phase on the held lock and never reaches Active here.
+            let start = Instant::now();
+            let active = loop {
+                match ws.state() {
+                    WorkspaceState::Active(_) => break true,
+                    _ if start.elapsed() > Duration::from_millis(300) => break false,
+                    _ => thread::sleep(Duration::from_millis(1)),
+                }
+            };
+            if active {
+                let engine = ws.require_statistics().expect("active");
+                let store = ProjectRoot::open_root_with(&root, Caps::REAL).unwrap();
+                // UFCS, not `store.open(`, for the lock-codes guard (above).
+                let handle = ProjectRoot::open(&store, &id).unwrap();
+                *g = Some(handle);
+                // Releases the lock as rerun_open does; the blocked activation
+                // then closes the project under the going rerun (OLD bug).
+                rerun_open(&projects, g, &engine.runs, 1).expect("the rerun starts");
+                activating.join().unwrap().ok();
+            } else {
+                drop(g);
+                activating.join().unwrap().expect("activation finishes");
+                open(&root, &ws, &id).expect("open the project");
+                rerun(&root, &ws, 1).expect("start the rerun");
+            }
+            gate.release();
+            let r = settled(&projects);
+            assert_eq!(
+                r.status,
+                RerunProgress::Saved,
+                "iteration {i}: the rerun must be saved (F4)"
+            );
+        }
     }
 }

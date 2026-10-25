@@ -65,7 +65,10 @@ type View = { kind: 'reading' } | { kind: 'failed' } | { kind: 'read'; counts: M
 function deletedLine(c: StoredCategoryWords, d: StoredDeleted): string {
   const count = DELETION_TEXT.deleted(countWords(d.deleted, c));
   if (d.outcome === 'done') return count;
-  return DATABASE_CATEGORIES.includes(c.id) ? DELETION_TEXT.notCompacted : `${count} ${DELETION_TEXT.partlyRemoved}`;
+  // Decision 224: the not-done line keeps the count, then its sentence (the
+  // checkpoint for a database category, the partial-removal one for files).
+  const tail = DATABASE_CATEGORIES.includes(c.id) ? DELETION_TEXT.notCompacted : DELETION_TEXT.partlyRemoved;
+  return `${count} ${tail}`;
 }
 
 const countLine = (c: StoredCategoryWords, n: StoredCount) => `${countWords(n.items, c)}. Size: ${mb(n.bytes)}.`;
@@ -199,6 +202,10 @@ const DeleteDialog: React.FC<DeleteDialogProps> = ({
 }) => {
   const [pending, setPending] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
+  // F9 (decision 226): what the dialog shows, and the message when the last
+  // Delete found the count changed. `shown` starts at the section's count.
+  const [shown, setShown] = useState<StoredCount>(count);
+  const [changed, setChanged] = useState<string | null>(null);
   const alive = useRef(true);
   const inFlight = useRef(false);
   const cancelButton = useRef<HTMLButtonElement>(null);
@@ -232,10 +239,19 @@ const DeleteDialog: React.FC<DeleteDialogProps> = ({
     setPending(true);
     setRefusal(null);
     try {
-      const confirmation = readConfirmation(await deleter.prepareDelete(category.id));
+      const prepared = readConfirmation(await deleter.prepareDelete(category.id));
       if (!alive.current || !gen.is(g)) return;
-      if (confirmation === null) throw new Error('no confirmation');
-      const d = readDeleted(await deleter.delete(category.id, confirmation), category.id);
+      if (prepared === null) throw new Error('no confirmation');
+      // F9 (decision 226): delete only what the dialog shows. If the count
+      // changed since it was shown, delete nothing, show the new count and
+      // ask again; the next Delete asks prepare_delete afresh.
+      if (prepared.items !== shown.items || prepared.bytes !== shown.bytes) {
+        setShown({ items: prepared.items, bytes: prepared.bytes });
+        setChanged(DELETION_TEXT.changed);
+        return;
+      }
+      setChanged(null);
+      const d = readDeleted(await deleter.delete(category.id, prepared.confirmation), category.id);
       if (!alive.current || !gen.is(g)) return;
       if (d === null) throw new Error('an answer of another shape');
       done.current = true;
@@ -252,9 +268,14 @@ const DeleteDialog: React.FC<DeleteDialogProps> = ({
 
   return (
     <ProjectDialog title={title} onClose={cancel} initialFocus={cancelButton} returnFocus={returnFocus} testId="stored-delete-dialog">
-      <p data-testid="stored-delete-count">{countLine(category, count)}</p>
+      <p data-testid="stored-delete-count">{countLine(category, shown)}</p>
       <p data-testid="stored-delete-stops">{WHAT_STOPS[category.id]}</p>
       <p data-testid="stored-delete-sentence">{DELETION_TEXT.backups}</p>
+      {changed && (
+        <p role="alert" data-testid="stored-delete-changed">
+          {changed}
+        </p>
+      )}
       {refusal && (
         <p role="alert" data-testid="stored-delete-refusal">
           {refusal}

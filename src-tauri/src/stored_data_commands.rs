@@ -16,8 +16,9 @@
 //! refusal a closed code, while work that writes into its category is going
 //! ([`RunningWork`], decision 214): the six commands that write take a guard
 //! first, and the delete holds the count while it runs, so none starts
-//! midway. After categories 1 to 5 it runs `VACUUM` and the checkpoint, and
-//! its view says whether they finished.
+//! midway. After categories 1 to 5 it runs the checkpoint that flushes the
+//! delete's zeroed pages into the file (5E-fix-1, decision 224: no VACUUM),
+//! and its view says whether it finished.
 //!
 //! **No workspace check (decisions 49, 120 and 206):** seeing and deleting
 //! what is stored never needs a workspace (`tests/workspace_guards.rs`'s
@@ -487,7 +488,7 @@ pub async fn stored_data_delete(
     let jobs = state.ai_jobs.clone();
     let app_data_dir = state.app_data_dir.clone();
     let temp_dir = std::env::temp_dir();
-    // Off the command's thread: the delete, then VACUUM and the checkpoint.
+    // Off the command's thread: the delete, then the checkpoint.
     tokio::task::spawn_blocking(move || {
         let cx = DeleteContext {
             session: &session,
@@ -1255,7 +1256,7 @@ mod tests {
         };
         assert_eq!(
             (d.outcome, d.code),
-            ("not_done", Some("stored_data.vacuum_busy"))
+            ("not_done", Some("stored_data.checkpoint_busy"))
         );
         assert_eq!(d.deleted, 1);
         if let Some(conn) = lock(&blocker).take() {

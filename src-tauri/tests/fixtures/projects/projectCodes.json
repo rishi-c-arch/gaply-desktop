@@ -52,5 +52,6 @@
   "project.rerun_busy",
   "project.rerun_refused",
   "project.rerun_in_progress",
-  "project.rerun_data_unreadable"
+  "project.rerun_data_unreadable",
+  "project.folder_unchangeable"
 ]

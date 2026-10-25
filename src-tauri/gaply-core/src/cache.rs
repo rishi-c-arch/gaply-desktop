@@ -2,10 +2,22 @@
 //! `created_at + ttl_seconds`; callers pass `now` explicitly so expiry is
 //! deterministic and testable (production uses `crate::now_epoch()`).
 
-use rusqlite::params;
+use rusqlite::{params, Connection};
 
 use crate::db::Database;
 use crate::error::GaplyError;
+
+/// `cache_evict_stale`'s one statement, run on a connection given, so a
+/// Stored data delete can run it under `secure_delete` on the same connection
+/// (5E-fix-1, F2, decision 224). The number removed; `cache_evict_stale`'s
+/// behaviour is unchanged.
+pub(crate) fn evict_stale_on(conn: &Connection, now: i64) -> Result<usize, GaplyError> {
+    let removed = conn.execute(
+        "DELETE FROM cache WHERE created_at + ttl_seconds <= ?1",
+        params![now],
+    )?;
+    Ok(removed)
+}
 
 impl Database {
     /// Insert or replace a cache entry.
@@ -40,10 +52,8 @@ impl Database {
 
     /// Delete every entry whose TTL has elapsed at `now`; returns the count.
     pub fn cache_evict_stale(&self, now: i64) -> Result<usize, GaplyError> {
-        let removed = self
-            .conn()?
-            .execute("DELETE FROM cache WHERE created_at + ttl_seconds <= ?1", params![now])?;
-        Ok(removed)
+        let conn = self.conn()?;
+        evict_stale_on(&conn, now)
     }
 }
 

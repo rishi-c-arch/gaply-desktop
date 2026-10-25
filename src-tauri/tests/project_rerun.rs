@@ -513,6 +513,69 @@ fn while_a_rerun_is_going_decision_190s_actions_are_refused_then_allowed() {
 }
 
 #[test]
+fn a_delete_refused_for_a_going_rerun_leaves_its_confirmation_redeemable() {
+    // F8 (decision 226): project_delete checks the rerun-going refusal before
+    // it redeems the confirmation, so a delete refused that way does not use
+    // the confirmation up — the same one deletes once the rerun has ended.
+    let p = parking();
+    let w = World::with("f8-confirm", SMALL, Some(Arc::clone(&p.runs)));
+    let (a, _run) = with_a_summary(&w);
+    let r = w.root();
+    // A confirmation for A, issued before the rerun starts.
+    let c = pc::prepare_delete(&r, &w.ws, &a).unwrap().confirmation;
+    // Start a rerun and hold it going.
+    p.armed.store(true, Ordering::SeqCst);
+    pc::rerun(&r, &w.ws, 1).expect("the rerun starts");
+    p.reached.recv().unwrap();
+    p.armed.store(false, Ordering::SeqCst);
+    assert!(w.ws.projects().rerun_going().is_some());
+    // The delete is refused for the going rerun, and does NOT redeem `c`.
+    assert_eq!(
+        code(&pc::delete(&r, &w.ws, &a, Some(&c)).unwrap_err()),
+        "project.rerun_in_progress"
+    );
+    // Let the rerun finish; the same confirmation still deletes A.
+    p.go.send(()).unwrap();
+    assert_eq!(settled(&w).status, RerunProgress::Saved);
+    pc::delete(&r, &w.ws, &a, Some(&c)).expect("the confirmation is still good");
+    assert!(
+        !pc::list(&r, &w.ws)
+            .unwrap()
+            .iter()
+            .any(|e| e.project_id == a),
+        "A is gone"
+    );
+}
+
+#[test]
+fn each_command_loads_the_provenance_graph_once() {
+    // F3 (5E-fix-1): project_runs, both exports and project_run_result each
+    // load the graph exactly once, not once per run. The counter is
+    // thread-local and incremented in load_graph; these commands run on this
+    // thread, so it reads what they did.
+    use app_lib::project_store::{graph_loads_on_this_thread, reset_graph_loads_on_this_thread};
+    let w = World::new("f3-one-load");
+    let (id, run) = with_a_summary(&w);
+    // A rerun, so project_runs compares the two manifests (the old code loaded
+    // the graph once per compare, and `runs` itself loaded it too).
+    pc::rerun(&w.root(), &w.ws, 1).unwrap();
+    assert_eq!(settled(&w).status, RerunProgress::Saved);
+    let r = w.root();
+    reset_graph_loads_on_this_thread();
+    pc::runs(&r, &w.ws, &id).unwrap();
+    assert_eq!(graph_loads_on_this_thread(), 1, "project_runs");
+    reset_graph_loads_on_this_thread();
+    pc::report(&r, &w.ws, &id).unwrap();
+    assert_eq!(graph_loads_on_this_thread(), 1, "project_report");
+    reset_graph_loads_on_this_thread();
+    pc::provenance(&r, &w.ws, &id).unwrap();
+    assert_eq!(graph_loads_on_this_thread(), 1, "project_provenance");
+    reset_graph_loads_on_this_thread();
+    pc::run_result(&r, &w.ws, &id, run).unwrap();
+    assert_eq!(graph_loads_on_this_thread(), 1, "project_run_result");
+}
+
+#[test]
 fn leaving_statistics_is_refused_until_the_save_at_the_end_has_returned() {
     let w = World::new("rr-leave");
     let (id, _) = with_a_summary(&w);

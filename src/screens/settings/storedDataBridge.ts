@@ -70,11 +70,22 @@ export function readStoredData(v: unknown): Map<StoredCategoryId, StoredCount> |
   return out;
 }
 
-/** The confirmation Rust issued, or null when the answer has another shape:
- *  64 lowercase hex characters, nothing else of the answer kept. */
-export function readConfirmation(v: unknown): string | null {
-  const c = (v as { confirmation?: unknown } | null)?.confirmation;
-  return typeof c === 'string' && /^[0-9a-f]{64}$/.test(c) ? c : null;
+/** What a prepare_delete returned: the confirmation, and the count and size
+ *  it was for, so the dialog can delete only what it shows (F9, decision 226). */
+export interface Prepared {
+  confirmation: string;
+  items: number;
+  bytes: number;
+}
+
+/** The confirmation Rust issued with the count and size it is for, or null
+ *  when the answer has another shape: a 64-hex confirmation and two whole
+ *  counts, nothing else of the answer kept. */
+export function readConfirmation(v: unknown): Prepared | null {
+  const o = (v ?? {}) as { confirmation?: unknown; items?: unknown; bytes?: unknown };
+  if (typeof o.confirmation !== 'string' || !/^[0-9a-f]{64}$/.test(o.confirmation)) return null;
+  if (!isCount(o.items) || !isCount(o.bytes)) return null;
+  return { confirmation: o.confirmation, items: o.items, bytes: o.bytes };
 }
 
 export interface StoredDeleted {

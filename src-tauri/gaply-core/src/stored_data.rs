@@ -67,12 +67,16 @@
 //!   the last 10 minutes. A link is never followed and never removed. If one
 //!   removal fails, the delete stops and says how many it removed.
 //!
-//! After 1 to 5 the caller runs [`Database::stored_data_compact`]: `VACUUM`,
-//! then `PRAGMA wal_checkpoint(TRUNCATE)`, each retried once if busy, so the
-//! deleted text leaves `gaply.db` and its `-wal`. Its outcome is
-//! [`Compaction::Done`] only when `VACUUM` succeeded and the checkpoint's
-//! busy column is 0; otherwise the rows stay deleted and the outcome says
-//! which step did not finish. No overwrite pass (decision 104).
+//! After 1 to 5 the delete runs under `PRAGMA secure_delete=ON`, so the text
+//! it removes is zeroed in the pages it changes (the indexes' included), and
+//! the caller runs [`Database::stored_data_compact`]: `PRAGMA
+//! wal_checkpoint(TRUNCATE)`, retried once if busy, which flushes those zeroed
+//! pages into `gaply.db` and truncates the `-wal`. Its outcome is
+//! [`Compaction::Done`] only when the checkpoint's busy column is 0;
+//! otherwise the rows stay deleted and the `-wal` holds them until a later
+//! checkpoint — the one at each open among them — finishes. The file does not
+//! shrink; SQLite reuses the freed space (5E-fix-1, decision 224). No
+//! overwrite pass (decision 104).
 //!
 //! The caller passes the app data folder, the temp folder and the time, so a
 //! test never touches the real ones.
@@ -222,20 +226,20 @@ impl From<std::io::Error> for DeleteError {
     }
 }
 
-/// The compaction after a delete of categories 1 to 5 (decision 213).
+/// The checkpoint after a delete of categories 1 to 5 (decision 213, as
+/// 5E-fix-1's decision 224 amends it: the checkpoint only, no VACUUM).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Compaction {
-    /// `VACUUM` succeeded and the checkpoint's busy column was 0.
+    /// The checkpoint finished with its busy column 0 (decision 224).
     Done,
-    /// The rows stay deleted; this step did not finish.
+    /// The rows stay deleted; the checkpoint did not finish.
     NotDone(CompactionCode),
 }
 
-/// Which step of a compaction did not finish, as a closed code.
+/// Why a checkpoint did not finish, as a closed code (decision 224: the
+/// VACUUM codes are gone with the VACUUM).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompactionCode {
-    VacuumBusy,
-    VacuumFailed,
     CheckpointBusy,
     CheckpointFailed,
 }
@@ -243,8 +247,6 @@ pub enum CompactionCode {
 impl CompactionCode {
     pub fn wire(self) -> &'static str {
         match self {
-            CompactionCode::VacuumBusy => "stored_data.vacuum_busy",
-            CompactionCode::VacuumFailed => "stored_data.vacuum_failed",
             CompactionCode::CheckpointBusy => "stored_data.checkpoint_busy",
             CompactionCode::CheckpointFailed => "stored_data.checkpoint_failed",
         }
@@ -563,6 +565,53 @@ fn is_busy(e: &rusqlite::Error) -> bool {
     )
 }
 
+/// F2 (decision 224): sets `PRAGMA secure_delete=ON` on a connection for the
+/// length of a delete, so the text the delete removes is zeroed in the pages
+/// it changes, and restores the connection's earlier setting when it drops —
+/// on every path, so the pooled connection returns to the pool unchanged.
+struct SecureDelete<'c> {
+    conn: &'c Connection,
+    previous: i64,
+}
+
+impl<'c> SecureDelete<'c> {
+    fn on(conn: &'c Connection) -> Result<SecureDelete<'c>, GaplyError> {
+        let previous: i64 = conn.query_row("PRAGMA secure_delete", [], |r| r.get(0))?;
+        conn.execute_batch("PRAGMA secure_delete=ON")?;
+        Ok(SecureDelete { conn, previous })
+    }
+}
+
+impl Drop for SecureDelete<'_> {
+    fn drop(&mut self) {
+        // `previous` is a 0/1/2 integer this read from the connection, so the
+        // statement carries no outside value.
+        let _ = self
+            .conn
+            .execute_batch(&format!("PRAGMA secure_delete={}", self.previous));
+    }
+}
+
+/// `PRAGMA wal_checkpoint(TRUNCATE)` once, retried once if it is busy (F2,
+/// decision 224). Done when the busy column is 0.
+fn checkpoint_truncate(conn: &Connection) -> Compaction {
+    let once = || -> rusqlite::Result<bool> {
+        let busy: i64 = conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| r.get(0))?;
+        Ok(busy == 0)
+    };
+    let result = match once() {
+        Ok(false) => once(),
+        Err(e) if is_busy(&e) => once(),
+        first => first,
+    };
+    match result {
+        Ok(true) => Compaction::Done,
+        Ok(false) => Compaction::NotDone(CompactionCode::CheckpointBusy),
+        Err(e) if is_busy(&e) => Compaction::NotDone(CompactionCode::CheckpointBusy),
+        Err(_) => Compaction::NotDone(CompactionCode::CheckpointFailed),
+    }
+}
+
 impl Database {
     /// Count the nine categories. Reads only; see the module docs.
     pub fn stored_data_summary(
@@ -710,32 +759,44 @@ impl Database {
         temp_dir: &Path,
         now: i64,
     ) -> Result<Deletion, DeleteError> {
-        self.delete_with(category, app_data_dir, temp_dir, now, &|p| {
+        // F2 (decision 224): the delete runs under `secure_delete=ON`, so the
+        // text it removes is zeroed in the pages it changes; the checkpoint
+        // the caller runs then flushes those pages into `gaply.db`.
+        self.delete_with(category, app_data_dir, temp_dir, now, true, &|p| {
             std::fs::remove_file(p)
         })
     }
 
-    /// [`Database::stored_data_delete`] with the file removal given, so a
-    /// test can make one fail.
+    /// [`Database::stored_data_delete`] with the file removal and whether
+    /// `secure_delete` is set given, so a test can make a removal fail, or
+    /// leave the deleted text in the file by running without it (F2).
     fn delete_with(
         &self,
         category: StoredCategory,
         app_data_dir: &Path,
         temp_dir: &Path,
         now: i64,
+        secure: bool,
         remove: &dyn Fn(&Path) -> std::io::Result<()>,
     ) -> Result<Deletion, DeleteError> {
         let (before, deleted, removal_failed) = match category {
             StoredCategory::ManuscriptAnalyses
             | StoredCategory::GapFinderPapers
             | StoredCategory::ThesisAudits
-            | StoredCategory::CachedReports => self.delete_rows(category, now)?,
+            | StoredCategory::CachedReports => {
+                let conn = self.conn()?;
+                // F2 (decision 224): zero the pages this delete changes; the
+                // guard restores the pooled connection's setting on drop.
+                let _secure = secure.then(|| SecureDelete::on(&conn)).transpose()?;
+                self.delete_rows_on(&conn, category, now)?
+            }
             StoredCategory::ExpiredCache => {
-                let before = {
-                    let conn = self.conn()?;
-                    row_count(&conn, category, now)?
-                };
-                let removed = self.cache_evict_stale(now)?;
+                let conn = self.conn()?;
+                let _secure = secure.then(|| SecureDelete::on(&conn)).transpose()?;
+                let before = row_count(&conn, category, now)?;
+                // F2 (decision 224): category 5 is cache_evict_stale's one
+                // statement, run on this same connection so it is secure too.
+                let removed = crate::cache::evict_stale_on(&conn, now)?;
                 (before, removed as u64, false)
             }
             StoredCategory::ComparisonLog
@@ -759,15 +820,17 @@ impl Database {
         })
     }
 
-    /// Categories 1 to 4: one `IMMEDIATE` transaction from the root, counted
-    /// inside it. Any failure rolls it back.
-    fn delete_rows(
+    /// Categories 1 to 4: one `IMMEDIATE` transaction on `conn`, counted
+    /// inside it. Any failure rolls it back. It runs on a given connection
+    /// (not `&mut`), so a [`SecureDelete`] guard can be held on the same
+    /// connection while this runs (F2, decision 224).
+    fn delete_rows_on(
         &self,
+        conn: &Connection,
         category: StoredCategory,
         now: i64,
     ) -> Result<((u64, u64), u64, bool), DeleteError> {
-        let mut conn = self.conn()?;
-        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = rusqlite::Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
         let before = row_count(&tx, category, now)?;
         let deleted = match category {
             StoredCategory::ManuscriptAnalyses => tx.execute("DELETE FROM manuscripts", [])?,
@@ -887,43 +950,18 @@ impl Database {
         }
     }
 
-    /// `VACUUM`, then `PRAGMA wal_checkpoint(TRUNCATE)`, each retried once
-    /// if busy (decision 213). Done only when `VACUUM` succeeded and the
-    /// checkpoint's busy column is 0. The checkpoint runs after a failed
-    /// `VACUUM` too, so the delete itself reaches `gaply.db`.
+    /// `PRAGMA wal_checkpoint(TRUNCATE)`, retried once if busy (5E-fix-1,
+    /// decision 224: no VACUUM). Done only when the checkpoint's busy column
+    /// is 0; otherwise the rows stay deleted and the `-wal` holds them until a
+    /// later checkpoint — the one at each open among them — finishes. The
+    /// delete ran under `secure_delete=ON`, so this flushes already-zeroed
+    /// pages into `gaply.db`.
     pub fn stored_data_compact(&self) -> Compaction {
         let conn = match self.conn() {
             Ok(conn) => conn,
-            Err(_) => return Compaction::NotDone(CompactionCode::VacuumFailed),
+            Err(_) => return Compaction::NotDone(CompactionCode::CheckpointFailed),
         };
-        let vacuum = match conn.execute_batch("VACUUM") {
-            Err(e) if is_busy(&e) => conn.execute_batch("VACUUM"),
-            first => first,
-        };
-        let vacuum = match vacuum {
-            Ok(()) => None,
-            Err(e) if is_busy(&e) => Some(CompactionCode::VacuumBusy),
-            Err(_) => Some(CompactionCode::VacuumFailed),
-        };
-        let checkpoint = || -> rusqlite::Result<bool> {
-            let busy: i64 = conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| r.get(0))?;
-            Ok(busy == 0)
-        };
-        let checkpoint = match checkpoint() {
-            Ok(false) => checkpoint(),
-            Err(e) if is_busy(&e) => checkpoint(),
-            first => first,
-        };
-        let checkpoint = match checkpoint {
-            Ok(true) => None,
-            Ok(false) => Some(CompactionCode::CheckpointBusy),
-            Err(e) if is_busy(&e) => Some(CompactionCode::CheckpointBusy),
-            Err(_) => Some(CompactionCode::CheckpointFailed),
-        };
-        match vacuum.or(checkpoint) {
-            None => Compaction::Done,
-            Some(code) => Compaction::NotDone(code),
-        }
+        checkpoint_truncate(&conn)
     }
 }
 
@@ -1477,26 +1515,65 @@ mod tests {
         );
     }
 
-    /// Every file under `root` by path, with its SHA-256, and every folder.
+    /// A relative path keyed with '/' between its parts, never `display()`
+    /// (F5: `display()` gives `\` on Windows, so a file keys differently
+    /// there and a snapshot compares unequal).
+    fn rel_slashes(root: &Path, p: &Path) -> String {
+        p.strip_prefix(root)
+            .unwrap()
+            .components()
+            .map(|c| c.as_os_str().to_string_lossy().into_owned())
+            .collect::<Vec<_>>()
+            .join("/")
+    }
+
+    /// F6: after the last connection closes, SQLite truncates and removes the
+    /// WAL, which can lag; wait up to 5 s for it to be gone.
+    fn wait_no_wal(app: &Path) {
+        let wal = app.join("gaply.db-wal");
+        let start = std::time::Instant::now();
+        while wal.exists() && start.elapsed() < std::time::Duration::from_secs(5) {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
+
+    /// Every file under `root` by path (with '/'), with its SHA-256, and
+    /// every folder. SQLite's `-wal`/`-shm` are skipped by name: they come and
+    /// go with connections (F5/F6). A file that vanishes between the listing
+    /// and the read is skipped, not an error (F6).
     fn snapshot(root: &Path) -> BTreeMap<String, String> {
         let mut out = BTreeMap::new();
         let mut stack = vec![root.to_path_buf()];
         while let Some(dir) = stack.pop() {
             for e in std::fs::read_dir(&dir).unwrap().flatten() {
                 let p = e.path();
-                let rel = p.strip_prefix(root).unwrap().display().to_string();
+                let rel = rel_slashes(root, &p);
                 let t = e.file_type().unwrap();
                 if t.is_dir() {
                     out.insert(rel, "dir".into());
                     stack.push(p);
-                } else if t.is_symlink() {
+                    continue;
+                }
+                if t.is_symlink() {
                     out.insert(
                         rel,
                         format!("link {}", std::fs::read_link(&p).unwrap().display()),
                     );
-                } else {
-                    let bytes = std::fs::read(&p).unwrap();
-                    out.insert(rel, format!("{:x}", Sha256::digest(&bytes)));
+                    continue;
+                }
+                let name = p
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                if name == "gaply.db-wal" || name == "gaply.db-shm" {
+                    continue;
+                }
+                match std::fs::read(&p) {
+                    Ok(bytes) => {
+                        out.insert(rel, format!("{:x}", Sha256::digest(&bytes)));
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(e) => panic!("{}: {e}", p.display()),
                 }
             }
         }
@@ -1510,16 +1587,18 @@ mod tests {
         let want = plant(&s, &db);
         // Close every connection, so the WAL is checkpointed and gone.
         drop(db);
+        wait_no_wal(&s.app());
         let before = snapshot(&s.root);
         assert!(before.contains_key("app/gaply.db"), "{before:?}");
         assert!(
             !before.contains_key("app/gaply.db-wal"),
-            "every connection was closed: {before:?}"
+            "snapshot skips the WAL: {before:?}"
         );
 
         let db = s.open();
         let got = s.summary(&db, NOW);
         drop(db);
+        wait_no_wal(&s.app());
         let after = snapshot(&s.root);
 
         // Bytes first, so a write is what fails here, whatever it did to the
@@ -1865,11 +1944,15 @@ mod tests {
         out
     }
 
-    /// Every file under the scratch folder but the database's own.
+    /// Every file under the scratch folder but the database's own, left out
+    /// by file name (F5): `gaply.db`, `gaply.db-wal`, `gaply.db-shm`.
     fn files(s: &Scratch) -> BTreeMap<String, String> {
         snapshot(&s.root)
             .into_iter()
-            .filter(|(k, _)| !k.starts_with("app/gaply.db"))
+            .filter(|(k, _)| {
+                let name = k.rsplit('/').next().unwrap_or(k.as_str());
+                name != "gaply.db" && name != "gaply.db-wal" && name != "gaply.db-shm"
+            })
             .collect()
     }
 
@@ -2416,7 +2499,7 @@ mod tests {
             std::fs::remove_file(p)
         };
         let d = db
-            .delete_with(OrphanNoteImages, &s.app(), &s.tmp(), NOW, &remove)
+            .delete_with(OrphanNoteImages, &s.app(), &s.tmp(), NOW, true, &remove)
             .unwrap();
         assert_eq!((d.before.items, d.deleted), (2, 1));
         let left = ["x.png", "y.png"]
@@ -2427,8 +2510,8 @@ mod tests {
     }
 
     #[test]
-    fn a_vacuum_blocked_by_another_write_leaves_the_rows_deleted_and_answers_not_done() {
-        let s = Scratch::new("vacuum-busy");
+    fn a_checkpoint_blocked_by_another_write_leaves_the_rows_deleted_and_answers_not_done() {
+        let s = Scratch::new("checkpoint-write-busy");
         let db = s.open();
         plant(&s, &db);
         delete(&s, &db, CachedReports);
@@ -2439,9 +2522,10 @@ mod tests {
                  INSERT INTO cache (key, value, created_at, ttl_seconds) VALUES ('x', 'y', 1, 1);",
             )
             .unwrap();
+        // A held write transaction keeps the TRUNCATE checkpoint off the WAL.
         assert_eq!(
             db.stored_data_compact(),
-            Compaction::NotDone(CompactionCode::VacuumBusy)
+            Compaction::NotDone(CompactionCode::CheckpointBusy)
         );
         assert_eq!(
             s.summary(&db, NOW).get(CachedReports).items,
@@ -2458,10 +2542,20 @@ mod tests {
     }
 
     #[test]
-    fn a_checkpoint_blocked_by_an_open_reader_leaves_the_rows_deleted_and_answers_not_done() {
-        let s = Scratch::new("checkpoint-busy");
+    fn a_checkpoint_blocked_by_an_open_reader_is_finished_by_the_next_open() {
+        // F2 (decision 224): a reader blocks the delete's checkpoint, the rows
+        // stay deleted, and the next `Database::open` on the same file
+        // finishes the checkpoint so the deleted text leaves both files. The
+        // first Database and its pool stay open while the new one runs, and
+        // both files are read before either is dropped.
+        let s = Scratch::new("checkpoint-read-busy");
         let db = s.open();
         plant(&s, &db);
+        let gone: &[&str] = &[
+            "SENTINEL_SD_report_old",
+            "SENTINEL_SD_report_edge",
+            "SENTINEL_SD_api_old",
+        ];
         delete(&s, &db, ExpiredCache);
         let reader = db.conn().unwrap();
         reader.execute_batch("BEGIN").unwrap();
@@ -2479,10 +2573,49 @@ mod tests {
         );
         reader.execute_batch("COMMIT").unwrap();
         drop(reader);
-        assert_eq!(
-            db.stored_data_compact(),
-            Compaction::Done,
-            "control: unblocked"
+        // The next open's checkpoint (decision 224) finishes it, the first
+        // Database still open.
+        let db2 = s.open();
+        for n in gone {
+            assert_eq!(
+                in_files(&s, n.as_bytes()),
+                (false, false),
+                "{n} is still in a file after the next open's checkpoint"
+            );
+        }
+        drop(db2);
+        drop(db);
+    }
+
+    #[test]
+    fn without_secure_delete_the_deleted_text_stays_in_the_file() {
+        // The red half of F2's secure-delete check (decision 224): with
+        // `secure_delete` off, the delete frees the pages without zeroing
+        // them, so the deleted text is still in `gaply.db` after the
+        // checkpoint — there is no VACUUM to drop the free pages.
+        let needle = b"SENTINEL_SD_report_fresh";
+        // Control: secure (the shipped path) — gone from both files.
+        let s = Scratch::new("secure");
+        let db = s.open();
+        plant(&s, &db);
+        db.delete_with(CachedReports, &s.app(), &s.tmp(), NOW, true, &|p| {
+            std::fs::remove_file(p)
+        })
+        .unwrap();
+        assert_eq!(db.stored_data_compact(), Compaction::Done);
+        assert_eq!(in_files(&s, needle), (false, false), "secure: gone");
+        // Without secure_delete: the deleted text stays in gaply.db.
+        let s2 = Scratch::new("insecure");
+        let db2 = s2.open();
+        plant(&s2, &db2);
+        db2.delete_with(CachedReports, &s2.app(), &s2.tmp(), NOW, false, &|p| {
+            std::fs::remove_file(p)
+        })
+        .unwrap();
+        assert_eq!(db2.stored_data_compact(), Compaction::Done);
+        assert!(
+            in_files(&s2, needle).0,
+            "without secure_delete the deleted text stays in gaply.db"
         );
     }
 
@@ -2546,7 +2679,9 @@ mod tests {
                     std::fs::remove_file(p)
                 }
             };
-            let d = db.delete_with(c, &s.app(), &s.tmp(), NOW, &remove).unwrap();
+            let d = db
+                .delete_with(c, &s.app(), &s.tmp(), NOW, true, &remove)
+                .unwrap();
             let removed = fail_at - 1;
             assert!(d.removal_failed, "{c:?}");
             assert_eq!(d.deleted, removed, "{c:?}");

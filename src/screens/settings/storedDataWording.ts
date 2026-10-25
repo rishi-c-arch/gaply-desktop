@@ -151,8 +151,13 @@ export const DELETION_TEXT = {
   close: 'Close',
   confirm: 'Delete',
   deleted: (count: string) => `Deleted: ${count}.`,
+  // Decision 224: the not-done line keeps the count (deletedLine prepends it),
+  // then this sentence.
   notCompacted:
-    'Deleted. Gaply could not compact its database just now, so the deleted text may stay in unused space in its files until that space is reused.',
+    'Gaply could not finish clearing the deleted text from its database files just now. It will try again the next time it starts.',
+  // F9 (decision 226): the count prepare_delete returned differs from what
+  // the dialog showed, so nothing was deleted; it now shows the new count.
+  changed: 'These have changed since they were shown. Press Delete again to delete what is shown now.',
   // Drafted in 5D-1b, beyond decision 215's words, for approval:
   deleting: 'Deleting…',
   partlyRemoved: 'Gaply could not delete the rest just now. The counts show what is left.',

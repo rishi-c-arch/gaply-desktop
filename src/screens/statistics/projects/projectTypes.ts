@@ -65,6 +65,8 @@ export const PROJECT_CODES = [
   'project.rerun_refused',
   'project.rerun_in_progress',
   'project.rerun_data_unreadable',
+  // 5E-fix-1 (F1, decision 223): a project folder Gaply cannot change.
+  'project.folder_unchangeable',
 ] as const;
 
 export type ProjectCode = (typeof PROJECT_CODES)[number];

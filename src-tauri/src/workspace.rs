@@ -215,6 +215,16 @@ impl WorkspaceSession {
             inner.state = workspace::transition(inner.state, WorkspaceEvent::Activate(id))?;
         }
 
+        // F4 (decision 225): close any open project now, in the Activating
+        // phase, outside every lock, as `deactivate` does — never after the
+        // switch becomes Active. Nothing can open a project while the state
+        // reads Activating (opening needs Statistics active), so a project
+        // opened, or a rerun started, once the switch is Active is never
+        // closed by this activation. Any project still open here was left by
+        // an earlier state; closing it keeps decision 122's rule true however
+        // the state was reached.
+        self.projects.close_on_leave();
+
         // Outside the lock: while this runs, the state reads Activating.
         let refusal = if workspace::availability(id) != Availability::Available {
             Some(WorkspaceCode::Unavailable)
@@ -244,13 +254,9 @@ impl WorkspaceSession {
                 inner.state = workspace::transition(inner.state, WorkspaceEvent::Activated)?;
                 inner.statistics = Some(engine);
                 tracing::info!(workspace = workspace_word(id), "workspace: active");
-                let state = inner.state;
-                drop(inner);
-                // Activating a workspace closes any project (decision 122).
-                // None can be open here, since leaving closed it; this keeps
-                // the rule true however the state was reached.
-                self.projects.close_on_leave();
-                Ok(state)
+                // No close here (F4, decision 225): the project was closed in
+                // the Activating phase above, before the switch became Active.
+                Ok(inner.state)
             }
             Err(code) => {
                 inner.state =

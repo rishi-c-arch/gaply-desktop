@@ -362,6 +362,37 @@ fn remove_tree(dir: &Path) -> io::Result<()> {
     fs::remove_dir(dir)
 }
 
+/// Whether a folder can be emptied by its owner: the owner's read, write and
+/// search bits are all set (`mode & 0o700 == 0o700`) and it is the owner the
+/// projects folder has. Folder-only (F1, decision 223); a file's removal
+/// rests on its folder's write bit, which the walk already requires of every
+/// folder on the way down.
+#[cfg(unix)]
+fn folder_changeable(m: &fs::Metadata, owner: u32) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    m.mode() & 0o700 == 0o700 && m.uid() == owner
+}
+
+/// macOS: whether an entry carries a flag that blocks its removal even by its
+/// owner (`chflags uchg`/`schg`/`uappnd`/`sappnd`). On other Unixes std sees
+/// no such flag, so this is always false there — Linux's chattr flags and
+/// ACLs are not visible through `std` and fall to the folder checks above
+/// (inferred, decision 223).
+#[cfg(target_os = "macos")]
+fn immutable_or_append(m: &fs::Metadata) -> bool {
+    use std::os::macos::fs::MetadataExt;
+    const UF_IMMUTABLE: u32 = 0x0000_0002;
+    const UF_APPEND: u32 = 0x0000_0004;
+    const SF_IMMUTABLE: u32 = 0x0002_0000;
+    const SF_APPEND: u32 = 0x0004_0000;
+    m.st_flags() & (UF_IMMUTABLE | UF_APPEND | SF_IMMUTABLE | SF_APPEND) != 0
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn immutable_or_append(_m: &fs::Metadata) -> bool {
+    false
+}
+
 /// The bytes of every regular file under `dir`, from metadata alone: nothing
 /// is opened or hashed, and no symlink is followed. A missing folder is 0.
 /// Files named exactly `project.db-wal` or `project.db-shm` are skipped
@@ -593,9 +624,28 @@ fn read_record(conn: &Connection) -> Result<ProjectRecord, ProjectRefusal> {
     })
 }
 
+thread_local! {
+    /// How many times [`load_graph`] has run on this thread. The tests that
+    /// pin a command to one graph load read it (5E-fix-1, F3); it carries
+    /// nothing and costs one cell write per load.
+    static GRAPH_LOADS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+/// How many times `load_graph` has run on this thread since the last reset.
+/// Test instrumentation (5E-fix-1, F3); no command calls it.
+pub fn graph_loads_on_this_thread() -> u32 {
+    GRAPH_LOADS.with(|c| c.get())
+}
+
+/// Resets [`graph_loads_on_this_thread`] to zero.
+pub fn reset_graph_loads_on_this_thread() {
+    GRAPH_LOADS.with(|c| c.set(0));
+}
+
 /// The stored edges as a graph: `used` and `generated` before `derived`, so
 /// each derivation finds its links; a stored cycle is refused.
 fn load_graph(conn: &Connection) -> Result<ProvGraph, ProjectRefusal> {
+    GRAPH_LOADS.with(|c| c.set(c.get() + 1));
     let bad = || ProjectRefusal::from(ProjectCode::DbUnreadable);
     let mut edges = Vec::new();
     let mut st = conn
@@ -891,6 +941,7 @@ impl ProjectRoot {
         let mut tombstones = 0u64;
         let mut staged = 0u64;
         let mut skipped = 0u64;
+        let mut unremovable = 0u64;
         for entry in fs::read_dir(&self.projects).map_err(io_refusal)? {
             let entry = entry.map_err(io_refusal)?;
             let Some(name) = entry.file_name().to_str().map(str::to_string) else {
@@ -913,7 +964,19 @@ impl ProjectRoot {
                 skipped += 1;
                 continue;
             };
-            remove_tree(&entry.path()).map_err(io_refusal)?;
+            if remove_tree(&entry.path()).is_err() {
+                // F1 (decision 223): a leftover Gaply cannot empty is skipped
+                // and logged by a closed code, never a failed open; the next
+                // start tries it again. Its empty lock file is left, not
+                // removed, since the id is still on disk as the tombstone.
+                unremovable += 1;
+                tracing::warn!(
+                    project = %id.as_str(),
+                    code = "project.leftover_unremovable",
+                    "project store left a leftover it could not remove"
+                );
+                continue;
+            }
             if real_dir(&self.project_dir(&id)).is_err() {
                 let _ = lock.remove_file();
             }
@@ -926,11 +989,12 @@ impl ProjectRoot {
         if tombstones + staged > 0 {
             sync_dir(&self.projects).map_err(io_refusal)?;
         }
-        if tombstones + staged + skipped > 0 {
+        if tombstones + staged + skipped + unremovable > 0 {
             tracing::info!(
                 tombstones,
                 staged,
                 skipped,
+                unremovable,
                 "project store finished leftovers"
             );
         }
@@ -1174,12 +1238,14 @@ impl ProjectRoot {
             }
             Err(r) => return Err(r),
         }
-        let mut conn = open_conn(&db_path, self.busy)?;
-        check_db(&conn, id)?;
-        configure(&conn)?;
-        // An older schema is brought up to date before recovery reads it
+        // F1 (decision 223): a db Gaply cannot open or read, whose folder it
+        // also cannot change, is reported as the folder's fault, since the
+        // delete that would clear it refuses for the same reason. `open_db`
+        // brings an older schema up to date before recovery reads it
         // (decision 186): a write that adds no user data.
-        migrate(&mut conn)?;
+        let conn = self
+            .open_db(&db_path, id)
+            .map_err(|r| self.folder_fault(&dir, r))?;
         mark_open(&dir);
         let mut handle = ProjectHandle {
             id: id.clone(),
@@ -1257,6 +1323,14 @@ impl ProjectRoot {
     }
 
     fn read_summary(&self, dir: &Path, id: &ProjectId) -> Result<Summary, ProjectRefusal> {
+        // F1 (decision 223): a db it cannot read, in a folder it cannot
+        // change, is reported as the folder's fault (the new code), not as
+        // `db_unreadable` — the delete that would clear it refuses the same.
+        self.read_summary_inner(dir, id)
+            .map_err(|r| self.folder_fault(dir, r))
+    }
+
+    fn read_summary_inner(&self, dir: &Path, id: &ProjectId) -> Result<Summary, ProjectRefusal> {
         let db_path = dir.join(DB_FILE);
         match file_state(&db_path)? {
             FileState::Missing => return Err(ProjectCode::DbMissing.into()),
@@ -1305,6 +1379,89 @@ impl ProjectRoot {
         tree_bytes(&dir).map_err(io_refusal)
     }
 
+    /// Opens `project.db`, checks it and migrates it: the db-reading half of
+    /// [`ProjectRoot::open_parsed`] and [`ProjectRoot::read_summary_inner`],
+    /// factored out so both map a failure through
+    /// [`ProjectRoot::folder_fault`] (F1, decision 223).
+    fn open_db(&self, db_path: &Path, id: &ProjectId) -> Result<Connection, ProjectRefusal> {
+        let mut conn = open_conn(db_path, self.busy)?;
+        check_db(&conn, id)?;
+        configure(&conn)?;
+        migrate(&mut conn)?;
+        Ok(conn)
+    }
+
+    /// F1 (decision 223): a `db_unreadable` becomes `folder_unchangeable` when
+    /// the project's folder cannot be emptied either, so the user is told the
+    /// cause a delete would also meet. Every other refusal is left as it is (a
+    /// newer schema, a symlinked db, a missing db, a lock code).
+    fn folder_fault(&self, dir: &Path, r: ProjectRefusal) -> ProjectRefusal {
+        if r.code == ProjectCode::DbUnreadable && self.can_empty(dir).is_err() {
+            ProjectCode::FolderUnchangeable.into()
+        } else {
+            r
+        }
+    }
+
+    /// F1 (decision 223): whether Gaply can empty `dir` and everything under
+    /// it, so a delete will not rename it to a tombstone it then cannot
+    /// remove. It never changes a permission to get past a folder it cannot
+    /// change. It fails with `project.folder_unchangeable` when `dir`, or any
+    /// folder under it, lacks an owner read/write/search bit, is owned by
+    /// another user, or cannot be read; or when any entry under it carries a
+    /// macOS immutable or append-only flag. A symlink is never followed: a
+    /// link is an entry whose own flags are checked, never its target's. On
+    /// Windows it always passes (the attributes `std` can see do not block a
+    /// removal; the store's tests do not run there, decision 114).
+    #[cfg(unix)]
+    fn can_empty(&self, dir: &Path) -> Result<(), ProjectRefusal> {
+        use std::os::unix::fs::MetadataExt;
+        let owner = fs::symlink_metadata(&self.projects)
+            .map_err(io_refusal)?
+            .uid();
+        self.can_empty_walk(dir, owner)
+    }
+
+    #[cfg(unix)]
+    fn can_empty_walk(&self, dir: &Path, owner: u32) -> Result<(), ProjectRefusal> {
+        let md = fs::symlink_metadata(dir).map_err(io_refusal)?;
+        if immutable_or_append(&md) {
+            return Err(ProjectCode::FolderUnchangeable.into());
+        }
+        if !md.file_type().is_dir() {
+            return Ok(());
+        }
+        if !folder_changeable(&md, owner) {
+            return Err(ProjectCode::FolderUnchangeable.into());
+        }
+        let entries = match fs::read_dir(dir) {
+            Ok(entries) => entries,
+            Err(_) => return Err(ProjectCode::FolderUnchangeable.into()),
+        };
+        for entry in entries {
+            let entry = entry.map_err(io_refusal)?;
+            let ft = entry.file_type().map_err(io_refusal)?;
+            let p = entry.path();
+            if ft.is_dir() {
+                self.can_empty_walk(&p, owner)?;
+            } else {
+                // A file or a symlink: only an immutable/append flag can keep
+                // its folder — already writable, checked above — from
+                // unlinking it. A link's own flags, never its target's.
+                let m = fs::symlink_metadata(&p).map_err(io_refusal)?;
+                if immutable_or_append(&m) {
+                    return Err(ProjectCode::FolderUnchangeable.into());
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[cfg(not(unix))]
+    fn can_empty(&self, _dir: &Path) -> Result<(), ProjectRefusal> {
+        Ok(())
+    }
+
     /// Deletes the project `raw_id` names (decision 104): refused while this
     /// process holds it open (`project.still_open`), and while another copy
     /// of the app does (`project.open_elsewhere`: its lock cannot be taken
@@ -1325,6 +1482,12 @@ impl ProjectRoot {
             let _ = lock.remove_file();
             return Err(r);
         }
+        // F1 (decision 223): make sure the folder can be emptied before
+        // renaming it, so one Gaply cannot change is never left as a tombstone
+        // that fails every later open. Nothing is deleted and the folder keeps
+        // its name; Gaply never changes a permission to get past this. The
+        // lock drops at the return; its empty file is harmless and re-locked.
+        self.can_empty(&dir)?;
         let tomb = self.tombstone_dir(&id);
         fs::rename(&dir, &tomb).map_err(io_refusal)?;
         sync_dir(&self.projects).map_err(io_refusal)?;
@@ -3125,6 +3288,185 @@ mod tests {
             store.delete(&id).err().map(|r| r.code),
             Some(ProjectCode::NotFound)
         );
+    }
+
+    /// F1 (decision 223): a project folder, or an artifacts folder, Gaply
+    /// cannot change refuses the delete with `folder_unchangeable`, is never
+    /// renamed to a tombstone, keeps every file, and is reachable again once
+    /// its permissions are restored.
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_the_app_cannot_change_refuses_the_delete_and_keeps_everything() {
+        use std::os::unix::fs::PermissionsExt;
+        for (what, mode) in [
+            ("project", 0o500u32),
+            ("artifacts", 0o500),
+            ("artifacts", 0o300),
+        ] {
+            let t = TempRoot::new();
+            let store = ProjectRoot::open_root(&t.root()).unwrap();
+            let mut h = store.create("p").unwrap();
+            h.save(request(b"d", b"s", b"b")).unwrap();
+            let id = h.id().as_str().to_string();
+            h.close();
+            let dir = t.root().join(PROJECTS_DIR).join(&id);
+            let before = files_in(&dir.join(ARTIFACTS_DIR));
+            let target = if what == "project" {
+                dir.clone()
+            } else {
+                dir.join(ARTIFACTS_DIR)
+            };
+            fs::set_permissions(&target, fs::Permissions::from_mode(mode)).unwrap();
+            let refused = store.delete(&id);
+            // Restore before any assertion can unwind with the folder locked.
+            fs::set_permissions(&target, fs::Permissions::from_mode(0o700)).unwrap();
+            assert_eq!(
+                refused.err().map(|e| e.code),
+                Some(ProjectCode::FolderUnchangeable),
+                "{what} at {mode:o}"
+            );
+            assert!(dir.is_dir(), "{what} {mode:o}: the folder was renamed");
+            assert_eq!(
+                files_in(&t.root().join(PROJECTS_DIR))
+                    .iter()
+                    .filter(|n| n.starts_with(DELETING_PREFIX))
+                    .count(),
+                0,
+                "{what} {mode:o}: a tombstone was left"
+            );
+            assert_eq!(
+                files_in(&dir.join(ARTIFACTS_DIR)),
+                before,
+                "{what} {mode:o}: files changed"
+            );
+            // Restored: a fresh store opens, lists it, opens it, deletes it.
+            let again = ProjectRoot::open_root(&t.root()).unwrap();
+            assert_eq!(again.list().unwrap().len(), 1, "{what} {mode:o}");
+            again.open(&id).unwrap().close();
+            again.delete(&id).unwrap();
+        }
+    }
+
+    /// F1 (decision 223): a leftover the store cannot empty is skipped at the
+    /// next start, the open still succeeds and the healthy project is listed;
+    /// once its mode is restored, the next start finishes it.
+    #[cfg(unix)]
+    #[test]
+    fn a_leftover_the_store_cannot_remove_is_skipped_and_finished_later() {
+        use std::os::unix::fs::PermissionsExt;
+        let t = TempRoot::new();
+        let store = ProjectRoot::open_root(&t.root()).unwrap();
+        let mut healthy = store.create("healthy").unwrap();
+        healthy.save(request(b"d", b"s", b"b")).unwrap();
+        let healthy_id = healthy.id().as_str().to_string();
+        healthy.close();
+        drop(store);
+        // A tombstone whose inner folder cannot be read, so `remove_tree` fails.
+        let projects = t.root().join(PROJECTS_DIR);
+        let tomb = projects.join(format!("{DELETING_PREFIX}{}", "a".repeat(32)));
+        make_private_dir(&tomb).unwrap();
+        let inner = tomb.join(ARTIFACTS_DIR);
+        make_private_dir(&inner).unwrap();
+        create_new_private_file(&inner.join("x"), 0o600).unwrap();
+        fs::set_permissions(&inner, fs::Permissions::from_mode(0o000)).unwrap();
+        // The next start skips the leftover and lists the healthy project.
+        let again = ProjectRoot::open_root(&t.root()).unwrap();
+        let skipped = tomb.is_dir();
+        let listed = again.list().unwrap();
+        let count_now = listed.len();
+        let healthy_listed = listed.first().map(|e| e.id.as_str().to_string());
+        // Restore, so TempRoot's own clean-up (and the finish below) can run.
+        fs::set_permissions(&inner, fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(skipped, "the unremovable leftover was removed anyway");
+        assert_eq!(count_now, 1);
+        assert_eq!(healthy_listed.as_deref(), Some(healthy_id.as_str()));
+        again.open(&healthy_id).unwrap().close();
+        let fixed = ProjectRoot::open_root(&t.root()).unwrap();
+        assert!(
+            !tomb.exists(),
+            "the leftover was not finished after the fix"
+        );
+        assert_eq!(fixed.list().unwrap().len(), 1);
+    }
+
+    /// F1 (decision 223): a project whose database cannot be opened and whose
+    /// folder cannot be changed is reported with the new code, in `list` and
+    /// in `open`; a healthy project reads as today.
+    #[cfg(unix)]
+    #[test]
+    fn a_db_that_cannot_be_opened_in_a_locked_folder_is_folder_unchangeable() {
+        use std::os::unix::fs::PermissionsExt;
+        let t = TempRoot::new();
+        let store = ProjectRoot::open_root(&t.root()).unwrap();
+        let mut h = store.create("p").unwrap();
+        h.save(request(b"d", b"s", b"b")).unwrap();
+        let id = h.id().as_str().to_string();
+        h.close();
+        let dir = t.root().join(PROJECTS_DIR).join(&id);
+        assert_eq!(store.list().unwrap()[0].refused, None, "healthy as today");
+        // 0500: SQLite cannot make its -wal/-shm, so the db cannot be opened,
+        // and the folder cannot be changed either.
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o500)).unwrap();
+        let refused = ProjectRoot::open_root(&t.root()).unwrap().list().unwrap()[0].refused;
+        let opened = ProjectRoot::open_root(&t.root())
+            .unwrap()
+            .open(&id)
+            .err()
+            .map(|e| e.code);
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).unwrap();
+        assert_eq!(refused, Some(ProjectCode::FolderUnchangeable));
+        assert_eq!(opened, Some(ProjectCode::FolderUnchangeable));
+        assert_eq!(
+            ProjectRoot::open_root(&t.root()).unwrap().list().unwrap()[0].refused,
+            None,
+            "restored: db opens, lists as today"
+        );
+    }
+
+    /// F1 (decision 223): the new code's wire string.
+    #[test]
+    fn the_folder_unchangeable_code_is_on_the_wire() {
+        assert_eq!(
+            ProjectCode::FolderUnchangeable.wire(),
+            "project.folder_unchangeable"
+        );
+    }
+
+    /// F1 (decision 223), macOS: an entry with the user-immutable flag
+    /// refuses the delete the same way; a Drop guard clears it however the
+    /// test ends.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_macos_immutable_entry_refuses_the_delete() {
+        let t = TempRoot::new();
+        let store = ProjectRoot::open_root(&t.root()).unwrap();
+        let mut h = store.create("p").unwrap();
+        h.save(request(b"d", b"s", b"b")).unwrap();
+        let id = h.id().as_str().to_string();
+        h.close();
+        let dir = t.root().join(PROJECTS_DIR).join(&id);
+        let art = dir.join(ARTIFACTS_DIR);
+        struct Unflag(PathBuf);
+        impl Drop for Unflag {
+            fn drop(&mut self) {
+                let _ = std::process::Command::new("chflags")
+                    .arg("nouchg")
+                    .arg(&self.0)
+                    .status();
+            }
+        }
+        assert!(std::process::Command::new("chflags")
+            .arg("uchg")
+            .arg(&art)
+            .status()
+            .unwrap()
+            .success());
+        let _guard = Unflag(art.clone());
+        assert_eq!(
+            store.delete(&id).err().map(|e| e.code),
+            Some(ProjectCode::FolderUnchangeable)
+        );
+        assert!(dir.is_dir(), "the folder was renamed");
     }
 
     #[test]

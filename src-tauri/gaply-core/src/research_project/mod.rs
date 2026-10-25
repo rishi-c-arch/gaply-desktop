@@ -191,6 +191,12 @@ closed! {
         /// The project's copy of the data file was not read as a table this
         /// time; nothing was run.
         RerunDataUnreadable => "rerun_data_unreadable",
+        /// F1 (5E-fix-1, decision 223): the project's folder, or a folder or
+        /// entry under it, cannot be changed by Gaply — a missing owner
+        /// read/write/search bit, a different owner, or (on macOS) an
+        /// immutable or append-only flag — so Gaply can neither open nor
+        /// delete the project, and changed nothing.
+        FolderUnchangeable => "folder_unchangeable",
     }
 }
 
@@ -712,6 +718,7 @@ mod tests {
                 "project.rerun_refused",
                 "project.rerun_in_progress",
                 "project.rerun_data_unreadable",
+                "project.folder_unchangeable",
             ]
         );
         let kinds: Vec<&str> = ArtifactKind::ALL.iter().map(|c| c.wire()).collect();

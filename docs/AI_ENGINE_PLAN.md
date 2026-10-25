@@ -25662,3 +25662,119 @@ line; decision 219 moves the disk check to right before each command.
 **What it does not do.** No change to how any older feature writes or reads
 its data beyond the six guards (5D-2's). The findings F1 to F8 stay
 uncovered (decision 209's later step). The flag stays off until 5E.
+
+### D291 — Research OS, Phase 5E-fix-1: the 5E evaluation's F1 to F9, each with a regression test `[src]` `[test]` `[measured]`
+
+**Added** on `feat/research-os-5` after `fd9793e` (D290). Decisions 222 to 226
+of 25 Oct 2026 apply (`~/gaply-corpus/os/decisions.md`). By decision 222 the
+screen changes are checked in 5E-fix-2's real-app check and this step is
+committed on its tests, which for this step replaces decision 166; the session
+did not commit. The report is `~/gaply-corpus/os/eval5/fix1_report.md`.
+
+**F1 and F7 (decision 223).** `project_store.rs`'s `delete` renamed a folder
+to a tombstone before it knew it could empty it, and `finish_leftovers`
+returned `?` on a failed `remove_tree`, so one read-only project folder failed
+every later `open_root`. Now `delete` calls a new `can_empty` (walks the folder
+and everything under it, no symlink followed: a folder missing an owner r/w/x
+bit, owned by another user, or unreadable fails; on macOS an entry with
+`UF_IMMUTABLE`/`SF_IMMUTABLE`/`UF_APPEND`/`SF_APPEND` fails; Windows passes,
+inferred; Linux chattr/ACLs fall to the folder checks, inferred) and refuses
+with the new code `project.folder_unchangeable` before the rename, changing no
+permission. `finish_leftovers` skips an unremovable leftover, logs
+`project.leftover_unremovable` with a count, and tries again next start.
+`open_parsed` and `read_summary` map a `db_unreadable` to `folder_unchangeable`
+(through `folder_fault`) when the folder also cannot be emptied, so a read-only
+folder is reported as the folder's fault (F7), not the db's. The new code is
+last in `ProjectCode` (55 now), `projectCodes.json`, `projectTypes.ts`,
+`projectWording.ts`. Tests: `project_store::tests`'s
+`a_folder_the_app_cannot_change_refuses_the_delete_and_keeps_everything`,
+`a_leftover_the_store_cannot_remove_is_skipped_and_finished_later`,
+`a_db_that_cannot_be_opened_in_a_locked_folder_is_folder_unchangeable`,
+`the_folder_unchangeable_code_is_on_the_wire`, and macOS's
+`a_macos_immutable_entry_refuses_the_delete`.
+
+**F3.** `project_runs`, `project_report` and `project_provenance` rebuilt the
+provenance graph once per run (O(N³) in all), and `ProvGraph::add` rebuilt the
+whole adjacency per edge. Now `project_commands` loads the runs, the artifact
+rows and the graph once per command (`load`), and `artifacts_of`/
+`manifest_facts` take the loaded data; `ProvGraph` keeps one adjacency updated
+on `add`, while `is_acyclic` still builds its own from the edges and
+`push_unchecked` stays edges-only. Tests:
+`graph::tests::add_maintains_the_adjacency_without_rebuilding_it` and
+`project_rerun::each_command_loads_the_provenance_graph_once` (a thread-local
+counter in `load_graph`). **Measured on a 300-run project (this Mac):**
+`project_runs` 59 ms (was 1,326 s for 302), the report 121 ms (was 318 s), the
+provenance 222 ms (was 401 s), `run_result(1)` 13 ms; the 300th rerun 39 ms
+(was 3,752 ms). The 20-run project's three outputs are byte-identical to the
+pre-change ones.
+
+**F2 (decision 224).** The Stored data deletes of categories 1 to 5 no longer
+VACUUM: each runs under `PRAGMA secure_delete=ON` on its pooled connection
+(set and restored by a `SecureDelete` guard, delete_rows on an unchecked
+`IMMEDIATE` transaction so the guard's `&Connection` coexists; category 5 runs
+`cache::evict_stale_on` on the same connection), and `stored_data_compact` is
+`PRAGMA wal_checkpoint(TRUNCATE)` retried once (`checkpoint_truncate`). The
+VACUUM codes are gone. `db.rs`'s `open` runs one TRUNCATE checkpoint after the
+migration, best effort, logged by a closed code, so a busy one is finished
+later. The not-done line keeps the count and adds decision 224's sentence.
+Tests: `after_the_compaction_…`, `without_secure_delete_the_deleted_text_stays_in_the_file`,
+`a_checkpoint_blocked_by_an_open_reader_is_finished_by_the_next_open`,
+`a_checkpoint_blocked_by_another_write_…`. **Measured with the probe's
+concurrent writer:** on 590 MB every compaction is Done in 0.4–244 ms (the
+244 ms flushes a 580 MB WAL), and the writer never failed (0 busy errors,
+longest stall 245 ms); on 223 MB the same (checkpoints 0.2–6 ms, 0 failures).
+The eval's 590 MB had VACUUM 13.6–24.2 s and writes failing. So F2 needs no
+decision (the 4 s line was never approached).
+
+**F4 (decision 225).** `WorkspaceSession::activate`'s trailing
+`close_on_leave` closed an open project after the switch was Active, under a
+going rerun. It now runs in the Activating phase, before Active; nothing can
+open a project while Activating, so a project opened or a rerun started once
+Active is never closed by the activation. Lock order checked: `close_on_leave`
+takes only `open`, outside the session's lock; no `inner`/`open` nesting.
+Test: `project_commands::tests::activate_never_closes_a_project_under_a_going_rerun`
+(holds `open`'s lock, activates on another thread, detects the Active vs
+Activating branch, 50 iterations; reaches `activate` by UFCS so
+`only_workspace_activate_activates_a_workspace` still counts one caller,
+decision 201's precedent).
+
+**F5 and F6.** `stored_data.rs`'s `snapshot`/`files` test helpers key each
+file by its relative path with '/' from `Path::components` (not `display()`,
+F5), skip `gaply.db-wal`/`gaply.db-shm` by `file_name()`, tolerate a file that
+vanishes between the listing and the read (F6), and `the_summary_writes_nothing`
+waits for the WAL to clear. F5 is red only on Windows and F6 is a race, so
+neither is reproduced here; their evidence is the mutation checks and the next
+CI run (unverified until the branch is pushed).
+
+**F8 and F9 (decision 226).** `project_delete` checks the rerun-going refusal
+before it redeems the confirmation (under `open`'s lock, then the book — no
+deadlock), so a delete refused for a going rerun leaves its confirmation good
+(`project_rerun::a_delete_refused_for_a_going_rerun_leaves_its_confirmation_redeemable`).
+The Stored data dialog reads `prepare_delete`'s count and deletes only when it
+equals what it shows, else shows the new count and decision 226's sentence and
+asks again (`StoredDataDelete.vitest.tsx` "deletes only what the dialog shows";
+`readConfirmation` now returns the count).
+
+**Measured** (macOS, both `lib.rs` touched first, each run its own log,
+`CARGO_TERM_COLOR=never`): `cargo test -p gaply_core --no-fail-fast` 76
+targets, 2,134 passed, 3 ignored (D290: 2,132); `cargo test --workspace
+--no-fail-fast` 118 targets + 2 doc-tests, 2,957 passed, 12 ignored, 0 failed
+(D290: 2,947); `cargo test -p app --features devtools
+--no-fail-fast` 49 targets, 840 passed, 9 ignored, 0 failed (D290: 832); vitest
+122 files, 1,618 passed, 0 failed (D290: 1,615), run alone; `tsc --noEmit` and CI's eslint
+exit 0; `npm run build` exit 0, `sitemap.xml` written back (cmp equal). rustfmt
+by path: no changed file gained a hunk. `git diff fd9793e` empty under the six
+protected `stats_*` folders. The ten mutations (F1 ×2, F3, F2 ×2, F4, F8, F9,
+F5/F6 ×2) each red then green, SHA-256 equal after the restore. M1 and M2
+fail by a panic that double-faults in a temp dir's Drop and aborts the
+process (SIGABRT), so cargo prints no `test result:` line and their red is
+read from the nonzero exit with the test started, not that line.
+
+**For 5E-fix-2** (decision 222): the ADR text (ADR-009 §3, §6, §7, §9, §11,
+§13 and ADR-004's rerun row and §8.5) and the Accepted marks; the two ADR
+sentences this step makes stale (ADR-009's "secure_delete … and VACUUM at
+delete: not built" — secure_delete is built, VACUUM is replaced by the
+checkpoint; and §11's delete, now a `can_empty` check before the rename);
+decision 115's `use crate::…` rule; decision 178's sentences; decision 202's
+focus; and the real-app check that also runs 5B-4b's deferred parts and this
+step's screen changes.

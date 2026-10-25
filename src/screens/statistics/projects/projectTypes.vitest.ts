@@ -157,9 +157,10 @@ describe('the project view fixtures Rust writes', () => {
   it('the code list is PROJECT_CODES, in order, the three lock codes and the six rerun codes included', () => {
     const codes = fixture('projectCodes.json') as string[];
     expect(codes).toEqual([...PROJECT_CODES]);
-    expect(codes).toHaveLength(54);
+    expect(codes).toHaveLength(55);
     expect(codes.slice(45, 48)).toEqual(['project.open_elsewhere', 'project.being_deleted', 'project.lock_failed']);
-    expect(codes.slice(-6)).toEqual([
+    // The six rerun codes, then F1's folder code last (5E-fix-1, decision 223).
+    expect(codes.slice(-7, -1)).toEqual([
       'project.rerun_unsupported',
       'project.rerun_not_succeeded',
       'project.rerun_busy',
@@ -167,6 +168,7 @@ describe('the project view fixtures Rust writes', () => {
       'project.rerun_in_progress',
       'project.rerun_data_unreadable',
     ]);
+    expect(codes.at(-1)).toBe('project.folder_unchangeable');
   });
 });
 

@@ -239,6 +239,41 @@ describe('the dialog', () => {
       ['delete', 'expired_cache', CONFIRMATION],
     ]);
   });
+
+  it('deletes only what the dialog shows: a changed count asks again (decision 226, F9)', async () => {
+    const calls: string[] = [];
+    const prepareItems = 5; // differs from the section's shown 3
+    const deleter: StoredDataDeleter = {
+      prepareDelete(category) {
+        calls.push('prepare');
+        return Promise.resolve({ confirmation: CONFIRMATION, category, items: prepareItems, bytes: 1_000, expiresInMs: 300_000 });
+      },
+      delete(category) {
+        calls.push('delete');
+        return done({ deleted: prepareItems, outcome: 'done' })(category);
+      },
+    };
+    render(
+      <StoredDataSection
+        bridge={bridgeOf(summary({ cached_reports: [3, 1_000] }), summary({ cached_reports: [0, 0] }))}
+        deleter={deleter}
+        desktop
+      />
+    );
+    const dialog = await openDialog('cached_reports');
+    expect(within(dialog).getByTestId('stored-delete-count').textContent).toBe('3 reports. Size: under 0.01 MB.');
+    // First Delete: prepare says 5, not the shown 3 → nothing deleted; the
+    // dialog shows the new count and asks again.
+    fireEvent.click(within(dialog).getByTestId('stored-delete-confirm'));
+    expect((await within(dialog).findByTestId('stored-delete-changed')).textContent).toBe(DELETION_TEXT.changed);
+    expect(within(dialog).getByTestId('stored-delete-count').textContent).toBe('5 reports. Size: under 0.01 MB.');
+    expect(calls).toEqual(['prepare']);
+    expect(screen.getByTestId('stored-delete-dialog')).toBeTruthy();
+    // The dialog now shows 5, which prepare still returns: the next Delete deletes.
+    fireEvent.click(within(dialog).getByTestId('stored-delete-confirm'));
+    await waitFor(() => expect(screen.queryByTestId('stored-delete-dialog')).toBeNull());
+    expect(calls).toEqual(['prepare', 'prepare', 'delete']);
+  });
 });
 
 describe('a refusal', () => {
@@ -310,13 +345,16 @@ describe('after a delete', () => {
   });
 
   it.each(DATABASE_CATEGORIES.map((id) => [id]))(
-    '%s: a compaction that did not finish gives its sentence',
+    '%s: a checkpoint that did not finish keeps the count and adds its sentence (decision 224)',
     async (id) => {
-      const { d } = deleterOf(done({ deleted: 3, outcome: 'not_done', code: 'stored_data.vacuum_busy' }));
+      const words = STORED_CATEGORIES.find((c) => c.id === id)!;
+      const { d } = deleterOf(done({ deleted: 3, outcome: 'not_done', code: 'stored_data.checkpoint_busy' }));
       render(<StoredDataSection bridge={bridgeOf(summary())} deleter={d} desktop />);
       const dialog = await openDialog(id);
       fireEvent.click(within(dialog).getByTestId('stored-delete-confirm'));
-      await waitFor(() => expect(screen.getByTestId('stored-data-message').textContent).toBe(DELETION_TEXT.notCompacted));
+      await waitFor(() =>
+        expect(screen.getByTestId('stored-data-message').textContent).toBe(`Deleted: 3 ${words.many}. ${DELETION_TEXT.notCompacted}`)
+      );
     }
   );
 

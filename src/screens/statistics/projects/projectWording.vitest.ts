@@ -48,7 +48,7 @@ const VERDICT = /\b(significant|correct|incorrect|accurate|inaccurate|reliable|u
 
 describe('every project code has one plain sentence', () => {
   it('for each code in projectCodes.json, and for no other', () => {
-    expect(CODES).toHaveLength(54);
+    expect(CODES).toHaveLength(55);
     expect(Object.keys(PROJECT_WORDS).sort()).toEqual([...CODES].sort());
     for (const code of CODES) {
       const s = projectSentence(err({ code, needed: 2097152, limit: 1048576 }));
