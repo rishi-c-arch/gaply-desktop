@@ -94,6 +94,25 @@ impl Database {
         let pool = r2d2::Pool::builder().max_size(8).build(manager)?;
         let db = Self { pool, path: Some(path.to_path_buf()) };
         let report = db.migrate()?;
+        // F2 (5E-fix-1, decision 224): one TRUNCATE checkpoint at open, so a
+        // Stored data delete's checkpoint left busy earlier is finished here.
+        // Best effort: it never fails the open, and is logged by a closed
+        // code only (no path, no value).
+        if let Ok(conn) = db.conn() {
+            use crate::stored_data::{Compaction, CompactionCode};
+            match crate::stored_data::checkpoint_at_open(&conn) {
+                Compaction::Done => {}
+                Compaction::NotDone(CompactionCode::CheckpointBusy) => {
+                    tracing::info!(code = "stored_data.checkpoint_busy", "open checkpoint busy")
+                }
+                Compaction::NotDone(CompactionCode::CheckpointFailed) => {
+                    tracing::info!(
+                        code = "stored_data.checkpoint_failed",
+                        "open checkpoint failed"
+                    )
+                }
+            }
+        }
         // No path: it is the app-data folder's, under the user's home
         // (evaluation of Phases 2 and 3, F3).
         tracing::info!(

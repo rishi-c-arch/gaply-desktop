@@ -29,9 +29,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppShell, Button, Card, GaplyGlobe, HeaderBar, NavRail, Panel } from '../../design-system';
+import { CELL_PADDING } from '../../design-system/primitives';
 import { pickManuscriptPath } from '../common/pickFile';
 import { saveTextFile } from '../../utils/saveTextFile';
 import { ttestBridge, type TTestBridge } from './ttestBridge';
+import { savableOnScreen, SaveToProject } from './projects/SaveToProject';
 import type { ColumnProfile, DatasetView, ExportFormat } from './describeTypes';
 import type {
   GroupLevel,
@@ -397,7 +399,7 @@ const TTestFlow: React.FC<TTestFlowProps> = ({
             <thead>
               <tr>
                 {['Column', 'Kind', 'n', 'Missing', 'Levels'].map((h) => (
-                  <th key={h} scope="col" style={{ textAlign: 'left', paddingRight: 12 }}>
+                  <th key={h} scope="col" style={{ textAlign: 'left', ...CELL_PADDING }}>
                     {h}
                   </th>
                 ))}
@@ -406,13 +408,13 @@ const TTestFlow: React.FC<TTestFlowProps> = ({
             <tbody>
               {view.profile.columns.map((c) => (
                 <tr key={c.alias}>
-                  <td>
+                  <td style={CELL_PADDING}>
                     <span className="gds-mono">{c.alias}</span> {c.header}
                   </td>
-                  <td>{c.kind === 'numeric' ? 'Numeric' : c.kind === 'categorical' ? 'Categorical' : 'Empty'}</td>
-                  <td className="gds-mono">{c.n}</td>
-                  <td className="gds-mono">{c.missing}</td>
-                  <td>
+                  <td style={CELL_PADDING}>{c.kind === 'numeric' ? 'Numeric' : c.kind === 'categorical' ? 'Categorical' : 'Empty'}</td>
+                  <td className="gds-mono" style={CELL_PADDING}>{c.n}</td>
+                  <td className="gds-mono" style={CELL_PADDING}>{c.missing}</td>
+                  <td style={CELL_PADDING}>
                     {(c.levels ?? []).slice(0, 12).map((l) => `${l.label} (${l.count})`).join(', ')}
                     {(c.levels?.length ?? 0) > 12 ? `, and ${(c.levels?.length ?? 0) - 12} more` : ''}
                   </td>
@@ -570,6 +572,8 @@ const TTestFlow: React.FC<TTestFlowProps> = ({
             <>
               <p data-testid="tt-run-ended">{ttestRunEndedSentence(runView.state)}</p>
               <DiagnosticList items={runView.diagnostics} names={names} testId="tt-run-diagnostics" />
+              {/* A failed run is saved where its failure is shown (decision 140). */}
+              {runView.terminal && savableOnScreen(runView) && <SaveToProject runId={runView.runId} testId="tt-project-save" />}
             </>
           )}
           <div style={{ display: 'flex', gap: 8 }}>
@@ -596,6 +600,7 @@ const TTestFlow: React.FC<TTestFlowProps> = ({
         <Card>
           {title}
           <ResultCard result={result} names={names} />
+          <SaveToProject runId={result.runId} testId="tt-project-save" />
           <div style={{ display: 'flex', gap: 8 }}>
             <Button variant="secondary" onClick={() => setStage('settings')} data-testid="tt-results-back">
               Change the settings
@@ -709,7 +714,7 @@ export const ResultCard: React.FC<{ result: TTestResultView; names: TTestNames }
         <thead>
           <tr>
             {['Group', 'Level', 'n', 'Mean', 'SD'].map((h) => (
-              <th key={h} scope="col" style={{ textAlign: 'left', paddingRight: 12 }}>
+              <th key={h} scope="col" style={{ textAlign: 'left', ...CELL_PADDING }}>
                 {h}
               </th>
             ))}
@@ -718,13 +723,13 @@ export const ResultCard: React.FC<{ result: TTestResultView; names: TTestNames }
         <tbody>
           {r.groups.map((g, i) => (
             <tr key={g.level}>
-              <th scope="row" style={{ textAlign: 'left' }}>
+              <th scope="row" style={{ textAlign: 'left', ...CELL_PADDING }}>
                 {i + 1}
               </th>
-              <td>{g.label}</td>
-              <td className="gds-mono">{g.n}</td>
-              <td className="gds-mono">{n(g.mean)}</td>
-              <td className="gds-mono">{n(g.sd)}</td>
+              <td style={CELL_PADDING}>{g.label}</td>
+              <td className="gds-mono" style={CELL_PADDING}>{g.n}</td>
+              <td className="gds-mono" style={CELL_PADDING}>{n(g.mean)}</td>
+              <td className="gds-mono" style={CELL_PADDING}>{n(g.sd)}</td>
             </tr>
           ))}
         </tbody>

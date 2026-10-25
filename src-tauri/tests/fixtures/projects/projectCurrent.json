@@ -1,0 +1,40 @@
+[
+  {
+    "projectId": "0123456789abcdef0123456789abcdef",
+    "rerun": null
+  },
+  {
+    "projectId": "0123456789abcdef0123456789abcdef",
+    "rerun": {
+      "runId": 7,
+      "rerunOf": 1,
+      "status": "going",
+      "storedRunId": null,
+      "code": null
+    }
+  },
+  {
+    "projectId": "0123456789abcdef0123456789abcdef",
+    "rerun": {
+      "runId": 7,
+      "rerunOf": 1,
+      "status": "saved",
+      "storedRunId": 3,
+      "code": null
+    }
+  },
+  {
+    "projectId": "0123456789abcdef0123456789abcdef",
+    "rerun": {
+      "runId": 7,
+      "rerunOf": 1,
+      "status": "not_saved",
+      "storedRunId": null,
+      "code": "project.disk_full"
+    }
+  },
+  {
+    "projectId": null,
+    "rerun": null
+  }
+]

@@ -23,6 +23,7 @@ use gaply_core::{now_epoch, GaplyError};
 use crate::http_fetcher::RefVerifier;
 use crate::models::proxy_client::ProxyReqwestClient;
 use crate::state::AppState;
+use crate::stored_data_commands::Work;
 
 /// Reference input from the Citation Manager (refverifyBridge). Only bibliographic
 /// metadata — never manuscript text.
@@ -97,6 +98,7 @@ pub fn extract_manuscript(
     path: String,
     title: Option<String>,
 ) -> Result<ExtractionResult, GaplyError> {
+    let _going = state.running.enter(Work::Analysis);
     let text = docparse::parse_path(std::path::Path::new(&path))?;
     let result = extract::extract_from_text(&text);
     let manuscript_title = title
@@ -117,6 +119,7 @@ pub fn validate_manuscript(
     path: String,
     title: Option<String>,
 ) -> Result<StatsValidityReport, GaplyError> {
+    let _going = state.running.enter(Work::Analysis);
     let text = docparse::parse_path(std::path::Path::new(&path))?;
     let extraction = extract::extract_from_text(&text);
     let manuscript_title = title
@@ -745,6 +748,7 @@ pub async fn run_publishready(
     // `journal_fingerprint` command takes exactly this value.
     journal_key: Option<String>,
 ) -> Result<PublishReadyOutcome, GaplyError> {
+    let _going = state.running.enter(Work::Analysis);
     // async + spawn_blocking (mirrors run_full_analysis): the 6-lane pipeline is
     // CPU-heavy and the reviewer does blocking keychain/HTTP, so run off the
     // event-loop thread. Extract the Arc handles first (State<'_> isn't Send).
@@ -2266,6 +2270,7 @@ pub async fn citation_fetch_oa(
     subjects: Vec<crate::oa_fetch::FetchSubject>,
     on_event: tauri::ipc::Channel<OaFetchEvent>,
 ) -> Result<Vec<crate::oa_fetch::FetchReport>, GaplyError> {
+    let _going = state.running.enter(Work::OpenAccessFetch);
     use crate::oa_fetch::{fetch_one, FetchDeps, FetchSubject, FetchTarget};
 
     // WHERE DID IT STOP? (§11 D137)
@@ -2625,9 +2630,16 @@ pub fn log_storage_error(operation: String, key_kind: String, message: String) {
 /// .json), returns TEXT (never bytes), and refuses files over IMPORT_MAX_BYTES
 /// (the size cap enforced server-side, mirroring importCitations' entry cap). A
 /// future need for a different file's text gets its OWN scoped command.
+///
+/// Its two refusals are closed codes (decision 231), in the JSON shape of a
+/// Stored data refusal, `{"code":"import.unsupported_type"}` and
+/// `{"code":"import.too_large"}`: no extension, size or path in them. The
+/// Citation Manager gives each its own sentence.
 #[tauri::command]
 pub fn read_import_file(path: String) -> Result<String, GaplyError> {
     const IMPORT_MAX_BYTES: u64 = 16 * 1024 * 1024; // 16 MiB — even a huge .bib is small text
+    let refuse =
+        |code: &str| GaplyError::Validation(serde_json::json!({ "code": code }).to_string());
     let p = std::path::Path::new(&path);
     let ext = p
         .extension()
@@ -2635,16 +2647,11 @@ pub fn read_import_file(path: String) -> Result<String, GaplyError> {
         .map(|e| e.to_ascii_lowercase())
         .unwrap_or_default();
     if !matches!(ext.as_str(), "bib" | "bibtex" | "ris" | "json") {
-        return Err(GaplyError::Validation(format!(
-            "Unsupported import file type: .{ext} — Gaply imports .bib, .ris, or .json"
-        )));
+        return Err(refuse("import.unsupported_type"));
     }
     let meta = std::fs::metadata(p)?;
     if meta.len() > IMPORT_MAX_BYTES {
-        return Err(GaplyError::Validation(format!(
-            "Import file is too large ({} bytes; max {IMPORT_MAX_BYTES}). Split it and import in batches.",
-            meta.len()
-        )));
+        return Err(refuse("import.too_large"));
     }
     Ok(std::fs::read_to_string(p)?)
 }
@@ -2767,6 +2774,7 @@ pub async fn build_gapfinder_corpus(
     paths: Option<Vec<String>>,
     links: Option<Vec<String>>,
 ) -> Result<crate::paper_corpus::CorpusReport, GaplyError> {
+    let _going = state.running.enter(Work::GapFinder);
     // async + spawn_blocking (mirrors run_full_analysis): link fetches + PDF
     // parsing are blocking, so run off the event-loop thread. Extract the Arc
     // handles first (State<'_> isn't Send). Logic unchanged.

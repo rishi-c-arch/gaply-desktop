@@ -1,7 +1,11 @@
 import { useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
+import { isTauri } from '../utils/isTauri';
 
-const GA_ID = process.env.REACT_APP_GA_MEASUREMENT_ID;
+// Never in the desktop app (Research OS, decision 155): a route there can hold
+// a project's id, and the desktop app sends no route analytics at all. With no
+// id, neither the script nor any page_view is requested.
+const GA_ID = isTauri ? undefined : process.env.REACT_APP_GA_MEASUREMENT_ID;
 
 let gtagScriptRequested = false;
 

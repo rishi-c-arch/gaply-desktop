@@ -12,6 +12,28 @@
 //! Phase 4B-2 added `src/stats_ttest_commands.rs` and
 //! `gaply-core/src/stats_ttest/` (decision 79).
 //!
+//! Phase 5B-1 named `src/project_store.rs` as **the only Research OS module
+//! allowed to write** ([`THE_ONE_WRITER`], decisions 99 to 112, ADR-009). It
+//! is not scanned for writes, since writing is its job; instead the scan
+//! checks that it is the one file named, that it exists, and that it does
+//! write, so the exemption cannot outlive the module or be granted to an
+//! empty file. Every Research OS file above stays write-free. The pure
+//! project model, `gaply-core/src/research_project/`, is not listed here:
+//! `gaply-core/tests/contracts_are_pure.rs` holds it to no route to a file
+//! at all (`std::fs`, `File::`, `OpenOptions`, `std::io`, a path), which is
+//! stricter than this scan, and this scan's `symlink` substring would match
+//! its wire word `project.symlink_refused`. The test below pins that the
+//! purity guard still covers it.
+//!
+//! Phase 5B-2 added `src/project_commands.rs`, the one module that calls the
+//! store: it writes nothing itself, so every write a command makes goes
+//! through the store.
+//!
+//! Phase 5C-1a added `rusqlite` and `execute(` to the forbidden words: a
+//! rerun's save at the end is made through the run manager's end hook, and
+//! no scanned file, `runs.rs` above all, may reach the database itself. The exports it renders reach the disk only through the
+//! frontend's save dialog, today's export path (decision 125).
+//!
 //! It constrains what was TYPED in these files, not what a callee does: the
 //! commands call Level 1's ingest, which reads and does not write, and the
 //! privacy matrix (`stats_desc_privacy_matrix.rs`) checks at run time that
@@ -28,7 +50,13 @@ const SCANNED: &[&str] = &[
     // Phase 4B-2: the t-test's commands and its operation.
     "src/stats_ttest_commands.rs",
     "gaply-core/src/stats_ttest",
+    // Phase 5B-2: the project commands write nothing themselves.
+    "src/project_commands.rs",
 ];
+
+/// The one Research OS module allowed to write (Phase 5B-1, ADR-009): the
+/// project store. By name, and never in [`SCANNED`].
+const THE_ONE_WRITER: &str = "src/project_store.rs";
 
 const FORBIDDEN: &[&str] = &[
     "fs::write",
@@ -44,6 +72,12 @@ const FORBIDDEN: &[&str] = &[
     "write_all",
     "hard_link",
     "symlink",
+    // Phase 5C-1a: a database write. A rerun's save at the end is the
+    // store's, called through the end hook `runs.rs` only calls: no scanned
+    // file may reach SQLite itself, so `runs.rs` cannot become a writer by
+    // that route either.
+    "rusqlite",
+    "execute(",
 ];
 
 fn rust_files(p: &Path, out: &mut Vec<PathBuf>) {
@@ -123,6 +157,34 @@ fn the_run_manager_commands_contracts_and_operation_write_no_file() {
 }
 
 #[test]
+fn the_project_store_is_the_one_research_os_module_that_writes() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    assert!(
+        !SCANNED
+            .iter()
+            .any(|s| THE_ONE_WRITER.starts_with(s) || s.starts_with(THE_ONE_WRITER)),
+        "the writer is exempt by name, not scanned"
+    );
+    let src = std::fs::read_to_string(root.join(THE_ONE_WRITER)).unwrap_or_else(|e| {
+        panic!("{THE_ONE_WRITER}: {e} — the exemption names a file that is gone")
+    });
+    let writes = violations(THE_ONE_WRITER, &src).len();
+    assert!(
+        writes >= 5,
+        "{THE_ONE_WRITER} has {writes} write sites — an exemption for a file that does not write is a hole"
+    );
+    // The pure project model is held to no filesystem route at all by the
+    // purity guard, which must still scan it.
+    let purity = std::fs::read_to_string(root.join("gaply-core/tests/contracts_are_pure.rs"))
+        .expect("the purity guard");
+    assert!(
+        purity.contains("const RESEARCH_PROJECT: &str = \"src/research_project\";")
+            && purity.contains(".chain(sources(RESEARCH_PROJECT, 2).iter())"),
+        "contracts_are_pure.rs no longer scans research_project for a route to a file"
+    );
+}
+
+#[test]
 fn the_scan_catches_each_way_to_write() {
     for snippet in [
         "fn f() { std::fs::write(p, b).unwrap(); }",
@@ -130,6 +192,8 @@ fn the_scan_catches_each_way_to_write() {
         "fn f() { std::fs::OpenOptions::new().append(true).open(p); }",
         "fn f() { std::fs::rename(a, b).ok(); }",
         "fn f() { f.write_all(b) }",
+        "fn f(c: &rusqlite::Connection) {}",
+        "fn f() { tx.execute(\"UPDATE runs SET state = 1\", []); }",
     ] {
         assert_eq!(violations("x.rs", snippet).len(), 1, "{snippet}");
     }

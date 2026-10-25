@@ -185,6 +185,27 @@
   padding: 6px 0;
   border-bottom: 1px solid var(--g-border);
 }
+/* Stored data (Research OS, Phase 5D-1a): one line per category. */
+.gds-set__stored {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.gds-set__stored-line {
+  display: grid;
+  gap: 2px;
+  font-size: var(--g-text-size-sm);
+  padding: 6px 0;
+  border-bottom: 1px solid var(--g-border);
+}
+.gds-set__stored-name {
+  font-weight: 600;
+}
+.gds-set__stored-count {
+  font-variant-numeric: tabular-nums;
+}
 .gds-set__storage {
   margin: 12px 0;
   font-size: var(--g-text-size-sm);

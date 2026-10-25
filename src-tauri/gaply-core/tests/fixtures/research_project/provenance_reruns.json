@@ -1,0 +1,364 @@
+{
+  "activity": {
+    "gaply:run-1": {
+      "gaply:capability": "stats.describe",
+      "gaply:capabilityVersion": 1,
+      "gaply:engineVersion": 1,
+      "gaply:outputSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "gaply:parametersSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "gaply:savedAt": "2026-10-19T07:52:46Z",
+      "gaply:state": "succeeded",
+      "prov:endTime": "2026-10-19T07:52:42Z",
+      "prov:startTime": "2026-10-19T07:52:41Z"
+    },
+    "gaply:run-2": {
+      "gaply:capability": "stats.analyze.independent_t",
+      "gaply:capabilityVersion": 1,
+      "gaply:engineVersion": 1,
+      "gaply:outputSha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "gaply:parametersSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "gaply:savedAt": "2026-10-19T07:52:56Z",
+      "gaply:state": "succeeded",
+      "prov:endTime": "2026-10-19T07:52:52Z",
+      "prov:startTime": "2026-10-19T07:52:51Z"
+    },
+    "gaply:run-3": {
+      "gaply:capability": "stats.describe",
+      "gaply:capabilityVersion": 1,
+      "gaply:engineVersion": 1,
+      "gaply:outputSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "gaply:parametersSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "gaply:savedAt": "2026-10-19T07:53:06Z",
+      "gaply:state": "succeeded",
+      "prov:endTime": "2026-10-19T07:53:02Z",
+      "prov:startTime": "2026-10-19T07:53:01Z"
+    },
+    "gaply:run-4": {
+      "gaply:capability": "stats.analyze.independent_t",
+      "gaply:capabilityVersion": 1,
+      "gaply:engineVersion": 1,
+      "gaply:outputSha256": "9999999999999999999999999999999999999999999999999999999999999999",
+      "gaply:parametersSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "gaply:savedAt": "2026-10-19T07:53:16Z",
+      "gaply:state": "succeeded",
+      "prov:endTime": "2026-10-19T07:53:12Z",
+      "prov:startTime": "2026-10-19T07:53:11Z"
+    },
+    "gaply:run-5": {
+      "gaply:capability": "stats.describe",
+      "gaply:capabilityVersion": 1,
+      "gaply:failureCode": "stats.ttest.both_groups_constant",
+      "gaply:savedAt": "2026-10-19T07:53:26Z",
+      "gaply:state": "failed",
+      "prov:endTime": "2026-10-19T07:53:22Z",
+      "prov:startTime": "2026-10-19T07:53:21Z"
+    }
+  },
+  "agent": {
+    "gaply:app-0.1.0": {
+      "gaply:application": "Gaply",
+      "gaply:version": "0.1.0",
+      "prov:type": "prov:SoftwareAgent"
+    }
+  },
+  "entity": {
+    "gaply:artifact-1111111111111111111111111111111111111111111111111111111111111111": {
+      "gaply:bytes": 100,
+      "gaply:format": "csv",
+      "gaply:schemaVersion": 1,
+      "gaply:sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+      "prov:type": "gaply:data_file"
+    },
+    "gaply:artifact-2222222222222222222222222222222222222222222222222222222222222222": {
+      "gaply:bytes": 100,
+      "gaply:format": "json",
+      "gaply:schemaVersion": 1,
+      "gaply:sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+      "prov:type": "gaply:operation_spec"
+    },
+    "gaply:artifact-3333333333333333333333333333333333333333333333333333333333333333": {
+      "gaply:bytes": 100,
+      "gaply:format": "json",
+      "gaply:schemaVersion": 1,
+      "gaply:sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "prov:type": "gaply:result_bundle"
+    },
+    "gaply:artifact-4444444444444444444444444444444444444444444444444444444444444444": {
+      "gaply:bytes": 100,
+      "gaply:format": "json",
+      "gaply:schemaVersion": 1,
+      "gaply:sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+      "prov:type": "gaply:run_manifest"
+    },
+    "gaply:artifact-5555555555555555555555555555555555555555555555555555555555555555": {
+      "gaply:bytes": 100,
+      "gaply:format": "json",
+      "gaply:schemaVersion": 1,
+      "gaply:sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+      "prov:type": "gaply:operation_spec"
+    },
+    "gaply:artifact-6666666666666666666666666666666666666666666666666666666666666666": {
+      "gaply:bytes": 100,
+      "gaply:format": "json",
+      "gaply:schemaVersion": 1,
+      "gaply:sha256": "6666666666666666666666666666666666666666666666666666666666666666",
+      "prov:type": "gaply:result_bundle"
+    },
+    "gaply:artifact-7777777777777777777777777777777777777777777777777777777777777777": {
+      "gaply:bytes": 100,
+      "gaply:format": "json",
+      "gaply:schemaVersion": 1,
+      "gaply:sha256": "7777777777777777777777777777777777777777777777777777777777777777",
+      "prov:type": "gaply:run_manifest"
+    },
+    "gaply:artifact-8888888888888888888888888888888888888888888888888888888888888888": {
+      "gaply:bytes": 100,
+      "gaply:format": "json",
+      "gaply:schemaVersion": 1,
+      "gaply:sha256": "8888888888888888888888888888888888888888888888888888888888888888",
+      "prov:type": "gaply:result_bundle"
+    },
+    "gaply:artifact-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": {
+      "gaply:bytes": 100,
+      "gaply:format": "json",
+      "gaply:schemaVersion": 1,
+      "gaply:sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "prov:type": "gaply:result_bundle"
+    },
+    "gaply:artifact-cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc": {
+      "gaply:bytes": 100,
+      "gaply:format": "json",
+      "gaply:schemaVersion": 1,
+      "gaply:sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "prov:type": "gaply:run_manifest"
+    },
+    "gaply:artifact-dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd": {
+      "gaply:bytes": 100,
+      "gaply:format": "json",
+      "gaply:schemaVersion": 1,
+      "gaply:sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "prov:type": "gaply:run_failure"
+    }
+  },
+  "prefix": {
+    "gaply": "urn:gaply:prov:"
+  },
+  "used": {
+    "_:used-1-1111111111111111111111111111111111111111111111111111111111111111-data": {
+      "prov:activity": "gaply:run-1",
+      "prov:entity": "gaply:artifact-1111111111111111111111111111111111111111111111111111111111111111",
+      "prov:role": "gaply:data"
+    },
+    "_:used-1-2222222222222222222222222222222222222222222222222222222222222222-spec": {
+      "prov:activity": "gaply:run-1",
+      "prov:entity": "gaply:artifact-2222222222222222222222222222222222222222222222222222222222222222",
+      "prov:role": "gaply:spec"
+    },
+    "_:used-2-1111111111111111111111111111111111111111111111111111111111111111-data": {
+      "prov:activity": "gaply:run-2",
+      "prov:entity": "gaply:artifact-1111111111111111111111111111111111111111111111111111111111111111",
+      "prov:role": "gaply:data"
+    },
+    "_:used-2-5555555555555555555555555555555555555555555555555555555555555555-spec": {
+      "prov:activity": "gaply:run-2",
+      "prov:entity": "gaply:artifact-5555555555555555555555555555555555555555555555555555555555555555",
+      "prov:role": "gaply:spec"
+    },
+    "_:used-3-1111111111111111111111111111111111111111111111111111111111111111-data": {
+      "prov:activity": "gaply:run-3",
+      "prov:entity": "gaply:artifact-1111111111111111111111111111111111111111111111111111111111111111",
+      "prov:role": "gaply:data"
+    },
+    "_:used-3-2222222222222222222222222222222222222222222222222222222222222222-spec": {
+      "prov:activity": "gaply:run-3",
+      "prov:entity": "gaply:artifact-2222222222222222222222222222222222222222222222222222222222222222",
+      "prov:role": "gaply:spec"
+    },
+    "_:used-4-1111111111111111111111111111111111111111111111111111111111111111-data": {
+      "prov:activity": "gaply:run-4",
+      "prov:entity": "gaply:artifact-1111111111111111111111111111111111111111111111111111111111111111",
+      "prov:role": "gaply:data"
+    },
+    "_:used-4-5555555555555555555555555555555555555555555555555555555555555555-spec": {
+      "prov:activity": "gaply:run-4",
+      "prov:entity": "gaply:artifact-5555555555555555555555555555555555555555555555555555555555555555",
+      "prov:role": "gaply:spec"
+    },
+    "_:used-5-1111111111111111111111111111111111111111111111111111111111111111-data": {
+      "prov:activity": "gaply:run-5",
+      "prov:entity": "gaply:artifact-1111111111111111111111111111111111111111111111111111111111111111",
+      "prov:role": "gaply:data"
+    },
+    "_:used-5-2222222222222222222222222222222222222222222222222222222222222222-spec": {
+      "prov:activity": "gaply:run-5",
+      "prov:entity": "gaply:artifact-2222222222222222222222222222222222222222222222222222222222222222",
+      "prov:role": "gaply:spec"
+    }
+  },
+  "wasAssociatedWith": {
+    "_:associated-1-0.1.0": {
+      "prov:activity": "gaply:run-1",
+      "prov:agent": "gaply:app-0.1.0"
+    },
+    "_:associated-2-0.1.0": {
+      "prov:activity": "gaply:run-2",
+      "prov:agent": "gaply:app-0.1.0"
+    },
+    "_:associated-3-0.1.0": {
+      "prov:activity": "gaply:run-3",
+      "prov:agent": "gaply:app-0.1.0"
+    },
+    "_:associated-4-0.1.0": {
+      "prov:activity": "gaply:run-4",
+      "prov:agent": "gaply:app-0.1.0"
+    },
+    "_:associated-5-0.1.0": {
+      "prov:activity": "gaply:run-5",
+      "prov:agent": "gaply:app-0.1.0"
+    }
+  },
+  "wasDerivedFrom": {
+    "_:derived-1-3333333333333333333333333333333333333333333333333333333333333333-1111111111111111111111111111111111111111111111111111111111111111": {
+      "prov:activity": "gaply:run-1",
+      "prov:generatedEntity": "gaply:artifact-3333333333333333333333333333333333333333333333333333333333333333",
+      "prov:usedEntity": "gaply:artifact-1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "_:derived-1-3333333333333333333333333333333333333333333333333333333333333333-2222222222222222222222222222222222222222222222222222222222222222": {
+      "prov:activity": "gaply:run-1",
+      "prov:generatedEntity": "gaply:artifact-3333333333333333333333333333333333333333333333333333333333333333",
+      "prov:usedEntity": "gaply:artifact-2222222222222222222222222222222222222222222222222222222222222222"
+    },
+    "_:derived-1-4444444444444444444444444444444444444444444444444444444444444444-1111111111111111111111111111111111111111111111111111111111111111": {
+      "prov:activity": "gaply:run-1",
+      "prov:generatedEntity": "gaply:artifact-4444444444444444444444444444444444444444444444444444444444444444",
+      "prov:usedEntity": "gaply:artifact-1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "_:derived-1-4444444444444444444444444444444444444444444444444444444444444444-2222222222222222222222222222222222222222222222222222222222222222": {
+      "prov:activity": "gaply:run-1",
+      "prov:generatedEntity": "gaply:artifact-4444444444444444444444444444444444444444444444444444444444444444",
+      "prov:usedEntity": "gaply:artifact-2222222222222222222222222222222222222222222222222222222222222222"
+    },
+    "_:derived-2-6666666666666666666666666666666666666666666666666666666666666666-1111111111111111111111111111111111111111111111111111111111111111": {
+      "prov:activity": "gaply:run-2",
+      "prov:generatedEntity": "gaply:artifact-6666666666666666666666666666666666666666666666666666666666666666",
+      "prov:usedEntity": "gaply:artifact-1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "_:derived-2-6666666666666666666666666666666666666666666666666666666666666666-5555555555555555555555555555555555555555555555555555555555555555": {
+      "prov:activity": "gaply:run-2",
+      "prov:generatedEntity": "gaply:artifact-6666666666666666666666666666666666666666666666666666666666666666",
+      "prov:usedEntity": "gaply:artifact-5555555555555555555555555555555555555555555555555555555555555555"
+    },
+    "_:derived-2-7777777777777777777777777777777777777777777777777777777777777777-1111111111111111111111111111111111111111111111111111111111111111": {
+      "prov:activity": "gaply:run-2",
+      "prov:generatedEntity": "gaply:artifact-7777777777777777777777777777777777777777777777777777777777777777",
+      "prov:usedEntity": "gaply:artifact-1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "_:derived-2-7777777777777777777777777777777777777777777777777777777777777777-5555555555555555555555555555555555555555555555555555555555555555": {
+      "prov:activity": "gaply:run-2",
+      "prov:generatedEntity": "gaply:artifact-7777777777777777777777777777777777777777777777777777777777777777",
+      "prov:usedEntity": "gaply:artifact-5555555555555555555555555555555555555555555555555555555555555555"
+    },
+    "_:derived-3-4444444444444444444444444444444444444444444444444444444444444444-1111111111111111111111111111111111111111111111111111111111111111": {
+      "prov:activity": "gaply:run-3",
+      "prov:generatedEntity": "gaply:artifact-4444444444444444444444444444444444444444444444444444444444444444",
+      "prov:usedEntity": "gaply:artifact-1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "_:derived-3-4444444444444444444444444444444444444444444444444444444444444444-2222222222222222222222222222222222222222222222222222222222222222": {
+      "prov:activity": "gaply:run-3",
+      "prov:generatedEntity": "gaply:artifact-4444444444444444444444444444444444444444444444444444444444444444",
+      "prov:usedEntity": "gaply:artifact-2222222222222222222222222222222222222222222222222222222222222222"
+    },
+    "_:derived-3-8888888888888888888888888888888888888888888888888888888888888888-1111111111111111111111111111111111111111111111111111111111111111": {
+      "prov:activity": "gaply:run-3",
+      "prov:generatedEntity": "gaply:artifact-8888888888888888888888888888888888888888888888888888888888888888",
+      "prov:usedEntity": "gaply:artifact-1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "_:derived-3-8888888888888888888888888888888888888888888888888888888888888888-2222222222222222222222222222222222222222222222222222222222222222": {
+      "prov:activity": "gaply:run-3",
+      "prov:generatedEntity": "gaply:artifact-8888888888888888888888888888888888888888888888888888888888888888",
+      "prov:usedEntity": "gaply:artifact-2222222222222222222222222222222222222222222222222222222222222222"
+    },
+    "_:derived-4-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1111111111111111111111111111111111111111111111111111111111111111": {
+      "prov:activity": "gaply:run-4",
+      "prov:generatedEntity": "gaply:artifact-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "prov:usedEntity": "gaply:artifact-1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "_:derived-4-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-5555555555555555555555555555555555555555555555555555555555555555": {
+      "prov:activity": "gaply:run-4",
+      "prov:generatedEntity": "gaply:artifact-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "prov:usedEntity": "gaply:artifact-5555555555555555555555555555555555555555555555555555555555555555"
+    },
+    "_:derived-4-cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc-1111111111111111111111111111111111111111111111111111111111111111": {
+      "prov:activity": "gaply:run-4",
+      "prov:generatedEntity": "gaply:artifact-cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "prov:usedEntity": "gaply:artifact-1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "_:derived-4-cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc-5555555555555555555555555555555555555555555555555555555555555555": {
+      "prov:activity": "gaply:run-4",
+      "prov:generatedEntity": "gaply:artifact-cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "prov:usedEntity": "gaply:artifact-5555555555555555555555555555555555555555555555555555555555555555"
+    },
+    "_:derived-5-dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd-1111111111111111111111111111111111111111111111111111111111111111": {
+      "prov:activity": "gaply:run-5",
+      "prov:generatedEntity": "gaply:artifact-dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "prov:usedEntity": "gaply:artifact-1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "_:derived-5-dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd-2222222222222222222222222222222222222222222222222222222222222222": {
+      "prov:activity": "gaply:run-5",
+      "prov:generatedEntity": "gaply:artifact-dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "prov:usedEntity": "gaply:artifact-2222222222222222222222222222222222222222222222222222222222222222"
+    }
+  },
+  "wasGeneratedBy": {
+    "_:generated-1-3333333333333333333333333333333333333333333333333333333333333333": {
+      "prov:activity": "gaply:run-1",
+      "prov:entity": "gaply:artifact-3333333333333333333333333333333333333333333333333333333333333333"
+    },
+    "_:generated-1-4444444444444444444444444444444444444444444444444444444444444444": {
+      "prov:activity": "gaply:run-1",
+      "prov:entity": "gaply:artifact-4444444444444444444444444444444444444444444444444444444444444444"
+    },
+    "_:generated-2-6666666666666666666666666666666666666666666666666666666666666666": {
+      "prov:activity": "gaply:run-2",
+      "prov:entity": "gaply:artifact-6666666666666666666666666666666666666666666666666666666666666666"
+    },
+    "_:generated-2-7777777777777777777777777777777777777777777777777777777777777777": {
+      "prov:activity": "gaply:run-2",
+      "prov:entity": "gaply:artifact-7777777777777777777777777777777777777777777777777777777777777777"
+    },
+    "_:generated-3-4444444444444444444444444444444444444444444444444444444444444444": {
+      "prov:activity": "gaply:run-3",
+      "prov:entity": "gaply:artifact-4444444444444444444444444444444444444444444444444444444444444444"
+    },
+    "_:generated-3-8888888888888888888888888888888888888888888888888888888888888888": {
+      "prov:activity": "gaply:run-3",
+      "prov:entity": "gaply:artifact-8888888888888888888888888888888888888888888888888888888888888888"
+    },
+    "_:generated-4-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": {
+      "prov:activity": "gaply:run-4",
+      "prov:entity": "gaply:artifact-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "_:generated-4-cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc": {
+      "prov:activity": "gaply:run-4",
+      "prov:entity": "gaply:artifact-cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    },
+    "_:generated-5-dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd": {
+      "prov:activity": "gaply:run-5",
+      "prov:entity": "gaply:artifact-dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    }
+  },
+  "wasInformedBy": {
+    "_:informed-3-1": {
+      "prov:informant": "gaply:run-1",
+      "prov:informed": "gaply:run-3"
+    },
+    "_:informed-4-2": {
+      "prov:informant": "gaply:run-2",
+      "prov:informed": "gaply:run-4"
+    },
+    "_:informed-5-1": {
+      "prov:informant": "gaply:run-1",
+      "prov:informed": "gaply:run-5"
+    }
+  }
+}

@@ -128,6 +128,51 @@ const Formatted: React.FC<{ text: string }> = ({ text }) => {
   );
 };
 
+/* Decision 231: the page's fixed sentences for a failure. None carries any
+ * part of the error; each promise in them is pinned by citationErrors.vitest.tsx. */
+export const RESOLVE_PAPER_FAILED = 'Gaply could not look up this paper from its file. Try again later, or add it by its DOI.';
+export const CHECK_DOI_FAILED = 'Gaply could not check this DOI just now. Check that it is typed correctly, or try again later.';
+export const IMPORT_FAILED = 'Gaply could not import this file. Nothing was added to your library.';
+export const IMPORT_TOO_LARGE = 'This file is too large to import (the limit is 16 MB). Split it and import the parts one at a time.';
+export const IMPORT_UNSUPPORTED_TYPE = 'Gaply imports .bib, .ris and .json files. Choose a file of one of these types.';
+export const OPEN_ACCESS_FAILED = 'Gaply could not look for open-access copies just now. Try again later.';
+export const RETRACTIONS_FAILED = 'Gaply could not re-check retractions just now. Try again later.';
+
+/** Decision 231: the console lines' closed reason codes, logged after each
+ *  line's tag instead of the error or its message. */
+export const CITATION_LOG = {
+  localList: 'citations.local_list_failed',
+  localWrite: 'citations.local_write_failed',
+  localTags: 'citations.local_tags_failed',
+  enrich: 'citations.enrich_failed',
+  doiVerify: 'citations.doi_verify_failed',
+  retractionSweep: 'citations.retraction_sweep_failed',
+} as const;
+
+/** `read_import_file`'s two closed codes (decision 231), read from the JSON
+ *  in the error's message, from an Error, the wire object or a string; any
+ *  other failure is null. Never returns or keeps the message itself. */
+function importCode(e: unknown): 'import.too_large' | 'import.unsupported_type' | null {
+  const message =
+    typeof e === 'string'
+      ? e
+      : e && typeof e === 'object' && typeof (e as { message?: unknown }).message === 'string'
+        ? (e as { message: string }).message
+        : null;
+  if (message === null) return null;
+  try {
+    const v = JSON.parse(message) as { code?: unknown } | null;
+    return v && (v.code === 'import.too_large' || v.code === 'import.unsupported_type') ? v.code : null;
+  } catch {
+    return null;
+  }
+}
+
+const IMPORT_SENTENCE = {
+  'import.too_large': IMPORT_TOO_LARGE,
+  'import.unsupported_type': IMPORT_UNSUPPORTED_TYPE,
+} as const;
+
 let idCounter = 0;
 function newId(seed: string): string {
   return `cite-${seed.replace(/[^a-z0-9]/gi, '')}-${idCounter++}`;
@@ -229,8 +274,8 @@ const Inner: React.FC<CitationManagerPageProps> = ({
           const have = new Set(existing.map((c) => c.id));
           return [...existing, ...rows.filter((r) => !have.has(r.id)).map(storedToCitation)];
         });
-      } catch (e) {
-        console.warn('[citations] local library unavailable (in-memory only):', e);
+      } catch {
+        console.warn('[citations] local library unavailable (in-memory only):', CITATION_LOG.localList);
       }
     })();
     return () => {
@@ -339,9 +384,9 @@ const Inner: React.FC<CitationManagerPageProps> = ({
     let status: Citation['syncStatus'] = 'local_only';
     try {
       await local.upsert(c, c.tags ?? []);
-    } catch (e) {
+    } catch {
       // No local store (plain browser) → in-memory only; still honest.
-      console.warn('[citations] local write unavailable:', e);
+      console.warn('[citations] local write unavailable:', CITATION_LOG.localWrite);
     }
     if (session) {
       const res = await lib.add(citationToRow(session.user.id, c));
@@ -366,8 +411,8 @@ const Inner: React.FC<CitationManagerPageProps> = ({
   const applyTags = async (c: Citation, tags: string[]) => {
     try {
       await local.setTags(c.id, tags);
-    } catch (e) {
-      console.warn('[citations] local tags unavailable:', e);
+    } catch {
+      console.warn('[citations] local tags unavailable:', CITATION_LOG.localTags);
     }
     setCitations((xs) => xs.map((x) => (x.id === c.id ? { ...x, tags, syncStatus: 'local_only' } : x)));
   };
@@ -430,20 +475,20 @@ const Inner: React.FC<CitationManagerPageProps> = ({
         if (full.status === 'verified') {
           enriched = { ...enriched, csl: { ...metadataToCslItem(full.metadata, enriched.id), id: enriched.csl.id } };
         }
-      } catch (err) {
-        console.warn('[citations] full-metadata enrich unavailable:', err);
+      } catch {
+        console.warn('[citations] full-metadata enrich unavailable:', CITATION_LOG.enrich);
       }
       const r = await persistAndAdd(enriched);
       setDoiInput('');
       if (r === 'added') {
         toast(enriched.retracted ? 'Added — but this work is RETRACTED' : 'Citation verified & added', enriched.retracted ? 'flagged' : 'certain');
       }
-    } catch (e) {
+    } catch {
       // Previously swallowed: the verify bridge can reject (e.g. the backend
-      // command isn't available yet). Surface a real error instead of nothing.
-      const msg = e instanceof Error ? e.message : String(e);
-      console.error('[citations] DOI verify failed:', msg);
-      toast(`Couldn’t verify this DOI: ${msg}`, 'flagged');
+      // command isn't available yet). Surface a closed sentence instead of
+      // nothing; the DOI stays in its box to check (decision 231).
+      console.error('[citations] DOI verify failed:', CITATION_LOG.doiVerify);
+      toast(CHECK_DOI_FAILED, 'flagged');
     } finally {
       setBusy(false);
     }
@@ -494,9 +539,8 @@ const Inner: React.FC<CitationManagerPageProps> = ({
       };
       const r = await persistAndAdd(c);
       if (r === 'added') toast('Paper resolved & added from verified metadata', 'certain');
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      toast(`Couldn’t resolve this paper: ${msg}`, 'flagged');
+    } catch {
+      toast(RESOLVE_PAPER_FAILED, 'flagged');
     } finally {
       setBusy(false);
     }
@@ -558,7 +602,7 @@ const Inner: React.FC<CitationManagerPageProps> = ({
   const runImport = async (fileOrPath: File | string) => {
     const fmt = detectFormat(typeof fileOrPath === 'string' ? fileOrPath : fileOrPath.name);
     if (!fmt) {
-      toast('Import a .bib, .ris, or .json file', 'flagged');
+      toast(IMPORT_UNSUPPORTED_TYPE, 'flagged');
       return;
     }
     setImporting(true);
@@ -579,7 +623,9 @@ const Inner: React.FC<CitationManagerPageProps> = ({
         toast(`Imported the first ${IMPORT_ENTRY_CAP} of ${plan.total} — import the rest in a second file`, 'assessed');
       }
     } catch (e) {
-      toast(`Import failed: ${e instanceof Error ? e.message : String(e)}`, 'flagged');
+      // Every failure reaches here before applyImported, so nothing was added.
+      const code = importCode(e);
+      toast(code ? IMPORT_SENTENCE[code] : IMPORT_FAILED, 'flagged');
     } finally {
       setImporting(false);
       setImportProgress(null);
@@ -798,8 +844,8 @@ const Inner: React.FC<CitationManagerPageProps> = ({
       toast(summariseOaBatch(reports), 'assessed');
       // Anything newly linked changes what the AI panel can check.
       if (reports.some((r) => r.checkable)) setRelinked((n) => n + 1);
-    } catch (e) {
-      toast(e instanceof Error ? e.message : 'The open-access fetch failed.', 'flagged');
+    } catch {
+      toast(OPEN_ACCESS_FAILED, 'flagged');
     } finally {
       setOaProgress(null);
       setBusy(false);
@@ -895,11 +941,10 @@ const Inner: React.FC<CitationManagerPageProps> = ({
         `Retraction check — ${parts.join(', ')}`,
         found ? 'flagged' : failed || noDoi ? 'assessed' : 'certain',
       );
-    } catch (e) {
+    } catch {
       // Only a non-per-entry failure reaches here now (allSettled never rejects).
-      const msg = e instanceof Error ? e.message : String(e);
-      console.error('[citations] retraction sweep failed:', msg);
-      toast(`Retraction re-check failed: ${msg}`, 'flagged');
+      console.error('[citations] retraction sweep failed:', CITATION_LOG.retractionSweep);
+      toast(RETRACTIONS_FAILED, 'flagged');
     } finally {
       setBusy(false);
     }
@@ -933,6 +978,10 @@ const Inner: React.FC<CitationManagerPageProps> = ({
     return true;
   };
 
+  /** Every failed export (Research OS, 5B-4b; decision 176). The error's own
+   *  message is never shown or logged: it can hold a path or a file name. */
+  const EXPORT_FAILED = 'Gaply could not save the export. No file was written.';
+
   const exportBibliography = async () => {
     if (nothingToExport()) return;
     // Full-CSL when the style is prepared (Set 3), legacy formatter otherwise
@@ -943,9 +992,13 @@ const Inner: React.FC<CitationManagerPageProps> = ({
     } catch {
       text = formatBibliography(visible.map((c) => c.csl), style);
     }
-    const saved = await saveExportToFile(`bibliography-${style}.txt`, text);
-    if (!wasSaved(saved)) return; // cancelled — say nothing, nothing happened
-    toast(`Bibliography exported — ${visible.length} of ${citations.length}`, 'certain');
+    try {
+      const saved = await saveExportToFile(`bibliography-${style}.txt`, text);
+      if (!wasSaved(saved)) return; // cancelled — say nothing, nothing happened
+      toast(`Bibliography exported — ${visible.length} of ${citations.length}`, 'certain');
+    } catch {
+      toast(EXPORT_FAILED, 'flagged');
+    }
   };
 
   const exportAs = async (format: 'bibtex' | 'ris') => {
@@ -961,9 +1014,8 @@ const Inner: React.FC<CitationManagerPageProps> = ({
         `${format === 'bibtex' ? 'BibTeX' : 'RIS'} exported — ${visible.length} of ${citations.length}`,
         'certain',
       );
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      toast(`Export failed: ${msg}`, 'flagged');
+    } catch {
+      toast(EXPORT_FAILED, 'flagged');
     }
   };
 
@@ -1861,8 +1913,8 @@ const Inner: React.FC<CitationManagerPageProps> = ({
                       const reports = await aiBridge.fetchOpenAccess([{ kind: 'citation', citationId: selected.id }]);
                       toast(summariseOaBatch(reports), 'assessed');
                       if (reports.some((r) => r.checkable)) setRelinked((n) => n + 1);
-                    } catch (e) {
-                      toast(e instanceof Error ? e.message : 'The open-access fetch failed.', 'flagged');
+                    } catch {
+                      toast(OPEN_ACCESS_FAILED, 'flagged');
                     } finally {
                       setBusy(false);
                     }

@@ -24,6 +24,7 @@ pub mod citation_library;
 pub mod config;
 pub mod consistency;
 pub mod contracts;
+pub mod research_project;
 pub mod page_locate;
 pub mod db;
 pub mod editor;
@@ -85,6 +86,8 @@ pub mod stats_registry;
 pub mod stats_ttest;
 pub mod stats_verdict;
 pub mod stats_verify;
+// Research OS Phase 5D-1a: what the older features keep, counted; read only.
+pub mod stored_data;
 pub mod swarm;
 pub mod validate;
 pub mod verify_agent;

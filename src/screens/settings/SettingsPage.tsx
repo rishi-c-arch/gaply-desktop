@@ -35,6 +35,11 @@ import {
 } from './settingsStore';
 import { ConnectivityIndicator } from './connectivity';
 import { AiStatusPanel } from '../ai/AiStatusPanel';
+import { projectsShown } from '../statistics/projects/projectGate';
+import { PROJECT_TEXT, SETTINGS_SENTENCE } from '../statistics/projects/projectWording';
+import { StoredDataSection } from './StoredDataSection';
+import { storedDataShown } from './storedDataGate';
+import { STORED_DATA_TEXT } from './storedDataWording';
 import './settings.css';
 
 /** Bundled offline packs (shipped inside the app, usable with zero network). */
@@ -43,13 +48,17 @@ const OFFLINE_PACKS = [
   { id: 'reporting-standards', name: 'Reporting-standards guidelines', detail: 'statistical reporting rules · bundled' },
 ];
 
-const SECTIONS = [
+/** The outline. Projects and Stored data each show behind the same gate as
+ *  their section (Research OS, Phase 5D-1b, decision 216). */
+const SECTIONS: ReadonlyArray<{ id: string; label: string; shown?: () => boolean }> = [
   { id: 'profile', label: 'Profile & ORCID' },
   { id: 'privacy', label: 'Sync & Privacy' },
   { id: 'offline', label: 'Offline Data' },
   { id: 'subscription', label: 'Subscription' },
   { id: 'appearance', label: 'Appearance' },
   { id: 'ai', label: 'Local AI' },
+  { id: 'projects', label: PROJECT_TEXT.settingsHeading, shown: () => projectsShown() },
+  { id: 'stored-data', label: STORED_DATA_TEXT.heading, shown: () => storedDataShown() },
   { id: 'about', label: 'About' },
 ];
 
@@ -173,7 +182,7 @@ const Inner: React.FC<SettingsPageProps> = ({ profileService }) => {
           outline={
             <Panel title="Sections">
               <nav className="gds-set__nav" data-testid="settings-nav">
-                {SECTIONS.map((s) => (
+                {SECTIONS.filter((s) => s.shown?.() ?? true).map((s) => (
                   <button
                     key={s.id}
                     className="gds-set__navitem"
@@ -379,6 +388,26 @@ const Inner: React.FC<SettingsPageProps> = ({ profileService }) => {
               <section id="set-ai">
                 <AiStatusPanel />
               </section>
+
+              {/* Research OS projects (decisions 100, 133): only when the
+                  project screens show. */}
+              {projectsShown() && (
+                <section id="set-projects">
+                  <Card title={PROJECT_TEXT.settingsHeading}>
+                    <p className="gds-set__muted" data-testid="settings-projects-sentence">
+                      {SETTINGS_SENTENCE}
+                    </p>
+                  </Card>
+                </section>
+              )}
+
+              {/* Research OS, Phase 5D-1a (decisions 206, 207): what the older
+                  features keep on this computer, counted. Read only. */}
+              {storedDataShown() && (
+                <section id="set-stored-data">
+                  <StoredDataSection />
+                </section>
+              )}
 
               <section id="set-about">
                 <Card title="About">

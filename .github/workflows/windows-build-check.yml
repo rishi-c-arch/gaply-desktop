@@ -42,7 +42,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # This workflow builds/tests the Tauri desktop project, which lives under
       # src-tauri/. That directory is NOT present on every ref (e.g. main, before
@@ -77,7 +77,7 @@ jobs:
 
       - name: Install Node.js
         # Node 22.x to match package.json "engines": { "node": "22.x" }.
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: '22'
           cache: npm
@@ -156,7 +156,7 @@ jobs:
 
       - name: Upload Windows installer(s)
         if: steps.detect_tauri.outputs.present == 'true' && steps.detect_models.outputs.present == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: gaply-windows-installer
           path: |
@@ -164,6 +164,26 @@ jobs:
             src-tauri/target/release/bundle/nsis/*.exe
           if-no-files-found: warn
           retention-days: 14
+
+      # Research OS decision 114 (D282): compile the app crate and every one of
+      # its test targets, without running them, so the project store's and the
+      # project commands' cfg(windows) branches at least compile on Windows.
+      # The binaries still die at load here (above), so nothing runs.
+      # tauri-build only checks that the bundle resources exist, so empty
+      # placeholders stand in for the two gitignored models, as app-tests.yml
+      # does; this step comes after the installer steps, whose gate reads those
+      # same paths, so it cannot make them build an installer.
+      # generate_context! needs no frontend dist in a test build: Linux
+      # app-tests.yml compiles the same crate with none.
+      - name: Compile the app crate and its tests (no run)
+        if: steps.detect_tauri.outputs.present == 'true'
+        working-directory: src-tauri
+        shell: bash
+        run: |
+          for f in Qwen2.5-0.5B-Instruct-Q4_K_M.gguf tokenizer.json; do
+            test -e "bundled-models/$f" || : > "bundled-models/$f"
+          done
+          cargo test -p app --no-run
 
       # DIAGNOSTIC (Option C) — records exactly which DLL/entrypoint the IPC test
       # binary fails to resolve at load on Windows. Non-fatal (continue-on-error)
@@ -220,7 +240,7 @@ jobs:
       - name: (diagnostic) upload IPC import dump
         if: always() && steps.detect_tauri.outputs.present == 'true'
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: commands_test-imports-diagnostic
           path: src-tauri/diag/*.txt

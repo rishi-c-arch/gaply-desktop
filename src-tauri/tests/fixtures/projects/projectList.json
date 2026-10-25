@@ -1,0 +1,18 @@
+[
+  {
+    "projectId": "0123456789abcdef0123456789abcdef",
+    "name": "Chapter 3",
+    "bytes": 40960,
+    "savedAt": 1792396351,
+    "runCount": 2,
+    "refused": null
+  },
+  {
+    "projectId": "fedcba9876543210fedcba9876543210",
+    "name": null,
+    "bytes": 4096,
+    "savedAt": null,
+    "runCount": null,
+    "refused": "project.db_unreadable"
+  }
+]

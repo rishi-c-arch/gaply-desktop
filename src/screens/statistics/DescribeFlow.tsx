@@ -17,9 +17,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppShell, Button, Card, GaplyGlobe, HeaderBar, NavRail, Panel } from '../../design-system';
+import { CELL_PADDING } from '../../design-system/primitives';
 import { pickManuscriptPath } from '../common/pickFile';
 import { saveTextFile } from '../../utils/saveTextFile';
 import { describeBridge, type DescribeBridge } from './describeBridge';
+import { savableOnScreen, SaveToProject } from './projects/SaveToProject';
 import type {
   ColumnProfile,
   ColumnResult,
@@ -124,9 +126,9 @@ function buildSpec(view: DatasetView, picks: Record<string, Pick>, missingCodes:
 /** A statistic's cell: its value, or "Could not compute" and why, styled
  *  like any other cell. */
 const StatCell: React.FC<{ stat: Stat }> = ({ stat }) => {
-  if ('value' in stat) return <td className="gds-mono">{shown(stat.value)}</td>;
+  if ('value' in stat) return <td className="gds-mono" style={CELL_PADDING}>{shown(stat.value)}</td>;
   return (
-    <td data-tone="neutral" data-testid="desc-not-computable">
+    <td data-tone="neutral" data-testid="desc-not-computable" style={CELL_PADDING}>
       {COULD_NOT_COMPUTE}
       <br />
       <small>{notComputableReason(stat.not_computable)}</small>
@@ -142,6 +144,118 @@ const DiagnosticList: React.FC<{ items: Diagnostic[]; name: (a: number) => strin
       ))}
     </ul>
   );
+
+/** The summary's tables: one for the numeric columns, one per categorical
+ *  column. */
+function resultTable(columns: ColumnResult[]) {
+  const numeric = columns.flatMap((c) => ('numeric' in c ? [c.numeric] : []));
+  const categorical = columns.flatMap((c) => ('categorical' in c ? [c.categorical] : []));
+  return (
+    <>
+      {numeric.length > 0 && (
+        <table data-testid="desc-numeric-table" style={{ borderCollapse: 'collapse' }}>
+          <caption style={{ textAlign: 'left' }}>Numeric columns</caption>
+          <thead>
+            <tr>
+              {['Column', 'n', 'Missing', 'Mean', 'SD', 'Min', 'Q1', 'Median', 'Q3', 'Max'].map((h) => (
+                <th key={h} scope="col" style={{ textAlign: 'left', ...CELL_PADDING }}>
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {numeric.map((s) => (
+              <tr key={s.alias}>
+                <th scope="row" style={{ textAlign: 'left', ...CELL_PADDING }}>
+                  {s.header}
+                </th>
+                <td className="gds-mono" style={CELL_PADDING}>{s.n}</td>
+                <td className="gds-mono" style={CELL_PADDING}>{s.missing}</td>
+                {[s.mean, s.sd, s.min, s.q1, s.median, s.q3, s.max].map((st, i) => (
+                  <StatCell key={i} stat={st} />
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {categorical.map((s) => (
+        <table key={s.alias} data-testid="desc-levels-table" style={{ borderCollapse: 'collapse' }}>
+          <caption style={{ textAlign: 'left' }}>
+            {s.header}: n {s.n}, missing {s.missing}
+          </caption>
+          <thead>
+            <tr>
+              <th scope="col" style={{ textAlign: 'left', ...CELL_PADDING }}>
+                Level
+              </th>
+              <th scope="col" style={{ textAlign: 'left', ...CELL_PADDING }}>
+                Count
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {s.levels.map((l) => (
+              <tr key={l.label}>
+                <td style={CELL_PADDING}>{l.label}</td>
+                <td className="gds-mono" style={CELL_PADDING}>{l.count}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ))}
+    </>
+  );
+}
+
+/** The summary's result: its notes, the tables, the digits note and the run
+ *  manifest. The live results screen renders it, and so does a saved result
+ *  (Research OS, Phase 5B-3b, decision 150), from the same props. */
+export const DescribeResult: React.FC<{ result: ResultBundleView; name: (alias: number) => string }> = ({ result, name }) => (
+  <>
+    <DiagnosticList items={result.diagnostics} name={name} testId="desc-result-notes" />
+    {resultTable(result.columns)}
+    <p className="gds-jc__disclaimer">{SHOWN_DIGITS_NOTE}</p>
+    <aside aria-label="Run manifest" data-testid="desc-manifest">
+      <h4 style={{ margin: '8px 0 4px' }}>Run manifest</h4>
+      <dl style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '2px 12px', margin: 0 }}>
+        <dt>Data file (SHA-256)</dt>
+        <dd className="gds-mono" data-testid="desc-manifest-input">
+          {result.manifest.inputs.map(shortHash).join(', ')}
+        </dd>
+        <dt>Capability</dt>
+        <dd data-testid="desc-manifest-capability">
+          {result.manifest.capabilityId}, version {result.manifest.capabilityVersion}
+        </dd>
+        <dt>Engine version</dt>
+        <dd data-testid="desc-manifest-engine">{result.manifest.engineVersion}</dd>
+        <dt>Rows read</dt>
+        <dd className="gds-mono" data-testid="desc-manifest-rows-read">
+          {result.manifest.rowsRead}
+        </dd>
+        <dt>Rows used</dt>
+        <dd>
+          <span className="gds-mono" data-testid="desc-manifest-rows-used">
+            {result.manifest.rowsUsed}
+          </span>
+          <br />
+          <span data-testid="desc-manifest-rows-used-note">{ROWS_USED_NOTE}</span>
+        </dd>
+        <dt>Time to compute</dt>
+        <dd data-testid="desc-manifest-compute-time">{computeTimeSentence(result.manifest.elapsedMs)}</dd>
+        <dt>Platform</dt>
+        <dd data-testid="desc-manifest-platform">{platformName(result.manifest.platform)}</dd>
+        <dt>Reproducibility</dt>
+        <dd data-testid="desc-manifest-reproducibility">{reproducibilitySentence(result.manifest.reproducibility)}</dd>
+        <dt>Result (SHA-256)</dt>
+        <dd className="gds-mono" data-testid="desc-manifest-output">
+          {shortHash(result.manifest.outputHash)}
+        </dd>
+      </dl>
+    </aside>
+  </>
+);
 
 const DescribeFlow: React.FC<DescribeFlowProps> = ({
   bridge,
@@ -315,83 +429,22 @@ const DescribeFlow: React.FC<DescribeFlowProps> = ({
     const levels = c.levels ?? [];
     return (
       <tr key={c.alias}>
-        <td>
+        <td style={CELL_PADDING}>
           <span className="gds-mono">{c.alias}</span> {c.header}
         </td>
-        <td>{KIND_NAMES[c.kind]}</td>
-        <td className="gds-mono">{c.n}</td>
-        <td className="gds-mono">{c.missing}</td>
-        <td className="gds-mono">{c.distinct}</td>
-        <td>
+        <td style={CELL_PADDING}>{KIND_NAMES[c.kind]}</td>
+        <td className="gds-mono" style={CELL_PADDING}>{c.n}</td>
+        <td className="gds-mono" style={CELL_PADDING}>{c.missing}</td>
+        <td className="gds-mono" style={CELL_PADDING}>{c.distinct}</td>
+        <td style={CELL_PADDING}>
           {levels.slice(0, 12).map((l) => `${l.label} (${l.count})`).join(', ')}
           {levels.length > 12 ? `, and ${levels.length - 12} more` : ''}
         </td>
-        <td className="gds-mono">{c.suspectMissingCodes.map((s) => s.code).join(', ')}</td>
+        <td className="gds-mono" style={CELL_PADDING}>{c.suspectMissingCodes.map((s) => s.code).join(', ')}</td>
       </tr>
     );
   };
 
-  const resultTable = (columns: ColumnResult[]) => {
-    const numeric = columns.flatMap((c) => ('numeric' in c ? [c.numeric] : []));
-    const categorical = columns.flatMap((c) => ('categorical' in c ? [c.categorical] : []));
-    return (
-      <>
-        {numeric.length > 0 && (
-          <table data-testid="desc-numeric-table" style={{ borderCollapse: 'collapse' }}>
-            <caption style={{ textAlign: 'left' }}>Numeric columns</caption>
-            <thead>
-              <tr>
-                {['Column', 'n', 'Missing', 'Mean', 'SD', 'Min', 'Q1', 'Median', 'Q3', 'Max'].map((h) => (
-                  <th key={h} scope="col" style={{ textAlign: 'left', paddingRight: 12 }}>
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {numeric.map((s) => (
-                <tr key={s.alias}>
-                  <th scope="row" style={{ textAlign: 'left' }}>
-                    {s.header}
-                  </th>
-                  <td className="gds-mono">{s.n}</td>
-                  <td className="gds-mono">{s.missing}</td>
-                  {[s.mean, s.sd, s.min, s.q1, s.median, s.q3, s.max].map((st, i) => (
-                    <StatCell key={i} stat={st} />
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-        {categorical.map((s) => (
-          <table key={s.alias} data-testid="desc-levels-table" style={{ borderCollapse: 'collapse' }}>
-            <caption style={{ textAlign: 'left' }}>
-              {s.header}: n {s.n}, missing {s.missing}
-            </caption>
-            <thead>
-              <tr>
-                <th scope="col" style={{ textAlign: 'left', paddingRight: 12 }}>
-                  Level
-                </th>
-                <th scope="col" style={{ textAlign: 'left' }}>
-                  Count
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {s.levels.map((l) => (
-                <tr key={l.label}>
-                  <td>{l.label}</td>
-                  <td className="gds-mono">{l.count}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        ))}
-      </>
-    );
-  };
 
   return (
     <div style={{ display: 'grid', gap: 12 }} data-testid="desc-flow">
@@ -435,7 +488,7 @@ const DescribeFlow: React.FC<DescribeFlowProps> = ({
             <thead>
               <tr>
                 {['Column', 'Kind', 'n', 'Missing', 'Distinct', 'Levels', 'Candidate missing codes'].map((h) => (
-                  <th key={h} scope="col" style={{ textAlign: 'left', paddingRight: 12 }}>
+                  <th key={h} scope="col" style={{ textAlign: 'left', ...CELL_PADDING }}>
                     {h}
                   </th>
                 ))}
@@ -455,13 +508,13 @@ const DescribeFlow: React.FC<DescribeFlowProps> = ({
           <table data-testid="desc-settings" style={{ borderCollapse: 'collapse' }}>
             <thead>
               <tr>
-                <th scope="col" style={{ textAlign: 'left', paddingRight: 12 }}>
+                <th scope="col" style={{ textAlign: 'left', ...CELL_PADDING }}>
                   Include
                 </th>
-                <th scope="col" style={{ textAlign: 'left', paddingRight: 12 }}>
+                <th scope="col" style={{ textAlign: 'left', ...CELL_PADDING }}>
                   Column
                 </th>
-                <th scope="col" style={{ textAlign: 'left' }}>
+                <th scope="col" style={{ textAlign: 'left', ...CELL_PADDING }}>
                   Summarise as
                 </th>
               </tr>
@@ -471,7 +524,7 @@ const DescribeFlow: React.FC<DescribeFlowProps> = ({
                 const p = picks[c.alias];
                 return (
                   <tr key={c.alias}>
-                    <td>
+                    <td style={CELL_PADDING}>
                       <input
                         type="checkbox"
                         checked={p?.include ?? false}
@@ -480,10 +533,10 @@ const DescribeFlow: React.FC<DescribeFlowProps> = ({
                         onChange={(e) => setPicks({ ...picks, [c.alias]: { ...p, include: e.target.checked } })}
                       />
                     </td>
-                    <td>
+                    <td style={CELL_PADDING}>
                       <span className="gds-mono">{c.alias}</span> {c.header} <small>({KIND_NAMES[c.kind]})</small>
                     </td>
-                    <td>
+                    <td style={CELL_PADDING}>
                       <select
                         value={p?.treatAs}
                         aria-label={`Summarise ${c.header} as`}
@@ -570,6 +623,8 @@ const DescribeFlow: React.FC<DescribeFlowProps> = ({
             <>
               <p data-testid="desc-run-ended">{runEndedSentence(runView.state)}</p>
               <DiagnosticList items={runView.diagnostics} name={name} testId="desc-run-diagnostics" />
+              {/* A failed run is saved where its failure is shown (decisions 136, 140). */}
+              {runView.terminal && savableOnScreen(runView) && <SaveToProject runId={runView.runId} testId="desc-project-save" />}
             </>
           )}
           <div style={{ display: 'flex', gap: 8 }}>
@@ -595,46 +650,8 @@ const DescribeFlow: React.FC<DescribeFlowProps> = ({
       {stage === 'results' && result && (
         <Card>
           {title}
-          <DiagnosticList items={result.diagnostics} name={name} testId="desc-result-notes" />
-          {resultTable(result.columns)}
-          <p className="gds-jc__disclaimer">{SHOWN_DIGITS_NOTE}</p>
-          <aside aria-label="Run manifest" data-testid="desc-manifest">
-            <h4 style={{ margin: '8px 0 4px' }}>Run manifest</h4>
-            <dl style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '2px 12px', margin: 0 }}>
-              <dt>Data file (SHA-256)</dt>
-              <dd className="gds-mono" data-testid="desc-manifest-input">
-                {result.manifest.inputs.map(shortHash).join(', ')}
-              </dd>
-              <dt>Capability</dt>
-              <dd data-testid="desc-manifest-capability">
-                {result.manifest.capabilityId}, version {result.manifest.capabilityVersion}
-              </dd>
-              <dt>Engine version</dt>
-              <dd data-testid="desc-manifest-engine">{result.manifest.engineVersion}</dd>
-              <dt>Rows read</dt>
-              <dd className="gds-mono" data-testid="desc-manifest-rows-read">
-                {result.manifest.rowsRead}
-              </dd>
-              <dt>Rows used</dt>
-              <dd>
-                <span className="gds-mono" data-testid="desc-manifest-rows-used">
-                  {result.manifest.rowsUsed}
-                </span>
-                <br />
-                <span data-testid="desc-manifest-rows-used-note">{ROWS_USED_NOTE}</span>
-              </dd>
-              <dt>Time to compute</dt>
-              <dd data-testid="desc-manifest-compute-time">{computeTimeSentence(result.manifest.elapsedMs)}</dd>
-              <dt>Platform</dt>
-              <dd data-testid="desc-manifest-platform">{platformName(result.manifest.platform)}</dd>
-              <dt>Reproducibility</dt>
-              <dd data-testid="desc-manifest-reproducibility">{reproducibilitySentence(result.manifest.reproducibility)}</dd>
-              <dt>Result (SHA-256)</dt>
-              <dd className="gds-mono" data-testid="desc-manifest-output">
-                {shortHash(result.manifest.outputHash)}
-              </dd>
-            </dl>
-          </aside>
+          <DescribeResult result={result} name={name} />
+          <SaveToProject runId={result.runId} testId="desc-project-save" />
           <div style={{ display: 'flex', gap: 8 }}>
             <Button variant="secondary" onClick={() => setStage('settings')} data-testid="desc-results-back">
               Change the settings

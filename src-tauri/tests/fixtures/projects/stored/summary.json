@@ -1,0 +1,15 @@
+{
+  "bundleJson": "{\"schemaVersion\":1,\"runId\":1,\"status\":\"succeeded\",\"primaryOutputs\":{\"columns\":[{\"numeric\":{\"alias\":\"C1\",\"header\":\"score\",\"n\":6,\"missing\":0,\"mean\":{\"value\":3.3333333333333335},\"sd\":{\"value\":1.3662601021279464},\"min\":{\"value\":1.5},\"q1\":{\"value\":2.625},\"median\":{\"value\":3.25},\"q3\":{\"value\":3.875},\"max\":{\"value\":5.5}}},{\"categorical\":{\"alias\":\"C2\",\"header\":\"group\",\"n\":6,\"missing\":0,\"levels\":[{\"label\":\"a\",\"count\":3},{\"label\":\"b\",\"count\":3}]}}]},\"diagnostics\":[],\"limitations\":[],\"manifest\":{\"schemaVersion\":1,\"capabilityId\":\"stats.describe\",\"capabilityVersion\":1,\"engineVersion\":1,\"inputs\":[\"71dd6fa21cc7d91451fbd4e29854706c89847306d4f6b525361f9d04481d94aa\"],\"parametersHash\":\"e73cf11e60d7076c3e45ce5112acbfbcdfe91e84805eab6c51fff9e7af9e4dc2\",\"seed\":null,\"rowsRead\":6,\"rowsUsed\":6,\"exclusions\":[],\"platform\":{\"os\":\"macos\",\"arch\":\"aarch64\"},\"elapsedMs\":0,\"outputHash\":\"22b1e1a2a69e42ac15eedaa14ebc29766030fb5ddc6bfac7db2a3031feda3abb\",\"reproducibility\":\"bitwise\"}}",
+  "capabilityId": "stats.describe",
+  "dataFile": {
+    "bytes": 48,
+    "format": "csv",
+    "kind": "data_file",
+    "sha256": "71dd6fa21cc7d91451fbd4e29854706c89847306d4f6b525361f9d04481d94aa"
+  },
+  "failureJson": null,
+  "manifestJson": "{\"schemaVersion\":1,\"capabilityId\":\"stats.describe\",\"capabilityVersion\":1,\"engineVersion\":1,\"inputs\":[\"71dd6fa21cc7d91451fbd4e29854706c89847306d4f6b525361f9d04481d94aa\"],\"parametersHash\":\"e73cf11e60d7076c3e45ce5112acbfbcdfe91e84805eab6c51fff9e7af9e4dc2\",\"seed\":null,\"rowsRead\":6,\"rowsUsed\":6,\"exclusions\":[],\"platform\":{\"os\":\"macos\",\"arch\":\"aarch64\"},\"elapsedMs\":0,\"outputHash\":\"22b1e1a2a69e42ac15eedaa14ebc29766030fb5ddc6bfac7db2a3031feda3abb\",\"reproducibility\":\"bitwise\"}",
+  "specJson": "{\"schemaVersion\":1,\"operationId\":1,\"workspaceId\":\"statistics\",\"capabilityId\":\"stats.describe\",\"capabilityVersion\":1,\"inputs\":[{\"contentHash\":\"71dd6fa21cc7d91451fbd4e29854706c89847306d4f6b525361f9d04481d94aa\",\"rows\":6,\"columns\":2,\"semanticRole\":\"table\"}],\"parameters\":{\"columns\":[{\"alias\":\"C1\",\"treatAs\":\"numeric\"},{\"alias\":\"C2\",\"treatAs\":\"categorical\"}],\"missingCodes\":[]},\"randomSeed\":null,\"confirmationRefs\":[]}",
+  "state": "succeeded",
+  "storedRunId": 1
+}

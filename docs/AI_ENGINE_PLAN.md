@@ -24200,3 +24200,1713 @@ is back; and the two helper-path scans (`stats_l1_guards.rs`,
 `verifier_facade_guards.rs`) now name `helper_send_in`. The first failed on
 its own line count when the body moved; the second has no count and would
 have passed vacuously. A planted `.confirm(` / `reproduce(` turned both red.
+
+### D281 — Research OS, Phase 5B-1: the project store's core `[src]` `[test]` `[measured]`
+
+**Added** on `feat/research-os-5` after `2a38121`. Decisions 99 to 112 of 19
+Oct 2026 apply (`~/gaply-corpus/os/decisions.md`); ADR-009 and the revised
+ADR-004 record them (Accepted for what the decisions cover, the rest
+Proposed). **Nothing calls the store yet**: no command and no screen reaches
+it, so nothing new is written to a user's disk until 5B-2 wires it to a Save
+click. The PROV JSON export and the project report are 5B-2's (decision 111).
+
+**Where the code is.** The pure parts in `gaply_core::research_project`
+(`mod.rs`, `graph.rs`), beside `contracts` and under the purity guard: the
+project id and artifact hash, each made only by its parser (32 or 64
+lowercase hex, else `project.bad_project_id` / `project.bad_hash`); the
+title, the agent version, the artifact reference, the stored run, the
+project record, the caps, recovery's two rules (`recovered_state`,
+`damage_of`), the 28 closed `project.*` codes, and the provenance graph.
+Named `research_project` because the dormant `gaply_core::projects` stays
+(decision 110). The store, which does I/O, is one module in the app crate,
+`src-tauri/src/project_store.rs`.
+
+**The layout.** `<root>/projects/<project_id>/project.db` and
+`artifacts/<sha256>`; the folder is named by the id. A create is built in
+`.creating-<id>/` and renamed into place; a delete renames the folder to
+`.deleting-<id>/` and removes it; both leftovers are finished when the store
+next starts. The root is a parameter; `projects_root(app)` resolves it
+through `app_local_data_dir()` for 5B-2 (decision 99). Every path is joined
+from a parsed id or hash or a fixed name (pinned exactly), and no symlink is
+followed: `SQLITE_OPEN_NOFOLLOW`, `O_NOFOLLOW`, and `symlink_metadata`
+before every open, rename and removal. Because `NOFOLLOW` refuses a symlink
+anywhere in a path (`unixFullPathname`), and macOS's temp folder is under
+`/var`, the store resolves the root's ancestors once at start.
+
+**`project.db`.** Its own schema version in `PRAGMA user_version` (1); the
+`gaply.db` runner is hard-wired to its own list (`migrations.rs:1140-1143`)
+and is unchanged. **Journal mode WAL, `synchronous=FULL`**, `foreign_keys=ON`,
+a 5 s busy timeout. Tables `project`, `artifacts`, `runs`, `used`,
+`generated`, `derived`. A row holds ids, hashes, the capability id and
+version, a state, closed codes, sizes and times; the one user-typed column is
+`project.title`; the spec, the bundle and the data file are artifacts.
+Created at 0600 before SQLite opens it, so `-wal` and `-shm` take 0600.
+
+**The write.** One `BEGIN IMMEDIATE` from first to last: the caps; for each
+artifact a temporary `artifacts/.tmp-<hex>` created new, written, flushed,
+`sync_all`, set 0400, re-read and verified, renamed, the folder synced (on
+Windows a folder cannot be synced; the rename's durability rests on NTFS's
+journal, inferred, and a lost rename is marked damaged at the next open);
+then the rows and the commit. If the rows or the commit fail, this Save's
+renamed files are removed at once. An existing artifact is re-verified and
+reused, never overwritten; one that does not verify is refused with its
+damage code.
+
+**Recovery at open**, in its own `BEGIN IMMEDIATE`: temporary files removed;
+artifact files with no row removed; a row whose file is missing, not a
+regular file or of the wrong size marked damaged; a run left `Queued` or
+`Running` becomes `Failed` with `project.run_interrupted`, never
+`Succeeded`. A file is hashed whenever it is read; a mismatch marks it
+damaged and refuses the read. A missing, unreadable or newer `project.db` is
+refused with its own code and nothing in the project is touched.
+
+**The caps (decision 107).** 104,857,600 bytes per project and 10,737,418,240
+for all projects, plus `DB_GROWTH_ALLOWANCE_BYTES` = 1,048,576 per Save, each
+pinned by a test; a project's size is every file in its folder; a tombstone
+counts until removed; the caps are store parameters, so tests use small ones.
+A full disk (`ENOSPC`, `EDQUOT`, `SQLITE_FULL`) is `project.disk_full`.
+
+**Dependencies.** `rusqlite =0.32.1` (features `bundled`) and `getrandom
+=0.2.17` became direct dependencies of the app crate; both were in
+`Cargo.lock` at those versions with those features enabled (`cargo tree -e
+features`). `Cargo.lock` gained two lines in the `app` package's dependency
+list and no package (743 before and after).
+
+**Guards.** `stats_desc_writes_nothing.rs` names the store as the one Research
+OS module allowed to write and checks it exists and writes;
+`contracts_are_pure.rs` holds `research_project` to no I/O, `std`, `serde` and
+`crate::contracts`; the new `project_store_guards.rs` (no non-test caller, one
+resolver, joins from parsed values, the AI and Supabase boundary both ways)
+and `project_store_sentinels.rs` (every file, error and tracing line of a
+session); the two tracing guards scan the store unchanged.
+
+**Mutation record** (each: SHA-256 recorded, broken once, red, restored by
+plain copy with a fresh mtime, SHA-256 equal, green; logs in
+`~/gaply-corpus/os/phase5/5b1_logs/mutations/`): the re-read hash check on
+write removed → `bytes_that_read_back_differently_are_refused_and_nothing_is_left`;
+the hash check on read disabled → `a_file_whose_hash_does_not_match_its_row_is_refused_on_read`;
+the rows committed before the rename → `an_interrupted_write_leaves_no_artifact_and_no_row`
+("no artifact row: 3, expected 0") and five others; an interrupted run
+recovered `Succeeded` → the pure rule's test and
+`a_run_left_running_reads_failed_after_reopening`; `delete` joined from the raw
+id → `bad_ids_and_hashes_are_refused_and_nothing_outside_the_root_is_touched`
+and the join pin; a command calling the store → `no_non_test_code_outside_the_store_calls_it`;
+a project type imported in `stats_assist/outbound.rs` → the boundary guard
+(the existing `stats_assist_is_offline_and_inert.rs` stayed green: before this
+step nothing stopped that import); the resolver swapped to `app_data_dir` →
+the resolver scan (the runtime test stays green on macOS, where both folders
+are one, so the scan is the pin); a rendered path logged → `no_path_in_tracing`
+and the sweep; the title logged → the sweep and `no_path_in_tracing`'s text
+rule (predicted: the sweep only); the title copied into a second table → the
+sweep only, every static guard green; `std::fs` in `research_project` →
+`contracts_are_pure`.
+
+**Measured, 19 Oct 2026, macOS aarch64** (logs in
+`~/gaply-corpus/os/phase5/5b1_logs/`): `cargo test --workspace` at `2a38121`
+first: exit 0, 106 targets (104 Running + 2 Doc-tests), 2,752 passed, 12
+ignored. After: exit 0, 109 targets (107 Running + 2 Doc-tests), 2,800 passed,
+12 ignored, as predicted before the run: app lib 524 → 549, `gaply_core` lib
+1,827 → 1,840, `stats_desc_writes_nothing` 2 → 3, and the new
+`project_store_guards` (6), `project_store_sentinels` (1),
+`research_project_properties` (2); no other target moved; no warning line that
+the baseline log lacks. `cargo test -p app --features devtools` (after decision 113 freed
+the disk; both `lib.rs` touched, so it also compiled the header comment
+changed after the workspace run): exit 0, 43 targets (42 Running + 1
+Doc-tests), 731 passed, 9 ignored, as predicted before the run from D280's 41
+targets and 698 passed at `e29f6d6` (the same tree as `2a38121`): app lib +25
+(549), `stats_desc_writes_nothing` +1, the new `project_store_guards` (6) and
+`project_store_sentinels` (1). Five warning lines that the workspace log lacks,
+all in devtools-only targets unchanged since `2a38121` (`src/bin/grrb.rs:53`,
+`:81`, `src/bin/grrb-gate.rs:45`, `:52`, `tests/ai_eval_cli.rs:324`). rustfmt by path: the six new files clean; the changed
+files' hunks equal HEAD's (`stats_desc_writes_nothing.rs` 0, `contracts_are_pure.rs`
+0, the two `lib.rs` 8 and 11, measured with stub modules). `git diff --check`
+clean; `git diff 2a38121` empty under `stats_l0`, `stats_l1`, `stats_assist`
+and `src/`. After the workspace run, one comment in `project_store.rs`'s
+header (a doc link to an item not in scope) was reworded; rustfmt clean, and
+compiled by the devtools run above. No CI workflow changed: the Windows job runs
+`gaply_core`'s tests (the pure model's run there); the app crate's test
+binaries do not load on Windows (`windows-build-check.yml:115-125`), so the
+store's tests and its `cfg(windows)` branches are not tested on Windows. No
+GRRB-watched file changed.
+
+### D282 — Research OS, Phase 5B-2: the project commands, the session and the exports `[src]` `[test]` `[measured]`
+
+**Added** on `feat/research-os-5` after `50c0626`. Decisions 118 to 127 of 19
+Oct 2026 apply (`~/gaply-corpus/os/decisions.md`), with 99 to 117. **These
+commands are callable from the app's own frontend once merged, with or
+without a screen**: no screen calls them until 5B-3, which hides every
+project screen behind `REACT_APP_FEATURE_PROJECTS` (decision 119), and a flag
+only hides; the checks below are the boundary. **ADR-009's Accepted parts
+(decisions 99 to 111) cover the writes they make**: a project folder under
+`app_local_data_dir()/projects/`, owner-only, kept until the user deletes it,
+a data file copied in by hash, nothing written except on a Save, 100 MiB per
+project and 10 GiB for all. No file under `src/` changed; no dependency or
+crate was added.
+
+**Where the code is.** `src-tauri/src/project_commands.rs`, the one module
+that calls the store: `ProjectSession`, eleven plain work functions over a
+root and the window's `WorkspaceSession`, and eleven thin Tauri wrappers that
+resolve the root through `project_store::projects_root` and run the work
+under `spawn_blocking`. The renderers are pure, in
+`gaply_core::research_project::render`.
+
+**The commands and their checks (decision 120).**
+
+| command | check | takes | returns |
+|---|---|---|---|
+| `project_list` | exempt | — | `[{projectId, name?, bytes, savedAt?, runCount?, refused?}]` |
+| `project_sizes` | exempt | — | `{totalBytes, projectCount, projectCapBytes, allProjectsCapBytes}` |
+| `project_prepare_delete` | exempt | `projectId` | `{projectId, confirmation, bytes, expiresInMs}` |
+| `project_delete` | exempt | `projectId`, `confirmation?` | `{projectId, closed}` |
+| `project_save_run` | Statistics | `runId`, `target: {into:"newProject", name} \| {into:"openProject", projectId}` | `{projectId, storedRunId, created}` |
+| `project_open` | Statistics | `projectId` | `{projectId, name, createdAt, runCount, bytes}` |
+| `project_close` | Statistics | — | `{closed}` |
+| `project_runs` | Statistics | `projectId` | `[{storedRunId, capabilityId, capabilityVersion, state, endCode?, startedAt, endedAt?, savedAt, agentVersion}]` |
+| `project_run_result` | Statistics | `projectId`, `storedRunId` | `{storedRunId, capabilityId, state, dataFile: {sha256, kind, format, bytes}, specJson, bundleJson?, manifestJson?, failureJson?}` |
+| `project_report` | Statistics | `projectId` | `{fileName: "gaply_project_report.md", bytes, sha256}` |
+| `project_provenance` | Statistics | `projectId` | `{fileName: "gaply_project_provenance.json", bytes, sha256}` |
+
+A refusal is `{"code":"project.…"}`, with `needed` and `limit` for a cap; a
+workspace refusal keeps its diagnostic shape (`workspace.inactive`). Each
+shape is pinned by a JSON snapshot in `src-tauri/tests/fixtures/projects/`
+(one file per response, `projectRefusal.json`, `projectCodes.json`), for
+5B-3's wire types. A gated command's first statement is the check, and so is
+its work function's; `tests/workspace_guards.rs` classifies all eleven by
+name. A command never takes a path or a file name. The project id is the only
+handle; every command that takes one checks it against the open project
+(`project.not_open`).
+
+**The session (decision 122).** `ProjectSession` lives in the
+`WorkspaceSession` (`projects()`), beside the active workspace: at most one
+open project, the delete confirmations, and the runs each project saved in
+this process. Leaving Statistics closes the open project after the state has
+left `Active` and outside the session's lock; activating closes any too.
+Every command that reads or writes the open project holds its lock to the end
+and checks the workspace again under it, so a Save that a deactivation
+overtakes is refused whole (`workspace.inactive`) and one already past the
+check completes whole before the close. The store gained **one process-wide
+write lock** (`project_store::write_lock`), taken by every Save from the cap
+check to the commit, by create and delete throughout, and by the list and the
+sizes, so two Saves into two projects cannot pass the all-projects cap
+together and a delete never runs during a Save. Opening a project does not
+take it. The store under a root is opened once per session, so its start-up
+clean-up never runs beside a create.
+
+**The Save (decisions 121, 123, 127).** By run id, only while the registry
+holds it: `project.run_unknown` (never issued), `project.run_evicted` (issued,
+no longer held), `project.run_not_finished`, `project.run_cancelled`,
+`project.run_not_saveable` (refused, waiting on input, timed out, over a
+budget), `project.run_failed_without_code`, `project.run_already_saved`. The
+data file: `stats_desc_open` now reads through
+`stats_l1_ingest::load_dataset_keeping_bytes` (the same checks, read and
+parse) and the slot keeps the bytes, their SHA-256 taken at ingest (the
+fingerprint) and their format for as long as the dataset is open; each run
+records its slot and that hash when it is queued. A Save expects the data
+file to hash to the run's recorded hash, so the store refuses any other bytes;
+it also refuses when the slot's hash, the spec's input hash or the manifest's
+disagree (`project.data_mismatch`), and when the slot is closed or evicted
+(`project.data_unavailable`). A name is trimmed, 1 to 100 characters, with no
+control and no invisible formatting character
+(`research_project::is_invisible_format`: Unicode Cf, the line separators,
+the combining grapheme joiner and the Hangul fillers, listed by code point).
+One store write then holds the data file, the spec, and the bundle and
+manifest (or, for a failed run, a failure record of its code and numeric
+parameters), the run row, `used` (data, spec), `generated` (the outputs) and
+`wasAssociatedWith` (the app). A first Save goes through
+`ProjectRoot::create_with_save`: the project's database and row are made in
+`.creating-<id>/`, the Save is written there under the caps, and the folder
+is renamed after the commit; a refusal removes the folder and a crash leaves
+it for the next start. The same data file saved twice is one artifact. A copy
+is the user's file exactly as it is, an Excel file's author and last-saved
+folder included, and none of that leaves it (decision 127).
+
+**Reading a run back** needs the open project; every artifact of the run is
+hash-verified first, the data file's included, whose bytes are then dropped.
+Its spec, bundle, manifest or failure record come back as the exact JSON text
+stored, under 4 MiB together (`project.result_too_large`). Not re-parsed:
+`serde_json`'s default float parser read two of a t-test's stored values one
+unit in the last place away (measured in this step), and `JSON.parse` reads
+them exactly. A damaged artifact gives its code and nothing else.
+
+**The confirmation (decision 124).** `project_prepare_delete` issues 32
+random bytes as a `contracts::capability::ConfirmationId` (reused: 64
+lowercase hex, a `Debug` that prints no digit); the session holds the last 16
+in memory. Delete refuses none (`confirmation_missing`), an unknown one, a
+used one, one replaced by a newer one (any newer one, for any project), an
+expired one (five minutes) and one for another project; a matching one is
+used up whatever the outcome. A restart forgets them all.
+
+**The renderers (decisions 111, 125).** One input, `ProjectExportInput`, whose
+only free string is the title. A run's settings are `ExportParameter`s
+(columns by position and role, level indexes, the variant, counts), its codes
+`ClosedWord`s, made only from a closed set's member. Each field of a saved
+spec is listed as reported, counted or excluded
+(`project_commands::SPEC_FIELDS`), and a test fails on a field not listed.
+The report is Markdown: the title escaped (`&`, `<`, `>`, `"` as entities,
+every other ASCII punctuation mark backslash-escaped) and nowhere else, a
+preamble saying it holds fingerprints and none of the data, then each run's
+capability, version, status, codes, times, inputs and outputs by hash,
+settings, fingerprints, counts, exclusions, limitations and notes. The PROV
+JSON follows the PROV-JSON layout (`entity`, `activity`, `agent`, `used`,
+`wasGeneratedBy`, `wasDerivedFrom`, `wasAssociatedWith`), the agent the app
+and its version, `wasDerivedFrom` derived from `used` and `wasGeneratedBy`
+(`ProvGraph::derivations`), refused with `project.prov_cycle` when not
+acyclic. Both are deterministic; golden files pin them, and ten fresh
+processes print the goldens' hashes. Neither command writes: 5B-3's save
+dialog writes the file the user picks (decision 125).
+
+**Guards.** `workspace_guards.rs` classifies every project command as gated or
+exempt and checks both the command and its work function;
+`project_store_guards.rs` names the commands module as the store's one caller
+(and requires it to call it), extends the AI and Supabase boundary to the
+commands module's types and to the renderers, and adds a log rule (a project
+by its id's `as_str()` only, no name, full hash, path or content in a
+commands-module event; every command `skip_all`);
+`stats_desc_writes_nothing.rs` scans the commands module, which writes
+nothing itself; the tracing guards scan both new files unchanged. The
+sentinel sweep (`tests/project_commands_sentinels.rs`) reads every response,
+refusal, tracing line, export and file of a session.
+
+**Windows (decision 114).** `windows-build-check.yml` gains one step after the
+installer steps: empty placeholders for the two gitignored models, then
+`cargo test -p app --no-run`. It runs on the next pull request or push to
+main; not verified on this Mac.
+
+**Departures from the prompt and the proposal** are listed in
+`~/gaply-corpus/os/phase5/phase5b2_report.md` §5.
+
+**Measured, 19 Oct 2026, macOS aarch64** (logs in
+`~/gaply-corpus/os/phase5/5b2_logs/`): `cargo test --workspace --no-fail-fast`
+at `50c0626` first: exit 0, 109 targets (107 Running + 2 Doc-tests), 2,800
+passed, 12 ignored. After, both `lib.rs` touched: exit 0, 112 targets (110
+Running + 2 Doc-tests), 2,852 passed, 12 ignored, as predicted before the run:
+app lib 549 → 560 (the store +5, the commands +6), `gaply_core` lib 1,840 →
+1,848 (the model +2, the graph +1, the renderers +5), `workspace_guards` 5 →
+7, `project_store_guards` 6 → 8, and the new `project_commands` (22),
+`project_commands_sentinels` (1) and `research_project_render` (6); no other
+target moved, and no warning location the baseline lacks. (A first run of the
+same command was cut off by a machine restart inside its first test binary;
+it is not counted.) `cargo test -p app --features devtools --no-fail-fast` (both `lib.rs` touched; predicted before the run from 5B-1's 43 / 731 / 9 at this tree, plus app lib +11, `project_commands` 22, `project_commands_sentinels` 1, `workspace_guards` +2, `project_store_guards` +2): `CARGO_EXIT=0 targets=45 running=44 passed=769 ignored=9 failed_blocks=0`, as predicted. Its five warning lines beyond the workspace log are the devtools-only ones 5B-1 recorded (`src/bin/grrb.rs:53`, `:81`, `src/bin/grrb-gate.rs:45`, `:52`, `tests/ai_eval_cli.rs:324`), in files unchanged since `50c0626` (`git diff --quiet`). No workflow runs clippy. rustfmt by path:
+every new file clean; changed files' hunks equal HEAD's (`src/lib.rs` 11,
+`stats_l1_ingest.rs` 63, all others 0). `git diff --check` clean; `git diff
+50c0626` empty under `stats_l0`, `stats_l1`, `stats_assist` and `src/`. No
+GRRB-watched file changed.
+
+**Mutation record** (each: SHA-256 recorded, broken once, red, restored by
+plain copy with a fresh mtime, SHA-256 equal, green; logs in
+`5b2_logs/mutations/`): `close` with its workspace check removed →
+`each_gated_command_refuses_…` and the command-list guard; a used
+confirmation accepted → the delete test and the confirmation unit test; a
+cancelled run let through the state check → `runs_that_may_not_be_saved_…`;
+the hash check skipped on read → `a_damaged_artifact_gives_its_code_…` and
+the store's read test; a header put into the report through the title → the
+sentinel sweep; the commands module writing a file → the no-write guard; the
+process-wide lock dropped at all six sites → both paused-Save lock tests
+(their first form aborted the test binary after the assertion fired, with a
+paused worker left waiting; they now release the worker before asserting).
+
+### D283 — Research OS, Phase 5B-3a: the first project screens and the lock between two copies `[src]` `[test]` `[measured]`
+
+**Added** on `feat/research-os-5` after `c135cd8`. Decisions 131 to 144 of 19
+Oct 2026 apply (`~/gaply-corpus/os/decisions.md`), with 99 to 130. Every
+screen is behind `REACT_APP_FEATURE_PROJECTS` (off) and shows only with
+`REACT_APP_FEATURE_WORKSPACES` on too and only in the desktop app; a flag
+only hides, and Rust's checks are the boundary. Open, an open project's page,
+the exports and the hand-test checklist are 5B-3b (decision 137).
+
+**The lock (decision 132).** No single-instance plugin on macOS; an open
+project holds an operating-system lock on its empty lock file,
+`<root>/projects/.locks/<project_id>.lock`, which the system releases if the
+app quits or crashes. `src-tauri/src/project_store.rs`: opening a project and
+a first Save take `File::try_lock_shared`, held by the `ProjectHandle` until
+it closes; a delete closes this copy's open project first (in
+`project_commands::delete`), then takes `File::try_lock` and holds it until
+the folder is gone, and only then removes the lock file; recovery at start
+takes it exclusive before it finishes a `.deleting-` tombstone or clears a
+`.creating-` staging folder, and skips one another copy holds. The order is
+always the lock, then the folder check. Only the `try_` calls: `WouldBlock`
+is `project.open_elsewhere` for a delete and `project.being_deleted` for an
+open; any other failure is `project.lock_failed` (three codes appended to
+`ProjectCode`, pinned in `projectCodes.json`). **A delete refused by the lock
+still leaves the project closed in this copy.** The locks folder is 0700,
+never followed as a symlink, never a valid project id, made only by a call
+that takes a lock (listing and sizing write nothing), and skipped by the
+list, the sizes and the caps (`projects_bytes`) and by recovery; a lock file
+is 0600 and empty, and one an open of a missing project or a refused first
+Save made is removed under the exclusive lock. The app crate's
+`rust-version` is 1.89 (decision 138); `gaply_core`'s stays.
+
+**Decision 143.** A run's notes are its validation's warnings, and the
+missing-value warning carried the value found in a column's cells; the
+report printed it. `research_project::render::shown_in_export` (an exhaustive
+match over `ParamKey`, so a new key must be decided) keeps `value` out of
+both exports, applied where parameters are collected and again where the
+report prints them; the note is shown by its column's position and cell
+count. The golden report changed in that one line; the PROV JSON printed no
+parameters and is unchanged.
+
+**The screens** (`src/screens/statistics/projects/`). `projectGate.ts`
+`projectsShown()` is the one helper. `projectBridge.ts` is the only file that
+names a project command. `SaveToProject.tsx`: a Save button on the summary's
+and the t-test's results screens and on their run stage for a run that
+Failed with its code (decision 140), and a dialog with a new project (named,
+checked by `projectName.ts`, Rust's rule mirrored code point for code point
+and read from the same test vectors) or the open project (decision 142:
+known only from a Save's response, in memory, `projectSession.ts`, cleared
+whenever the screens see Statistics not active and after each activate).
+`ProjectsPanel.tsx` on the Statistics home: names, sizes, saved dates, saved
+runs, the totals in MiB against both caps, loading, empty and error states,
+and a delete dialog (Cancel focused, Escape cancels, prepare then delete on
+the click, every refusal as its sentence, focus to the heading after).
+`ProjectDialog.tsx` keeps focus inside and returns it (decision 139; the
+shell's `Modal` is unchanged). Settings shows decision 133's sentence.
+`projectWording.ts` has a sentence for each of the 48 codes, a fallback, and
+decision 133's sentences word for word; a raw error message is never shown.
+A name is always text inside `<bdi>`; no screen uses raw HTML.
+
+**Guards.** `tests/workspace_guards.rs` pins where the store takes a lock,
+the three commands that can answer with a lock code, and that every lock is
+a `try_` call; `projectGuards.vitest.ts` holds the command names to the
+bridge and raw HTML, the console, storage, `document.title` and the router
+out of the project screens. Under decision 144, three existing tests allow
+exactly the locks folder (the join guard's list gains `LOCKS_DIR` and the
+lock file's name; two command tests skip `.locks` and its lock files only
+after checking each is an empty owner-only file of a listed project).
+
+**Measured, 19 Oct 2026, macOS aarch64** (logs in
+`~/gaply-corpus/os/phase5/5b3a_logs/`): `cargo test --workspace
+--no-fail-fast`, both `lib.rs` touched, prediction written first: exit 0, 115
+targets (113 Running + 2 Doc-tests), 2,864 passed, 12 ignored, as predicted
+from D282's 112 / 2,852 / 12 (+`project_locks` 9, +`research_project_names`
+1, +`research_project_no_data_values` 1, `workspace_guards` 7 → 8). `cargo
+test -p app --features devtools --no-fail-fast`: exit 0, 46 targets (45
+Running + 1 Doc-tests), 779 passed, 9 ignored, as predicted. No warning
+location in a changed file. vitest: 100 files / 1,173 tests before, 108 /
+1,394 after, as predicted; `tsc --noEmit` and CI's eslint exit 0; `npm run
+build` exit 0, `public/sitemap.xml` written back from HEAD. rustfmt by path:
+every changed file's hunks equal HEAD's (0). `git diff --check` clean; `git
+diff c135cd8` empty under `stats_l0`, `stats_l1` and `stats_assist`. No
+GRRB-watched file changed.
+
+**Mutation record** (SHA-256, broken once, red, restored with a fresh mtime,
+SHA-256 equal, green; logs in `5b3a_logs/mutations/`): a delete taking the
+lock shared; `.locks` counted in the sizes; recovery not locking; a blocking
+`file.lock()`; a project call outside the bridge; a name through
+`dangerouslySetInnerHTML`; the panel not reading the workspace state; Save's
+and Delete's in-flight checks removed (the first form stayed green, because
+the disabled button stopped the second click first: a same-turn double click
+was added and goes red); the gate ignoring desktop; and, for decision 144, an
+unexpected entry beside `.locks` in each of the three tests. Decision 143's
+regression test was red before the fix and green after.
+
+**Not tested:** a real second process or a crash holding the lock (two
+handles in one process stand in, as `flock` and `LockFileEx` treat them as
+holders); Windows (compiled by CI's `--no-run` step only); the lock-then-check
+order (no single-thread test can tell the orders apart); the real app.
+Departures are listed in `~/gaply-corpus/os/phase5/phase5b3a_report.md` §5.
+
+### D284 — Research OS, Phase 5B-3b: Open, an open project's page, the saved result view and the exports `[src]` `[test]` `[measured]`
+
+**Added** on `feat/research-os-5` after `468537d`. Decisions 148 to 152 of 19
+Oct 2026 apply (`~/gaply-corpus/os/decisions.md`), with 99 to 147. Every new
+screen is behind the same helper as 5B-3a, `projectsShown()`
+(`REACT_APP_FEATURE_PROJECTS` and `REACT_APP_FEATURE_WORKSPACES` on, desktop
+app only), and the page's route also needs `REACT_APP_FEATURE_STATS_DESCRIBE`,
+the flag the Statistics home sits behind. A flag only hides; Rust's checks are
+the boundary. This step ends Phase 5B.
+
+**`project_current` (decision 148).** A twelfth command, exempt from the
+workspace check: `{projectId}` of the project open in this copy of the app, or
+`{projectId: null}`; nothing else, and nothing of another copy
+(`src-tauri/src/project_commands.rs`, `current` and `ProjectCurrentView`). It
+reads the session's `open_id()`, so Close, leaving Statistics and deleting the
+open project each leave none. `tests/workspace_guards.rs` lists it as exempt;
+`tests/fixtures/projects/projectCurrent.json` pins both shapes;
+`tests/project_current.rs` checks none before any Open or Save (with and
+without a workspace), the id after a first Save and after an Open, none after
+Close, after leaving Statistics and after the open project's delete, and that
+another project's delete leaves the open one. Every project screen now asks it
+when it appears (with `project_list` for the name, through
+`projectSession.noteCurrent`), in place of 5B-3a's memory: the panel, the Save
+dialog and the page. This closes decision 147's gap.
+
+**Open and the page (decision 149).** Open is on each readable project in the
+Projects panel: `project_open` on that click only, then
+`/app/statistics/projects/<id>`, a route that holds the id and nothing else
+(`projects/projectRoute.tsx`). `projects/ProjectPage.tsx` reads the workspace
+state, `project_current`, the list and the sizes when it appears, and for the
+open project its saved results, newest first, each with its kind, status,
+saved date and closed code. A listed project that is not open says so and
+offers Open; it never opens one by itself. An id that is not listed or is not
+an id, and an unreadable project, show a sentence and no Open; Statistics not
+active shows nothing of the project. Close calls `project_close` and returns
+to the home. The project screens never navigate themselves (the 5B-3a guard
+forbids the router in them): `ProjectPageScreen.tsx`, outside the folder,
+reads the id from the route and goes to fixed paths only, and the route sits
+behind `RequireWorkspace`. **One generation counter per screen**
+(`projects/useGeneration.ts`) covers every project read and action, the delete
+dialog's and the saved view's included, so a late answer never overwrites a
+newer state: a `project_current` that lands after an Open is dropped, and so
+is one that lands after a Save.
+
+**The saved result view (decision 150).** `projects/SavedResult.tsx` reads
+`project_run_result` and checks the stored JSON first
+(`projects/storedShape.ts`): the capability must be the summary or the
+t-test, every schema version 1 (the literal type in `describeTypes.ts` and
+`ttestTypes.ts`, and Rust's `SchemaVersion::NUMBER`), every number a component
+prints a finite number, every closed word in its set and every code in its
+kind's list, so no sentence repeats a stored string. Parsing drops the error.
+Only then does it render, through the live components with the live props:
+the t-test's `ResultCard`, and the summary's results, **moved unchanged out of
+`DescribeFlow.tsx` into an exported `DescribeResult`** (the summary had no
+result component; approved during this step). Each other case has its own
+sentence and shows nothing of the stored JSON: an unknown capability, an
+unknown schema version, a wrong shape, a damaged artifact (its code's
+sentence), and a saved summary while `REACT_APP_FEATURE_STATS_DESCRIBE` is off
+(then the result is not even read; that flag gates the summary, the t-test and
+the home alike, so in the app this case cannot be reached and stands as a
+guard). A failed run shows its code's sentence. The data file is shown by its
+kind, format and size; its fingerprint appears only in the live manifest's
+"Data file (SHA-256)" row, as on the live screen. No Save, re-run, edit or AI
+control. Rendering sits inside an error boundary keyed to the result whose
+fallback is one fixed sentence and which records nothing; React 19 itself
+still logs a caught error to the console (`react-dom-client`'s
+`defaultOnCaughtError`), which is why the check runs before rendering.
+
+**Rust snapshots of stored results (approved during this step).** No snapshot
+of a stored result existed (`projectRunResult.json` pins the envelope with
+placeholder strings). `stored_results_have_the_layout_of_their_fixtures` in
+`tests/project_commands.rs` saves a real summary, a real t-test and a failed
+t-test, reads each back through `run_result`, and pins its layout (every key,
+nesting and JSON type, the stored texts parsed) against
+`tests/fixtures/projects/stored/`: the layout, not the bytes, because a
+p-value's last digit or an elapsed time may differ on Linux or Windows. The
+vitest shape check is tested against these three files.
+
+**The exports (decision 151).** On the page, Export report and Export
+provenance each open a small dialog with decision 133's sentence, Cancel
+focused. Export renders on that click; `projects/projectExport.ts` refuses
+any file name but the fixed one for that export, refuses bytes whose SHA-256
+taken in the webview differs from the one returned, and refuses bytes that do
+not decode as UTF-8 and encode back to exactly the same bytes. Today's export
+path (`utils/saveTextFile.ts`) takes text and writes it with `TextEncoder`, so
+that round trip is what makes the bytes written the bytes Rust returned; no
+Rust change was needed. A refusal shows its sentence and saves nothing; a
+closed save dialog writes nothing and says so in the status line; a failed
+write says so without its message.
+
+**One fix found by this step's tests.** `projectSentence` passed a workspace
+refusal to `workspaceSentence`, which reads `params.expected` and threw when
+the refusal had no parameters, so a malformed refusal became an unhandled
+rejection inside a `catch`. It now gives the fallback sentence (regression
+test red before, green after). Rust always sends the parameters, so this was
+reachable only with a malformed refusal.
+
+**Guards.** `projectGuards.vitest.ts`: twelve commands, all named only by the
+bridge; the page asks `projectsShown()`; `ProjectPageScreen.tsx` uses no raw
+HTML, console, storage, title or history and navigates only to fixed paths
+with no router state; and no `throw` in 5B-3b's new code builds its message
+from anything but a string literal (with a self-test of the scan). Rust: the
+command-list guard and both wire pins.
+
+**The hand test (decision 152).** `~/gaply-corpus/os/phase5/hand_test_5e.md`,
+for the founder, with the synthetic files in
+`~/gaply-corpus/os/phase5/hand_test_files/` (`HTFILE_summary.csv`,
+`HTFILE_ttest.csv`, `HTFILE_summary.xlsx` whose author is `HTAUTHOR`; every
+header `HTHEAD_`, every group label `HTLABEL_`, each holding 8675309.25). It
+backs up `~/Library/Application Support/ai.gaply.app` first (the identifier
+`ai.gaply.app` in `tauri.conf.json`), starts the dev app with the three flags
+on one command line, saves into `HTPROJ_TEST`, restarts, opens, exports and
+searches both exports for every sentinel, starts a second copy from
+`/Users/rishi/dev/gaply-stats-l0/src-tauri/target/debug/app` (the target
+directory `.cargo/config.toml` sets) to see its delete refused, deletes the
+project, trashes the exports and restarts with the flags off. Every command in
+it is inferred; none was run.
+
+**Measured, 20 Oct 2026, macOS aarch64** (logs in
+`~/gaply-corpus/os/phase5/5b3b_logs/`): `cargo test --workspace
+--no-fail-fast`, both `lib.rs` touched (`git diff --stat` unchanged by the
+touch), prediction written first: exit 0, 116 targets (114 Running + 2
+Doc-tests), 2,868 passed, 12 ignored, as predicted from D283's 115 / 2,864 /
+12 (+`project_current` 3, `project_commands` 22 → 23). `cargo test -p app
+--features devtools --no-fail-fast`: exit 0, 47 targets (46 Running + 1
+Doc-tests), 783 passed, 9 ignored, as predicted. No warning location in a
+changed file. vitest: 108 files / 1,394 tests at `468537d`, 112 / 1,467
+after, as predicted (four new files, 69 tests; `projectTypes` 16 → 17,
+`projectGuards` 4 → 7). `tsc --noEmit` and CI's eslint exit 0; `npm run
+build` exit 0, `public/sitemap.xml` written back from HEAD (`cmp` equal).
+rustfmt by path, hunks HEAD → now: `project_commands.rs` 0 → 0, `lib.rs` 11
+→ 11, `tests/project_commands.rs` 0 → 0, `tests/workspace_guards.rs` 0 → 0,
+new `tests/project_current.rs` 0. `git diff --check` clean; `git diff
+468537d` empty under `stats_l0`, `stats_l1` and `stats_assist`. No
+GRRB-watched file changed. Mutation record (SHA-256, broken once, red,
+restored with a fresh mtime, SHA-256 equal, green): a stored fixture's key
+renamed; `current` gated; the summary's flag not checked; a null group mean
+accepted; the page's generation check dropped; the export's SHA-256
+comparison dropped; a `throw` built from data. Each went red where
+predicted.
+
+**After the report (decisions 153 to 158).** Route analytics never run in the desktop app
+(decision 155): `src/analytics/GtagRouteListener.tsx` reads no measurement id when
+`isTauri`, so neither the gtag script nor any `page_view` is requested there, and a
+project's id in the route never leaves the device; the browser build is unchanged
+(`GtagRouteListener.vitest.tsx`, red before in the desktop case, green after).
+
+**What Phase 5B delivers, and what is left.** A project store on the user's
+own disk (5B-1), commands that save a finished summary or t-test with an exact
+copy of its data file, read it back verified, and render a report and a PROV
+JSON with no value from the data (5B-2), and screens behind a flag that is
+off: Save, the Projects panel with Open and Delete, an open project's page
+with its saved results, read only, and both exports, with a delete refused
+while another copy of the app has the project open (5B-3a, 5B-3b). Nothing is
+written except on a Save or a delete, and Rust checks every command whatever
+the screens show. Left: **5C**, reruns of a saved run, and Level 0 and Level 1
+runs in projects, each blocked on its own approval; **5D**, the Stored data
+screen for the old database and the stop-writing changes; **5E**, the hand
+test above on this Mac, Windows (the store's tests running there, and a hand
+test of save, reopen and delete), the evaluation of the Proposed parts of
+ADR-009 and ADR-004, and the release-list items (single instance on macOS is
+settled by the lock; the Statistics flag and the tiers are not decided).
+Departures are listed in `~/gaply-corpus/os/phase5/phase5b3b_report.md` §5.
+
+### D285 — Research OS, Phase 5B-4a: the hand test's first fixes (the text exports, the globe, the theme and the dialogs, a flaky test) `[src]` `[test]` `[measured]`
+
+**Added** on `feat/research-os-5` after `aba12f9`. Decisions 159 to 161, 164
+to 167 and 168 to 170 of 23 Oct 2026 apply (`~/gaply-corpus/os/decisions.md`). **Three of the
+four fixes change features that ship today with every flag off.** (1) The Note
+Creator's and the Citation Manager's text exports could not write a file in
+the desktop app from 6 Jul 2026, when the capability file was created, until
+this step; they now can. (2) The brand globe in the rail of every AppShell
+screen, whose failed image replaced the whole page with "Something went
+wrong", now leaves its own box empty. (3) Native drop-downs, radios,
+checkboxes and scrollbars on every `.gds-root` screen now draw in the dark
+scheme, a checked radio or checkbox takes the accent colour, and the design
+system's `Modal`, used by the citation editor and the PDF viewer, gets its
+buttons' styles. Twenty shipped page modules render under `.gds-root`,
+among them the Citation Manager, AI Check, Settings, the Stats Verifier, the
+Thesis Audit and the report pages; the rest are behind flags. The fourth fix is
+test-only. Findings b, e, f, g and k are 5B-4b's (decision 159); finding i
+needs no code (decision 167).
+
+**(a) The text exports (decision 160).** *Cause:* `saveTextFile` calls the fs
+plugin's `writeTextFile`, which invokes `plugin:fs|write_text_file`. The
+window's capability listed `fs:allow-write-file`, which at tauri-plugin-fs
+2.5.1 allows `write_file`, `open` and `write` only; `write_text_file` is
+allowed only by `allow-write-text-file`, `write-files` or `write-all`, and
+`fs:default` grants no write. The command was refused before any path was
+considered. *Fix:* `"fs:allow-write-text-file"` in
+`src-tauri/capabilities/default.json`; nothing else in the file changed, and
+the fs scope is still `$APPDATA` plus the paths a save dialog adds. *Guard:*
+`src-tauri/tests/every_fs_call_is_permitted.rs`, in the shape of
+`no_link_bypasses_the_recheck.rs`. A hand-pinned map from each plugin-fs
+function to its command and to every permission that allows it (from the
+plugin's `dist-js/index.js` and `permissions/` at 2.5.1, the per-directory
+sets deliberately left out, so relying on one fails closed); a scan of every
+non-test frontend file that names `@tauri-apps/plugin-fs`, the aliased
+`fs()` of `noteImages.ts` included, where a file the scan reads no function
+from fails; the set found pinned to six functions (`writeTextFile`,
+`writeFile`, `readFile`, `exists`, `mkdir`, `remove`); and no direct
+`plugin:fs|` invoke. `readFile`, `exists` and `mkdir` are also allowed by
+`fs:default`, so removing `fs:allow-exists` or `fs:allow-mkdir` would not
+redden it, correctly.
+
+**(h) The globe.** *Cause:* `GaplyGlobe` wrapped the lazy `ThreeJSGlobe` in
+`Suspense` only. drei's `useTexture` rethrows a failed load through R3F's
+`Canvas`, and the first boundary above was `AppErrorBoundary` at the app's
+root. *Fix:* a small boundary around the `Suspense` in `GaplyGlobe.tsx`
+whose fallback renders nothing and which logs nothing (React itself still
+reports a caught error on the console). It also catches a lazy chunk that
+fails to load. The landing page's `GlobeFrame` is unchanged. The home screen's
+hero renders no globe. The web build's marketing hero (`App.tsx:376`,
+`AppleHeroSection`, not reachable in the desktop app) renders `ThreeJSGlobe`
+with no boundary and is unchanged. *Test:* `GaplyGlobe.vitest.tsx` mocks
+`ThreeJSGlobe` to throw, renders it in a rail inside `AppErrorBoundary`
+beside a body, waits for the lazy load, and asserts the body is there, the
+globe's box is empty and "Something went wrong" is absent. **Its first version
+passed at HEAD**, a deletion-test finding: React 19 holds the commit after a
+Suspense retry for up to `FALLBACK_THROTTLE_MS` (300 in react-dom 19.2.0), and
+the test read the DOM 50 ms after the throw, before the root fallback was
+committed. With a 1,000 ms settle it is red at HEAD and green after.
+
+**(c, d) The theme and the dialogs (decision 161).** *Causes:* `.gds-root`
+set white text and no `color-scheme`, so a native select inherited the white
+text through Tailwind's preflight while the platform drew its light box, and
+radios hid their checked state. Both dialogs portal into `document.body`,
+outside every `.gds-root`, where every `.gds-btn` rule is scoped. *Fix:*
+`color-scheme: dark` on `.gds-root` and an `accent-color: var(--g-accent)`
+rule for radios and checkboxes under it (`tokens.css`); `color-scheme: light`
+in AI Check's light block (`aicheck.css`); the `gds-root` class on the
+`.gds-modal` panel of `Modal.tsx` and `ProjectDialog.tsx`, the overlay
+unchanged. **A departure from the prompt, approved during the step and accepted by
+decision 168:**
+`.gds-root` sets `background: var(--g-bg-base)` (black) with the same
+specificity as `.gds-modal`, and the last build's chunks hold the two files in
+either order (`910.4d0dec18.chunk.css` has `.gds-modal` at byte 4112 before
+`.gds-root` at 17227; `961.c39087e3` the reverse), so the panel would have
+turned black where `tokens.css` comes later. `.gds-modal.gds-root {
+background: var(--g-bg-layer1); }` in `primitives.css` keeps the panel's
+surface in any order. *Tests:* `dialogTheme.vitest.tsx`: a `.gds-btn` inside
+an open `Modal` (its own Close included) and inside an open `ProjectDialog`
+has a `.gds-root` ancestor; the overlay's class is exactly
+`gds-modal-overlay` and the panel carries both classes; and the four CSS
+lines are pinned as text inside their own rules. jsdom draws no native
+control, so the colours are checked in the real app (the checklist's Part 8).
+
+**(j) The flaky test.** `{ timeout: 5000 }` on each of the seven `waitFor`
+calls in `src/screens/ai/ai.vitest.tsx`, nothing else changed; testing-library's
+default is 1,000 ms, and the `aba12f9` run's first attempt failed one of them
+at 1,227 ms. No test can catch a timing flake; the measure is the re-run rate.
+
+**The checklist (decisions 164 to 167).** `~/gaply-corpus/os/phase5/hand_test_5e.md`
+has a new first page, "Rerun after 5B-4a": do not rerun Part 0 (it would
+overwrite the backup); start once, delete the first run's `HTPROJ_TEST`
+(nothing in the store refuses a duplicate name), run Parts 2 to 6 with what
+each should now look like; the second copy started from the shared folder's
+debug binary right after that build; "This build has no account service"
+expected; then Part 7 with a new Part 8 inside the flags-off run: a note
+`HTNOTE_one` and a reference `HTREF_…` exported into `hand_test_files/exports/`
+and read in TextEdit, then deleted; a look at an AppShell screen, the Citation
+Manager and its editor, AI Check in both modes and the Stats Verifier page; the
+PDF viewer optional, with a synthetic one-page `HTFILE_viewer.pdf` (parsed by
+the app's own pdfjs-dist 4.8.69: one page, three made-up lines), because
+linking runs the embedding model unoptimised in a dev build. The workspace
+switch dialog opens only while a run is still going, which the synthetic files
+cannot hold, so it is marked as probably unreachable by hand.
+
+**Measured, 23 Oct 2026, macOS aarch64** (logs in
+`~/gaply-corpus/os/phase5/5b4a_logs/`), each prediction written before its
+run. Red before, green after: the capability guard at HEAD's capability
+(red on `writeTextFile` alone, `saveTextFile.ts`), the globe test (red with
+"Something went wrong" committed), and all seven `dialogTheme` tests (each
+for its own reason). `cargo check --workspace --all-targets` exit 0, no
+warning in a changed file. `cargo test -p gaply_core --no-fail-fast` exit 0,
+75 targets (74 Running + 1 Doc-tests), 2,102 passed, 3 ignored (no
+`gaply_core` file changed). `cargo test --workspace --no-fail-fast`, both
+`lib.rs` touched (`git status` unchanged by the touch): exit 0, 117 targets
+(115 Running + 2 Doc-tests), 2,871 passed, 12 ignored, as predicted from
+D284's 116 / 2,868 / 12 (+the new guard, 3 tests). `cargo test -p app
+--features devtools --no-fail-fast`: exit 0, 48 targets (47 Running + 1
+Doc-tests), 786 passed, 9 ignored, as predicted from 47 / 783 / 9. Between
+the two, free space fell to 12 GiB with nothing building, and the shared
+`debug/incremental` (5.4 GiB) was deleted as Prompt 0's disk rule allows.
+vitest: 113 files / 1,469 tests at `aba12f9`, 115 / 1,477 after, as predicted
+(two new files: `GaplyGlobe` 1, `dialogTheme` 7; `ai.vitest.tsx` 21 → 21).
+`tsc --noEmit` and CI's eslint exit 0. `npm run build` exit 0,
+`build/index.html` present, `public/sitemap.xml` written back from HEAD
+(`cmp` equal); the built chunks carry `color-scheme:dark`,
+`color-scheme:light` (AI Check's chunk), the accent rule and
+`.gds-modal.gds-root`, and chunk `910.6d847f18` still puts `.gds-root` after
+`.gds-modal`. rustfmt by path: the new guard 3 hunks → 0 after formatting;
+no other Rust file changed. `git diff --check` clean; `git diff aba12f9`
+empty under `stats_l0`, `stats_l1` and `stats_assist`. No GRRB-watched file
+changed. Mutation record (SHA-256, broken once, red, restored with a fresh
+mtime, SHA-256 equal, green): `fs:allow-write-file` removed (red on
+`writeFile` in four files, `noteImages.ts`'s alias among them);
+`fs:allow-remove` removed (red on `remove`); a temporary file of this step's
+using the module through a namespace (red: "the scan read no function");
+the globe's boundary unwrapped; the `gds-root` class dropped from each
+dialog's panel; each of the four CSS lines removed or changed. Each went red
+where predicted.
+
+**Not tested:** any colour, which jsdom cannot draw (the checklist's Part 8 and
+Parts 2 to 5 are the check); a real failed texture load (the mock throws during
+render instead); Windows (the guard's paths are built with `Path::join` and
+compared as strings only in its messages, but only `windows-build-check` can
+say so); the real app. Departures are listed in
+`~/gaply-corpus/os/phase5/phase5b4a_report.md` §5.
+
+### D286 — Research OS, Phase 5B-4b: the hand test's remaining fixes (table spacing, links, a Projects line, the delete dialog after a refusal, one project size and its wording, export failures, CI) `[src]` `[test]` `[measured]`
+
+**Added** on `feat/research-os-5` after `621cb8f` (D285). Decisions 171 to 176
+of 23 Oct 2026 apply (`~/gaply-corpus/os/decisions.md`), with 159, 162 and 163
+as they refine. **One fix changes features that ship today with every flag
+off: the Note Creator's and the Citation Manager's export failures (decision
+176).** A failed export of all shown notes, of a note from either note editor,
+or of a BibTeX or RIS file showed the error's own message (`e.message`, or
+"Export failed: …"), which can hold a path or a file name; a failed
+bibliography export showed nothing at all and left an unhandled rejection, so
+the error reached the console. Each now shows "Gaply could not save the
+export. No file was written." and logs nothing of the error. The other raw
+messages on those two screens (loading notes, saving a note, importing,
+resolving a paper, the open-access fetch, the DOI and retraction checks, the
+local library's warnings) are unchanged and wait for a later step (decision
+176). Everything else here is behind `REACT_APP_FEATURE_PROJECTS`,
+`REACT_APP_FEATURE_WORKSPACES` or `REACT_APP_FEATURE_STATS_DESCRIBE`, or is CI.
+
+**(b) Table spacing.** *Cause:* the six tables (`desc-numeric-table`,
+`desc-levels-table`, `desc-profile`, `desc-settings`, `tt-profile`,
+`tt-groups`) gave their column headers `paddingRight: 12` and their data
+cells, their row headers and two headers (the levels table's "Count", the
+settings table's "Summarise as") nothing, under `borderCollapse: collapse`;
+on the live results screen the table sits at content width in a `Card`, so a
+number that was its column's widest cell touched the next column. The saved
+view looked clean because its `display: grid` section stretches the table
+(inferred, not rendered). *Fix:* one exported constant, `CELL_PADDING =
+{ paddingRight: 12 }`, in `src/design-system/primitives.tsx`, on every `th`
+and `td` of the six tables in `DescribeFlow.tsx` and `TTestFlow.tsx`; the
+per-header copies are gone. An inline style, because vitest runs with
+`css: false`. *Tests:* each flow's own test file walks to every table and
+asserts every `th` and `td` has a 12 px right padding; `SavedResult.vitest.tsx`
+does the same for a saved summary and a saved t-test. Red before (unpadded
+`td`s and row headers), green after. One existing assertion changed:
+"Could not compute" was pinned as having no `style` at all; it now has the
+same style as its row's other cells, which is what the assertion meant.
+
+**(e) Links that look like links.** *Cause:* Tailwind's preflight sets
+`a{color:inherit;text-decoration:inherit}` app-wide, and no rule under
+`.gds-root` restored a link. *Fix:* `.gds-root .gds-link { color:
+var(--g-accent); }` and an underline on `:hover` and `:focus`, in
+`primitives.css`; the class on the three "Open:" anchors of the Statistics
+home (four `stats-open-*` elements), the Tools card's links and the settings
+link in `WorkspaceShell.tsx`. No rule for every `a`. *Tests:* each
+`stats-open-*` element and each shell link carries the class; in
+`dialogTheme.vitest.tsx` the rule is pinned as text, and a scan of
+`primitives.css` with comments stripped finds no selector for a bare `a`
+(the rule's own comment quotes preflight's `a{…}`, which the first version of
+the scan matched). Red before, green after; mutation: a global `a {…}` rule
+appended, red.
+
+**A "Projects" line (decision 172).** The rerun found the projects hard to
+find. *Change:* a line in the Statistics workspace page's Tools card,
+`ws-tools-projects`, keyed apart from the Statistical methods line (both lead
+to `/app/statistics`), shown only when `projectsShown()` and the describe flag
+are both on, the condition under which the project routes exist
+(`projectRoute.tsx`). It navigates with router state `FOCUS_PROJECTS`
+(`{ focus: 'projects' }`, a fixed word, never an id or a name), and the
+Statistics home, once its method list has loaded or failed, moves the focus to
+`projects-heading`, which scrolls the panel into view. Opened any other way,
+it moves no focus. *Tests:* a new
+`src/screens/statistics/projects/projectsLine.vitest.tsx` (the only folder whose
+tests may name project commands, by `projectGuards.vitest.ts`, which caught
+its first location in `screens/workspace/`) with the real shell, the real home and the real panel over a mocked invoke:
+the line shows with both flags on in the desktop app and React warns of no
+duplicate key; it is absent with the projects flag off, with the describe flag
+off and in the browser; clicking it focuses the heading only after the list
+has resolved, and also after it fails; opening the page directly, or from the
+Statistical methods line, moves no focus. The three positive tests were red
+before; the five absence and no-focus tests were green before and are kept.
+
+**The delete dialog after a refusal (decision 175).** *Change:* after a
+refusal, `project-delete-cancel` reads `PROJECT_TEXT.closeDialog` ("Close")
+and takes the focus once it is enabled again; `PROJECT_TEXT.close` ("Close
+the project") is unchanged; Delete stays. *Tests:* red before: the button
+reads Close and has the focus. Already green and kept: the refusal shows,
+Delete is there and enabled, Close and Escape each close the dialog, and the
+focus returns to `project-delete-<id>`. **A deletion test of the focus move
+first stayed green**: `fireEvent.click` moves no focus, so the focus was
+still on Cancel from when the dialog opened. The test now focuses Delete
+before pressing it, as a keyboard user does, and goes red without the move.
+
+**(f) One project size (decisions 162 and 173).** *Cause:* `tree_bytes`
+counted `project.db-wal` and `project.db-shm`, which SQLite creates while a
+connection is open and removes when the last one closes, so `list()`,
+`usage()` and the page each counted a different pair (0.10, 0.04 and 0.07
+MiB in the hand test). *Fix* in `src-tauri/src/project_store.rs` only:
+`tree_bytes`, changed in place, skips files named exactly `project.db-wal` and
+`project.db-shm`, at any depth; every other file counts as before, a
+tombstone's leftovers included. Every size and the caps go through it
+(`list`, `usage` and `projects_bytes`, `project_bytes`, `size_on_disk`, the
+Save's cap check). `PRAGMA wal_checkpoint(TRUNCATE)`, through `query_row`,
+runs after a Save's commit and in `ProjectHandle`'s `Drop` (which `close`
+runs). A busy or failed checkpoint logs `project.checkpoint_busy` or
+`project.checkpoint_failed` and nothing else, and the Save still returns
+`Ok`. The checkpoint waits under the 5 s busy timeout while another
+connection reads, so a Save or a close can take that long when a second copy
+is reading the same project (inferred from SQLite's documentation; not
+measured). *Tests:* `a_projects_size_read_while_it_is_open_equals_its_size_after_it_is_closed`
+(all four sizes agree while open and equal the size after close; red at HEAD:
+107,682 open against 33,682 closed);
+`after_a_second_save_the_log_is_empty_while_the_project_is_open` (red at
+HEAD: 41,232 bytes); `a_size_skips_exactly_the_log_and_the_shared_memory_file`
+(red at HEAD). **The first size test passed with the Save's checkpoint
+deleted**: two small Saves rewrite pages `project.db` already has, so folding
+the log in leaves its size the same. It now makes 41 Saves and asserts
+`project.db` grew while open, and goes red without the checkpoint. The close
+checkpoint has no red test: SQLite folds the log in when the last connection
+closes anyway, and a deletion of it stays green, as predicted. Every existing
+size and cap test passes unchanged, and the tests that expect a `-wal` file
+still find one (TRUNCATE leaves it at 0 bytes).
+
+**(g) The size wording (decisions 163 and 174).** `projectWording.ts`: `mib`
+is replaced by `mb`, decimal MB to two decimals, "0 MB" for 0 bytes and
+"under 0.01 MB" below 10,000 bytes. "Your projects use 0.05 MB of their 10 GB
+limit. A project can hold up to 100 MB."; "Size: 0.07 MB."; the two cap
+refusals name "100 MB" and "10 GB"; "Data file: CSV file, 0.05 MB.". The
+limits are the fixed words `PROJECT_LIMIT` and `ALL_PROJECTS_LIMIT`, never
+formatted from a cap or a refusal's `limit`, and a test reads
+`projectSizes.json` and asserts 100,000,000 and 10,000,000,000 are each no
+more than its cap. `totalsSentence` takes the total only.
+
+**(k) CI.** `actions/checkout` v4 → v7, `actions/setup-node` v4 → v7,
+`actions/upload-artifact` v4 → v7, `actions/download-artifact` v4 → v8, each
+the newest major, each `runs.using: node24` in its `action.yml` at that tag
+(read 23 Oct 2026). The five `ubuntu-latest` jobs, `latex-compile`'s container
+job included, are pinned to `ubuntu-24.04`; `windows-latest` and
+`macos-latest` are unchanged; `latex-compile.yml` installs Node 22. No step
+needed changing: no workflow runs on `pull_request_target` or `workflow_run`
+(checkout v7 blocks fork-PR checkout there), none uses `registry-url` or
+`NODE_AUTH_TOKEN` (setup-node v7 removed the dummy export), `package.json`
+has no `packageManager` field (setup-node v5's automatic caching), and the
+one download is by name of a zipped upload (download-artifact v5's by-ID path
+change and v8's content-type decompression do not apply). Unverified until the
+branch is pushed: the pull request's six checks are the measure.
+
+**Measured, 23 Oct 2026, macOS aarch64** (logs in
+`~/gaply-corpus/os/phase5/5b4b_logs/`), each prediction written before its
+run. Red before, green after: the three padding tests, the three link tests,
+the three positive Projects-line tests, the Close test, the three store tests,
+eight wording tests and the six export-failure tests (each list in
+`~/gaply-corpus/os/phase5/phase5b4b_report.md`). `cargo check --workspace
+--all-targets` exit 0, 45 warnings, none in a changed file. `cargo test -p
+gaply_core --no-fail-fast` exit 0, 75 targets (74 Running + 1 Doc-tests),
+2,102 passed, 3 ignored, unchanged as predicted. `cargo test --workspace
+--no-fail-fast`, both `lib.rs` touched: exit 0, 117 targets (115 + 2),
+2,874 passed, 12 ignored, as predicted from D285's 2,871 + 3. `cargo test -p
+app --features devtools --no-fail-fast`: exit 0, 48 targets (47 + 1), 789
+passed, 9 ignored, as predicted from 786 + 3. Between the two, free space fell
+to 12 GiB with nothing building, and the shared `debug/incremental` (6.4 GiB)
+was deleted as Prompt 0's disk rule allows. vitest: 115 files / 1,477 tests
+at `621cb8f`, 118 / 1,502 after, as predicted (three new files with 14 tests;
+11 new tests in existing files). The first whole-suite run was 1 failed, 1,501
+passed: `projectGuards.vitest.ts` on the new file's first location, fixed by
+the move above and re-checked by a mutation. `tsc --noEmit` and CI's eslint
+exit 0. `npm run build` exit 0, `build/index.html` present, `public/sitemap.xml`
+written back from HEAD (`cmp` equal); both `.gds-root` chunks carry the link
+rules. rustfmt by path on `project_store.rs`: 0 hunks at HEAD, 2 after the
+change (whitespace only), formatted, 0. The workspace run used the file before
+formatting; the devtools run used it after. `git diff --check` clean; `git diff
+621cb8f` empty under `stats_l0`, `stats_l1` and `stats_assist`. No
+GRRB-watched file changed. Mutation record (SHA-256, broken once, red,
+restored with a fresh mtime, SHA-256 equal, green): a global `a {…}` rule in
+`primitives.css`; the focus move after a refusal; the Save's checkpoint (two
+store tests red); the Drop's checkpoint (green, as predicted); the Projects
+line hidden (three tests red).
+
+**Not tested:** any rendered spacing, colour or scrolling, which jsdom cannot
+draw (`~/gaply-corpus/os/phase5/realapp_5b4b.md` is the check); a checkpoint
+that is busy because a second copy is reading, and how long a Save waits then;
+Windows (`windows-build-check` only); the CI changes, which run only when the
+branch is next pushed; the real app. Departures are listed in the report's §5.
+
+### D287 — Research OS, Phase 5C-1a: reruns, the Rust side (a stored summary or t-test run again on the project's copy of its data, saved once at the end) `[src]` `[test]` `[measured]`
+
+**Added** on `feat/research-os-5` after `ed64c5d` (D286). Decisions 184 to 191
+of 24 Oct 2026 apply (`~/gaply-corpus/os/decisions.md`), with 99 to 183.
+**No screen changes**: `project_rerun` is registered and the frontend's
+project bridge can call it, but no screen does until 5C-1b (decision 184), so
+this step has no real-app checklist. Level 0 and Level 1 in projects are 5C-2.
+
+**What a rerun is (decision 185).** `project_rerun { runId }`
+(`src-tauri/src/project_commands.rs`, `rerun` and `rerun_open`) runs a saved
+run that Succeeded again, in the open project: its stored `OperationSpec`, on
+the project's copy of its data file. It checks, in order, each refusal writing
+nothing but the damage mark a read of a damaged artifact makes: Statistics
+active (gated, `workspace_guards.rs`); a project open; the stored run exists
+(`project.stored_run_unknown`); it Succeeded (`project.rerun_not_succeeded`);
+its capability and capability version, from its row, pass
+`stats_registry::require_runnable` and name the summary or the t-test
+(`project.rerun_unsupported`); no rerun going (`project.rerun_in_progress`)
+and no run unfinished (`project.rerun_busy`); the data file and the spec read
+back with their hashes (the store's own codes); the spec parses and
+re-serialises to exactly its stored bytes (`project.rerun_unsupported`,
+decision 188); the data file reads as a table through the ingest
+(`project.rerun_data_unreadable`, a sixth code); the spec passes
+`check_spec` and its façade's validation (`project.rerun_refused`). The data
+is read by `stats_l1_ingest::load_dataset_from_bytes`, which runs the byte
+half of `check_file`'s checks (now `check_size` and `check_bytes`, shared
+with the path ingest) and the same `dataset_from_parts`; its dataset lives in
+a `Slot::for_one_run` (number 0, which `DatasetSlots` never hands out), held
+by the worker and the end hook only, so it evicts no open dataset (decision
+190). The run is an ordinary run: `Runs::start_then` / `start_ttest_then`,
+the same record, façade, queue, check point and last step as `start`.
+
+**Nothing is written while it runs; one write at the end (decisions 186 and
+187).** `runs.rs` gained an `EndHook`, kept beside the records under their
+lock and taken out at the step that ends the record (a refusal in `queue`, a
+failed spawn, a cancel while queued, the worker's last step), then called once
+the lock is released, with the `RunCopy` taken under it; `runs.rs` names no
+store, SQL or file. The hook holds the project session by a `Weak`: once the
+session is gone nothing is written. It takes the open-project lock, then the
+store's write lock inside `ProjectHandle::save_rerun` (which shares `save`'s
+lock and its one `save_inner`, with `rerun_of`), then SQLite; never the
+workspace's or the run manager's lock. A rerun that Succeeded, or Failed with
+its code, is saved with its own bundle and manifest (or failure record), the
+data file and spec reused by hash; any other end, or another project open,
+records "not saved" with saveable()'s code, `project.not_open` or the store's
+refusal. **This replaces the proposal's RunSink**, which would have written a
+row at Queued and every transition (decision 186): no run row exists until a
+rerun has ended, so a quit, a crash or a cancel leaves nothing, and a false
+Succeeded cannot be stored.
+
+**Going (decision 190).** From `project_rerun` until the save at the end has
+returned, an atomic flag set and cleared under the open-project lock refuses
+Close, Open of another project, a Save into a new project, the open project's
+delete and a second rerun with `project.rerun_in_progress`; `workspace.rs`'s
+`leave()` reads it, with no project lock, before the seal, and refuses with
+`workspace.run_active` and the rerun's run. `project_current` gains
+`rerun: {runId, rerunOf, status: going|saved|not_saved, storedRunId, code}`,
+read from its own mutex, so it answers during the save without waiting. A
+rerun's own in-memory run is refused by hand with `project.run_already_saved`
+or `project.data_unavailable` (decision 187).
+
+**Schema version 2 (decision 186).** An append-only step adds
+`runs.rerun_of INTEGER REFERENCES runs(run_id)`; `migrate` runs each step in
+its own `BEGIN IMMEDIATE`, re-reading the version under its lock, and opening
+a project migrates it before recovery; a version 3 database is refused
+untouched.
+
+**The comparison and the exports (decision 189).** `research_project::
+compare_rerun` compares the two manifests' output hashes (identical,
+different, or not compared when one cannot be read) and reports whether the
+engine versions differ, never a verdict. `project_runs` shows `rerunOf`,
+`comparison` and `engineVersionDiffers`. The report adds, for a rerun,
+"Repeats run {n}. Its result is identical, byte for byte, to run {n}'s." or
+"…is not identical, byte for byte, to run {n}'s. Both are kept; Gaply does
+not judge which is right.", and only "Repeats run {n}." otherwise; the PROV
+JSON adds `wasInformedBy` only in a project with a rerun. Both renderers stay
+pure; the existing goldens are byte-identical.
+
+**The wire.** Six codes appended to `ProjectCode` (54), `projectCodes.json`
+and `projectWording.ts`; `projectCurrent.json`, `projectRuns.json` and a new
+`projectRerun.json` pinned on both sides; `project_rerun` in the bridge
+(thirteen commands, `projectGuards.vitest.ts`).
+
+**Departures**, listed with reasons in
+`~/gaply-corpus/os/phase5/phase5c1a_report.md` §5: no privacy matrix held a
+project, so the rerun matrix is a new binary; `RunToSave` is unchanged and
+`save_rerun` carries `rerun_of`; the two store-fault tests are in
+`project_store.rs`'s tests, behind three `#[cfg(test)]` entry points on
+`ProjectSession`; a sixth code; check 6 split into its two codes; `rerunOf` in
+`project_current`'s rerun; a test-only spawn refusal in `runs.rs`.
+
+**What ADR-009 will need at 5E** (decision 158): schema version 2 and the
+migration at open; decision 186's amendment of §6 (a rerun's save at the end
+is a second click-triggered write; the RunSink and its recovery of a rerun
+row are not built, so recovery's interrupted-run rule now covers no path that
+writes); `rerun_of` and `wasInformedBy` in §3 and §7; the end hook, the going
+flag and the leave refusal; ADR-004's operations table row "rerun from a
+project", now built as the save at the end.
+
+**Measured, 24 Oct 2026, macOS aarch64** (logs in
+`~/gaply-corpus/os/phase5/5c1a_logs/`), each prediction written before its
+run. `cargo test --workspace --no-fail-fast` at `ed64c5d` first, both
+`lib.rs` touched: exit 0, 117 targets (115 Running + 2 Doc-tests), 2,874
+passed, 12 ignored. After, both `lib.rs` touched (`git status` and `git diff
+--stat` unchanged by the touch): exit 0, 120 targets (118 Running + 2
+Doc-tests), 2,902 passed, 12 ignored, as predicted: app lib 563 → 573 (the
+store +3, the ingest +2, the run manager +5), `gaply_core` lib 1,848 → 1,849,
+and the new `project_rerun` (11), `project_rerun_privacy_matrix` (1) and
+`research_project_reruns` (5); no other target moved. **The first run of the
+same command was exit 101**: `verifier_facade_guards.rs` pins that `runs.rs`'s
+`fn start` itself calls `stats_adapters::describe_validate(`, and a refactor
+had moved that body into a private function; `start` and `start_ttest` were
+given back their own bodies (the `_then` siblings repeat the three
+statements), and the guard is unchanged. `cargo test -p app --features
+devtools --no-fail-fast`: exit 0, 50 targets (49 Running + 1 Doc-tests), 811
+passed, 9 ignored, as predicted from D286's 48 / 789 / 9. `cargo test -p
+gaply_core --no-fail-fast`: exit 0, 76 targets, 2,108 passed, 3 ignored. `cargo
+check --workspace --all-targets`: exit 0, 45 warnings, none in a changed file.
+The shared `debug/incremental` was deleted four times as Prompt 0's disk rule
+allows (free space 13 to 14 GiB, nothing building). vitest: 118 files / 1,516
+tests, exit 0; the three touched pin files count 41 at HEAD (their HEAD copies
+run beside the code, then removed) and 43 after, so the whole suite was 1,514
+at `ed64c5d`, not D286's 1,502 (inferred: no other test file changed). A first
+whole-suite run had 4 timeouts in three untouched files, each green alone
+twice. `tsc --noEmit` exit 0 after the new `StoredRunView` fields were added
+to the typed literals of `ProjectPage.vitest.tsx` and `SavedResult.vitest.tsx`
+(red before: TS2739); CI's eslint exit 0; `npm run build` exit 0,
+`build/index.html` present, `public/sitemap.xml` written back from HEAD (`cmp`
+equal). rustfmt by path: every new file 0 hunks; changed files 0 → 0 but
+`stats_l1_ingest.rs`, 63 at HEAD → 57 (its split `check_file` formatted);
+`lib.rs` 0 → 0 with stub modules. `git diff --check` clean; `git diff ed64c5d`
+empty under `stats_l0`, `stats_l1`, `stats_assist`, `stats_desc`,
+`stats_ttest` and `stats_adapters`. No GRRB-watched file changed.
+
+**Red before, green after:** the version 1 migration (user_version stayed 1);
+the bytes entry's two tests against a stub; four of the end hook's five tests
+against a stub (the fifth, no record no call, is green by design); the five
+rerun-export tests against a stub `rerun_sentence`. The rerun commands' 11
+integration tests and the two fault tests were written after the code; their
+red is the mutation record. **Mutation record** (SHA-256, broken once, red,
+restored by plain copy with a fresh mtime, SHA-256 equal, green; logs in
+`5c1a_logs/mutations/`): an `UPDATE` through `rusqlite` in `runs.rs` (the
+no-write guard, both words); `rerun`'s workspace check moved second
+(`workspace_guards`); `leave()`'s rerun check off (the leave test alone);
+`close` without the going check; `rerun_of` written NULL (three tests); the
+spec's exact-bytes check off; a queued cancel not calling the hook (three
+tests, the lib's included); `project_current` waiting for the open lock (5.6
+s); `wasInformedBy` in every project (both old goldens and the "only then"
+test); `project_rerun` dropped from the bridge (three vitest tests). **One
+stayed green**: the end hook holding the session strongly instead of weakly.
+The quit test read the disk 200 ms after the late end, and under parallel load
+the save had not landed; the test now asserts the dropped session has no
+strong reference, and the repeat went red there.
+
+**Not tested:** the real app (5C-1b's checklist); Windows (`windows-build-
+check` only); a real second process (a second connection in this process
+holds the write lock); a different engine version from a real engine (built
+from a test row); a panic inside the save at the end, which would leave the
+rerun going until the app restarts (open question 1 of the report).
+
+### D288 — Research OS, Phase 5C-1b: reruns on screen (Run again, its dialog, the status line, the rerun's words), the guard on a panicking save at the end, and the project screens' buttons `[src]` `[test]` `[measured]`
+
+**Added** on `feat/research-os-5` after `a87a494` (D287). Decisions 191 and
+193 of 24 Oct 2026 apply, with 197 to 201 (`~/gaply-corpus/os/decisions.md`).
+This step changes screens, so it is done only when the real-app checklist
+`~/gaply-corpus/os/phase5/realapp_5c1b.md` has been run (decision 166). That
+checklist also carries 5B-4b's deferred Parts D to H (decision 182).
+
+**The guard (decision 193).** A panic inside a rerun's save at the end used to
+unwind past `end_rerun`'s last steps, so the rerun stayed "going" until the
+app restarted: Close, leaving Statistics and further reruns stayed refused.
+`end_rerun` (`src-tauri/src/project_commands.rs`) now holds an `EndGuard` from
+the moment it takes `open`'s lock until the save's status is known. If it is
+dropped while still armed, by a panic, it records the rerun as not saved with
+`project.io_failed`, marks its run as never saved, clears the going flag
+(under `open`'s lock, which the unwind has not yet released) and writes one
+tracing line (`warn`, with the project's id, the run's number and the code).
+It does not catch the panic, so Rust's own panic report is unchanged
+(`thread 'stats-desc-run' panicked at src/project_store.rs:2007:38`, seen with
+`--nocapture`). The test,
+`a_panic_in_a_reruns_save_at_the_end_leaves_it_not_saved_and_no_longer_going`,
+is in `project_store.rs`'s tests and takes 5C-1a's route (decision 201):
+`rerun_for_test` on `rerunning()`'s fault-arming run manager, with no
+workspace session, since `only_workspace_activate_activates_a_workspace`
+forbids `.activate(` anywhere under `src/`. It asserts that `project_current`
+says not saved with `project.io_failed`, that `rerun_going()` is none and
+`not_rerunning()` is Ok (what `leave()` and Close check; 5C-1a's M3 and M4 tie
+them to those commands), and that a second rerun starts. `not_rerunning()`
+is reached through a new `#[cfg(test)]` `not_rerunning_for_test`, beside
+5C-1a's other test entry points.
+
+**Run again and its dialog (decisions 191 and 199).** `ProjectPage.tsx` shows
+"Run again" on each saved result whose state is succeeded and on no other. It
+opens a dialog in the export dialog's pattern with decision 191's sentence;
+its Run again calls the bridge's `rerun` with that row's id, once per click. A
+refusal shows its code's sentence, and the dialog's Cancel then reads Close
+and takes the focus, as the delete dialog does (decision 175). A start closes
+the dialog and shows the status line.
+
+**While it runs (decisions 198 and 199).**
+- **The status line.** While `project_current` says a rerun of this project
+  is going, whether this page started it or found it when it appeared, the
+  page shows "Running again…" with Cancel.
+- **The poll.** It reads `project_current` every `pollMs` (250 ms, a prop
+  for tests), in an effect with its own `live` flag as `DescribeFlow`'s poll
+  has, never the page's generation counter. So it neither waits on nor
+  discards a saved result being read or an export.
+- **Cancel** calls the kind's own cancel: the describe or t-test bridge's
+  `cancel`, by the kind `project_rerun` returned, or from the repeated run's
+  capability once `project_runs` has answered. Until then it is disabled. The
+  page never calls either bridge's `status`.
+- **The outcome.** When the poll sees going turn into saved, it reads the
+  runs once and says "The new run is saved in this project."; into not
+  saved, it says "The new run was not saved." and the code's sentence. An
+  outcome `project_current` already held when the page appeared shows
+  nothing.
+- **The disabled controls.** Every Run again and Close the project are
+  disabled, with `project.rerun_in_progress`'s sentence beside Close and once
+  above the list. The Projects panel disables that project's Delete…, with
+  the same sentence, when `project_current` says going on its read.
+- **A failed poll** shows `PROJECT_TEXT.pageUnread` with Try again, stops,
+  and leaves the controls disabled until the page is read again.
+
+**The rerun's words (decisions 191, 197 and 198).** `RerunWords`
+(`SavedResult.tsx`) draws them once, for the list's row and for the saved
+result view under its "Saved result" line. They are "Repeats the result saved
+on {date}." (or "Repeats an earlier result." when the repeated run is not in
+the list), then the comparison's sentence, and the engine line when the
+version differs. A rerun that did not succeed gets only its first line. The
+sentences live in `projectWording.ts` (`RERUN_SENTENCE`, `RERUN_WORDS`,
+`rerunLines`). A scan of every string literal in that file finds no
+"reproduced", "verified", "correct", "confirmed", "failed to reproduce" or
+"matches the paper".
+
+**The polish (decisions 183 and 200).** "Open this result", "Run again" and
+the panel's "Delete…" use the design system's secondary button, each changed
+once, in the component that draws it.
+
+**Departures**, listed with reasons in
+`~/gaply-corpus/os/phase5/phase5c1b_report.md` §5:
+- **the first stop:** the guard's test as the prompt first described it
+  would have broken `only_workspace_activate_activates_a_workspace`; decision
+  201 answered it;
+- **the new screen tests are a new file**, `projectReruns.vitest.tsx;
+- **new words not in the decisions:** a dialog title ("Run a saved result
+  again"), "Starting…" and "Cancelling…";
+- **Try again** beside a failed poll's sentence;
+- **a failed Cancel** shows `projectSentence`, since the flows' own refusal
+  functions print an unrecognised error's raw message;
+- **an answer about another rerun** is treated as a failed poll.
+
+**Measured, 24 Oct 2026, macOS aarch64** (logs in
+`~/gaply-corpus/os/phase5/5c1b_logs/`), each prediction written before its
+run.
+- **The guard's test:** red before the guard, by the wait's 20 s timeout
+  ("the rerun is still going after its save panicked", 20.19 s); green after
+  it (0.14 s).
+- **`cargo test --workspace --no-fail-fast`**, both `lib.rs` touched, and
+  `git status` and `git diff --stat` unchanged by the touch:
+  - exit 0, 120 targets (118 Running + 2 Doc-tests), 2,903 passed, 12
+    ignored, as predicted from D287's 2,902;
+  - app lib 573 → 574, no other target moved.
+- **`cargo test -p app --features devtools --no-fail-fast`:** exit 0, 50
+  targets (49 + 1), 812 passed, 9 ignored, as predicted.
+- **`cargo test -p gaply_core --no-fail-fast`:** 75 Running + 1 Doc-tests,
+  2,108 passed, 3 ignored, unchanged.
+- **`cargo check --workspace --all-targets`:** exit 0, 45 warnings, none in a
+  changed file.
+- **Disk:** the shared `debug/incremental` was deleted once (7.4 GiB) as
+  Prompt 0's disk rule allows (12 GiB free, nothing building).
+- **vitest, the new and changed files:**
+  - `projectReruns.vitest.tsx`: 24 tests. Against the HEAD copies of
+    `ProjectPage.tsx`, `SavedResult.tsx` and `ProjectsPanel.tsx` (put in
+    place from `git show`, then mine copied back, each SHA-256 equal), 22
+    failed and 2 passed: the browser build and a run that is not a rerun,
+    both absence tests that hold at HEAD by design. On the new code, 24
+    passed.
+  - `projectWording.vitest.ts`: 22 tests. Against HEAD's `projectWording.ts`,
+    3 failed and 19 passed (the scan's own self-test holds at HEAD by
+    design); on the new code, 22 passed.
+- **vitest, the wider runs:** the projects folder 14 files / 350; with
+  `statistics/`, `checks/` and `statsverifier/`, 41 files / 603; the whole
+  suite 119 files / 1,544, as predicted from decision 195's 118 / 1,516.
+- **`tsc --noEmit`:** exit 0, after the new test's `save` option was typed as
+  `SaveFile` (first run TS2322).
+- **CI's eslint:** exit 0.
+- **`npm run build`:** exit 0, `build/index.html` present;
+  `public/sitemap.xml` written back from HEAD, `cmp` equal.
+- **rustfmt by path:** `project_commands.rs` 0 → 0 hunks, `project_store.rs`
+  0 → 0.
+- **`git diff --check`:** clean, and the new file has no trailing white
+  space.
+- **The protected folders:** `git diff a87a494` is empty under `stats_l0`,
+  `stats_l1`, `stats_assist`, `stats_desc`, `stats_ttest` and
+  `stats_adapters`, which all exist.
+- **GRRB:** no file it watches changed.
+
+**Mutation record** (SHA-256, broken once, red, restored by plain copy with a
+fresh mtime, SHA-256 equal, green):
+- **the guard armed false:** the guard's test went red by its timeout
+  (20.15 s); after the restore, all 37 of `project_store::tests` passed;
+- **a sentence holding "confirmed" added to `projectWording.ts`:** only the
+  scan went red; after the restore, 22 passed.
+
+**Not tested:**
+- the real app, which is the checklist's job;
+- a panic in the real app, which only the store's test fault can make;
+- Windows, which only `windows-build-check` reaches;
+- the status line in the real app, since the test files' reruns end within a
+  poll or two.
+
+### D289 — Research OS, Phase 5D-1a: what the old database and the app's folders keep, mapped and counted, and a read-only Stored data section in Settings behind REACT_APP_FEATURE_STORED_DATA `[src]` `[test]` `[measured]`
+
+**Added** on `feat/research-os-5` after `e0cca96` (D288). Decisions 109, 205,
+206 and 207 of 24 Oct 2026 apply (`~/gaply-corpus/os/decisions.md`). This
+step changes a screen, so it is done only when the real-app checklist
+`~/gaply-corpus/os/phase5/realapp_5d1a.md` has been run (decision 166).
+Nothing stored is changed or deleted: no code this step adds outside tests
+writes, deletes or vacuums anything.
+
+**The map.** `~/gaply-corpus/os/phase5/stored_data_map.md` and
+`stored_data_map.csv`, read from the code at `e0cca96`: one row for each of
+the 33 tables of `gaply.db` (the two virtual tables with their shadow
+tables), each file kind under the app data, local data and temp folders, the
+keychain entry and each webview storage key, with what it holds, its writers
+and readers, its foreign keys and ON DELETE rules, its links kept without a
+foreign key, and its class: one of the nine categories, "has its own
+delete", "no delete in the app" or "not user data". It lists the user text
+no category covers (F1 to F8): chiefly the `'paper'` documents with their
+`ai_chunks`, FTS index, vectors and citation links, which hold a linked
+file's whole text and its absolute path, and the evidence cards, which hold
+the manuscript sentence checked and hang from the source paper, not the
+audit.
+
+**The summary.** `gaply_core::stored_data` (`Database::stored_data_summary`)
+counts the nine categories from one deferred read transaction and from file
+metadata, given the app data folder, the temp folder and the time. Bytes are
+`length(CAST(col AS BLOB))` summed over every column of the counted rows that
+holds text or bytes (a test pins each list to the table's own schema); for
+files, their sizes. Only regular files directly in a counted folder count; a
+symlink, a counted folder's own or an entry's, is skipped and never followed.
+`embeddings` is a `vec0` table and holds no foreign key, so a Gap Finder
+paper's vectors are found by `source_type = 'chunk'` and `source_id`. An
+orphan note image is asked through `notes::search_notes`, the same search the
+Note Creator's clean-up uses. `stored_data_commands::stored_data_summary`
+resolves the folders, runs it under `spawn_blocking`, and answers any failure
+with one closed code, `stored_data.unavailable`, logging only the error's
+kind. It is exempt from the workspace check (decision 206):
+`STORED_DATA_EXEMPT` in `tests/workspace_guards.rs`, shaped like
+`PROJECT_EXEMPT`, in no other list.
+
+**The section.** `StoredDataSection` in Settings, after the Projects section
+and before About, whatever the Projects flags, shown only with
+`REACT_APP_FEATURE_STORED_DATA` on and in the desktop app
+(`storedDataGate.ts`). One line per category: its name, its sentence, its
+count and its size through `projectWording`'s `mb()` (decisions 163 and 174).
+It keeps only the two counts of each category after a shape check
+(`readStoredData`) and shows one fixed sentence when the summary fails or
+has another shape. There is no delete control. The nine sentences are
+approved by decision 208, with category 9 named "Unused note images".
+Sentence 7 names the Citation Manager and the thesis citation audit because
+both are traced to the writes in `oa_papers/`: each screen calls
+`aiBridge.fetchOpenAccess` → `citation_fetch_oa` (`commands.rs:2264`; a
+citation subject `:2300`, an audit's staged reference `:2311`) →
+`oa_fetch::fetch_one` (`:2376`), which writes the PDF (`oa_fetch.rs:337-340`)
+or the abstract (`:392-398`) whatever the subject. A vitest pins the sentence
+to the screens that call the fetch.
+
+**Tests.** `stored_data::tests` (10): zero on an empty database and folders;
+a fixture in every category, beside look-alike rows and files in none, with
+known counts and bytes; a report row moving from cached to expired at
+`created_at + ttl_seconds = now`; bytes, not characters; the summary writes
+nothing (every connection closed, every file hashed, reopened through
+`Database::open`, summarised, closed, hashed again); sentinels in every text
+column and none in the view; symlinks skipped (unix); the real writers
+landing in their categories; every counted column list equal to the schema's;
+every table of a fresh database classified, the shadow tables included.
+`stored_data_commands::tests` (3): nine categories from the given folders; a
+failure as the one closed code; the folder and file names the counting
+shares with `oa_fetch`, `harness_log` and the two export commands.
+`every_stored_data_command_is_exempt_as_decision_206_says`. In vitest,
+`storedDataGate.vitest.ts` (6) and `StoredDataSection.vitest.tsx` (22, two of
+them for decision 208: category 9's name, and sentence 7 against its callers).
+
+**Mutation checks**, each SHA-256 equal after the restore: M1 a
+`cache_evict_stale` planted in the summary turns
+`the_summary_writes_nothing` red on its byte comparison; M2 a workspace check
+added to `stored_data_summary` turns the exempt guard red; M3 the gate's `&&`
+made `||` turns the six hidden and absent tests red; M4 sentence 7 without
+the thesis audit turns its caller test red.
+
+**Measured** (macOS, at the step's end, both `lib.rs` touched first, each run
+in its own log): `cargo test --workspace --no-fail-fast` `running=118
+doctests=2 passed=2917 ignored=12 failed=0` (D288: 2,903; the gaply_core lib
++10, the app lib 574 → 577, `workspace_guards` 8 → 9); `cargo test -p
+gaply_core --no-fail-fast` `running=75 passed=2118 ignored=3`; `cargo test -p
+app --features devtools --no-fail-fast` `running=49 passed=816 ignored=9`;
+vitest 121 files, 1,572 tests after decision 208's two tests (D288: 119,
+1,544); `npx tsc --noEmit` and CI's
+eslint exit 0; `npm run build` exits 0.
+
+**What it does not do.** No delete, no `VACUUM`, no change to how any older
+feature writes or reads its data: those are 5D-1b's and 5D-2's, item by item.
+The section is not in the Settings outline; decision 211 settles the layout
+when 5D-1b ships.
+
+### D290 — Research OS, Phase 5D-1b: the Stored data section's nine deletes, each after its own confirmation, refused while work that writes into its category is going, and for the database's categories followed by VACUUM and a checkpoint `[src]` `[test]` `[measured]`
+
+**Added** on `feat/research-os-5` after `634d131` (D289). Decisions 210 and
+213 to 219 of 25 Oct 2026 apply (`~/gaply-corpus/os/decisions.md`), with
+decisions 104, 124, 175, 206, 209 and 211 before them. This step changes a
+screen, so it is done only when the real-app checklist
+`~/gaply-corpus/os/phase5/realapp_5d1b.md` has been run (decision 166).
+`REACT_APP_FEATURE_STORED_DATA` stays off (decision 216).
+
+**The deletes** (`gaply_core::stored_data`, `Database::stored_data_delete`,
+beside the summary). One category per call, returning its counts just
+before and just after and how many items it removed:
+
+* 1 to 4 each run in one `IMMEDIATE` transaction from their root, counted
+  inside it: `DELETE FROM manuscripts` (cascading to `extractions` and
+  `findings`); the Gap Finder papers' `embeddings` rows by rowid, then their
+  `documents` (cascading to `chunks` and any `citation_documents` link, and
+  setting a staged source's `document_id` NULL, accepted as pinned by
+  decision 219: `oa_fetch.rs:248` is the only production caller of
+  `link_document`, with the fetch's own document); `DELETE FROM ai_jobs`
+  (cascading to `ai_job_items` and `audit_staged_sources`, and nothing else);
+  the unexpired `report:` rows of `cache`. `embeddings` is a vec0 table, which
+  no foreign key reaches, so its rows go first, in the same transaction,
+  while their chunks still name them.
+* 5 is `cache_evict_stale(now)`, reused.
+* 6 to 9 remove regular files one by one. Just before each removal the file
+  is asked again: still a regular file (`symlink_metadata`), its folder still
+  a real folder, and a note image still used by no note (`search_notes`,
+  reused) and not changed in the last 10 minutes. A link is never followed and
+  never removed. A failed removal stops the delete, which says how many it
+  removed.
+
+**The 10-minute rule in the count (decision 217).** The summary leaves out a
+note image changed less than `RECENT_IMAGE_SECS` (600) seconds before `now`,
+one whose time cannot be read, and one dated in the future, so the count and
+the delete agree.
+
+**VACUUM and the checkpoint.** `Database::stored_data_compact`: `VACUUM`,
+then `PRAGMA wal_checkpoint(TRUNCATE)`, each retried once if busy (the pool's
+connections keep rusqlite's 5 s busy timeout), the checkpoint run after a
+failed `VACUUM` too. Done only when `VACUUM` succeeded and the checkpoint's
+busy column was 0; otherwise not done with `stored_data.vacuum_busy`,
+`vacuum_failed`, `checkpoint_busy` or `checkpoint_failed`, and the rows stay
+deleted. It runs after categories 1 to 5 only, off the command's thread
+(`spawn_blocking`). No overwrite pass (decision 104).
+
+**What the vector sentinel test found.** A Gap Finder paper's vector whose
+bytes spell a sentinel is in `gaply.db` before its delete (the control) and
+in neither `gaply.db` nor its `-wal` after the delete, `VACUUM` and the
+checkpoint. sqlite-vec 0.1.9 zeroes a deleted vector's bytes in place
+(`vec0Update_Delete_ClearVectors`, `sqlite-vec.c:8673-8718`), and `VACUUM`
+drops the free pages. So nothing is added to decision 209's uncovered list
+for the vectors.
+
+**Running work (decision 214).** `stored_data_commands::RunningWork`, the one
+new `AppState` field (`running`): a count for each of three kinds of work,
+held by a guard each named command takes as its first statement:
+`run_full_analysis`, `run_publishready`, `validate_manuscript` and
+`extract_manuscript` (categories 1 and 4), `build_gapfinder_corpus`
+(category 2) and `citation_fetch_oa` (category 7). Category 3 reads
+`state.ai_jobs`: any entry, a paused job's included, refuses the whole
+category; a job left running by a crash, held by no runner, is deleted. A
+delete holds the count (and, for category 3, the jobs map) while it runs, so
+no such work starts midway; the compaction runs after both are let go.
+Category 2 is refused, always, while an `ai_chunks`, `ai_evidence_cards` or
+`ai_jobs` row references one of its documents. Each refusal is its own closed
+code: `stored_data.analysis_running`, `gap_finder_running`, `papers_in_use`,
+`job_running`, `fetch_running`. The moment between a thesis audit's
+`create_job` and its registration in the jobs map is on 5E's list
+(decision 219).
+
+**The confirmation (decision 213, by decision 124's rule).** Its issue and
+redeem are extracted from `project_commands.rs` into
+`crate::confirmation::Confirmations<S>`, unchanged in what they do (32
+random bytes, used once, void after five minutes or when a newer one is
+issued, at most 16 remembered, in memory only). `ProjectSession` holds a
+`Confirmations<ProjectId>` and `StoredDataSession` (managed beside
+`AppState`) a `Confirmations<StoredCategory>`, so neither voids the other's.
+`project_commands.rs`'s `issue` and `redeem` keep their signatures and codes,
+and are now `pub(crate)`; no project test changed.
+
+**The commands** (`stored_data_commands.rs`, exempt from the workspace check,
+in `STORED_DATA_EXEMPT`): `stored_data_prepare_delete { category }` answers a
+confirmation with the category's count and size; `stored_data_delete
+{ category, confirmation }` redeems it, checks decision 214, deletes, compacts
+after 1 to 5, and answers the counts before and after, `deleted`, and the
+outcome `done` or `not_done` with its code (`stored_data.remove_failed` for a
+file category's failed removal). A refusal is `{"code":"stored_data.…"}`; any
+failure is the one closed code `stored_data.unavailable`, logged by its kind.
+Logs carry closed codes and counts only.
+
+**The section** (`StoredDataSection.tsx`, words in `storedDataWording.ts`). A
+Delete… (secondary button) on each category with at least one item; the
+dialog, through `ProjectDialog` and `ProjectsPanel.tsx`'s `DeleteDialog`
+pattern (ProjectsPanel.tsx unchanged): "Delete {name}?", a leading "The"
+lowercased ("Delete the comparison log?", decision 219), the count and size,
+what stops, decision 215's sentence about backups, Cancel with the focus, and
+Delete, which calls prepare then delete on that click only. A refusal shows
+its sentence and Cancel reads Close and takes the focus; Close returns the
+focus to the category's Delete…. After a delete, "Deleted: {count}." (or,
+after 1 to 5 when the compaction did not finish, decision 215's sentence in
+its place), the section read again, and the focus on the Stored data
+heading. The note of decision 209 is always under the section. Settings'
+outline gains Projects and Stored data, each behind its section's gate
+(decision 216). The sentences drafted beyond decision 215, one sentence for
+all six confirmation refusals among them, are approved by decision 219.
+
+**Tests.** `stored_data::tests` gains 14 (24 in all), each with its own
+database and folders under a temporary folder it removes: every category's
+delete empties it and leaves every other category, every other table's rows
+and every other file as they were, and `gaply.db` in place; after the
+compaction, while the `Database` and a second pooled connection are open,
+`gaply.db` and its `-wal` hold none of the deleted category's sentinels and
+all the others' (a control first shows every sentinel in the files); the
+vector sentinel; the cascades of 1, 2 and 3, the embeddings by rowid and the
+staged source's link set NULL; category 2 refused for each of `ai_chunks`,
+`ai_evidence_cards` and `ai_jobs`, nothing deleted; a link in a counted folder
+and a linked folder neither followed nor removed (unix); the 10-minute rule
+at its edge, and an image a note starts using between the summary and the
+delete, or between the delete's listing and its removal, kept; a `VACUUM`
+blocked by another write and a checkpoint blocked by an open read, each not
+done with the rows still deleted; a failure planted inside each of the
+transactions of 1 to 4 (a trigger) rolls the whole category back; a failed
+removal stops the delete and says how many it removed, and a folder the app
+cannot change removes nothing (unix); the wire names. Decision 217 changed
+5D-1a's fixture: its images are aged an hour, a recent unused one is left
+out, and the symlink test's control image is aged. `stored_data_commands::tests`
+gains 16 (19 in all): each kind of work refusing its categories while going,
+two of one kind, the jobs map with a paused job, a crashed job deleted, work
+held off while a delete runs, the six guards taken first (a source scan), all
+nine categories through their confirmations, every confirmation refusal
+deleting nothing, a Stored data confirmation leaving a project's pending one
+good and the reverse, each refusal's code on the wire, papers in use, the
+views holding counts and codes only, a failed removal as not done, a blocked
+compaction as not done, a failure as the one closed code, and every refusal
+code distinct. `STORED_DATA_EXEMPT` lists the two new commands. In vitest,
+`StoredDataDelete.vitest.tsx` (43, decision 219's title test among them) and
+one changed test in `StoredDataSection.vitest.tsx` (its controls are now the
+Delete… buttons).
+
+**Mutation checks**, each SHA-256 equal after the restore: M1a to M1i, one
+per category, each a delete reaching outside its category (1 also deleting the
+cached reports, 2 every document, 3 the evidence cards, 4 the expired rows, 5
+the unexpired ones, 6 every file in the app folder, the database's included,
+7 the stray files beside the papers, 8 the look-alike exports, 9 an image a
+note uses, its re-check skipped): each turns
+`each_delete_empties_its_category_and_leaves_everything_else_as_it_was` red,
+or for 9 `an_image_a_note_starts_using_before_its_removal_is_kept`. M2 the
+checkpoint removed: the compaction, vector and blocked-checkpoint tests red.
+M3 the expiry rule dropped from `Confirmations::redeem`: the project's and
+Stored data's confirmation tests red. M4 the two books merged (a process-wide
+newest confirmation voiding every other): the cross test red. M5
+`citation_fetch_oa`'s guard removed: the source scan red. M6 a workspace
+check in `stored_data_delete`: the exempt guard red.
+
+**Measured** (macOS, both `lib.rs` touched first, each run in its own log):
+`cargo test --workspace --no-fail-fast` `running=118 doctests=2 passed=2947
+ignored=12 failed=0` (D289: 2,917; the gaply_core lib 1,859 → 1,873, the app
+lib 577 → 593, no other target moved); `cargo test -p gaply_core
+--no-fail-fast` `running=75 passed=2132 ignored=3`; `cargo test -p app
+--features devtools --no-fail-fast` `running=49 passed=832 ignored=9`; vitest 122 files, 1,615
+tests (D289: 121, 1,572); `npx tsc --noEmit` and CI's eslint exit 0; `npm run
+build` exits 0. The workspace run started at 14 GiB free, under the 15 GiB
+line; decision 219 moves the disk check to right before each command.
+
+**What it does not do.** No change to how any older feature writes or reads
+its data beyond the six guards (5D-2's). The findings F1 to F8 stay
+uncovered (decision 209's later step). The flag stays off until 5E.
+
+### D291 — Research OS, Phase 5E-fix-1: the 5E evaluation's F1 to F9, each with a regression test `[src]` `[test]` `[measured]`
+
+**Added** on `feat/research-os-5` after `fd9793e` (D290). Decisions 222 to 226
+of 25 Oct 2026 apply (`~/gaply-corpus/os/decisions.md`). By decision 222 the
+screen changes are checked in 5E-fix-2's real-app check and this step is
+committed on its tests, which for this step replaces decision 166; the session
+did not commit. The report is `~/gaply-corpus/os/eval5/fix1_report.md`.
+
+**F1 and F7 (decision 223).** `project_store.rs`'s `delete` renamed a folder
+to a tombstone before it knew it could empty it, and `finish_leftovers`
+returned `?` on a failed `remove_tree`, so one read-only project folder failed
+every later `open_root`. Now `delete` calls a new `can_empty` (walks the folder
+and everything under it, no symlink followed: a folder missing an owner r/w/x
+bit, owned by another user, or unreadable fails; on macOS an entry with
+`UF_IMMUTABLE`/`SF_IMMUTABLE`/`UF_APPEND`/`SF_APPEND` fails; Windows passes,
+inferred; Linux chattr/ACLs fall to the folder checks, inferred) and refuses
+with the new code `project.folder_unchangeable` before the rename, changing no
+permission. `finish_leftovers` skips an unremovable leftover, logs
+`project.leftover_unremovable` with a count, and tries again next start.
+`open_parsed` and `read_summary` map a `db_unreadable` to `folder_unchangeable`
+(through `folder_fault`) when the folder also cannot be emptied, so a read-only
+folder is reported as the folder's fault (F7), not the db's. The new code is
+last in `ProjectCode` (55 now), `projectCodes.json`, `projectTypes.ts`,
+`projectWording.ts`. Tests: `project_store::tests`'s
+`a_folder_the_app_cannot_change_refuses_the_delete_and_keeps_everything`,
+`a_leftover_the_store_cannot_remove_is_skipped_and_finished_later`,
+`a_db_that_cannot_be_opened_in_a_locked_folder_is_folder_unchangeable`,
+`the_folder_unchangeable_code_is_on_the_wire`, and macOS's
+`a_macos_immutable_entry_refuses_the_delete`.
+
+**F3.** `project_runs`, `project_report` and `project_provenance` rebuilt the
+provenance graph once per run (O(N³) in all), and `ProvGraph::add` rebuilt the
+whole adjacency per edge. Now `project_commands` loads the runs, the artifact
+rows and the graph once per command (`load`), and `artifacts_of`/
+`manifest_facts` take the loaded data; `ProvGraph` keeps one adjacency updated
+on `add`, while `is_acyclic` still builds its own from the edges and
+`push_unchecked` stays edges-only. Tests:
+`graph::tests::add_maintains_the_adjacency_without_rebuilding_it` and
+`project_rerun::each_command_loads_the_provenance_graph_once` (a thread-local
+counter in `load_graph`). **Measured on a 300-run project (this Mac):**
+`project_runs` 59 ms (was 1,326 s for 302), the report 121 ms (was 318 s), the
+provenance 222 ms (was 401 s), `run_result(1)` 13 ms; the 300th rerun 39 ms
+(was 3,752 ms). The 20-run project's three outputs are byte-identical to the
+pre-change ones.
+
+**F2 (decision 224).** The Stored data deletes of categories 1 to 5 no longer
+VACUUM: each runs under `PRAGMA secure_delete=ON` on its pooled connection
+(set and restored by a `SecureDelete` guard, delete_rows on an unchecked
+`IMMEDIATE` transaction so the guard's `&Connection` coexists; category 5 runs
+`cache::evict_stale_on` on the same connection), and `stored_data_compact` is
+`PRAGMA wal_checkpoint(TRUNCATE)` retried once (`checkpoint_truncate`). The
+VACUUM codes are gone. `db.rs`'s `open` runs one TRUNCATE checkpoint after the
+migration, best effort, logged by a closed code, so a busy one is finished
+later. The not-done line keeps the count and adds decision 224's sentence.
+Tests: `after_the_compaction_…`, `without_secure_delete_the_deleted_text_stays_in_the_file`,
+`a_checkpoint_blocked_by_an_open_reader_is_finished_by_the_next_open`,
+`a_checkpoint_blocked_by_another_write_…`. **Measured with the probe's
+concurrent writer:** on 590 MB every compaction is Done in 0.4–244 ms (the
+244 ms flushes a 580 MB WAL), and the writer never failed (0 busy errors,
+longest stall 245 ms); on 223 MB the same (checkpoints 0.2–6 ms, 0 failures).
+The eval's 590 MB had VACUUM 13.6–24.2 s and writes failing. So F2 needs no
+decision (the 4 s line was never approached).
+
+**F4 (decision 225).** `WorkspaceSession::activate`'s trailing
+`close_on_leave` closed an open project after the switch was Active, under a
+going rerun. It now runs in the Activating phase, before Active; nothing can
+open a project while Activating, so a project opened or a rerun started once
+Active is never closed by the activation. Lock order checked: `close_on_leave`
+takes only `open`, outside the session's lock; no `inner`/`open` nesting.
+Test: `project_commands::tests::activate_never_closes_a_project_under_a_going_rerun`
+(holds `open`'s lock, activates on another thread, detects the Active vs
+Activating branch, 50 iterations; reaches `activate` by UFCS so
+`only_workspace_activate_activates_a_workspace` still counts one caller,
+decision 201's precedent).
+
+**F5 and F6.** `stored_data.rs`'s `snapshot`/`files` test helpers key each
+file by its relative path with '/' from `Path::components` (not `display()`,
+F5), skip `gaply.db-wal`/`gaply.db-shm` by `file_name()`, tolerate a file that
+vanishes between the listing and the read (F6), and `the_summary_writes_nothing`
+waits for the WAL to clear. F5 is red only on Windows and F6 is a race, so
+neither is reproduced here; their evidence is the mutation checks and the next
+CI run (unverified until the branch is pushed).
+
+**F8 and F9 (decision 226).** `project_delete` checks the rerun-going refusal
+before it redeems the confirmation (under `open`'s lock, then the book — no
+deadlock), so a delete refused for a going rerun leaves its confirmation good
+(`project_rerun::a_delete_refused_for_a_going_rerun_leaves_its_confirmation_redeemable`).
+The Stored data dialog reads `prepare_delete`'s count and deletes only when it
+equals what it shows, else shows the new count and decision 226's sentence and
+asks again (`StoredDataDelete.vitest.tsx` "deletes only what the dialog shows";
+`readConfirmation` now returns the count).
+
+**Measured** (macOS, both `lib.rs` touched first, each run its own log,
+`CARGO_TERM_COLOR=never`): `cargo test -p gaply_core --no-fail-fast` 76
+targets, 2,134 passed, 3 ignored (D290: 2,132); `cargo test --workspace
+--no-fail-fast` 118 targets + 2 doc-tests, 2,957 passed, 12 ignored, 0 failed
+(D290: 2,947); `cargo test -p app --features devtools
+--no-fail-fast` 49 targets, 840 passed, 9 ignored, 0 failed (D290: 832); vitest
+122 files, 1,618 passed, 0 failed (D290: 1,615), run alone; `tsc --noEmit` and CI's eslint
+exit 0; `npm run build` exit 0, `sitemap.xml` written back (cmp equal). rustfmt
+by path: no changed file gained a hunk. `git diff fd9793e` empty under the six
+protected `stats_*` folders. The ten mutations (F1 ×2, F3, F2 ×2, F4, F8, F9,
+F5/F6 ×2) each red then green, SHA-256 equal after the restore. M1 and M2
+fail by a panic that double-faults in a temp dir's Drop and aborts the
+process (SIGABRT), so cargo prints no `test result:` line and their red is
+read from the nonzero exit with the test started, not that line.
+
+**For 5E-fix-2** (decision 222): the ADR text (ADR-009 §3, §6, §7, §9, §11,
+§13 and ADR-004's rerun row and §8.5) and the Accepted marks; the two ADR
+sentences this step makes stale (ADR-009's "secure_delete … and VACUUM at
+delete: not built" — secure_delete is built, VACUUM is replaced by the
+checkpoint; and §11's delete, now a `can_empty` check before the rename);
+decision 115's `use crate::…` rule; decision 178's sentences; decision 202's
+focus; and the real-app check that also runs 5B-4b's deferred parts and this
+step's screen changes.
+
+### D292 — Research OS, Phase 5E-fix-2: F2 measured across the delete and with a reader held, a 1 s checkpoint and category 1 in batches; decision 178's sentences; decision 202's focus; decision 115's crate-import rule; ADR-009 and ADR-004 marked as decision 234 accepts `[src]` `[test]` `[measured]`
+
+**Added** on `feat/research-os-5` after `5a0089c` (D291). Decisions 230 to 236
+of 25 Oct 2026 apply (`~/gaply-corpus/os/decisions.md`); decision 236 counts
+the LaTeX compile job of 5a0089c (run 40186687245, six hours in `npm ci`) as
+an infrastructure failure. The session did not commit. The report is
+`~/gaply-corpus/os/eval5/fix2_report.md`; the real-app check (decision 235) is
+`~/gaply-corpus/os/eval5/realapp_5efix.md`, still to run.
+
+**F2, measured (decisions 228 and 230).** The probe (a copy of
+`eval5_stored.rs` in `src-tauri/examples/`, removed after) built the 590 MB
+`gaply.db` (550 manuscripts, 576,750,130 counted bytes) and ran a writer, one
+`cache` insert every 10 ms on its own connection with the pool's 5 s timeout,
+under a key outside categories 4 and 5, from 1 s before each delete to 1 s
+after its checkpoint. Debug build, macOS aarch64, one run each unless named.
+
+| case | at 5a0089c | after the 1 s timeout | with the batches |
+|---|---|---|---|
+| category 1 delete | 2.96 s (3.55 s in a first run; D291: 4.8 s) | — | 4.22 s, 9 batches |
+| writer's longest wait, category 1 | 2,314 ms (2,852 ms in the first run) | — | 519 ms |
+| categories 2 to 5 | 1 ms to 143 ms; writer ≤ 154 ms | — | 3 ms to 229 ms; writer ≤ 234 ms |
+| failed writes, categories 1 to 5 | 0 | — | 0 |
+| checkpoints after categories 1 to 5 | Done, 0.3 ms to 58 ms | — | Done, 0.4 ms to 2.7 ms |
+| reader held 3 s across the checkpoint | Done in 3.09 s; writer 3,198 ms, 0 failed | not done in 2.46 s; writer 1,169 ms, 0 failed | — |
+| reader held 8 s | Done in 8.04 s; writer 5,261 ms, **1 failed** (`DatabaseBusy`) | not done in 2.45 s; writer 1,157 ms, 0 failed | — |
+| `Database::open` with a 3 s / 8 s reader | 3.11 s / 5.27 s | 1.15 s / 1.13 s | — |
+
+Category 1's writer waited over 2 s, so decision 230's condition for batches
+held; categories 2 to 5 did not reach it, nor did category 1 in batches, so the
+step's stop rule did not fire. The 5E evaluation's 13.6 s VACUUM and 5.6 s stall
+(its §6) were gone at D291; D291's writer ran across the checkpoint only (245
+ms). A first run of the open case read 6 ms because the probe dropped the first
+Database, whose close checkpointed the WAL before the reader began; the
+numbers above keep it open, as the app does.
+
+**The checkpoint (decision 230).** `stored_data.rs`: `CheckpointTimeout` (the
+shape of `SecureDelete`) sets a connection's busy timeout to
+`CHECKPOINT_BUSY_TIMEOUT_MS` (1000) and restores the earlier value on drop;
+`checkpoint_truncate` → `checkpoint_truncate_with(conn, once)` runs under it
+and waits `CHECKPOINT_RETRY_WAIT` (200 ms) before its one retry;
+`truncate_once` and `outcome` split out; `checkpoint_at_open` (one try, no
+retry) is what `db.rs`'s `open` now calls, the only `db.rs` change. Tests:
+`the_checkpoint_waits_one_second_a_try_and_gives_the_connection_back_as_it_was`
+(1000 inside the guard and 4321 after, for done, busy as a value, busy as an
+error, and failed; after an open, all eight pooled connections read 5000),
+`a_held_reader_leaves_the_checkpoint_not_done_within_four_seconds` (11.0 s
+red), `an_open_with_a_reader_held_returns_within_three_seconds` (5.5 s red).
+
+**Category 1 in batches (decision 230).** `delete_with` →
+`delete_in_batches(…, batch_bytes)` with `MANUSCRIPT_BATCH_BYTES` (64 MiB);
+`delete_manuscripts_on` takes the count before and the plan once in the first
+batch's `IMMEDIATE` transaction, then one transaction per batch with
+`BATCH_WAIT` (200 ms) between, no transaction open; a later batch's failure
+stops it with `Deletion::partial`. `manuscript_sizes` (one row's bytes through
+the new `row_bytes`, which `count_sql` now uses too), `in_batches`,
+`delete_manuscripts`. `stored_data_commands.rs`: `DELETE_PARTIAL`
+(`stored_data.delete_partial`), `DeletedView::checkpoint` (`done` or the
+checkpoint's code, a partial delete only), `view`, and the log line's
+`checkpoint` field. Frontend: `readDeleted` keeps `checkpoint` and refuses it
+on any other code; `deletedLine` chooses by code. Tests:
+`a_delete_of_more_than_one_batch_runs_in_more_than_one_transaction_and_deletes_everything`
+(a second connection sees a count between 5 and 0; four waits),
+`a_failure_in_a_later_batch_keeps_the_earlier_batches_deleted` (5, 2, 3 and
+partial; a first-batch failure deletes nothing and errs),
+`a_batchs_bytes_are_the_categorys_counted_bytes`,
+`the_shipped_batch_limit_is_64_mib_of_counted_bytes`,
+`after_a_finished_checkpoint_no_deleted_manuscripts_sentinel_is_left` (green on
+the one-transaction stub too, as predicted),
+`a_partial_manuscripts_delete_answers_delete_partial_with_its_checkpoint`, and
+`StoredDataDelete.vitest.tsx`'s four partial cases.
+
+**Decision 178's sentences (decision 231).** `NoteCreatorPage.tsx`:
+`NOTES_LOAD_FAILED`, `NOTE_SAVE_FAILED` (`reload`, `save`, `quickCapture`; a
+load that succeeds clears only the load sentence). `CitationManagerPage.tsx`:
+`RESOLVE_PAPER_FAILED`, `CHECK_DOI_FAILED`, `IMPORT_FAILED`,
+`IMPORT_TOO_LARGE`, `IMPORT_UNSUPPORTED_TYPE` (also `runImport`'s own type
+check), `OPEN_ACCESS_FAILED` (both fetches), `RETRACTIONS_FAILED`,
+`CITATION_LOG`'s six closed codes, `importCode`. `commands.rs`'s
+`read_import_file` answers `{"code":"import.unsupported_type"}` and
+`{"code":"import.too_large"}`. Tests: `noteErrors.vitest.tsx` (13),
+`citationErrors.vitest.tsx` (29), `src-tauri/tests/import_file_codes.rs` (3).
+A manuscript's save goes through `create`, not `update` (`save`'s `isEdit`
+counts paper and project edits only); unchanged, and its test fails both.
+
+**Decision 202's focus (decision 232).** `ProjectPage.tsx`: `focusNext`,
+`pageBox`, `FocusNext`, `focusOnCancelOrNothing`, the poll effect's `followed`
+and `failed`, a focus effect, `rerunStarted`, and the Saved results heading's
+`tabIndex={-1}` and test id. Try again takes the focus only from Cancel or
+nothing, and not with a saved result open (the step's report asks Rishi to
+confirm this reading). Tests: `projectReruns.vitest.tsx`'s "the focus across a
+rerun (decision 232)" (7).
+
+**Decision 115's rule (decision 233).**
+`stats_assist_is_offline_and_inert.rs`: `ALLOWED_CRATE_MODULES` (12, pinned to
+today's and asserted equal to what is imported), `ALLOWED_FROM_EXTRACT`,
+`use_statements` (`use`, `pub use`, `pub(crate) use`, joined to their `;`),
+`crate_import`, `crate_import_violations`, and the tests
+`stats_assist_imports_only_its_allowed_crate_modules` and
+`the_crate_import_rule_catches_what_it_is_for`. The older external-import
+scan still reads only lines starting `use `.
+
+**The ADRs (decision 234).** ADR-009: Status; §1 Accepted on macOS, Not yet
+on Windows and Linux; §2, §3 (version 2, `rerun_of`, the migration), §5 but
+its Windows sentence, §6 (decision 186, N1), §7 (`wasInformedBy`, the derived
+`wasDerivedFrom`, N10), §9 (the skipped `-wal`/`-shm`, the checkpoints, 5.2
+s), §10 for Unix, §11 as D291 built it but its Windows clause, §15, §16
+Accepted; §13's decision 110 Not yet (N6, N12) and its Stored data part
+Proposed with this entry's numbers; §17 Proposed (decision 158's items 4, 5,
+7, 8, 9); the "said more" list marked; a Revisions entry. ADR-004: Status;
+004b's four rows and the manifest-schema sentence, the rerun row (one write at
+the end) and the §8.5 consequence Accepted; a History entry. Not covered:
+"What a manifest holds" and the report and provenance row.
+
+**The suites.** `cargo test --workspace --no-fail-fast` (both `lib.rs` touched, `CARGO_TERM_COLOR=never`): exit 0, **2,971 passed, 119 targets**, 12 ignored, 0 failed (D291: 2,957, 118; +14 tests and the new `import_file_codes` target, as predicted). `cargo test -p app --features devtools --no-fail-fast`: exit 0, **844 passed, 50 targets** (D291: 840, 49). `cargo test -p gaply_core`: 2,144 passed, 75 `Running` targets and 1 doc-test target (D291: 2,134, 76; +8 stored_data tests and +2 guard tests). Vitest, the whole suite on its own: **124 files, 1,671 tests** (base 122, 1,618). `npx tsc --noEmit`, CI's eslint, and `npm run build` (`build/index.html` present, `public/sitemap.xml` written back from HEAD and equal by `cmp`): exit 0.
+
+**Mutations**, each with its SHA-256 equal after the restore and green after:
+the 1 s timeout removed, the batch limit removed, the wait between batches
+removed, `:499` showing the message, `:233` logging the error, the focus left
+on Run again, a `use crate::research_project` line in `session.rs`, a `pub
+use` of `stats_l1::compute` in `codes.rs`, and the scan's matcher broken; each
+red on its named test having started and failed.
+
+**Left after Phase 5.** The evaluation's Notes not taken: N2 to N4, N7 to N9,
+N11 to N13. N3 is no longer brief: `extract_manuscript` and
+`validate_manuscript` block on the running-work hold for the whole of a
+category 1 delete (4.22 s on 590 MB). The elapsed time of decision 202; the
+seam commands (decision 221); the Windows sentences of ADR-009 §1, §5, §10 and
+§11; 5C-2 and 5D-2. Raw messages on screen outside decision 178's list:
+`CitationManagerPage.tsx`'s "Not synced: …" (shown only when signed in), and
+`ManuscriptEditor.tsx`'s export failures (`:195`, `:217`, `:228`, `:239`,
+`:257`). Two pre-existing flakes, each green on rerun: `stats_l1_ingest::tests::every_byte_level_refusal_of_the_path_ingest_is_the_bytes_entrys_too` failed once in the first workspace run (`ArchiveTooLarge` vs `NotReadable` for `big.mat`): another test in the same binary writes and removes a `big.mat` in the same per-process folder (`stats_l1_ingest.rs:882` and `:1266`), so the two race; the app lib then passed three times alone and the workspace run passed. `aiScreens.vitest.tsx`'s "keeps showing progress across BOTH installers, not just the first 85ms" failed once under the full suite and passed three times alone and in the next full run.

@@ -28,11 +28,11 @@ concurrency:
 jobs:
   gaply-core:
     name: gaply_core builds and tests from source alone
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       # fetch-depth: 0 because the verify script below creates a git worktree,
       # which a depth-1 clone cannot do. The build itself does not need history.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 

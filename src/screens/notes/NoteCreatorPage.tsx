@@ -14,7 +14,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom';
 import { NotesBridge, TauriNotesBridge, Note, NoteDraft, NoteType, parseFields } from './notesBridge';
 import { PaperSource, TauriPaperSource, PaperOption } from './paperSource';
-import PaperNoteEditor from './PaperNoteEditor';
+import PaperNoteEditor, { EXPORT_FAILED } from './PaperNoteEditor';
 import ProjectNoteEditor from './ProjectNoteEditor';
 import ManuscriptEditor from './ManuscriptEditor';
 import RecommendedToolsPanel from './RecommendedToolsPanel';
@@ -24,6 +24,14 @@ import { imageRefsIn, gcOrphans } from './noteImages';
 import { IcDoc, IcBulb, IcArticle, IcQuote, IcTag, IcGear, IcSearch, IcAdd, IcEditNote, IcBook, IcExport } from './NotesIcons';
 import FontScale from './FontScale';
 import './notes.css';
+
+/** Decision 231: the page's fixed sentences for a failed load and a failed
+ *  save. Neither carries any part of the error. */
+export const NOTES_LOAD_FAILED =
+  'Gaply could not load your notes just now. Try again in a moment. If it keeps happening, restart Gaply.';
+/** A failed save leaves the editor open with its fields, and quick capture's
+ *  boxes filled, so what was typed is still there (pinned by noteErrors.vitest.tsx). */
+export const NOTE_SAVE_FAILED = 'Gaply could not save this note just now. What you typed is still here, so you can try again.';
 
 export interface NoteCreatorPageProps {
   notes?: NotesBridge;
@@ -127,8 +135,10 @@ const NoteCreatorPage: React.FC<NoteCreatorPageProps> = ({ notes, papers }) => {
       setAllTags(uniqueTags(all));
       const found = await bridge.search(query.trim(), tagFilter ?? undefined);
       setList(typeFilter === 'all' ? found : found.filter((n) => n.note_type === typeFilter));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not load notes');
+      // A load that succeeds clears a failed load's sentence, and only that.
+      setError((prev) => (prev === NOTES_LOAD_FAILED ? null : prev));
+    } catch {
+      setError(NOTES_LOAD_FAILED);
       setList([]);
     }
   }, [bridge, query, typeFilter, tagFilter]);
@@ -184,8 +194,8 @@ const NoteCreatorPage: React.FC<NoteCreatorPageProps> = ({ notes, papers }) => {
       else await bridge.create(draft);
       await gcAfter(removedRefs); // commit-first, then sweep
       await afterMutation();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not save the note');
+    } catch {
+      setError(NOTE_SAVE_FAILED);
     } finally {
       setBusy(false);
     }
@@ -214,8 +224,8 @@ const NoteCreatorPage: React.FC<NoteCreatorPageProps> = ({ notes, papers }) => {
       // saveNoteFile returns null on cancel (silent no-op) and only THROWS on a
       // real write failure — so this catch surfaces genuine failures, not cancels.
       await saveNoteFile(bulkExportFileName(typeFilter, tagFilter, query), notesToMarkdown(list));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not save the export');
+    } catch {
+      setError(EXPORT_FAILED);
     }
   };
 
@@ -228,8 +238,8 @@ const NoteCreatorPage: React.FC<NoteCreatorPageProps> = ({ notes, papers }) => {
       setQuickTitle('');
       setQuickBody('');
       await reload();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not save the note');
+    } catch {
+      setError(NOTE_SAVE_FAILED);
     } finally {
       setBusy(false);
     }

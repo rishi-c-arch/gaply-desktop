@@ -30,6 +30,13 @@ export const Card: React.FC<CardProps> = ({ title, glass = false, className = ''
   </div>
 );
 
+/* ----------------------------- Table cells ------------------------------ */
+
+/** A table cell's right padding, on every th and td, so a number that is its
+ *  column's widest cell never touches the next column. An inline style, so a
+ *  test can see it (vitest runs with css: false). */
+export const CELL_PADDING: React.CSSProperties = { paddingRight: 12 };
+
 /* -------------------------------- Badge --------------------------------- */
 
 /** The four report statuses: certain (green) / assessed (amber) / flagged (red)

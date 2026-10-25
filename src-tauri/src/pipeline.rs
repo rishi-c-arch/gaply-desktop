@@ -45,6 +45,7 @@ use gaply_core::{ai_detect, extract, now_epoch, plagiarism, rag, validate, Datab
 
 use crate::http_fetcher::RefVerifier;
 use crate::state::AppState;
+use crate::stored_data_commands::Work;
 
 /// Report cache TTL: 30 days. The viewer reads it back by `report_id`.
 const REPORT_TTL_SECS: i64 = 30 * 24 * 3600;
@@ -186,6 +187,7 @@ pub async fn run_full_analysis(
     allow_network: bool,
     on_event: Channel<AnalysisEvent>,
 ) -> Result<(), GaplyError> {
+    let _going = state.running.enter(Work::Analysis);
     let db = state.db.clone();
     let embedder = state.embedder.clone();
     let consent = NetworkConsent::from_allowed(allow_network);
