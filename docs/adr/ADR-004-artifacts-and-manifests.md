@@ -2,8 +2,11 @@
 
 **Status: Proposed**, except section 004a, which is **Accepted (17 Oct
 2026, decision 5)**, and section 004b, which is **Accepted (19 Oct 2026,
-decisions 99 to 111) for what those decisions cover**; each part of 004b is
-marked. Written 17 Oct 2026, Research OS Phase 2B, from the Phase 0 audit's
+decisions 99 to 111) for what those decisions cover, and (25 Oct 2026,
+decision 234) for its spec, bundle, run-row and export-bytes rows and its
+manifest-schema sentence**; the operations table's rerun row and the
+consequence about blueprint §8.5 are **Accepted (decision 234)** too. Each
+part of 004b is marked. Written 17 Oct 2026, Research OS Phase 2B, from the Phase 0 audit's
 proposal (`~/gaply-corpus/os/phase0/phase0_audit.md` §6.6, §7) as updated by
 what Phases 2A and 2B built; revised 19 Oct 2026 (Phase 5A draft, made to say
 what decisions 99 to 111 say in Phase 5B-1, decision 112). The history is at
@@ -67,18 +70,20 @@ When the user saves a run to a project (ADR-009), these are stored under
 | what | where | holds user data? | status |
 |---|---|---|---|
 | the input data file, as the ingest read it | an artifact file, `artifacts/<sha256>`, kind `data_file`, its format a closed code | **yes**: rows, headers, labels | **[Accepted, decision 101]**: copied in, identified by its SHA-256, within the ingest caps, deleted with the project; its path and file name never stored |
-| the `OperationSpec` | an artifact file, kind `operation_spec` (canonical JSON) | no header or label: indices, a variant, a seed, hashes | **[Proposed]** |
-| the `ResultBundle` (`DescribeResult` or `TTestResult`, and the `RunManifest` inside it) | an artifact file, kind `result_bundle` (canonical JSON) | **yes**: headers and level labels (`stats_desc/mod.rs:45-46`, `:253`, `:308`) | **[Proposed]** |
-| the run | a row of `runs` in `project.db`: ids, the capability id and version, the state, closed codes, times; its links to the artifacts as edge rows, by hash | no | **[Proposed]** |
+| the `OperationSpec` | an artifact file, kind `operation_spec` (canonical JSON) | no header or label: indices, a variant, a seed, hashes | **[Accepted, decision 234]** |
+| the `ResultBundle` (`DescribeResult` or `TTestResult`, and the `RunManifest` inside it) | an artifact file, kind `result_bundle` (canonical JSON) | **yes**: headers and level labels (`stats_desc/mod.rs:45-46`, `:253`, `:308`); the one place they are kept (5E evaluation §8) | **[Accepted, decision 234]** |
+| the run | a row of `runs` in `project.db`: ids, the capability id and version, the state, closed codes, times; its links to the artifacts as edge rows, by hash | no | **[Accepted, decision 234]** |
 | a Level 0 or Level 1 run (5C) | the sentences it checked inside the run's bundle artifact, never as a row | **yes**: manuscript sentences | **[Accepted, decision 102]**; the save sentence says so |
 | an AI explanation | not stored in Phase 5 | — | **[Accepted, decision 102]** |
-| the export bytes | not stored: regenerated from the bundle; the manifest's `output_hash` pins what the export was | — | **[Proposed]** |
+| the export bytes | not stored: regenerated from the bundle; the manifest's `output_hash` pins what the export was | — | **[Accepted, decision 234]** |
 
 An artifact is never modified and never overwritten (ADR-009 §5). The data
 file's display name stays on the user's own screen (decision 4) and is never
-stored. **[Proposed]** The manifest's own schema stays at version 1 in 5B; 5C,
-which gives Level 0 and Level 1 their bundles, may add fields, and whether
-that is a schema bump is decided then by ADR-003's rule.
+stored. **[Accepted, decision 234]** The manifest's own schema stays at
+version 1 in 5B, and was still 1 after 5C-1 (`SchemaVersion::NUMBER`, and
+`KNOWN_SCHEMA_VERSION` in `storedShape.ts`; 5E evaluation §1); 5C-2, which
+gives Level 0 and Level 1 their bundles, may add fields, and whether that is
+a schema bump is decided then by ADR-003's rule.
 
 ### Every operation that would write user data, and its status
 
@@ -91,7 +96,7 @@ that is a schema bump is decided then by ADR-003's rule.
 | recovery when a project opens | removes the store's own leftovers, marks states; never adds user data | **approved (decision 105)**; built in 5B-1 | no |
 | delete a project | removes all of the above, through a tombstone | **approved (decision 104)**; built in 5B-1 with no caller; the confirmation is 5B-2's | no: an in-app confirmation |
 | export the project report, export the provenance graph (JSON) | hashes, versions, counts, codes; ids, kinds, states, times | Proposed, 5B-2 (decision 111) | yes |
-| rerun from a project (5C) | run rows and transitions; a new bundle artifact | Proposed, 5C | no |
+| rerun from a project (5C) | one write at its end (decision 186): its run row with `rerun_of`, its edges and its new bundle artifact; no row and no transition while it runs, and nothing on a cancel, refusal, quit or crash | **Accepted (decision 234)**; built in 5C-1 | no: a Run again click, with decision 191's sentence |
 | save a Level 0 or Level 1 run (5C) | a bundle holding the sentences checked | the storage rule is approved (decision 102); the feature is 5C's | no |
 | export or import a project as one file | a file the user names | later (decision 108) | would be |
 | the import-guard rate (`cache` key `import:seconds_per_page`) | a running mean of seconds per page, no user data | existing, outside this slice: not written by the descriptive summary's path (measured, D272) | no |
@@ -122,9 +127,11 @@ that is a schema bump is decided then by ADR-003's rule.
 - A user can repeat a run and compare the output hash. Until 5B-2 wires the
   store to a Save, nothing on disk links two runs unless the user keeps both
   exports.
-- Blueprint §8.5's "persist terminal state even if the UI closes" is met for
-  saved runs once 5B-2 ships, and for project-started runs in 5C; it is not
-  met for unsaved runs, by decision 105.
+- **[Accepted, decision 234]** Blueprint §8.5's "persist terminal state
+  even if the UI closes" is met for saved runs since 5B-2, and for a rerun
+  started from a project only if the app lives to its end: a quit or crash
+  while it runs persists nothing (decision 186, 5C-1). It is not met for
+  unsaved runs, by decision 105.
 - The privacy matrix (`src-tauri/tests/stats_desc_privacy_matrix.rs`) checks
   that the manifest, in the view and as exported bytes, holds none of seven
   sentinels, and that the app-data folder is byte-identical after the whole
@@ -166,3 +173,11 @@ Level 0 and Level 1 bundles; or an export or import format (decision 108).
   `desc_output_hashes.rs` pinning the bundle artifact's hash: 5B-2, Proposed,
   not in this revision's Evidence; (e) the data file "or a hash-only
   reference": settled as a copy by decision 101.
+- 25 Oct 2026, Phase 5E-fix-2 (decision 234), on the 5E evaluation's
+  evidence: 004b's spec, bundle, run-row and export-bytes rows and its
+  manifest-schema sentence marked Accepted; the operations table's rerun row
+  rewritten to what 5C-1 built (one write at the end, decision 186) and
+  Accepted; the §8.5 consequence corrected in its direction (a rerun's
+  terminal state persists only if the app lives to its end) and Accepted.
+  Not covered by decision 234, and unchanged: "What a manifest holds" and
+  the operations table's row for the project report and provenance exports.

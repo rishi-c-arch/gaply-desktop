@@ -92,16 +92,28 @@ export interface StoredDeleted {
   deleted: number;
   outcome: 'done' | 'not_done';
   code: string | null;
+  /** A partial delete only (decision 230): `done`, or its checkpoint's code. */
+  checkpoint: string | null;
 }
 
+/** Category 1's delete stopped after a later batch failed (decision 230). */
+export const DELETE_PARTIAL = 'stored_data.delete_partial';
+
 /** What a delete of `category` did, or null when the answer is not for that
- *  category or has another shape. Only these three fields are kept. */
+ *  category or has another shape. Only these four fields are kept; a
+ *  checkpoint comes with a partial delete, and with nothing else. */
 export function readDeleted(v: unknown, category: StoredCategoryId): StoredDeleted | null {
-  const o = (v ?? {}) as { category?: unknown; deleted?: unknown; outcome?: unknown; code?: unknown };
+  const o = (v ?? {}) as { category?: unknown; deleted?: unknown; outcome?: unknown; code?: unknown; checkpoint?: unknown };
   if (o.category !== category || !isCount(o.deleted)) return null;
-  if (o.outcome === 'done' && o.code === undefined) return { deleted: o.deleted, outcome: 'done', code: null };
-  if (o.outcome === 'not_done' && typeof o.code === 'string' && /^stored_data\.[a-z_]+$/.test(o.code)) {
-    return { deleted: o.deleted, outcome: 'not_done', code: o.code };
+  if (o.outcome === 'done' && o.code === undefined && o.checkpoint === undefined) {
+    return { deleted: o.deleted, outcome: 'done', code: null, checkpoint: null };
   }
-  return null;
+  if (o.outcome !== 'not_done' || typeof o.code !== 'string' || !/^stored_data\.[a-z_]+$/.test(o.code)) return null;
+  if (o.code === DELETE_PARTIAL) {
+    const c = o.checkpoint;
+    if (typeof c !== 'string' || !(c === 'done' || /^stored_data\.checkpoint_[a-z_]+$/.test(c))) return null;
+    return { deleted: o.deleted, outcome: 'not_done', code: o.code, checkpoint: c };
+  }
+  if (o.checkpoint !== undefined) return null;
+  return { deleted: o.deleted, outcome: 'not_done', code: o.code, checkpoint: null };
 }

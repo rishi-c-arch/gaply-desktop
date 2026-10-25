@@ -188,6 +188,11 @@ const ProjectPageShown: React.FC<ProjectPageProps> = ({
   const heading = useRef<HTMLHeadingElement>(null);
   // The button that opened a dialog or a saved result, recorded from its click.
   const opener = useRef<HTMLElement | null>(null);
+  // Decision 232: where the focus goes next across a rerun started here, set
+  // when the start, the end or a failed poll is seen and done after the render
+  // that shows it.
+  const focusNext = useRef<FocusNext | null>(null);
+  const pageBox = useRef<HTMLElement>(null);
 
   // Reads only.
   const load = useCallback(async () => {
@@ -255,19 +260,27 @@ const ProjectPageShown: React.FC<ProjectPageProps> = ({
   useEffect(() => {
     if (!going || pollFailed) return;
     let live = true;
+    // Decision 232: the focus follows only from Cancel or from nothing.
+    const followed = (next: FocusNext) => {
+      if (focusOnCancelOrNothing(pageBox.current)) focusNext.current = next;
+    };
+    const failed = () => {
+      followed({ to: 'retry' });
+      setPollFailed(true);
+    };
     const t = setTimeout(async () => {
       let answer: ProjectCurrentView;
       try {
         answer = await bridge.current();
       } catch {
-        if (live) setPollFailed(true);
+        if (live) failed();
         return;
       }
       if (!live) return;
       const r = answer && typeof answer === 'object' ? answer.rerun : null;
       if (!r || currentId(answer) !== projectId || r.runId !== going.runId) {
         // Not an answer about this rerun: as unread as a failed read.
-        setPollFailed(true);
+        failed();
         return;
       }
       if (r.status === 'going') {
@@ -287,9 +300,10 @@ const ProjectPageShown: React.FC<ProjectPageProps> = ({
       } else if (r.status === 'not_saved') {
         setOutcome([RERUN_WORDS.notSaved, codeSentence(r.code)]);
       } else {
-        setPollFailed(true);
+        failed();
         return;
       }
+      followed({ to: 'end', rerunOf: going.rerunOf });
       setGoing(null);
       setCancelling(false);
     }, pollMs);
@@ -298,6 +312,32 @@ const ProjectPageShown: React.FC<ProjectPageProps> = ({
       clearTimeout(t);
     };
   }, [going, tick, pollFailed, bridge, projectId, pollMs]);
+
+  // Decision 232, after the render that shows the start, the end or Try
+  // again. A saved result open keeps the focus where it is.
+  useEffect(() => {
+    const next = focusNext.current;
+    if (next === null) return;
+    const find = (id: string) => pageBox.current?.querySelector<HTMLElement>(`[data-testid="${id}"]`) ?? null;
+    if (next.to === 'cancel') {
+      if (going === null || pollFailed) return;
+      focusNext.current = null;
+      find('project-rerun-cancel')?.focus();
+      return;
+    }
+    if (next.to === 'retry') {
+      if (!pollFailed) return;
+      focusNext.current = null;
+      if (selected === null) find('project-rerun-retry')?.focus();
+      return;
+    }
+    if (going !== null) return;
+    focusNext.current = null;
+    if (selected !== null) return;
+    const again = find(`project-run-rerun-${next.rerunOf}`) as HTMLButtonElement | null;
+    if (again && !again.disabled) again.focus();
+    else find('project-runs-heading')?.focus();
+  }, [going, pollFailed, view, selected]);
 
   // The kind whose cancel stops the going rerun: as project_rerun said, or
   // from the run it repeats, once the runs are read. Until then, none.
@@ -332,6 +372,8 @@ const ProjectPageShown: React.FC<ProjectPageProps> = ({
     setOutcome(null);
     setPollFailed(false);
     setCancelling(false);
+    // Decision 232: a rerun started here puts the focus on its Cancel.
+    focusNext.current = { to: 'cancel' };
     setGoing({ runId: started.runId, rerunOf: run.storedRunId, kind: started.kind });
   };
 
@@ -499,7 +541,7 @@ const ProjectPageShown: React.FC<ProjectPageProps> = ({
 
   return (
     <Card>
-      <section aria-labelledby="project-page-heading" data-testid="project-page" style={{ display: 'grid', gap: 8 }}>
+      <section ref={pageBox} aria-labelledby="project-page-heading" data-testid="project-page" style={{ display: 'grid', gap: 8 }}>
         {title}
         {status}
         {body}
@@ -531,6 +573,16 @@ const ProjectPageShown: React.FC<ProjectPageProps> = ({
     </Card>
   );
 };
+
+/** Where the focus goes next across a rerun (decision 232). */
+type FocusNext = { to: 'cancel' } | { to: 'retry' } | { to: 'end'; rerunOf: number };
+
+/** Whether the focus is on the rerun's Cancel, or on nothing. */
+function focusOnCancelOrNothing(box: HTMLElement | null): boolean {
+  const at = document.activeElement;
+  if (at === null || at === document.body) return true;
+  return box !== null && at === box.querySelector('[data-testid="project-rerun-cancel"]');
+}
 
 interface OpenProjectProps {
   view: Extract<View, { kind: 'open' }>;
@@ -650,7 +702,10 @@ const OpenProject: React.FC<OpenProjectProps> = ({
       </>
     ) : (
       <section aria-label={PROJECT_TEXT.savedResults} data-testid="project-runs">
-        <h4 style={{ margin: '8px 0 4px' }}>{PROJECT_TEXT.savedResults}</h4>
+        {/* tabIndex -1: the focus comes here when a rerun's row is gone (decision 232). */}
+        <h4 tabIndex={-1} style={{ margin: '8px 0 4px' }} data-testid="project-runs-heading">
+          {PROJECT_TEXT.savedResults}
+        </h4>
         {view.runs === 'loading' && <p data-testid="project-runs-loading">{PROJECT_TEXT.runsLoading}</p>}
         {view.runs === 'unread' && (
           <p role="alert" data-testid="project-runs-unread">

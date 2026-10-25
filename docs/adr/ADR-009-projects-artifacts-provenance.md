@@ -1,8 +1,13 @@
 # ADR-009: Projects, the artifact store and provenance
 
-**Status: Accepted, 19 Oct 2026, for what decisions 99 to 111 cover;
-everything else in this ADR is Proposed.** Each part below is marked
-**[Accepted, decision N]** or **[Proposed]**. Written 19 Oct 2026 in Research
+**Status: Accepted, 19 Oct 2026, for what decisions 99 to 111 cover, and 25
+Oct 2026 (decision 234), on the 5E evaluation's evidence and 5E-fix-1's, for
+§1's resolution as built on macOS, §2, §3, §5 but its Windows sentence, §6,
+§7, §9, §10 for Unix, §11 but its Windows clause, §15 and §16. Not yet:
+§1's resolution on Windows and Linux, the Windows sentences of §5, §10 and
+§11, and decision 110's retirement of the seam commands (§13). What decision
+158 adds is Proposed (§13's Stored data part and §17).** Each part below is
+marked **[Accepted, decision N]**, **[Not yet, decision N]** or **[Proposed]**. Written 19 Oct 2026 in Research
 OS Phase 5A as a draft (`~/gaply-corpus/os/phase5/`), made to say what
 decisions 99 to 111 say and copied here in Phase 5B-1 (decision 112). The
 places where the 5A draft said more than the decisions are listed at the end,
@@ -50,21 +55,24 @@ through Tauri's local app data directory (`PathResolver::app_local_data_dir`):
 Never Documents, Desktop, or an iCloud or OneDrive folder. On Windows this is
 not the folder `gaply.db` is in (that one is under `%APPDATA%`, Roaming).
 
-**[Proposed]** The resolution as built in 5B-1:
+**[Accepted on macOS, decision 234]** The resolution as built in 5B-1:
 `project_store::projects_root(app)` is the one function that resolves the
 folder, and it calls `app_local_data_dir()` and no other resolver (pinned by
 `src-tauri/tests/project_store_guards.rs`). The projects are under
 `<that folder>/projects/`. No `appDirectoriesOverride` is set in
 `tauri.conf.json`. The resolution table rests on docs.rs tauri 2.12.4
 (`PathResolver`), read 19 Oct 2026; `Cargo.lock` holds tauri 2.11.5 (inferred
-to resolve the same way).
+to resolve the same way). **[Not yet, decision 234]** On Windows and Linux the
+resolution as built is not measured: the table's rows for them rest on
+tauri's docs (5E evaluation §1). The table itself stays Accepted by
+decision 99.
 
 ### 2. One database per project; the list is a scan [Accepted, decision 106]
 
 One database per project: `projects/<id>/project.db`, beside its `artifacts`
 folder. The list of projects is a scan of the folder.
 
-**[Proposed]** The layout as built in 5B-1 (`src-tauri/src/project_store.rs`):
+**[Accepted, decision 234]** The layout as built in 5B-1 (`src-tauri/src/project_store.rs`):
 
 ```
 <app_local_data_dir>/projects/          0700
@@ -92,11 +100,15 @@ folder. The list of projects is a scan of the folder.
 - The list reads each folder's `project.db` for its project row and sums the
   folder's file sizes from metadata. It opens no artifact and hashes nothing.
 
-### 3. `project.db` [Proposed]
+### 3. `project.db` [Accepted, decision 234]
 
-- Its own schema version in `PRAGMA user_version`, version 1, set inside
-  the store. The `gaply.db` migration runner (`migrations.rs`) is hard-wired
-  to its own list and is left unchanged.
+- Its own schema version in `PRAGMA user_version`, set inside the store:
+  version 2 since 5C-1a (`research_project/mod.rs`), which added
+  `runs.rerun_of`. A version 1 project migrates when it is opened, each step
+  in its own `BEGIN IMMEDIATE` with the version read again under its lock; a
+  newer version is refused and left untouched (decision 158, item 1). The
+  `gaply.db` migration runner (`migrations.rs`) is hard-wired to its own list
+  and is left unchanged.
 - `PRAGMA journal_mode=WAL; synchronous=FULL; foreign_keys=ON;
   busy_timeout`. FULL, not NORMAL: in WAL mode NORMAL "might roll back
   following a power loss" while FULL is durable (sqlite.org/pragma.html,
@@ -105,7 +117,8 @@ folder. The list of projects is a scan of the folder.
   `created_at`, `app_version`), `artifacts` (`hash`, `kind`, `format`,
   `bytes`, `schema_version`, `created_at`, `damage`), `runs` (`run_id`,
   `capability_id`, `capability_version`, `state`, `end_code`,
-  `agent_version`, `started_at`, `ended_at`, `saved_at`), and three edge
+  `agent_version`, `started_at`, `ended_at`, `saved_at`, and since version
+  2 `rerun_of`, the run a rerun repeats), and three edge
   tables, `used`, `generated` and `derived`.
 - A row holds only ids, hashes, the capability id and version, a state,
   closed codes, sizes and times. The one user-typed column is
@@ -124,7 +137,7 @@ with the project. Its path and its file name are never stored; its format is
 kept as a closed code. The save sentence says a copy is kept on this computer
 only.
 
-### 5. The artifact write [Proposed]
+### 5. The artifact write [Accepted, decision 234, but its Windows sentence]
 
 As built in 5B-1, one Save is one `BEGIN IMMEDIATE` transaction held from
 the first step to the last:
@@ -143,7 +156,8 @@ the first step to the last:
    removed at once; anything left over is recovery's.
 
 A row is therefore a promise that its bytes exist and verified when written.
-**On Windows a folder cannot be synced;** what stands in its place is NTFS's
+**[Not yet, decision 234: the store's tests do not run on Windows, decision
+114]** **On Windows a folder cannot be synced;** what stands in its place is NTFS's
 metadata journal for the rename (inferred, not measured), with the recovery
 rule below covering a lost rename: a row whose file is missing is marked
 damaged, never read.
@@ -159,7 +173,7 @@ damaged, never read.
   projects (5C), the sentences they checked are kept inside the run's bundle
   artifact, never as a database row, and the save sentence says so. AI
   explanations are not stored in Phase 5.
-- **[Proposed]** In 5B only finished runs are saved, written once, in their
+- **[Accepted, decision 234]** In 5B only finished runs are saved, written once, in their
   terminal state (`project.run_not_finished` otherwise). Recovery at open, in
   its own `BEGIN IMMEDIATE` so it cannot remove a file another writer is
   writing: leftover `.tmp-*` files are removed; an artifact file with no row
@@ -167,9 +181,17 @@ damaged, never read.
   wrong size is marked damaged with a closed code; and a run left `Queued` or
   `Running` becomes `Failed` with `project.run_interrupted`, never
   `Succeeded` (for 5C's reruns; tested now). A file is hashed whenever it is
-  read, and a mismatch marks it damaged and refuses the read.
+  read, and a mismatch marks it damaged and refuses the read. A same-size
+  corruption of an artifact is therefore not seen at open or in the list,
+  only at the read (`project.artifact_wrong_hash`; 5E evaluation N1).
+- Decision 186, as built in 5C-1a: a rerun's save at its end is the second
+  write a click starts (the click is Run again). No run row exists until a
+  run has ended, and nothing is written while it runs; a cancel, refusal,
+  quit or crash writes nothing. The `RunSink` of the 5A draft is not built,
+  so recovery's interrupted-run rule above has no writer behind it and is
+  kept as a guard (decision 158, item 2).
 
-### 7. Provenance [Proposed]
+### 7. Provenance [Accepted, decision 234]
 
 The graph, in `gaply_core::research_project`: artifact versions (by hash),
 runs and the app as agent, with the edges `used` (run → artifact, with a
@@ -179,6 +201,14 @@ the app and its version, never a person's name or account. Adding an edge
 that would close a cycle is refused with `project.prov_cycle`, and a property
 test asserts acyclicity. **[Accepted, decision 111]** The PROV JSON export
 and the project report are built in 5B-2, not 5B-1.
+
+As built (decision 158, item 3): the export adds `wasInformedBy` (a rerun →
+the run it repeats) only in a project that holds a rerun; `wasDerivedFrom`
+is derived at export from `used` and `wasGeneratedBy`, and no Save stores
+one. The export has the PROV-JSON shape: its `prov:type` values are Gaply's
+own (`gaply:data_file` and the like), its `prefix` map declares only
+`gaply:`, and its relation keys are blank-node strings. A PROV-JSON reader
+accepts it; a PROV-DM reasoner sees typed agents only (5E evaluation N10).
 
 ### 8. Retention [Accepted, decision 103]
 
@@ -191,8 +221,9 @@ deleted automatically.
 a test. A full disk or a cap is a closed refusal that leaves nothing
 half-written.
 
-**[Proposed]** As built in 5B-1: a project's size is every file in its
-folder (artifacts, temporary files and database files). Before a Save writes
+**[Accepted, decision 234]** As built in 5B-1: a project's size is every file in its
+folder (artifacts, temporary files and database files), except
+`project.db-wal` and `project.db-shm`, which are skipped since decision 173. Before a Save writes
 anything the store adds the project's size on disk, every new artifact in
 that Save, and `DB_GROWTH_ALLOWANCE_BYTES` (1 MiB); over either cap it refuses
 (`project.project_cap`, `project.all_projects_cap`, with the needed and limit
@@ -200,7 +231,10 @@ bytes) and nothing is written. A tombstone counts toward the all-projects cap
 until it is removed. A full disk (`ENOSPC`, `SQLITE_FULL`) is
 `project.disk_full`. The caps are parameters of the store, so tests use small
 ones. No free-space probe: none is in `Cargo.lock`, and the write is attempted
-and its failure mapped to a closed code.
+and its failure mapped to a closed code. A checkpoint runs after each Save
+and when a project closes, so the `-wal` stays small; a checkpoint left busy
+by another copy's reader waited at most 5.2 s (5E evaluation §3) (decision
+158, item 6).
 
 ### 10. Protection [Accepted, decision 100]
 
@@ -211,11 +245,12 @@ and its failure mapped to a closed code.
   the computer's disk encryption (FileVault, BitLocker or LUKS).
 - Encryption is a later decision of its own.
 
-**[Proposed]** As built: permissions set when each folder and file is
+**[Accepted for Unix, decision 234]** As built: permissions set when each folder and file is
 created, so a permissive umask cannot widen them; `project.db` is created at
 0600 before SQLite opens it, so its `-wal` and `-shm` files take the same
 mode; an artifact's temporary file is set to 0400 before the rename, so the
-final file is never writable. On Windows no access list is changed: the
+final file is never writable. **[Not yet, decision 234: not measured on
+Windows]** On Windows no access list is changed: the
 default security descriptor is inherited from `%LOCALAPPDATA%`
 (learn.microsoft.com, file security and access rights, read 19 Oct 2026; not
 measured on a Windows machine).
@@ -229,13 +264,21 @@ measured on a Windows machine).
   user exported.
 - It makes no overwrite pass.
 
-**[Proposed]** As built in 5B-1: the project's connections are closed first
+**[Accepted, decision 234, but its Windows clause]** As built in 5B-1 and
+5E-fix-1 (decision 223, D291): the project's connections are closed first
 (a delete is refused with `project.still_open` while this process holds the
-project open); the folder is renamed to `.deleting-<id>`, then removed; a
-tombstone found when the store starts is finished. Read-only files block
-neither the delete nor recovery's removals (on Windows the read-only
-attribute is cleared first; not tested on Windows). The confirmation screen
-is 5B-2's.
+project open); the store then checks that it can empty the folder, and when
+it cannot, the folder keeps its name, nothing is deleted, and the delete
+refuses with `project.folder_unchangeable` (Gaply never changes a folder's
+permissions to get past this); otherwise the folder is renamed to
+`.deleting-<id>`, then removed. A tombstone found when the store starts is
+finished; one it cannot remove is skipped, logged by a closed code and a
+count, and tried again at the next start, and never fails the open. A
+project whose database cannot be read and whose folder fails the same check
+is listed with `project.folder_unchangeable`. Read-only files block
+neither the delete nor recovery's removals. **[Not yet, decision 234]** On
+Windows the read-only attribute is cleared first; not tested on Windows. The
+confirmation screen is 5B-2's.
 
 ### 12. Exporting and importing a project [Accepted, decision 108]
 
@@ -251,7 +294,49 @@ has been saved and deleted in the real app once.
   path is one of them, and is fixed before the Stats Check's flag ships.
 - **Decision 110:** the dormant `projects` table in `gaply.db` and its three
   seam commands (`create_project`, `list_projects`, `get_project`) stay as
-  they are, unused, and are retired in 5D. Phase 5's store does not use them.
+  they are, unused, and are retired later. Phase 5's store does not use them.
+  **[Not yet, decision 234]** The retirement is not yet done (decision 221
+  moves 5D-2 after Phase 8's first methods): the three are registered and
+  ungated, and `create_project` writes a typed name into the dormant table
+  with no delete path (5E evaluation N6, N12).
+
+**[Proposed, decision 158, items 10 and 11]** The Stored data section as
+built in 5D-1a, 5D-1b, 5E-fix-1 and 5E-fix-2 (D289, D290, D291 and D292):
+
+- Nine categories, counted from one read transaction and file metadata,
+  bytes not characters, symlinks never followed; each with a Delete… that
+  needs a confirmation issued for that category just before
+  (`crate::confirmation`, shared with the projects' delete).
+- A delete is refused while work that writes into its category is going:
+  one running-work counter in the app's state, its guard taken first by six
+  shipped commands, and the thesis audits' jobs map (decision 214).
+- Categories 1 to 4 are deleted from their root, 5 by `cache_evict_stale`'s
+  statement, 6 to 9 file by file. Categories 1 to 5 run with
+  `secure_delete=ON` on their own connection, so the text they delete is
+  zeroed in the pages they change, and then one `wal_checkpoint(TRUNCATE)`,
+  retried once; no VACUUM (decision 224). Each start tries one checkpoint
+  too, which never fails the open.
+- The checkpoint after a delete and the one at open run with a busy timeout
+  of 1 s on their own connection, restored afterwards, and the retry waits
+  200 ms first (decision 230). On a 590 MB database with a reader held
+  across it, the checkpoint gave up in 2.45 s (8.0 s with an 8 s reader at
+  5a0089c) and a concurrent writer's longest wait was 1.17 s with no failed
+  write (5.26 s and one failed write at 5a0089c); an open with the reader
+  held took 1.15 s (5.27 s at 5a0089c) (5E-fix-2 item 1).
+- Category 1 deletes in batches (decision 230): each batch its own
+  `IMMEDIATE` transaction under `secure_delete`, at most 64 MiB of the
+  category's counted bytes and at least one manuscript, 200 ms between two
+  batches with no transaction open, all under the one running-work hold. A
+  failure after the first batch stops the delete, keeps the earlier batches
+  deleted, still runs the checkpoint and answers `stored_data.delete_partial`.
+  On the 590 MB database (550 manuscripts, 576,750,130 counted bytes) the
+  delete took 4.22 s and a concurrent writer's longest wait was 519 ms with
+  no failed write; as one transaction it held the write lock 4.8 s (D291)
+  and the writer waited 2.3 s (5E-fix-2 item 1). Categories 2 to 5 stay one
+  transaction each; their writer waits were at most 234 ms.
+- The file does not shrink; older copies of deleted text that SQLite left in
+  free space before a delete are not overwritten (decision 224).
+- Not done: 5D's stop-writing changes (5D-2) and decision 110's retirement.
 
 ### 14. The order of Phase 5 [Accepted, decision 111]
 
@@ -259,7 +344,7 @@ has been saved and deleted in the real app once.
 change: the PROV JSON export and the project report move from 5B-1 to 5B-2.
 Each step is its own commit.
 
-### 15. A project belongs to one workspace [Proposed]
+### 15. A project belongs to one workspace [Accepted, decision 234]
 
 `workspace_home` is `statistics`, the only value Phase 5 stores. The
 commands of 5B-2 that create, open, save to or read a project check that
@@ -269,7 +354,7 @@ active, and leaving Statistics closes it (decision 135). `installed_workspaces` 
 §10.1 are not stored: the first is a build fact, the second the session's
 state (ADR-001), and a stored copy would be a second source of truth.
 
-### 16. The AI boundary and the Supabase client [Proposed]
+### 16. The AI boundary and the Supabase client [Accepted, decision 234]
 
 No project, artifact, run or provenance type may reach an outbound struct,
 the AI helper's transport or the Supabase client. As built in 5B-1:
@@ -283,6 +368,25 @@ values to the Supabase client at run time. The tracing guards
 (`no_path_in_tracing.rs`, `no_error_text_in_tracing.rs`) scan the store as
 they scan every file; it logs a project only by its id and an artifact only
 by an 8-character hash prefix.
+
+### 17. Added at the 5E evaluation [Proposed, decision 158]
+
+What the evaluation found built and not yet written here (5E evaluation §1,
+"What ADR-009 does not yet mention"); items 1, 2, 3, 6, 10 and 11 are in §3,
+§6, §7, §9 and §13 above.
+
+- Item 4: the run manager's end hook (`runs.rs`), the going flag, `leave()`'s
+  `workspace.run_active` refusal while a rerun is going, and
+  `project_current`'s rerun state.
+- Item 5: the twelfth and thirteenth commands, `project_current` (exempt
+  from the workspace check, answering an id and a rerun state only) and
+  `project_rerun` (gated).
+- Item 7: the staging folder of a first Save is held under the project's
+  shared lock, so another copy's recovery skips it.
+- Item 8: a result read back is at most `RESULT_READ_LIMIT_BYTES` (4 MiB),
+  and its stored JSON is returned as text, unparsed (decision 129).
+- Item 9: the title rule's list of invisible format characters (decision
+  121).
 
 ## Alternatives considered
 
@@ -336,30 +440,39 @@ Windows CI running the store's tests and finding a difference.
 ## Where the 5A draft said more than decisions 99 to 111, and what this ADR says now
 
 1. Ids minted by SQLite's `randomblob(16)`: now the operating system's random
-   source through `getrandom`, as the 5B-1 step prompt says. Proposed.
+   source through `getrandom`, as the 5B-1 step prompt says. Accepted with
+   §2 (decision 234).
 2. A `tmp/` folder for writes in progress: now `artifacts/.tmp-<hex>`, in the
-   artifacts folder, as the step prompt says. Proposed.
+   artifacts folder, as the step prompt says. Accepted with §2 (decision 234).
 3. A `DELETING` tombstone file inside the folder: now the folder renamed to
-   `.deleting-<id>`. Proposed.
+   `.deleting-<id>`. Accepted with §2 and §11 (decision 234).
 4. `project.db` on the `gaply.db` migration runner, made generic: now its own
-   `PRAGMA user_version`, the runner unchanged. Proposed.
-5. `secure_delete=ON`, rows deleted and `VACUUM` at delete: not built.
-   Decision 104 removes the folder and makes no overwrite pass. Dropped.
+   `PRAGMA user_version`, the runner unchanged. Accepted with §3 (decision 234).
+5. `secure_delete=ON`, rows deleted and `VACUUM` at delete: not built for a
+   project. Decision 104 removes the folder and makes no overwrite pass.
+   Dropped. (The Stored data deletes of `gaply.db` use `secure_delete` and
+   no VACUUM; that is §13, decision 224.)
 6. A one-project cap of 1 GiB and a one-artifact cap of 100 MiB: decision 107
    sets 100 MiB per project, which also bounds an artifact. Corrected.
 7. "Settings states that projects are stored unencrypted under the user's
    account": now decision 100's sentence. Corrected.
 8. Run rows holding `spec_json` and `manifest_json`, an `artifacts.display_name`
    column: now the spec and the bundle (with its manifest) are artifacts, and
-   no display name is stored (decision 101: no file name). Proposed.
+   no display name is stored (decision 101: no file name). Accepted with §3
+   and ADR-004's 004b rows (decision 234).
 9. The write order "file durable, then `BEGIN IMMEDIATE`": now `BEGIN
-   IMMEDIATE` first and held to the end, as the step prompt says. Proposed.
+   IMMEDIATE` first and held to the end, as the step prompt says. Accepted
+   with §5 (decision 234).
 10. A delete preview with a one-use token, the PROV JSON export, the
     workspace check on project commands, the `RunSink` for durable reruns,
-    ADR-010's disk row, and the privacy-matrix and vitest guards: 5B-2 or 5C.
-    Proposed.
+    ADR-010's disk row, and the privacy-matrix and vitest guards: built in
+    5B-2 and 5C, except the `RunSink`. The confirmation (decision 124) is
+    Accepted with §11, the PROV export with §7, the workspace check with
+    §15, and the guards with §16 (decision 234). The `RunSink` is not built
+    (decision 186; §6). ADR-010's disk row is Proposed.
 11. Two edge tables named `run_inputs` and `run_outputs`, `artifacts` with an
-    integer id: now `used`, `generated`, `derived`, keyed by hash. Proposed.
+    integer id: now `used`, `generated`, `derived`, keyed by hash. Accepted
+    with §3 (decision 234).
 
 ## Revisions
 
@@ -373,3 +486,15 @@ Windows CI running the store's tests and finding a difference.
   limitation with only SQLite between them; they now share it through
   SQLite and the decision 132 lock, and a delete refuses while another copy
   has the project open (D283).
+- 25 Oct 2026, Phase 5E-fix-2 (decision 234), on the 5E evaluation's
+  evidence and 5E-fix-1's (D291): §1's resolution on macOS, §2, §3, §5 but
+  its Windows sentence, §6, §7, §9, §10 for Unix, §11 but its Windows
+  clause, §15 and §16 marked Accepted, with the evaluation's text changes
+  (§3's version 2, `rerun_of` and migration; §6's decision 186 and N1; §7's
+  `wasInformedBy`, the derived `wasDerivedFrom` and N10; §9's skipped
+  `-wal`/`-shm`, the checkpoints and the 5.2 s wait; §11 as 5E-fix-1 built
+  it). §1 on Windows and Linux, the Windows sentences of §5, §10 and §11,
+  and decision 110's retirement marked Not yet; §13's "in 5D" corrected to
+  decision 221 (N6). Decision 158's items added as Proposed: the Stored
+  data section in §13, with its numbers from D291 and 5E-fix-2's item 1,
+  and §17. The "said more" list marked as its sections now are.

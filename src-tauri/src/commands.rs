@@ -2630,9 +2630,16 @@ pub fn log_storage_error(operation: String, key_kind: String, message: String) {
 /// .json), returns TEXT (never bytes), and refuses files over IMPORT_MAX_BYTES
 /// (the size cap enforced server-side, mirroring importCitations' entry cap). A
 /// future need for a different file's text gets its OWN scoped command.
+///
+/// Its two refusals are closed codes (decision 231), in the JSON shape of a
+/// Stored data refusal, `{"code":"import.unsupported_type"}` and
+/// `{"code":"import.too_large"}`: no extension, size or path in them. The
+/// Citation Manager gives each its own sentence.
 #[tauri::command]
 pub fn read_import_file(path: String) -> Result<String, GaplyError> {
     const IMPORT_MAX_BYTES: u64 = 16 * 1024 * 1024; // 16 MiB — even a huge .bib is small text
+    let refuse =
+        |code: &str| GaplyError::Validation(serde_json::json!({ "code": code }).to_string());
     let p = std::path::Path::new(&path);
     let ext = p
         .extension()
@@ -2640,16 +2647,11 @@ pub fn read_import_file(path: String) -> Result<String, GaplyError> {
         .map(|e| e.to_ascii_lowercase())
         .unwrap_or_default();
     if !matches!(ext.as_str(), "bib" | "bibtex" | "ris" | "json") {
-        return Err(GaplyError::Validation(format!(
-            "Unsupported import file type: .{ext} — Gaply imports .bib, .ris, or .json"
-        )));
+        return Err(refuse("import.unsupported_type"));
     }
     let meta = std::fs::metadata(p)?;
     if meta.len() > IMPORT_MAX_BYTES {
-        return Err(GaplyError::Validation(format!(
-            "Import file is too large ({} bytes; max {IMPORT_MAX_BYTES}). Split it and import in batches.",
-            meta.len()
-        )));
+        return Err(refuse("import.too_large"));
     }
     Ok(std::fs::read_to_string(p)?)
 }

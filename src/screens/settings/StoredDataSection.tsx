@@ -28,6 +28,7 @@ import ProjectDialog from '../statistics/projects/ProjectDialog';
 import { mb } from '../statistics/projects/projectWording';
 import { useGeneration, type Generation } from '../statistics/projects/useGeneration';
 import {
+  DELETE_PARTIAL,
   readConfirmation,
   readDeleted,
   readStoredData,
@@ -41,7 +42,6 @@ import {
 import { storedDataShown } from './storedDataGate';
 import {
   countWords,
-  DATABASE_CATEGORIES,
   DELETION_TEXT,
   deleteSentence,
   refusalCode,
@@ -65,10 +65,22 @@ type View = { kind: 'reading' } | { kind: 'failed' } | { kind: 'read'; counts: M
 function deletedLine(c: StoredCategoryWords, d: StoredDeleted): string {
   const count = DELETION_TEXT.deleted(countWords(d.deleted, c));
   if (d.outcome === 'done') return count;
-  // Decision 224: the not-done line keeps the count, then its sentence (the
-  // checkpoint for a database category, the partial-removal one for files).
-  const tail = DATABASE_CATEGORIES.includes(c.id) ? DELETION_TEXT.notCompacted : DELETION_TEXT.partlyRemoved;
-  return `${count} ${tail}`;
+  // Decision 224: the not-done line keeps the count, then its sentence,
+  // chosen by the code (decision 230): a partial delete says what is left,
+  // then the not-done sentence too if its checkpoint did not finish.
+  switch (d.code) {
+    case DELETE_PARTIAL:
+      return d.checkpoint === 'done'
+        ? `${count} ${DELETION_TEXT.partlyRemoved}`
+        : `${count} ${DELETION_TEXT.partlyRemoved} ${DELETION_TEXT.notCompacted}`;
+    case 'stored_data.checkpoint_busy':
+    case 'stored_data.checkpoint_failed':
+      return `${count} ${DELETION_TEXT.notCompacted}`;
+    case 'stored_data.remove_failed':
+      return `${count} ${DELETION_TEXT.partlyRemoved}`;
+    default:
+      return `${count} ${DELETION_TEXT.failed}`;
+  }
 }
 
 const countLine = (c: StoredCategoryWords, n: StoredCount) => `${countWords(n.items, c)}. Size: ${mb(n.bytes)}.`;

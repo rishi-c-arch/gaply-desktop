@@ -99,14 +99,13 @@ impl Database {
         // Best effort: it never fails the open, and is logged by a closed
         // code only (no path, no value).
         if let Ok(conn) = db.conn() {
-            match conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| {
-                r.get::<_, i64>(0)
-            }) {
-                Ok(0) => {}
-                Ok(_) => {
+            use crate::stored_data::{Compaction, CompactionCode};
+            match crate::stored_data::checkpoint_at_open(&conn) {
+                Compaction::Done => {}
+                Compaction::NotDone(CompactionCode::CheckpointBusy) => {
                     tracing::info!(code = "stored_data.checkpoint_busy", "open checkpoint busy")
                 }
-                Err(_) => {
+                Compaction::NotDone(CompactionCode::CheckpointFailed) => {
                     tracing::info!(
                         code = "stored_data.checkpoint_failed",
                         "open checkpoint failed"

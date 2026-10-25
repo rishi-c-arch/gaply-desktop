@@ -195,6 +195,9 @@ pub struct Deletion {
     /// Categories 6 to 9: a removal failed after `deleted` files were
     /// removed, and the delete stopped there.
     pub removal_failed: bool,
+    /// Category 1: a batch after the first failed after `deleted`
+    /// manuscripts were deleted, and the delete stopped there (decision 230).
+    pub partial: bool,
 }
 
 /// Why a delete did not run.
@@ -347,12 +350,19 @@ fn columns(table: &str) -> &'static [&'static str] {
 /// where a row's bytes are `length(CAST(col AS BLOB))` summed over its
 /// counted columns, a NULL counting 0.
 fn count_sql(table: &str, filter: &str) -> String {
-    let row_bytes = columns(table)
+    format!(
+        "SELECT COUNT(*), COALESCE(SUM({}), 0) FROM \"{table}\" WHERE {filter}",
+        row_bytes(table)
+    )
+}
+
+/// One row of `table`'s bytes, as [`count_sql`] counts them.
+fn row_bytes(table: &str) -> String {
+    columns(table)
         .iter()
         .map(|c| format!("COALESCE(length(CAST(\"{c}\" AS BLOB)), 0)"))
         .collect::<Vec<_>>()
-        .join(" + ");
-    format!("SELECT COUNT(*), COALESCE(SUM({row_bytes}), 0) FROM \"{table}\" WHERE {filter}")
+        .join(" + ")
 }
 
 /// A Gap Finder paper's `documents` row: ?1 is its source type, ?2 the URL
@@ -592,22 +602,185 @@ impl Drop for SecureDelete<'_> {
     }
 }
 
-/// `PRAGMA wal_checkpoint(TRUNCATE)` once, retried once if it is busy (F2,
-/// decision 224). Done when the busy column is 0.
-fn checkpoint_truncate(conn: &Connection) -> Compaction {
-    let once = || -> rusqlite::Result<bool> {
-        let busy: i64 = conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| r.get(0))?;
-        Ok(busy == 0)
+/// The busy timeout of the checkpoint after a delete and of the one at open,
+/// in ms (decision 230): a read held elsewhere then delays other features'
+/// writes by about a second per try, never by the pool's 5 s.
+pub(crate) const CHECKPOINT_BUSY_TIMEOUT_MS: i64 = 1000;
+
+/// How long the one retry of a busy checkpoint waits first (decision 230).
+const CHECKPOINT_RETRY_WAIT: std::time::Duration = std::time::Duration::from_millis(200);
+
+/// Category 1's batch limit (decision 230): one transaction holds at most
+/// this many of the category's counted bytes, and at least one manuscript.
+pub const MANUSCRIPT_BATCH_BYTES: u64 = 64 * 1024 * 1024;
+
+/// The wait between two of category 1's batches, with no transaction open
+/// (decision 230): longer than SQLite's longest busy-handler sleep (100 ms),
+/// so a write that is waiting gets in.
+const BATCH_WAIT: std::time::Duration = std::time::Duration::from_millis(200);
+
+/// Sets a connection's busy timeout to [`CHECKPOINT_BUSY_TIMEOUT_MS`] for the
+/// length of a checkpoint, and restores its earlier value when it drops, on
+/// every path, so the pooled connection returns to the pool unchanged
+/// (decision 230; the shape of [`SecureDelete`]).
+struct CheckpointTimeout<'c> {
+    conn: &'c Connection,
+    previous: i64,
+}
+
+impl<'c> CheckpointTimeout<'c> {
+    fn on(conn: &'c Connection) -> rusqlite::Result<CheckpointTimeout<'c>> {
+        let previous: i64 = conn.query_row("PRAGMA busy_timeout", [], |r| r.get(0))?;
+        conn.execute_batch(&format!("PRAGMA busy_timeout={CHECKPOINT_BUSY_TIMEOUT_MS}"))?;
+        Ok(CheckpointTimeout { conn, previous })
+    }
+}
+
+impl Drop for CheckpointTimeout<'_> {
+    fn drop(&mut self) {
+        // `previous` is an integer this read from the connection, so the
+        // statement carries no outside value.
+        let _ = self
+            .conn
+            .execute_batch(&format!("PRAGMA busy_timeout={}", self.previous));
+    }
+}
+
+/// Category 1, in batches (decision 230). The first batch's `IMMEDIATE`
+/// transaction takes the count before and lists the manuscripts with their
+/// counted bytes, once; each batch then deletes at most `batch_bytes` of them,
+/// and at least one manuscript, in its own transaction, with [`BATCH_WAIT`]
+/// between two batches and no transaction open. A failure in the first batch
+/// rolls it back and is the error, as for one transaction; a failure in a
+/// later one stops the delete, the earlier batches stay deleted, and the
+/// third value is `true`.
+fn delete_manuscripts_on(
+    conn: &Connection,
+    batch_bytes: u64,
+) -> Result<((u64, u64), u64, bool), DeleteError> {
+    let tx = rusqlite::Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
+    let before = row_count(&tx, StoredCategory::ManuscriptAnalyses, 0)?;
+    let mut batches = in_batches(&manuscript_sizes(&tx)?, batch_bytes).into_iter();
+    let mut deleted = match batches.next() {
+        Some(first) => delete_manuscripts(&tx, &first)?,
+        None => 0,
     };
-    let result = match once() {
-        Ok(false) => once(),
-        Err(e) if is_busy(&e) => once(),
-        first => first,
-    };
+    tx.commit()?;
+    for batch in batches {
+        std::thread::sleep(BATCH_WAIT);
+        let one = || -> rusqlite::Result<u64> {
+            let tx = rusqlite::Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
+            let n = delete_manuscripts(&tx, &batch)?;
+            tx.commit()?;
+            Ok(n)
+        };
+        match one() {
+            Ok(n) => deleted += n,
+            Err(_) => return Ok((before, deleted, true)),
+        }
+    }
+    Ok((before, deleted, false))
+}
+
+/// Delete the manuscripts `ids`, and by cascade their extractions and
+/// findings, on `conn`, inside the caller's transaction.
+fn delete_manuscripts(conn: &Connection, ids: &[i64]) -> rusqlite::Result<u64> {
+    let mut stmt = conn.prepare_cached("DELETE FROM manuscripts WHERE id = ?1")?;
+    let mut n = 0u64;
+    for id in ids {
+        n += stmt.execute([id])? as u64;
+    }
+    Ok(n)
+}
+
+/// Each manuscript's id and counted bytes, its extractions' and findings'
+/// with it, by id: the same bytes [`row_count`] sums for category 1.
+fn manuscript_sizes(conn: &Connection) -> Result<Vec<(i64, u64)>, GaplyError> {
+    let sql = format!(
+        "SELECT m.id, ({}) + COALESCE((SELECT SUM({}) FROM extractions WHERE manuscript_id = m.id), 0)
+                          + COALESCE((SELECT SUM({}) FROM findings WHERE manuscript_id = m.id), 0)
+         FROM manuscripts AS m ORDER BY m.id",
+        row_bytes("manuscripts"),
+        row_bytes("extractions"),
+        row_bytes("findings"),
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, non_negative(r.get(1)?))))?;
+    Ok(rows.collect::<Result<_, _>>()?)
+}
+
+/// `sizes` cut into batches in order: each holds at most `limit` bytes, and
+/// at least one manuscript, so one larger than the limit is a batch alone.
+fn in_batches(sizes: &[(i64, u64)], limit: u64) -> Vec<Vec<i64>> {
+    let mut out = Vec::new();
+    let mut batch = Vec::new();
+    let mut bytes = 0u64;
+    for &(id, b) in sizes {
+        if !batch.is_empty() && bytes.saturating_add(b) > limit {
+            out.push(std::mem::take(&mut batch));
+            bytes = 0;
+        }
+        batch.push(id);
+        bytes = bytes.saturating_add(b);
+    }
+    if !batch.is_empty() {
+        out.push(batch);
+    }
+    out
+}
+
+/// One `PRAGMA wal_checkpoint(TRUNCATE)`: done when its busy column is 0.
+fn truncate_once(conn: &Connection) -> rusqlite::Result<bool> {
+    let busy: i64 = conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| r.get(0))?;
+    Ok(busy == 0)
+}
+
+fn outcome(result: rusqlite::Result<bool>) -> Compaction {
     match result {
         Ok(true) => Compaction::Done,
         Ok(false) => Compaction::NotDone(CompactionCode::CheckpointBusy),
         Err(e) if is_busy(&e) => Compaction::NotDone(CompactionCode::CheckpointBusy),
+        Err(_) => Compaction::NotDone(CompactionCode::CheckpointFailed),
+    }
+}
+
+/// `PRAGMA wal_checkpoint(TRUNCATE)` once, retried once if it is busy (F2,
+/// decision 224), each try waiting at most 1 s and the retry 200 ms first
+/// (decision 230). Done when the busy column is 0.
+fn checkpoint_truncate(conn: &Connection) -> Compaction {
+    checkpoint_truncate_with(conn, &truncate_once)
+}
+
+/// [`checkpoint_truncate`] with its one try given, so a test can read the
+/// connection inside it and make it busy or fail.
+fn checkpoint_truncate_with(
+    conn: &Connection,
+    once: &dyn Fn(&Connection) -> rusqlite::Result<bool>,
+) -> Compaction {
+    let _timeout = match CheckpointTimeout::on(conn) {
+        Ok(guard) => guard,
+        Err(_) => return Compaction::NotDone(CompactionCode::CheckpointFailed),
+    };
+    // Longer than SQLite's longest busy-handler sleep, with no lock held,
+    // so a write that is waiting gets in before the retry.
+    let retry = || {
+        std::thread::sleep(CHECKPOINT_RETRY_WAIT);
+        once(conn)
+    };
+    let result = match once(conn) {
+        Ok(false) => retry(),
+        Err(e) if is_busy(&e) => retry(),
+        first => first,
+    };
+    outcome(result)
+}
+
+/// The checkpoint at `Database::open` (F2, decision 224): one try of at most
+/// 1 s (decision 230), never retried, so it delays the start by at most
+/// about a second.
+pub(crate) fn checkpoint_at_open(conn: &Connection) -> Compaction {
+    match CheckpointTimeout::on(conn) {
+        Ok(_timeout) => outcome(truncate_once(conn)),
         Err(_) => Compaction::NotDone(CompactionCode::CheckpointFailed),
     }
 }
@@ -779,9 +952,40 @@ impl Database {
         secure: bool,
         remove: &dyn Fn(&Path) -> std::io::Result<()>,
     ) -> Result<Deletion, DeleteError> {
+        self.delete_in_batches(
+            category,
+            app_data_dir,
+            temp_dir,
+            now,
+            secure,
+            remove,
+            MANUSCRIPT_BATCH_BYTES,
+        )
+    }
+
+    /// [`Database::delete_with`] with category 1's batch limit given, so a
+    /// test can pass a small one (decision 230).
+    #[allow(clippy::too_many_arguments)]
+    fn delete_in_batches(
+        &self,
+        category: StoredCategory,
+        app_data_dir: &Path,
+        temp_dir: &Path,
+        now: i64,
+        secure: bool,
+        remove: &dyn Fn(&Path) -> std::io::Result<()>,
+        batch_bytes: u64,
+    ) -> Result<Deletion, DeleteError> {
+        let mut partial = false;
         let (before, deleted, removal_failed) = match category {
-            StoredCategory::ManuscriptAnalyses
-            | StoredCategory::GapFinderPapers
+            StoredCategory::ManuscriptAnalyses => {
+                let conn = self.conn()?;
+                let _secure = secure.then(|| SecureDelete::on(&conn)).transpose()?;
+                let (before, deleted, stopped) = delete_manuscripts_on(&conn, batch_bytes)?;
+                partial = stopped;
+                (before, deleted, false)
+            }
+            StoredCategory::GapFinderPapers
             | StoredCategory::ThesisAudits
             | StoredCategory::CachedReports => {
                 let conn = self.conn()?;
@@ -817,6 +1021,7 @@ impl Database {
             after,
             deleted,
             removal_failed,
+            partial,
         })
     }
 
@@ -833,6 +1038,7 @@ impl Database {
         let tx = rusqlite::Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
         let before = row_count(&tx, category, now)?;
         let deleted = match category {
+            // Category 1 runs in batches, by `delete_manuscripts_on`.
             StoredCategory::ManuscriptAnalyses => tx.execute("DELETE FROM manuscripts", [])?,
             StoredCategory::GapFinderPapers => {
                 let research_paper = crate::rag::SourceType::ResearchPaper.as_str();
@@ -2585,6 +2791,301 @@ mod tests {
         }
         drop(db2);
         drop(db);
+    }
+
+    /// A reader, on its own connection, holding a read transaction begun
+    /// now (after the delete), until the test commits it.
+    fn hold_a_read(db: &Database) -> r2d2::PooledConnection<r2d2_sqlite::SqliteConnectionManager> {
+        let reader = db.conn().unwrap();
+        reader.execute_batch("BEGIN").unwrap();
+        let _: i64 = reader
+            .query_row("SELECT COUNT(*) FROM cache", [], |r| r.get(0))
+            .unwrap();
+        reader
+    }
+
+    #[test]
+    fn the_checkpoint_waits_one_second_a_try_and_gives_the_connection_back_as_it_was() {
+        // Decision 230: the checkpoint's busy timeout is 1000 ms inside its
+        // guard, and the connection's earlier value afterwards, whether the
+        // checkpoint finished, was busy or failed.
+        let s = Scratch::new("checkpoint-timeout");
+        let db = s.open();
+        let conn = db.conn().unwrap();
+        conn.execute_batch("PRAGMA busy_timeout=4321").unwrap();
+        let read = |c: &Connection| -> i64 {
+            c.query_row("PRAGMA busy_timeout", [], |r| r.get(0))
+                .unwrap()
+        };
+        let busy = || {
+            rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_BUSY),
+                None,
+            )
+        };
+        let failed = || {
+            rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_IOERR),
+                None,
+            )
+        };
+        type Step = Box<dyn Fn() -> rusqlite::Result<bool>>;
+        let cases: Vec<(Step, Compaction)> = vec![
+            (Box::new(|| Ok(true)), Compaction::Done),
+            (
+                Box::new(|| Ok(false)),
+                Compaction::NotDone(CompactionCode::CheckpointBusy),
+            ),
+            (
+                Box::new(move || Err(busy())),
+                Compaction::NotDone(CompactionCode::CheckpointBusy),
+            ),
+            (
+                Box::new(move || Err(failed())),
+                Compaction::NotDone(CompactionCode::CheckpointFailed),
+            ),
+        ];
+        for (step, expected) in cases {
+            let seen = std::cell::RefCell::new(Vec::new());
+            let got = checkpoint_truncate_with(&conn, &|c| {
+                seen.borrow_mut().push(read(c));
+                step()
+            });
+            assert_eq!(got, expected);
+            assert!(!seen.borrow().is_empty());
+            assert!(
+                seen.borrow().iter().all(|ms| *ms == 1000),
+                "inside: {:?}",
+                seen.borrow()
+            );
+            assert_eq!(read(&conn), 4321, "afterwards, for {expected:?}");
+        }
+        drop(conn);
+        // After an open, whose checkpoint ran on one of its connections,
+        // every connection of the new pool reads the pool's 5000 ms: all
+        // eight held at once, so each is a different connection.
+        let db2 = s.open();
+        let all: Vec<_> = (0..8).map(|_| db2.conn().unwrap()).collect();
+        for c in &all {
+            assert_eq!(read(c), 5000);
+        }
+    }
+
+    #[test]
+    fn a_held_reader_leaves_the_checkpoint_not_done_within_four_seconds() {
+        // Decision 230: 1 s, a 200 ms wait, 1 s. At 5a0089c the pool's 5 s
+        // made it about 10 s.
+        let s = Scratch::new("checkpoint-reader-time");
+        let db = s.open();
+        plant(&s, &db);
+        delete(&s, &db, ExpiredCache);
+        let reader = hold_a_read(&db);
+        let t = std::time::Instant::now();
+        let got = db.stored_data_compact();
+        let took = t.elapsed();
+        assert_eq!(got, Compaction::NotDone(CompactionCode::CheckpointBusy));
+        assert!(took < std::time::Duration::from_secs(4), "took {took:?}");
+        assert_eq!(
+            s.summary(&db, NOW).get(ExpiredCache).items,
+            0,
+            "still deleted"
+        );
+        reader.execute_batch("COMMIT").unwrap();
+    }
+
+    #[test]
+    fn an_open_with_a_reader_held_returns_within_three_seconds() {
+        // Decision 230: the open's checkpoint waits 1 s at most. At 5a0089c
+        // the pool's 5 s made the open about 5 s.
+        let s = Scratch::new("open-reader-time");
+        let db = s.open();
+        plant(&s, &db);
+        delete(&s, &db, ExpiredCache);
+        let reader = hold_a_read(&db);
+        let t = std::time::Instant::now();
+        let db2 = Database::open(&s.app().join("gaply.db"));
+        let took = t.elapsed();
+        assert!(db2.is_ok());
+        assert!(took < std::time::Duration::from_secs(3), "took {took:?}");
+        reader.execute_batch("COMMIT").unwrap();
+        drop(db2);
+    }
+
+    /// `n` manuscripts, each with one extraction of about `bytes` bytes
+    /// holding its own sentinel, `SENTINEL_BATCH_<i>`. Returns their ids.
+    fn manuscripts(db: &Database, n: usize, bytes: usize) -> Vec<i64> {
+        (0..n)
+            .map(|i| {
+                let m = exec(
+                    db,
+                    "INSERT INTO manuscripts (title, authors, abstract, status, created_at, updated_at)
+                     VALUES (?1, 'a', 'b', 'extracted', 1, 1)",
+                    &[&format!("SENTINEL_BATCH_{i}_title")],
+                );
+                let body = format!("SENTINEL_BATCH_{i} {}", "x".repeat(bytes));
+                exec(
+                    db,
+                    "INSERT INTO extractions (manuscript_id, kind, content, created_at) VALUES (?1, 'full', ?2, 1)",
+                    &[&m, &body],
+                );
+                m
+            })
+            .collect()
+    }
+
+    const SMALL_BATCH: u64 = 64 * 1024;
+
+    fn delete_small(s: &Scratch, db: &Database) -> Result<Deletion, DeleteError> {
+        db.delete_in_batches(
+            ManuscriptAnalyses,
+            &s.app(),
+            &s.tmp(),
+            NOW,
+            true,
+            &|p| std::fs::remove_file(p),
+            SMALL_BATCH,
+        )
+    }
+
+    #[test]
+    fn the_shipped_batch_limit_is_64_mib_of_counted_bytes() {
+        assert_eq!(MANUSCRIPT_BATCH_BYTES, 64 * 1024 * 1024);
+        assert!(BATCH_WAIT >= std::time::Duration::from_millis(200));
+    }
+
+    #[test]
+    fn a_delete_of_more_than_one_batch_runs_in_more_than_one_transaction_and_deletes_everything() {
+        let s = Scratch::new("batches");
+        let db = s.open();
+        // 40 KiB each, so a 64 KiB batch holds one manuscript: five batches.
+        manuscripts(&db, 5, 40 * 1024);
+        let before = s.summary(&db, NOW).get(ManuscriptAnalyses);
+        // Another connection reads the count while the delete runs: a count
+        // between 5 and 0 is only there between two committed batches.
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let watcher = {
+            let (stop, path) = (stop.clone(), s.app().join("gaply.db"));
+            std::thread::spawn(move || {
+                let conn = Connection::open(path).unwrap();
+                let mut seen = std::collections::BTreeSet::new();
+                while !stop.load(Ordering::SeqCst) {
+                    if let Ok(n) = conn.query_row("SELECT COUNT(*) FROM manuscripts", [], |r| {
+                        r.get::<_, i64>(0)
+                    }) {
+                        seen.insert(n);
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+                seen
+            })
+        };
+        let t = std::time::Instant::now();
+        let d = delete_small(&s, &db).unwrap();
+        let took = t.elapsed();
+        stop.store(true, Ordering::SeqCst);
+        let seen = watcher.join().unwrap();
+        assert_eq!(
+            d.before, before,
+            "the count before, taken once at the start"
+        );
+        assert_eq!((d.deleted, d.after.items, d.partial), (5, 0, false));
+        assert!(
+            seen.iter().any(|n| (1..5).contains(n)),
+            "no count between two batches was seen: {seen:?}"
+        );
+        // Four waits between five batches.
+        assert!(took >= BATCH_WAIT * 4, "took {took:?}");
+    }
+
+    #[test]
+    fn a_batchs_bytes_are_the_categorys_counted_bytes() {
+        let s = Scratch::new("batch-bytes");
+        let db = s.open();
+        plant(&s, &db);
+        manuscripts(&db, 3, 1000);
+        let conn = db.conn().unwrap();
+        let sizes = manuscript_sizes(&conn).unwrap();
+        let total: u64 = sizes.iter().map(|(_, b)| b).sum();
+        assert_eq!(total, row_count(&conn, ManuscriptAnalyses, NOW).unwrap().1);
+        // At most the limit, at least one manuscript, every one once.
+        let batches = in_batches(&sizes, 2500);
+        assert!(batches.iter().all(|b| !b.is_empty()));
+        let flat: Vec<i64> = batches.concat();
+        assert_eq!(flat, sizes.iter().map(|(id, _)| *id).collect::<Vec<_>>());
+        let one = in_batches(&sizes, 1);
+        assert_eq!(
+            one.len(),
+            sizes.len(),
+            "a manuscript over the limit is a batch of its own"
+        );
+    }
+
+    #[test]
+    fn a_failure_in_a_later_batch_keeps_the_earlier_batches_deleted() {
+        let s = Scratch::new("batch-partial");
+        let db = s.open();
+        let ids = manuscripts(&db, 5, 40 * 1024);
+        exec(
+            &db,
+            &format!(
+                "CREATE TRIGGER planted_failure BEFORE DELETE ON manuscripts WHEN old.id = {}
+                 BEGIN SELECT RAISE(ABORT, 'planted'); END",
+                ids[2]
+            ),
+            &[],
+        );
+        let d = delete_small(&s, &db).unwrap();
+        assert_eq!(
+            (d.before.items, d.deleted, d.after.items, d.partial),
+            (5, 2, 3, true)
+        );
+        // The first batch failing: nothing deleted, and an error, as before.
+        let s2 = Scratch::new("batch-first");
+        let db2 = s2.open();
+        let ids2 = manuscripts(&db2, 3, 40 * 1024);
+        exec(
+            &db2,
+            &format!(
+                "CREATE TRIGGER planted_failure BEFORE DELETE ON manuscripts WHEN old.id = {}
+                 BEGIN SELECT RAISE(ABORT, 'planted'); END",
+                ids2[0]
+            ),
+            &[],
+        );
+        assert!(matches!(
+            delete_small(&s2, &db2),
+            Err(DeleteError::Failed(_))
+        ));
+        assert_eq!(s2.summary(&db2, NOW).get(ManuscriptAnalyses).items, 3);
+    }
+
+    #[test]
+    fn after_a_finished_checkpoint_no_deleted_manuscripts_sentinel_is_left() {
+        let s = Scratch::new("batch-sentinels");
+        let db = s.open();
+        manuscripts(&db, 5, 40 * 1024);
+        let names: Vec<String> = (0..5)
+            .flat_map(|i| {
+                [
+                    format!("SENTINEL_BATCH_{i} "),
+                    format!("SENTINEL_BATCH_{i}_title"),
+                ]
+            })
+            .collect();
+        assert_eq!(db.stored_data_compact(), Compaction::Done);
+        for n in &names {
+            assert_eq!(in_files(&s, n.as_bytes()), (true, false), "control: {n}");
+        }
+        let d = delete_small(&s, &db).unwrap();
+        assert_eq!((d.deleted, d.partial), (5, false));
+        assert_eq!(db.stored_data_compact(), Compaction::Done);
+        for n in &names {
+            assert_eq!(
+                in_files(&s, n.as_bytes()),
+                (false, false),
+                "{n} is still in a file"
+            );
+        }
     }
 
     #[test]

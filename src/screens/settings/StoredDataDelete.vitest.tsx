@@ -84,7 +84,7 @@ function bridgeOf(...answers: unknown[]): StoredDataBridge & { calls: number } {
   return b;
 }
 
-type Deleted = { deleted: number; outcome: 'done' | 'not_done'; code?: string };
+type Deleted = { deleted: number; outcome: 'done' | 'not_done'; code?: string; checkpoint?: string };
 
 /** A deleter recording each call, answering the delete as told. */
 function deleterOf(answer: (category: StoredCategoryId) => Promise<unknown>) {
@@ -378,6 +378,33 @@ describe('after a delete', () => {
       await waitFor(() => expect(screen.getByTestId('stored-data-message').textContent).toBe(`Deleted: 3 ${words.many}.`));
     }
   );
+
+  it.each([
+    ['done', `Deleted: 2 analyses. ${DELETION_TEXT.partlyRemoved}`],
+    ['stored_data.checkpoint_busy', `Deleted: 2 analyses. ${DELETION_TEXT.partlyRemoved} ${DELETION_TEXT.notCompacted}`],
+    ['stored_data.checkpoint_failed', `Deleted: 2 analyses. ${DELETION_TEXT.partlyRemoved} ${DELETION_TEXT.notCompacted}`],
+  ])('a partly deleted manuscripts delete, its checkpoint %s: the count, the partial sentence, and the not-done one only when the checkpoint did not finish (decision 230)', async (checkpoint, line) => {
+    const { d } = deleterOf(done({ deleted: 2, outcome: 'not_done', code: 'stored_data.delete_partial', checkpoint }));
+    render(<StoredDataSection bridge={bridgeOf(summary())} deleter={d} desktop />);
+    const dialog = await openDialog('manuscript_analyses');
+    fireEvent.click(within(dialog).getByTestId('stored-delete-confirm'));
+    await waitFor(() => expect(screen.getByTestId('stored-data-message').textContent).toBe(line));
+  });
+
+  it('a partial answer without its checkpoint, or a checkpoint on another code, reads as a failure', async () => {
+    for (const answer of [
+      { deleted: 2, outcome: 'not_done', code: 'stored_data.delete_partial' },
+      { deleted: 2, outcome: 'not_done', code: 'stored_data.delete_partial', checkpoint: 'maybe' },
+      { deleted: 2, outcome: 'not_done', code: 'stored_data.checkpoint_busy', checkpoint: 'done' },
+    ] as Deleted[]) {
+      const { d } = deleterOf(done(answer));
+      render(<StoredDataSection bridge={bridgeOf(summary())} deleter={d} desktop />);
+      const dialog = await openDialog('manuscript_analyses');
+      fireEvent.click(within(dialog).getByTestId('stored-delete-confirm'));
+      expect((await within(dialog).findByTestId('stored-delete-refusal')).textContent).toBe(DELETION_TEXT.failed);
+      cleanup();
+    }
+  });
 
   it('an answer of another shape reads as a failure', async () => {
     const b = bridgeOf(summary());

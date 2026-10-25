@@ -20,6 +20,11 @@
 //!    back what was sent, to check an explanation's numbers).
 //! 4. Imports only from `std`, `serde` and `serde_json`.
 //! 5. No function tools: the string `"function"` does not occur.
+//! 6. Its crate imports (decision 233, N5): every `use`, `pub use` and
+//!    `pub(crate) use` whose path starts `crate::` names, exactly and not by
+//!    prefix, a module on `ALLOWED_CRATE_MODULES`, pinned to the modules it
+//!    imports today; from `crate::extract` itself only `ExtractionResult` and
+//!    `SectionKind`. A new crate module here needs its own decision.
 //!
 //! What it cannot see: a decision made through a helper in another module (a
 //! `crate::` import is not followed), or a type renamed to dodge the list.
@@ -92,6 +97,27 @@ const READ_ONLY_IN_MATCH_ARMS: &[&str] = &["L1Verdict::", "ClaimReproduction {"]
 /// `unicode_normalization` is pure Unicode tables (NFKC folding for the DOI
 /// scan and the explanation check): no I/O, no network, no clock, no entropy.
 const ALLOWED_EXTERNAL_IMPORTS: &[&str] = &["std", "serde", "serde_json", "unicode_normalization"];
+
+/// Decision 233: the `crate::` modules stats_assist's production code may
+/// import from, each named exactly (a module under one of these is not on
+/// the list). Pinned to what it imported at 5a0089c.
+const ALLOWED_CRATE_MODULES: &[&str] = &[
+    "crate::extract",
+    "crate::extract::sentence",
+    "crate::stats_l0::input",
+    "crate::stats_l0::negation",
+    "crate::stats_l0::number",
+    "crate::stats_l0::result",
+    "crate::stats_l1::catalogue",
+    "crate::stats_l1::claim",
+    "crate::stats_l1::codes",
+    "crate::stats_l1::dataset",
+    "crate::stats_l1::reproduce",
+    "crate::equation::rational",
+];
+
+/// The only names stats_assist may import from `crate::extract` itself.
+const ALLOWED_FROM_EXTRACT: &[&str] = &["ExtractionResult", "SectionKind"];
 
 /// The outbound structs and their row types, and the request body types.
 const SERIALIZABLE: &[&str] = &[
@@ -259,6 +285,161 @@ fn stats_assist_imports_only_std_serde_and_serde_json() {
         }
     }
     assert!(imports > 0, "no `use` line found — the import scan is inert");
+}
+
+/// Every `use`, `pub use` and `pub(crate) use` statement in `code` (each
+/// joined across its lines up to its `;`), with the line it starts on and
+/// its path, the visibility dropped.
+fn use_statements(code: &str) -> Vec<(usize, String)> {
+    let mut out = Vec::new();
+    let lines: Vec<&str> = code.lines().collect();
+    let mut i = 0;
+    while i < lines.len() {
+        let t = lines[i].trim();
+        let rest = ["use ", "pub use ", "pub(crate) use "]
+            .iter()
+            .find_map(|p| t.strip_prefix(p));
+        if let Some(rest) = rest {
+            let start = i;
+            let mut stmt = rest.to_string();
+            while !stmt.contains(';') && i + 1 < lines.len() {
+                i += 1;
+                stmt.push(' ');
+                stmt.push_str(lines[i].trim());
+            }
+            let path = stmt
+                .split(';')
+                .next()
+                .unwrap_or("")
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ");
+            out.push((start + 1, path));
+        }
+        i += 1;
+    }
+    out
+}
+
+/// What a `crate::` path imports: its module and the names it takes from
+/// it (`*` for a glob), or why it cannot be read.
+fn crate_import(path: &str) -> Result<(String, Vec<String>), String> {
+    // A name's alias (`X as Y`) is dropped: the first word is the name.
+    let first_word = |n: &str| n.split_whitespace().next().unwrap_or("").to_string();
+    if let Some((module, group)) = path.split_once("::{") {
+        let group = group.trim().strip_suffix('}').ok_or("an unclosed group")?;
+        if group.contains(['{', ':']) {
+            return Err("a nested group: import each module on its own line".into());
+        }
+        let names = group
+            .split(',')
+            .map(first_word)
+            .filter(|n| !n.is_empty())
+            .collect();
+        return Ok((module.trim().to_string(), names));
+    }
+    let path = first_word(path);
+    if let Some(module) = path.strip_suffix("::*") {
+        return Ok((module.to_string(), vec!["*".into()]));
+    }
+    match path.rsplit_once("::") {
+        Some((module, name)) => Ok((module.to_string(), vec![name.to_string()])),
+        None => Err("no module".into()),
+    }
+}
+
+/// The decision-233 violations of one file's production code.
+fn crate_import_violations(file: &str, code: &str) -> (usize, Vec<String>) {
+    let mut seen = 0;
+    let mut out = Vec::new();
+    for (line, path) in use_statements(code) {
+        if !path.starts_with("crate::") {
+            continue;
+        }
+        seen += 1;
+        match crate_import(&path) {
+            Err(why) => out.push(format!("{file}:{line}: `{path}`: {why}")),
+            Ok((module, names)) => {
+                if !ALLOWED_CRATE_MODULES.contains(&module.as_str()) {
+                    out.push(format!("{file}:{line}: `{module}` is not on stats_assist's crate-module allowlist (decision 233)"));
+                } else if module == "crate::extract" {
+                    for n in names
+                        .iter()
+                        .filter(|n| !ALLOWED_FROM_EXTRACT.contains(&n.as_str()))
+                    {
+                        out.push(format!("{file}:{line}: `crate::extract::{n}`: only ExtractionResult and SectionKind (decision 233)"));
+                    }
+                }
+            }
+        }
+    }
+    (seen, out)
+}
+
+#[test]
+fn stats_assist_imports_only_its_allowed_crate_modules() {
+    let mut seen = 0;
+    let mut bad = Vec::new();
+    let mut modules = std::collections::BTreeSet::new();
+    for f in rust_files(Path::new(SCANNED_DIR)) {
+        let src = std::fs::read_to_string(&f).expect("read");
+        let code = production_code(&src);
+        let (n, v) = crate_import_violations(&f.display().to_string(), &code);
+        seen += n;
+        bad.extend(v);
+        for (_, path) in use_statements(&code)
+            .into_iter()
+            .filter(|(_, p)| p.starts_with("crate::"))
+        {
+            if let Ok((m, _)) = crate_import(&path) {
+                modules.insert(m);
+            }
+        }
+    }
+    assert!(
+        seen > 0,
+        "no `crate::` import found — the crate-import scan is inert"
+    );
+    assert!(bad.is_empty(), "{}", bad.join("\n"));
+    // The list is today's, not a ceiling: a module no longer imported is
+    // taken off it, so the list keeps saying what stats_assist reaches.
+    let listed: std::collections::BTreeSet<String> = ALLOWED_CRATE_MODULES
+        .iter()
+        .map(|m| m.to_string())
+        .collect();
+    assert_eq!(
+        modules, listed,
+        "the allowlist is the modules imported today"
+    );
+}
+
+/// Decision 233's matcher on what it is for.
+#[test]
+fn the_crate_import_rule_catches_what_it_is_for() {
+    let ok = "use crate::stats_l1::claim::L1Claim;\npub use crate::stats_l1::codes::*;\nuse crate::extract::{ExtractionResult, SectionKind};";
+    assert_eq!(crate_import_violations("x.rs", ok), (3, vec![]));
+    // A module whose name holds "as" is still that module.
+    let aliased = "use crate::stats_l1::dataset::{ColumnAlias as Alias, Cell};\nuse crate::stats_l1::dataset::sha256_hex as hex;";
+    assert_eq!(crate_import_violations("x.rs", aliased), (2, vec![]));
+    for bad in [
+        "use crate::research_project::Thing;",
+        "pub use crate::stats_l1::compute::*;",
+        "pub(crate) use crate::stats_l1::run_state::RunState;",
+        "use crate::stats_l1::catalogue::inner::X;",
+        "use crate::stats_l1;",
+        "use crate::extract::Citation;",
+        "use crate::extract::{ExtractionResult, Section};",
+        "use crate::{stats_l1::claim::L1Claim, db::Database};",
+        "use crate::stats_l1::compute::{\n    L1Refusal,\n};",
+        "use crate::stats_l1::compute::Fit as Dataset;",
+    ] {
+        let (n, v) = crate_import_violations("x.rs", bad);
+        assert_eq!((n, v.len()), (1, 1), "{bad}: {v:?}");
+    }
+    assert_eq!(
+        crate_import_violations("x.rs", "use super::x;\nuse std::fmt;"),
+        (0, vec![])
+    );
 }
 
 /// The scan trips on what it is for, and not on a comment.

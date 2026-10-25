@@ -355,18 +355,39 @@ pub struct DeletedView {
     pub outcome: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code: Option<&'static str>,
+    /// A partial delete only (decision 230): its checkpoint's outcome,
+    /// `done` or the checkpoint's closed code.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub checkpoint: Option<&'static str>,
 }
 
 /// A file category whose delete stopped at a failed removal.
 pub const REMOVE_FAILED: &str = "stored_data.remove_failed";
 
+/// Category 1's delete, stopped after a batch after the first failed: the
+/// earlier batches stay deleted (decision 230).
+pub const DELETE_PARTIAL: &str = "stored_data.delete_partial";
+
 /// A delete's view: for categories 1 to 5 its compaction decides the
-/// outcome, and for 6 to 9 whether every removal succeeded.
+/// outcome, and for 6 to 9 whether every removal succeeded. A partial
+/// delete is not done whatever its checkpoint did, and carries that in
+/// `checkpoint` (decision 230).
 fn view(d: Deletion, compaction: Option<Compaction>) -> DeletedView {
-    let code = match compaction {
+    let checkpoint_code = match compaction {
         Some(Compaction::NotDone(code)) => Some(code.wire()),
-        Some(Compaction::Done) => None,
-        None => d.removal_failed.then_some(REMOVE_FAILED),
+        _ => None,
+    };
+    let (code, checkpoint) = if d.partial {
+        (
+            Some(DELETE_PARTIAL),
+            Some(checkpoint_code.unwrap_or("done")),
+        )
+    } else {
+        let code = match compaction {
+            Some(_) => checkpoint_code,
+            None => d.removal_failed.then_some(REMOVE_FAILED),
+        };
+        (code, None)
     };
     DeletedView {
         category: d.category,
@@ -375,6 +396,7 @@ fn view(d: Deletion, compaction: Option<Compaction>) -> DeletedView {
         deleted: d.deleted,
         outcome: if code.is_none() { "done" } else { "not_done" },
         code,
+        checkpoint,
     }
 }
 
@@ -451,6 +473,7 @@ pub fn delete(
         deleted = view.deleted,
         outcome = view.outcome,
         code = view.code.unwrap_or(""),
+        checkpoint = view.checkpoint.unwrap_or(""),
         "stored data: deleted"
     );
     Ok(view)
@@ -1201,6 +1224,57 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn a_partial_manuscripts_delete_answers_delete_partial_with_its_checkpoint() {
+        // Decision 230: a batch after the first failed. The view says how
+        // many were deleted, the new code, and the checkpoint's outcome in
+        // its own field.
+        use gaply_core::stored_data::{CategoryCount, CompactionCode, Deletion};
+        let count = |items| CategoryCount {
+            category: StoredCategory::ManuscriptAnalyses,
+            items,
+            bytes: items * 10,
+        };
+        let d = Deletion {
+            category: StoredCategory::ManuscriptAnalyses,
+            before: count(5),
+            after: count(3),
+            deleted: 2,
+            removal_failed: false,
+            partial: true,
+        };
+        for (compaction, checkpoint) in [
+            (Compaction::Done, "done"),
+            (
+                Compaction::NotDone(CompactionCode::CheckpointBusy),
+                "stored_data.checkpoint_busy",
+            ),
+            (
+                Compaction::NotDone(CompactionCode::CheckpointFailed),
+                "stored_data.checkpoint_failed",
+            ),
+        ] {
+            let v = serde_json::to_value(view(d, Some(compaction))).unwrap();
+            assert_eq!(v["outcome"], "not_done");
+            assert_eq!(v["code"], DELETE_PARTIAL_WIRE);
+            assert_eq!(v["checkpoint"], checkpoint);
+            assert_eq!(v["deleted"], 2);
+        }
+        // Not partial: no checkpoint field, the outcome as before.
+        let whole = Deletion {
+            partial: false,
+            deleted: 5,
+            after: count(0),
+            ..d
+        };
+        let v = serde_json::to_value(view(whole, Some(Compaction::Done))).unwrap();
+        assert_eq!(v["outcome"], "done");
+        assert!(v.get("checkpoint").is_none() && v.get("code").is_none());
+    }
+
+    /// The code as the webview reads it, spelled out here.
+    const DELETE_PARTIAL_WIRE: &str = "stored_data.delete_partial";
 
     #[cfg(unix)]
     #[test]

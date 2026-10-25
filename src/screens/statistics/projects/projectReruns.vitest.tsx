@@ -525,3 +525,94 @@ describe("the design system's secondary button", () => {
     expect(del.classList.contains('gds-btn--ghost')).toBe(false);
   });
 });
+
+/* ---- The focus across a rerun (decision 232) ------------------------------ */
+
+describe('the focus across a rerun (decision 232)', () => {
+  // project_current answers going from the start, as each test sets it: the
+  // mock's default (null) would fail the 5 ms poll before Cancel is checked.
+  async function started(w: World, row = 1) {
+    const p = page(w);
+    await screen.findByTestId('project-runs-list');
+    w.current = currentWith(rerunView(7, row, 'going'));
+    fireEvent.click(screen.getByTestId(`project-run-rerun-${row}`));
+    fireEvent.click(screen.getByTestId('project-rerun-confirm'));
+    await screen.findByTestId('project-rerun-running');
+    return p;
+  }
+  const focused = () => document.activeElement;
+
+  it('moves to Cancel once a rerun starts', async () => {
+    await started(world());
+    await waitFor(() => expect(focused()).toBe(screen.getByTestId('project-rerun-cancel')));
+  });
+
+  it("at the end, with the focus on Cancel, moves to the repeated row's Run again", async () => {
+    const w = world();
+    await started(w);
+    await waitFor(() => expect(focused()).toBe(screen.getByTestId('project-rerun-cancel')));
+    w.runs = [...RUNS, stored_(4, SUMMARY, 'succeeded', 1792396400, { rerunOf: 1, comparison: 'identical', engineVersionDiffers: false })];
+    w.current = currentWith(rerunView(7, 1, 'saved', { storedRunId: 4 }));
+    await screen.findByTestId('project-rerun-outcome');
+    await waitFor(() => expect(focused()).toBe(screen.getByTestId('project-run-rerun-1')));
+  });
+
+  it('at the end, with the focus on nothing and a not-saved end, moves to that Run again too', async () => {
+    const w = world();
+    await started(w, 3);
+    (focused() as HTMLElement | null)?.blur();
+    expect(focused()).toBe(document.body);
+    w.current = currentWith(rerunView(7, 3, 'not_saved', { code: 'project.run_cancelled' }));
+    await screen.findByTestId('project-rerun-outcome');
+    await waitFor(() => expect(focused()).toBe(screen.getByTestId('project-run-rerun-3')));
+  });
+
+  it('when that row is not in the list, moves to the Saved results heading', async () => {
+    const w = world();
+    await started(w);
+    await waitFor(() => expect(focused()).toBe(screen.getByTestId('project-rerun-cancel')));
+    // The runs read at the end no longer hold run 1.
+    w.runs = [RUNS[2], stored_(4, SUMMARY, 'succeeded', 1792396400, { rerunOf: 1, comparison: 'identical', engineVersionDiffers: false })];
+    w.current = currentWith(rerunView(7, 1, 'saved', { storedRunId: 4 }));
+    await screen.findByTestId('project-run-4');
+    const heading = screen.getByTestId('project-runs-heading');
+    await waitFor(() => expect(focused()).toBe(heading));
+    expect(heading.getAttribute('tabindex')).toBe('-1');
+    expect(heading.textContent).toBe(PROJECT_TEXT.savedResults);
+  });
+
+  it('with a saved result open, it stays where it is', async () => {
+    const w = world();
+    await started(w);
+    fireEvent.click(screen.getByTestId('project-run-open-3'));
+    await screen.findByTestId('saved-result-back');
+    const back = screen.getByTestId('saved-result-back');
+    back.focus();
+    w.current = currentWith(rerunView(7, 1, 'not_saved', { code: 'project.run_cancelled' }));
+    await screen.findByTestId('project-rerun-outcome');
+    await wait(30);
+    expect(focused()).toBe(back);
+  });
+
+  it('with the focus moved elsewhere, it stays there', async () => {
+    const w = world();
+    await started(w);
+    const report = screen.getByTestId('project-export-report');
+    report.focus();
+    w.current = currentWith(rerunView(7, 1, 'not_saved', { code: 'project.run_cancelled' }));
+    await screen.findByTestId('project-rerun-outcome');
+    await wait(30);
+    expect(focused()).toBe(report);
+  });
+
+  it('after a failed poll, moves to Try again', async () => {
+    const w = world();
+    await started(w);
+    await waitFor(() => expect(focused()).toBe(screen.getByTestId('project-rerun-cancel')));
+    w.current = () => {
+      throw refusal({ code: 'project.unavailable' });
+    };
+    const retry = await screen.findByTestId('project-rerun-retry');
+    await waitFor(() => expect(focused()).toBe(retry));
+  });
+});

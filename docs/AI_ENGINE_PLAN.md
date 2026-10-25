@@ -25778,3 +25778,135 @@ checkpoint; and §11's delete, now a `can_empty` check before the rename);
 decision 115's `use crate::…` rule; decision 178's sentences; decision 202's
 focus; and the real-app check that also runs 5B-4b's deferred parts and this
 step's screen changes.
+
+### D292 — Research OS, Phase 5E-fix-2: F2 measured across the delete and with a reader held, a 1 s checkpoint and category 1 in batches; decision 178's sentences; decision 202's focus; decision 115's crate-import rule; ADR-009 and ADR-004 marked as decision 234 accepts `[src]` `[test]` `[measured]`
+
+**Added** on `feat/research-os-5` after `5a0089c` (D291). Decisions 230 to 236
+of 25 Oct 2026 apply (`~/gaply-corpus/os/decisions.md`); decision 236 counts
+the LaTeX compile job of 5a0089c (run 40186687245, six hours in `npm ci`) as
+an infrastructure failure. The session did not commit. The report is
+`~/gaply-corpus/os/eval5/fix2_report.md`; the real-app check (decision 235) is
+`~/gaply-corpus/os/eval5/realapp_5efix.md`, still to run.
+
+**F2, measured (decisions 228 and 230).** The probe (a copy of
+`eval5_stored.rs` in `src-tauri/examples/`, removed after) built the 590 MB
+`gaply.db` (550 manuscripts, 576,750,130 counted bytes) and ran a writer, one
+`cache` insert every 10 ms on its own connection with the pool's 5 s timeout,
+under a key outside categories 4 and 5, from 1 s before each delete to 1 s
+after its checkpoint. Debug build, macOS aarch64, one run each unless named.
+
+| case | at 5a0089c | after the 1 s timeout | with the batches |
+|---|---|---|---|
+| category 1 delete | 2.96 s (3.55 s in a first run; D291: 4.8 s) | — | 4.22 s, 9 batches |
+| writer's longest wait, category 1 | 2,314 ms (2,852 ms in the first run) | — | 519 ms |
+| categories 2 to 5 | 1 ms to 143 ms; writer ≤ 154 ms | — | 3 ms to 229 ms; writer ≤ 234 ms |
+| failed writes, categories 1 to 5 | 0 | — | 0 |
+| checkpoints after categories 1 to 5 | Done, 0.3 ms to 58 ms | — | Done, 0.4 ms to 2.7 ms |
+| reader held 3 s across the checkpoint | Done in 3.09 s; writer 3,198 ms, 0 failed | not done in 2.46 s; writer 1,169 ms, 0 failed | — |
+| reader held 8 s | Done in 8.04 s; writer 5,261 ms, **1 failed** (`DatabaseBusy`) | not done in 2.45 s; writer 1,157 ms, 0 failed | — |
+| `Database::open` with a 3 s / 8 s reader | 3.11 s / 5.27 s | 1.15 s / 1.13 s | — |
+
+Category 1's writer waited over 2 s, so decision 230's condition for batches
+held; categories 2 to 5 did not reach it, nor did category 1 in batches, so the
+step's stop rule did not fire. The 5E evaluation's 13.6 s VACUUM and 5.6 s stall
+(its §6) were gone at D291; D291's writer ran across the checkpoint only (245
+ms). A first run of the open case read 6 ms because the probe dropped the first
+Database, whose close checkpointed the WAL before the reader began; the
+numbers above keep it open, as the app does.
+
+**The checkpoint (decision 230).** `stored_data.rs`: `CheckpointTimeout` (the
+shape of `SecureDelete`) sets a connection's busy timeout to
+`CHECKPOINT_BUSY_TIMEOUT_MS` (1000) and restores the earlier value on drop;
+`checkpoint_truncate` → `checkpoint_truncate_with(conn, once)` runs under it
+and waits `CHECKPOINT_RETRY_WAIT` (200 ms) before its one retry;
+`truncate_once` and `outcome` split out; `checkpoint_at_open` (one try, no
+retry) is what `db.rs`'s `open` now calls, the only `db.rs` change. Tests:
+`the_checkpoint_waits_one_second_a_try_and_gives_the_connection_back_as_it_was`
+(1000 inside the guard and 4321 after, for done, busy as a value, busy as an
+error, and failed; after an open, all eight pooled connections read 5000),
+`a_held_reader_leaves_the_checkpoint_not_done_within_four_seconds` (11.0 s
+red), `an_open_with_a_reader_held_returns_within_three_seconds` (5.5 s red).
+
+**Category 1 in batches (decision 230).** `delete_with` →
+`delete_in_batches(…, batch_bytes)` with `MANUSCRIPT_BATCH_BYTES` (64 MiB);
+`delete_manuscripts_on` takes the count before and the plan once in the first
+batch's `IMMEDIATE` transaction, then one transaction per batch with
+`BATCH_WAIT` (200 ms) between, no transaction open; a later batch's failure
+stops it with `Deletion::partial`. `manuscript_sizes` (one row's bytes through
+the new `row_bytes`, which `count_sql` now uses too), `in_batches`,
+`delete_manuscripts`. `stored_data_commands.rs`: `DELETE_PARTIAL`
+(`stored_data.delete_partial`), `DeletedView::checkpoint` (`done` or the
+checkpoint's code, a partial delete only), `view`, and the log line's
+`checkpoint` field. Frontend: `readDeleted` keeps `checkpoint` and refuses it
+on any other code; `deletedLine` chooses by code. Tests:
+`a_delete_of_more_than_one_batch_runs_in_more_than_one_transaction_and_deletes_everything`
+(a second connection sees a count between 5 and 0; four waits),
+`a_failure_in_a_later_batch_keeps_the_earlier_batches_deleted` (5, 2, 3 and
+partial; a first-batch failure deletes nothing and errs),
+`a_batchs_bytes_are_the_categorys_counted_bytes`,
+`the_shipped_batch_limit_is_64_mib_of_counted_bytes`,
+`after_a_finished_checkpoint_no_deleted_manuscripts_sentinel_is_left` (green on
+the one-transaction stub too, as predicted),
+`a_partial_manuscripts_delete_answers_delete_partial_with_its_checkpoint`, and
+`StoredDataDelete.vitest.tsx`'s four partial cases.
+
+**Decision 178's sentences (decision 231).** `NoteCreatorPage.tsx`:
+`NOTES_LOAD_FAILED`, `NOTE_SAVE_FAILED` (`reload`, `save`, `quickCapture`; a
+load that succeeds clears only the load sentence). `CitationManagerPage.tsx`:
+`RESOLVE_PAPER_FAILED`, `CHECK_DOI_FAILED`, `IMPORT_FAILED`,
+`IMPORT_TOO_LARGE`, `IMPORT_UNSUPPORTED_TYPE` (also `runImport`'s own type
+check), `OPEN_ACCESS_FAILED` (both fetches), `RETRACTIONS_FAILED`,
+`CITATION_LOG`'s six closed codes, `importCode`. `commands.rs`'s
+`read_import_file` answers `{"code":"import.unsupported_type"}` and
+`{"code":"import.too_large"}`. Tests: `noteErrors.vitest.tsx` (13),
+`citationErrors.vitest.tsx` (29), `src-tauri/tests/import_file_codes.rs` (3).
+A manuscript's save goes through `create`, not `update` (`save`'s `isEdit`
+counts paper and project edits only); unchanged, and its test fails both.
+
+**Decision 202's focus (decision 232).** `ProjectPage.tsx`: `focusNext`,
+`pageBox`, `FocusNext`, `focusOnCancelOrNothing`, the poll effect's `followed`
+and `failed`, a focus effect, `rerunStarted`, and the Saved results heading's
+`tabIndex={-1}` and test id. Try again takes the focus only from Cancel or
+nothing, and not with a saved result open (the step's report asks Rishi to
+confirm this reading). Tests: `projectReruns.vitest.tsx`'s "the focus across a
+rerun (decision 232)" (7).
+
+**Decision 115's rule (decision 233).**
+`stats_assist_is_offline_and_inert.rs`: `ALLOWED_CRATE_MODULES` (12, pinned to
+today's and asserted equal to what is imported), `ALLOWED_FROM_EXTRACT`,
+`use_statements` (`use`, `pub use`, `pub(crate) use`, joined to their `;`),
+`crate_import`, `crate_import_violations`, and the tests
+`stats_assist_imports_only_its_allowed_crate_modules` and
+`the_crate_import_rule_catches_what_it_is_for`. The older external-import
+scan still reads only lines starting `use `.
+
+**The ADRs (decision 234).** ADR-009: Status; §1 Accepted on macOS, Not yet
+on Windows and Linux; §2, §3 (version 2, `rerun_of`, the migration), §5 but
+its Windows sentence, §6 (decision 186, N1), §7 (`wasInformedBy`, the derived
+`wasDerivedFrom`, N10), §9 (the skipped `-wal`/`-shm`, the checkpoints, 5.2
+s), §10 for Unix, §11 as D291 built it but its Windows clause, §15, §16
+Accepted; §13's decision 110 Not yet (N6, N12) and its Stored data part
+Proposed with this entry's numbers; §17 Proposed (decision 158's items 4, 5,
+7, 8, 9); the "said more" list marked; a Revisions entry. ADR-004: Status;
+004b's four rows and the manifest-schema sentence, the rerun row (one write at
+the end) and the §8.5 consequence Accepted; a History entry. Not covered:
+"What a manifest holds" and the report and provenance row.
+
+**The suites.** `cargo test --workspace --no-fail-fast` (both `lib.rs` touched, `CARGO_TERM_COLOR=never`): exit 0, **2,971 passed, 119 targets**, 12 ignored, 0 failed (D291: 2,957, 118; +14 tests and the new `import_file_codes` target, as predicted). `cargo test -p app --features devtools --no-fail-fast`: exit 0, **844 passed, 50 targets** (D291: 840, 49). `cargo test -p gaply_core`: 2,144 passed, 75 `Running` targets and 1 doc-test target (D291: 2,134, 76; +8 stored_data tests and +2 guard tests). Vitest, the whole suite on its own: **124 files, 1,671 tests** (base 122, 1,618). `npx tsc --noEmit`, CI's eslint, and `npm run build` (`build/index.html` present, `public/sitemap.xml` written back from HEAD and equal by `cmp`): exit 0.
+
+**Mutations**, each with its SHA-256 equal after the restore and green after:
+the 1 s timeout removed, the batch limit removed, the wait between batches
+removed, `:499` showing the message, `:233` logging the error, the focus left
+on Run again, a `use crate::research_project` line in `session.rs`, a `pub
+use` of `stats_l1::compute` in `codes.rs`, and the scan's matcher broken; each
+red on its named test having started and failed.
+
+**Left after Phase 5.** The evaluation's Notes not taken: N2 to N4, N7 to N9,
+N11 to N13. N3 is no longer brief: `extract_manuscript` and
+`validate_manuscript` block on the running-work hold for the whole of a
+category 1 delete (4.22 s on 590 MB). The elapsed time of decision 202; the
+seam commands (decision 221); the Windows sentences of ADR-009 §1, §5, §10 and
+§11; 5C-2 and 5D-2. Raw messages on screen outside decision 178's list:
+`CitationManagerPage.tsx`'s "Not synced: …" (shown only when signed in), and
+`ManuscriptEditor.tsx`'s export failures (`:195`, `:217`, `:228`, `:239`,
+`:257`). Two pre-existing flakes, each green on rerun: `stats_l1_ingest::tests::every_byte_level_refusal_of_the_path_ingest_is_the_bytes_entrys_too` failed once in the first workspace run (`ArchiveTooLarge` vs `NotReadable` for `big.mat`): another test in the same binary writes and removes a `big.mat` in the same per-process folder (`stats_l1_ingest.rs:882` and `:1266`), so the two race; the app lib then passed three times alone and the workspace run passed. `aiScreens.vitest.tsx`'s "keeps showing progress across BOTH installers, not just the first 85ms" failed once under the full suite and passed three times alone and in the next full run.
