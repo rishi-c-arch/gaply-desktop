@@ -71,7 +71,7 @@
 //! and never a path. A refusal is a closed code with numeric parameters.
 //! Logs carry a project by its id only.
 
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
@@ -89,8 +89,8 @@ use gaply_core::contracts::{
     ValidationStatus, WorkspaceId,
 };
 use gaply_core::research_project::{
-    compare_rerun, hex_lower, ArtifactHash, ArtifactKind, ArtifactRef, Caps, ColumnRole,
-    DataFormat, ExportCode, ExportCount, ExportManifest, ExportParameter, ExportRun, ProjectCode,
+    compare_rerun, ArtifactHash, ArtifactKind, ArtifactRef, Caps, ColumnRole, DataFormat,
+    ExportCode, ExportCount, ExportManifest, ExportParameter, ExportRun, ProjectCode,
     ProjectExportInput, ProjectId, ProjectRefusal, ProjectTitle, ProvEdge, RerunComparison,
     StoredRun, StoredRunId, TestVariant, UsedRole, PROV_FILE_NAME, REPORT_FILE_NAME,
 };
@@ -101,6 +101,9 @@ use gaply_core::stats_registry;
 use gaply_core::stats_ttest::{self, TTestCode, TTestParams, Variant};
 use gaply_core::GaplyError;
 
+#[cfg(test)]
+use crate::confirmation::same_bytes;
+use crate::confirmation::{Confirmations, Monotonic, NoRandomness, Refused};
 use crate::project_store::{
     projects_root, ArtifactInput, ProjectHandle, ProjectRoot, RunToSave, SaveRequest,
 };
@@ -108,12 +111,12 @@ use crate::runs::{Clock, EndHook, NotStarted, RunCopy, RunInput, RunKind, Runs, 
 use crate::stats_l1_ingest::load_dataset_from_bytes;
 use crate::workspace::{refuse as refuse_workspace, refuse_inactive, WorkspaceSession};
 
-/// How long a delete confirmation stays good (decision 124).
-pub const CONFIRMATION_LIFETIME_MS: u64 = 5 * 60 * 1000;
-
-/// How many confirmations the session remembers, so a used or replaced one
-/// is refused as such rather than as unknown.
-const CONFIRMATIONS_REMEMBERED: usize = 16;
+#[cfg(test)]
+use crate::confirmation::CONFIRMATIONS_REMEMBERED;
+/// How long a delete confirmation stays good (decision 124). The rule lives
+/// in `crate::confirmation`, shared with the Stored data section (Phase
+/// 5D-1b, decision 213).
+pub use crate::confirmation::CONFIRMATION_LIFETIME_MS;
 
 /// The most a run's result may come to when it is read back: its spec, its
 /// result bundle and its manifest or failure record together. The data file
@@ -127,30 +130,6 @@ const FAILURE_RECORD_SCHEMA: u32 = 1;
  *  The session
  * ------------------------------------------------------------------------ */
 
-/// Milliseconds since the session was made.
-struct Monotonic(Instant);
-
-impl Clock for Monotonic {
-    fn now_ms(&self) -> u64 {
-        u64::try_from(self.0.elapsed().as_millis()).unwrap_or(u64::MAX)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Standing {
-    Pending,
-    Used,
-    Replaced,
-}
-
-/// One confirmation issued, in memory only.
-struct Issued {
-    id: ConfirmationId,
-    project: ProjectId,
-    issued_ms: u64,
-    standing: Standing,
-}
-
 /// The open project and the delete confirmations, beside the active
 /// workspace (decision 122). In memory only.
 pub struct ProjectSession {
@@ -160,7 +139,8 @@ pub struct ProjectSession {
     /// interrupted create or delete left, which must not run beside a create.
     store: Mutex<Option<(PathBuf, Arc<ProjectRoot>)>>,
     open: Mutex<Option<ProjectHandle>>,
-    book: Mutex<VecDeque<Issued>>,
+    /// The delete confirmations (decision 124): this session's own book.
+    book: Mutex<Confirmations<ProjectId>>,
     /// The runs each project has saved in this process, by the run's id:
     /// a run is never saved twice into one project (decision 123).
     saved: Mutex<BTreeSet<(ProjectId, u64)>>,
@@ -263,7 +243,7 @@ impl ProjectSession {
             clock,
             store: Mutex::new(None),
             open: Mutex::new(None),
-            book: Mutex::new(VecDeque::new()),
+            book: Mutex::new(Confirmations::default()),
             saved: Mutex::new(BTreeSet::new()),
             rerun: Mutex::new(None),
             going: AtomicBool::new(false),
@@ -528,62 +508,33 @@ impl ProjectSession {
 
     /// A new confirmation for `project`; the one before it, for any
     /// project, is void from now on.
-    fn issue(&self, project: &ProjectId) -> Result<ConfirmationId, ProjectRefusal> {
-        let mut b = [0u8; 32];
-        getrandom::getrandom(&mut b).map_err(|_| ProjectRefusal::from(ProjectCode::IoFailed))?;
-        let id = ConfirmationId::parse(&hex_lower(&b)).expect("64 lowercase hex characters");
-        let mut book = lock(&self.book);
-        for i in book.iter_mut() {
-            if i.standing == Standing::Pending {
-                i.standing = Standing::Replaced;
-            }
-        }
-        book.push_back(Issued {
-            id: id.clone(),
-            project: project.clone(),
-            issued_ms: self.clock.now_ms(),
-            standing: Standing::Pending,
-        });
-        while book.len() > CONFIRMATIONS_REMEMBERED {
-            book.pop_front();
-        }
-        Ok(id)
+    pub(crate) fn issue(&self, project: &ProjectId) -> Result<ConfirmationId, ProjectRefusal> {
+        let now = self.clock.now_ms();
+        lock(&self.book)
+            .issue(project.clone(), now)
+            .map_err(|NoRandomness| ProjectRefusal::from(ProjectCode::IoFailed))
     }
 
     /// Uses the confirmation for deleting `project`: refused when there is
     /// none, when it is unknown, used, replaced, expired, or for another
     /// project. Any confirmation found is used up by this call.
-    fn redeem(&self, project: &ProjectId, given: Option<&str>) -> Result<(), ProjectCode> {
-        let given = match given {
-            None => return Err(ProjectCode::ConfirmationMissing),
-            Some(g) if g.is_empty() => return Err(ProjectCode::ConfirmationMissing),
-            Some(g) => g,
-        };
+    pub(crate) fn redeem(
+        &self,
+        project: &ProjectId,
+        given: Option<&str>,
+    ) -> Result<(), ProjectCode> {
         let now = self.clock.now_ms();
-        let mut book = lock(&self.book);
-        let Some(i) = book.iter_mut().find(|i| same_bytes(i.id.as_str(), given)) else {
-            return Err(ProjectCode::ConfirmationUnknown);
-        };
-        let standing = i.standing;
-        i.standing = Standing::Used;
-        match standing {
-            Standing::Used => Err(ProjectCode::ConfirmationUsed),
-            Standing::Replaced => Err(ProjectCode::ConfirmationReplaced),
-            Standing::Pending if now.saturating_sub(i.issued_ms) >= CONFIRMATION_LIFETIME_MS => {
-                Err(ProjectCode::ConfirmationExpired)
-            }
-            Standing::Pending if &i.project != project => {
-                Err(ProjectCode::ConfirmationOtherProject)
-            }
-            Standing::Pending => Ok(()),
-        }
+        lock(&self.book)
+            .redeem(project, given, now)
+            .map_err(|r| match r {
+                Refused::Missing => ProjectCode::ConfirmationMissing,
+                Refused::Unknown => ProjectCode::ConfirmationUnknown,
+                Refused::Used => ProjectCode::ConfirmationUsed,
+                Refused::Replaced => ProjectCode::ConfirmationReplaced,
+                Refused::Expired => ProjectCode::ConfirmationExpired,
+                Refused::OtherSubject => ProjectCode::ConfirmationOtherProject,
+            })
     }
-}
-
-/// Equal bytes, compared in time that does not depend on where they differ.
-fn same_bytes(a: &str, b: &str) -> bool {
-    let (a, b) = (a.as_bytes(), b.as_bytes());
-    a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
 /* ------------------------------------------------------------------------ *

@@ -555,15 +555,27 @@ fn every_project_command_is_gated_or_exempt_as_decision_120_says() {
     );
 }
 
-/// Phase 5D-1a (decision 206): the Stored data section's command counts what
-/// the old database and the app's folders keep, and never needs a workspace
-/// (decisions 49 and 120). It joins no other list. (registered path, work
-/// function, why)
-const STORED_DATA_EXEMPT: &[(&str, &str, &str)] = &[(
-    "stored_data_commands::stored_data_summary",
-    "summary",
-    "counts what is stored",
-)];
+/// Phase 5D-1a (decision 206): the Stored data section's commands count and,
+/// since Phase 5D-1b (decision 213), delete what the old database and the
+/// app's folders keep, and never need a workspace (decisions 49 and 120).
+/// They join no other list. (registered path, work function, why)
+const STORED_DATA_EXEMPT: &[(&str, &str, &str)] = &[
+    (
+        "stored_data_commands::stored_data_summary",
+        "summary",
+        "counts what is stored",
+    ),
+    (
+        "stored_data_commands::stored_data_prepare_delete",
+        "prepare_delete",
+        "a confirmation for deleting what is stored",
+    ),
+    (
+        "stored_data_commands::stored_data_delete",
+        "delete",
+        "deletes what is stored",
+    ),
+];
 
 #[test]
 fn every_stored_data_command_is_exempt_as_decision_206_says() {

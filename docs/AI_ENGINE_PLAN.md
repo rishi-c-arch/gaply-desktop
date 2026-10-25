@@ -25493,3 +25493,172 @@ eslint exit 0; `npm run build` exits 0.
 feature writes or reads its data: those are 5D-1b's and 5D-2's, item by item.
 The section is not in the Settings outline; decision 211 settles the layout
 when 5D-1b ships.
+
+### D290 — Research OS, Phase 5D-1b: the Stored data section's nine deletes, each after its own confirmation, refused while work that writes into its category is going, and for the database's categories followed by VACUUM and a checkpoint `[src]` `[test]` `[measured]`
+
+**Added** on `feat/research-os-5` after `634d131` (D289). Decisions 210 and
+213 to 219 of 25 Oct 2026 apply (`~/gaply-corpus/os/decisions.md`), with
+decisions 104, 124, 175, 206, 209 and 211 before them. This step changes a
+screen, so it is done only when the real-app checklist
+`~/gaply-corpus/os/phase5/realapp_5d1b.md` has been run (decision 166).
+`REACT_APP_FEATURE_STORED_DATA` stays off (decision 216).
+
+**The deletes** (`gaply_core::stored_data`, `Database::stored_data_delete`,
+beside the summary). One category per call, returning its counts just
+before and just after and how many items it removed:
+
+* 1 to 4 each run in one `IMMEDIATE` transaction from their root, counted
+  inside it: `DELETE FROM manuscripts` (cascading to `extractions` and
+  `findings`); the Gap Finder papers' `embeddings` rows by rowid, then their
+  `documents` (cascading to `chunks` and any `citation_documents` link, and
+  setting a staged source's `document_id` NULL, accepted as pinned by
+  decision 219: `oa_fetch.rs:248` is the only production caller of
+  `link_document`, with the fetch's own document); `DELETE FROM ai_jobs`
+  (cascading to `ai_job_items` and `audit_staged_sources`, and nothing else);
+  the unexpired `report:` rows of `cache`. `embeddings` is a vec0 table, which
+  no foreign key reaches, so its rows go first, in the same transaction,
+  while their chunks still name them.
+* 5 is `cache_evict_stale(now)`, reused.
+* 6 to 9 remove regular files one by one. Just before each removal the file
+  is asked again: still a regular file (`symlink_metadata`), its folder still
+  a real folder, and a note image still used by no note (`search_notes`,
+  reused) and not changed in the last 10 minutes. A link is never followed and
+  never removed. A failed removal stops the delete, which says how many it
+  removed.
+
+**The 10-minute rule in the count (decision 217).** The summary leaves out a
+note image changed less than `RECENT_IMAGE_SECS` (600) seconds before `now`,
+one whose time cannot be read, and one dated in the future, so the count and
+the delete agree.
+
+**VACUUM and the checkpoint.** `Database::stored_data_compact`: `VACUUM`,
+then `PRAGMA wal_checkpoint(TRUNCATE)`, each retried once if busy (the pool's
+connections keep rusqlite's 5 s busy timeout), the checkpoint run after a
+failed `VACUUM` too. Done only when `VACUUM` succeeded and the checkpoint's
+busy column was 0; otherwise not done with `stored_data.vacuum_busy`,
+`vacuum_failed`, `checkpoint_busy` or `checkpoint_failed`, and the rows stay
+deleted. It runs after categories 1 to 5 only, off the command's thread
+(`spawn_blocking`). No overwrite pass (decision 104).
+
+**What the vector sentinel test found.** A Gap Finder paper's vector whose
+bytes spell a sentinel is in `gaply.db` before its delete (the control) and
+in neither `gaply.db` nor its `-wal` after the delete, `VACUUM` and the
+checkpoint. sqlite-vec 0.1.9 zeroes a deleted vector's bytes in place
+(`vec0Update_Delete_ClearVectors`, `sqlite-vec.c:8673-8718`), and `VACUUM`
+drops the free pages. So nothing is added to decision 209's uncovered list
+for the vectors.
+
+**Running work (decision 214).** `stored_data_commands::RunningWork`, the one
+new `AppState` field (`running`): a count for each of three kinds of work,
+held by a guard each named command takes as its first statement:
+`run_full_analysis`, `run_publishready`, `validate_manuscript` and
+`extract_manuscript` (categories 1 and 4), `build_gapfinder_corpus`
+(category 2) and `citation_fetch_oa` (category 7). Category 3 reads
+`state.ai_jobs`: any entry, a paused job's included, refuses the whole
+category; a job left running by a crash, held by no runner, is deleted. A
+delete holds the count (and, for category 3, the jobs map) while it runs, so
+no such work starts midway; the compaction runs after both are let go.
+Category 2 is refused, always, while an `ai_chunks`, `ai_evidence_cards` or
+`ai_jobs` row references one of its documents. Each refusal is its own closed
+code: `stored_data.analysis_running`, `gap_finder_running`, `papers_in_use`,
+`job_running`, `fetch_running`. The moment between a thesis audit's
+`create_job` and its registration in the jobs map is on 5E's list
+(decision 219).
+
+**The confirmation (decision 213, by decision 124's rule).** Its issue and
+redeem are extracted from `project_commands.rs` into
+`crate::confirmation::Confirmations<S>`, unchanged in what they do (32
+random bytes, used once, void after five minutes or when a newer one is
+issued, at most 16 remembered, in memory only). `ProjectSession` holds a
+`Confirmations<ProjectId>` and `StoredDataSession` (managed beside
+`AppState`) a `Confirmations<StoredCategory>`, so neither voids the other's.
+`project_commands.rs`'s `issue` and `redeem` keep their signatures and codes,
+and are now `pub(crate)`; no project test changed.
+
+**The commands** (`stored_data_commands.rs`, exempt from the workspace check,
+in `STORED_DATA_EXEMPT`): `stored_data_prepare_delete { category }` answers a
+confirmation with the category's count and size; `stored_data_delete
+{ category, confirmation }` redeems it, checks decision 214, deletes, compacts
+after 1 to 5, and answers the counts before and after, `deleted`, and the
+outcome `done` or `not_done` with its code (`stored_data.remove_failed` for a
+file category's failed removal). A refusal is `{"code":"stored_data.…"}`; any
+failure is the one closed code `stored_data.unavailable`, logged by its kind.
+Logs carry closed codes and counts only.
+
+**The section** (`StoredDataSection.tsx`, words in `storedDataWording.ts`). A
+Delete… (secondary button) on each category with at least one item; the
+dialog, through `ProjectDialog` and `ProjectsPanel.tsx`'s `DeleteDialog`
+pattern (ProjectsPanel.tsx unchanged): "Delete {name}?", a leading "The"
+lowercased ("Delete the comparison log?", decision 219), the count and size,
+what stops, decision 215's sentence about backups, Cancel with the focus, and
+Delete, which calls prepare then delete on that click only. A refusal shows
+its sentence and Cancel reads Close and takes the focus; Close returns the
+focus to the category's Delete…. After a delete, "Deleted: {count}." (or,
+after 1 to 5 when the compaction did not finish, decision 215's sentence in
+its place), the section read again, and the focus on the Stored data
+heading. The note of decision 209 is always under the section. Settings'
+outline gains Projects and Stored data, each behind its section's gate
+(decision 216). The sentences drafted beyond decision 215, one sentence for
+all six confirmation refusals among them, are approved by decision 219.
+
+**Tests.** `stored_data::tests` gains 14 (24 in all), each with its own
+database and folders under a temporary folder it removes: every category's
+delete empties it and leaves every other category, every other table's rows
+and every other file as they were, and `gaply.db` in place; after the
+compaction, while the `Database` and a second pooled connection are open,
+`gaply.db` and its `-wal` hold none of the deleted category's sentinels and
+all the others' (a control first shows every sentinel in the files); the
+vector sentinel; the cascades of 1, 2 and 3, the embeddings by rowid and the
+staged source's link set NULL; category 2 refused for each of `ai_chunks`,
+`ai_evidence_cards` and `ai_jobs`, nothing deleted; a link in a counted folder
+and a linked folder neither followed nor removed (unix); the 10-minute rule
+at its edge, and an image a note starts using between the summary and the
+delete, or between the delete's listing and its removal, kept; a `VACUUM`
+blocked by another write and a checkpoint blocked by an open read, each not
+done with the rows still deleted; a failure planted inside each of the
+transactions of 1 to 4 (a trigger) rolls the whole category back; a failed
+removal stops the delete and says how many it removed, and a folder the app
+cannot change removes nothing (unix); the wire names. Decision 217 changed
+5D-1a's fixture: its images are aged an hour, a recent unused one is left
+out, and the symlink test's control image is aged. `stored_data_commands::tests`
+gains 16 (19 in all): each kind of work refusing its categories while going,
+two of one kind, the jobs map with a paused job, a crashed job deleted, work
+held off while a delete runs, the six guards taken first (a source scan), all
+nine categories through their confirmations, every confirmation refusal
+deleting nothing, a Stored data confirmation leaving a project's pending one
+good and the reverse, each refusal's code on the wire, papers in use, the
+views holding counts and codes only, a failed removal as not done, a blocked
+compaction as not done, a failure as the one closed code, and every refusal
+code distinct. `STORED_DATA_EXEMPT` lists the two new commands. In vitest,
+`StoredDataDelete.vitest.tsx` (43, decision 219's title test among them) and
+one changed test in `StoredDataSection.vitest.tsx` (its controls are now the
+Delete… buttons).
+
+**Mutation checks**, each SHA-256 equal after the restore: M1a to M1i, one
+per category, each a delete reaching outside its category (1 also deleting the
+cached reports, 2 every document, 3 the evidence cards, 4 the expired rows, 5
+the unexpired ones, 6 every file in the app folder, the database's included,
+7 the stray files beside the papers, 8 the look-alike exports, 9 an image a
+note uses, its re-check skipped): each turns
+`each_delete_empties_its_category_and_leaves_everything_else_as_it_was` red,
+or for 9 `an_image_a_note_starts_using_before_its_removal_is_kept`. M2 the
+checkpoint removed: the compaction, vector and blocked-checkpoint tests red.
+M3 the expiry rule dropped from `Confirmations::redeem`: the project's and
+Stored data's confirmation tests red. M4 the two books merged (a process-wide
+newest confirmation voiding every other): the cross test red. M5
+`citation_fetch_oa`'s guard removed: the source scan red. M6 a workspace
+check in `stored_data_delete`: the exempt guard red.
+
+**Measured** (macOS, both `lib.rs` touched first, each run in its own log):
+`cargo test --workspace --no-fail-fast` `running=118 doctests=2 passed=2947
+ignored=12 failed=0` (D289: 2,917; the gaply_core lib 1,859 → 1,873, the app
+lib 577 → 593, no other target moved); `cargo test -p gaply_core
+--no-fail-fast` `running=75 passed=2132 ignored=3`; `cargo test -p app
+--features devtools --no-fail-fast` `running=49 passed=832 ignored=9`; vitest 122 files, 1,615
+tests (D289: 121, 1,572); `npx tsc --noEmit` and CI's eslint exit 0; `npm run
+build` exits 0. The workspace run started at 14 GiB free, under the 15 GiB
+line; decision 219 moves the disk check to right before each command.
+
+**What it does not do.** No change to how any older feature writes or reads
+its data beyond the six guards (5D-2's). The findings F1 to F8 stay
+uncovered (decision 209's later step). The flag stays off until 5E.

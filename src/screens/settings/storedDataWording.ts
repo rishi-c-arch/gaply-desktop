@@ -3,6 +3,8 @@
 // and which feature made it, and how its count reads. Sizes read as decisions
 // 163 and 174 word them, through projectWording's mb(). The sentences are
 // approved by decision 208, with category 9 named "Unused note images".
+// Phase 5D-1b adds the deletes' words (decision 215) and the note under the
+// section (decision 209).
 
 export type StoredCategoryId =
   | 'manuscript_analyses'
@@ -107,7 +109,97 @@ export const STORED_DATA_TEXT = {
   heading: 'Stored data',
   reading: 'Reading what is stored…',
   failed: 'Gaply could not read what it keeps on this computer.',
+  // Decision 209: always under the section, so it never reads as everything
+  // Gaply keeps.
+  note:
+    'Some of what Gaply keeps is not listed here yet: the files you linked to citations and the papers Gaply fetched for citation checks, with their text, and the evidence cards of citation checks.',
 };
+
+/* ---- the deletes (Phase 5D-1b; decision 215) -------------------------------- */
+
+/** What stops when each category is deleted, shown in its dialog. */
+export const WHAT_STOPS: Record<StoredCategoryId, string> = {
+  manuscript_analyses: 'Nothing on screen reads these now. Cached reports of these manuscripts are listed and deleted on their own.',
+  gap_finder_papers: 'The Research Gap Finder, the full analysis and search will no longer find these papers. You can add them again.',
+  thesis_audits: 'Past audits will no longer be listed, resumed or exported. Their evidence cards and fetched sources stay, as the note below says.',
+  cached_reports: 'To see one of these reports again, run it again.',
+  expired_cache: 'Nothing reads these any more.',
+  comparison_log: 'Nothing in the app reads it. A new log starts with the next PublishReady run.',
+  open_access_papers:
+    "Gaply's viewer will no longer open these copies. Their text, already read for citation checks, stays, as the note below says.",
+  temporary_exports: 'Nothing reads these any more.',
+  orphan_note_images: 'No note uses these images. An image changed in the last 10 minutes is kept, in case its note is not saved yet.',
+};
+
+/** The five categories that live in Gaply's database: their delete is
+ *  followed by a compaction, and only they can say it did not finish. */
+export const DATABASE_CATEGORIES: readonly StoredCategoryId[] = [
+  'manuscript_analyses',
+  'gap_finder_papers',
+  'thesis_audits',
+  'cached_reports',
+  'expired_cache',
+];
+
+export const DELETION_TEXT = {
+  open: 'Delete…',
+  // Decision 219: a leading "The" reads lowercase inside the sentence.
+  title: (name: string) => `Delete ${name.replace(/^The /, 'the ')}?`,
+  backups:
+    "Deleting removes these from this app's folder. It cannot remove copies in Time Machine or other backups, in file-system snapshots, or anything you exported. The disk may keep traces until the space is reused.",
+  cancel: 'Cancel',
+  close: 'Close',
+  confirm: 'Delete',
+  deleted: (count: string) => `Deleted: ${count}.`,
+  notCompacted:
+    'Deleted. Gaply could not compact its database just now, so the deleted text may stay in unused space in its files until that space is reused.',
+  // Drafted in 5D-1b, beyond decision 215's words, for approval:
+  deleting: 'Deleting…',
+  partlyRemoved: 'Gaply could not delete the rest just now. The counts show what is left.',
+  failed: 'Gaply could not finish this delete. The counts show what is left.',
+};
+
+/** Each refusal's sentence, by its closed code (decision 214's are drafted in
+ *  5D-1b, for approval). A code not listed here reads as DELETION_TEXT.failed. */
+const NOT_CONFIRMED = 'This delete was not confirmed in time. Press Delete again.';
+export const REFUSAL_WORDS: Record<string, string> = {
+  'stored_data.analysis_running': 'A manuscript analysis is running. Delete these when it has finished.',
+  'stored_data.gap_finder_running': 'The Research Gap Finder is reading papers. Delete these when it has finished.',
+  'stored_data.papers_in_use': 'A citation check uses some of these papers, so none were deleted.',
+  'stored_data.job_running': 'A thesis audit is running or paused. Delete these when it has finished or been cancelled.',
+  'stored_data.fetch_running': 'Gaply is downloading open-access papers. Delete these when it has finished.',
+  'stored_data.confirmation_missing': NOT_CONFIRMED,
+  'stored_data.confirmation_unknown': NOT_CONFIRMED,
+  'stored_data.confirmation_used': NOT_CONFIRMED,
+  'stored_data.confirmation_replaced': NOT_CONFIRMED,
+  'stored_data.confirmation_expired': NOT_CONFIRMED,
+  'stored_data.confirmation_other_category': NOT_CONFIRMED,
+};
+
+/** A refusal's closed code, read from the error's message as the JSON Rust
+ *  sends; never returns or keeps the message itself. */
+export function refusalCode(e: unknown): string | null {
+  const message =
+    typeof e === 'string'
+      ? e
+      : e && typeof e === 'object' && typeof (e as { message?: unknown }).message === 'string'
+        ? (e as { message: string }).message
+        : null;
+  if (message === null) return null;
+  try {
+    const v = JSON.parse(message) as { code?: unknown } | null;
+    return v && typeof v.code === 'string' && v.code in REFUSAL_WORDS ? v.code : null;
+  } catch {
+    return null;
+  }
+}
+
+/** One sentence for a failed prepare or delete: its refusal's, or the
+ *  failure's. */
+export function deleteSentence(e: unknown): string {
+  const code = refusalCode(e);
+  return code ? REFUSAL_WORDS[code] : DELETION_TEXT.failed;
+}
 
 /** "1 analysis", "1,204 rows". */
 export function countWords(n: number, w: Pick<StoredCategoryWords, 'one' | 'many'>): string {

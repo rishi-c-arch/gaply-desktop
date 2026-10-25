@@ -4,6 +4,7 @@ mod aicheck;
 pub mod audit_export;
 pub mod citation_resolver;
 pub mod commands;
+pub mod confirmation;
 pub mod escalation;
 pub mod external_links;
 pub mod guidelines;
@@ -198,6 +199,9 @@ pub fn run() {
 
             let embedder = Arc::new(gaply_core::embed::HashEmbedder);
             app.manage(AppState::new(config, db.clone(), db, embedder, data_dir.clone()));
+            // The Stored data section's delete confirmations (Phase 5D-1b,
+            // decision 213): in memory only, so a restart voids them.
+            app.manage(Arc::new(stored_data_commands::StoredDataSession::default()));
 
             tracing::info!(version = env!("CARGO_PKG_VERSION"), "gaply desktop started");
             crate::models::log_model_resolution(); // proof the bundled model is reachable
@@ -397,6 +401,10 @@ pub fn run() {
             // (decisions 205 to 207). Never gated (decision 206). No screen
             // calls it unless REACT_APP_FEATURE_STORED_DATA is on.
             stored_data_commands::stored_data_summary,
+            // Phase 5D-1b (decisions 213 to 215): a confirmation for one
+            // category, then its delete. Never gated either.
+            stored_data_commands::stored_data_prepare_delete,
+            stored_data_commands::stored_data_delete,
             external_links::open_external_link,
             commands::build_gapfinder_corpus,
             commands::run_gap_finder,

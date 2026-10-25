@@ -3,7 +3,8 @@
 // command called; nine lines of name, sentence, count and size from the
 // summary, sizes through mb(); one sentence when the summary fails or does
 // not have its shape; nothing from the answer but the two counts, and no
-// delete control. Then its place in Settings, after Projects and before
+// control but a Delete… on each category with items (5D-1b's tests are in
+// StoredDataDelete.vitest.tsx). Then its place in Settings, after Projects and before
 // About, and the names it shares with Rust.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -146,13 +147,18 @@ describe('the section, shown', () => {
     expect(screen.getByTestId('stored-data').textContent).not.toMatch(/\bKB\b|\d B\b/);
   });
 
-  it('shows nothing from the answer but the two counts, and offers no delete', async () => {
+  it('shows nothing from the answer but the two counts, and its only controls are Delete… on the categories that hold something', async () => {
     render(<StoredDataSection bridge={bridgeOf(() => Promise.resolve(summary()))} desktop />);
     await screen.findAllByTestId(/^stored-line-/);
     const html = screen.getByTestId('stored-data').innerHTML;
     for (const s of SENTINELS) expect(html).not.toContain(s);
-    expect(screen.getByTestId('stored-data').querySelectorAll('button, a, input, [role="button"]').length).toBe(0);
-    expect(screen.getByTestId('stored-data').textContent).not.toMatch(/delete/i);
+    // Phase 5D-1b (decision 215): a Delete… on each category with at least
+    // one item, and no other control. thesis_audits holds none.
+    const controls = Array.from(screen.getByTestId('stored-data').querySelectorAll('button, a, input, [role="button"]'));
+    expect(controls.map((c) => c.getAttribute('data-testid'))).toEqual(
+      STORED_CATEGORIES.filter((c) => c.id !== 'thesis_audits').map((c) => `stored-delete-${c.id}`)
+    );
+    expect(controls.every((c) => c.textContent === 'Delete…')).toBe(true);
   });
 
   it('when the summary fails: one sentence, and nothing else', async () => {

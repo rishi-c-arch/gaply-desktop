@@ -1,11 +1,12 @@
 //! **What Gaply's older features keep on this computer, counted (Research
-//! OS, Phase 5D-1a; decisions 109, 205 to 207).**
+//! OS, Phase 5D-1a; decisions 109, 205 to 207), and deleted one category at a
+//! time (Phase 5D-1b; decisions 210 and 213 to 217).**
 //!
 //! The Stored data section in Settings shows nine categories, each with how
-//! many items it holds and how many bytes. This module counts them, and it
+//! many items it holds and how many bytes, and a Delete for each. The summary
 //! only reads: it runs `SELECT`s, inside one deferred transaction so the nine
 //! counts come from one snapshot, and it reads file sizes from metadata, never
-//! a file's contents. The deletes are 5D-1b's.
+//! a file's contents.
 //!
 //! The view carries counts and bytes only: no title, name, path, URL or any
 //! value of a counted row or file.
@@ -32,10 +33,13 @@
 //!    `oa_papers/`.
 //! 8. Temporary exports: the AI Check and PublishReady export files in the
 //!    temp folder, by the names their commands give them.
-//! 9. Orphan note images: a file in `note-images/` whose
+//! 9. Unused note images: a file in `note-images/` whose
 //!    `gaply-image://<name>` appears in no note, asked through
 //!    [`crate::notes::search_notes`], the same search the Note Creator's own
-//!    clean-up uses.
+//!    clean-up uses, and that has not changed in the last 10 minutes
+//!    ([`RECENT_IMAGE_SECS`], decisions 210 and 217): an image is written at
+//!    paste, before its note is saved, so a new one looks unused for a moment.
+//!    The count and the delete leave such an image out alike.
 //!
 //! **Bytes.** For rows, the sum of `length(CAST(col AS BLOB))` over the TEXT
 //! and BLOB columns of the rows counted: bytes, never characters. For files,
@@ -43,12 +47,41 @@
 //! count; a symlink, a counted folder's own or an entry's, is skipped and
 //! never followed.
 //!
+//! **The deletes (decision 213).** [`Database::stored_data_delete`] deletes
+//! one category and returns its counts before and after:
+//!
+//! * 1 to 4 each run in one `IMMEDIATE` transaction from their root, counted
+//!   inside it, so the count before is what the delete removed: `manuscripts`
+//!   (cascading to `extractions` and `findings`); the Gap Finder papers'
+//!   `embeddings` rows by rowid, then their `documents` (cascading to
+//!   `chunks` and any `citation_documents` link, and setting a staged
+//!   source's `document_id` NULL), refused as [`DeleteError::PapersInUse`]
+//!   while an `ai_chunks`, `ai_evidence_cards` or `ai_jobs` row references one
+//!   of them, since those cascades would reach outside the category
+//!   (decision 214); `ai_jobs` (cascading to `ai_job_items` and
+//!   `audit_staged_sources`); the unexpired `report:` rows of `cache`.
+//! * 5 is [`Database::cache_evict_stale`]'s one statement, reused.
+//! * 6 to 9 remove regular files one by one. Just before each removal the
+//!   file is asked again: still a regular file, its folder still a real
+//!   folder, and for a note image, still used by no note and not changed in
+//!   the last 10 minutes. A link is never followed and never removed. If one
+//!   removal fails, the delete stops and says how many it removed.
+//!
+//! After 1 to 5 the caller runs [`Database::stored_data_compact`]: `VACUUM`,
+//! then `PRAGMA wal_checkpoint(TRUNCATE)`, each retried once if busy, so the
+//! deleted text leaves `gaply.db` and its `-wal`. Its outcome is
+//! [`Compaction::Done`] only when `VACUUM` succeeded and the checkpoint's
+//! busy column is 0; otherwise the rows stay deleted and the outcome says
+//! which step did not finish. No overwrite pass (decision 104).
+//!
 //! The caller passes the app data folder, the temp folder and the time, so a
 //! test never touches the real ones.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use rusqlite::types::ToSql;
+use rusqlite::{Connection, ErrorCode, TransactionBehavior};
 use serde::Serialize;
 
 use crate::db::Database;
@@ -81,6 +114,39 @@ impl StoredCategory {
         StoredCategory::TemporaryExports,
         StoredCategory::OrphanNoteImages,
     ];
+
+    /// The category's name on the wire, as serde writes it.
+    pub fn wire(self) -> &'static str {
+        match self {
+            StoredCategory::ManuscriptAnalyses => "manuscript_analyses",
+            StoredCategory::GapFinderPapers => "gap_finder_papers",
+            StoredCategory::ThesisAudits => "thesis_audits",
+            StoredCategory::CachedReports => "cached_reports",
+            StoredCategory::ExpiredCache => "expired_cache",
+            StoredCategory::ComparisonLog => "comparison_log",
+            StoredCategory::OpenAccessPapers => "open_access_papers",
+            StoredCategory::TemporaryExports => "temporary_exports",
+            StoredCategory::OrphanNoteImages => "orphan_note_images",
+        }
+    }
+
+    /// The category a wire name names, if any.
+    pub fn parse(s: &str) -> Option<StoredCategory> {
+        StoredCategory::ALL.into_iter().find(|c| c.wire() == s)
+    }
+
+    /// Categories 1 to 5 live in `gaply.db`; a delete of one is followed by
+    /// [`Database::stored_data_compact`]. 6 to 9 are files.
+    pub fn in_database(self) -> bool {
+        matches!(
+            self,
+            StoredCategory::ManuscriptAnalyses
+                | StoredCategory::GapFinderPapers
+                | StoredCategory::ThesisAudits
+                | StoredCategory::CachedReports
+                | StoredCategory::ExpiredCache
+        )
+    }
 }
 
 /// One category's count: how many items, and how many bytes.
@@ -114,6 +180,77 @@ impl StoredDataSummary {
     }
 }
 
+/// What one delete did: the category's counts just before and just after,
+/// and how many items it removed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Deletion {
+    pub category: StoredCategory,
+    pub before: CategoryCount,
+    pub after: CategoryCount,
+    pub deleted: u64,
+    /// Categories 6 to 9: a removal failed after `deleted` files were
+    /// removed, and the delete stopped there.
+    pub removal_failed: bool,
+}
+
+/// Why a delete did not run.
+#[derive(Debug)]
+pub enum DeleteError {
+    /// Category 2: an `ai_chunks`, `ai_evidence_cards` or `ai_jobs` row
+    /// references one of its documents (decision 214). Nothing was deleted.
+    PapersInUse,
+    /// Anything else. In categories 1 to 4 the transaction rolled back; in 6
+    /// to 9 this comes only before the first removal.
+    Failed(GaplyError),
+}
+
+impl From<GaplyError> for DeleteError {
+    fn from(e: GaplyError) -> Self {
+        DeleteError::Failed(e)
+    }
+}
+
+impl From<rusqlite::Error> for DeleteError {
+    fn from(e: rusqlite::Error) -> Self {
+        DeleteError::Failed(e.into())
+    }
+}
+
+impl From<std::io::Error> for DeleteError {
+    fn from(e: std::io::Error) -> Self {
+        DeleteError::Failed(e.into())
+    }
+}
+
+/// The compaction after a delete of categories 1 to 5 (decision 213).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Compaction {
+    /// `VACUUM` succeeded and the checkpoint's busy column was 0.
+    Done,
+    /// The rows stay deleted; this step did not finish.
+    NotDone(CompactionCode),
+}
+
+/// Which step of a compaction did not finish, as a closed code.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompactionCode {
+    VacuumBusy,
+    VacuumFailed,
+    CheckpointBusy,
+    CheckpointFailed,
+}
+
+impl CompactionCode {
+    pub fn wire(self) -> &'static str {
+        match self {
+            CompactionCode::VacuumBusy => "stored_data.vacuum_busy",
+            CompactionCode::VacuumFailed => "stored_data.vacuum_failed",
+            CompactionCode::CheckpointBusy => "stored_data.checkpoint_busy",
+            CompactionCode::CheckpointFailed => "stored_data.checkpoint_failed",
+        }
+    }
+}
+
 /// The comparison log's file in the app data folder (`harness_log.rs`'s
 /// `HARNESS_LOG_FILE`).
 pub const COMPARISON_LOG_FILE: &str = "box4_comparisons.jsonl";
@@ -126,6 +263,10 @@ pub const OA_PAPER_SUFFIXES: &[&str] = &[".pdf", "-abstract.txt"];
 pub const NOTE_IMAGES_DIR: &str = "note-images";
 /// How a note refers to one of them (`noteImages.ts`'s `IMAGE_REF_PREFIX`).
 pub const NOTE_IMAGE_REF_PREFIX: &str = "gaply-image://";
+/// A note image changed less than this many seconds ago is never counted or
+/// deleted as unused (decisions 210 and 217). A file whose time cannot be
+/// read, or lies in the future, counts as just changed.
+pub const RECENT_IMAGE_SECS: i64 = 10 * 60;
 /// The temp folder's export files, as (prefix, suffix): the names
 /// `export_report` and `export_publishready_pdf` write and sweep.
 pub const TEMP_EXPORTS: &[(&str, &str)] =
@@ -216,27 +357,115 @@ fn count_sql(table: &str, filter: &str) -> String {
 /// prefix.
 const GAP_FINDER_DOCUMENT: &str = "source_type = ?1 AND substr(source_url, 1, length(?2)) = ?2";
 
+/// A row whose `document_id` is a Gap Finder paper, with
+/// [`GAP_FINDER_DOCUMENT`]'s parameters.
+fn in_gap_documents() -> String {
+    format!("document_id IN (SELECT id FROM documents WHERE {GAP_FINDER_DOCUMENT})")
+}
+
+/// An unexpired cached report: ?1 is the key prefix, ?2 the time.
+const CACHED_REPORT: &str = "substr(\"key\", 1, length(?1)) = ?1 AND created_at + ttl_seconds > ?2";
+
 fn non_negative(n: i64) -> u64 {
     u64::try_from(n).unwrap_or(0)
 }
 
 /// (items, bytes) of one query from [`count_sql`].
-fn count(
-    conn: &rusqlite::Connection,
-    sql: &str,
-    params: &[&dyn ToSql],
-) -> Result<(u64, u64), GaplyError> {
+fn count(conn: &Connection, sql: &str, params: &[&dyn ToSql]) -> Result<(u64, u64), GaplyError> {
     let (items, bytes): (i64, i64) = conn.query_row(sql, params, |r| Ok((r.get(0)?, r.get(1)?)))?;
     Ok((non_negative(items), non_negative(bytes)))
 }
 
-/// The regular files directly in `dir` whose names `keep` accepts, as
-/// (name, bytes). A missing folder has none. A symlink or a subfolder in it
-/// is skipped, never followed; sizes come from metadata, never contents.
-fn regular_files(
-    dir: &Path,
-    keep: impl Fn(&str) -> bool,
-) -> Result<Vec<(String, u64)>, GaplyError> {
+/// (items, bytes) of category 1 to 5's rows, read on `conn`. A file
+/// category has no rows here and reads (0, 0).
+fn row_count(
+    conn: &Connection,
+    category: StoredCategory,
+    now: i64,
+) -> Result<(u64, u64), GaplyError> {
+    let research_paper = crate::rag::SourceType::ResearchPaper.as_str();
+    let gap: [&dyn ToSql; 2] = [&research_paper, &GAP_FINDER_URL_PREFIX];
+    match category {
+        StoredCategory::ManuscriptAnalyses => {
+            let (manuscripts, m_bytes) = count(conn, &count_sql("manuscripts", "1"), &[])?;
+            let (_, e_bytes) = count(
+                conn,
+                &count_sql(
+                    "extractions",
+                    "manuscript_id IN (SELECT id FROM manuscripts)",
+                ),
+                &[],
+            )?;
+            let (_, f_bytes) = count(
+                conn,
+                &count_sql("findings", "manuscript_id IN (SELECT id FROM manuscripts)"),
+                &[],
+            )?;
+            Ok((manuscripts, m_bytes + e_bytes + f_bytes))
+        }
+        StoredCategory::GapFinderPapers => {
+            let (papers, d_bytes) =
+                count(conn, &count_sql("documents", GAP_FINDER_DOCUMENT), &gap)?;
+            let (_, c_bytes) = count(conn, &count_sql("chunks", &in_gap_documents()), &gap)?;
+            let (_, v_bytes) = count(
+                conn,
+                &count_sql(
+                    "embeddings",
+                    &format!(
+                        "source_type = ?3 AND source_id IN (SELECT id FROM chunks WHERE {})",
+                        in_gap_documents()
+                    ),
+                ),
+                &[
+                    &research_paper,
+                    &GAP_FINDER_URL_PREFIX,
+                    &EMBEDDING_SOURCE_CHUNK,
+                ],
+            )?;
+            Ok((papers, d_bytes + c_bytes + v_bytes))
+        }
+        StoredCategory::ThesisAudits => {
+            let (jobs, j_bytes) = count(conn, &count_sql("ai_jobs", "1"), &[])?;
+            let (_, i_bytes) = count(
+                conn,
+                &count_sql("ai_job_items", "job_id IN (SELECT id FROM ai_jobs)"),
+                &[],
+            )?;
+            let (_, s_bytes) = count(
+                conn,
+                &count_sql("audit_staged_sources", "job_id IN (SELECT id FROM ai_jobs)"),
+                &[],
+            )?;
+            Ok((jobs, j_bytes + i_bytes + s_bytes))
+        }
+        StoredCategory::CachedReports => count(
+            conn,
+            &count_sql("cache", CACHED_REPORT),
+            &[&REPORT_KEY_PREFIX, &now],
+        ),
+        StoredCategory::ExpiredCache => count(
+            conn,
+            &count_sql("cache", "created_at + ttl_seconds <= ?1"),
+            &[&now],
+        ),
+        StoredCategory::ComparisonLog
+        | StoredCategory::OpenAccessPapers
+        | StoredCategory::TemporaryExports
+        | StoredCategory::OrphanNoteImages => Ok((0, 0)),
+    }
+}
+
+/// One regular file found directly in a counted folder.
+struct Found {
+    name: String,
+    bytes: u64,
+    modified: Option<SystemTime>,
+}
+
+/// The regular files directly in `dir` whose names `keep` accepts. A missing
+/// folder has none. A symlink or a subfolder in it is skipped, never
+/// followed; sizes and times come from metadata, never contents.
+fn regular_files(dir: &Path, keep: impl Fn(&str) -> bool) -> Result<Vec<Found>, GaplyError> {
     let entries = match std::fs::read_dir(dir) {
         Ok(entries) => entries,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
@@ -253,7 +482,11 @@ fn regular_files(
             continue;
         }
         match entry.metadata() {
-            Ok(m) => out.push((name, m.len())),
+            Ok(m) => out.push(Found {
+                name,
+                bytes: m.len(),
+                modified: m.modified().ok(),
+            }),
             // Removed between the listing and the read: no longer stored.
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => return Err(e.into()),
@@ -269,18 +502,65 @@ fn files_in_subfolder(
     root: &Path,
     name: &str,
     keep: impl Fn(&str) -> bool,
-) -> Result<Vec<(String, u64)>, GaplyError> {
+) -> Result<Vec<Found>, GaplyError> {
     let dir = root.join(name);
-    match std::fs::symlink_metadata(&dir) {
-        Ok(m) if m.is_dir() => regular_files(&dir, keep),
-        Ok(_) => Ok(Vec::new()),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+    if !is_real_dir(&dir)? {
+        return Ok(Vec::new());
+    }
+    regular_files(&dir, keep)
+}
+
+/// Whether `dir` is a folder itself, not a link to one. Missing is no.
+fn is_real_dir(dir: &Path) -> Result<bool, GaplyError> {
+    match std::fs::symlink_metadata(dir) {
+        Ok(m) => Ok(m.is_dir()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
         Err(e) => Err(e.into()),
     }
 }
 
-fn total(files: &[(String, u64)]) -> (u64, u64) {
-    (files.len() as u64, files.iter().map(|(_, b)| b).sum())
+/// Whether a note image changed at `modified` is too recent to count or
+/// delete as unused at `now` (decisions 210 and 217).
+fn changed_recently(modified: Option<SystemTime>, now: i64) -> bool {
+    let Some(modified) = modified else {
+        return true;
+    };
+    let at = match modified.duration_since(UNIX_EPOCH) {
+        Ok(d) => i64::try_from(d.as_secs()).unwrap_or(i64::MAX),
+        // Before 1970: long ago.
+        Err(_) => 0,
+    };
+    now.saturating_sub(at) < RECENT_IMAGE_SECS
+}
+
+/// A listed file of categories 6 to 9: where it is, its name and its bytes.
+struct Listed {
+    path: PathBuf,
+    name: String,
+    bytes: u64,
+}
+
+fn total(files: &[Listed]) -> (u64, u64) {
+    (files.len() as u64, files.iter().map(|f| f.bytes).sum())
+}
+
+/// The folder a file category's files sit directly in, when it is one of the
+/// app data folder's own subfolders: checked again before each removal.
+fn own_folder(category: StoredCategory, app_data_dir: &Path) -> Option<PathBuf> {
+    match category {
+        StoredCategory::OpenAccessPapers => Some(app_data_dir.join(OA_PAPERS_DIR)),
+        StoredCategory::OrphanNoteImages => Some(app_data_dir.join(NOTE_IMAGES_DIR)),
+        _ => None,
+    }
+}
+
+/// Whether `e` is SQLite saying another connection holds what it needs.
+fn is_busy(e: &rusqlite::Error) -> bool {
+    matches!(
+        e,
+        rusqlite::Error::SqliteFailure(f, _)
+            if matches!(f.code, ErrorCode::DatabaseBusy | ErrorCode::DatabaseLocked)
+    )
 }
 
 impl Database {
@@ -293,103 +573,31 @@ impl Database {
     ) -> Result<StoredDataSummary, GaplyError> {
         // The files first: the note-image check asks the notes table
         // through `search_notes`, which takes its own connection.
-        let comparison_log = match std::fs::symlink_metadata(app_data_dir.join(COMPARISON_LOG_FILE))
-        {
-            Ok(m) if m.is_file() => (1, m.len()),
-            Ok(_) => (0, 0),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => (0, 0),
-            Err(e) => return Err(e.into()),
-        };
-        let oa_papers = total(&files_in_subfolder(app_data_dir, OA_PAPERS_DIR, |n| {
-            OA_PAPER_SUFFIXES.iter().any(|s| n.ends_with(s))
-        })?);
-        let temp_exports = total(&regular_files(temp_dir, |n| {
-            TEMP_EXPORTS
-                .iter()
-                .any(|(prefix, suffix)| n.starts_with(prefix) && n.ends_with(suffix))
-        })?);
-        let mut orphans = Vec::new();
-        for (name, bytes) in files_in_subfolder(app_data_dir, NOTE_IMAGES_DIR, |_| true)? {
-            let reference = format!("{NOTE_IMAGE_REF_PREFIX}{name}");
-            if crate::notes::search_notes(self, &reference, None)?.is_empty() {
-                orphans.push((name, bytes));
+        let mut files = Vec::new();
+        for category in StoredCategory::ALL {
+            if !category.in_database() {
+                files.push(total(&self.listed_files(
+                    category,
+                    app_data_dir,
+                    temp_dir,
+                    now,
+                )?));
             }
         }
-        let orphan_note_images = total(&orphans);
 
         // The rows, from one snapshot. The transaction only reads, and is
         // rolled back when it drops.
         let mut conn = self.conn()?;
         let tx = conn.transaction()?;
-        let research_paper = crate::rag::SourceType::ResearchPaper.as_str();
-        let gap: [&dyn ToSql; 2] = [&research_paper, &GAP_FINDER_URL_PREFIX];
-        let in_gap_documents =
-            format!("document_id IN (SELECT id FROM documents WHERE {GAP_FINDER_DOCUMENT})");
-
-        let (manuscripts, m_bytes) = count(&tx, &count_sql("manuscripts", "1"), &[])?;
-        let (_, e_bytes) = count(
-            &tx,
-            &count_sql(
-                "extractions",
-                "manuscript_id IN (SELECT id FROM manuscripts)",
-            ),
-            &[],
-        )?;
-        let (_, f_bytes) = count(
-            &tx,
-            &count_sql("findings", "manuscript_id IN (SELECT id FROM manuscripts)"),
-            &[],
-        )?;
-
-        let (papers, d_bytes) = count(&tx, &count_sql("documents", GAP_FINDER_DOCUMENT), &gap)?;
-        let (_, c_bytes) = count(&tx, &count_sql("chunks", &in_gap_documents), &gap)?;
-        let (_, v_bytes) = count(
-            &tx,
-            &count_sql(
-                "embeddings",
-                &format!("source_type = ?3 AND source_id IN (SELECT id FROM chunks WHERE {in_gap_documents})"),
-            ),
-            &[&research_paper, &GAP_FINDER_URL_PREFIX, &EMBEDDING_SOURCE_CHUNK],
-        )?;
-
-        let (jobs, j_bytes) = count(&tx, &count_sql("ai_jobs", "1"), &[])?;
-        let (_, i_bytes) = count(
-            &tx,
-            &count_sql("ai_job_items", "job_id IN (SELECT id FROM ai_jobs)"),
-            &[],
-        )?;
-        let (_, s_bytes) = count(
-            &tx,
-            &count_sql("audit_staged_sources", "job_id IN (SELECT id FROM ai_jobs)"),
-            &[],
-        )?;
-
-        let cached_reports = count(
-            &tx,
-            &count_sql(
-                "cache",
-                "substr(\"key\", 1, length(?1)) = ?1 AND created_at + ttl_seconds > ?2",
-            ),
-            &[&REPORT_KEY_PREFIX, &now],
-        )?;
-        let expired_cache = count(
-            &tx,
-            &count_sql("cache", "created_at + ttl_seconds <= ?1"),
-            &[&now],
-        )?;
+        let mut rows = Vec::new();
+        for category in StoredCategory::ALL {
+            if category.in_database() {
+                rows.push(row_count(&tx, category, now)?);
+            }
+        }
         drop(tx);
 
-        let counts = [
-            (manuscripts, m_bytes + e_bytes + f_bytes),
-            (papers, d_bytes + c_bytes + v_bytes),
-            (jobs, j_bytes + i_bytes + s_bytes),
-            cached_reports,
-            expired_cache,
-            comparison_log,
-            oa_papers,
-            temp_exports,
-            orphan_note_images,
-        ];
+        let counts = rows.into_iter().chain(files);
         Ok(StoredDataSummary {
             categories: StoredCategory::ALL
                 .iter()
@@ -401,6 +609,321 @@ impl Database {
                 })
                 .collect(),
         })
+    }
+
+    /// The files of category 6 to 9 that count, as the summary counts them.
+    /// A database category has none.
+    fn listed_files(
+        &self,
+        category: StoredCategory,
+        app_data_dir: &Path,
+        temp_dir: &Path,
+        now: i64,
+    ) -> Result<Vec<Listed>, GaplyError> {
+        let (dir, found) = match category {
+            StoredCategory::ComparisonLog => {
+                let path = app_data_dir.join(COMPARISON_LOG_FILE);
+                return match std::fs::symlink_metadata(&path) {
+                    Ok(m) if m.is_file() => Ok(vec![Listed {
+                        path,
+                        name: COMPARISON_LOG_FILE.to_string(),
+                        bytes: m.len(),
+                    }]),
+                    Ok(_) => Ok(Vec::new()),
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+                    Err(e) => Err(e.into()),
+                };
+            }
+            StoredCategory::OpenAccessPapers => (
+                app_data_dir.join(OA_PAPERS_DIR),
+                files_in_subfolder(app_data_dir, OA_PAPERS_DIR, |n| {
+                    OA_PAPER_SUFFIXES.iter().any(|s| n.ends_with(s))
+                })?,
+            ),
+            StoredCategory::TemporaryExports => (
+                temp_dir.to_path_buf(),
+                regular_files(temp_dir, |n| {
+                    TEMP_EXPORTS
+                        .iter()
+                        .any(|(prefix, suffix)| n.starts_with(prefix) && n.ends_with(suffix))
+                })?,
+            ),
+            StoredCategory::OrphanNoteImages => {
+                let mut unused = Vec::new();
+                for f in files_in_subfolder(app_data_dir, NOTE_IMAGES_DIR, |_| true)? {
+                    if changed_recently(f.modified, now) {
+                        continue;
+                    }
+                    if !self.note_image_used(&f.name)? {
+                        unused.push(f);
+                    }
+                }
+                (app_data_dir.join(NOTE_IMAGES_DIR), unused)
+            }
+            _ => return Ok(Vec::new()),
+        };
+        Ok(found
+            .into_iter()
+            .map(|f| Listed {
+                path: dir.join(&f.name),
+                name: f.name,
+                bytes: f.bytes,
+            })
+            .collect())
+    }
+
+    /// Whether any note refers to the image `name`, asked as the Note
+    /// Creator's own clean-up asks it.
+    fn note_image_used(&self, name: &str) -> Result<bool, GaplyError> {
+        let reference = format!("{NOTE_IMAGE_REF_PREFIX}{name}");
+        Ok(!crate::notes::search_notes(self, &reference, None)?.is_empty())
+    }
+
+    /// One category's count, as the summary counts it.
+    fn category_count(
+        &self,
+        category: StoredCategory,
+        app_data_dir: &Path,
+        temp_dir: &Path,
+        now: i64,
+    ) -> Result<CategoryCount, GaplyError> {
+        let (items, bytes) = if category.in_database() {
+            let conn = self.conn()?;
+            row_count(&conn, category, now)?
+        } else {
+            total(&self.listed_files(category, app_data_dir, temp_dir, now)?)
+        };
+        Ok(CategoryCount {
+            category,
+            items,
+            bytes,
+        })
+    }
+
+    /// Delete one category, as the module docs set out, and return its
+    /// counts before and after. Categories 1 to 5 are followed by
+    /// [`Database::stored_data_compact`], which the caller runs.
+    pub fn stored_data_delete(
+        &self,
+        category: StoredCategory,
+        app_data_dir: &Path,
+        temp_dir: &Path,
+        now: i64,
+    ) -> Result<Deletion, DeleteError> {
+        self.delete_with(category, app_data_dir, temp_dir, now, &|p| {
+            std::fs::remove_file(p)
+        })
+    }
+
+    /// [`Database::stored_data_delete`] with the file removal given, so a
+    /// test can make one fail.
+    fn delete_with(
+        &self,
+        category: StoredCategory,
+        app_data_dir: &Path,
+        temp_dir: &Path,
+        now: i64,
+        remove: &dyn Fn(&Path) -> std::io::Result<()>,
+    ) -> Result<Deletion, DeleteError> {
+        let (before, deleted, removal_failed) = match category {
+            StoredCategory::ManuscriptAnalyses
+            | StoredCategory::GapFinderPapers
+            | StoredCategory::ThesisAudits
+            | StoredCategory::CachedReports => self.delete_rows(category, now)?,
+            StoredCategory::ExpiredCache => {
+                let before = {
+                    let conn = self.conn()?;
+                    row_count(&conn, category, now)?
+                };
+                let removed = self.cache_evict_stale(now)?;
+                (before, removed as u64, false)
+            }
+            StoredCategory::ComparisonLog
+            | StoredCategory::OpenAccessPapers
+            | StoredCategory::TemporaryExports
+            | StoredCategory::OrphanNoteImages => {
+                self.delete_files(category, app_data_dir, temp_dir, now, remove)?
+            }
+        };
+        let after = self.category_count(category, app_data_dir, temp_dir, now)?;
+        Ok(Deletion {
+            category,
+            before: CategoryCount {
+                category,
+                items: before.0,
+                bytes: before.1,
+            },
+            after,
+            deleted,
+            removal_failed,
+        })
+    }
+
+    /// Categories 1 to 4: one `IMMEDIATE` transaction from the root, counted
+    /// inside it. Any failure rolls it back.
+    fn delete_rows(
+        &self,
+        category: StoredCategory,
+        now: i64,
+    ) -> Result<((u64, u64), u64, bool), DeleteError> {
+        let mut conn = self.conn()?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let before = row_count(&tx, category, now)?;
+        let deleted = match category {
+            StoredCategory::ManuscriptAnalyses => tx.execute("DELETE FROM manuscripts", [])?,
+            StoredCategory::GapFinderPapers => {
+                let research_paper = crate::rag::SourceType::ResearchPaper.as_str();
+                let gap: [&dyn ToSql; 2] = [&research_paper, &GAP_FINDER_URL_PREFIX];
+                // Decision 214: these cascades would reach a citation
+                // check's rows, outside the category.
+                let (in_use, _) = count(
+                    &tx,
+                    &format!(
+                        "SELECT (SELECT COUNT(*) FROM ai_chunks WHERE {0})
+                              + (SELECT COUNT(*) FROM ai_evidence_cards WHERE {0})
+                              + (SELECT COUNT(*) FROM ai_jobs WHERE {0}), 0",
+                        in_gap_documents()
+                    ),
+                    &gap,
+                )?;
+                if in_use > 0 {
+                    return Err(DeleteError::PapersInUse);
+                }
+                // No cascade reaches the vec0 table, so its rows go first,
+                // by rowid, while their chunks still name them.
+                let rowids: Vec<i64> = {
+                    let mut stmt = tx.prepare(&format!(
+                        "SELECT rowid FROM embeddings
+                         WHERE source_type = ?3 AND source_id IN (SELECT id FROM chunks WHERE {})",
+                        in_gap_documents()
+                    ))?;
+                    let rows = stmt.query_map(
+                        [
+                            &research_paper as &dyn ToSql,
+                            &GAP_FINDER_URL_PREFIX,
+                            &EMBEDDING_SOURCE_CHUNK,
+                        ],
+                        |r| r.get(0),
+                    )?;
+                    rows.collect::<Result<_, _>>()?
+                };
+                for rowid in rowids {
+                    tx.execute("DELETE FROM embeddings WHERE rowid = ?1", [rowid])?;
+                }
+                tx.execute(
+                    &format!("DELETE FROM documents WHERE {GAP_FINDER_DOCUMENT}"),
+                    &gap[..],
+                )?
+            }
+            StoredCategory::ThesisAudits => tx.execute("DELETE FROM ai_jobs", [])?,
+            StoredCategory::CachedReports => tx.execute(
+                &format!("DELETE FROM cache WHERE {CACHED_REPORT}"),
+                [&REPORT_KEY_PREFIX as &dyn ToSql, &now],
+            )?,
+            StoredCategory::ExpiredCache
+            | StoredCategory::ComparisonLog
+            | StoredCategory::OpenAccessPapers
+            | StoredCategory::TemporaryExports
+            | StoredCategory::OrphanNoteImages => 0,
+        };
+        tx.commit()?;
+        Ok((before, deleted as u64, false))
+    }
+
+    /// Categories 6 to 9: the listed files, removed one by one, each asked
+    /// again just before its removal. A failure after the listing stops the
+    /// delete and is reported with the number removed, never as an error.
+    fn delete_files(
+        &self,
+        category: StoredCategory,
+        app_data_dir: &Path,
+        temp_dir: &Path,
+        now: i64,
+        remove: &dyn Fn(&Path) -> std::io::Result<()>,
+    ) -> Result<((u64, u64), u64, bool), DeleteError> {
+        let listed = self.listed_files(category, app_data_dir, temp_dir, now)?;
+        let before = total(&listed);
+        let folder = own_folder(category, app_data_dir);
+        let mut removed = 0u64;
+        for file in &listed {
+            match self.still_removable(category, folder.as_deref(), file, now) {
+                Ok(true) => {}
+                Ok(false) => continue,
+                Err(_) => return Ok((before, removed, true)),
+            }
+            match remove(&file.path) {
+                Ok(()) => removed += 1,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(_) => return Ok((before, removed, true)),
+            }
+        }
+        Ok((before, removed, false))
+    }
+
+    /// Asked just before `file` is removed: its folder is still a real
+    /// folder, it is still a regular file, and a note image is still used by
+    /// no note and has not changed in the last 10 minutes.
+    fn still_removable(
+        &self,
+        category: StoredCategory,
+        folder: Option<&Path>,
+        file: &Listed,
+        now: i64,
+    ) -> Result<bool, GaplyError> {
+        if category == StoredCategory::OrphanNoteImages && self.note_image_used(&file.name)? {
+            return Ok(false);
+        }
+        if let Some(dir) = folder {
+            if !is_real_dir(dir)? {
+                return Ok(false);
+            }
+        }
+        match std::fs::symlink_metadata(&file.path) {
+            Ok(m) if m.is_file() => Ok(category != StoredCategory::OrphanNoteImages
+                || !changed_recently(m.modified().ok(), now)),
+            Ok(_) => Ok(false),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    /// `VACUUM`, then `PRAGMA wal_checkpoint(TRUNCATE)`, each retried once
+    /// if busy (decision 213). Done only when `VACUUM` succeeded and the
+    /// checkpoint's busy column is 0. The checkpoint runs after a failed
+    /// `VACUUM` too, so the delete itself reaches `gaply.db`.
+    pub fn stored_data_compact(&self) -> Compaction {
+        let conn = match self.conn() {
+            Ok(conn) => conn,
+            Err(_) => return Compaction::NotDone(CompactionCode::VacuumFailed),
+        };
+        let vacuum = match conn.execute_batch("VACUUM") {
+            Err(e) if is_busy(&e) => conn.execute_batch("VACUUM"),
+            first => first,
+        };
+        let vacuum = match vacuum {
+            Ok(()) => None,
+            Err(e) if is_busy(&e) => Some(CompactionCode::VacuumBusy),
+            Err(_) => Some(CompactionCode::VacuumFailed),
+        };
+        let checkpoint = || -> rusqlite::Result<bool> {
+            let busy: i64 = conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| r.get(0))?;
+            Ok(busy == 0)
+        };
+        let checkpoint = match checkpoint() {
+            Ok(false) => checkpoint(),
+            Err(e) if is_busy(&e) => checkpoint(),
+            first => first,
+        };
+        let checkpoint = match checkpoint {
+            Ok(true) => None,
+            Ok(false) => Some(CompactionCode::CheckpointBusy),
+            Err(e) if is_busy(&e) => Some(CompactionCode::CheckpointBusy),
+            Err(_) => Some(CompactionCode::CheckpointFailed),
+        };
+        match vacuum.or(checkpoint) {
+            None => Compaction::Done,
+            Some(code) => Compaction::NotDone(code),
+        }
     }
 }
 
@@ -446,6 +969,15 @@ mod tests {
             let p = self.root.join(rel);
             std::fs::create_dir_all(p.parent().unwrap()).unwrap();
             std::fs::write(p, bytes).unwrap();
+        }
+        /// Set `rel`'s modification time to `epoch` seconds.
+        fn age(&self, rel: &str, epoch: i64) {
+            let f = std::fs::File::options()
+                .write(true)
+                .open(self.root.join(rel))
+                .unwrap();
+            let at = UNIX_EPOCH + std::time::Duration::from_secs(u64::try_from(epoch).unwrap());
+            f.set_modified(at).unwrap();
         }
         fn summary(&self, db: &Database, now: i64) -> StoredDataSummary {
             db.stored_data_summary(&self.app(), &self.tmp(), now)
@@ -842,10 +1374,18 @@ mod tests {
         s.write("tmp/gaply-publishready-.pdf.part", &[8u8; 14]);
         want.insert("8", (2, 1020));
 
-        // 9. Note images: aaa and ccc are used, bbb is not.
+        // 9. Note images, each changed an hour before NOW: aaa and ccc are
+        // used, bbb is not. ddd is not used either, but it changed a minute
+        // before NOW, so it counts as just pasted and is left out
+        // (decision 217).
         s.write("app/note-images/aaa.png", &[9u8; 50]);
         s.write("app/note-images/bbb.png", &[9u8; 60]);
         s.write("app/note-images/ccc.png", &[9u8; 70]);
+        s.write("app/note-images/ddd.png", &[9u8; 80]);
+        for name in ["aaa.png", "bbb.png", "ccc.png"] {
+            s.age(&format!("app/note-images/{name}"), NOW - 3600);
+        }
+        s.age("app/note-images/ddd.png", NOW - 60);
         want.insert("9", (1, 60));
 
         // A project's file, which no category counts.
@@ -1065,6 +1605,7 @@ mod tests {
         s2.write("app/box4_comparisons.jsonl", &[1u8; 5000]);
         s2.write("tmp/gaply-aicheck-1.html", &[1u8; 5000]);
         s2.write("app/note-images/zzz.png", &[1u8; 5000]);
+        s2.age("app/note-images/zzz.png", NOW - 3600);
         s2.write("app/oa_papers/real.pdf", &[1u8; 4000]);
         let got = s2.summary(&db2, NOW);
         for (c, bytes) in [
@@ -1281,5 +1822,769 @@ mod tests {
             "SELECT name FROM sqlite_master WHERE type = 'table' AND sql LIKE 'CREATE VIRTUAL TABLE%' ORDER BY name",
         );
         assert_eq!(virtual_tables, ["ai_chunks_fts", "embeddings"]);
+    }
+
+    /* ---- the deletes (Phase 5D-1b; decisions 210, 213, 214, 217) ---------- */
+
+    fn one(db: &Database, sql: &str, params: &[&dyn ToSql]) -> i64 {
+        db.conn()
+            .unwrap()
+            .query_row(sql, params, |r| r.get(0))
+            .unwrap()
+    }
+
+    /// Every table's rows, each row as text, sorted: the whole database.
+    fn dump(db: &Database) -> BTreeMap<String, Vec<String>> {
+        let conn = db.conn().unwrap();
+        let mut stmt = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
+            .unwrap();
+        let tables: Vec<String> = stmt
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        let mut out = BTreeMap::new();
+        for t in tables {
+            let mut stmt = conn.prepare(&format!("SELECT * FROM \"{t}\"")).unwrap();
+            let n = stmt.column_count();
+            let mut rows: Vec<String> = stmt
+                .query_map([], |r| {
+                    let mut cells = Vec::with_capacity(n);
+                    for i in 0..n {
+                        cells.push(format!("{:?}", r.get::<_, rusqlite::types::Value>(i)?));
+                    }
+                    Ok(cells.join("|"))
+                })
+                .unwrap()
+                .map(Result::unwrap)
+                .collect();
+            rows.sort();
+            out.insert(t, rows);
+        }
+        out
+    }
+
+    /// Every file under the scratch folder but the database's own.
+    fn files(s: &Scratch) -> BTreeMap<String, String> {
+        snapshot(&s.root)
+            .into_iter()
+            .filter(|(k, _)| !k.starts_with("app/gaply.db"))
+            .collect()
+    }
+
+    /// The tables a delete of `c` may change: its own (the vec0 table's
+    /// shadow tables with it), and for category 2 the links that cascade.
+    fn tables_of(c: StoredCategory) -> &'static [&'static str] {
+        match c {
+            ManuscriptAnalyses => &["manuscripts", "extractions", "findings"],
+            GapFinderPapers => &[
+                "documents",
+                "chunks",
+                "embeddings",
+                "embeddings_info",
+                "embeddings_chunks",
+                "embeddings_rowids",
+                "embeddings_vector_chunks00",
+                "embeddings_auxiliary",
+                "citation_documents",
+            ],
+            ThesisAudits => &["ai_jobs", "ai_job_items", "audit_staged_sources"],
+            CachedReports | ExpiredCache => &["cache"],
+            _ => &[],
+        }
+    }
+
+    /// The fixture's files of `c`, which its delete removes.
+    fn files_of(c: StoredCategory) -> &'static [&'static str] {
+        match c {
+            ComparisonLog => &["app/box4_comparisons.jsonl"],
+            OpenAccessPapers => &[
+                "app/oa_papers/10.1_SENTINEL_SD.pdf",
+                "app/oa_papers/10.2_SENTINEL_SD-abstract.txt",
+            ],
+            TemporaryExports => &[
+                "tmp/gaply-aicheck-100.html",
+                "tmp/gaply-publishready-7-100.pdf",
+            ],
+            OrphanNoteImages => &["app/note-images/bbb.png"],
+            _ => &[],
+        }
+    }
+
+    fn gap_paper(db: &Database) -> i64 {
+        one(
+            db,
+            "SELECT id FROM documents WHERE title = '[s/p1] SENTINEL_SD_d1_title'",
+            &[],
+        )
+    }
+
+    fn linked_paper(db: &Database) -> i64 {
+        one(
+            db,
+            "SELECT id FROM documents WHERE source_type = 'paper'",
+            &[],
+        )
+    }
+
+    /// A library citation linked to a Gap Finder paper and to a `paper`
+    /// document: `link_citations` reads every document (the map's §4).
+    fn link_papers(db: &Database) {
+        exec(
+            db,
+            "INSERT INTO citation_library (id, csl_json, title, created_at, updated_at)
+             VALUES ('cit1', '{}', 'SENTINEL_SD_citation', 1, 1)",
+            &[],
+        );
+        for doc in [gap_paper(db), linked_paper(db)] {
+            exec(
+                db,
+                "INSERT INTO citation_documents (citation_id, document_id, matched_by, created_at)
+                 VALUES ('cit1', ?1, 'title', 1)",
+                &[&doc],
+            );
+        }
+    }
+
+    fn delete(s: &Scratch, db: &Database, c: StoredCategory) -> Deletion {
+        db.stored_data_delete(c, &s.app(), &s.tmp(), NOW)
+            .unwrap_or_else(|e| panic!("{c:?}: {e:?}"))
+    }
+
+    #[test]
+    fn each_delete_empties_its_category_and_leaves_everything_else_as_it_was() {
+        for c in StoredCategory::ALL {
+            let s = Scratch::new("delete-each");
+            let db = s.open();
+            plant(&s, &db);
+            link_papers(&db);
+            let summary_before = s.summary(&db, NOW);
+            let tables_before = dump(&db);
+            let files_before = files(&s);
+            assert!(
+                summary_before.get(c).items > 0,
+                "{c:?}: the fixture holds some"
+            );
+
+            let d = delete(&s, &db, c);
+            assert_eq!(d.category, c);
+            assert_eq!(
+                d.before,
+                summary_before.get(c),
+                "{c:?}: before is the summary's count"
+            );
+            assert_eq!(d.deleted, d.before.items, "{c:?}");
+            assert_eq!((d.after.items, d.after.bytes), (0, 0), "{c:?}");
+            assert!(!d.removal_failed, "{c:?}");
+
+            let summary_after = s.summary(&db, NOW);
+            for other in StoredCategory::ALL {
+                let got = summary_after.get(other);
+                if other == c {
+                    assert_eq!((got.items, got.bytes), (0, 0), "{c:?} is empty");
+                } else {
+                    assert_eq!(
+                        got,
+                        summary_before.get(other),
+                        "{c:?}'s delete changed {other:?}"
+                    );
+                }
+            }
+            let tables_after = dump(&db);
+            assert_eq!(
+                tables_before.keys().collect::<Vec<_>>(),
+                tables_after.keys().collect::<Vec<_>>()
+            );
+            for (t, rows) in &tables_before {
+                if !tables_of(c).contains(&t.as_str()) {
+                    assert_eq!(
+                        Some(rows),
+                        tables_after.get(t),
+                        "{c:?}'s delete changed {t}"
+                    );
+                }
+            }
+            let files_after = files(&s);
+            for (p, h) in &files_before {
+                if files_of(c).contains(&p.as_str()) {
+                    assert!(!files_after.contains_key(p), "{c:?} left {p}");
+                } else {
+                    assert_eq!(files_after.get(p), Some(h), "{c:?}'s delete changed {p}");
+                }
+            }
+            assert_eq!(
+                files_after.len(),
+                files_before.len() - files_of(c).len(),
+                "{c:?}: nothing else removed or added"
+            );
+            // `files` leaves the database's own files out: it is still there.
+            assert!(s.app().join("gaply.db").is_file(), "{c:?} removed gaply.db");
+        }
+    }
+
+    /// Each database category's sentinels: text only it holds.
+    const DB_SENTINELS: &[(StoredCategory, &[&str])] = &[
+        (
+            ManuscriptAnalyses,
+            &[
+                "SENTINEL_SD_m1_title",
+                "SENTINEL_SD_m1_abs",
+                "SENTINEL_SD_e1_section_text",
+                "SENTINEL_SD_f1_message",
+                "SENTINEL_SD_m2_title",
+            ],
+        ),
+        (
+            GapFinderPapers,
+            &[
+                "SENTINEL_SD_d1_title",
+                "SENTINEL_SD_c1_text",
+                "SENTINEL_SD_c2_text",
+                "SENTINEL_SD_ck2",
+                "SENTINEL_SD_reason",
+            ],
+        ),
+        (
+            ThesisAudits,
+            &[
+                "SENTINEL_SD_summary",
+                "SENTINEL_SD_sentence_1",
+                "SENTINEL_SD_err",
+                "SENTINEL_SD_ref_title",
+                "SENTINEL_SD_raw",
+            ],
+        ),
+        (CachedReports, &["SENTINEL_SD_report_fresh"]),
+        (
+            ExpiredCache,
+            &[
+                "SENTINEL_SD_report_old",
+                "SENTINEL_SD_report_edge",
+                "SENTINEL_SD_api_old",
+            ],
+        ),
+    ];
+
+    fn file_bytes(s: &Scratch, name: &str) -> Vec<u8> {
+        match std::fs::read(s.app().join(name)) {
+            Ok(b) => b,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+            Err(e) => panic!("{name}: {e}"),
+        }
+    }
+
+    fn holds(hay: &[u8], needle: &[u8]) -> bool {
+        hay.windows(needle.len()).any(|w| w == needle)
+    }
+
+    /// Whether `gaply.db` and `gaply.db-wal` hold `needle`.
+    fn in_files(s: &Scratch, needle: &[u8]) -> (bool, bool) {
+        (
+            holds(&file_bytes(s, "gaply.db"), needle),
+            holds(&file_bytes(s, "gaply.db-wal"), needle),
+        )
+    }
+
+    #[test]
+    fn after_the_compaction_the_files_hold_none_of_the_deleted_text_and_all_the_rest() {
+        for (c, gone) in DB_SENTINELS {
+            let s = Scratch::new("compact");
+            let db = s.open();
+            plant(&s, &db);
+            // A second pooled connection, open throughout, beside the
+            // Database itself.
+            let second = db.conn().unwrap();
+            // Control: compacted before the delete, the files hold every
+            // sentinel, so their absence below is the delete's doing.
+            assert_eq!(db.stored_data_compact(), Compaction::Done);
+            for (_, all) in DB_SENTINELS {
+                for n in *all {
+                    assert_eq!(in_files(&s, n.as_bytes()), (true, false), "control: {n}");
+                }
+            }
+
+            delete(&s, &db, *c);
+            assert_eq!(db.stored_data_compact(), Compaction::Done, "{c:?}");
+            for n in *gone {
+                assert_eq!(
+                    in_files(&s, n.as_bytes()),
+                    (false, false),
+                    "{c:?}: {n} is still in gaply.db or its -wal"
+                );
+            }
+            for (other, kept) in DB_SENTINELS {
+                if other != c {
+                    for n in *kept {
+                        assert!(
+                            in_files(&s, n.as_bytes()).0,
+                            "{c:?}'s delete lost {other:?}'s {n}"
+                        );
+                    }
+                }
+            }
+            drop(second);
+        }
+    }
+
+    #[test]
+    fn a_deleted_papers_vector_bytes_leave_the_files_too() {
+        let s = Scratch::new("vector");
+        let db = s.open();
+        plant(&s, &db);
+        // A vector whose bytes spell a sentinel. Each 4 bytes are ASCII, so
+        // each float's exponent is below all-ones: no NaN, no infinity.
+        let marker = b"SENTINEL_VEC_5d1b";
+        let v: Vec<u8> = marker.iter().copied().cycle().take(384 * 4).collect();
+        let d9 = exec(
+            &db,
+            "INSERT INTO documents (source_type, title, source_url, fetched_at, checksum, status, created_at)
+             VALUES ('research_paper', '[s/p9] p', 'gapfinder://s/p9', 1, 'ck9', 'ingested', 1)",
+            &[],
+        );
+        let c9 = exec(
+            &db,
+            "INSERT INTO chunks (document_id, seq, content, token_count, created_at) VALUES (?1, 0, 'x', 1, 1)",
+            &[&d9],
+        );
+        exec(
+            &db,
+            "INSERT INTO embeddings (embedding, source_type, source_id) VALUES (?1, 'chunk', ?2)",
+            &[&v, &c9],
+        );
+        assert_eq!(db.stored_data_compact(), Compaction::Done);
+        assert_eq!(
+            in_files(&s, marker),
+            (true, false),
+            "control: the vector is in gaply.db"
+        );
+
+        delete(&s, &db, GapFinderPapers);
+        assert_eq!(db.stored_data_compact(), Compaction::Done);
+        assert_eq!(
+            in_files(&s, marker),
+            (false, false),
+            "a deleted paper's vector bytes are still in gaply.db or its -wal"
+        );
+    }
+
+    #[test]
+    fn the_cascades_of_categories_1_2_and_3_reach_their_category_and_no_further() {
+        // 1: the manuscripts take their extractions and findings.
+        let s = Scratch::new("cascade-1");
+        let db = s.open();
+        plant(&s, &db);
+        assert_eq!(db.count_rows("extractions").unwrap(), 1);
+        assert_eq!(db.count_rows("findings").unwrap(), 2);
+        delete(&s, &db, ManuscriptAnalyses);
+        for t in ["manuscripts", "extractions", "findings"] {
+            assert_eq!(db.count_rows(t).unwrap(), 0, "{t}");
+        }
+
+        // 2: the papers' embeddings by rowid, then the documents, which take
+        // their chunks and their citation links; a staged source linked to
+        // one keeps its row, its link set NULL.
+        let s = Scratch::new("cascade-2");
+        let db = s.open();
+        plant(&s, &db);
+        link_papers(&db);
+        let gap = gap_paper(&db);
+        let staged = one(&db, "SELECT id FROM audit_staged_sources", &[]);
+        exec(
+            &db,
+            "UPDATE audit_staged_sources SET document_id = ?1, matched_by = 'doi' WHERE id = ?2",
+            &[&gap, &staged],
+        );
+        let documents = db.count_rows("documents").unwrap();
+        let d = delete(&s, &db, GapFinderPapers);
+        assert_eq!(d.deleted, 2);
+        assert_eq!(db.count_rows("documents").unwrap(), documents - 2);
+        assert_eq!(
+            one(
+                &db,
+                "SELECT COUNT(*) FROM chunks WHERE content IN ('SENTINEL_SD_c1_text', 'SENTINEL_SD_c2_text')",
+                &[]
+            ),
+            0
+        );
+        assert_eq!(
+            db.count_rows("chunks").unwrap(),
+            2,
+            "the guideline's and the other paper's"
+        );
+        let conn = db.conn().unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT e.source_type, c.content FROM embeddings e
+                 LEFT JOIN chunks c ON c.id = e.source_id ORDER BY e.source_type, c.content",
+            )
+            .unwrap();
+        let left: Vec<(String, Option<String>)> = stmt
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        drop(stmt);
+        drop(conn);
+        assert_eq!(
+            left,
+            [
+                ("chunk".to_string(), Some("SENTINEL_SD_c3_text".to_string())),
+                ("chunk".to_string(), Some("SENTINEL_SD_c5_text".to_string())),
+                // Another source type with a deleted chunk's id: not the
+                // category's, and kept.
+                ("manuscript_chunk".to_string(), None),
+            ]
+        );
+        assert_eq!(
+            one(&db, "SELECT COUNT(*) FROM citation_documents", &[]),
+            1,
+            "only the paper document's link is left"
+        );
+        assert_eq!(
+            one(&db, "SELECT document_id FROM citation_documents", &[]),
+            linked_paper(&db)
+        );
+        assert_eq!(
+            db.count_rows("audit_staged_sources").unwrap(),
+            1,
+            "the row stays"
+        );
+        assert_eq!(
+            one(
+                &db,
+                "SELECT COUNT(*) FROM audit_staged_sources WHERE document_id IS NULL AND title = 'SENTINEL_SD_ref_title'",
+                &[]
+            ),
+            1,
+            "its link is set NULL (ON DELETE SET NULL)"
+        );
+
+        // 3: the jobs take their items and staged sources, and nothing else.
+        let s = Scratch::new("cascade-3");
+        let db = s.open();
+        plant(&s, &db);
+        delete(&s, &db, ThesisAudits);
+        for t in ["ai_jobs", "ai_job_items", "audit_staged_sources"] {
+            assert_eq!(db.count_rows(t).unwrap(), 0, "{t}");
+        }
+        assert_eq!(db.count_rows("ai_chunks").unwrap(), 1);
+        assert_eq!(db.count_rows("ai_evidence_cards").unwrap(), 1);
+    }
+
+    #[test]
+    fn category_2_is_refused_while_a_citation_check_references_one_of_its_papers() {
+        for (what, sql) in [
+            (
+                "ai_chunks",
+                "INSERT INTO ai_chunks (document_id, char_start, char_end, content, token_estimate,
+                                        content_hash, created_at)
+                 VALUES (?1, 0, 1, 'x', 1, 'SENTINEL_SD_h2', 1)",
+            ),
+            (
+                "ai_evidence_cards",
+                "INSERT INTO ai_evidence_cards (document_id, claim, evidence_text, evidence_type, model_id,
+                                                model_version, prompt_version, created_at)
+                 VALUES (?1, 'c', 'e', 'quote', 'gen', 'q', 'p', 1)",
+            ),
+            (
+                "ai_jobs",
+                "INSERT INTO ai_jobs (kind, status, prompt_version, created_at, document_id)
+                 VALUES ('thesis_audit', 'done', 'v1', 1, ?1)",
+            ),
+        ] {
+            let s = Scratch::new("in-use");
+            let db = s.open();
+            plant(&s, &db);
+            let gap = gap_paper(&db);
+            exec(&db, sql, &[&gap]);
+            let before = dump(&db);
+            match db.stored_data_delete(GapFinderPapers, &s.app(), &s.tmp(), NOW) {
+                Err(DeleteError::PapersInUse) => {}
+                other => panic!("{what}: {other:?}"),
+            }
+            assert_eq!(dump(&db), before, "{what}: nothing deleted");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_delete_neither_follows_nor_removes_a_symlink() {
+        use std::os::unix::fs::symlink;
+        let s = Scratch::new("delete-links");
+        let db = s.open();
+        s.write("outside/big.bin", &[1u8; 5000]);
+        s.write("outside/papers/real.pdf", &[1u8; 4000]);
+        let big = s.root.join("outside/big.bin");
+        std::fs::create_dir_all(s.app().join("note-images")).unwrap();
+        // A link in a counted folder, of each file category...
+        symlink(&big, s.app().join(COMPARISON_LOG_FILE)).unwrap();
+        symlink(&big, s.tmp().join("gaply-aicheck-1.html")).unwrap();
+        symlink(&big, s.app().join("note-images/zzz.png")).unwrap();
+        // ... and a counted folder that is itself a link.
+        symlink(s.root.join("outside/papers"), s.app().join(OA_PAPERS_DIR)).unwrap();
+        let before = snapshot(&s.root);
+
+        for c in [
+            ComparisonLog,
+            OpenAccessPapers,
+            TemporaryExports,
+            OrphanNoteImages,
+        ] {
+            let d = delete(&s, &db, c);
+            assert_eq!((d.deleted, d.removal_failed), (0, false), "{c:?}");
+        }
+        let after = snapshot(&s.root);
+        for k in [
+            "app/box4_comparisons.jsonl",
+            "tmp/gaply-aicheck-1.html",
+            "app/note-images/zzz.png",
+            "app/oa_papers",
+            "outside/big.bin",
+            "outside/papers/real.pdf",
+        ] {
+            assert_eq!(after.get(k), before.get(k), "{k}");
+            assert!(after.contains_key(k), "{k} is gone");
+        }
+        assert!(std::fs::symlink_metadata(s.app().join(OA_PAPERS_DIR))
+            .unwrap()
+            .file_type()
+            .is_symlink());
+    }
+
+    #[test]
+    fn a_note_image_changed_in_the_last_ten_minutes_is_neither_counted_nor_deleted() {
+        let s = Scratch::new("recent");
+        let db = s.open();
+        for (name, at) in [
+            ("old.png", NOW - 3600),
+            // Exactly ten minutes ago: no longer recent.
+            ("edge.png", NOW - RECENT_IMAGE_SECS),
+            ("new.png", NOW - RECENT_IMAGE_SECS + 1),
+            ("future.png", NOW + 60),
+        ] {
+            s.write(&format!("app/note-images/{name}"), &[9u8; 10]);
+            s.age(&format!("app/note-images/{name}"), at);
+        }
+        let got = s.summary(&db, NOW).get(OrphanNoteImages);
+        assert_eq!((got.items, got.bytes), (2, 20), "old and edge only");
+        let d = delete(&s, &db, OrphanNoteImages);
+        assert_eq!(d.deleted, 2);
+        let mut left: Vec<String> = std::fs::read_dir(s.app().join("note-images"))
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        left.sort();
+        assert_eq!(left, ["future.png", "new.png"]);
+    }
+
+    #[test]
+    fn an_image_a_note_starts_using_before_its_removal_is_kept() {
+        let note = |db: &Database, id: &str, body: &str| {
+            exec(
+                db,
+                "INSERT INTO notes (id, note_type, title, body, created_at, updated_at)
+                 VALUES (?1, 'project', 't', ?2, 1, 1)",
+                &[&id, &body],
+            );
+        };
+
+        // Between the summary and the delete.
+        let s = Scratch::new("used-later");
+        let db = s.open();
+        s.write("app/note-images/bbb.png", &[9u8; 60]);
+        s.age("app/note-images/bbb.png", NOW - 3600);
+        assert_eq!(s.summary(&db, NOW).get(OrphanNoteImages).items, 1);
+        note(&db, "n1", "![x](gaply-image://bbb.png)");
+        let d = delete(&s, &db, OrphanNoteImages);
+        assert_eq!((d.before.items, d.deleted), (0, 0));
+        assert!(s.app().join("note-images/bbb.png").exists());
+
+        // Between the delete's own listing and a removal: the first removal
+        // makes both images used, so the second is asked again and kept.
+        let s = Scratch::new("used-during");
+        let db = s.open();
+        for name in ["x.png", "y.png"] {
+            s.write(&format!("app/note-images/{name}"), &[9u8; 10]);
+            s.age(&format!("app/note-images/{name}"), NOW - 3600);
+        }
+        let first = std::cell::Cell::new(true);
+        let remove = |p: &Path| {
+            if first.replace(false) {
+                note(&db, "n2", "gaply-image://x.png gaply-image://y.png");
+            }
+            std::fs::remove_file(p)
+        };
+        let d = db
+            .delete_with(OrphanNoteImages, &s.app(), &s.tmp(), NOW, &remove)
+            .unwrap();
+        assert_eq!((d.before.items, d.deleted), (2, 1));
+        let left = ["x.png", "y.png"]
+            .iter()
+            .filter(|n| s.app().join("note-images").join(n).exists())
+            .count();
+        assert_eq!(left, 1, "the image used by then is kept");
+    }
+
+    #[test]
+    fn a_vacuum_blocked_by_another_write_leaves_the_rows_deleted_and_answers_not_done() {
+        let s = Scratch::new("vacuum-busy");
+        let db = s.open();
+        plant(&s, &db);
+        delete(&s, &db, CachedReports);
+        let writer = db.conn().unwrap();
+        writer
+            .execute_batch(
+                "BEGIN IMMEDIATE;
+                 INSERT INTO cache (key, value, created_at, ttl_seconds) VALUES ('x', 'y', 1, 1);",
+            )
+            .unwrap();
+        assert_eq!(
+            db.stored_data_compact(),
+            Compaction::NotDone(CompactionCode::VacuumBusy)
+        );
+        assert_eq!(
+            s.summary(&db, NOW).get(CachedReports).items,
+            0,
+            "still deleted"
+        );
+        writer.execute_batch("ROLLBACK").unwrap();
+        drop(writer);
+        assert_eq!(
+            db.stored_data_compact(),
+            Compaction::Done,
+            "control: unblocked"
+        );
+    }
+
+    #[test]
+    fn a_checkpoint_blocked_by_an_open_reader_leaves_the_rows_deleted_and_answers_not_done() {
+        let s = Scratch::new("checkpoint-busy");
+        let db = s.open();
+        plant(&s, &db);
+        delete(&s, &db, ExpiredCache);
+        let reader = db.conn().unwrap();
+        reader.execute_batch("BEGIN").unwrap();
+        let _: i64 = reader
+            .query_row("SELECT COUNT(*) FROM cache", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(
+            db.stored_data_compact(),
+            Compaction::NotDone(CompactionCode::CheckpointBusy)
+        );
+        assert_eq!(
+            s.summary(&db, NOW).get(ExpiredCache).items,
+            0,
+            "still deleted"
+        );
+        reader.execute_batch("COMMIT").unwrap();
+        drop(reader);
+        assert_eq!(
+            db.stored_data_compact(),
+            Compaction::Done,
+            "control: unblocked"
+        );
+    }
+
+    #[test]
+    fn a_failure_inside_the_transaction_leaves_the_category_as_it_was() {
+        for (c, table) in [
+            (ManuscriptAnalyses, "findings"),
+            // After the embeddings went: their delete is undone too.
+            (GapFinderPapers, "chunks"),
+            (ThesisAudits, "audit_staged_sources"),
+            (CachedReports, "cache"),
+        ] {
+            let s = Scratch::new("rollback");
+            let db = s.open();
+            plant(&s, &db);
+            exec(
+                &db,
+                &format!(
+                    "CREATE TRIGGER planted_failure BEFORE DELETE ON {table}
+                     BEGIN SELECT RAISE(ABORT, 'planted'); END"
+                ),
+                &[],
+            );
+            let before = dump(&db);
+            let summary = s.summary(&db, NOW);
+            match db.stored_data_delete(c, &s.app(), &s.tmp(), NOW) {
+                Err(DeleteError::Failed(_)) => {}
+                other => panic!("{c:?}: {other:?}"),
+            }
+            assert_eq!(dump(&db), before, "{c:?}");
+            assert_eq!(s.summary(&db, NOW), summary, "{c:?}");
+        }
+    }
+
+    #[test]
+    fn a_failed_removal_stops_the_delete_and_says_how_many_were_removed() {
+        for c in [
+            ComparisonLog,
+            OpenAccessPapers,
+            TemporaryExports,
+            OrphanNoteImages,
+        ] {
+            let s = Scratch::new("remove-fails");
+            let db = s.open();
+            plant(&s, &db);
+            // A second unused image, so category 9 has two.
+            s.write("app/note-images/eee.png", &[9u8; 30]);
+            s.age("app/note-images/eee.png", NOW - 3600);
+            let calls = std::cell::Cell::new(0);
+            // The log is one file: its first removal fails. The others have
+            // two: the second fails.
+            let fail_at = if c == ComparisonLog { 1 } else { 2 };
+            let remove = |p: &Path| {
+                calls.set(calls.get() + 1);
+                if calls.get() == fail_at {
+                    Err(std::io::Error::new(
+                        std::io::ErrorKind::PermissionDenied,
+                        "planted",
+                    ))
+                } else {
+                    std::fs::remove_file(p)
+                }
+            };
+            let d = db.delete_with(c, &s.app(), &s.tmp(), NOW, &remove).unwrap();
+            let removed = fail_at - 1;
+            assert!(d.removal_failed, "{c:?}");
+            assert_eq!(d.deleted, removed, "{c:?}");
+            assert_eq!(d.after.items, d.before.items - removed, "{c:?}");
+            assert_eq!(calls.get(), fail_at, "{c:?}: it stopped at the failure");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_it_cannot_change_fails_the_first_removal_and_removes_nothing() {
+        use std::os::unix::fs::PermissionsExt;
+        let s = Scratch::new("readonly-folder");
+        let db = s.open();
+        plant(&s, &db);
+        let dir = s.app().join(OA_PAPERS_DIR);
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o500)).unwrap();
+        let got = db.stored_data_delete(OpenAccessPapers, &s.app(), &s.tmp(), NOW);
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let d = got.unwrap();
+        assert!(d.removal_failed);
+        assert_eq!((d.before.items, d.deleted, d.after.items), (2, 0, 2));
+    }
+
+    #[test]
+    fn the_wire_names_are_serdes_and_parse_back() {
+        for c in StoredCategory::ALL {
+            assert_eq!(
+                serde_json::to_value(c).unwrap(),
+                serde_json::Value::String(c.wire().into())
+            );
+            assert_eq!(StoredCategory::parse(c.wire()), Some(c));
+        }
+        assert_eq!(StoredCategory::parse("manuscripts"), None);
+        let in_db: Vec<StoredCategory> = StoredCategory::ALL
+            .into_iter()
+            .filter(|c| c.in_database())
+            .collect();
+        assert_eq!(in_db, StoredCategory::ALL[..5]);
     }
 }

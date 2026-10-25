@@ -78,6 +78,11 @@ pub struct AppState {
     /// most 8 records and 4 slots), only while Statistics is active: while no
     /// workspace is, no engine value exists.
     pub workspace: Arc<crate::workspace::WorkspaceSession>,
+    /// Work that writes into a Stored data category, counted while it runs
+    /// (Research OS, Phase 5D-1b, decision 214). IN MEMORY ONLY. Each named
+    /// command takes its guard first; a delete of that category is refused
+    /// while one is going.
+    pub running: Arc<crate::stored_data_commands::RunningWork>,
 }
 
 /// How many rendered reports to keep in memory. A user exports the run they
@@ -140,6 +145,7 @@ impl AppState {
             stats_l1: Arc::new(crate::stats_l1_commands::L1Runs::default()),
             stats_ai: Arc::new(crate::stats_ai::StatsAi::production(&app_data_dir)),
             workspace: Arc::new(crate::workspace::WorkspaceSession::default()),
+            running: Arc::new(crate::stored_data_commands::RunningWork::default()),
         }
     }
 }
