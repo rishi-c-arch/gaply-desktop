@@ -23,7 +23,8 @@ use gaply_core::stats_l1::reproduce::{
 use gaply_core::stats_l1::run_state::L1RunState;
 use gaply_core::stats_l1::token::ConfirmationToken;
 
-use crate::stats_l1_ingest::load_dataset;
+use crate::stats_l1_ingest::load_dataset_with;
+use crate::supplementary::IngestLimits;
 
 /// Level 1 for every claim in `state`, on the data file at `path`.
 #[doc(hidden)]
@@ -33,7 +34,9 @@ pub fn run_stats_reproduction_measured(
     path: &Path,
     pairs: &[(RevisionHash, ConfirmationToken)],
 ) -> ReproductionOutcome {
-    reproduce(state, pairs, || load_dataset(path))
+    reproduce(state, pairs, || {
+        load_dataset_with(path, IngestLimits::LEVEL_1)
+    })
 }
 
 /* ------------------------------------------------------------------------ *

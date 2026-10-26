@@ -2,14 +2,16 @@
 // Every code the t-test screen can show has one sentence here, keyed by the
 // closed set in ttestCodes.json, which src-tauri/tests/stats_ttest_wire.rs
 // pins to TTestCode, RunCode, WorkspaceCode and CapabilityCode exactly. A
-// refusal from the file ingest is Level 1's own code, so its sentence is
-// Level 1's (l1Wording's sentenceFor), as on the describe screen.
+// refusal from the file ingest is Level 1's own code, and is said by
+// methodsIngestWording, as on the describe screen: four sentences of its own
+// that do not name Level 1 (decision 243), and Level 1's for every other.
 //
 // The tone is neutral (decision 66): the t-test describes a difference, it
 // does not pass or fail it. No sentence here judges a p-value, and none uses
 // the words a verdict would; ttestWording.vitest.ts reads every sentence and
 // the rendered card for them.
-import { refusalOf, sentenceFor } from '../statsverifier/l1/l1Wording';
+import { refusalOf } from '../statsverifier/l1/l1Wording';
+import { methodsIngestSentence } from './methodsIngestWording';
 import type { WireCode } from '../statsverifier/statsL1Types';
 import { workspaceSentence } from '../workspace/workspaceWording';
 import type { WorkspaceRefusal } from '../workspace/workspaceTypes';
@@ -196,7 +198,7 @@ export function ttestSentence(d: Coded, names: TTestNames = NO_NAMES): string {
 
 /** One plain sentence for a command's refusal: the run manager's, the
  *  registry's and the workspace's codes in these words, the ingest's in
- *  Level 1's. */
+ *  methodsIngestWording's. */
 export function ttestRefusalSentence(e: unknown): string {
   const c = refusalOf(e);
   if (!c) {
@@ -207,7 +209,7 @@ export function ttestRefusalSentence(e: unknown): string {
     const params = (c as { params?: unknown }).params;
     return ttestSentence({ code: c.code, params: params && typeof params === 'object' ? (params as Record<string, unknown>) : {} });
   }
-  return sentenceFor(c as WireCode);
+  return methodsIngestSentence(c as WireCode);
 }
 
 /** A candidate missing code in the outcome, as a question naming the

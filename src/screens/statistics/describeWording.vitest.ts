@@ -72,10 +72,10 @@ describe('describeWording', () => {
     expect(notComputableReason('stats.desc.no_values')).toBe('The column has no values.');
   });
 
-  it('words a run refusal itself and an ingest refusal in Level 1 words', () => {
+  it("words a run refusal itself and the row cap in decision 243's sentence", () => {
     expect(refusalSentence(refusal({ code: 'run.run_busy' }))).toBe('A summary is already running. Wait for it to end, or cancel it.');
     const ingest = { code: 'file_too_large', limit_rows: 5000 };
-    expect(refusalSentence(refusal(ingest))).toBe(sentenceFor(ingest as never));
+    expect(refusalSentence(refusal(ingest))).toBe('The file has more than 5000 rows. Gaply never computes on part of a file, so it was not opened.');
     expect(refusalSentence(refusal(ingest))).toContain('5000');
     expect(refusalSentence(new Error('plain'))).toBe('This could not be done: plain');
     // F4: the cell text cap, as stats_desc_open refuses it.

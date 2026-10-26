@@ -11,6 +11,7 @@ import DescribeFlow from './DescribeFlow';
 import { makeMockDescribeBridge } from './describeBridge';
 import type { DatasetView, OperationSpec, RunStateView } from './describeTypes';
 import { resultBundleView } from './fixtures/describeFixtures';
+import { INGEST_REFUSALS, rejection } from './fixtures/ingestRefusals';
 
 const save = vi.fn();
 const writeTextFile = vi.fn();
@@ -327,4 +328,18 @@ describe('DescribeFlow', () => {
     expect((await screen.findByTestId('desc-error')).textContent).toContain('5000');
     expect(heading().textContent).toBe('Import a data file');
   });
+});
+
+// Research OS, Phase 8B (decision 243): each ingest refusal, rendered on this
+// screen as stats_desc_open throws it, names no Level 1.
+describe('an ingest refusal on the summary screen', () => {
+  for (const { name, code } of INGEST_REFUSALS) {
+    it(`says ${name} without naming Level 1`, async () => {
+      setup({ stats_desc_open: () => { throw rejection(code); } });
+      fireEvent.click(screen.getByTestId('desc-choose'));
+      const said = (await screen.findByTestId('desc-error')).textContent ?? '';
+      expect(said).not.toBe('');
+      expect(said).not.toContain('Level 1');
+    });
+  }
 });

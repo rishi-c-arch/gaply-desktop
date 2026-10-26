@@ -65,6 +65,7 @@ use gaply_core::research_project::DataFormat;
 
 use crate::runs::{DatasetSlots, NotStarted, RunSnapshot, Runs, SourceFile};
 use crate::stats_l1_ingest::load_dataset_keeping_bytes;
+use crate::supplementary::IngestLimits;
 use crate::workspace::{refuse as refuse_workspace, refuse_inactive};
 
 /* ------------------------------------------------------------------------ *
@@ -181,8 +182,8 @@ fn display_name(path: &Path) -> String {
  * ------------------------------------------------------------------------ */
 
 pub fn open(slots: &DatasetSlots, path: &Path) -> Result<DatasetView, GaplyError> {
-    let (dataset, bytes, ext) =
-        load_dataset_keeping_bytes(path).map_err(|r| refuse_ingest(l1_ingest_refusal(r)))?;
+    let (dataset, bytes, ext) = load_dataset_keeping_bytes(path, IngestLimits::METHODS)
+        .map_err(|r| refuse_ingest(l1_ingest_refusal(r)))?;
     let display_name = display_name(path);
     let profile = stats_desc::profile(&dataset);
     let input_ref = stats_desc::input_ref(&dataset);

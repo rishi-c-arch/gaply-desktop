@@ -35,7 +35,7 @@ export function nested(c: WireCode, key: string): WireCode | undefined {
   return undefined;
 }
 
-function num(c: WireCode, key: string): number | undefined {
+export function num(c: WireCode, key: string): number | undefined {
   const v = c[key];
   return typeof v === 'number' ? v : undefined;
 }
@@ -60,7 +60,7 @@ function roundingOf(c: WireCode | undefined): string {
 }
 
 /** Bytes as megabytes, for a reader. */
-const megabytes = (b: number | undefined) => (b === undefined ? '?' : `${Math.round(b / (1024 * 1024))} MB`);
+export const megabytes = (b: number | undefined) => (b === undefined ? '?' : `${Math.round(b / (1024 * 1024))} MB`);
 
 /** Bytes as megabytes to one decimal: a file's size beside its limit (part C
  *  follow-up, minor wording). */

@@ -78,8 +78,9 @@ use gaply_core::stats_registry::Registry;
 use gaply_core::{Database, GaplyError};
 
 use crate::stats_ai::{test_key, AiSettings, StatsAi, TaskUsage, UsageByTask, PROVIDER};
-use crate::stats_l1_ingest::load_dataset;
+use crate::stats_l1_ingest::load_dataset_with;
 use crate::stats_reproduction::{reproduction_view, ReproductionView};
+use crate::supplementary::IngestLimits;
 
 /// The most runs held at once; the oldest is dropped first.
 pub const MAX_RUNS: usize = 4;
@@ -1149,7 +1150,7 @@ pub fn open(db: &Database, runs: &L1Runs, ai: &StatsAi, manuscript: &Path, data:
     // evaluation's F5).
     let level0_outcome = stats_adapters::check_with_reading(&stats_adapters::check_spec(), crate::workspace::build(), &ex, reading)
         .map_err(crate::workspace::refuse_capability)?;
-    let dataset = load_dataset(data).map_err(|r| refuse(with_code(w("data_refused"), "reason", codes::l1_ingest_refusal(r))))?;
+    let dataset = load_dataset_with(data, IngestLimits::LEVEL_1).map_err(|r| refuse(with_code(w("data_refused"), "reason", codes::l1_ingest_refusal(r))))?;
 
     let mut level0 = HashMap::new();
     for c in &claims {
@@ -1684,7 +1685,7 @@ pub fn compute(runs: &L1Runs, run: u64, handles: &[String]) -> Result<Reproducti
     }
     let specs: Vec<_> = by_method.into_iter().map(|(m, refs)| stats_adapters::verify_spec(m, refs)).collect();
     let data_path = r.data_path.clone();
-    let outcome = stats_adapters::verify(&specs, crate::workspace::build(), &r.state, &pairs, || load_dataset(&data_path))
+    let outcome = stats_adapters::verify(&specs, crate::workspace::build(), &r.state, &pairs, || load_dataset_with(&data_path, IngestLimits::LEVEL_1))
         .map_err(crate::workspace::refuse_capability)?;
     let view = reproduction_view(&outcome);
     r.reproduction = Some(outcome);

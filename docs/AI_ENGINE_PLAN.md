@@ -25910,3 +25910,93 @@ seam commands (decision 221); the Windows sentences of ADR-009 §1, §5, §10 an
 `CitationManagerPage.tsx`'s "Not synced: …" (shown only when signed in), and
 `ManuscriptEditor.tsx`'s export failures (`:195`, `:217`, `:228`, `:239`,
 `:257`). Two pre-existing flakes, each green on rerun: `stats_l1_ingest::tests::every_byte_level_refusal_of_the_path_ingest_is_the_bytes_entrys_too` failed once in the first workspace run (`ArchiveTooLarge` vs `NotReadable` for `big.mat`): another test in the same binary writes and removes a `big.mat` in the same per-process folder (`stats_l1_ingest.rs:882` and `:1266`), so the two race; the app lib then passed three times alone and the workspace run passed. `aiScreens.vitest.tsx`'s "keeps showing progress across BOTH installers, not just the first 85ms" failed once under the full suite and passed three times alone and in the next full run.
+
+### D293 — Research OS, Phase 8B: the ingest takes its limits as a value, `IngestLimits`, with one named value per user and today's numbers in each; a source guard that each production caller passes its own; four refusal sentences on the summary's and the t-test's screens that do not name Level 1 `[src]` `[test]`
+
+**Added** on `feat/research-os-8` after `735116e` (D292). Decisions 242 and 243
+of 26 Oct 2026 apply (`~/gaply-corpus/os/decisions.md`): 242 accepts the 8A
+proposal (`~/gaply-corpus/os/phase8/phase8a_proposal.md`) and its plan, 8B to
+8L; 243 sets this step. **No limit changes**: every limit, refusal code,
+refusal payload and supplementary error text is what it was, for every caller,
+and no check was added. The report is `~/gaply-corpus/os/phase8/phase8b_report.md`;
+the real-app check is `~/gaply-corpus/os/phase8/realapp_8b.md`, still to run.
+
+**Why.** 8A found that the ingest's caps were shared constants
+(`supplementary::MAX_ROWS`, `MAX_COLS`, `MAX_FILE_SIZE_BYTES`, `MAX_TOTAL_CHARS`,
+`stats_l1_ingest::MAX_WORKBOOK_UNCOMPRESSED_BYTES`), read alike by Level 1, the
+reviewer agent's supplementary files, the Stats Verifier page's legacy lane and
+the methods on the user's data, so no cap could change for the methods alone
+(its §2.1, §9 item 2).
+
+**The value.** `supplementary::IngestLimits` (`Copy`): `max_rows`, `max_cols`,
+`max_file_size_bytes`, `max_total_chars`, `max_workbook_uncompressed_bytes`.
+Three associated consts, each a literal built from the constants, which stay
+where they are and stay pinned by `tests/capability_profiles.rs`:
+
+| value | who passes it |
+|---|---|
+| `LEVEL_1` | `stats_l1_commands.rs`'s `open` and `compute` (the closure given to `stats_adapters::verify`); `stats_reproduction.rs`'s `run_stats_reproduction_measured`; `stats_l1_ingest::compute_from_path` |
+| `SUPPLEMENTARY` | `commands.rs`'s `run_publishready_measured` (the reviewer agent) and `load_first_table` (under `run_stats_preview` and `run_stats_verify`) |
+| `METHODS` | `stats_desc_commands.rs`'s `open` (`stats_desc_open`, the summary and the t-test) and `project_commands.rs`'s `rerun_open` (one call, both kinds) |
+
+Not in it, unchanged: `import_guard`'s 100 MiB cap, `MAX_CELL_LEN`'s clamp
+(still a constant read by `clamp_cell`, so the parser and the classifier clamp
+alike), `MAX_SHEET_XML_DEPTH`, the dataset's `MAX_COLUMNS`. `SUPPLEMENTARY`
+carries the workbook field with today's number, which no caller of it applies:
+`parse_supplementary_with` has no inflation check, today or now.
+
+**What takes it.** In `stats_l1_ingest.rs`: `check_size`, `read_bounded`,
+`check_bytes`, `dataset_from_parts` (the parameter); `load_dataset_keeping_bytes`
+(the parameter; no test caller); `load_dataset_with`, `load_dataset_from_bytes_with`,
+`check_file_with`, `dataset_from_checked_with`, `compute_from_path_with` (new
+siblings). In `supplementary.rs`: `parse_supplementary_with` and
+`parse_supplementary_bytes_with` (new), `exceeds_row_cap_with` and
+`exceeds_col_cap_with` (new), `exceeds_row_cap_bytes`, `exceeds_col_cap_bytes`,
+`exceeds_content_cap_bytes` and their CSV and sheet helpers, `csv_evidence`,
+`spreadsheet_evidence`, `text_evidence`, `mat_evidence`, `matlab_cells`,
+`sav_evidence`, `read_sav_rows_with`, `columns_to_rows` and the five
+`parse_*` path functions (the parameter). The old names keep their signatures
+as one-line `#[doc(hidden)]` wrappers for tests and examples:
+`parse_supplementary` and `parse_supplementary_bytes` pass `SUPPLEMENTARY`,
+`load_dataset_from_bytes` `METHODS`, the rest `LEVEL_1`; `read_sav_rows` stays
+as a `#[cfg(test)]` wrapper passing `SUPPLEMENTARY`, so its one test is
+unchanged. `load_dataset_with` and `compute_from_path_with` keep the old span
+names (`#[tracing::instrument(name = …)]`), and skip the limits. Every refusal
+payload carries the limit from the value it was given.
+
+**The guard.** `tests/ingest_limits_guard.rs` reads `src/**/*.rs` with comments
+and `#[cfg(test)]` items removed an item at a time (so the `#[cfg(test)] use`
+lines above `rerun_open` hide nothing), finds every whole-identifier, non-method
+call of `load_dataset_with`, `load_dataset_keeping_bytes`,
+`load_dataset_from_bytes_with` and `parse_supplementary_with` outside the two
+ingest files, reads it to its matching parenthesis, and checks its last argument
+is the value its table assigns to the file and enclosing function. It fails on
+a call the table does not list, on fewer call sites than the table's seven, on
+a production use of an old wrapper name, and on an `IngestLimits` struct literal
+or `..` spread outside `impl IngestLimits`, which it asserts it found exactly
+once. Its header says it constrains what is typed.
+
+**The four sentences.** `src/screens/statistics/methodsIngestWording.ts`'s
+`methodsIngestSentence`, called by `describeWording.ts`'s `refusalSentence` and
+`ttestWording.ts`'s `ttestRefusalSentence` after their own codes:
+`file_too_large`, `too_wide` (reached only nested in `dataset`, which the table
+unwraps through itself), `archive_too_large` over its limit, and
+`xls_not_readable` in decision 243's words; `archive_too_large` past its own
+contents list, a nested `no_columns` and every other code in Level 1's
+`sentenceFor`. `l1Wording.ts` exports `num` and `megabytes`, its only change.
+Level 1's screens say every one of these codes as before.
+
+**The open question, measured.** A `.sav` with 129 variables opens with its
+first 128 under `LEVEL_1` and `METHODS`: `sav_evidence` (and `mat_evidence`)
+keep at most `max_cols` and note it, and the ingest checks only
+`rows_truncated`, so it never refuses as `too_wide`.
+`a_sav_with_more_variables_than_the_column_limit_opens_with_the_first_128_today`
+pins today's behaviour. Not changed here; the report recommends a refusal.
+
+**The suites.** `cargo test --workspace --no-fail-fast` (both `lib.rs` touched, `CARGO_TERM_COLOR=never`): exit 0, **2,983 passed, 121 targets**, 12 ignored, 0 failed (at 735116e, measured in this step: 2,971, 119, 12; +12 tests and the two new targets `ingest_limits` and `ingest_limits_guard`, as predicted; every test of the base passes under the same name). `cargo test -p app --features devtools --no-fail-fast`: exit 0, **856 passed, 52 targets** (D292: 844, 50). `cargo test -p gaply_core --no-fail-fast`: 2,144 passed, 75 targets (D292's figure; nothing under `gaply-core` changed). Vitest, the whole suite on its own: **125 files, 1,707 tests** (base 124, 1,671; +4 in `methodsIngestWording.vitest.ts`, +16 each in `DescribeFlow.vitest.tsx` and `TTestFlow.vitest.tsx`); the first full run failed `StoredDataDelete.vitest.tsx`'s focus test once, which passed three times alone and in the next full run. `npx tsc --noEmit`, CI's eslint, and `npm run build` (`build/index.html` present, `public/sitemap.xml` written back from HEAD and equal by `cmp`): exit 0.
+
+**Existing tests changed: one**, as decision 243 says: `describeWording.vitest.ts`'s "words a run refusal itself and an ingest refusal in Level 1 words" is now "words a run refusal itself and the row cap in decision 243's sentence", its `file_too_large` assertion the new sentence. New tests: `tests/ingest_limits.rs` (10), `tests/ingest_limits_guard.rs` (2), `methodsIngestWording.vitest.ts` (4), and "an ingest refusal on the summary screen" and "… on the t-test screen" (16 each, one per code in `fixtures/ingestRefusals.ts`). The vitest tests ran red first (11 failed, the four codes on each screen, the sentence and sweep tests and the changed test), then green.
+
+**Mutations**, each with its SHA-256 equal after the restore and green after: `stats_l1_commands.rs`'s `open` passing `METHODS`, and `commands.rs`'s `run_publishready_measured` passing `LEVEL_1`, each red in `each_production_caller_of_the_ingest_passes_its_named_limits` with the guard's own sentence; `METHODS.max_rows` one more, red in `each_named_value_is_todays_constants_and_its_capabilities_profiles` (5001 against 5000); the CSV parser's row check reading `MAX_ROWS` again, red in `the_row_limit_applied_is_the_one_given`; the summary's screen using Level 1's `sentenceFor` again, red in the sentence and "Level 1" tests, keyed on "the summary".
+
+**Next.** 8C, the seam (decision 242's item 1).

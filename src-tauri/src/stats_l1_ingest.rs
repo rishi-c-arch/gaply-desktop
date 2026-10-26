@@ -72,7 +72,10 @@ use gaply_core::stats_l1::token::ConfirmationToken;
 use gaply_core::contracts::codes::Closed;
 use gaply_core::research_project::DataFormat;
 
-use crate::supplementary::{self, SupplementaryKind, MAX_FILE_SIZE_BYTES, MAX_ROWS, PARSER_VERSION};
+use crate::supplementary::{self, IngestLimits, SupplementaryKind, PARSER_VERSION};
+// The tests below read the constants by name; the code reads its limits.
+#[cfg(test)]
+use crate::supplementary::{MAX_FILE_SIZE_BYTES, MAX_ROWS};
 
 /// Defined in `gaply_core` since Phase 2, Step 4, so a Level 1 verdict can
 /// carry it as its "data unreadable" reason; re-exported here unchanged.
@@ -105,14 +108,22 @@ pub const MAX_WORKBOOK_UNCOMPRESSED_BYTES: u64 = 64 * 1024 * 1024;
 /// rich-text cell goes eight deep; this leaves room for any extension.
 pub const MAX_SHEET_XML_DEPTH: usize = 64;
 
-/// The file at `path` as a Level 1 dataset.
+/// [`load_dataset_with`] under [`IngestLimits::LEVEL_1`], for tests and
+/// examples; production code passes its own named limits (Research OS,
+/// Phase 8B, decision 243).
 #[doc(hidden)]
-#[tracing::instrument(skip(path))]
 pub fn load_dataset(path: &Path) -> Result<Dataset, L1IngestRefusal> {
-    dataset_from_checked(check_file(path)?)
+    load_dataset_with(path, IngestLimits::LEVEL_1)
 }
 
-/// [`load_dataset`], keeping the bytes it read and their extension
+/// The file at `path` as a Level 1 dataset, under the `limits` it is given.
+#[doc(hidden)]
+#[tracing::instrument(name = "load_dataset", skip(path, limits))]
+pub fn load_dataset_with(path: &Path, limits: IngestLimits) -> Result<Dataset, L1IngestRefusal> {
+    dataset_from_checked_with(check_file_with(path, limits)?, limits)
+}
+
+/// [`load_dataset_with`], keeping the bytes it read and their extension
 /// (Research OS, Phase 5B-2, decision 123): `stats_desc_open` holds them in
 /// the dataset's slot, so a project Save copies exactly the bytes the
 /// fingerprint names. The same checks, the same one read and the same parse.
@@ -120,9 +131,10 @@ pub fn load_dataset(path: &Path) -> Result<Dataset, L1IngestRefusal> {
 #[tracing::instrument(skip_all)]
 pub fn load_dataset_keeping_bytes(
     path: &Path,
+    limits: IngestLimits,
 ) -> Result<(Dataset, Vec<u8>, String), L1IngestRefusal> {
-    let checked = check_file(path)?;
-    let dataset = dataset_from_parts(&checked.bytes, &checked.ext)?;
+    let checked = check_file_with(path, limits)?;
+    let dataset = dataset_from_parts(&checked.bytes, &checked.ext, limits)?;
     Ok((dataset, checked.bytes, checked.ext))
 }
 
@@ -143,13 +155,24 @@ pub fn load_dataset_from_bytes(
     bytes: &[u8],
     format: DataFormat,
 ) -> Result<Dataset, L1IngestRefusal> {
+    load_dataset_from_bytes_with(bytes, format, IngestLimits::METHODS)
+}
+
+/// [`load_dataset_from_bytes`] under the `limits` it is given: a rerun passes
+/// [`IngestLimits::METHODS`] (Research OS, Phase 8B, decision 243).
+#[doc(hidden)]
+pub fn load_dataset_from_bytes_with(
+    bytes: &[u8],
+    format: DataFormat,
+    limits: IngestLimits,
+) -> Result<Dataset, L1IngestRefusal> {
     let ext = format.wire();
     if format == DataFormat::Json || !TABLE_EXTENSIONS.contains(&ext) {
         return Err(L1IngestRefusal::UnsupportedFormat);
     }
-    check_size(bytes.len() as u64)?;
-    check_bytes(bytes, ext)?;
-    dataset_from_parts(bytes, ext)
+    check_size(bytes.len() as u64, limits)?;
+    check_bytes(bytes, ext, limits)?;
+    dataset_from_parts(bytes, ext, limits)
 }
 
 /// A data file opened, checked and read once: its bytes and its extension.
@@ -161,14 +184,20 @@ pub struct CheckedFile {
     ext: String,
 }
 
-/// Steps 0 to 3's checks, and the bytes read through the opened handle.
+/// [`check_file_with`] under [`IngestLimits::LEVEL_1`], for tests.
 #[doc(hidden)]
 pub fn check_file(path: &Path) -> Result<CheckedFile, L1IngestRefusal> {
+    check_file_with(path, IngestLimits::LEVEL_1)
+}
+
+/// Steps 0 to 3's checks, and the bytes read through the opened handle.
+#[doc(hidden)]
+pub fn check_file_with(path: &Path, limits: IngestLimits) -> Result<CheckedFile, L1IngestRefusal> {
     // 0. A regular file, judged on the opened handle; read through it.
     let (file, bytes_len) = open_regular(path)?;
 
     // 1 and 2, from metadata, before any content is read.
-    check_size(bytes_len)?;
+    check_size(bytes_len, limits)?;
     let ext = path
         .extension()
         .and_then(|e| e.to_str())
@@ -179,8 +208,8 @@ pub fn check_file(path: &Path) -> Result<CheckedFile, L1IngestRefusal> {
     }
 
     // 3. Hash the exact bytes, parse, hash again.
-    let before = read_bounded(file)?;
-    check_bytes(&before, &ext)?;
+    let before = read_bounded(file, limits)?;
+    check_bytes(&before, &ext, limits)?;
     Ok(CheckedFile { bytes: before, ext })
 }
 
@@ -188,7 +217,7 @@ pub fn check_file(path: &Path) -> Result<CheckedFile, L1IngestRefusal> {
 /// decision, then the ingest's own cap. Shared by the path ingest, which
 /// reads the size from metadata, and [`load_dataset_from_bytes`] (Research
 /// OS, Phase 5C-1a).
-fn check_size(bytes_len: u64) -> Result<(), L1IngestRefusal> {
+fn check_size(bytes_len: u64, limits: IngestLimits) -> Result<(), L1IngestRefusal> {
     // 1. import_guard's byte rule, through the pure decision.
     let shape = DocumentShape {
         pages: None,
@@ -208,10 +237,10 @@ fn check_size(bytes_len: u64) -> Result<(), L1IngestRefusal> {
         });
     }
     // 2. The ingest's own caps.
-    if bytes_len > MAX_FILE_SIZE_BYTES {
+    if bytes_len > limits.max_file_size_bytes {
         return Err(L1IngestRefusal::TooLarge {
             bytes: bytes_len,
-            limit: MAX_FILE_SIZE_BYTES,
+            limit: limits.max_file_size_bytes,
         });
     }
     Ok(())
@@ -221,13 +250,14 @@ fn check_size(bytes_len: u64) -> Result<(), L1IngestRefusal> {
 /// archive's declared and inflated sizes and its sheets' depth, a `.zsav`
 /// trailer, a `.mat` file's compressed elements. Shared by the path ingest
 /// and [`load_dataset_from_bytes`] (Research OS, Phase 5C-1a).
-fn check_bytes(before: &[u8], ext: &str) -> Result<(), L1IngestRefusal> {
+fn check_bytes(before: &[u8], ext: &str, limits: IngestLimits) -> Result<(), L1IngestRefusal> {
+    let max_inflated = limits.max_workbook_uncompressed_bytes;
     if ZIP_EXTENSIONS.contains(&ext) {
         if let Some(declared) = declared_uncompressed_total(&before) {
-            if declared > MAX_WORKBOOK_UNCOMPRESSED_BYTES {
+            if declared > max_inflated {
                 return Err(L1IngestRefusal::ArchiveTooLarge {
                     declared,
-                    limit: MAX_WORKBOOK_UNCOMPRESSED_BYTES,
+                    limit: max_inflated,
                 });
             }
         }
@@ -235,11 +265,11 @@ fn check_bytes(before: &[u8], ext: &str) -> Result<(), L1IngestRefusal> {
         // actually inflate to, into a sink, before any parser sees them (part
         // C follow-up, item 2).
         if let ZipInflation::Over { counted } =
-            import_guard::count_zip_inflation(&before, MAX_WORKBOOK_UNCOMPRESSED_BYTES)
+            import_guard::count_zip_inflation(&before, max_inflated)
         {
             return Err(L1IngestRefusal::ArchiveTooLarge {
                 declared: counted,
-                limit: MAX_WORKBOOK_UNCOMPRESSED_BYTES,
+                limit: max_inflated,
             });
         }
         // F14 (decision 52): a sheet that nests far past any SpreadsheetML
@@ -254,11 +284,11 @@ fn check_bytes(before: &[u8], ext: &str) -> Result<(), L1IngestRefusal> {
         match supplementary::zsav_trailer(&before) {
             supplementary::ZsavTrailer::Malformed => return Err(L1IngestRefusal::Malformed),
             supplementary::ZsavTrailer::Declared { inflated }
-                if inflated > MAX_WORKBOOK_UNCOMPRESSED_BYTES =>
+                if inflated > max_inflated =>
             {
                 return Err(L1IngestRefusal::ArchiveTooLarge {
                     declared: inflated,
-                    limit: MAX_WORKBOOK_UNCOMPRESSED_BYTES,
+                    limit: max_inflated,
                 });
             }
             _ => {}
@@ -268,39 +298,52 @@ fn check_bytes(before: &[u8], ext: &str) -> Result<(), L1IngestRefusal> {
     // inflates them (part C follow-up 2).
     if ext == "mat" {
         if let Err(counted) =
-            supplementary::count_mat_inflation(&before, MAX_WORKBOOK_UNCOMPRESSED_BYTES)
+            supplementary::count_mat_inflation(&before, max_inflated)
         {
             return Err(L1IngestRefusal::ArchiveTooLarge {
                 declared: counted,
-                limit: MAX_WORKBOOK_UNCOMPRESSED_BYTES,
+                limit: max_inflated,
             });
         }
     }
     Ok(())
 }
 
+/// [`dataset_from_checked_with`] under [`IngestLimits::LEVEL_1`], for tests.
+#[doc(hidden)]
+pub fn dataset_from_checked(checked: CheckedFile) -> Result<Dataset, L1IngestRefusal> {
+    dataset_from_checked_with(checked, IngestLimits::LEVEL_1)
+}
+
 /// Steps 3 and 4 on a checked file: the parse reads the checked bytes, never
 /// the path, so they are the bytes fingerprinted.
 #[doc(hidden)]
-pub fn dataset_from_checked(checked: CheckedFile) -> Result<Dataset, L1IngestRefusal> {
-    dataset_from_parts(&checked.bytes, &checked.ext)
+pub fn dataset_from_checked_with(
+    checked: CheckedFile,
+    limits: IngestLimits,
+) -> Result<Dataset, L1IngestRefusal> {
+    dataset_from_parts(&checked.bytes, &checked.ext, limits)
 }
 
 /// [`dataset_from_checked`]'s body, over the checked bytes and extension.
-fn dataset_from_parts(before: &[u8], ext: &str) -> Result<Dataset, L1IngestRefusal> {
+fn dataset_from_parts(
+    before: &[u8],
+    ext: &str,
+    limits: IngestLimits,
+) -> Result<Dataset, L1IngestRefusal> {
     // A failed parse is classified by a typed check of its own
     // (`exceeds_row_cap`), never by reading the parser's message, which the
     // existing Stats Verifier shows unchanged.
-    let evidence = supplementary::parse_supplementary_bytes(&before, &ext).map_err(|_| {
-        if supplementary::exceeds_row_cap_bytes(&before, &ext) {
-            L1IngestRefusal::FileTooLarge { limit_rows: MAX_ROWS }
-        } else if let Some(columns) = supplementary::exceeds_col_cap_bytes(&before, &ext) {
+    let evidence = supplementary::parse_supplementary_bytes_with(&before, &ext, limits).map_err(|_| {
+        if supplementary::exceeds_row_cap_bytes(&before, &ext, limits) {
+            L1IngestRefusal::FileTooLarge { limit_rows: limits.max_rows }
+        } else if let Some(columns) = supplementary::exceeds_col_cap_bytes(&before, &ext, limits) {
             // Step 8b, section 4's finding 1: too wide, not malformed.
-            L1IngestRefusal::Dataset(DatasetRefusal::TooWide { columns, limit: supplementary::MAX_COLS })
-        } else if supplementary::exceeds_content_cap_bytes(&before, &ext) {
+            L1IngestRefusal::Dataset(DatasetRefusal::TooWide { columns, limit: limits.max_cols })
+        } else if supplementary::exceeds_content_cap_bytes(&before, &ext, limits) {
             // Research OS evaluation, F4: more cell text than the ingest
             // keeps, not malformed.
-            L1IngestRefusal::ContentTooLarge { limit_bytes: supplementary::MAX_TOTAL_CHARS }
+            L1IngestRefusal::ContentTooLarge { limit_bytes: limits.max_total_chars }
         } else if supplementary::xls_not_compound_document_bytes(&before, &ext) {
             L1IngestRefusal::XlsNotReadable
         } else if supplementary::not_utf8_text_bytes(&before, &ext) {
@@ -311,7 +354,9 @@ fn dataset_from_parts(before: &[u8], ext: &str) -> Result<Dataset, L1IngestRefus
         }
     })?;
     if evidence.rows_truncated {
-        return Err(L1IngestRefusal::FileTooLarge { limit_rows: MAX_ROWS });
+        return Err(L1IngestRefusal::FileTooLarge {
+            limit_rows: limits.max_rows,
+        });
     }
     let table_ref = match evidence.kind {
         SupplementaryKind::Csv => TableRef::FirstTable,
@@ -366,11 +411,17 @@ fn open_regular(path: &Path) -> Result<(std::fs::File, u64), L1IngestRefusal> {
 
 /// Every byte of an opened file, but never more than the ingest's size cap:
 /// a file that grew past it since its `stat` is refused as too large.
-fn read_bounded(file: std::fs::File) -> Result<Vec<u8>, L1IngestRefusal> {
+fn read_bounded(file: std::fs::File, limits: IngestLimits) -> Result<Vec<u8>, L1IngestRefusal> {
+    let cap = limits.max_file_size_bytes;
     let mut bytes = Vec::new();
-    file.take(MAX_FILE_SIZE_BYTES + 1).read_to_end(&mut bytes).map_err(|_| L1IngestRefusal::NotReadable)?;
-    if bytes.len() as u64 > MAX_FILE_SIZE_BYTES {
-        return Err(L1IngestRefusal::TooLarge { bytes: bytes.len() as u64, limit: MAX_FILE_SIZE_BYTES });
+    file.take(cap + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| L1IngestRefusal::NotReadable)?;
+    if bytes.len() as u64 > cap {
+        return Err(L1IngestRefusal::TooLarge {
+            bytes: bytes.len() as u64,
+            limit: cap,
+        });
     }
     Ok(bytes)
 }
@@ -446,10 +497,16 @@ pub enum L1ComputeError {
 /// fresh dataset's fingerprint is then checked against the confirmed one by
 /// `compute`, so an edited file is refused rather than computed on.
 #[doc(hidden)]
-#[tracing::instrument(skip(state, token, path))]
 pub fn compute_from_path(state: &L1RunState, token: &ConfirmationToken, claim: ClaimId, path: &Path) -> Result<L1Computation, L1ComputeError> {
+    compute_from_path_with(state, token, claim, path, IngestLimits::LEVEL_1)
+}
+
+/// [`compute_from_path`] under the `limits` it is given.
+#[doc(hidden)]
+#[tracing::instrument(name = "compute_from_path", skip(state, token, path, limits))]
+pub fn compute_from_path_with(state: &L1RunState, token: &ConfirmationToken, claim: ClaimId, path: &Path, limits: IngestLimits) -> Result<L1Computation, L1ComputeError> {
     state.gate(token, claim).map_err(|g| L1ComputeError::Refused(L1Refusal::Gate(g)))?;
-    let reread = load_dataset(path).map_err(L1ComputeError::Ingest)?;
+    let reread = load_dataset_with(path, limits).map_err(L1ComputeError::Ingest)?;
     compute::compute(state, token, claim, &reread).map_err(L1ComputeError::Refused)
 }
 

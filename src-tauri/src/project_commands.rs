@@ -109,7 +109,10 @@ use crate::project_store::{
     projects_root, ArtifactInput, ProjectHandle, ProjectRoot, RunToSave, SaveRequest,
 };
 use crate::runs::{Clock, EndHook, NotStarted, RunCopy, RunInput, RunKind, Runs, Slot, SourceFile};
+#[cfg(test)]
 use crate::stats_l1_ingest::load_dataset_from_bytes;
+use crate::stats_l1_ingest::load_dataset_from_bytes_with;
+use crate::supplementary::IngestLimits;
 use crate::workspace::{refuse as refuse_workspace, refuse_inactive, WorkspaceSession};
 
 #[cfg(test)]
@@ -1496,7 +1499,7 @@ fn rerun_open(
     };
     // The project's copy of the data file, through the ingest's own checks
     // and parse, as `stats_desc_open` reads a file.
-    let dataset = load_dataset_from_bytes(&data, arts.data.format)
+    let dataset = load_dataset_from_bytes_with(&data, arts.data.format, IngestLimits::METHODS)
         .map_err(|_| refuse(ProjectCode::RerunDataUnreadable))?;
     // 9. The spec passes validation, as an ordinary run's must.
     let build = crate::workspace::build();

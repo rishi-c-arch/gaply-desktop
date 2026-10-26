@@ -1,14 +1,16 @@
 // Gaply — the descriptive summary's words (Research OS, Phase 2B). Every
 // code a command or a view can carry has one sentence here, keyed by the
 // closed set in describeCodes.json, which a Rust test pins to DescCode and
-// RunCode exactly. A refusal from the file ingest is Level 1's own code, so
-// its sentence is Level 1's (l1Wording's sentenceFor): one reading of the
-// file, one set of words for its refusals.
+// RunCode exactly. A refusal from the file ingest is Level 1's own code, and
+// is said by methodsIngestWording: four sentences of its own that do not name
+// Level 1 (decision 243), and Level 1's (l1Wording's sentenceFor) for every
+// other code.
 //
 // The tone is neutral: a summary describes data, it does not pass or fail
 // it, so nothing here congratulates, and "Could not compute" is a reason,
 // not an error.
-import { refusalOf, sentenceFor } from '../statsverifier/l1/l1Wording';
+import { refusalOf } from '../statsverifier/l1/l1Wording';
+import { methodsIngestSentence } from './methodsIngestWording';
 // The run manager's ceiling, pinned to runs::RUN_CEILING_MS by
 // src-tauri/tests/stats_desc_wire.rs (evaluation of Phases 2 and 3, F11).
 import LIMITS from './describeLimits.json';
@@ -149,7 +151,7 @@ export function notComputableReason(code: string): string {
 export const COULD_NOT_COMPUTE = 'Could not compute';
 
 /** One plain sentence for a command's refusal: the run manager's codes in
- *  these words, the ingest's in Level 1's. */
+ *  these words, the ingest's in methodsIngestWording's. */
 export function refusalSentence(e: unknown): string {
   const c = refusalOf(e);
   if (!c) {
@@ -157,7 +159,7 @@ export function refusalSentence(e: unknown): string {
     return message.trim() ? `This could not be done: ${message.trim()}` : 'This could not be done.';
   }
   if (c.code in WORDS) return WORDS[c.code]({ code: c.code as Diagnostic['code'], params: {}, severity: 'error' }, NO_HEADERS);
-  return sentenceFor(c as WireCode);
+  return methodsIngestSentence(c as WireCode);
 }
 
 /** A candidate missing code, as a question naming the value (decision on

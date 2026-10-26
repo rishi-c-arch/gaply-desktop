@@ -913,11 +913,16 @@ pub fn run_publishready_measured(
     let supp_values: Vec<serde_json::Value> = supplementary_paths
         .unwrap_or_default()
         .iter()
-        .filter_map(|p| match crate::supplementary::parse_supplementary(std::path::Path::new(p)) {
-            Ok(ev) => serde_json::to_value(&ev).ok(),
-            Err(e) => {
-                tracing::warn!(error_kind = e.code(), "supplementary parse failed; skipped");
-                None
+        .filter_map(|p| {
+            match crate::supplementary::parse_supplementary_with(
+                std::path::Path::new(p),
+                crate::supplementary::IngestLimits::SUPPLEMENTARY,
+            ) {
+                Ok(ev) => serde_json::to_value(&ev).ok(),
+                Err(e) => {
+                    tracing::warn!(error_kind = e.code(), "supplementary parse failed; skipped");
+                    None
+                }
             }
         })
         .collect();
@@ -3122,7 +3127,10 @@ pub struct StatsPreview {
 
 /// The first table of an uploaded CSV/spreadsheet (header row + data rows).
 fn load_first_table(path: &str) -> Result<crate::supplementary::Table, GaplyError> {
-    let ev = crate::supplementary::parse_supplementary(std::path::Path::new(path))?;
+    let ev = crate::supplementary::parse_supplementary_with(
+        std::path::Path::new(path),
+        crate::supplementary::IngestLimits::SUPPLEMENTARY,
+    )?;
     ev.tables.into_iter().next().ok_or_else(|| {
         GaplyError::Validation(
             "no table found in the uploaded file — provide a CSV or spreadsheet with a header row \
