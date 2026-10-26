@@ -108,6 +108,7 @@ read.
 |---|---|
 | a group with fewer than 2 values after exclusions | refused, `group_too_small` {index, count}, at validation and at run |
 | both groups constant (se exactly 0) | not computable, `both_groups_constant`; validation passes, the run refuses |
+| se not 0 but below 10 · ε · max(\|mean 1\|, \|mean 2\|) (ε = `f64::EPSILON`), under Student and Welch | not computable, `groups_essentially_constant`; validation passes, the run refuses. R's own rule and scale (decision 259) |
 | one group constant | computed under both variants, as R does; its sd is exactly 0 and the sd ratio is `sd_ratio_undefined` |
 | a sum, square, quotient or root a double cannot hold | not computable, `overflow` |
 | a sum of squares below the smallest normal double though the values differ | not computable, `underflow` |
@@ -123,6 +124,27 @@ read.
 
 Never NaN or infinity: every number in a result is finite, or the run is
 refused with a closed code.
+
+**Essentially constant (Phase 8D-1b, decision 259).** Groups whose values
+differ only in their last bits (group A 1.0, 1.0000000000000002, 1.0 and group
+B 2.0, 2.0000000000000004, 2.0) have a standard error that is not 0 but is
+rounding, not spread; before this rule Gaply reported t ≈ −4.93e15 and p ≈ 0
+for them, under both variants. Gaply refuses a standard error below 10 · ε ·
+max(|mean 1|, |mean 2|), ε being `f64::EPSILON`, which is R's rule in
+`t.test.default` ("data are essentially constant"; R's
+`src/library/stats/R/t.test.R`, line 94 of trunk, read 26 Oct 2026, the same in
+R 4.6.1). The scale is the LARGER mean: a group near 1 one ulp apart beside a
+group near 1000 is refused (`tests/essentially_constant.rs`). The exact check
+comes first: both groups constant is still `both_groups_constant`, and one
+constant group still computes. The rule only refuses: every result that
+computed before computes with the same bits
+(`tests/essentially_constant_bytes_pin.rs`, all 32 computed golden cases). What
+the rule does not catch, as R's does not: a spread lost in rounding that is
+still above 10 · ε · the larger mean. `tests/essentially_constant_r.rs` checks
+the boundary against R on six cases under both variants. The screen says: "The
+values in each group vary so little, compared with their size, that the
+standard error is lost in rounding, so t is not computed. R refuses such data
+too: "data are essentially constant"."
 
 ## 6. Precision, the gates, and why
 

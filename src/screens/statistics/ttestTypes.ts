@@ -52,7 +52,8 @@ export type TTestCode =
   | 'stats.ttest.missing_code'
   | 'stats.ttest.normality_not_assessed'
   | 'stats.ttest.cohens_d_has_no_interval'
-  | 'stats.ttest.too_many_levels';
+  | 'stats.ttest.too_many_levels'
+  | 'stats.ttest.groups_essentially_constant';
 
 export type TTestParamKey = 'column' | 'count' | 'index' | 'value' | 'limit' | 'expected' | 'found';
 

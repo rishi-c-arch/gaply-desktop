@@ -46,7 +46,10 @@
 //!
 //! **Edge cases are closed outcomes, never NaN or infinity.** A group with
 //! fewer than two values is refused (`group_too_small`); both groups
-//! constant, a standard error of exactly 0, is `both_groups_constant`; one
+//! constant, a standard error of exactly 0, is `both_groups_constant`; a
+//! standard error that is not 0 but below 10 · ε · max(|mean 1|, |mean 2|),
+//! spread lost in rounding, is `groups_essentially_constant`, R's "data are
+//! essentially constant" (decision 259, [`essentially_constant`]); one
 //! constant group is computed under both variants, as R does, and only its
 //! sd ratio is `sd_ratio_undefined`; a sum, square or root a double cannot
 //! hold is `overflow`, and a sum of squares that falls below the smallest
@@ -176,6 +179,10 @@ closed! {
         /// group (decision 94). Params `count`, `limit`
         /// ([`MAX_GROUP_LEVELS`]).
         TooManyLevels => "too_many_levels",
+        /// Not computable: the standard error is not 0 but below 10 · ε ·
+        /// max(|mean 1|, |mean 2|), so the groups' spread is lost in rounding
+        /// and t means nothing; R stops on the same rule (decision 259).
+        GroupsEssentiallyConstant => "groups_essentially_constant",
     }
 }
 
@@ -843,6 +850,21 @@ pub(crate) fn interval_95<C: Copy>(
     Ok([finite(estimate - half)?, finite(estimate + half)?])
 }
 
+/// Whether a standard error is rounding rather than spread: `se` below
+/// 10 · ε · `scale`, ε being `f64::EPSILON`. THE "essentially constant" rule
+/// of the t family (Research OS, Phase 8D-1b, decision 259), shared with
+/// `stats_onesample`; each caller passes its own scale. It is R's rule, in
+/// `t.test.default` (R's file src/library/stats/R/t.test.R, the one-sample
+/// and paired check at lines 62 to 64 and the two-sample check at line 94 of
+/// trunk, https://raw.githubusercontent.com/wch/r-source/trunk/src/library/stats/R/t.test.R,
+/// read 26 Oct 2026, and the same in R 4.6.1 as installed), where R stops
+/// with "data are essentially constant". Callers check it after the exact-0
+/// checks and after `stats_verify`'s own refusals, so a standard error of
+/// exactly 0 keeps its own code.
+pub(crate) fn essentially_constant(se: f64, scale: f64) -> bool {
+    se < 10.0 * f64::EPSILON * scale
+}
+
 /// Every number of the result. `values` are ascending and each holds at
 /// least two, checked before.
 fn arithmetic(values: &[Vec<f64>; 2], variant: Variant) -> Result<Numbers, TTestCode> {
@@ -856,6 +878,9 @@ fn arithmetic(values: &[Vec<f64>; 2], variant: Variant) -> Result<Numbers, TTest
         Variant::Welch => t_test_welch(a, b),
     }
     .map_err(|e| refused(RangeFault::of(&e)))?;
+    if essentially_constant(r.se, r.mean_a.abs().max(r.mean_b.abs())) {
+        return Err(TTestCode::GroupsEssentiallyConstant);
+    }
     let p = t_two_tailed(r.t, r.df).ok_or(TTestCode::ArithmeticRefused)?;
     let mean_difference = finite(r.mean_a - r.mean_b)?;
     let ci = interval_95(

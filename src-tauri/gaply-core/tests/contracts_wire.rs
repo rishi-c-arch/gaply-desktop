@@ -742,6 +742,7 @@ fn the_code_and_word_lists_are_pinned() {
             "stats.ttest.normality_not_assessed",
             "stats.ttest.cohens_d_has_no_interval",
             "stats.ttest.too_many_levels",
+            "stats.ttest.groups_essentially_constant",
         ]
     );
     // Phase 8D-1: the one-sample and paired t-tests' codes, in decision
@@ -779,6 +780,8 @@ fn the_code_and_word_lists_are_pinned() {
             "stats.onesample.values_normality_not_assessed",
             "stats.onesample.differences_normality_not_assessed",
             "stats.onesample.cohens_d_has_no_interval",
+            "stats.onesample.values_essentially_constant",
+            "stats.onesample.differences_essentially_constant",
         ]
     );
     assert_eq!(OneSampleCode::NAMESPACE, "stats.onesample.");

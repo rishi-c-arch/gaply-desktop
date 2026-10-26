@@ -101,18 +101,46 @@ then the second, so permuting the rows changes no bit.
 |---|---|
 | fewer than 2 pairs after exclusions | refused, `too_few_pairs` {count}, at validation and at run |
 | every difference equal (se exactly 0), identical columns included | not computable, `differences_constant`; validation passes, the run refuses. R stops ("data are essentially constant") when the mean difference is not 0, and answers t = NaN for identical columns |
+| se not 0 but below 10 · ε · max(\|mean of the differences\|, mean of \|first\|, mean of \|second\|) | not computable, `differences_essentially_constant`; validation passes, the run refuses. R's scale is the first term only; the other two are Gaply's own, so Gaply refuses some data R computes (below) |
 | df above 1e4 (10,002 pairs or more) | not computable, `quantile_out_of_range` (decision 242.7, until 8E); 10,001 pairs compute |
 | the same column twice | invalid, `same_column` |
 | a column holds text, NaN or an infinity | invalid, `column_holds_text` / `column_non_finite` {column, count} |
 | overflow, underflow, any other refusal | `overflow`, `underflow`, `arithmetic_refused`, as for the one-sample test |
 | a candidate missing code in either column, not listed | warning, `suspect_missing_code` {column, value, count}, one per column; never applied |
 
-Never NaN or infinity. The known gap of `methods/one_sample_t` §5 applies here
-most of all: differences equal in decimal but not in binary (`b = a − 2` on a
-3-decimal grid) give a standard error near 1e-16 that is not 0, so Gaply
-computes t ≈ 1.9e16 where R stops on its tolerance. The R fixture uses a
-quarter grid, where `a − 2` is exact, for its constant-difference case. 8D-1
-report, open question 1.
+Never NaN or infinity.
+
+**Essentially constant (Phase 8D-1b, decision 259).** When the second column is
+the first minus a constant, rounding can leave differences that are equal in
+decimal but not in binary: `b = a − 2` on a 3-decimal grid misses 2 by an ulp
+on some rows, and before this rule Gaply computed t ≈ 1.42e16 there. Gaply
+refuses a standard error below 10 · ε · scale, ε being `f64::EPSILON`, with
+scale = max(|mean of the differences|, mean of |first|, mean of |second|). R's
+`t.test.default` stops on the same comparison with |mean of the differences|
+alone (R's `src/library/stats/R/t.test.R`, lines 52–55 and 62–64 of trunk, read
+26 Oct 2026, the same in R 4.6.1).
+
+**Where Gaply refuses and R computes.** The rounding in first − second is about
+an ulp of the VALUES, not of the difference. When every pair differs by the
+same small amount beside large values, that rounding is above R's threshold and
+R computes a huge t; Gaply's larger scale refuses it. Measured on R 4.6.1:
+
+| first, second | se | R's threshold | Gaply's threshold | R | Gaply |
+|---|---|---|---|---|---|
+| near 100, every pair 0.1 apart (`pair_tenth`) | 3.48e-15 | 2.22e-16 | 2.23e-13 | t ≈ 2.9e13 | `differences_essentially_constant` |
+| near 300, 0.2 apart (`pair_300_fifth`) | 1.14e-14 | 4.44e-16 | 6.7e-13 | computes | refuses |
+| near 20, 0.01 apart (`pair_20_hundredth`) | 8.70e-16 | 2.22e-17 | 4.6e-14 | computes | refuses |
+
+Data whose differences really vary are unaffected: a spread ten times above
+Gaply's threshold computes with the same bits as before
+(`tests/essentially_constant.rs`). The exact check comes first: all differences
+equal is still `differences_constant`. The rule only refuses: every result that
+computed before computes with the same bits
+(`tests/essentially_constant_bytes_pin.rs`). The screen's sentence, for 8D-2:
+"The differences vary so little, compared with the size of the values, that
+the standard error is lost in rounding, so t is not computed. This happens when
+every pair differs by the same amount, such as 0.1, which a computer stores
+with a tiny rounding error."
 
 ## 6. Precision, the gates, and why
 

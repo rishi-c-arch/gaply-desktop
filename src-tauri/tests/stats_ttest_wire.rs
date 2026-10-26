@@ -210,8 +210,8 @@ fn the_ttest_screens_code_list_is_exactly_the_closed_sets() {
         .collect();
     assert_eq!(
         rust.len(),
-        29,
-        "the t-test's 29 codes (too_many_levels, decision 87)"
+        30,
+        "the t-test's 30 codes (groups_essentially_constant, decision 259)"
     );
     rust.extend(RunCode::ALL.iter().map(|c| c.wire().to_string()));
     rust.extend(WorkspaceCode::ALL.iter().map(|c| c.wire().to_string()));

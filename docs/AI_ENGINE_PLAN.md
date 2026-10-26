@@ -26371,3 +26371,172 @@ written back from HEAD (`cmp` equal).
 
 **Next.** 8D-2, the app side of both, through 8C's seam; its prompt is written
 after this report (decision 252).
+
+### D297 — Research OS, Phase 8D-1b: R's "data are essentially constant" rule in the three analysis t-tests, with a stricter paired scale of Gaply's own; no computed result changed by a bit `[src]` `[test]` `[measured]`
+
+**Added** on `feat/research-os-8` after `04d8705` (D296). It follows decisions 258
+to 260 of 26 Oct 2026 (`~/gaply-corpus/os/decisions.md`), with 62, 65 and 254 to 257,
+and closes 8D-1's open question 1 (`~/gaply-corpus/os/phase8/phase8d1_report.md`).
+The report is `~/gaply-corpus/os/phase8/phase8d1b_report.md`. The real-app check is
+`~/gaply-corpus/os/phase8/realapp_8d1b.md`, run by the user on 26 Oct 2026:
+passed.
+
+**The defect.** A standard error that is not 0 but is rounding, not spread, gave
+t near 1e16 and p ≈ 0. Measured on `04d8705`'s code:
+- independent, group A 1.0, 1.0000000000000002, 1.0 and group B 2.0,
+  2.0000000000000004, 2.0: t −4.93e15 under Student and Welch, se 2.03e-16;
+- one-sample, 0.3, 0.30000000000000004, 0.3, 0.3 against 0: t 1.87e16;
+- paired, b = a − 2 on a 3-decimal grid: t 1.42e16, se 1.40e-16;
+- paired, every pair 0.1 apart near 100: t 2.87e13, se 3.48e-15.
+
+**The rule.** `stats_ttest::essentially_constant(se, scale)`, `pub(crate)`,
+beside `interval_95`, is true when se < 10 · ε · scale, with ε =
+`f64::EPSILON`. It is written once, and both modules call it.
+- **R's rule.** It is in `t.test.default` (R's `src/library/stats/R/t.test.R`,
+  https://raw.githubusercontent.com/wch/r-source/trunk/src/library/stats/R/t.test.R,
+  read 26 Oct 2026):
+  - lines 62 to 64: the one-sample and paired check, on |mx|, where the paired
+    test has already set x to x − y at lines 52 to 55;
+  - line 94: the two-sample check, on max(|mx|, |my|).
+  - The installed R 4.6.1's `stats:::t.test.default` prints the same checks.
+  - The comment cites R and does not copy its code.
+- **The scales.**
+  - one-sample: |mean| (`r.mean_a`), as R's;
+  - independent, Student and Welch: max(|mean 1|, |mean 2|), as R's;
+  - paired: max(|mean of the differences|, mean of |first|, mean of
+    |second|). The last two terms are Gaply's own, because the rounding in
+    first − second is about an ulp of the values, not of the difference.
+- **The order.** Each call comes after the exact-0 check (`both_groups_constant`,
+  `values_constant`, `differences_constant`, unchanged) and after
+  `stats_verify`'s own refusals, and before p:
+  - `stats_ttest`: after `let r = …?`;
+  - one-sample: after `t_test_one_sample`;
+  - paired: after `t_test_paired`.
+  - In the paired arithmetic, `mean(&differences)` moved above p. That is a
+    pure call on the same values, finite wherever it is reached, because
+    `t_test_paired` already refused a mean of these differences that was not.
+- **The codes,** each appended to its enum, so no variant moved:
+  - `stats.ttest.groups_essentially_constant`;
+  - `stats.onesample.values_essentially_constant`;
+  - `stats.onesample.differences_essentially_constant`.
+- **The wording.** `ttestWording.ts` holds decision 259's sentence for the t-test
+  code. The two one-sample sentences wait for 8D-2, and the method pages quote
+  them. Engine and capability versions stay 1 (decision 259).
+- **Level 1 is unchanged.** `stats_verify` and `stats_l1` are not touched;
+  `t_test_paired_pin` and Level 1's goldens are green.
+
+**Where Gaply's paired scale goes beyond R.** These were measured against
+R 4.6.1. R computes all three and Gaply refuses them:
+
+| case | se | R's threshold | R | Gaply |
+|---|---|---|---|---|
+| every pair 0.1 apart near 100 | 3.48e-15 | 2.22e-16 | t ≈ 2.9e13 | refuses |
+| 0.2 apart near 300 | 1.14e-14 | 4.44e-16 | computes | refuses |
+| 0.01 apart near 20 | 8.70e-16 | 2.22e-17 | computes | refuses |
+
+Each is more than ten times above R's threshold and below 1/50 of Gaply's.
+`docs/methods/paired_t.md` §5 says so.
+
+**What R's rule still computes, and so does Gaply's,** for the one-sample and
+independent tests: a spread lost in rounding that is still above 10 · ε · the
+mean. An example is values whose mean is near 0 beside their own size. The
+method pages say so.
+
+**Evidence that no computed result changed.**
+- **New pin:** `tests/essentially_constant_bytes_pin.rs`.
+  - It hashes `canonical_bytes()` of every computed case of the t-test golden (32)
+    and the one-sample golden (25).
+  - One digest per file over `case variant sha256` lines, each line printed.
+  - Captured on `04d8705`'s code (`048fc4d4…`, `54c4645e…`) and asserted on
+    macOS aarch64. It was green before the rule and is green after.
+- **Unchanged and green:** `ttest_bytes_pin.rs`, `t_test_paired_pin.rs`, 8C's
+  export pin, and every t-test and one-sample R golden.
+- **The property tests, unchanged and green after the rule.** They already fail
+  on any refusal but the exact-0 codes:
+  - `tests/ttest_properties.rs:112-126`, `run()`:
+    `Err(e) => { assert!(both_constant, "refused: {e:?}"); assert_eq!(e.code, TTestCode::BothGroupsConstant); None }`;
+  - `tests/onesample_properties.rs:189-191`, `:206`, `:289-291` and `:343-345`:
+    `prop_assert_eq!(e, OneSampleCode::ValuesConstant)` and
+    `prop_assert_eq!(e, OneSampleCode::DifferencesConstant)`.
+  - So none of their 512-case runs meets the new rule.
+
+**The tests.**
+- **`tests/essentially_constant.rs`**, 8 tests.
+  - Five went red on `04d8705`'s code with the t's above: the four cases and the
+    larger-mean case (A one ulp apart near 1, B near 1000, se 4.64e-14). That
+    last case is Rust-only, because R reads 1000.0000000000001 as 1000.
+  - Three computing cases sit at least ten times above their thresholds:
+    independent ×18.4, one-sample ×71.9, paired ×31.7 at Gaply's own scale.
+    Their bytes are pinned before and after.
+- **`tests/essentially_constant_r.rs`**, 3 tests, against
+  `tests/fixtures/essentially_constant/`.
+  - The fixtures were written by `make_essentially_constant.R` through
+    `/usr/local/bin/Rscript`.
+  - Every cell is written with `sprintf("%.17g")` and read back.
+  - The script stops if a case is within ten times of R's threshold, or has an
+    se of 0.
+  - 26 R outcomes: 6 one-sample, 6 independent × 2 variants, 8 paired.
+  - Gaply reads every R case's 180 cells to R's bits.
+  - It refuses where R stopped (12), computes where R computed (11, se within
+    1e-9 of R's), and refuses the 3 beyond R.
+- **R's reader misread four cases.** It turned a 17-digit cell into its
+  neighbour, so those cases are Rust-only and named in `r_outcomes.csv`'s header:
+  - `one_ulp_neg7_5` and `ind_ulp_1e8` are refused by the new rule.
+  - `pair_plus_2_7` and `pair_1e6_minus_1_1` are exactly constant on the doubles
+    R wrote: R printed −2.7000000000000002 and 1.0999999999767169 on every row,
+    from memory. Gaply gives them the exact-0 code.
+  - R's misread was what made the spread R saw. A probe of mine had built its
+    second column by re-reading R's own text, measured that misread, and was
+    corrected before this entry.
+- **`src-tauri/tests/essentially_constant_ingest.rs`.** The real-app check's
+  `HTNEAR.csv` bytes go through the screen's own ingest,
+  `load_dataset_keeping_bytes(…, IngestLimits::METHODS)`. Every cell keeps its
+  bits, and the t-test refuses under both variants. Red with the rule off.
+
+**Mutations,** each restored with its SHA-256 equal and green after:
+1. The factor 10 set to 0: the five red-first tests, the R boundary test, the
+   misread test and the ingest test went red.
+2. The independent scale set to |mean 1| alone: only the larger-mean test went
+   red, under both variants.
+3. The paired scale set to R's |mean of the differences| alone: the 0.1 test and
+   the R boundary test (its three beyond-R cases) went red.
+4. The exact-0 check moved below the new rule:
+   - in `stats_ttest`: `ttest_r_golden`'s `both_constant` (arithmetic_refused)
+     and four `ttest_properties` tests at `run()` went red;
+   - in `stats_onesample`: `onesample_r_golden` went red at `one_constant`, and,
+     with the paired half alone, at `paired_constant_difference`.
+   - `onesample_properties` stayed green under both, because its seeded
+     generators make no constant data.
+
+**Existing tests and fixtures changed**, each in decision 260's list:
+- `contracts_wire.rs`: the TTestCode and OneSampleCode lists;
+- `contracts_are_pure.rs`: ONESAMPLE_ITEMS' `crate::stats_ttest` entry gains
+  `essentially_constant`;
+- `stats_ttest_wire.rs`: the count, 29 → 30;
+- `ttestCodes.json`: the new word in its sorted place, 51 → 52;
+- `ttestTypes.ts`: the union;
+- `ttestWording.ts`: the sentence;
+- `ttestWording.vitest.ts`: the count, 51 → 52.
+
+No golden, property, pin or R fixture changed.
+
+**Suites, measured 26 Oct 2026 on macOS aarch64, each from its own log under
+`~/gaply-corpus/os/phase8/8d1b/logs/`.**
+- `cargo test --workspace --no-fail-fast`: 132 targets (128 + the four new),
+  3,032 passed (3,018 + 14), 12 ignored, none failed, as predicted before the run.
+- `cargo test -p app --features devtools`: 55 targets, 868 passed (D296's 54 and
+  867, plus the ingest test).
+- `cargo check --workspace --all-targets`: exit 0. Its 45 warnings are 8D-1's
+  count, and none is in a file this step touched.
+- vitest:
+  - `src/screens/statistics`: 27 files, 484 tests.
+  - `ttestWording.vitest.ts` and `projects/` by name: 16 files, 374 tests.
+  - The whole suite, first run: two timeouts at 20 s, in
+    `citations/cslEngine.vitest.ts` and `workspace/EnterStatistics.vitest.tsx`,
+    files this step does not touch. The load average was 17 from macOS's
+    iCloud and Spotlight processes. Alone, both files passed 23 of 23.
+  - The whole suite, second run: 127 files, 1,717 tests, all passed.
+- `npx tsc --noEmit`: exit 0.
+- CI's eslint: exit 0 over 312 files.
+- `npm run build`: exit 0, with `build/index.html` present and `public/sitemap.xml`
+  written back from HEAD (`cmp` equal).

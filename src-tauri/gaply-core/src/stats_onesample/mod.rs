@@ -39,7 +39,14 @@
 //! **Edge cases are closed outcomes, never NaN or infinity.** Fewer than two
 //! values or pairs is refused (`too_few_values`, `too_few_pairs`); values, or
 //! differences, that are all equal have a standard error of exactly 0 and are
-//! `values_constant` or `differences_constant`; above
+//! `values_constant` or `differences_constant`; a standard error that is not
+//! 0 but below 10 · ε · a scale, spread lost in rounding, is
+//! `values_essentially_constant` (scale |mean|, as R's "data are essentially
+//! constant") or `differences_essentially_constant` (scale the largest of
+//! |mean of the differences|, the mean of |first| and the mean of |second|:
+//! R uses only the first, and the other two are Gaply's own, because the
+//! rounding in first minus second grows with the size of the values;
+//! decision 259, `stats_ttest::essentially_constant`); above
 //! `stats_ttest::QUANTILE_MAX_DF` degrees of freedom the interval is
 //! `quantile_out_of_range` (decision 242.7); a sum, square or root a double
 //! cannot hold is `overflow`, a sum of squares that falls below the smallest
@@ -72,7 +79,7 @@ use crate::stats_desc::{input_ref, Alias};
 use crate::stats_l0::pvalue::t_two_tailed;
 use crate::stats_l1::binding::suspect_codes_in;
 use crate::stats_l1::dataset::{Cell, Dataset};
-use crate::stats_ttest::{column, interval_95, non_finite_cells};
+use crate::stats_ttest::{column, essentially_constant, interval_95, non_finite_cells};
 use crate::stats_verify::{mean, sample_variance, t_test_one_sample, t_test_paired, RangeFault};
 
 /// The one-sample t-test's id in the registry.
@@ -152,6 +159,15 @@ closed! {
         DifferencesNormalityNotAssessed => "differences_normality_not_assessed",
         /// Limitation: Cohen's d has no confidence interval (decision 63).
         CohensDHasNoInterval => "cohens_d_has_no_interval",
+        /// Not computable: the standard error is not 0 but below 10 · ε ·
+        /// |mean|, so the values' spread is lost in rounding and t means
+        /// nothing; R stops on the same rule (decision 259).
+        ValuesEssentiallyConstant => "values_essentially_constant",
+        /// Not computable: the standard error is not 0 but below 10 · ε ·
+        /// the largest of |mean of the differences|, the mean of |first| and
+        /// the mean of |second|, so the differences' spread is lost in
+        /// rounding; R uses only the first of the three (decision 259).
+        DifferencesEssentiallyConstant => "differences_essentially_constant",
     }
 }
 
@@ -847,6 +863,9 @@ fn one_sample_numbers(values: &[f64], test_value: f64) -> Result<OneSampleNumber
         return Err(OneSampleCode::ValuesConstant);
     }
     let r = t_test_one_sample(values, test_value).map_err(|e| refused(RangeFault::of(&e)))?;
+    if essentially_constant(r.se, r.mean_a.abs()) {
+        return Err(OneSampleCode::ValuesEssentiallyConstant);
+    }
     let p = t_two_tailed(r.t, r.df).ok_or(OneSampleCode::ArithmeticRefused)?;
     let mean_difference = finite(r.mean_a - test_value)?;
     let ci = interval_95(
@@ -895,8 +914,18 @@ fn paired_numbers(first: &[f64], second: &[f64]) -> Result<PairedNumbers, OneSam
         return Err(OneSampleCode::DifferencesConstant);
     }
     let r = t_test_paired(first, second).map_err(|e| refused(RangeFault::of(&e)))?;
-    let p = t_two_tailed(r.t, r.df).ok_or(OneSampleCode::ArithmeticRefused)?;
+    // Finite here: `t_test_paired` refused a mean of these same differences
+    // that was not.
     let mean_difference = finite(mean(&differences))?;
+    let mean_abs = |v: &[f64]| mean(&v.iter().map(|x| x.abs()).collect::<Vec<f64>>());
+    let scale = mean_difference
+        .abs()
+        .max(mean_abs(first))
+        .max(mean_abs(second));
+    if essentially_constant(r.se, scale) {
+        return Err(OneSampleCode::DifferencesEssentiallyConstant);
+    }
+    let p = t_two_tailed(r.t, r.df).ok_or(OneSampleCode::ArithmeticRefused)?;
     let ci = interval_95(
         mean_difference,
         r.se,

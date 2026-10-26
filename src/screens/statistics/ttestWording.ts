@@ -162,6 +162,8 @@ export const TTEST_WORDS: Record<string, Words> = {
   'stats.ttest.cohens_d_has_no_interval': () => "Cohen's d is shown without a confidence interval: Gaply does not compute one for d yet.",
   'stats.ttest.too_many_levels': (d) =>
     `This column has ${num(d, 'count') ?? '?'} distinct values, more than the ${num(d, 'limit') ?? TTEST_LIMITS.maxGroupLevels} a group may have, so its values are not listed.`,
+  'stats.ttest.groups_essentially_constant': () =>
+    'The values in each group vary so little, compared with their size, that the standard error is lost in rounding, so t is not computed. R refuses such data too: "data are essentially constant".',
   'run.unknown_run': () => `This run is no longer held. Gaply keeps the last ${LIMITS.maxRuns} runs in memory only; run the t-test again.`,
   'run.run_busy': () => 'Another run is going in this workspace. Wait for it to end, or cancel it.',
   'run.unknown_input': () => 'This file is no longer open. Open it again.',

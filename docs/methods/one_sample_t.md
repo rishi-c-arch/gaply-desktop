@@ -90,6 +90,7 @@ the rows left out equal the rows read.
 |---|---|
 | fewer than 2 values after exclusions | refused, `too_few_values` {count}, at validation and at run |
 | every value equal (se exactly 0) | not computable, `values_constant`; validation passes, the run refuses. R stops ("data are essentially constant") when the mean is not 0 and answers t = NaN when every value is 0 |
+| se not 0 but below 10 · ε · \|mean\| (ε = `f64::EPSILON`) | not computable, `values_essentially_constant`; validation passes, the run refuses. R's own rule and scale (decision 259) |
 | df above 1e4 (10,002 values or more) | not computable, `quantile_out_of_range` (decision 242.7, until 8E); 10,001 values compute |
 | a sum, square, quotient or root a double cannot hold | not computable, `overflow` |
 | a sum of squares below the smallest normal double though the values differ | not computable, `underflow` |
@@ -100,12 +101,25 @@ the rows left out equal the rows read.
 | a candidate missing code in the column, not listed | warning, `suspect_missing_code` {column, value, count}; never applied |
 
 Never NaN or infinity: every number in a result is finite, or the run is
-refused with a closed code. **A known gap, not closed here** (8D-1 report, open
-question 1): values that are equal in decimal but not in binary (for example
-`b = a − 2` on a 3-decimal grid, whose differences miss 2 by an ulp on some
-rows) have a standard error near 1e-16 that is not 0, so Gaply computes a huge
-t where R stops on its own tolerance. Decision 255 refuses only a standard
-error of exactly 0.
+refused with a closed code.
+
+**Essentially constant (Phase 8D-1b, decision 259).** Values that differ only
+in their last bits, such as 0.3 and 0.30000000000000004, have a standard error
+that is not 0 but is rounding, not spread; t built on it (≈ 1.87e16 for 0.3,
+0.30000000000000004, 0.3, 0.3 against 0, before this rule) means nothing.
+Gaply refuses a standard error below 10 · ε · |mean|, ε being `f64::EPSILON`,
+which is R's rule in `t.test.default` ("data are essentially constant"; R's
+`src/library/stats/R/t.test.R`, lines 62–64 of trunk, read 26 Oct 2026, the
+same in R 4.6.1). The exact check comes first: all values equal is still
+`values_constant`. The rule only refuses: every result that computed before
+computes with the same bits (`tests/essentially_constant_bytes_pin.rs`). What
+the rule does not catch, as R's does not: a spread lost in rounding that is
+still above 10 · ε · |mean|, for example values near 0 whose mean is tiny
+beside their rounding. `tests/essentially_constant_r.rs` checks the boundary
+against R on six cases, each at least ten times either side of R's threshold.
+The screen's sentence, for 8D-2: "The values vary so little, compared with
+their size, that the standard error is lost in rounding, so t is not computed.
+R refuses such data too: "data are essentially constant"."
 
 ## 6. Precision, the gates, and why
 

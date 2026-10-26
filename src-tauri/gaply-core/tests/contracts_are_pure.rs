@@ -269,7 +269,12 @@ const ONESAMPLE_ITEMS: &[(&str, &[&str])] = &[
     ),
     (
         "crate::stats_ttest",
-        &["column", "interval_95", "non_finite_cells"],
+        &[
+            "column",
+            "essentially_constant",
+            "interval_95",
+            "non_finite_cells",
+        ],
     ),
     ("crate::stats_l0::pvalue", &["t_two_tailed"]),
     ("crate::stats_l1::binding", &["suspect_codes_in"]),

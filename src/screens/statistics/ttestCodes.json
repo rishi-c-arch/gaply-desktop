@@ -21,6 +21,7 @@
   "stats.ttest.cohens_d_has_no_interval",
   "stats.ttest.group_one_level",
   "stats.ttest.group_too_small",
+  "stats.ttest.groups_essentially_constant",
   "stats.ttest.input_count",
   "stats.ttest.input_mismatch",
   "stats.ttest.level_out_of_range",
