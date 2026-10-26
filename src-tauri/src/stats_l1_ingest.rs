@@ -40,7 +40,10 @@
 //! A file over the ingest row cap is [`L1IngestRefusal::FileTooLarge`]: CSV
 //! and spreadsheets refuse at the parser, and `.sav`/`.mat`, which the parser
 //! truncates, are refused here on `rows_truncated`. Level 1 never computes on
-//! a truncated table, and the cap is not raised (decisions.md).
+//! a truncated table, and the cap is not raised (decisions.md). A `.sav` or
+//! `.mat` holding more variables than the column limit, which the parser also
+//! truncates, is refused here on `variables_held` as
+//! `Dataset(TooWide)`, as a CSV is (Research OS, Phase 8B-2, decision 246).
 //!
 //! A CSV or spreadsheet with more than 2 MiB of cell text
 //! (`supplementary::MAX_TOTAL_CHARS`, UTF-8 bytes after each cell is clamped)
@@ -357,6 +360,14 @@ fn dataset_from_parts(
         return Err(L1IngestRefusal::FileTooLarge {
             limit_rows: limits.max_rows,
         });
+    }
+    // A `.sav` or `.mat` the parser kept fewer variables of than it holds:
+    // too wide, in a CSV's shape (Research OS, Phase 8B-2, decision 246).
+    if let Some(columns) = evidence.variables_held {
+        return Err(L1IngestRefusal::Dataset(DatasetRefusal::TooWide {
+            columns,
+            limit: limits.max_cols,
+        }));
     }
     let table_ref = match evidence.kind {
         SupplementaryKind::Csv => TableRef::FirstTable,
@@ -1307,27 +1318,39 @@ mod tests {
         };
         let cases: Vec<(&str, Vec<u8>, DataFormat)> = vec![
             (
-                "huge.csv",
+                "byte_refusal_huge.csv",
                 vec![b'0'; (MAX_FILE_SIZE_BYTES + 1024) as usize],
                 DataFormat::Csv,
             ),
             (
-                "bomb.xlsx",
+                "byte_refusal_bomb.xlsx",
                 xlsx(3, Some(MAX_WORKBOOK_UNCOMPRESSED_BYTES + 1)),
                 DataFormat::Xlsx,
             ),
-            ("lying.xlsx", lying_xlsx(300_000, 4096), DataFormat::Xlsx),
-            ("deep.xlsx", deep, DataFormat::Xlsx),
-            ("lie.sav", lying_sav, DataFormat::Sav),
-            ("negative.sav", negative_sav, DataFormat::Sav),
-            ("big.mat", compressed_mat(9_000_000), DataFormat::Mat),
-            ("fake.xlsx", b"this is not a zip".to_vec(), DataFormat::Xlsx),
             (
-                "broken.sav",
+                "byte_refusal_lying.xlsx",
+                lying_xlsx(300_000, 4096),
+                DataFormat::Xlsx,
+            ),
+            ("byte_refusal_deep.xlsx", deep, DataFormat::Xlsx),
+            ("byte_refusal_lie.sav", lying_sav, DataFormat::Sav),
+            ("byte_refusal_negative.sav", negative_sav, DataFormat::Sav),
+            (
+                "byte_refusal_big.mat",
+                compressed_mat(9_000_000),
+                DataFormat::Mat,
+            ),
+            (
+                "byte_refusal_fake.xlsx",
+                b"this is not a zip".to_vec(),
+                DataFormat::Xlsx,
+            ),
+            (
+                "byte_refusal_broken.sav",
                 b"$FL2 not really an spss file at all".to_vec(),
                 DataFormat::Sav,
             ),
-            ("empty.csv", Vec::new(), DataFormat::Csv),
+            ("byte_refusal_empty.csv", Vec::new(), DataFormat::Csv),
         ];
         let mut kinds = std::collections::BTreeSet::new();
         for (name, bytes, format) in &cases {

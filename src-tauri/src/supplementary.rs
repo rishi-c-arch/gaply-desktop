@@ -211,6 +211,15 @@ pub struct SupplementaryEvidence {
     /// table. Not serialised.
     #[serde(skip)]
     pub rows_truncated: bool,
+    /// The number of variables the source holds, when it holds more than the
+    /// parse's `max_cols` and only the first `max_cols` are in `tables`
+    /// (`.sav` and `.mat`; for a `.mat`, the variables the reader returned).
+    /// `None` when every variable was kept. Level 1 and the methods refuse
+    /// such a file as too wide (Research OS, Phase 8B-2, decision 246). A
+    /// count only. Not serialised, so it never reaches the PublishReady
+    /// reviewer's payload.
+    #[serde(skip)]
+    pub variables_held: Option<usize>,
     /// The sheet a spreadsheet's table was read from. Not serialised.
     #[serde(skip)]
     pub sheet_name: Option<String>,
@@ -219,7 +228,7 @@ pub struct SupplementaryEvidence {
 /// Counts only, never the text (part C follow-up, item 7).
 impl std::fmt::Debug for SupplementaryEvidence {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SupplementaryEvidence").field("kind", &self.kind).field("tables", &self.tables).field("text_chars", &self.text_summary.chars().count()).field("notes", &self.notes.len()).field("variables", &self.variables.len()).field("weight_variable", &self.weight_variable.is_some()).field("rows_truncated", &self.rows_truncated).finish_non_exhaustive()
+        f.debug_struct("SupplementaryEvidence").field("kind", &self.kind).field("tables", &self.tables).field("text_chars", &self.text_summary.chars().count()).field("notes", &self.notes.len()).field("variables", &self.variables.len()).field("weight_variable", &self.weight_variable.is_some()).field("rows_truncated", &self.rows_truncated).field("variables_held", &self.variables_held).finish_non_exhaustive()
     }
 }
 
@@ -717,6 +726,7 @@ fn spreadsheet_evidence<RS: Read + std::io::Seek>(
         variables: Vec::new(),
         weight_variable: None,
         rows_truncated: false,
+        variables_held: None,
         sheet_name: Some(sheet),
     })
 }
@@ -830,6 +840,7 @@ fn mat_evidence(
         variables,
         weight_variable: None,
         rows_truncated,
+        variables_held: (mat.arrays().len() > limits.max_cols).then_some(mat.arrays().len()),
         sheet_name: None,
     })
 }
@@ -1130,6 +1141,8 @@ fn sav_evidence(
         variables,
         weight_variable: meta.weight_variable.clone(),
         rows_truncated: batch.num_rows() > limits.max_rows,
+        variables_held: (meta.variable_names.len() > limits.max_cols)
+            .then_some(meta.variable_names.len()),
         sheet_name: None,
     })
 }
@@ -1266,6 +1279,7 @@ fn csv_evidence(
         variables: Vec::new(),
         weight_variable: None,
         rows_truncated: false,
+        variables_held: None,
         sheet_name: None,
     })
 }
@@ -1313,6 +1327,7 @@ fn text_evidence(
         variables: Vec::new(),
         weight_variable: None,
         rows_truncated: false,
+        variables_held: None,
         sheet_name: None,
     })
 }

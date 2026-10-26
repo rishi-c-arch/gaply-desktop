@@ -17,15 +17,26 @@
 //!   one the ingest and the parser apply, and the classifier that tells a
 //!   failed parse apart gives the same code.
 //!
+//! * a `.sav` or `.mat` holding more variables than the column limit is
+//!   refused as too wide under `LEVEL_1` and `METHODS`, as a CSV is, and
+//!   `SUPPLEMENTARY` keeps its first `max_cols` with the note (Phase 8B-2,
+//!   decision 246).
+//!
 //! The source guard that each production caller passes its named value is
 //! `tests/ingest_limits_guard.rs`. Every file here is synthetic and written
 //! into a directory this test creates and removes.
 
+mod desc_support;
+
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use serde_json::json;
 
 use app_lib::stats_l1_ingest::{
-    declared_uncompressed_total, load_dataset_from_bytes_with, load_dataset_keeping_bytes,
-    load_dataset_with, L1IngestRefusal, MAX_WORKBOOK_UNCOMPRESSED_BYTES,
+    declared_uncompressed_total, load_dataset_from_bytes, load_dataset_from_bytes_with,
+    load_dataset_keeping_bytes, load_dataset_with, L1IngestRefusal,
+    MAX_WORKBOOK_UNCOMPRESSED_BYTES,
 };
 use app_lib::supplementary::{
     exceeds_col_cap_bytes, exceeds_col_cap_with, exceeds_content_cap_bytes, exceeds_row_cap_bytes,
@@ -35,7 +46,7 @@ use app_lib::supplementary::{
 use gaply_core::research_project::DataFormat;
 use gaply_core::stats_l1::dataset::{DatasetRefusal, MAX_COLUMNS};
 use gaply_core::stats_registry::{Kind, Registry};
-use gaply_core::GaplyError;
+use gaply_core::{Database, GaplyError};
 
 /// A directory of this test's own, removed when the value is dropped.
 struct Scratch(PathBuf);
@@ -508,23 +519,241 @@ fn sav_bytes(vars: usize, rows: usize) -> Vec<u8> {
     buf.into_inner()
 }
 
-/// **The open question of 8B, measured, with no change.** A `.sav` with more
-/// variables than the column limit is not refused as too wide: the reader
-/// keeps the first `max_cols` (`sav_evidence`), the ingest checks only
-/// `rows_truncated`, and the file opens with 128 of its 129 columns. This
-/// pins today's behaviour so the decision that changes it is a visible diff.
-#[test]
-fn a_sav_with_more_variables_than_the_column_limit_opens_with_the_first_128_today() {
-    let s = Scratch::new("sav_wide");
-    let p = s.write("wide.sav", &sav_bytes(MAX_COLS + 1, 2));
-    for l in [IngestLimits::LEVEL_1, IngestLimits::METHODS] {
-        let d = load_dataset_with(&p, l).expect("opens today");
-        assert_eq!(d.schema.columns.len(), MAX_COLS);
-        assert_eq!(d.rows(), 2);
+/// An uncompressed MATLAB v5 file of `vars` double column vectors named
+/// `v1`, `v2`, …, each of `rows` values, as `save('-v6')` writes them: one
+/// miMATRIX element a variable, with its flags, dimensions, name and real
+/// part.
+fn mat_bytes(vars: usize, rows: usize) -> Vec<u8> {
+    fn u32s(out: &mut Vec<u8>, vs: &[u32]) {
+        for v in vs {
+            out.extend_from_slice(&v.to_le_bytes());
+        }
     }
-    let ev = parse_supplementary_with(&p, IngestLimits::SUPPLEMENTARY).unwrap();
-    assert_eq!(
-        ev.notes,
-        vec!["128 of 129 variables kept; cap is 128".to_string()]
-    );
+    let mut out = vec![b' '; 116];
+    out[..19].copy_from_slice(b"MATLAB 5.0 MAT-file");
+    out.extend_from_slice(&[0u8; 8]);
+    out.extend_from_slice(&0x0100u16.to_le_bytes());
+    out.extend_from_slice(b"IM");
+    for v in 1..=vars {
+        let name = format!("v{v}");
+        let mut m = Vec::new();
+        // Array flags (miUINT32): mxDOUBLE_CLASS. Dimensions (miINT32): rows x 1.
+        u32s(&mut m, &[6, 8, 6, 0, 5, 8, rows as u32, 1]);
+        // The name (miINT8), padded to 8 bytes.
+        u32s(&mut m, &[1, name.len() as u32]);
+        m.extend_from_slice(name.as_bytes());
+        m.resize(m.len() + name.len().div_ceil(8) * 8 - name.len(), 0);
+        // The real part (miDOUBLE).
+        u32s(&mut m, &[9, (rows * 8) as u32]);
+        for r in 0..rows {
+            m.extend_from_slice(&((r * v) as f64).to_le_bytes());
+        }
+        u32s(&mut out, &[14, m.len() as u32]);
+        out.extend_from_slice(&m);
+    }
+    out
+}
+
+/// The 129-variable `.sav` and `.mat`, with the format a rerun reads them as.
+fn over_the_column_limit() -> [(&'static str, Vec<u8>, DataFormat); 2] {
+    [
+        ("wide.sav", sav_bytes(MAX_COLS + 1, 2), DataFormat::Sav),
+        ("wide.mat", mat_bytes(MAX_COLS + 1, 2), DataFormat::Mat),
+    ]
+}
+
+/// **Decision 246: a `.sav` or `.mat` holding more variables than the
+/// column limit is refused as too wide**, under `LEVEL_1` and `METHODS`,
+/// through each form of the ingest their callers use: Level 1's
+/// `load_dataset_with`, the open's `load_dataset_keeping_bytes` and the
+/// rerun's `load_dataset_from_bytes`. The refusal carries the number the file
+/// holds and the value's limit, as a CSV's does. Until 8B-2 (this test was
+/// 8B's `…_opens_with_the_first_128_today`) the file opened with its first
+/// 128.
+#[test]
+fn a_sav_or_mat_with_more_variables_than_the_column_limit_is_refused_as_too_wide() {
+    assert_eq!(MAX_COLS, 128);
+    let s = Scratch::new("sav_wide");
+    let refusal = Err(L1IngestRefusal::Dataset(DatasetRefusal::TooWide {
+        columns: 129,
+        limit: 128,
+    }));
+    for (name, bytes, format) in over_the_column_limit() {
+        let p = s.write(name, &bytes);
+        assert_eq!(
+            load_dataset_with(&p, IngestLimits::LEVEL_1).map(|d| d.rows()),
+            refusal,
+            "{name}: Level 1"
+        );
+        assert_eq!(
+            load_dataset_keeping_bytes(&p, IngestLimits::METHODS).map(|(d, _, _)| d.rows()),
+            refusal,
+            "{name}: the methods' open"
+        );
+        assert_eq!(
+            load_dataset_from_bytes(&bytes, format).map(|d| d.rows()),
+            refusal,
+            "{name}: the rerun"
+        );
+    }
+}
+
+/// The variable limit refused on is the value's, not the constant's.
+#[test]
+fn the_variable_limit_applied_is_the_one_given() {
+    let l = smaller(|l| l.max_cols = 3);
+    let s = Scratch::new("vars");
+    let refusal = Err(L1IngestRefusal::Dataset(DatasetRefusal::TooWide {
+        columns: 4,
+        limit: 3,
+    }));
+    for (name, bytes, format) in [
+        ("four.sav", sav_bytes(4, 2), DataFormat::Sav),
+        ("four.mat", mat_bytes(4, 2), DataFormat::Mat),
+    ] {
+        let p = s.write(name, &bytes);
+        assert_eq!(
+            load_dataset_with(&p, IngestLimits::LEVEL_1).map(|d| d.schema.columns.len()),
+            Ok(4),
+            "{name}: the constant would open it"
+        );
+        assert_eq!(
+            load_dataset_with(&p, l).map(|d| d.rows()),
+            refusal,
+            "{name}"
+        );
+        assert_eq!(
+            load_dataset_keeping_bytes(&p, l).map(|(d, _, _)| d.rows()),
+            refusal,
+            "{name}"
+        );
+        assert_eq!(
+            load_dataset_from_bytes_with(&bytes, format, l).map(|d| d.rows()),
+            refusal,
+            "{name}"
+        );
+    }
+}
+
+/// Unchanged by 8B-2: a `.sav` or `.mat` at the column limit opens through
+/// every form, and `SUPPLEMENTARY` (the reviewer agent's files and the
+/// legacy lane) keeps the first 128 of 129 variables with today's note.
+#[test]
+fn at_the_column_limit_a_sav_or_mat_opens_and_supplementary_keeps_the_first_128_of_129() {
+    let s = Scratch::new("sav_at");
+    for (name, bytes, format) in [
+        ("at.sav", sav_bytes(MAX_COLS, 2), DataFormat::Sav),
+        ("at.mat", mat_bytes(MAX_COLS, 2), DataFormat::Mat),
+    ] {
+        let p = s.write(name, &bytes);
+        let shape = |d: gaply_core::stats_l1::dataset::Dataset| (d.rows(), d.schema.columns.len());
+        assert_eq!(
+            load_dataset_with(&p, IngestLimits::LEVEL_1).map(shape),
+            Ok((2, 128)),
+            "{name}"
+        );
+        assert_eq!(
+            load_dataset_keeping_bytes(&p, IngestLimits::METHODS).map(|(d, _, _)| shape(d)),
+            Ok((2, 128)),
+            "{name}"
+        );
+        assert_eq!(
+            load_dataset_from_bytes(&bytes, format).map(shape),
+            Ok((2, 128)),
+            "{name}"
+        );
+    }
+    for (name, bytes, _) in over_the_column_limit() {
+        let p = s.write(name, &bytes);
+        let ev = parse_supplementary_with(&p, IngestLimits::SUPPLEMENTARY).unwrap();
+        assert_eq!(ev.tables[0].headers.len(), 128, "{name}");
+        assert_eq!(ev.tables[0].rows.len(), 2, "{name}");
+        assert_eq!(ev.variables.len(), 128, "{name}");
+        assert_eq!(
+            ev.notes,
+            vec!["128 of 129 variables kept; cap is 128".to_string()],
+            "{name}"
+        );
+    }
+}
+
+/// Every key of a JSON value, at any depth.
+fn keys(v: &serde_json::Value, out: &mut Vec<String>) {
+    match v {
+        serde_json::Value::Object(m) => {
+            for (k, x) in m {
+                out.push(k.clone());
+                keys(x, out);
+            }
+        }
+        serde_json::Value::Array(a) => a.iter().for_each(|x| keys(x, out)),
+        _ => {}
+    }
+}
+
+/// `variables_held` says how many variables a truncated `.sav` or `.mat`
+/// holds, and never reaches the reviewer's payload: `commands.rs` sends
+/// `serde_json::to_value(&ev)` of exactly this evidence.
+#[test]
+fn the_variables_held_are_recorded_and_never_reach_the_reviewers_payload() {
+    let s = Scratch::new("held");
+    for (name, bytes, _) in over_the_column_limit() {
+        let ev =
+            parse_supplementary_with(&s.write(name, &bytes), IngestLimits::SUPPLEMENTARY).unwrap();
+        assert_eq!(
+            ev.variables_held,
+            Some(129),
+            "{name}: populated, so the check means something"
+        );
+        assert!(
+            format!("{ev:?}").contains("variables_held: Some(129)"),
+            "{name}: Debug shows the count"
+        );
+        let v = serde_json::to_value(&ev).unwrap();
+        let mut found = Vec::new();
+        keys(&v, &mut found);
+        assert!(
+            !found.iter().any(|k| k == "variables_held"),
+            "{name}: the key reached the payload"
+        );
+        assert!(
+            !v.to_string().contains("variables_held"),
+            "{name}: the name reached the payload"
+        );
+    }
+    let at = parse_supplementary_with(
+        &s.write("at.sav", &sav_bytes(MAX_COLS, 2)),
+        IngestLimits::SUPPLEMENTARY,
+    )
+    .unwrap();
+    assert_eq!(at.variables_held, None, "every variable kept");
+}
+
+/// The refusal reaches the summary's and the t-test's screens (both open a
+/// file through `stats_desc_open`) as a CSV's does, through IPC: the JSON
+/// `fixtures/ingestRefusals.ts`'s `dataset too_wide` holds, which their
+/// vitest tests word as decision 243's sentence.
+#[test]
+fn the_refusal_reaches_the_screens_in_the_shape_of_a_csvs() {
+    let dir = desc_support::TempDir::new("8b2_wide_wire");
+    let app_data = dir.0.join("appdata");
+    std::fs::create_dir_all(&app_data).unwrap();
+    let (_app, w) = desc_support::app(&app_data, Arc::new(Database::in_memory().unwrap()), None);
+    let want =
+        json!({"code": "dataset", "refusal": {"code": "too_wide", "columns": 129, "limit": 128}});
+    let mut files: Vec<(&str, Vec<u8>)> = over_the_column_limit()
+        .into_iter()
+        .map(|(n, b, _)| (n, b))
+        .collect();
+    files.push(("wide.csv", wide_csv(MAX_COLS + 1).into_bytes()));
+    for (name, bytes) in files {
+        let p = dir.write(name, &bytes);
+        let e = desc_support::call(
+            &w,
+            "stats_desc_open",
+            json!({ "path": p.to_string_lossy() }),
+        )
+        .expect_err(name);
+        assert_eq!(desc_support::refusal(&e), want, "{name}");
+    }
 }

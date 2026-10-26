@@ -26000,3 +26000,95 @@ pins today's behaviour. Not changed here; the report recommends a refusal.
 **Mutations**, each with its SHA-256 equal after the restore and green after: `stats_l1_commands.rs`'s `open` passing `METHODS`, and `commands.rs`'s `run_publishready_measured` passing `LEVEL_1`, each red in `each_production_caller_of_the_ingest_passes_its_named_limits` with the guard's own sentence; `METHODS.max_rows` one more, red in `each_named_value_is_todays_constants_and_its_capabilities_profiles` (5001 against 5000); the CSV parser's row check reading `MAX_ROWS` again, red in `the_row_limit_applied_is_the_one_given`; the summary's screen using Level 1's `sentenceFor` again, red in the sentence and "Level 1" tests, keyed on "the summary".
 
 **Next.** 8C, the seam (decision 242's item 1).
+
+### D294 — Research OS, Phase 8B-2: a `.sav` or `.mat` holding more variables than the column limit is refused as too wide under `LEVEL_1` and `METHODS`, as a CSV is; the byte-refusal test's file names made its own `[src]` `[test]`
+
+**Added** on `feat/research-os-8` after `94e6cae` (D293). Decisions 244, 246
+and 247 of 26 Oct 2026 apply (`~/gaply-corpus/os/decisions.md`): 244.1 accepts
+8B's open question 1, 246 sets the refusal, 247 the race. The report is
+`~/gaply-corpus/os/phase8/phase8b2_report.md`; the real-app check is
+`~/gaply-corpus/os/phase8/realapp_8b2.md`, still to run.
+
+**Why.** D293 measured that a `.sav` with more variables than the column limit
+opened with its first 128 under `LEVEL_1` and `METHODS`: `sav_evidence` and
+`mat_evidence` keep at most `max_cols` and note it, and the ingest checked only
+`rows_truncated`. So Level 1 and the methods computed on part of a file, which
+decision 241 rules out. A CSV of 129 columns was refused.
+
+**The field.** `SupplementaryEvidence::variables_held: Option<usize>`
+(`supplementary.rs`), `#[serde(skip)]` as `rows_truncated` is: the number of
+variables the file holds when the parser kept fewer, `None` when it kept every
+one. For a `.sav`, `meta.variable_names.len()`; for a `.mat`, the variables the
+reader returned (`mat.arrays().len()`), so a char or cell variable `matfile`
+drops is not counted. The hand-written `Debug` shows it as a count. No other key,
+note or header in the evidence's JSON contains its name.
+
+**The refusal.** `dataset_from_parts` (`stats_l1_ingest.rs`), after its
+`rows_truncated` check, refuses `Some(columns)` as
+`Dataset(TooWide { columns, limit: limits.max_cols })`: the shape a CSV's has,
+`{"code":"dataset","refusal":{"code":"too_wide","columns":129,"limit":128}}` on
+the wire. All three entries reach it: `load_dataset_with` (Level 1's open and
+compute, `stats_reproduction`), `load_dataset_keeping_bytes` (`stats_desc_open`,
+the summary's and the t-test's open) and `load_dataset_from_bytes_with` (the
+rerun). The screens word it as they word a CSV's: Level 1's `sentenceFor`, and
+on the summary's and the t-test's screens decision 243's sentence, *"The file has
+129 columns, more than the 128 Gaply reads from one file, so it was not
+opened."*, which 8B's per-code render tests already pin for this payload
+(`fixtures/ingestRefusals.ts`'s `dataset too_wide`); no frontend file changed.
+
+**Who it applies to.** `LEVEL_1` and `METHODS` only, since only the ingest
+refuses. `SUPPLEMENTARY` is unchanged: the reviewer agent's supplementary files
+(`run_publishready_measured`) and the Stats Verifier page's legacy lane
+(`load_first_table`) call `parse_supplementary_with` directly, and keep the first
+128 variables with the note "128 of 129 variables kept; cap is 128".
+
+**The rerun.** A rerun reads its data through `METHODS`, so a saved result whose
+data file holds more than 128 variables can no longer be rerun: `rerun_open`
+answers every ingest refusal with `project.rerun_data_unreadable`, and that
+sentence is unchanged. Many SPSS survey files hold more than 128 variables, so
+this refuses files that opened before. A larger column limit for `METHODS` is
+not planned (decision 242.2); it would need a change to the dataset's own
+`MAX_COLUMNS` in `gaply-core`, and a decision of its own.
+
+**The race.** The tests in `stats_l1_ingest.rs` share one folder per process
+(`dir()`). `every_byte_level_refusal_of_the_path_ingest_is_the_bytes_entrys_too`
+wrote eight names that other tests also write and remove: `big.mat`
+(`a_mat_whose_compressed_elements_inflate_past_the_limit_is_refused_before_matfile_reads_it`,
+D292's flake), `bomb.xlsx`, `lying.xlsx`, `lie.sav`, and `huge.csv`, `fake.xlsx`,
+`broken.sav`, `empty.csv` (`every_refusal_is_typed_and_names_no_path_cell_or_level`).
+A scan of every file-name literal in each test function found those eight and no
+others. Every name the test writes, its ten, now starts `byte_refusal_`; no
+assertion changed, and the scan finds no name shared by two tests. The race
+cannot be made to happen on demand, so it has no red run: the app lib's test
+binary, built once, ran the two tests of the `big.mat` race by exact name 20
+times without `--test-threads=1`, "2 passed" each time.
+
+**Flakes.** Beside the two D292 lists, 8B's report recorded one more:
+`StoredDataDelete.vitest.tsx`'s focus test failed once under the full vitest
+suite and passed three times alone and in the next full run (decision 244.3).
+Not looked at here.
+
+**The suites.** `cargo test --workspace --no-fail-fast` (both `lib.rs` touched, `CARGO_TERM_COLOR=never`): exit 0, **2,987 passed, 121 targets**, 12 ignored, 0 failed (at 94e6cae, measured in this step: 2,983, 121, 12, as D293; +4 tests in `ingest_limits`, no new target, as predicted; by name, the one test gone is the renamed open-question test and the five new names are its successor and the four new tests). `cargo test -p app --features devtools --no-fail-fast`: exit 0, **860 passed, 52 targets** (D293: 856, 52; +4, as predicted). `cargo test -p gaply_core --no-fail-fast`: 2,144 passed, 75 targets (nothing under `gaply-core` changed). No frontend file changed; the summary's and the t-test's render tests and `methodsIngestWording.vitest.ts` ran green as they are (3 files, 58 tests).
+
+**Existing tests changed: two.** In `tests/ingest_limits.rs`, 8B's
+open-question test `a_sav_with_more_variables_than_the_column_limit_opens_with_the_first_128_today`
+is now `a_sav_or_mat_with_more_variables_than_the_column_limit_is_refused_as_too_wide`
+and asserts the refusal through the three entries, for a `.sav` and a `.mat`;
+its `SUPPLEMENTARY` note assertion moved to the unchanged-behaviour test. In
+`stats_l1_ingest.rs`, decision 247's renames. New tests in `tests/ingest_limits.rs`:
+`the_variable_limit_applied_is_the_one_given` (a value with `max_cols` 3, a
+4-variable `.sav` and `.mat`), `at_the_column_limit_a_sav_or_mat_opens_and_supplementary_keeps_the_first_128_of_129`,
+`the_variables_held_are_recorded_and_never_reach_the_reviewers_payload` and
+`the_refusal_reaches_the_screens_in_the_shape_of_a_csvs` (through IPC, with the
+CSV beside them). Helper: `mat_bytes`, an uncompressed v5 `.mat` of N double
+variables; 8B's `sav_bytes` is reused. The refusal, given-limit and wire tests
+ran red first against 94e6cae's code (10 passed, 3 failed, each `Ok(2)` where the
+refusal was expected), then green; the unchanged-behaviour test was green before
+and after.
+
+**Mutations**, each with its SHA-256 equal after the restore and green after:
+the ingest's new check made unreachable, red in the refusal, given-limit and wire
+tests (11 passed, 3 failed); `variables_held`'s `#[serde(skip)]` removed, red in
+the field test ("wide.sav: the key reached the payload", 13 passed, 1 failed).
+
+**Next.** 8C, the seam (decision 242's item 1).
