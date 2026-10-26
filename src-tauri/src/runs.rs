@@ -76,11 +76,12 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Instant;
 
+use gaply_core::contracts::capability::Build;
 use gaply_core::contracts::codes::{Closed, RunCode};
 use gaply_core::contracts::{
     transition, CapabilityId, ContentHash, Diagnostic, OperationId, OperationSpec, Platform,
-    ResultBundle, RunEvent, RunId, RunRecord, RunState, SchemaVersion, ValidationReport,
-    ValidationStatus,
+    ResultBundle, RunEvent, RunId, RunManifest, RunRecord, RunState, SchemaVersion,
+    ValidationReport, ValidationStatus,
 };
 use gaply_core::research_project::DataFormat;
 use gaply_core::stats_adapters;
@@ -429,10 +430,7 @@ enum Held {
 
 impl Held {
     fn kind(&self) -> RunKind {
-        match self {
-            Held::Describe(_) => RunKind::Describe,
-            Held::Ttest(_) => RunKind::Ttest,
-        }
+        by_method!(self, Held, |M, _| M::KIND)
     }
 }
 
@@ -490,18 +488,11 @@ enum Job {
 impl Job {
     /// The spec as canonical JSON, and the capability it names.
     fn held(&self) -> HeldSpec {
-        let (json, id, version) = match self {
-            Job::Describe(s) => (
-                serde_json::to_vec(s),
-                s.capability_id.clone(),
-                s.capability_version,
-            ),
-            Job::Ttest(s) => (
-                serde_json::to_vec(s),
-                s.capability_id.clone(),
-                s.capability_version,
-            ),
-        };
+        let (json, id, version) = by_method!(self, Job, |_M, s| (
+            serde_json::to_vec(s),
+            s.capability_id.clone(),
+            s.capability_version,
+        ));
         HeldSpec {
             json: json.expect("a spec of ids, words and numbers serialises"),
             capability_id: id,
@@ -518,24 +509,314 @@ enum Report {
 
 impl Report {
     fn status(&self) -> ValidationStatus {
-        match self {
-            Report::Describe(r) => r.status,
-            Report::Ttest(r) => r.status,
-        }
+        by_method!(self, Report, |_M, r| r.status)
     }
 }
 
 /// What the work produced, with the spec it ran: the operation's own answer,
 /// or a panic.
 enum Done {
-    Describe(
-        std::thread::Result<Result<DescribeResult, Halt<Stop>>>,
-        OperationSpec<DescribeParams>,
-    ),
-    Ttest(
-        std::thread::Result<Result<TTestResult, stats_ttest::Halt<Stop>>>,
-        OperationSpec<TTestParams>,
-    ),
+    Describe(Finished<Summary>),
+    Ttest(Finished<IndependentT>),
+}
+
+/* ------------------------------------------------------------------------ *
+ *  The seam: one implementation per method (Research OS, Phase 8C)
+ * ------------------------------------------------------------------------ */
+
+/// THE one place a method's variants meet (decision 249). Every match on
+/// [`Held`], [`Job`], [`Report`] or [`Done`] in this file is this one: each
+/// arm binds the variant's state as `$x` and names that method's
+/// implementation `$m` for `$body`. A new method adds one variant to each of
+/// the four enums and one line here. It only dispatches: what a method does
+/// is written out in its own `impl Method`.
+macro_rules! by_method {
+    ($value:expr, $enum:ident, |$m:ident, $x:pat_param| $body:expr) => {
+        match $value {
+            $enum::Describe($x) => {
+                type $m = Summary;
+                $body
+            }
+            $enum::Ttest($x) => {
+                type $m = IndependentT;
+                $body
+            }
+        }
+    };
+}
+use by_method;
+
+/// What a method's work answered: its result, its halt, or a panic.
+type Outcome<M> = std::thread::Result<Result<<M as Method>::Result, <M as Method>::Halt>>;
+
+/// The work's answer with the spec it ran, of one method.
+struct Finished<M: Method> {
+    outcome: Outcome<M>,
+    spec: OperationSpec<M::Params>,
+}
+
+/// A method's halt, as the finish reads it.
+enum Halted<C> {
+    Stopped(Stop),
+    Refused(Diagnostic<C>),
+}
+
+/// What the run manager asks of one method (decision 249): what to check
+/// before a run, what to compute through its check points, its manifest,
+/// what its bundle carries, and what the work's end leaves in the record's
+/// column count, a cancel's win included. The queue, the worker, the finish,
+/// the snapshot and the result are written once, over this. Each
+/// implementation calls its method's own façades, as the run manager did
+/// before 8C.
+trait Method: Sized {
+    /// The record's closed word.
+    const KIND: RunKind;
+    type Params: Serialize;
+    type Result: Serialize + Clone;
+    type Code: Serialize + Clone;
+    /// What its work answers when it gives no result.
+    type Halt;
+
+    /// What the record's `columns_total` is.
+    fn columns_total(spec: &OperationSpec<Self::Params>) -> usize;
+    /// The check before a run, through the method's façade.
+    fn validate(
+        spec: &OperationSpec<Self::Params>,
+        dataset: &Dataset,
+    ) -> ValidationReport<Self::Code>;
+    /// The work, through the method's façade, calling `checkpoint` at each of
+    /// its check points.
+    fn compute(
+        spec: &OperationSpec<Self::Params>,
+        build: Build,
+        dataset: &Dataset,
+        checkpoint: impl FnMut(usize) -> ControlFlow<Stop>,
+    ) -> Result<Self::Result, Self::Halt>;
+    /// A result's manifest.
+    fn manifest(
+        spec: &OperationSpec<Self::Params>,
+        dataset: &Dataset,
+        result: &Self::Result,
+        elapsed: u64,
+    ) -> RunManifest<Self::Code>;
+    /// The limitations a result's bundle carries.
+    fn limitations(result: &Self::Result) -> Vec<Diagnostic<Self::Code>>;
+    /// The record's columns done once the work has ended, `total` being its
+    /// `columns_total`, whether a cancel won or not; `None` leaves them as the
+    /// check points set them.
+    fn columns_done(total: usize, outcome: &Outcome<Self>) -> Option<usize>;
+    /// Its halt, as the finish reads it.
+    fn halted(halt: Self::Halt) -> Halted<Self::Code>;
+    /// Says, in its own words, that its work panicked with no cancel.
+    fn panicked();
+    /// Its outputs in a record, when the record is of its kind.
+    fn outputs(held: &Held) -> Option<&Outputs<Self::Result, Self::Code>>;
+    fn outputs_mut(held: &mut Held) -> Option<&mut Outputs<Self::Result, Self::Code>>;
+    /// Its variant of each closed enum.
+    fn held(outputs: Outputs<Self::Result, Self::Code>) -> Held;
+    fn job(spec: OperationSpec<Self::Params>) -> Job;
+    fn report(report: ValidationReport<Self::Code>) -> Report;
+    fn done(finished: Finished<Self>) -> Done;
+}
+
+/// `stats.describe`, through the `stats_desc_*` commands.
+struct Summary;
+
+impl Method for Summary {
+    const KIND: RunKind = RunKind::Describe;
+    type Params = DescribeParams;
+    type Result = DescribeResult;
+    type Code = DescCode;
+    type Halt = Halt<Stop>;
+
+    fn columns_total(spec: &OperationSpec<DescribeParams>) -> usize {
+        spec.parameters.columns.len()
+    }
+
+    fn validate(
+        spec: &OperationSpec<DescribeParams>,
+        dataset: &Dataset,
+    ) -> ValidationReport<DescCode> {
+        // Through `stats.describe`'s façade: the capability registry first
+        // (Research OS, Phase 4A), then `stats_desc::validate`, unchanged.
+        stats_adapters::describe_validate(spec, crate::workspace::build(), dataset)
+    }
+
+    fn compute(
+        spec: &OperationSpec<DescribeParams>,
+        build: Build,
+        dataset: &Dataset,
+        checkpoint: impl FnMut(usize) -> ControlFlow<Stop>,
+    ) -> Result<DescribeResult, Halt<Stop>> {
+        // A check point before each column.
+        stats_adapters::describe_until(spec, build, dataset, checkpoint)
+    }
+
+    fn manifest(
+        spec: &OperationSpec<DescribeParams>,
+        dataset: &Dataset,
+        result: &DescribeResult,
+        elapsed: u64,
+    ) -> RunManifest<DescCode> {
+        stats_desc::manifest(spec, dataset, result, elapsed, Platform::current())
+    }
+
+    fn limitations(_: &DescribeResult) -> Vec<Diagnostic<DescCode>> {
+        Vec::new()
+    }
+
+    /// Every column on a result; the columns done when it stopped.
+    fn columns_done(total: usize, outcome: &Outcome<Self>) -> Option<usize> {
+        match outcome {
+            Ok(Ok(_)) => Some(total),
+            Ok(Err(Halt::Stopped { done, .. })) => Some(*done),
+            Ok(Err(Halt::Refused(_))) | Err(_) => None,
+        }
+    }
+
+    fn halted(halt: Halt<Stop>) -> Halted<DescCode> {
+        match halt {
+            Halt::Stopped { reason, .. } => Halted::Stopped(reason),
+            Halt::Refused(d) => Halted::Refused(d),
+        }
+    }
+
+    fn panicked() {
+        tracing::warn!("stats_desc: the describe loop panicked");
+    }
+
+    fn outputs(held: &Held) -> Option<&Outputs<DescribeResult, DescCode>> {
+        if let Held::Describe(o) = held {
+            Some(o)
+        } else {
+            None
+        }
+    }
+
+    fn outputs_mut(held: &mut Held) -> Option<&mut Outputs<DescribeResult, DescCode>> {
+        if let Held::Describe(o) = held {
+            Some(o)
+        } else {
+            None
+        }
+    }
+
+    fn held(outputs: Outputs<DescribeResult, DescCode>) -> Held {
+        Held::Describe(outputs)
+    }
+
+    fn job(spec: OperationSpec<DescribeParams>) -> Job {
+        Job::Describe(spec)
+    }
+
+    fn report(report: ValidationReport<DescCode>) -> Report {
+        Report::Describe(report)
+    }
+
+    fn done(finished: Finished<Self>) -> Done {
+        Done::Describe(finished)
+    }
+}
+
+/// `stats.analyze.independent_t`, through the `stats_ttest_*` commands.
+struct IndependentT;
+
+impl Method for IndependentT {
+    const KIND: RunKind = RunKind::Ttest;
+    type Params = TTestParams;
+    type Result = TTestResult;
+    type Code = TTestCode;
+    type Halt = stats_ttest::Halt<Stop>;
+
+    /// None: a t-test's state view carries no columns.
+    fn columns_total(_: &OperationSpec<TTestParams>) -> usize {
+        0
+    }
+
+    fn validate(
+        spec: &OperationSpec<TTestParams>,
+        dataset: &Dataset,
+    ) -> ValidationReport<TTestCode> {
+        // Through `stats.analyze.independent_t`'s façade: the registry first,
+        // then `stats_ttest::validate`, unchanged.
+        stats_adapters::ttest_validate(spec, crate::workspace::build(), dataset)
+    }
+
+    fn compute(
+        spec: &OperationSpec<TTestParams>,
+        build: Build,
+        dataset: &Dataset,
+        checkpoint: impl FnMut(usize) -> ControlFlow<Stop>,
+    ) -> Result<TTestResult, stats_ttest::Halt<Stop>> {
+        // The t-test's one check point, before its arithmetic.
+        stats_adapters::ttest_run(spec, build, dataset, checkpoint)
+    }
+
+    fn manifest(
+        spec: &OperationSpec<TTestParams>,
+        dataset: &Dataset,
+        result: &TTestResult,
+        elapsed: u64,
+    ) -> RunManifest<TTestCode> {
+        stats_ttest::manifest(spec, dataset, result, elapsed, Platform::current())
+    }
+
+    /// The result's own limitations, as notes.
+    fn limitations(result: &TTestResult) -> Vec<Diagnostic<TTestCode>> {
+        result
+            .limitations
+            .iter()
+            .map(|c| Diagnostic::note(*c))
+            .collect()
+    }
+
+    /// Never: a t-test counts no columns, and its stop has none.
+    fn columns_done(_: usize, _: &Outcome<Self>) -> Option<usize> {
+        None
+    }
+
+    fn halted(halt: stats_ttest::Halt<Stop>) -> Halted<TTestCode> {
+        match halt {
+            stats_ttest::Halt::Stopped { reason } => Halted::Stopped(reason),
+            stats_ttest::Halt::Refused(d) => Halted::Refused(d),
+        }
+    }
+
+    fn panicked() {
+        tracing::warn!("stats_desc: the t-test panicked");
+    }
+
+    fn outputs(held: &Held) -> Option<&Outputs<TTestResult, TTestCode>> {
+        if let Held::Ttest(o) = held {
+            Some(o)
+        } else {
+            None
+        }
+    }
+
+    fn outputs_mut(held: &mut Held) -> Option<&mut Outputs<TTestResult, TTestCode>> {
+        if let Held::Ttest(o) = held {
+            Some(o)
+        } else {
+            None
+        }
+    }
+
+    fn held(outputs: Outputs<TTestResult, TTestCode>) -> Held {
+        Held::Ttest(outputs)
+    }
+
+    fn job(spec: OperationSpec<TTestParams>) -> Job {
+        Job::Ttest(spec)
+    }
+
+    fn report(report: ValidationReport<TTestCode>) -> Report {
+        Report::Ttest(report)
+    }
+
+    fn done(finished: Finished<Self>) -> Done {
+        Done::Ttest(finished)
+    }
 }
 
 /// An end hook that is due, with what it is called with: called only once
@@ -680,16 +961,7 @@ impl Runs {
         slot: Arc<Slot>,
         spec: OperationSpec<DescribeParams>,
     ) -> Result<RunId, NotStarted> {
-        let held = Held::Describe(Outputs::default());
-        let run = self.open_record(spec.operation_id, spec.parameters.columns.len(), held, None)?;
-        // Outside the lock, so a status poll does not wait on it; the record is
-        // unfinished, so no second run can start meanwhile.
-        // Through `stats.describe`'s façade: the capability registry first
-        // (Research OS, Phase 4A), then `stats_desc::validate`, unchanged.
-        let report =
-            stats_adapters::describe_validate(&spec, crate::workspace::build(), slot.dataset());
-        self.queue(run, slot, Job::Describe(spec), Report::Describe(report));
-        Ok(run)
+        self.begin::<Summary>(slot, spec, None)
     }
 
     /// [`Runs::start`], with an end hook (Phase 5C-1a): a rerun. The same
@@ -700,17 +972,7 @@ impl Runs {
         spec: OperationSpec<DescribeParams>,
         end: EndHook,
     ) -> Result<RunId, NotStarted> {
-        let held = Held::Describe(Outputs::default());
-        let run = self.open_record(
-            spec.operation_id,
-            spec.parameters.columns.len(),
-            held,
-            Some(end),
-        )?;
-        let report =
-            stats_adapters::describe_validate(&spec, crate::workspace::build(), slot.dataset());
-        self.queue(run, slot, Job::Describe(spec), Report::Describe(report));
-        Ok(run)
+        self.begin::<Summary>(slot, spec, Some(end))
     }
 
     /// [`Runs::start`] for a t-test (decision 75): the same record, the same
@@ -720,13 +982,7 @@ impl Runs {
         slot: Arc<Slot>,
         spec: OperationSpec<TTestParams>,
     ) -> Result<RunId, NotStarted> {
-        let run = self.open_record(spec.operation_id, 0, Held::Ttest(Outputs::default()), None)?;
-        // Through `stats.analyze.independent_t`'s façade: the registry first,
-        // then `stats_ttest::validate`, unchanged.
-        let report =
-            stats_adapters::ttest_validate(&spec, crate::workspace::build(), slot.dataset());
-        self.queue(run, slot, Job::Ttest(spec), Report::Ttest(report));
-        Ok(run)
+        self.begin::<IndependentT>(slot, spec, None)
     }
 
     /// [`Runs::start_ttest`], with an end hook (Phase 5C-1a): a rerun.
@@ -736,15 +992,27 @@ impl Runs {
         spec: OperationSpec<TTestParams>,
         end: EndHook,
     ) -> Result<RunId, NotStarted> {
+        self.begin::<IndependentT>(slot, spec, Some(end))
+    }
+
+    /// Every start, of any method (Research OS, Phase 8C): the record, then
+    /// the method's check through its façade, then the queue.
+    fn begin<M: Method>(
+        self: &Arc<Self>,
+        slot: Arc<Slot>,
+        spec: OperationSpec<M::Params>,
+        end: Option<EndHook>,
+    ) -> Result<RunId, NotStarted> {
         let run = self.open_record(
             spec.operation_id,
-            0,
-            Held::Ttest(Outputs::default()),
-            Some(end),
+            M::columns_total(&spec),
+            M::held(Outputs::default()),
+            end,
         )?;
-        let report =
-            stats_adapters::ttest_validate(&spec, crate::workspace::build(), slot.dataset());
-        self.queue(run, slot, Job::Ttest(spec), Report::Ttest(report));
+        // Outside the lock, so a status poll does not wait on it; the record is
+        // unfinished, so no second run can start meanwhile.
+        let report = M::validate(&spec, slot.dataset());
+        self.queue(run, slot, M::job(spec), M::report(report));
         Ok(run)
     }
 
@@ -819,19 +1087,13 @@ impl Runs {
                     false
                 }
             };
-            match (&mut entry.held, report) {
-                (Held::Describe(o), Report::Describe(r)) => {
-                    o.validation = Some(r);
-                    o.spec = Some(held_spec);
-                    o.input = input;
-                }
-                (Held::Ttest(o), Report::Ttest(r)) => {
-                    o.validation = Some(r);
-                    o.spec = Some(held_spec);
-                    o.input = input;
-                }
-                _ => unreachable!("a record's report is of the record's kind"),
-            }
+            by_method!(report, Report, |M, r| {
+                let o = M::outputs_mut(&mut entry.held)
+                    .expect("a record's report is of the record's kind");
+                o.validation = Some(r);
+                o.spec = Some(held_spec);
+                o.input = input;
+            });
             // A refused or waiting record has ended here: its end hook, after
             // the lock is released, on this thread.
             let due = if queued {
@@ -898,25 +1160,16 @@ impl Runs {
             }
         }
         let build = crate::workspace::build();
-        let done = match job {
-            Job::Describe(spec) => {
-                let outcome = catch_unwind(AssertUnwindSafe(|| {
-                    stats_adapters::describe_until(&spec, build, slot.dataset(), |done| {
-                        self.checkpoint(run, done, started)
-                    })
-                }));
-                Done::Describe(outcome, spec)
-            }
-            // The t-test's one check point, before its arithmetic.
-            Job::Ttest(spec) => {
-                let outcome = catch_unwind(AssertUnwindSafe(|| {
-                    stats_adapters::ttest_run(&spec, build, slot.dataset(), |done| {
-                        self.checkpoint(run, done, started)
-                    })
-                }));
-                Done::Ttest(outcome, spec)
-            }
-        };
+        // The method's work, through its façade, with this manager's check
+        // point.
+        let done = by_method!(job, Job, |M, spec| {
+            let outcome = catch_unwind(AssertUnwindSafe(|| {
+                M::compute(&spec, build, slot.dataset(), |done| {
+                    self.checkpoint(run, done, started)
+                })
+            }));
+            M::done(Finished { outcome, spec })
+        });
         let now = self.clock.now_ms();
         let mut entries = lock(&self.entries);
         let Some(entry) = Self::find(&mut entries, run) else {
@@ -931,17 +1184,13 @@ impl Runs {
         // accepts only while the run is unfinished, under this same lock, so
         // a cancel that comes later finds the run ended and changes nothing.
         if entry.cancel_requested {
-            let panicked = match &done {
-                Done::Describe(outcome, _) => {
-                    match outcome {
-                        Ok(Ok(_)) => entry.columns_done = entry.columns_total,
-                        Ok(Err(Halt::Stopped { done, .. })) => entry.columns_done = *done,
-                        Ok(Err(Halt::Refused(_))) | Err(_) => {}
-                    }
-                    outcome.is_err()
+            // What the method's end leaves in the record's column count.
+            let panicked = by_method!(&done, Done, |M, d| {
+                if let Some(n) = M::columns_done(entry.columns_total, &d.outcome) {
+                    entry.columns_done = n;
                 }
-                Done::Ttest(outcome, _) => outcome.is_err(),
-            };
+                d.outcome.is_err()
+            });
             if panicked {
                 tracing::warn!("stats_desc: the run's work panicked");
             }
@@ -951,14 +1200,9 @@ impl Runs {
             // Each finish reads the record's outputs of its own kind: a
             // record's work is always of the record's kind (`begin` made both
             // from one job).
-            match done {
-                Done::Describe(outcome, spec) => {
-                    Self::finish_describe(entry, run, outcome, &spec, &slot, elapsed, now)
-                }
-                Done::Ttest(outcome, spec) => {
-                    Self::finish_ttest(entry, run, outcome, &spec, &slot, elapsed, now)
-                }
-            }
+            by_method!(done, Done, |M, d| Self::finish::<M>(
+                entry, run, d, &slot, elapsed, now
+            ));
         }
         // Phase 5C-1a: the run has ended; its end hook, if any, is called on
         // this worker once the lock is released, with the copy taken here.
@@ -969,98 +1213,32 @@ impl Runs {
         }
     }
 
-    /// A describe run's last transition, when no cancel was accepted.
-    fn finish_describe(
+    /// A run's last transition, of any method, when no cancel was accepted.
+    fn finish<M: Method>(
         entry: &mut Entry,
         run: RunId,
-        outcome: std::thread::Result<Result<DescribeResult, Halt<Stop>>>,
-        spec: &OperationSpec<DescribeParams>,
+        finished: Finished<M>,
         slot: &Slot,
         elapsed: u64,
         now: u64,
     ) {
-        match outcome {
-            Ok(Ok(result)) => {
-                entry.columns_done = entry.columns_total;
-                let manifest = stats_desc::manifest(
-                    spec,
-                    slot.dataset(),
-                    &result,
-                    elapsed,
-                    Platform::current(),
-                );
-                let succeeded = Self::step(entry, RunEvent::Succeed, now);
-                let Held::Describe(o) = &mut entry.held else {
-                    unreachable!("a describe record")
-                };
-                let diagnostics = o
-                    .validation
-                    .as_ref()
-                    .map(|v| v.warnings.clone())
-                    .unwrap_or_default();
-                if succeeded {
-                    o.bundle = Some(ResultBundle {
-                        schema_version: SchemaVersion,
-                        run_id: run,
-                        status: RunState::Succeeded,
-                        primary_outputs: result,
-                        diagnostics,
-                        limitations: Vec::new(),
-                        manifest,
-                    });
-                }
-            }
-            Ok(Err(Halt::Stopped { reason, done })) => {
-                entry.columns_done = done;
-                Self::step(entry, Self::stop_event(reason), now);
-            }
-            Ok(Err(Halt::Refused(d))) => {
-                if let Held::Describe(o) = &mut entry.held {
-                    o.failure = Some(d);
-                }
-                Self::step(entry, RunEvent::Fail, now);
-            }
-            Err(_) => {
-                tracing::warn!("stats_desc: the describe loop panicked");
-                Self::step(entry, RunEvent::Fail, now);
-            }
+        let Finished { outcome, spec } = finished;
+        if let Some(n) = M::columns_done(entry.columns_total, &outcome) {
+            entry.columns_done = n;
         }
-    }
-
-    /// A t-test run's last transition, when no cancel was accepted.
-    fn finish_ttest(
-        entry: &mut Entry,
-        run: RunId,
-        outcome: std::thread::Result<Result<TTestResult, stats_ttest::Halt<Stop>>>,
-        spec: &OperationSpec<TTestParams>,
-        slot: &Slot,
-        elapsed: u64,
-        now: u64,
-    ) {
         match outcome {
             Ok(Ok(result)) => {
-                let manifest = stats_ttest::manifest(
-                    spec,
-                    slot.dataset(),
-                    &result,
-                    elapsed,
-                    Platform::current(),
-                );
+                let manifest = M::manifest(&spec, slot.dataset(), &result, elapsed);
                 let succeeded = Self::step(entry, RunEvent::Succeed, now);
-                let Held::Ttest(o) = &mut entry.held else {
-                    unreachable!("a t-test record")
-                };
+                let o = M::outputs_mut(&mut entry.held)
+                    .expect("a record's work is of the record's kind");
                 let diagnostics = o
                     .validation
                     .as_ref()
                     .map(|v| v.warnings.clone())
                     .unwrap_or_default();
                 if succeeded {
-                    let limitations = result
-                        .limitations
-                        .iter()
-                        .map(|c| Diagnostic::note(*c))
-                        .collect();
+                    let limitations = M::limitations(&result);
                     o.bundle = Some(ResultBundle {
                         schema_version: SchemaVersion,
                         run_id: run,
@@ -1072,17 +1250,19 @@ impl Runs {
                     });
                 }
             }
-            Ok(Err(stats_ttest::Halt::Stopped { reason })) => {
-                Self::step(entry, Self::stop_event(reason), now);
-            }
-            Ok(Err(stats_ttest::Halt::Refused(d))) => {
-                if let Held::Ttest(o) = &mut entry.held {
-                    o.failure = Some(d);
+            Ok(Err(halt)) => match M::halted(halt) {
+                Halted::Stopped(reason) => {
+                    Self::step(entry, Self::stop_event(reason), now);
                 }
-                Self::step(entry, RunEvent::Fail, now);
-            }
+                Halted::Refused(d) => {
+                    if let Some(o) = M::outputs_mut(&mut entry.held) {
+                        o.failure = Some(d);
+                    }
+                    Self::step(entry, RunEvent::Fail, now);
+                }
+            },
             Err(_) => {
-                tracing::warn!("stats_desc: the t-test panicked");
+                M::panicked();
                 Self::step(entry, RunEvent::Fail, now);
             }
         }
@@ -1143,32 +1323,26 @@ impl Runs {
         }
     }
 
-    fn describe_snapshot(&self, entry: &Entry) -> RunSnapshot {
-        match &entry.held {
-            Held::Describe(o) => self.snapshot_of(entry, o),
-            Held::Ttest(_) => unreachable!("found by kind"),
-        }
+    /// The snapshot of a record already found by `M`'s kind.
+    fn snapshot_in<M: Method>(&self, entry: &Entry) -> RunSnapshot<M::Code> {
+        self.snapshot_of(entry, M::outputs(&entry.held).expect("found by kind"))
     }
 
-    fn ttest_snapshot_of(&self, entry: &Entry) -> RunSnapshot<TTestCode> {
-        match &entry.held {
-            Held::Ttest(o) => self.snapshot_of(entry, o),
-            Held::Describe(_) => unreachable!("found by kind"),
-        }
+    /// A run of `M`'s kind; `run.wrong_kind` for another kind's.
+    fn snapshot_as<M: Method>(&self, run: RunId) -> Result<RunSnapshot<M::Code>, RunCode> {
+        let mut entries = lock(&self.entries);
+        let entry = Self::find_kind(&mut entries, run, M::KIND)?;
+        Ok(self.snapshot_in::<M>(entry))
     }
 
     /// A descriptive summary's run; `run.wrong_kind` for a t-test's.
     pub fn snapshot(&self, run: RunId) -> Result<RunSnapshot, RunCode> {
-        let mut entries = lock(&self.entries);
-        let entry = Self::find_kind(&mut entries, run, RunKind::Describe)?;
-        Ok(self.describe_snapshot(entry))
+        self.snapshot_as::<Summary>(run)
     }
 
     /// A t-test's run; `run.wrong_kind` for a descriptive summary's.
     pub fn ttest_snapshot(&self, run: RunId) -> Result<RunSnapshot<TTestCode>, RunCode> {
-        let mut entries = lock(&self.entries);
-        let entry = Self::find_kind(&mut entries, run, RunKind::Ttest)?;
-        Ok(self.ttest_snapshot_of(entry))
+        self.snapshot_as::<IndependentT>(run)
     }
 
     /// Asks the run to stop. Queued: cancelled now. Running: the flag is set,
@@ -1185,16 +1359,16 @@ impl Runs {
         }
     }
 
-    /// Cancels a descriptive summary's run; `run.wrong_kind` for a t-test's.
-    pub fn cancel(&self, run: RunId) -> Result<RunSnapshot, RunCode> {
+    /// Cancels a run of `M`'s kind; `run.wrong_kind` for another kind's.
+    fn cancel_as<M: Method>(&self, run: RunId) -> Result<RunSnapshot<M::Code>, RunCode> {
         let now = self.clock.now_ms();
         let (snapshot, due) = {
             let mut entries = lock(&self.entries);
-            let entry = Self::find_kind(&mut entries, run, RunKind::Describe)?;
+            let entry = Self::find_kind(&mut entries, run, M::KIND)?;
             Self::cancel_entry(entry, now);
             // A queued run has ended here (Phase 5C-1a): its end hook, after
             // the lock is released, on this thread.
-            (self.describe_snapshot(entry), self.take_end(entry, now))
+            (self.snapshot_in::<M>(entry), self.take_end(entry, now))
         };
         if let Some(due) = due {
             due.call();
@@ -1202,33 +1376,34 @@ impl Runs {
         Ok(snapshot)
     }
 
+    /// Cancels a descriptive summary's run; `run.wrong_kind` for a t-test's.
+    pub fn cancel(&self, run: RunId) -> Result<RunSnapshot, RunCode> {
+        self.cancel_as::<Summary>(run)
+    }
+
     /// Cancels a t-test's run; `run.wrong_kind` for a descriptive summary's.
     pub fn ttest_cancel(&self, run: RunId) -> Result<RunSnapshot<TTestCode>, RunCode> {
-        let now = self.clock.now_ms();
-        let (snapshot, due) = {
-            let mut entries = lock(&self.entries);
-            let entry = Self::find_kind(&mut entries, run, RunKind::Ttest)?;
-            Self::cancel_entry(entry, now);
-            // A queued run has ended here (Phase 5C-1a): its end hook, after
-            // the lock is released, on this thread.
-            (self.ttest_snapshot_of(entry), self.take_end(entry, now))
-        };
-        if let Some(due) = due {
-            due.call();
-        }
-        Ok(snapshot)
+        self.cancel_as::<IndependentT>(run)
+    }
+
+    /// The result of a run of `M`'s kind that succeeded. Otherwise the closed
+    /// reason: `not_finished`, `cancelled`, `timed_out`, `no_result`, or
+    /// `wrong_kind` for another kind's run.
+    fn result_as<M: Method>(
+        &self,
+        run: RunId,
+    ) -> Result<ResultBundle<M::Result, M::Code>, RunCode> {
+        let mut entries = lock(&self.entries);
+        let entry = Self::find_kind(&mut entries, run, M::KIND)?;
+        let outputs = M::outputs(&entry.held).expect("found by kind");
+        result_of(entry.record.state, &outputs.bundle)
     }
 
     /// The result of a descriptive summary that succeeded. Otherwise the
     /// closed reason: `not_finished`, `cancelled`, `timed_out`, `no_result`,
     /// or `wrong_kind` for a t-test's run.
     pub fn result(&self, run: RunId) -> Result<ResultBundle<DescribeResult, DescCode>, RunCode> {
-        let mut entries = lock(&self.entries);
-        let entry = Self::find_kind(&mut entries, run, RunKind::Describe)?;
-        match &entry.held {
-            Held::Describe(o) => result_of(entry.record.state, &o.bundle),
-            Held::Ttest(_) => unreachable!("found by kind"),
-        }
+        self.result_as::<Summary>(run)
     }
 
     /// [`Runs::result`] for a t-test; `wrong_kind` for a summary's run.
@@ -1236,12 +1411,7 @@ impl Runs {
         &self,
         run: RunId,
     ) -> Result<ResultBundle<TTestResult, TTestCode>, RunCode> {
-        let mut entries = lock(&self.entries);
-        let entry = Self::find_kind(&mut entries, run, RunKind::Ttest)?;
-        match &entry.held {
-            Held::Ttest(o) => result_of(entry.record.state, &o.bundle),
-            Held::Describe(_) => unreachable!("found by kind"),
-        }
+        self.result_as::<IndependentT>(run)
     }
 
     /// A copy of `run` for a project Save (Phase 5B-2), of either kind:
@@ -1256,10 +1426,7 @@ impl Runs {
     /// The copy of a record a Save takes, and the one an end hook is given,
     /// read under the records' lock.
     fn copy_of(entry: &Entry, now_ms: u64) -> RunCopy {
-        let parts = match &entry.held {
-            Held::Describe(o) => o.copy(),
-            Held::Ttest(o) => o.copy(),
-        };
+        let parts = by_method!(&entry.held, Held, |_M, o| o.copy());
         let (spec_json, capability) = match parts.spec {
             Some((json, id, version)) => (Some(json), Some((id, version))),
             None => (None, None),
@@ -1768,5 +1935,173 @@ mod tests {
         let slots = DatasetSlots::default();
         slots.continue_after(4);
         assert_eq!(slots.last_id(), 4);
+    }
+
+    /* ---- Phase 8C: what each kind does at its check points (decision 249) -- */
+
+    /// Two columns: `x`, numbers, and `g`, two groups of three.
+    fn two_groups() -> Arc<Slot> {
+        let rows = [
+            ("1", "a"),
+            ("2", "a"),
+            ("4", "a"),
+            ("3", "b"),
+            ("5", "b"),
+            ("8", "b"),
+        ];
+        let dataset = build_dataset(
+            RawTable::from_rows(
+                vec!["x".into(), "g".into()],
+                rows.iter()
+                    .map(|(x, g)| vec![x.to_string(), g.to_string()])
+                    .collect(),
+            ),
+            DataFingerprint::of_bytes(b"synthetic two groups", "unit", TableRef::FirstTable),
+        )
+        .expect("dataset");
+        Arc::new(Slot {
+            id: 1,
+            display_name: "synthetic".into(),
+            dataset,
+            source: None,
+        })
+    }
+
+    /// A summary of both columns.
+    fn summary_of_both(slot: &Slot) -> OperationSpec<DescribeParams> {
+        stats_desc::spec(
+            OperationId(1),
+            slot.dataset(),
+            DescribeParams {
+                columns: vec![
+                    ColumnRequest {
+                        alias: Alias(ColumnAlias(1)),
+                        treat_as: TreatAs::Numeric,
+                    },
+                    ColumnRequest {
+                        alias: Alias(ColumnAlias(2)),
+                        treat_as: TreatAs::Categorical,
+                    },
+                ],
+                missing_codes: vec![],
+            },
+        )
+    }
+
+    /// Welch's t-test of `x` by `g`.
+    fn ttest_of(slot: &Slot) -> OperationSpec<TTestParams> {
+        stats_ttest::spec(
+            OperationId(2),
+            slot.dataset(),
+            TTestParams {
+                outcome: Alias(ColumnAlias(1)),
+                group: Alias(ColumnAlias(2)),
+                levels: Some([0, 1]),
+                variant: Some(stats_ttest::Variant::Welch),
+                missing_codes: vec![],
+            },
+        )
+    }
+
+    /// Every point a hook saw, with the name of the thread it saw it on.
+    type Seen = Arc<Mutex<Vec<(Point, Option<String>)>>>;
+
+    fn watching(seen: &Seen) -> Arc<Runs> {
+        let seen = Arc::clone(seen);
+        let hook: CheckpointHook = Arc::new(move |_run, p| {
+            let name = std::thread::current().name().map(str::to_string);
+            seen.lock().unwrap().push((p, name));
+        });
+        Arc::new(Runs::with_hooks(
+            Arc::new(SinceStart(Instant::now())),
+            Some(hook),
+            RUN_CEILING_MS,
+        ))
+    }
+
+    /// Differences 2, 9 and 10 of the 8C step: the summary checks once per
+    /// column and counts its columns, ending with every one done; the t-test
+    /// checks once, at 0, and has no columns. Both work on the thread named
+    /// `stats-desc-run`.
+    #[test]
+    fn each_kind_reaches_its_own_check_points_on_the_run_thread() {
+        let slot = two_groups();
+        let thread = Some("stats-desc-run".to_string());
+
+        let seen: Seen = Arc::default();
+        let runs = watching(&seen);
+        let run = runs
+            .start(Arc::clone(&slot), summary_of_both(&slot))
+            .unwrap();
+        wait_for("the summary ended", || {
+            runs.snapshot(run).unwrap().record.state.is_terminal()
+        });
+        let s = runs.snapshot(run).unwrap();
+        assert_eq!(s.record.state, RunState::Succeeded);
+        assert_eq!((s.columns_done, s.columns_total), (2, 2));
+        let points: Vec<_> = seen.lock().unwrap().iter().map(|(p, _)| *p).collect();
+        assert_eq!(
+            points,
+            [
+                Point::BeforeStart,
+                Point::Column(0),
+                Point::Passed(0),
+                Point::Column(1),
+                Point::Passed(1),
+            ]
+        );
+        assert!(seen.lock().unwrap().iter().all(|(_, n)| *n == thread));
+
+        let seen: Seen = Arc::default();
+        let runs = watching(&seen);
+        let run = runs
+            .start_ttest(Arc::clone(&slot), ttest_of(&slot))
+            .unwrap();
+        wait_for("the t-test ended", || {
+            runs.ttest_snapshot(run).unwrap().record.state.is_terminal()
+        });
+        let s = runs.ttest_snapshot(run).unwrap();
+        assert_eq!(s.record.state, RunState::Succeeded);
+        assert_eq!((s.columns_done, s.columns_total), (0, 0));
+        let points: Vec<_> = seen.lock().unwrap().iter().map(|(p, _)| *p).collect();
+        assert_eq!(
+            points,
+            [Point::BeforeStart, Point::Column(0), Point::Passed(0)]
+        );
+        assert!(seen.lock().unwrap().iter().all(|(_, n)| *n == thread));
+    }
+
+    /// Difference 1 of the 8C step, for the t-test: a cancel that lands after
+    /// its one check point wins, and leaves no column count in the record.
+    #[test]
+    fn a_ttest_cancel_after_its_check_point_wins_and_counts_no_columns() {
+        let (reached, at_passed) = mpsc::channel::<()>();
+        let (go, gate) = mpsc::channel::<()>();
+        let gate = Mutex::new(gate);
+        let hook: CheckpointHook = Arc::new(move |_run, p| {
+            if p == Point::Passed(0) {
+                reached.send(()).unwrap();
+                let _ = gate.lock().unwrap().recv();
+            }
+        });
+        let runs = Arc::new(Runs::with_hooks(
+            Arc::new(SinceStart(Instant::now())),
+            Some(hook),
+            RUN_CEILING_MS,
+        ));
+        let slot = two_groups();
+        let run = runs
+            .start_ttest(Arc::clone(&slot), ttest_of(&slot))
+            .unwrap();
+        at_passed.recv().unwrap();
+        runs.ttest_cancel(run).unwrap();
+        go.send(()).unwrap();
+        wait_for("the t-test ended", || {
+            runs.ttest_snapshot(run).unwrap().record.state.is_terminal()
+        });
+        let s = runs.ttest_snapshot(run).unwrap();
+        assert_eq!(s.record.state, RunState::Cancelled);
+        assert_eq!((s.columns_done, s.columns_total), (0, 0));
+        assert_eq!(runs.ttest_result(run).map(|_| ()), Err(RunCode::Cancelled));
     }
 }

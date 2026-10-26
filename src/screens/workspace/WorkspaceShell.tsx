@@ -23,6 +23,7 @@ import type { RunState } from '../statistics/describeTypes';
 import { STATISTICS_HOME_PATH, statisticsTools as selectorTools } from '../statistics/statisticsRoute';
 import { FOCUS_PROJECTS } from '../statistics/StatisticsHome';
 import { ttestBridge, type TTestBridge } from '../statistics/ttestBridge';
+import { byKind } from '../statistics/methods';
 import { projectsShown } from '../statistics/projects/projectGate';
 import { noteWorkspaceState, openProjectStore } from '../statistics/projects/projectSession';
 import { PROJECT_TEXT } from '../statistics/projects/projectWording';
@@ -70,10 +71,23 @@ interface JobView {
   kind: RunEntry['kind'];
 }
 
-const KIND_NAMES: Record<RunEntry['kind'], string | null> = {
-  describe: null,
-  ttest: 'independent-samples t-test',
-};
+/** Each kind's job name, from the methods table (Phase 8C): none for the
+ *  summary, whose sentence has no parenthesis. */
+const KIND_NAMES: Record<RunEntry['kind'], string | null> = byKind((m) => m.jobName);
+
+/** What the shell does with a run of one kind, through that kind's own
+ *  commands (decision 80). */
+interface KindCommands {
+  status: (runId: number) => Promise<JobView | null>;
+  cancel: (runId: number) => Promise<unknown>;
+}
+
+/** A kind's commands; a kind this screen does not know reads and cancels as
+ *  the summary, as it did before Phase 8C. An own key only, so a word such
+ *  as 'toString' is not taken from Object.prototype. */
+function commandsFor(kinds: Record<RunEntry['kind'], KindCommands>, kind: string): KindCommands {
+  return Object.prototype.hasOwnProperty.call(kinds, kind) ? kinds[kind as RunEntry['kind']] : kinds.describe;
+}
 
 export function jobSentence(run: JobView): string {
   const kind = KIND_NAMES[run.kind];
@@ -119,26 +133,37 @@ export const WorkspaceShell: React.FC<WorkspaceShellProps> = ({
     };
   }, []);
 
-  /** A run's state, through its kind's status command (decision 80). */
-  const statusOf = useCallback(
-    async (e: RunEntry): Promise<JobView | null> => {
-      if (e.kind === 'ttest') {
-        const r = await ttest.status(e.runId).catch(() => null);
-        return r && { runId: r.runId, state: r.state, terminal: r.terminal, progress: null, kind: 'ttest' };
-      }
-      const r = await runs.status(e.runId).catch(() => null);
-      return (
-        r && {
-          runId: r.runId,
-          state: r.state,
-          terminal: r.terminal,
-          progress: progressSentence(r.columnsDone, r.columnsTotal),
-          kind: 'describe',
-        }
-      );
-    },
+  /** Each kind's status and cancel, from the bridges given (Phase 8C). */
+  const kinds = useMemo<Record<RunEntry['kind'], KindCommands>>(
+    () => ({
+      describe: {
+        status: async (runId) => {
+          const r = await runs.status(runId).catch(() => null);
+          return (
+            r && {
+              runId: r.runId,
+              state: r.state,
+              terminal: r.terminal,
+              progress: progressSentence(r.columnsDone, r.columnsTotal),
+              kind: 'describe',
+            }
+          );
+        },
+        cancel: (runId) => runs.cancel(runId).catch(() => null),
+      },
+      ttest: {
+        status: async (runId) => {
+          const r = await ttest.status(runId).catch(() => null);
+          return r && { runId: r.runId, state: r.state, terminal: r.terminal, progress: null, kind: 'ttest' };
+        },
+        cancel: (runId) => ttest.cancel(runId).catch(() => null),
+      },
+    }),
     [runs, ttest]
   );
+
+  /** A run's state, through its kind's status command (decision 80). */
+  const statusOf = useCallback((e: RunEntry): Promise<JobView | null> => commandsFor(kinds, e.kind).status(e.runId), [kinds]);
 
   const read = useCallback(async () => {
     try {
@@ -213,9 +238,8 @@ export const WorkspaceShell: React.FC<WorkspaceShellProps> = ({
     if (blocking === null) return;
     setWaiting(true);
     // Through the run's own kind's cancel (decision 80).
-    if (blocking.kind === 'ttest') await ttest.cancel(blocking.runId).catch(() => null);
-    else await runs.cancel(blocking.runId).catch(() => null);
-  }, [blocking, runs, ttest]);
+    await commandsFor(kinds, blocking.kind).cancel(blocking.runId);
+  }, [blocking, kinds]);
 
   const stay = useCallback(() => {
     setBlocking(null);

@@ -7,6 +7,7 @@
 // A project's name arrives only in ProjectListEntryView and ProjectOpenView.
 // Everything else is an id, a hash, a closed word or a number.
 import type { RunState } from '../describeTypes';
+import type { MethodKind } from '../methods';
 
 /** Every project.* code, in Rust's order (ProjectCode::ALL; pinned to
  *  projectCodes.json by projectTypes.vitest.ts). */
@@ -156,7 +157,8 @@ export interface RerunView {
  *  status and cancel commands read it. */
 export interface RerunStartedView {
   runId: number;
-  kind: 'describe' | 'ttest';
+  /** Rust's RunKind word, from the methods table since Phase 8C. */
+  kind: MethodKind;
 }
 
 /** A rerun's result beside the result of the run it repeats (decision 189):

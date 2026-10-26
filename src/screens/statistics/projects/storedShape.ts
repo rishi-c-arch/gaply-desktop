@@ -19,12 +19,14 @@ import type { ColumnResult, Diagnostic, ResultBundleView, RunManifest } from '..
 import type { TTestDiagnostic, TTestResultView } from '../ttestTypes';
 import DESCRIBE_CODES from '../describeCodes.json';
 import TTEST_CODES from '../ttestCodes.json';
+import { capabilityOfKind } from '../methods';
 
 /** The schema version this app reads, for every stored part. */
 export const KNOWN_SCHEMA_VERSION = 1;
 
-export const SUMMARY_CAPABILITY = 'stats.describe';
-export const TTEST_CAPABILITY = 'stats.analyze.independent_t';
+/** The two methods' capability ids, from the methods table (Phase 8C). */
+export const SUMMARY_CAPABILITY = capabilityOfKind('describe');
+export const TTEST_CAPABILITY = capabilityOfKind('ttest');
 
 /** A data file's formats: the ingest's (DataFormat in Rust, without json). */
 const DATA_FORMATS = ['csv', 'tsv', 'xlsx', 'xlsm', 'xlsb', 'xls', 'ods', 'sav', 'mat'];
@@ -208,6 +210,55 @@ function ttestBundle(v: O): TTestResultView | null {
   };
 }
 
+/* ---- the checkers, one per method (Phase 8C; decision 249) ------------------- */
+
+/** How one method's saved result is checked: the case it is shown as, its
+ *  code list, its parameter keys, whether a parameter may be a string, and
+ *  its bundle's check. */
+interface StoredChecker {
+  which: 'summary' | 'ttest';
+  codes: readonly string[];
+  keys: readonly string[];
+  strings: boolean;
+  bundle: (v: O, dataFile: DataFileFacts) => Checked | null;
+}
+
+/** The checkers, keyed by capability id. A new method adds one entry. */
+export const STORED_CHECKERS: Record<string, StoredChecker> = {
+  [SUMMARY_CAPABILITY]: {
+    which: 'summary',
+    codes: DESC_CODES,
+    keys: DESC_PARAM_KEYS,
+    strings: true,
+    bundle: (v, dataFile) => {
+      const result = summaryBundle(v);
+      return result ? { kind: 'summary', result, dataFile } : null;
+    },
+  },
+  [TTEST_CAPABILITY]: {
+    which: 'ttest',
+    codes: T_CODES,
+    keys: T_PARAM_KEYS,
+    strings: false,
+    bundle: (v, dataFile) => {
+      const result = ttestBundle(v);
+      return result ? { kind: 'ttest', result, dataFile } : null;
+    },
+  },
+};
+
+/** A capability's checker, or undefined for one no method has. An own key
+ *  only, never one from Object.prototype. */
+function checkerFor(capability: string): StoredChecker | undefined {
+  return Object.prototype.hasOwnProperty.call(STORED_CHECKERS, capability) ? STORED_CHECKERS[capability] : undefined;
+}
+
+/** The capability id whose checked results are shown as `which`. */
+export function capabilityOfCase(which: 'summary' | 'ttest'): string {
+  for (const id of Object.keys(STORED_CHECKERS)) if (STORED_CHECKERS[id].which === which) return id;
+  throw new Error('a case with no checker');
+}
+
 /* ---- the whole saved result ------------------------------------------------- */
 
 /** JSON text to a value, or undefined. The error, whose message can quote
@@ -241,8 +292,9 @@ function check(view: unknown): Checked {
   if (!isObject(view)) return { kind: 'badShape' };
   const capability = view.capabilityId;
   if (!isStr(capability)) return { kind: 'badShape' };
-  if (capability !== SUMMARY_CAPABILITY && capability !== TTEST_CAPABILITY) return { kind: 'unknownCapability' };
-  const which = capability === SUMMARY_CAPABILITY ? 'summary' : 'ttest';
+  const checker = checkerFor(capability);
+  if (checker === undefined) return { kind: 'unknownCapability' };
+  const which = checker.which;
   const f = view.dataFile;
   if (!isCount(view.storedRunId) || !oneOf(view.state, RUN_STATES) || !isObject(f)) return { kind: 'badShape' };
   if (f.kind !== 'data_file' || !oneOf(f.format, DATA_FORMATS) || !isCount(f.bytes) || !isHex64(f.sha256)) return { kind: 'badShape' };
@@ -268,15 +320,10 @@ function check(view: unknown): Checked {
 
   if (view.state === 'failed') {
     if (!isObject(record) || record.status !== 'failed') return { kind: 'badShape' };
-    const ok = which === 'summary' ? diagnostic(DESC_CODES, DESC_PARAM_KEYS, true) : diagnostic(T_CODES, T_PARAM_KEYS, false);
+    const ok = diagnostic(checker.codes, checker.keys, checker.strings);
     if (!ok(record.failure)) return { kind: 'badShape' };
     return { kind: 'failed', capability: which, failure: record.failure as Diagnostic | TTestDiagnostic, dataFile };
   }
   if (!isObject(bundle)) return { kind: 'badShape' };
-  if (which === 'summary') {
-    const result = summaryBundle(bundle);
-    return result ? { kind: 'summary', result, dataFile } : { kind: 'badShape' };
-  }
-  const result = ttestBundle(bundle);
-  return result ? { kind: 'ttest', result, dataFile } : { kind: 'badShape' };
+  return checker.bundle(bundle, dataFile) ?? { kind: 'badShape' };
 }

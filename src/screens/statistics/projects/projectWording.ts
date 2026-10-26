@@ -10,6 +10,7 @@
 // user's data or passes a verdict on it.
 import { workspaceRefusal } from '../../workspace/workspaceTypes';
 import { workspaceSentence } from '../../workspace/workspaceWording';
+import { methodFor } from '../methods';
 import type { NameRefusal } from './projectName';
 import { PROJECT_CODES, type ProjectCode, type ProjectRefusalView, type StoredRunView } from './projectTypes';
 
@@ -248,12 +249,11 @@ export const PROJECT_TEXT = {
 
 /* ---- the project page (Phase 5B-3b) ---------------------------------------- */
 
-/** What a saved run is, by its capability. A capability this version does not
- *  know is named as such, never shown as its id. */
+/** What a saved run is, by its capability: its method's name, from the
+ *  methods table (Phase 8C). A capability this version does not know is
+ *  named as such, never shown as its id. */
 export function capabilityName(capabilityId: string): string {
-  if (capabilityId === 'stats.describe') return 'Descriptive summary';
-  if (capabilityId === 'stats.analyze.independent_t') return 'Independent-samples t-test';
-  return 'An analysis this version of Gaply does not know';
+  return methodFor(capabilityId)?.name ?? 'An analysis this version of Gaply does not know';
 }
 
 /** The line above a saved result (decision 150). */

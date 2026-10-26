@@ -81,7 +81,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use gaply_core::contracts::capability::ConfirmationId;
+use gaply_core::contracts::capability::{Build, ConfirmationId};
 use gaply_core::contracts::codes::Closed;
 use gaply_core::contracts::workspace::{check_spec, WorkspaceState};
 use gaply_core::contracts::{
@@ -98,6 +98,7 @@ use gaply_core::research_project::{
 use gaply_core::research_project::{render_prov_json, render_report_markdown};
 use gaply_core::stats_adapters;
 use gaply_core::stats_desc::{self, DescCode, DescribeParams, TreatAs};
+use gaply_core::stats_l1::dataset::Dataset;
 use gaply_core::stats_registry;
 use gaply_core::stats_ttest::{self, TTestCode, TTestParams, Variant};
 use gaply_core::GaplyError;
@@ -944,27 +945,156 @@ fn save_rerun_into(
     h.save_rerun(req, of)
 }
 
-/// What a rerun runs: its stored spec, read back, of its kind.
-enum RerunJob {
-    Describe(OperationSpec<DescribeParams>),
-    Ttest(OperationSpec<TTestParams>),
+/* ------------------------------------------------------------------------ *
+ *  The methods a project runs again and exports: one table (Research OS,
+ *  Phase 8C, decision 249)
+ * ------------------------------------------------------------------------ */
+
+/// One method's row, keyed by its capability id: how its stored spec is read
+/// back exactly and its rerun checked and started (through what that gives),
+/// which export parameters its spec gives, and which code type its outputs
+/// use. Private, as everything here that names a method is.
+struct MethodRow {
+    capability: &'static str,
+    /// The run manager's word for it, which `project_rerun` answers with.
+    kind: RunKind,
+    /// Check 8: the stored spec, read back to exactly its bytes as this
+    /// method's spec.
+    read_back: fn(&[u8]) -> Result<Box<dyn Rerun>, ProjectCode>,
+    /// The exports' input for one run: its settings from its spec, by the
+    /// allow-list, and its codes and fingerprints from its outputs, read in
+    /// this method's codes.
+    export:
+        fn(&mut ProjectHandle, Value, &[ArtifactRef], &mut ExportRun) -> Result<(), ProjectRefusal>,
 }
 
-/// The kind of a stored run, if this build can run it again (decision 188):
-/// its capability and capability version, from its row, are runnable here,
-/// and the capability is the summary's or the t-test's.
-fn rerun_kind(stored: &StoredRun) -> Result<RunKind, ProjectCode> {
+/// Every method a project runs again and exports. A new method adds one row.
+const METHODS: &[MethodRow] = &[
+    MethodRow {
+        capability: stats_desc::CAPABILITY_ID,
+        kind: RunKind::Describe,
+        read_back: read_back::<OperationSpec<DescribeParams>>,
+        export: export_with::<OperationSpec<DescribeParams>>,
+    },
+    MethodRow {
+        capability: stats_ttest::CAPABILITY_ID,
+        kind: RunKind::Ttest,
+        read_back: read_back::<OperationSpec<TTestParams>>,
+        export: export_with::<OperationSpec<TTestParams>>,
+    },
+];
+
+/// The row of a capability, if a method has one.
+fn method_for(capability: &str) -> Option<&'static MethodRow> {
+    METHODS.iter().find(|m| m.capability == capability)
+}
+
+/// A stored spec, read back: how its rerun is checked and started.
+trait Rerun {
+    /// Check 9: the spec passes validation, as an ordinary run's must: its
+    /// workspace and capability, then its method's own check, through its
+    /// façade.
+    fn valid_on(&self, build: Build, dataset: &Dataset) -> bool;
+    /// The rerun's run, with its end hook.
+    fn launch(
+        self: Box<Self>,
+        runs: &Arc<Runs>,
+        slot: Arc<Slot>,
+        end: EndHook,
+    ) -> Result<RunId, NotStarted>;
+}
+
+/// One method's spec, as a project's table reads it.
+trait SavedSpec: Rerun + Serialize + DeserializeOwned + 'static {
+    /// The codes its outputs are in.
+    type Code: Closed + DeserializeOwned;
+    /// Its settings, by the allow-list.
+    fn parameters(&self) -> Vec<ExportParameter>;
+}
+
+fn read_back<S: SavedSpec>(stored: &[u8]) -> Result<Box<dyn Rerun>, ProjectCode> {
+    Ok(Box::new(exact::<S>(stored)?))
+}
+
+fn export_with<S: SavedSpec>(
+    h: &mut ProjectHandle,
+    spec: Value,
+    generated: &[ArtifactRef],
+    run: &mut ExportRun,
+) -> Result<(), ProjectRefusal> {
+    run.parameters = parse::<S>(spec)?.parameters();
+    outputs::<S::Code>(h, generated, run)
+}
+
+impl Rerun for OperationSpec<DescribeParams> {
+    fn valid_on(&self, build: Build, dataset: &Dataset) -> bool {
+        check_spec(
+            WorkspaceId::Statistics,
+            self.workspace_id,
+            &self.capability_id,
+        )
+        .is_ok()
+            && passes(stats_adapters::describe_validate(self, build, dataset).status)
+    }
+
+    fn launch(
+        self: Box<Self>,
+        runs: &Arc<Runs>,
+        slot: Arc<Slot>,
+        end: EndHook,
+    ) -> Result<RunId, NotStarted> {
+        runs.start_then(slot, *self, end)
+    }
+}
+
+impl SavedSpec for OperationSpec<DescribeParams> {
+    type Code = DescCode;
+
+    fn parameters(&self) -> Vec<ExportParameter> {
+        describe_parameters(self)
+    }
+}
+
+impl Rerun for OperationSpec<TTestParams> {
+    fn valid_on(&self, build: Build, dataset: &Dataset) -> bool {
+        check_spec(
+            WorkspaceId::Statistics,
+            self.workspace_id,
+            &self.capability_id,
+        )
+        .is_ok()
+            && passes(stats_adapters::ttest_validate(self, build, dataset).status)
+    }
+
+    fn launch(
+        self: Box<Self>,
+        runs: &Arc<Runs>,
+        slot: Arc<Slot>,
+        end: EndHook,
+    ) -> Result<RunId, NotStarted> {
+        runs.start_ttest_then(slot, *self, end)
+    }
+}
+
+impl SavedSpec for OperationSpec<TTestParams> {
+    type Code = TTestCode;
+
+    fn parameters(&self) -> Vec<ExportParameter> {
+        ttest_parameters(self)
+    }
+}
+
+/// The method of a stored run, if this build can run it again (decision
+/// 188): its capability and capability version, from its row, are runnable
+/// here, and the capability has a row in [`METHODS`].
+fn rerun_method(stored: &StoredRun) -> Result<&'static MethodRow, ProjectCode> {
     stats_registry::require_runnable(
         &stored.capability_id,
         stored.capability_version,
         crate::workspace::build(),
     )
     .map_err(|_| ProjectCode::RerunUnsupported)?;
-    match stored.capability_id.as_str() {
-        stats_desc::CAPABILITY_ID => Ok(RunKind::Describe),
-        stats_ttest::CAPABILITY_ID => Ok(RunKind::Ttest),
-        _ => Err(ProjectCode::RerunUnsupported),
-    }
+    method_for(stored.capability_id.as_str()).ok_or(ProjectCode::RerunUnsupported)
 }
 
 /// A stored spec, read back, only if it serialises again to exactly its
@@ -1481,7 +1611,7 @@ fn rerun_open(
         return Err(refuse(ProjectCode::RerunNotSucceeded));
     }
     // 5. Its capability and capability version are runnable in this build.
-    let kind = rerun_kind(&stored).map_err(refuse)?;
+    let method = rerun_method(&stored).map_err(refuse)?;
     // 6. No run is going, a rerun included.
     projects.not_rerunning().map_err(refuse)?;
     if runs.unfinished().is_some() {
@@ -1493,27 +1623,14 @@ fn rerun_open(
     let data = h.read_artifact(arts.data.hash.as_hex()).map_err(refuse)?;
     let spec = h.read_artifact(arts.spec.hash.as_hex()).map_err(refuse)?;
     // 8. The spec reads back to exactly its stored bytes.
-    let job = match kind {
-        RunKind::Describe => RerunJob::Describe(exact(&spec).map_err(refuse)?),
-        RunKind::Ttest => RerunJob::Ttest(exact(&spec).map_err(refuse)?),
-    };
+    let job = (method.read_back)(&spec).map_err(refuse)?;
     // The project's copy of the data file, through the ingest's own checks
     // and parse, as `stats_desc_open` reads a file.
     let dataset = load_dataset_from_bytes_with(&data, arts.data.format, IngestLimits::METHODS)
         .map_err(|_| refuse(ProjectCode::RerunDataUnreadable))?;
     // 9. The spec passes validation, as an ordinary run's must.
     let build = crate::workspace::build();
-    let valid = match &job {
-        RerunJob::Describe(s) => {
-            check_spec(WorkspaceId::Statistics, s.workspace_id, &s.capability_id).is_ok()
-                && passes(stats_adapters::describe_validate(s, build, &dataset).status)
-        }
-        RerunJob::Ttest(s) => {
-            check_spec(WorkspaceId::Statistics, s.workspace_id, &s.capability_id).is_ok()
-                && passes(stats_adapters::ttest_validate(s, build, &dataset).status)
-        }
-    };
-    if !valid {
+    if !job.valid_on(build, &dataset) {
         return Err(refuse(ProjectCode::RerunRefused));
     }
 
@@ -1527,17 +1644,14 @@ fn rerun_open(
     let (ticket, before) = projects.begin_rerun(&project, of);
     drop(open);
     let end = ProjectSession::end_hook(projects, ticket, project.clone(), of, Arc::clone(&slot));
-    let started = match job {
-        RerunJob::Describe(spec) => runs.start_then(slot, spec, end),
-        RerunJob::Ttest(spec) => runs.start_ttest_then(slot, spec, end),
-    };
+    let started = job.launch(runs, slot, end);
     match started {
         Ok(run) => {
             projects.rerun_named(ticket, run.0);
             tracing::info!(project = %project.as_str(), of = of.0, run = run.0, "project: rerun started");
             Ok(RerunStartedView {
                 run_id: run.0,
-                kind,
+                kind: method.kind,
             })
         }
         Err(n) => {
@@ -1730,17 +1844,11 @@ fn export_input(h: &mut ProjectHandle) -> Result<ProjectExportInput, ProjectRefu
             notes: Vec::new(),
             failure: None,
         };
-        match stored.capability_id.as_str() {
-            stats_desc::CAPABILITY_ID => {
-                run.parameters = describe_parameters(&parse(spec)?);
-                outputs::<DescCode>(h, &arts.generated, &mut run)?;
-            }
-            stats_ttest::CAPABILITY_ID => {
-                run.parameters = ttest_parameters(&parse(spec)?);
-                outputs::<TTestCode>(h, &arts.generated, &mut run)?;
-            }
-            _ => return Err(ProjectCode::DbUnreadable.into()),
-        }
+        // Looked up after the spec's read, which checks its hash and can mark
+        // damage: a damaged spec says so, whatever its capability.
+        let method = method_for(stored.capability_id.as_str())
+            .ok_or_else(|| ProjectRefusal::from(ProjectCode::DbUnreadable))?;
+        (method.export)(h, spec, &arts.generated, &mut run)?;
         runs.push(run);
     }
     let edges = loaded.graph.edges().to_vec();
@@ -2516,5 +2624,212 @@ mod tests {
                 "iteration {i}: the rerun must be saved (F4)"
             );
         }
+    }
+
+    /// One saved run's export input, field by field, in the order the
+    /// exports read them: everything but the stored row (wall-clock times)
+    /// and the manifest's `elapsed_ms` and `platform`. The t-test's output
+    /// hash goes through the platform's maths library (its p), so it is
+    /// pinned only where it was captured, macOS aarch64; elsewhere it must be
+    /// the saved manifest's own, which the other fields already compare.
+    fn pinned(run: &ExportRun) -> String {
+        let m = run.manifest.as_ref();
+        let ttest = run.run.capability_id.as_str() == stats_ttest::CAPABILITY_ID;
+        let captured = cfg!(all(target_os = "macos", target_arch = "aarch64"));
+        format!(
+            "capability: {}\nparameters: {:?}\nexclusions: {:?}\nlimitations: {:?}\nnotes: {:?}\nfailure: {:?}\nengine_version: {:?}\ninputs: {:?}\nparameters_hash: {:?}\noutput_hash: {}\nrows_read: {:?}\nrows_used: {:?}\nreproducibility: {:?}",
+            run.run.capability_id.as_str(),
+            run.parameters,
+            run.exclusions,
+            run.limitations,
+            run.notes,
+            run.failure,
+            m.map(|m| &m.engine_version),
+            m.map(|m| m.inputs.iter().map(|h| h.as_hex().to_string()).collect::<Vec<_>>()),
+            m.map(|m| m.parameters_hash.as_hex().to_string()),
+            match m {
+                Some(_) if ttest && !captured => "pinned on macOS aarch64 only".to_string(),
+                m => format!("{:?}", m.map(|m| m.output_hash.as_hex().to_string())),
+            },
+            m.map(|m| m.rows_read),
+            m.map(|m| m.rows_used),
+            m.map(|m| &m.reproducibility),
+        )
+    }
+
+    /// A run of `start` on `csv`'s dataset, ended, as a Save would save it.
+    fn saved_request(
+        runs: &Arc<Runs>,
+        csv: &[u8],
+        start: impl FnOnce(&Arc<Runs>, Arc<Slot>) -> gaply_core::contracts::RunId,
+    ) -> SaveRequest {
+        let dataset = load_dataset_from_bytes(csv, DataFormat::Csv).expect("the csv opens");
+        let hash = stats_desc::input_ref(&dataset).content_hash;
+        let slot = Arc::new(Slot::for_one_run(
+            dataset,
+            SourceFile::new(csv.to_vec(), hash, DataFormat::Csv),
+        ));
+        let run = start(runs, Arc::clone(&slot));
+        let begun = Instant::now();
+        while !runs.copy_for_save(run).unwrap().state.is_terminal() {
+            assert!(begun.elapsed().as_secs() < 10, "the run never ended");
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        let copy = runs.copy_for_save(run).unwrap();
+        let data = data_of(&copy, copy.input.as_ref().expect("an input"), &slot).unwrap();
+        request_for(&copy, data, 1_700_000_000).unwrap()
+    }
+
+    /// The methods table (Research OS, Phase 8C, decision 249): every row
+    /// names a capability the Statistics registry has, no capability has two
+    /// rows, no two rows share a run kind, and the two methods a project runs
+    /// again and exports today each have exactly one.
+    #[test]
+    fn every_method_row_is_a_registered_capability_and_each_shipped_method_has_one() {
+        let registered: Vec<String> = gaply_core::stats_registry::Registry::statistics()
+            .entries()
+            .iter()
+            .map(|e| e.descriptor.id.as_str().to_string())
+            .collect();
+        for row in METHODS {
+            assert!(
+                registered.iter().any(|id| id == row.capability),
+                "{}: a row for a capability the registry does not have",
+                row.capability
+            );
+        }
+        for id in [stats_desc::CAPABILITY_ID, stats_ttest::CAPABILITY_ID] {
+            assert_eq!(
+                METHODS.iter().filter(|m| m.capability == id).count(),
+                1,
+                "{id}: exactly one row"
+            );
+        }
+        let kinds: BTreeSet<String> = METHODS.iter().map(|m| format!("{:?}", m.kind)).collect();
+        assert_eq!(kinds.len(), METHODS.len(), "one run kind per row");
+        let ids: BTreeSet<&str> = METHODS.iter().map(|m| m.capability).collect();
+        assert_eq!(ids.len(), METHODS.len(), "one row per capability");
+    }
+
+    /// Difference 14 of the 8C step: `export_input`'s `ExportRun` for a saved
+    /// summary, a saved t-test and a saved failed t-test, pinned in full
+    /// before the seam, so the seam's export path is shown to give the same.
+    #[test]
+    fn export_input_gives_each_saved_runs_settings_codes_and_manifest_as_before() {
+        const TWO: &[u8] = b"x,g\n1,a\n2,a\n4,a\n3,b\n5,b\n8,b\n";
+        const CONSTANT: &[u8] = b"x,g\n2,a\n2,a\n2,a\n5,b\n5,b\n5,b\n";
+        let welch = |slot: &Slot| {
+            stats_ttest::spec(
+                OperationId(2),
+                slot.dataset(),
+                TTestParams {
+                    outcome: Alias(ColumnAlias(1)),
+                    group: Alias(ColumnAlias(2)),
+                    levels: Some([0, 1]),
+                    variant: Some(Variant::Welch),
+                    missing_codes: vec![],
+                },
+            )
+        };
+        let runs = Arc::new(Runs::default());
+        let summary = saved_request(&runs, TWO, |runs, slot| {
+            let profile = stats_desc::profile(slot.dataset());
+            let spec = stats_desc::spec(
+                OperationId(1),
+                slot.dataset(),
+                DescribeParams::defaults_for(&profile),
+            );
+            runs.start(slot, spec).unwrap()
+        });
+        let ttest = saved_request(&runs, TWO, |runs, slot| {
+            let spec = welch(&slot);
+            runs.start_ttest(slot, spec).unwrap()
+        });
+        let failed = saved_request(&runs, CONSTANT, |runs, slot| {
+            let spec = welch(&slot);
+            runs.start_ttest(slot, spec).unwrap()
+        });
+        assert_eq!(failed.run.state, RunState::Failed, "both groups constant");
+
+        let root = std::env::temp_dir().join(format!("gaply-8c-export-{}", std::process::id()));
+        let store = ProjectRoot::open_root_with(&root, Caps::REAL).expect("store opens");
+        // UFCS, as above, for the lock-codes guard.
+        let (mut h, _) =
+            ProjectRoot::create_with_save(&store, &ProjectTitle::parse("8c").unwrap(), summary)
+                .expect("project created");
+        h.save(ttest).expect("the t-test saves");
+        h.save(failed).expect("the failed t-test saves");
+        let input = export_input(&mut h);
+        // Deleted before anything can fail, so a red run leaves no project.
+        let id = h.id().as_str().to_string();
+        h.close();
+        ProjectRoot::delete(&store, &id).expect("the project is deleted");
+        let got: Vec<String> = input
+            .expect("the export's input")
+            .runs
+            .iter()
+            .map(pinned)
+            .collect();
+
+        // Captured from 141c779's code on macOS aarch64, 26 Oct 2026.
+        let t_hash = if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+            r#"Some("7704c6aecd08c1f3fe605e70fde3d2b2a91ff5b695c3c28c31b93f7be00fb52e")"#
+        } else {
+            "pinned on macOS aarch64 only"
+        };
+        let want_summary = r#"capability: stats.describe
+parameters: [InputShape { rows: 6, columns: 2 }, Column { position: 1, role: SummarisedNumeric }, Column { position: 2, role: SummarisedCategorical }, MissingCodes { count: 0 }, Seed(None)]
+exclusions: []
+limitations: []
+notes: []
+failure: None
+engine_version: Some(1)
+inputs: Some(["36599ff119a0bc8f67dd861445867568ffe0e747820fa7199dad9a8772aba104"])
+parameters_hash: Some("e73cf11e60d7076c3e45ce5112acbfbcdfe91e84805eab6c51fff9e7af9e4dc2")
+output_hash: Some("bcfdf7de1051e9afdb4c8185184ffc9889cc01e9fd07e29e0f9ffb251b0384aa")
+rows_read: Some(6)
+rows_used: Some(6)
+reproducibility: Some(Bitwise)"#;
+        let want_ttest = format!(
+            r#"capability: stats.analyze.independent_t
+parameters: [InputShape {{ rows: 6, columns: 2 }}, Column {{ position: 1, role: Outcome }}, Column {{ position: 2, role: Group }}, Levels(Some([0, 1])), Variant(Some(Welch)), MissingCodes {{ count: 0 }}, Seed(None)]
+exclusions: []
+limitations: [ExportCode {{ code: ClosedWord("stats.ttest.normality_not_assessed"), params: [] }}, ExportCode {{ code: ClosedWord("stats.ttest.cohens_d_has_no_interval"), params: [] }}]
+notes: []
+failure: None
+engine_version: Some(1)
+inputs: Some(["36599ff119a0bc8f67dd861445867568ffe0e747820fa7199dad9a8772aba104"])
+parameters_hash: Some("6384d9380407ced1c6d6dc07495f4c82f1c2e0d6763ff108838087a3bc3f8cd3")
+output_hash: {t_hash}
+rows_read: Some(6)
+rows_used: Some(6)
+reproducibility: Some(Bitwise)"#
+        );
+        let want_failed = r#"capability: stats.analyze.independent_t
+parameters: [InputShape { rows: 6, columns: 2 }, Column { position: 1, role: Outcome }, Column { position: 2, role: Group }, Levels(Some([0, 1])), Variant(Some(Welch)), MissingCodes { count: 0 }, Seed(None)]
+exclusions: []
+limitations: []
+notes: []
+failure: Some(ExportCode { code: ClosedWord("stats.ttest.both_groups_constant"), params: [] })
+engine_version: None
+inputs: None
+parameters_hash: None
+output_hash: None
+rows_read: None
+rows_used: None
+reproducibility: None"#;
+        let want: [&str; 3] = [want_summary, &want_ttest, want_failed];
+        assert_eq!(got.len(), 3);
+        let wrong: Vec<String> = got
+            .iter()
+            .zip(want)
+            .filter(|(g, w)| g.as_str() != *w)
+            .map(|(g, _)| g.clone())
+            .collect();
+        assert!(
+            wrong.is_empty(),
+            "\n--- got ---\n{}\n",
+            wrong.join("\n--- next ---\n")
+        );
     }
 }

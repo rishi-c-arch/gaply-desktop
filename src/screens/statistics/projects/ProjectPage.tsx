@@ -55,6 +55,7 @@ import { workspaceBridge, type WorkspaceBridge } from '../../workspace/workspace
 import { isActive } from '../../workspace/workspaceTypes';
 import { describeBridge, type DescribeBridge } from '../describeBridge';
 import { RUN_STATE_NAMES } from '../describeWording';
+import { methodFor } from '../methods';
 import { ttestBridge, type TTestBridge } from '../ttestBridge';
 import { projectBridge, type ProjectBridge } from './projectBridge';
 import { EXPORTS, prepareExport, type ExportKind, type SaveFile } from './projectExport';
@@ -121,11 +122,10 @@ interface Going {
   kind: RerunKind | null;
 }
 
-/** The kind whose cancel stops a rerun of a run with this capability. */
+/** The kind whose cancel stops a rerun of a run with this capability, from
+ *  the methods table (Phase 8C); null for a capability no method has. */
 function kindOf(capabilityId: string): RerunKind | null {
-  if (capabilityId === 'stats.describe') return 'describe';
-  if (capabilityId === 'stats.analyze.independent_t') return 'ttest';
-  return null;
+  return methodFor(capabilityId)?.kind ?? null;
 }
 
 /** The rerun project_current says is going in `projectId`, or null. */
@@ -168,6 +168,11 @@ const ProjectPageShown: React.FC<ProjectPageProps> = ({
   const workspace = useMemo(() => givenWorkspace ?? workspaceBridge(), [givenWorkspace]);
   const describe = useMemo(() => givenDescribe ?? describeBridge(), [givenDescribe]);
   const ttest = useMemo(() => givenTtest ?? ttestBridge(), [givenTtest]);
+  // Each kind's cancel, from the bridges given (Phase 8C).
+  const cancels = useMemo<Record<RerunKind, (runId: number) => Promise<unknown>>>(
+    () => ({ describe: (runId) => describe.cancel(runId), ttest: (runId) => ttest.cancel(runId) }),
+    [describe, ttest]
+  );
   const gen = useGeneration();
   const [view, setView] = useState<View>({ kind: 'loading' });
   const [pending, setPending] = useState<'open' | 'close' | null>(null);
@@ -355,7 +360,10 @@ const ProjectPageShown: React.FC<ProjectPageProps> = ({
     setCancelling(true);
     setMessage('');
     try {
-      await (goingKind === 'describe' ? describe : ttest).cancel(going.runId);
+      // A word other than 'describe' cancels through the t-test, as before
+      // Phase 8C; an own key only, never one from Object.prototype.
+      const own = Object.prototype.hasOwnProperty.call(cancels, goingKind);
+      await (own ? cancels[goingKind] : cancels.ttest)(going.runId);
     } catch (e) {
       if (alive.current) {
         setMessage(projectSentence(e));

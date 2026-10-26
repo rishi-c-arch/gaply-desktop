@@ -4,6 +4,7 @@
 // is pinned on both sides (fixtures/, workspaceTypes.vitest.ts and
 // src-tauri/tests/workspace_wire.rs).
 import type { EntitlementStatus } from '../subscription/entitlement';
+import type { MethodKind } from '../statistics/methods';
 
 export type WorkspaceId = 'statistics' | 'compute' | 'design';
 
@@ -42,8 +43,10 @@ export type WorkspaceState =
   | { phase: 'activating' | 'active' | 'deactivating'; workspace: WorkspaceId };
 
 /** Which kind of Statistics run a record holds (Research OS, Phase 4B-2,
- *  decision 80): the shell reads it through that kind's commands. */
-export type RunKind = 'describe' | 'ttest';
+ *  decision 80): the shell reads it through that kind's commands. Read from
+ *  the methods table since Phase 8C (decision 249): still 'describe' or
+ *  'ttest'. */
+export type RunKind = MethodKind;
 
 /** A Statistics run, as the shell names it. */
 export interface RunEntry {

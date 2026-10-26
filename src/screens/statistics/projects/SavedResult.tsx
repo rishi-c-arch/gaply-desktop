@@ -32,7 +32,7 @@ import type { TTestDiagnostic, TTestResultView } from '../ttestTypes';
 import type { ProjectBridge } from './projectBridge';
 import type { StoredRunView } from './projectTypes';
 import { capabilityName, PROJECT_TEXT, projectSentence, rerunLines, SAVED_TEXT, savedResultLine } from './projectWording';
-import { checkStored, SUMMARY_CAPABILITY, type Checked } from './storedShape';
+import { capabilityOfCase, checkStored, SUMMARY_CAPABILITY, TTEST_CAPABILITY, type Checked } from './storedShape';
 import type { Generation } from './useGeneration';
 
 /** A column by its position: the stored result holds no headers for its
@@ -67,6 +67,36 @@ export class SavedResultBoundary extends React.Component<BoundaryProps, { failed
   }
 }
 
+/** How one method's saved result is drawn (Phase 8C; decision 249): its
+ *  failure's sentence, its result through the live screen's own component,
+ *  and whether a flag hides its saved results. */
+interface SavedRenderer {
+  failedSentence: (failure: Diagnostic | TTestDiagnostic) => string;
+  result: (checked: Checked) => React.ReactNode;
+  hidden: () => boolean;
+}
+
+/** The renderers, keyed by capability id. A new method adds one entry. */
+export const SAVED_RENDERERS: Record<string, SavedRenderer> = {
+  [SUMMARY_CAPABILITY]: {
+    failedSentence: (failure) => diagnosticSentence(failure as Diagnostic, BY_POSITION),
+    result: (checked) => (checked.kind === 'summary' ? <DescribeResult result={checked.result} name={BY_POSITION} /> : null),
+    // Only summaries sit behind a flag: REACT_APP_FEATURE_STATS_DESCRIBE.
+    hidden: () => !isFeatureEnabled('statsDescribe'),
+  },
+  [TTEST_CAPABILITY]: {
+    failedSentence: (failure) => ttestSentence(failure as TTestDiagnostic),
+    result: (checked) => (checked.kind === 'ttest' ? <ResultCard result={checked.result} names={ttestNames(checked.result)} /> : null),
+    hidden: () => false,
+  },
+};
+
+/** A capability's renderer, or undefined for one no method has. An own key
+ *  only, never one from Object.prototype. */
+function rendererFor(capabilityId: string): SavedRenderer | undefined {
+  return Object.prototype.hasOwnProperty.call(SAVED_RENDERERS, capabilityId) ? SAVED_RENDERERS[capabilityId] : undefined;
+}
+
 /** What a checked result shows. Exported for the page and its tests. */
 export const SavedResultBody: React.FC<{ checked: Checked }> = ({ checked }) => {
   switch (checked.kind) {
@@ -82,24 +112,17 @@ export const SavedResultBody: React.FC<{ checked: Checked }> = ({ checked }) => 
           <p data-testid="saved-data-file">{SAVED_TEXT.dataFile(checked.dataFile.format, checked.dataFile.bytes)}</p>
           <p data-testid="saved-result-failed">
             {SAVED_TEXT.failed}{' '}
-            {checked.capability === 'summary'
-              ? diagnosticSentence(checked.failure as Diagnostic, BY_POSITION)
-              : ttestSentence(checked.failure as TTestDiagnostic)}
+            {rendererFor(capabilityOfCase(checked.capability))?.failedSentence(checked.failure)}
           </p>
         </>
       );
-    case 'summary':
+    // A method's own case: drawn by its renderer, so a new method adds no
+    // case here (Phase 8C).
+    default:
       return (
         <>
           <p data-testid="saved-data-file">{SAVED_TEXT.dataFile(checked.dataFile.format, checked.dataFile.bytes)}</p>
-          <DescribeResult result={checked.result} name={BY_POSITION} />
-        </>
-      );
-    case 'ttest':
-      return (
-        <>
-          <p data-testid="saved-data-file">{SAVED_TEXT.dataFile(checked.dataFile.format, checked.dataFile.bytes)}</p>
-          <ResultCard result={checked.result} names={ttestNames(checked.result)} />
+          {rendererFor(capabilityOfCase(checked.kind))?.result(checked)}
         </>
       );
   }
@@ -140,7 +163,7 @@ export const SavedResult: React.FC<SavedResultProps> = ({ projectId, run, repeat
 
   useEffect(() => {
     // The summary's flag first: off, and nothing of the stored result is read.
-    if (run.capabilityId === SUMMARY_CAPABILITY && !isFeatureEnabled('statsDescribe')) {
+    if (rendererFor(run.capabilityId)?.hidden()) {
       setShown({ kind: 'hidden' });
       return;
     }

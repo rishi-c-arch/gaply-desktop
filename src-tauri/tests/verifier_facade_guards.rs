@@ -4,8 +4,12 @@
 //!
 //! 1. Level 0's seam calls `stats_adapters::check` and Level 1's open
 //!    `stats_adapters::check_with_reading` (one reading, F5); Level
-//!    1's compute calls `stats_adapters::verify`; the run manager and the
-//!    describe validation call `describe_validate` and `describe_until`.
+//!    1's compute calls `stats_adapters::verify`; the describe validation
+//!    calls `describe_validate`; in the run manager, each method's
+//!    implementation calls its own façades (`describe_validate` and
+//!    `describe_until`, `ttest_validate` and `ttest_run`), the one start and
+//!    worker reach them only through it, and it never calls a method's own
+//!    functions around them (Research OS, Phase 8C).
 //! 2. No production source in the app calls Level 0's `check_reading` or
 //!    Level 1's `reproduce` directly, except the one named seam,
 //!    `stats_reproduction::run_stats_reproduction_measured`, which only
@@ -130,8 +134,6 @@ fn each_operation_path_calls_its_facade() {
             "validate",
             "stats_adapters::describe_validate(",
         ),
-        ("src/runs.rs", "start", "stats_adapters::describe_validate("),
-        ("src/runs.rs", "work", "stats_adapters::describe_until("),
     ];
     for (file, f, facade) in checks {
         let src = without_test_modules(&code(file));
@@ -141,14 +143,78 @@ fn each_operation_path_calls_its_facade() {
             "{file}: `{f}` does not call `{facade}`"
         );
     }
-    // And the run manager no longer calls the summary's functions itself.
-    let runs = squash(&without_test_modules(&code("src/runs.rs")));
-    for direct in ["stats_desc::validate(", "stats_desc::describe_until("] {
+    // The run manager (Research OS, Phase 8C, decision 249): each method's
+    // implementation calls its own façades, the one start and the one worker
+    // reach them only through the implementation, and each kind's start
+    // begins its own method. A body is read inside its own `impl` block, so
+    // the trait's bodiless declarations above it are never what is read.
+    let runs_src = without_test_modules(&code("src/runs.rs"));
+    for (method, validate, compute) in [
+        (
+            "Summary",
+            "stats_adapters::describe_validate(",
+            "stats_adapters::describe_until(",
+        ),
+        (
+            "IndependentT",
+            "stats_adapters::ttest_validate(",
+            "stats_adapters::ttest_run(",
+        ),
+    ] {
+        let block = impl_block(&runs_src, &format!("impl Method for {method} {{"));
+        for (f, facade) in [("validate", validate), ("compute", compute)] {
+            assert!(
+                squash(fn_body(block, f)).contains(facade),
+                "src/runs.rs: {method}'s `{f}` does not call `{facade}`"
+            );
+        }
+    }
+    for (f, through) in [
+        ("begin<M: Method>", "M::validate("),
+        ("work", "M::compute("),
+        ("start", "self.begin::<Summary>("),
+        ("start_then", "self.begin::<Summary>("),
+        ("start_ttest", "self.begin::<IndependentT>("),
+        ("start_ttest_then", "self.begin::<IndependentT>("),
+    ] {
+        assert!(
+            squash(fn_body(&runs_src, f)).contains(through),
+            "src/runs.rs: `{f}` does not call `{through}`"
+        );
+    }
+    // And the run manager never calls a method's functions itself.
+    let runs = squash(&runs_src);
+    for direct in [
+        "stats_desc::validate(",
+        "stats_desc::describe_until(",
+        "stats_ttest::validate(",
+        "stats_ttest::run(",
+    ] {
         assert!(
             !runs.contains(direct),
             "src/runs.rs calls `{direct}` around its façade"
         );
     }
+}
+
+/// The `{ … }` block that opens with `head` (which ends in its `{`).
+fn impl_block<'a>(src: &'a str, head: &str) -> &'a str {
+    let at = src.find(head).unwrap_or_else(|| panic!("no `{head}`"));
+    let open = at + head.len() - 1;
+    let mut depth = 0usize;
+    for (i, c) in src[open..].char_indices() {
+        match c {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return &src[open..open + i + 1];
+                }
+            }
+            _ => {}
+        }
+    }
+    panic!("{head}: unbalanced block")
 }
 
 fn app_sources(dir: &Path, out: &mut Vec<PathBuf>) {

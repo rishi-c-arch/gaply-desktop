@@ -26092,3 +26092,142 @@ tests (11 passed, 3 failed); `variables_held`'s `#[serde(skip)]` removed, red in
 the field test ("wide.sav: the key reached the payload", 13 passed, 1 failed).
 
 **Next.** 8C, the seam (decision 242's item 1).
+
+### D295 — Research OS, Phase 8C: the seam: one implementation per method in the run manager, one table per method in the project commands, and one table of methods on screen, with no behaviour or byte changed `[src]` `[test]`
+
+**Added** on `feat/research-os-8` after `141c779` (D294). Decisions 249 and 250
+of 26 Oct 2026 apply (`~/gaply-corpus/os/decisions.md`), after 242.1 (the seam
+before the paired t-test) and 74, 75, 186 to 193. 8A's proposal §10.2 (b) is
+the design; where it differs this step's prompt wins: `Held`, `Job`, `Report`
+and `Done` stay closed enums, nothing new is `Serialize`, and the bridges,
+checkers and renderers stay out of the frontend's table. The report is
+`~/gaply-corpus/os/phase8/phase8c_report.md`; the real-app check is
+`~/gaply-corpus/os/phase8/realapp_8c.md`, still to run.
+
+**The run manager** (`src/runs.rs`). A private trait, `Method`, with one
+implementation per method, `Summary` and `IndependentT`: what to check before a
+run (`validate`, the method's façade), what to compute (`compute`, its façade,
+with the manager's check point), the record's `columns_total`, its manifest,
+what its bundle carries as limitations, what the work's end leaves as
+`columns_done` (one function for the finish and for a cancel's win), its halt
+as the finish reads it, and its own panic line. The four closed enums keep one
+variant per method, each holding that method's own state (`Done` now holds a
+`Finished<M>`, the outcome and the spec). Every per-kind match on them is one
+macro, `by_method!`, chosen over a function because one match over the four
+enums binds each arm's implementation as a type and keeps each façade call
+written out in its implementation, where the guard reads it; the macro only
+dispatches. `begin`, `work`'s worker, `finish`, `snapshot_as`, `cancel_as` and
+`result_as` are written once over the trait. The public functions keep their
+names and signatures as one-line wrappers; `start` and `work` stay non-generic.
+Decision 75's shared rules are unchanged: one foreground run, one eviction and
+slot counter, one cancel-wins check under the worker's last lock, `find_kind`'s
+order (`unknown_run`, then `wrong_kind`).
+
+**The project commands** (`src/project_commands.rs`). A private table,
+`METHODS`, keyed by capability id: each row gives the run kind `project_rerun`
+answers with, `read_back` (check 8: `exact()` into the method's spec type) and
+`export` (its settings from `describe_parameters` or `ttest_parameters`, its
+outputs read in its codes through `outputs::<C>`). A stored spec read back is a
+`Box<dyn Rerun>`: check 9 (`valid_on`: `check_spec`, then the method's
+`validate` façade) and the start (`launch`: `start_then` or `start_ttest_then`).
+`rerun_open` keeps checks 2 to 9 in their order, its ingest call inline with
+`IngestLimits::METHODS`, `RerunUnsupported` for a capability with no row (check
+5, `rerun_method`); `export_input` looks the row up after `read_json` has read
+and checked the spec, and answers `DbUnreadable` for none.
+
+**On screen.** `src/screens/statistics/methods.ts`: `METHODS`, pure data (kind,
+capability id, name, job name, route). `RunKind` (`workspaceTypes.ts`) and
+`RerunStartedView.kind` are read from it and stay `'describe' | 'ttest'`;
+`kindOf` (`ProjectPage.tsx`), `capabilityName` (`projectWording.ts`),
+`KIND_NAMES` (`WorkspaceShell.tsx`) and `ROUTES` (`StatisticsHome.tsx`) read it.
+The shell's status and cancel and the project page's cancel are a
+`Record<RunKind, …>` built from the existing bridge props, each with today's
+fallback for a word it does not know, by own key only. `storedShape.ts`'s
+`STORED_CHECKERS` and `SavedResult.tsx`'s `SAVED_RENDERERS` are keyed by
+capability id, each keeping its kind's code list, parameter keys, string rule,
+flag gate and sentence function. The capability-id literals at
+`ProjectPage.tsx:126-127`, `projectWording.ts:254-255`, `storedShape.ts:26-27`
+and `StatisticsHome.tsx:39-40` (at `94e6cae`) are now only at `methods.ts:17`
+and `:24`.
+
+**What a new method touches after 8C.** Not counting its own module, façade,
+commands, wire views and screen, none of them in shared code:
+- `runs.rs`: one `RunKind` variant; one variant in each of `Held`, `Job`,
+  `Report`, `Done` (4); one arm in `by_method!`; its `impl Method` (and its unit
+  struct); five one-line public wrappers, as `start_ttest`, `start_ttest_then`,
+  `ttest_snapshot`, `ttest_cancel` and `ttest_result` are (the generics stay
+  private, so its commands call named functions). No other match arm.
+- `project_commands.rs`: one `METHODS` row; `impl Rerun` and `impl SavedSpec`
+  for its spec type; its `*_parameters` function; `SPEC_FIELDS` rows for any new
+  parameter field (pinned by `every_spec_field_is_reported_or_excluded`).
+- The frontend: one `METHODS` row; one entry in the shell's and the project
+  page's per-kind records (the type requires it); one `STORED_CHECKERS` entry with
+  its bundle check and one `Checked` case; one `SAVED_RENDERERS` entry. No switch
+  case: `SavedResultBody` draws a method's case in its `default` arm.
+- Decision 250's list, for 8D and after, each named in that method's own step:
+  a façade in `stats_adapters`, a `Kind` and descriptor in `stats_registry`,
+  words in `research_project/render.rs`'s export vocabulary, and its capability
+  id registered before any source names it (`capability_registry.rs`). 8C
+  changed none.
+
+**The differences that survive, each with its pin.** New pins were written and
+run green against `141c779`'s code before any code changed.
+1. Cancel-wins columns: the summary's `a_cancel_after_the_last_check_point_ends_cancelled_with_no_result`
+   (all columns) and `a_run_parked_at_column_k_and_cancelled_ends_cancelled_with_fewer_columns_processed`
+   (`stats_desc_commands.rs`); the t-test's new `runs::tests::a_ttest_cancel_after_its_check_point_wins_and_counts_no_columns`.
+2. Check points: new `runs::tests::each_kind_reaches_its_own_check_points_on_the_run_thread`
+   (the summary at `Column(0)`, `Column(1)` of two, the t-test at `Column(0)`
+   only, columns 2/2 and 0/0).
+3. Limitations: new `project_commands::tests::export_input_gives_each_saved_runs_settings_codes_and_manifest_as_before`
+   (the summary's empty, the t-test's two notes).
+4. The registry's refusal: new `methods_seam::the_ttest_asks_the_registry_before_the_slot_and_the_summary_after`;
+   the existing `stats_ttest_commands::each_refusal_has_its_exact_code`.
+5. Export formats and `group_levels`: the command files are unchanged; their
+   export and group-level tests in `stats_desc_commands.rs` and
+   `stats_ttest_commands.rs`.
+6. Stored-result checks: new `projects/methodsSeam.vitest.tsx` (params,
+   `'ttest'` failed case, the t-test shown with the summary flag off); the
+   existing `SavedResult.vitest.tsx` cases.
+7. The shell's words: `WorkspaceShell.vitest.tsx` (no parenthesis, the
+   t-test's job name); new pins for the fallback to the summary.
+8. Bytes: the wire, project and render fixtures and goldens, unchanged and
+   green; no fixture file in the diff.
+9. The thread name: new pin in (2).
+10. The finish's columns: (1) and (2).
+11. The panic lines: new `runs_seam_lines::each_kind_says_its_own_panic_and_both_say_the_shared_lines`
+    (own binary, global capture): one line per kind, the shared cancel-panic
+    line twice, `run ended` four times, every event's target `app_lib::runs`.
+    `a run event had no edge` has no producer reachable through the public API.
+12. `export_input`'s order: new `methods_seam::the_export_reads_a_runs_spec_before_it_looks_its_capability_up`.
+13. Unknown kinds on screen: new `methodsSeam.vitest.tsx` pins (the shell, the
+    project page's disabled Cancel, `unknownCapability` before the data file).
+14. `export_input`'s output: the new pin in (3), in full, except the stored row's
+    wall-clock times and the manifest's `elapsed_ms` and `platform`; the t-test's
+    output hash is pinned on macOS aarch64, where it was captured, because its p
+    goes through the platform's maths library.
+
+**The guard changed: one.** `tests/verifier_facade_guards.rs`'s
+`each_operation_path_calls_its_facade` read the summary's façade calls in the
+first `fn start(` and `fn work(`. It now reads each implementation's `validate`
+and `compute` inside its own `impl Method for … {` block, checks that `begin`
+calls `M::validate(`, `work` calls `M::compute(` and each of the four starts
+begins its own method, and forbids `stats_ttest::validate(` and
+`stats_ttest::run(` in `runs.rs` beside the summary's two: stronger, since the
+t-test was not checked before. `stats_desc_writes_nothing.rs`,
+`projectGuards.vitest.ts` and `ingest_limits_guard.rs` needed no change (no new
+app source file, no new file of code under `projects/`, no ingest call moved).
+New guards: `project_commands::tests::every_method_row_is_a_registered_capability_and_each_shipped_method_has_one`
+and `src/screens/statistics/methods.vitest.ts`.
+
+**Mutations**, each with its SHA-256 equal after the restore and green after:
+`Summary`'s `validate` calling `stats_desc::validate` directly, red in
+`each_operation_path_calls_its_facade` (5 passed, 1 failed); the t-test's row
+removed from `project_commands.rs`'s table, red in 6 tests over 4 targets (the
+table guard, the export pin, `the_exports_render_through_the_commands_with_fixed_names_and_the_same_bytes`,
+`user_text_stays_where_decisions_101_125_and_127_put_it`, and the t-test's two
+rerun tests in `project_rerun.rs`); the t-test's row removed from the
+frontend's `METHODS`, red in two of `methods.vitest.ts`'s three tests.
+
+**The suites.** `cargo test --workspace --no-fail-fast` (both `lib.rs` touched, `CARGO_TERM_COLOR=never`): exit 0, **2,994 passed, 123 targets**, 12 ignored, 0 failed (at 141c779, measured in this step: 2,987, 121, 12, as D294; +2 targets, `methods_seam` (2) and `runs_seam_lines` (1), and +4 in the app lib, as predicted; by name, every test of the base passes and the seven new names are the new tests). `cargo test -p app --features devtools --no-fail-fast`: exit 0, **867 passed, 54 targets** (D294: 860, 52). `cargo test -p gaply_core --no-fail-fast`: 2,144 passed, 75 targets, after the frontend changed, so `capability_registry.rs`'s scan read `methods.ts`. Vitest, the whole suite on its own: **127 files, 1,717 tests** (base 125, 1,707; +3 in `methods.vitest.ts`, +7 in `projects/methodsSeam.vitest.tsx`). `npx tsc --noEmit`, CI's eslint, and `npm run build` (`build/index.html` present, `public/sitemap.xml` written back from HEAD and equal by `cmp`): exit 0. No fixture, golden or code list is in the diff (180 tracked files checked), nothing under `gaply-core` changed, and neither `GAPLY_WRITE_RENDER_GOLDEN` nor `GAPLY_WRITE_PROJECT_FIXTURES` was set.
+
+**Next.** 8D, the paired t-test, through the seam.

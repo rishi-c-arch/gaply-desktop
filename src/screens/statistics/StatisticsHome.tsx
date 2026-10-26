@@ -24,8 +24,7 @@ import { ENTITLEMENT_TEXT } from '../workspace/workspaceWording';
 import { capabilityBridge, type CapabilityBridge } from './ttestBridge';
 import { capabilitySentence, HOME_TEXT, LIFECYCLE_LABELS } from './capabilityWording';
 import type { CapabilityView } from './ttestTypes';
-import { DESCRIBE_PATH } from './describeRoute';
-import { TTEST_PATH } from './statisticsRoute';
+import { METHODS } from './methods';
 import { ProjectsPanel } from './projects/ProjectsPanel';
 import { projectPagePath } from './projects/projectRoute';
 
@@ -34,11 +33,12 @@ const CHECK_ID = 'stats.check';
 const STATS_CHECK_PATH = '/app/check/stats';
 const VERIFIER_PATH = '/app/statsverifier';
 
-/** Where each runnable capability with a screen of its own opens. */
-const ROUTES: Record<string, string> = {
-  'stats.describe': DESCRIBE_PATH,
-  'stats.analyze.independent_t': TTEST_PATH,
-};
+/** Where each runnable capability with a screen of its own opens: each
+ *  method's route, from the methods table (Phase 8C). */
+const ROUTES: Record<string, string> = METHODS.reduce<Record<string, string>>((out, m) => {
+  out[m.capabilityId] = m.path;
+  return out;
+}, {});
 
 export interface StatisticsHomeProps {
   bridge?: CapabilityBridge;
