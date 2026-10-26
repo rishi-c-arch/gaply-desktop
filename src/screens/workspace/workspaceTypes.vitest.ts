@@ -47,6 +47,8 @@ const list = [
       'stats.verify.ols',
       'stats.describe',
       'stats.analyze.independent_t',
+      'stats.analyze.one_sample_t',
+      'stats.analyze.paired_t',
     ],
     supportsOffline: true,
     supportedPlatforms: ['macos', 'windows', 'linux'],

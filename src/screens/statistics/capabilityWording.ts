@@ -40,6 +40,16 @@ export const CAPABILITY_WORDS: Record<string, string> = {
     "The group's levels follow Level 1's reading of cells and are listed in the order Gaply reads them; you choose the two to compare.",
   'stats.capability.limit.analyze.normality_not_assessed': 'Normality is not assessed: Gaply does not check whether each group is roughly normal.',
   'stats.capability.limit.analyze.cohens_d_has_no_interval': "Cohen's d is shown without a confidence interval.",
+  // Phase 8D-1 (decision 253): the one-sample and paired t-tests, Planned.
+  'stats.capability.analyze.one_sample_t.title': 'One-sample t-test on your data',
+  'stats.capability.analyze.one_sample_t.description': 'Compares the mean of one numeric column with a value you give.',
+  'stats.capability.analyze.paired_t.title': 'Paired-samples t-test on your data',
+  'stats.capability.analyze.paired_t.description':
+    'Compares two numeric columns measured on the same rows, such as before and after, through the differences between them.',
+  'stats.capability.limit.analyze.values_normality_not_assessed':
+    'Normality is not assessed: the t-test assumes the values come from a roughly normal distribution, or that there are many of them, and Gaply does not check either.',
+  'stats.capability.limit.analyze.differences_normality_not_assessed':
+    'Normality is not assessed: the paired t-test assumes the differences come from a roughly normal distribution, or that there are many pairs, and Gaply does not check either.',
 };
 
 /** The words for a code; a code with no entry is shown as itself, never

@@ -22,6 +22,7 @@ use gaply_core::contracts::{
 };
 use gaply_core::stats_desc::{Alias, ColumnRequest, DescCode, DescribeParams, TreatAs};
 use gaply_core::stats_l1::dataset::ColumnAlias;
+use gaply_core::stats_onesample::OneSampleCode;
 use gaply_core::stats_ttest::TTestCode;
 
 fn round_trip<T: Serialize + DeserializeOwned + PartialEq + Debug>(v: &T) -> Value {
@@ -743,6 +744,44 @@ fn the_code_and_word_lists_are_pinned() {
             "stats.ttest.too_many_levels",
         ]
     );
+    // Phase 8D-1: the one-sample and paired t-tests' codes, in decision
+    // 253's order.
+    assert_eq!(
+        OneSampleCode::ALL
+            .iter()
+            .map(|c| c.wire())
+            .collect::<Vec<_>>(),
+        [
+            "stats.onesample.unknown_capability",
+            "stats.onesample.capability_version_mismatch",
+            "stats.onesample.input_count",
+            "stats.onesample.input_mismatch",
+            "stats.onesample.unknown_column",
+            "stats.onesample.same_column",
+            "stats.onesample.column_holds_text",
+            "stats.onesample.column_non_finite",
+            "stats.onesample.missing_code_not_finite",
+            "stats.onesample.test_value_not_chosen",
+            "stats.onesample.test_value_not_finite",
+            "stats.onesample.suspect_missing_code",
+            "stats.onesample.too_few_values",
+            "stats.onesample.too_few_pairs",
+            "stats.onesample.values_constant",
+            "stats.onesample.differences_constant",
+            "stats.onesample.overflow",
+            "stats.onesample.underflow",
+            "stats.onesample.arithmetic_refused",
+            "stats.onesample.quantile_out_of_range",
+            "stats.onesample.missing_value",
+            "stats.onesample.missing_first",
+            "stats.onesample.missing_second",
+            "stats.onesample.missing_code",
+            "stats.onesample.values_normality_not_assessed",
+            "stats.onesample.differences_normality_not_assessed",
+            "stats.onesample.cohens_d_has_no_interval",
+        ]
+    );
+    assert_eq!(OneSampleCode::NAMESPACE, "stats.onesample.");
     assert_eq!(TTestCode::NAMESPACE, "stats.ttest.");
     assert_eq!(RunCode::NAMESPACE, "run.");
     assert_eq!(DescCode::NAMESPACE, "stats.desc.");
@@ -753,6 +792,7 @@ fn the_code_and_word_lists_are_pinned() {
     let mut all: Vec<&str> = RunCode::ALL.iter().map(|c| c.wire()).collect();
     all.extend(DescCode::ALL.iter().map(|c| c.wire()));
     all.extend(TTestCode::ALL.iter().map(|c| c.wire()));
+    all.extend(OneSampleCode::ALL.iter().map(|c| c.wire()));
     all.extend(RunState::ALL.iter().map(|c| c.wire()));
     all.extend(RunEvent::ALL.iter().map(|c| c.wire()));
     // Phase 3's parameter words: workspace ids, phases and events.
@@ -791,6 +831,12 @@ fn the_code_and_word_lists_are_pinned() {
     for c in TTestCode::ALL {
         assert!(
             c.wire().starts_with(TTestCode::NAMESPACE)
+                && serde_json::to_value(c).expect("json") == c.wire()
+        );
+    }
+    for c in OneSampleCode::ALL {
+        assert!(
+            c.wire().starts_with(OneSampleCode::NAMESPACE)
                 && serde_json::to_value(c).expect("json") == c.wire()
         );
     }

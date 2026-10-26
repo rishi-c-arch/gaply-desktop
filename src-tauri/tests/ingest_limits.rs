@@ -151,7 +151,12 @@ fn each_named_value_is_todays_constants_and_its_capabilities_profiles() {
                 verify += 1;
                 IngestLimits::LEVEL_1
             }
-            Kind::Describe | Kind::AnalyzeIndependentT => {
+            // Phase 8D-1: the one-sample and paired t-tests are methods on the
+            // user's data, Planned until 8D-2, with the methods' profile.
+            Kind::Describe
+            | Kind::AnalyzeIndependentT
+            | Kind::AnalyzeOneSampleT
+            | Kind::AnalyzePairedT => {
                 methods += 1;
                 IngestLimits::METHODS
             }
@@ -164,8 +169,8 @@ fn each_named_value_is_todays_constants_and_its_capabilities_profiles() {
     }
     assert_eq!(
         (verify, methods),
-        (7, 2),
-        "seven Level 1 capabilities; the summary and the t-test"
+        (7, 4),
+        "seven Level 1 capabilities; the summary and the three t-tests"
     );
 }
 

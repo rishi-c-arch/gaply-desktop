@@ -398,7 +398,7 @@ pub fn spec(
     }
 }
 
-fn column(dataset: &Dataset, alias: Alias) -> Option<(&ColumnSummary, &[Cell])> {
+pub(crate) fn column(dataset: &Dataset, alias: Alias) -> Option<(&ColumnSummary, &[Cell])> {
     Some((
         dataset.schema.column(alias.0)?,
         dataset.column_cells(alias.0)?,
@@ -409,7 +409,7 @@ fn column_param(alias: Alias) -> ParamValue<TTestCode> {
     ParamValue::Int(i64::from(alias.0 .0))
 }
 
-fn non_finite_cells(column: &ColumnSummary) -> u64 {
+pub(crate) fn non_finite_cells(column: &ColumnSummary) -> u64 {
     column
         .issues
         .iter()
@@ -824,6 +824,25 @@ pub fn t_quantile_975(df: f64) -> Option<f64> {
     (q.is_finite() && q > 0.0).then_some(q)
 }
 
+/// The 95% interval `estimate ± q · se`, q being [`t_quantile_975`] at `df`:
+/// THE interval of the t family (Research OS, Phase 8D-1, decision 254),
+/// shared with `stats_onesample` and generic over the caller's codes, so this
+/// module gains no type. `out_of_range` when the quantile is not measured at
+/// `df`; `overflow` when q · se, or either end, is not finite. No `mul_add`:
+/// the two ends are `estimate − half` and `estimate + half`, as before.
+pub(crate) fn interval_95<C: Copy>(
+    estimate: f64,
+    se: f64,
+    df: f64,
+    out_of_range: C,
+    overflow: C,
+) -> Result<[f64; 2], C> {
+    let finite = |v: f64| if v.is_finite() { Ok(v) } else { Err(overflow) };
+    let q = t_quantile_975(df).ok_or(out_of_range)?;
+    let half = finite(q * se)?;
+    Ok([finite(estimate - half)?, finite(estimate + half)?])
+}
+
 /// Every number of the result. `values` are ascending and each holds at
 /// least two, checked before.
 fn arithmetic(values: &[Vec<f64>; 2], variant: Variant) -> Result<Numbers, TTestCode> {
@@ -839,12 +858,13 @@ fn arithmetic(values: &[Vec<f64>; 2], variant: Variant) -> Result<Numbers, TTest
     .map_err(|e| refused(RangeFault::of(&e)))?;
     let p = t_two_tailed(r.t, r.df).ok_or(TTestCode::ArithmeticRefused)?;
     let mean_difference = finite(r.mean_a - r.mean_b)?;
-    let q = t_quantile_975(r.df).ok_or(TTestCode::QuantileOutOfRange)?;
-    let half = finite(q * r.se)?;
-    let ci = [
-        finite(mean_difference - half)?,
-        finite(mean_difference + half)?,
-    ];
+    let ci = interval_95(
+        mean_difference,
+        r.se,
+        r.df,
+        TTestCode::QuantileOutOfRange,
+        TTestCode::Overflow,
+    )?;
     let means = [finite(mean(a))?, finite(mean(b))?];
     let variances = [
         sample_variance(a).map_err(|e| refused(RangeFault::of(&e)))?,

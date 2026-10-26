@@ -26231,3 +26231,143 @@ frontend's `METHODS`, red in two of `methods.vitest.ts`'s three tests.
 **The suites.** `cargo test --workspace --no-fail-fast` (both `lib.rs` touched, `CARGO_TERM_COLOR=never`): exit 0, **2,994 passed, 123 targets**, 12 ignored, 0 failed (at 141c779, measured in this step: 2,987, 121, 12, as D294; +2 targets, `methods_seam` (2) and `runs_seam_lines` (1), and +4 in the app lib, as predicted; by name, every test of the base passes and the seven new names are the new tests). `cargo test -p app --features devtools --no-fail-fast`: exit 0, **867 passed, 54 targets** (D294: 860, 52). `cargo test -p gaply_core --no-fail-fast`: 2,144 passed, 75 targets, after the frontend changed, so `capability_registry.rs`'s scan read `methods.ts`. Vitest, the whole suite on its own: **127 files, 1,717 tests** (base 125, 1,707; +3 in `methods.vitest.ts`, +7 in `projects/methodsSeam.vitest.tsx`). `npx tsc --noEmit`, CI's eslint, and `npm run build` (`build/index.html` present, `public/sitemap.xml` written back from HEAD and equal by `cmp`): exit 0. No fixture, golden or code list is in the diff (180 tracked files checked), nothing under `gaply-core` changed, and neither `GAPLY_WRITE_RENDER_GOLDEN` nor `GAPLY_WRITE_PROJECT_FIXTURES` was set.
 
 **Next.** 8D, the paired t-test, through the seam.
+
+### D296 — Research OS, Phase 8D-1: the one-sample and paired t-tests, the pure core, both Planned; their arithmetic shared with Level 1's paired t-test and their interval with the independent t-test, with no bit of either changed `[src]` `[test]` `[measured]`
+
+**Added** on `feat/research-os-8` after `81aed16` (D295). Decisions 251 to 257 of
+26 Oct 2026 apply (`~/gaply-corpus/os/decisions.md`), with 60 to 68 (the t-test's
+rules), 240, 242 (242.7: no quantile above df 1e4 until 8E), 249 and 250. This
+step follows D277's pattern: the pure core only. The app side (run manager,
+commands, wire, screens, projects and reruns, through 8C's seam) is 8D-2. The
+report is `~/gaply-corpus/os/phase8/phase8d1_report.md`; the real-app check is
+`~/gaply-corpus/os/phase8/realapp_8d1.md`, run by the user on 26 Oct 2026:
+passed.
+
+**The module.** `gaply_core::stats_onesample`, pure, with one code set,
+`OneSampleCode` (`stats.onesample.*`, 27 words in decision 253's order, pinned in
+`contracts_wire.rs`): `OneSampleParams { outcome, testValue, missingCodes }` and
+`PairedParams { first, second, missingCodes }` (camelCase, `deny_unknown_fields`);
+for each test `*_spec`, `*_validate`, `*_run` (one check point, `checkpoint(0)`,
+before the arithmetic), `*_compute`, `*_manifest` (rows used = values or pairs
+used; `Bitwise`) and the result's `canonical_bytes`; `export.rs` (a long CSV
+through `stats_desc::export::text`, header `"statistic","column","value","word"`,
+`column` `first`/`second` on the paired column rows; the manifest as JSON). The
+test value is never defaulted (`test_value_not_chosen`, NeedsUserInput); the
+paired difference is first minus second, as the user names them. A row is left
+out once, by the first reason, in decision 255's order. The values are sorted
+with `total_cmp`, the pairs by their difference, then the first, then the
+second. Fewer than two is `too_few_values`/`too_few_pairs` at validation; a
+standard error of exactly 0 is `values_constant`/`differences_constant`; df
+above 1e4 is `quantile_out_of_range` (10,001 values or pairs, df 10,000, compute; 10,002, df 10,001, refuse). No type
+holds text; `Values` and `Pairs`, which hold the values, derive nothing.
+
+**The reuse (decision 254), with evidence.** `stats_verify::t_test_one_sample`
+and `t_test_paired` share one private function, `one_sample_t(x, mu,
+zero_variance)`: the mean, se = √(var / n) with its range checks, se = 0 refused
+with the caller's message, t = (mean − mu) / se, df = n − 1. `t_test_paired`
+keeps its checks and messages in their order and calls it with mu = 0.0
+(`md − 0.0` is `md`, bit for bit). `tests/t_test_paired_pin.rs`, written and green
+on `81aed16`'s code before the change, pins Level 1's paired path over 208
+inputs (Level 1's three paired datasets, 200 xorshift pairs, five refusals, each
+reaching its own branch): a SHA-256 of t, df, se, both means, the method and
+every refusal's `Debug` text, checked on every platform, and one of p, checked on
+macOS aarch64. Green after the change, with Level 1's goldens, precision sweep
+and every l1 test. The new module takes p from `t_two_tailed`, means and
+variances from `stats_verify`, and never uses `p_two_sided`.
+
+**The interval move, with evidence.** `stats_ttest::interval_95<C: Copy>(estimate,
+se, df, out_of_range, overflow)`, beside `t_quantile_975`: `mod.rs:842-847` as it
+was (q or `out_of_range`; q · se, or `overflow`; then the two ends, each checked;
+no `mul_add`), called by `stats_ttest`'s arithmetic at the same point and by
+`stats_onesample`. Otherwise `stats_ttest` changed only `column` and
+`non_finite_cells` to `pub(crate)` (decision 257). `tests/ttest_bytes_pin.rs`,
+captured on `81aed16`'s code before the move, pins the SHA-256 of
+`TTestResult::canonical_bytes()` for a Student, a Welch and an exclusions case
+(macOS aarch64 only, since the bytes hold p); green after it, as are 8C's export
+pin, the t-test's R goldens, properties and quantile tests.
+
+**The registry (decision 253).** `Kind::AnalyzeOneSampleT` and
+`Kind::AnalyzePairedT`, appended after `analyze_independent_t`, both **Planned**,
+version 1, the independent t-test's resource profile, formats and licence,
+validation suite `onesample_r_golden`, documentation `methods/one_sample_t` and
+`methods/paired_t`, limitations `LimitTableTextFilesUtf8Only`,
+`LimitTableCellTextCap`, the method's own normality code and
+`LimitAnalyzeCohensDHasNoInterval` (not the levels code: neither reads levels).
+Six new `StatsWording` codes with their sentences in `capabilityWording.ts`. The
+façades `one_sample_admit`, `one_sample_validate(_in)`, `one_sample_run(_in)`,
+`paired_admit`, `paired_validate(_in)`, `paired_run(_in)`, each asking the
+registry first; the real registry refuses both in both builds. The Statistics
+home lists them on its existing Planned panel, with no card.
+
+**The tests and gates.** `tests/onesample_r_golden.rs` against
+`tests/fixtures/stats_onesample/` (`make_onesample_fixtures.R`, R 4.6.1,
+effectsize 1.0.3, `set.seed(20261026)`): 17 one-sample and 15 paired cases, 25
+computed and 7 refused (R's outcome recorded for each: an error, `computes`, or
+`NaN` for identical columns). The gates are `ttest_r_golden.rs`'s with the
+cancellation term M = |mean| + |test value| or |mean of first| + |mean of second|;
+measured, the largest |gaply − R| / gate is 3.124e-1 (ci_lower, one_df_10000);
+no gate was loosened. effectsize's `cohens_d(x, y, paired = TRUE)` is d_z, as its
+installed page (`cohens_d.Rd`, 1.0.3, read 26 Oct 2026) says, and agrees with
+mean(x − y) / sd(x − y) within 1e-14 in every case. `tests/onesample_properties.rs`
+(7 properties, 512 cases each: shift and scale, t = 0 and p = 1 at the mean, swap,
+adding c to both columns exact, the paired test bit for bit the one-sample test
+of the differences, permutation). `tests/onesample_validate.rs` (7: the test
+value never defaulted, parameter errors, exclusion order, the df boundary, the
+check point, ten runs byte-identical, the CSV round trip and sentinels). The
+façade and registry tests in their modules; two purity tests.
+
+**The acceptance list (blueprint §18.2).**
+
+| item | evidence | status |
+|---|---|---|
+| Formula and method documented | `docs/methods/one_sample_t.md`, `paired_t.md` §2, §4; the module header | done |
+| Golden fixtures and edge cases pass | `onesample_r_golden` (25 computed, 7 refused), `onesample_validate` | done |
+| Missing values, ties, weights, precision, sample size | the pages' §5, §6, §8; ties and missing cases; the df boundary | done; no weights, stated |
+| Diagnostic meanings and limitations documented | the pages' §5, §8; `OneSampleCode` docs; `capabilityWording.ts` | partly: the screens' code sentences are 8D-2 |
+| Independent reference comparison | R `t.test` and effectsize | done |
+| Unsupported designs return explicit reasons | the codes of §5; commands and screens | core done; 8D-2 |
+| Result manifest and export verified | `onesample_validate` | core done; app side 8D-2 |
+
+**A finding, not acted on (report, open question 1).** Differences equal in
+decimal but not in binary (`b = a − 2` on a 3-decimal grid) give a standard error
+near 1e-16 that is not 0: Gaply computed t = 1.9e16 where R stops ("data are
+essentially constant"). Decision 255 refuses only an exact 0, and the independent
+t-test's `both_groups_constant` is the same rule, so the fixture's constant case
+was moved to a quarter grid, where `a − 2` is exact, and the rule was left as
+decided.
+
+**Existing tests and fixtures changed**, each within decision 257: the registry's
+in-module count, 2 × 10 → 2 × 12; `capability_registry.rs`'s pin and its list;
+`contracts_are_pure.rs`'s lists (STATS_REGISTRY_CRATE_PATHS, REGISTRY_ITEMS,
+STATS_ADAPTERS_CRATE_PATHS, STATS_ADAPTERS_INLINE_PATHS, DOMAIN_MODULES,
+DOMAIN_SOURCES, CELL_TYPES, the forbidden-substring, import, still-imports and
+derive checks) with the module's own path and item lists and two new tests;
+`contracts_wire.rs`'s code lists; `workspaceList.json` and its pins in
+`workspaceTypes.vitest.ts`, `verifier_workspace.rs` (10 → 12) and
+`verifier_privacy.rs` (10 → 12); `capability_profiles.rs` (9 → 11 tables) and
+`ingest_limits.rs` ((7, 2) → (7, 4)), which match every `Kind`;
+`capabilityCodes.json` (24 → 30) and `capabilityWording.ts`. No other existing
+test or fixture changed.
+
+**Mutations**, each restored with its SHA-256 equal and green after: the paired
+entry not pushed (the id scan and the pin red); the paired entry Beta (the pin
+red); first and second swapped (the golden test and the paired-is-one-sample
+property red); the test value defaulted to 0 (the never-defaulted test red); both
+row sorts dropped (the permutation property red); the shared arithmetic dividing
+the variance by n − 1 (the paired pin, Level 1's goldens and the new goldens red).
+
+**Suites, measured 26 Oct 2026 on macOS aarch64, each from its own log under
+`~/gaply-corpus/os/phase8/8d1/logs/`.** `cargo test --workspace --no-fail-fast`:
+128 targets (123 + the five new), 3,018 passed (2,994 + 24: 19 in the new targets,
+two purity tests, two façade tests and one registry test), 12 ignored, none failed.
+`cargo test -p app --features devtools`: 54 targets, 867 passed, as at D295.
+`cargo check --workspace --all-targets`: exit 0, no warning in a file this step
+touched. vitest: 127 files, 1,717 tests, the same count (the changes are to pins
+and fixtures). A first run while cargo was compiling failed one PdfViewer timing test
+in `src/screens/ai/`, which this step does not touch; alone it passed 21 of 21, and
+the whole suite passed on the re-run. `npx tsc --noEmit` 0; CI's eslint 0 over 312
+files; `npm run build` 0 with `build/index.html` present, and `public/sitemap.xml`
+written back from HEAD (`cmp` equal).
+
+**Next.** 8D-2, the app side of both, through 8C's seam; its prompt is written
+after this report (decision 252).

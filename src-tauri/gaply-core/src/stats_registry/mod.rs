@@ -18,6 +18,10 @@
 //! * `stats.analyze.independent_t`: the independent-samples t-test as an
 //!   analysis of the user's own data, Beta (Phase 4B-1, decision 61), with
 //!   `stats_ttest`'s id and version.
+//! * `stats.analyze.one_sample_t` and `stats.analyze.paired_t`: the one-sample
+//!   and paired t-tests on the user's own data (Phase 8D-1, decision 253),
+//!   with `stats_onesample`'s ids and versions. Planned until their screens
+//!   exist (8D-2), so every façade refuses them in every build.
 //!
 //! `run_stats_preview` and `run_stats_verify` are the legacy lane, not
 //! capabilities: they are not here.
@@ -44,6 +48,7 @@ use crate::contracts::{CapabilityId, Diagnostic, ParamKey, ParamValue, Workspace
 use crate::stats_desc::{CAPABILITY_ID, CAPABILITY_VERSION};
 use crate::stats_l1::catalogue::{L1MethodId, MethodCatalogue};
 use crate::stats_l1::compute::L1Registry;
+use crate::stats_onesample::{ONE_SAMPLE_ID, ONE_SAMPLE_VERSION, PAIRED_ID, PAIRED_VERSION};
 use crate::stats_ttest::{CAPABILITY_ID as TTEST_ID, CAPABILITY_VERSION as TTEST_VERSION};
 
 /// The free Stats Check's id.
@@ -96,6 +101,14 @@ closed! {
         LimitAnalyzeNormalityNotAssessed => "limit.analyze.normality_not_assessed",
         /// Cohen's d has no confidence interval (decision 63).
         LimitAnalyzeCohensDHasNoInterval => "limit.analyze.cohens_d_has_no_interval",
+        AnalyzeOneSampleTTitle => "analyze.one_sample_t.title",
+        AnalyzeOneSampleTDescription => "analyze.one_sample_t.description",
+        AnalyzePairedTTitle => "analyze.paired_t.title",
+        AnalyzePairedTDescription => "analyze.paired_t.description",
+        /// The values' normality is not assessed (decision 256).
+        LimitAnalyzeValuesNormalityNotAssessed => "limit.analyze.values_normality_not_assessed",
+        /// The differences' normality is not assessed (decision 256).
+        LimitAnalyzeDifferencesNormalityNotAssessed => "limit.analyze.differences_normality_not_assessed",
     }
 }
 
@@ -110,6 +123,10 @@ pub enum Kind {
     Describe,
     /// `stats.analyze.independent_t` (Phase 4B-1).
     AnalyzeIndependentT,
+    /// `stats.analyze.one_sample_t` (Phase 8D-1).
+    AnalyzeOneSampleT,
+    /// `stats.analyze.paired_t` (Phase 8D-1).
+    AnalyzePairedT,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -124,6 +141,9 @@ const LIFECYCLES: &[(&str, Lifecycle)] = &[
     (CHECK_ID, Lifecycle::Stable),
     (CAPABILITY_ID, Lifecycle::Beta),
     (TTEST_ID, Lifecycle::Beta),
+    // Planned until 8D-2's screens exist (decision 253).
+    (ONE_SAMPLE_ID, Lifecycle::Planned),
+    (PAIRED_ID, Lifecycle::Planned),
 ];
 /// A Level 1 method `L1Registry` implements.
 const VERIFY_IMPLEMENTED: Lifecycle = Lifecycle::Beta;
@@ -360,6 +380,82 @@ fn analyze_independent_t() -> Entry {
     }
 }
 
+/// One of the t family's analyses that are not the independent t-test
+/// (Phase 8D-1): the independent t-test's profile, formats and licence, and
+/// its own normality limitation instead of the levels one, since neither
+/// reads a group's levels.
+fn analyze_t(
+    kind: Kind,
+    word: &str,
+    version: u32,
+    title: StatsWording,
+    description: StatsWording,
+    normality: StatsWording,
+    documentation: &'static str,
+) -> Entry {
+    Entry {
+        kind,
+        descriptor: StatsDescriptor {
+            id: id(word),
+            version,
+            workspace_id: WorkspaceId::Statistics,
+            title_code: title,
+            description_code: description,
+            lifecycle: lifecycle_of(word),
+            input_schema_version: 1,
+            output_schema_version: 1,
+            method_schema_version: 1,
+            supported_formats: TABLE_FORMATS.to_vec(),
+            dependency_ids: Vec::new(),
+            license_notes: vec![StatsWording::LicenseStatrsMit],
+            resource_profile: ResourceProfile {
+                ram_class: RamClass::Gb8,
+                max_rows: Some(TABLE_MAX_ROWS),
+                max_columns: Some(TABLE_MAX_COLUMNS),
+                max_input_bytes: Some(TABLE_MAX_CELL_TEXT_BYTES),
+                ceiling_ms: Some(DESCRIBE_CEILING_MS),
+                cancel: Cancel::Cooperative,
+                uses_gpu: false,
+                temp_disk: false,
+            },
+            offline_behavior: OfflineBehavior::RunsOffline,
+            validation_suite_id: SuiteId("onesample_r_golden"),
+            known_limitation_codes: vec![
+                StatsWording::LimitTableTextFilesUtf8Only,
+                StatsWording::LimitTableCellTextCap,
+                normality,
+                StatsWording::LimitAnalyzeCohensDHasNoInterval,
+            ],
+            export_kinds: vec![ExportKind::Csv, ExportKind::Json],
+            documentation_id: DocId(documentation),
+        },
+    }
+}
+
+fn analyze_one_sample_t() -> Entry {
+    analyze_t(
+        Kind::AnalyzeOneSampleT,
+        ONE_SAMPLE_ID,
+        ONE_SAMPLE_VERSION,
+        StatsWording::AnalyzeOneSampleTTitle,
+        StatsWording::AnalyzeOneSampleTDescription,
+        StatsWording::LimitAnalyzeValuesNormalityNotAssessed,
+        "methods/one_sample_t",
+    )
+}
+
+fn analyze_paired_t() -> Entry {
+    analyze_t(
+        Kind::AnalyzePairedT,
+        PAIRED_ID,
+        PAIRED_VERSION,
+        StatsWording::AnalyzePairedTTitle,
+        StatsWording::AnalyzePairedTDescription,
+        StatsWording::LimitAnalyzeDifferencesNormalityNotAssessed,
+        "methods/paired_t",
+    )
+}
+
 /// A capability table. The Statistics one is [`Registry::statistics`]; a
 /// different table exists only inside this crate's own unit tests.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -370,12 +466,15 @@ pub struct Registry {
 impl Registry {
     /// THE Statistics table: `stats.check`, one `stats.verify.<method_id>`
     /// per catalogue entry in its order, `stats.describe`, then
-    /// `stats.analyze.independent_t`.
+    /// `stats.analyze.independent_t`, `stats.analyze.one_sample_t` and
+    /// `stats.analyze.paired_t`.
     pub fn statistics() -> Registry {
         let mut entries = vec![check()];
         entries.extend(MethodCatalogue::ENTRIES.iter().map(|e| verify(e.id)));
         entries.push(describe());
         entries.push(analyze_independent_t());
+        entries.push(analyze_one_sample_t());
+        entries.push(analyze_paired_t());
         Registry { entries }
     }
 
@@ -546,7 +645,64 @@ mod tests {
                 checked += 1;
             }
         }
-        assert_eq!(checked, 2 * 10, "ten capabilities, two builds");
+        assert_eq!(checked, 2 * 12, "twelve capabilities, two builds");
+    }
+
+    /// Phase 8D-1 (decision 253): the one-sample and paired t-tests are
+    /// listed, Planned, refused as not runnable in both builds, each with its
+    /// own title, description and limitations.
+    #[test]
+    fn the_one_sample_and_paired_t_tests_are_listed_as_planned_and_never_run() {
+        let t = Registry::statistics();
+        for (word, kind, title, description, normality) in [
+            (
+                ONE_SAMPLE_ID,
+                Kind::AnalyzeOneSampleT,
+                StatsWording::AnalyzeOneSampleTTitle,
+                StatsWording::AnalyzeOneSampleTDescription,
+                StatsWording::LimitAnalyzeValuesNormalityNotAssessed,
+            ),
+            (
+                PAIRED_ID,
+                Kind::AnalyzePairedT,
+                StatsWording::AnalyzePairedTTitle,
+                StatsWording::AnalyzePairedTDescription,
+                StatsWording::LimitAnalyzeDifferencesNormalityNotAssessed,
+            ),
+        ] {
+            let id = CapabilityId::parse(word).unwrap();
+            let e = t.lookup(&id).expect("listed");
+            let d = &e.descriptor;
+            assert_eq!(e.kind, kind, "{word}");
+            assert_eq!((d.version, d.lifecycle), (1, Lifecycle::Planned), "{word}");
+            assert_eq!(
+                (d.title_code, d.description_code),
+                (title, description),
+                "{word}"
+            );
+            assert_eq!(
+                d.known_limitation_codes,
+                [
+                    StatsWording::LimitTableTextFilesUtf8Only,
+                    StatsWording::LimitTableCellTextCap,
+                    normality,
+                    StatsWording::LimitAnalyzeCohensDHasNoInterval,
+                ],
+                "{word}: no levels limitation, since neither reads levels"
+            );
+            for build in [Build::Standard, Build::Devtools] {
+                let r = t
+                    .require_runnable(&id, 1, build)
+                    .expect_err("Planned never runs");
+                assert_eq!(r.code, CapabilityCode::NotRunnable, "{word}");
+            }
+        }
+        let ids: Vec<String> = t.ids().iter().map(|i| i.as_str().to_string()).collect();
+        assert_eq!(
+            &ids[ids.len() - 3..],
+            [TTEST_ID, ONE_SAMPLE_ID, PAIRED_ID],
+            "appended after the independent t-test, one-sample first"
+        );
     }
 
     #[test]

@@ -82,6 +82,8 @@ pub mod stats_chat;
 pub mod stats_desc;
 pub mod stats_l0;
 pub mod stats_l1;
+// Research OS Phase 8D-1: the one-sample and paired t-tests, the pure core.
+pub mod stats_onesample;
 pub mod stats_registry;
 pub mod stats_ttest;
 pub mod stats_verdict;

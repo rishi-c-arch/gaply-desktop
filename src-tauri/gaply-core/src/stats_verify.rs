@@ -261,7 +261,8 @@ pub struct TTestResult {
     pub p_two_sided: f64,
     pub mean_a: f64,
     pub mean_b: f64,
-    /// "welch" (unequal variances, default) or "student" (pooled).
+    /// "welch" (unequal variances, default) or "student" (pooled); "paired"
+    /// and "one_sample" for those tests.
     pub method: &'static str,
     /// The standard error t divides by: sqrt(va/na + vb/nb) for Welch,
     /// sqrt(sp²(1/na + 1/nb)) for Student, sd(a − b)/sqrt(n) paired. Exposed
@@ -334,19 +335,63 @@ pub fn t_test_paired(a: &[f64], b: &[f64]) -> Result<TTestResult, GaplyError> {
     }
     require_group("pairs", a)?;
     let d: Vec<f64> = a.iter().zip(b).map(|(x, y)| x - y).collect();
-    let n = d.len() as f64;
     // A difference of two finite cells can itself overflow; the mean of the
-    // differences is then not finite.
-    let md = checked_mean(&d)?;
-    let se = finite((sample_variance(&d)? / n).sqrt())?;
+    // differences is then not finite. The one-sample t of the differences
+    // against 0 (Research OS, Phase 8D-1, decision 254): `md − 0.0` is `md`,
+    // bit for bit, so t is `md / se` as before.
+    let (t, df, se) = one_sample_t(
+        &d,
+        0.0,
+        "the differences have zero variance — the t-statistic is undefined",
+    )?;
+    Ok(TTestResult {
+        t,
+        df,
+        p_two_sided: t_two_sided(t.abs(), df),
+        mean_a: checked_mean(a)?,
+        mean_b: checked_mean(b)?,
+        method: "paired",
+        se,
+    })
+}
+
+/// One-sample t-test of `x` against `mu`, as R's `t.test(x, mu = mu)`:
+/// t = (mean(x) − mu) / sqrt(var(x) / n) on n − 1 df (Research OS, Phase
+/// 8D-1, decision 254). `mean_a` is the mean of `x` and `mean_b` is `mu`.
+/// `mu` must be finite.
+pub fn t_test_one_sample(x: &[f64], mu: f64) -> Result<TTestResult, GaplyError> {
+    require_group("values", x)?;
+    finite(mu)?;
+    let (t, df, se) = one_sample_t(
+        x,
+        mu,
+        "the values have zero variance — the t-statistic is undefined",
+    )?;
+    Ok(TTestResult {
+        t,
+        df,
+        p_two_sided: t_two_sided(t.abs(), df),
+        mean_a: checked_mean(x)?,
+        mean_b: mu,
+        method: "one_sample",
+        se,
+    })
+}
+
+/// THE one-sample t arithmetic, shared by [`t_test_one_sample`] and
+/// [`t_test_paired`] (decision 254): the mean, the standard error
+/// sqrt(var / n) with its range checks, a standard error of exactly 0 refused
+/// with `zero_variance`, then t = (mean − mu) / se and df = n − 1. In that
+/// order, so `t_test_paired`'s refusals are what they were. `(t, df, se)`.
+fn one_sample_t(x: &[f64], mu: f64, zero_variance: &str) -> Result<(f64, f64, f64), GaplyError> {
+    let n = x.len() as f64;
+    let m = checked_mean(x)?;
+    let se = finite((sample_variance(x)? / n).sqrt())?;
     if se == 0.0 {
-        return Err(GaplyError::Validation(
-            "the differences have zero variance — the t-statistic is undefined".into(),
-        ));
+        return Err(GaplyError::Validation(zero_variance.into()));
     }
-    let t = finite(md / se)?;
-    let df = n - 1.0;
-    Ok(TTestResult { t, df, p_two_sided: t_two_sided(t.abs(), df), mean_a: checked_mean(a)?, mean_b: checked_mean(b)?, method: "paired", se })
+    let t = finite((m - mu) / se)?;
+    Ok((t, n - 1.0, se))
 }
 
 // ---------------------------------------------------------------------------

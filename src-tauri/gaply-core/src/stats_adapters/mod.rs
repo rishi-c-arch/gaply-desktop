@@ -26,6 +26,12 @@
 //!   Phase 4B-1): `stats_ttest::validate` and `stats_ttest::run`, the same
 //!   way, a registry refusal worded `stats.ttest.unknown_capability` or
 //!   `stats.ttest.capability_version_mismatch`.
+//! * [`one_sample_validate`] and [`one_sample_run`]
+//!   (`stats.analyze.one_sample_t`), [`paired_validate`] and [`paired_run`]
+//!   (`stats.analyze.paired_t`), Phase 8D-1: `stats_onesample`'s functions,
+//!   the same way, a registry refusal worded `stats.onesample.unknown_capability`
+//!   or `stats.onesample.capability_version_mismatch`. Both are Planned in
+//!   8D-1, so the real registry refuses them in every build.
 //!
 //! The Level 0 and Level 1 specs carry no parameters (`()`) and no
 //! `InputRef`: their inputs are the manuscript's extraction and Level 1's
@@ -49,6 +55,9 @@ use crate::stats_l1::dataset::{Dataset, L1IngestRefusal};
 use crate::stats_l1::reproduce::{reproduce, ReproductionOutcome};
 use crate::stats_l1::run_state::L1RunState;
 use crate::stats_l1::token::ConfirmationToken;
+use crate::stats_onesample::{
+    self, OneSampleCode, OneSampleParams, OneSampleResult, PairedParams, PairedResult,
+};
 use crate::stats_registry::{Entry, Kind, Registry, CHECK_ID, VERIFY_PREFIX};
 use crate::stats_ttest::{self, TTestCode, TTestParams, TTestResult};
 
@@ -437,6 +446,170 @@ pub(crate) fn ttest_run_in<B>(
 }
 
 /* ------------------------------------------------------------------------ *
+ *  stats.analyze.one_sample_t and stats.analyze.paired_t (Phase 8D-1)
+ * ------------------------------------------------------------------------ */
+
+/// A registry refusal in the two tests' own codes, as [`ttest_refusal`] does.
+fn onesample_refusal(r: &Refusal) -> Diagnostic<OneSampleCode> {
+    match r.code {
+        CapabilityCode::VersionMismatch => {
+            let int = |k| match r.params.get(&k) {
+                Some(ParamValue::Int(n)) => *n,
+                _ => 0,
+            };
+            Diagnostic::error(OneSampleCode::CapabilityVersionMismatch)
+                .int(ParamKey::Expected, int(ParamKey::Expected))
+                .int(ParamKey::Found, int(ParamKey::Found))
+        }
+        _ => Diagnostic::error(OneSampleCode::UnknownCapability),
+    }
+}
+
+/// The registry's check for a spec of `kind`, as [`ttest_entry`] does.
+fn onesample_entry<P>(
+    registry: &Registry,
+    spec: &OperationSpec<P>,
+    build: Build,
+    kind: Kind,
+) -> Result<(), Refusal> {
+    let entry = runnable(registry, spec, build)?;
+    if entry.kind != kind {
+        return Err(refused(CapabilityCode::UnknownCapability));
+    }
+    no_confirmation(spec)
+}
+
+/// A refused validation report in the two tests' codes.
+fn onesample_refused_report(
+    r: &Refusal,
+    dataset: &Dataset,
+    columns: u64,
+) -> ValidationReport<OneSampleCode> {
+    let rows = dataset.rows() as u64;
+    let estimate = ResourceEstimate {
+        rows,
+        columns,
+        cells: rows.saturating_mul(columns),
+    };
+    ValidationReport::new(
+        vec![onesample_refusal(r)],
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        estimate,
+    )
+}
+
+/// The registry's answer for a one-sample spec, as the registry gives it, as
+/// [`ttest_admit`] is for the t-test.
+pub fn one_sample_admit(
+    spec: &OperationSpec<OneSampleParams>,
+    build: Build,
+) -> Result<(), Refusal> {
+    onesample_entry(
+        &Registry::statistics(),
+        spec,
+        build,
+        Kind::AnalyzeOneSampleT,
+    )
+}
+
+/// `stats.analyze.one_sample_t`'s validation: the registry first, then
+/// `stats_onesample::one_sample_validate`, unchanged.
+pub fn one_sample_validate(
+    spec: &OperationSpec<OneSampleParams>,
+    build: Build,
+    dataset: &Dataset,
+) -> ValidationReport<OneSampleCode> {
+    one_sample_validate_in(&Registry::statistics(), spec, build, dataset)
+}
+
+pub(crate) fn one_sample_validate_in(
+    registry: &Registry,
+    spec: &OperationSpec<OneSampleParams>,
+    build: Build,
+    dataset: &Dataset,
+) -> ValidationReport<OneSampleCode> {
+    match onesample_entry(registry, spec, build, Kind::AnalyzeOneSampleT) {
+        Ok(()) => stats_onesample::one_sample_validate(dataset, spec),
+        Err(r) => onesample_refused_report(&r, dataset, 1),
+    }
+}
+
+/// `stats.analyze.one_sample_t`'s run: the registry again, then
+/// `stats_onesample::one_sample_run`, unchanged.
+pub fn one_sample_run<B>(
+    spec: &OperationSpec<OneSampleParams>,
+    build: Build,
+    dataset: &Dataset,
+    checkpoint: impl FnMut(usize) -> ControlFlow<B>,
+) -> Result<OneSampleResult, stats_onesample::Halt<B>> {
+    one_sample_run_in(&Registry::statistics(), spec, build, dataset, checkpoint)
+}
+
+pub(crate) fn one_sample_run_in<B>(
+    registry: &Registry,
+    spec: &OperationSpec<OneSampleParams>,
+    build: Build,
+    dataset: &Dataset,
+    checkpoint: impl FnMut(usize) -> ControlFlow<B>,
+) -> Result<OneSampleResult, stats_onesample::Halt<B>> {
+    onesample_entry(registry, spec, build, Kind::AnalyzeOneSampleT)
+        .map_err(|r| stats_onesample::Halt::Refused(onesample_refusal(&r)))?;
+    stats_onesample::one_sample_run(dataset, &spec.parameters, checkpoint)
+}
+
+/// The registry's answer for a paired spec, as the registry gives it.
+pub fn paired_admit(spec: &OperationSpec<PairedParams>, build: Build) -> Result<(), Refusal> {
+    onesample_entry(&Registry::statistics(), spec, build, Kind::AnalyzePairedT)
+}
+
+/// `stats.analyze.paired_t`'s validation: the registry first, then
+/// `stats_onesample::paired_validate`, unchanged.
+pub fn paired_validate(
+    spec: &OperationSpec<PairedParams>,
+    build: Build,
+    dataset: &Dataset,
+) -> ValidationReport<OneSampleCode> {
+    paired_validate_in(&Registry::statistics(), spec, build, dataset)
+}
+
+pub(crate) fn paired_validate_in(
+    registry: &Registry,
+    spec: &OperationSpec<PairedParams>,
+    build: Build,
+    dataset: &Dataset,
+) -> ValidationReport<OneSampleCode> {
+    match onesample_entry(registry, spec, build, Kind::AnalyzePairedT) {
+        Ok(()) => stats_onesample::paired_validate(dataset, spec),
+        Err(r) => onesample_refused_report(&r, dataset, 2),
+    }
+}
+
+/// `stats.analyze.paired_t`'s run: the registry again, then
+/// `stats_onesample::paired_run`, unchanged.
+pub fn paired_run<B>(
+    spec: &OperationSpec<PairedParams>,
+    build: Build,
+    dataset: &Dataset,
+    checkpoint: impl FnMut(usize) -> ControlFlow<B>,
+) -> Result<PairedResult, stats_onesample::Halt<B>> {
+    paired_run_in(&Registry::statistics(), spec, build, dataset, checkpoint)
+}
+
+pub(crate) fn paired_run_in<B>(
+    registry: &Registry,
+    spec: &OperationSpec<PairedParams>,
+    build: Build,
+    dataset: &Dataset,
+    checkpoint: impl FnMut(usize) -> ControlFlow<B>,
+) -> Result<PairedResult, stats_onesample::Halt<B>> {
+    onesample_entry(registry, spec, build, Kind::AnalyzePairedT)
+        .map_err(|r| stats_onesample::Halt::Refused(onesample_refusal(&r)))?;
+    stats_onesample::paired_run(dataset, &spec.parameters, checkpoint)
+}
+
+/* ------------------------------------------------------------------------ *
  *  AI: a method a model's answer names
  * ------------------------------------------------------------------------ */
 
@@ -577,5 +750,208 @@ mod ttest_facade_tests {
             ttest_validate(&good, Build::Standard, &d),
             stats_ttest::validate(&d, &good)
         );
+    }
+}
+
+/// The one-sample and paired façades (Phase 8D-1): the real registry refuses
+/// both in both builds, since they are Planned; with a test-only table where
+/// they are Beta, each refuses an id of another façade, a wrong version, a
+/// Planned table and a confirmation, and runs the real spec exactly as
+/// `stats_onesample` does.
+#[cfg(test)]
+mod onesample_facade_tests {
+    use super::*;
+    use crate::contracts::capability::Lifecycle;
+    use crate::stats_desc::Alias;
+    use crate::stats_l1::dataset::{
+        build_dataset, ColumnAlias, DataFingerprint, RawTable, TableRef,
+    };
+    use crate::stats_onesample::{Halt, ONE_SAMPLE_ID, PAIRED_ID};
+
+    fn data() -> Dataset {
+        let rows: Vec<Vec<String>> = [
+            ("1.5", "2"),
+            ("2.5", "2.25"),
+            ("4", "3"),
+            ("3", "3.5"),
+            ("6.5", "5"),
+        ]
+        .iter()
+        .map(|(a, b)| vec![a.to_string(), b.to_string()])
+        .collect();
+        build_dataset(
+            RawTable::from_rows(vec!["a".into(), "b".into()], rows),
+            DataFingerprint::of_bytes(b"onesample facade", "test", TableRef::FirstTable),
+        )
+        .expect("dataset")
+    }
+
+    fn one(d: &Dataset, id: &str, version: u32) -> OperationSpec<OneSampleParams> {
+        let mut s = stats_onesample::one_sample_spec(
+            OperationId(4),
+            d,
+            OneSampleParams {
+                outcome: Alias(ColumnAlias(1)),
+                test_value: Some(3.0),
+                missing_codes: Vec::new(),
+            },
+        );
+        s.capability_id = CapabilityId::parse(id).unwrap();
+        s.capability_version = version;
+        s
+    }
+
+    fn paired(d: &Dataset, id: &str, version: u32) -> OperationSpec<PairedParams> {
+        let mut s = stats_onesample::paired_spec(
+            OperationId(5),
+            d,
+            PairedParams {
+                first: Alias(ColumnAlias(1)),
+                second: Alias(ColumnAlias(2)),
+                missing_codes: Vec::new(),
+            },
+        );
+        s.capability_id = CapabilityId::parse(id).unwrap();
+        s.capability_version = version;
+        s
+    }
+
+    /// The real table with both Beta: a table the real one does not have.
+    fn beta() -> Registry {
+        Registry::statistics()
+            .with_lifecycle(ONE_SAMPLE_ID, Lifecycle::Beta)
+            .with_lifecycle(PAIRED_ID, Lifecycle::Beta)
+    }
+
+    fn go(_: usize) -> ControlFlow<()> {
+        ControlFlow::Continue(())
+    }
+
+    fn codes(r: &ValidationReport<OneSampleCode>) -> Vec<OneSampleCode> {
+        r.errors.iter().map(|e| e.code).collect()
+    }
+
+    fn unknown() -> Halt<()> {
+        Halt::Refused(Diagnostic::error(OneSampleCode::UnknownCapability))
+    }
+
+    #[test]
+    fn the_real_registry_refuses_both_in_both_builds_because_they_are_planned() {
+        let d = data();
+        let (o, p) = (one(&d, ONE_SAMPLE_ID, 1), paired(&d, PAIRED_ID, 1));
+        for build in [Build::Standard, Build::Devtools] {
+            for r in [one_sample_admit(&o, build), paired_admit(&p, build)] {
+                let r = r.expect_err("Planned");
+                assert_eq!(r.code, CapabilityCode::NotRunnable);
+                assert_eq!(
+                    r.params.get(&ParamKey::Lifecycle),
+                    Some(&ParamValue::Lifecycle(Lifecycle::Planned))
+                );
+            }
+            assert_eq!(
+                codes(&one_sample_validate(&o, build, &d)),
+                [OneSampleCode::UnknownCapability]
+            );
+            assert_eq!(
+                codes(&paired_validate(&p, build, &d)),
+                [OneSampleCode::UnknownCapability]
+            );
+            assert!(!one_sample_validate(&o, build, &d).may_run());
+            assert_eq!(one_sample_run(&o, build, &d, go).unwrap_err(), unknown());
+            assert_eq!(paired_run(&p, build, &d, go).unwrap_err(), unknown());
+        }
+    }
+
+    #[test]
+    fn with_both_beta_each_facade_refuses_forged_specs_and_runs_the_real_one_as_the_module_does() {
+        let d = data();
+        let b = Build::Devtools;
+        // Another façade's id, the other test's id included.
+        for id in ["stats.describe", PAIRED_ID] {
+            let s = one(&d, id, 1);
+            assert_eq!(
+                codes(&one_sample_validate_in(&beta(), &s, b, &d)),
+                [OneSampleCode::UnknownCapability],
+                "{id}"
+            );
+            assert_eq!(
+                one_sample_run_in(&beta(), &s, b, &d, go).unwrap_err(),
+                unknown(),
+                "{id}"
+            );
+        }
+        for id in ["stats.describe", ONE_SAMPLE_ID] {
+            let s = paired(&d, id, 1);
+            assert_eq!(
+                codes(&paired_validate_in(&beta(), &s, b, &d)),
+                [OneSampleCode::UnknownCapability],
+                "{id}"
+            );
+            assert_eq!(
+                paired_run_in(&beta(), &s, b, &d, go).unwrap_err(),
+                unknown(),
+                "{id}"
+            );
+        }
+        // A wrong version.
+        let v = one_sample_validate_in(&beta(), &one(&d, ONE_SAMPLE_ID, 2), b, &d);
+        assert_eq!(codes(&v), [OneSampleCode::CapabilityVersionMismatch]);
+        assert_eq!(
+            v.errors[0].params.get(&ParamKey::Expected),
+            Some(&ParamValue::Int(1))
+        );
+        assert_eq!(
+            v.errors[0].params.get(&ParamKey::Found),
+            Some(&ParamValue::Int(2))
+        );
+        let v = paired_validate_in(&beta(), &paired(&d, PAIRED_ID, 2), b, &d);
+        assert_eq!(codes(&v), [OneSampleCode::CapabilityVersionMismatch]);
+        // A Planned table: the real one.
+        let (good_one, good_paired) = (one(&d, ONE_SAMPLE_ID, 1), paired(&d, PAIRED_ID, 1));
+        let planned = Registry::statistics();
+        assert_eq!(
+            codes(&one_sample_validate_in(&planned, &good_one, b, &d)),
+            [OneSampleCode::UnknownCapability]
+        );
+        assert_eq!(
+            codes(&paired_validate_in(&planned, &good_paired, b, &d)),
+            [OneSampleCode::UnknownCapability]
+        );
+        // A confirmation on a capability that takes none.
+        let confirmation = vec![ConfirmationId::parse(&"cd".repeat(32)).unwrap()];
+        let mut c = good_one.clone();
+        c.confirmation_refs = confirmation.clone();
+        assert_eq!(
+            codes(&one_sample_validate_in(&beta(), &c, b, &d)),
+            [OneSampleCode::UnknownCapability]
+        );
+        let mut c = good_paired.clone();
+        c.confirmation_refs = confirmation;
+        assert_eq!(
+            codes(&paired_validate_in(&beta(), &c, b, &d)),
+            [OneSampleCode::UnknownCapability]
+        );
+
+        // The real specs, in a table where they may run: exactly the direct calls.
+        assert_eq!(
+            one_sample_validate_in(&beta(), &good_one, b, &d),
+            stats_onesample::one_sample_validate(&d, &good_one)
+        );
+        assert_eq!(
+            one_sample_run_in(&beta(), &good_one, b, &d, go).unwrap(),
+            stats_onesample::one_sample_compute(&d, &good_one.parameters).unwrap()
+        );
+        assert_eq!(
+            paired_validate_in(&beta(), &good_paired, b, &d),
+            stats_onesample::paired_validate(&d, &good_paired)
+        );
+        assert_eq!(
+            paired_run_in(&beta(), &good_paired, b, &d, go).unwrap(),
+            stats_onesample::paired_compute(&d, &good_paired.parameters).unwrap()
+        );
+        for build in [Build::Standard, Build::Devtools] {
+            assert!(one_sample_validate_in(&beta(), &good_one, build, &d).may_run());
+            assert!(paired_validate_in(&beta(), &good_paired, build, &d).may_run());
+        }
     }
 }
