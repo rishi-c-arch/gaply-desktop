@@ -1,0 +1,35 @@
+{
+  "status": "invalid",
+  "errors": [
+    {
+      "code": "stats.onesample.too_few_values",
+      "params": {
+        "count": 1
+      },
+      "severity": "error"
+    }
+  ],
+  "warnings": [
+    {
+      "code": "stats.onesample.suspect_missing_code",
+      "params": {
+        "column": 1,
+        "count": 2,
+        "value": 99
+      },
+      "severity": "warning"
+    }
+  ],
+  "missingInformation": [
+    {
+      "code": "stats.onesample.test_value_not_chosen",
+      "params": {},
+      "severity": "note"
+    }
+  ],
+  "estimatedResources": {
+    "rows": 10,
+    "columns": 1,
+    "cells": 10
+  }
+}

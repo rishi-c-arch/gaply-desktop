@@ -99,6 +99,7 @@ use gaply_core::research_project::{render_prov_json, render_report_markdown};
 use gaply_core::stats_adapters;
 use gaply_core::stats_desc::{self, DescCode, DescribeParams, TreatAs};
 use gaply_core::stats_l1::dataset::Dataset;
+use gaply_core::stats_onesample::{self, OneSampleCode, OneSampleParams, PairedParams};
 use gaply_core::stats_registry;
 use gaply_core::stats_ttest::{self, TTestCode, TTestParams, Variant};
 use gaply_core::GaplyError;
@@ -982,6 +983,19 @@ const METHODS: &[MethodRow] = &[
         read_back: read_back::<OperationSpec<TTestParams>>,
         export: export_with::<OperationSpec<TTestParams>>,
     },
+    // Research OS, Phase 8D-2a (decision 264).
+    MethodRow {
+        capability: stats_onesample::ONE_SAMPLE_ID,
+        kind: RunKind::OneSample,
+        read_back: read_back::<OperationSpec<OneSampleParams>>,
+        export: export_with::<OperationSpec<OneSampleParams>>,
+    },
+    MethodRow {
+        capability: stats_onesample::PAIRED_ID,
+        kind: RunKind::Paired,
+        read_back: read_back::<OperationSpec<PairedParams>>,
+        export: export_with::<OperationSpec<PairedParams>>,
+    },
 ];
 
 /// The row of a capability, if a method has one.
@@ -1081,6 +1095,64 @@ impl SavedSpec for OperationSpec<TTestParams> {
 
     fn parameters(&self) -> Vec<ExportParameter> {
         ttest_parameters(self)
+    }
+}
+
+impl Rerun for OperationSpec<OneSampleParams> {
+    fn valid_on(&self, build: Build, dataset: &Dataset) -> bool {
+        check_spec(
+            WorkspaceId::Statistics,
+            self.workspace_id,
+            &self.capability_id,
+        )
+        .is_ok()
+            && passes(stats_adapters::one_sample_validate(self, build, dataset).status)
+    }
+
+    fn launch(
+        self: Box<Self>,
+        runs: &Arc<Runs>,
+        slot: Arc<Slot>,
+        end: EndHook,
+    ) -> Result<RunId, NotStarted> {
+        runs.start_one_sample_then(slot, *self, end)
+    }
+}
+
+impl SavedSpec for OperationSpec<OneSampleParams> {
+    type Code = OneSampleCode;
+
+    fn parameters(&self) -> Vec<ExportParameter> {
+        one_sample_parameters(self)
+    }
+}
+
+impl Rerun for OperationSpec<PairedParams> {
+    fn valid_on(&self, build: Build, dataset: &Dataset) -> bool {
+        check_spec(
+            WorkspaceId::Statistics,
+            self.workspace_id,
+            &self.capability_id,
+        )
+        .is_ok()
+            && passes(stats_adapters::paired_validate(self, build, dataset).status)
+    }
+
+    fn launch(
+        self: Box<Self>,
+        runs: &Arc<Runs>,
+        slot: Arc<Slot>,
+        end: EndHook,
+    ) -> Result<RunId, NotStarted> {
+        runs.start_paired_then(slot, *self, end)
+    }
+}
+
+impl SavedSpec for OperationSpec<PairedParams> {
+    type Code = OneSampleCode;
+
+    fn parameters(&self) -> Vec<ExportParameter> {
+        paired_parameters(self)
     }
 }
 
@@ -1682,8 +1754,8 @@ pub enum SpecFieldShown {
     Excluded(&'static str),
 }
 
-/// Every field of a saved describe or t-test spec, by JSON path (`[]` for
-/// each element of an array).
+/// Every field of a saved describe, t-test, one-sample or paired spec, by
+/// JSON path (`[]` for each element of an array).
 pub const SPEC_FIELDS: &[(&str, SpecFieldShown)] = &[
     (
         "schemaVersion",
@@ -1718,6 +1790,11 @@ pub const SPEC_FIELDS: &[(&str, SpecFieldShown)] = &[
     ("parameters.group", SpecFieldShown::Reported),
     ("parameters.levels[]", SpecFieldShown::Reported),
     ("parameters.variant", SpecFieldShown::Reported),
+    // Research OS, Phase 8D-2a (decision 264): the one-sample t-test's test
+    // value, a setting the user chose, and the paired t-test's columns.
+    ("parameters.testValue", SpecFieldShown::Reported),
+    ("parameters.first", SpecFieldShown::Reported),
+    ("parameters.second", SpecFieldShown::Reported),
 ];
 
 fn shape(spec_inputs: &[InputRef]) -> Vec<ExportParameter> {
@@ -1766,6 +1843,45 @@ fn ttest_parameters(spec: &OperationSpec<TTestParams>) -> Vec<ExportParameter> {
         Variant::Student => TestVariant::Student,
         Variant::Welch => TestVariant::Welch,
     })));
+    out.push(ExportParameter::MissingCodes {
+        count: p.missing_codes.len() as u64,
+    });
+    out.push(ExportParameter::Seed(spec.random_seed));
+    out
+}
+
+/// A one-sample spec's settings, by the allow-list. A spec with no test value
+/// gives no test-value line: such a run ends `NeedsUserInput`, which a Save
+/// refuses (decision 264).
+fn one_sample_parameters(spec: &OperationSpec<OneSampleParams>) -> Vec<ExportParameter> {
+    let p = &spec.parameters;
+    let mut out = shape(&spec.inputs);
+    out.push(ExportParameter::Column {
+        position: p.outcome.0 .0,
+        role: ColumnRole::Outcome,
+    });
+    if let Some(v) = p.test_value {
+        out.push(ExportParameter::TestValue { bits: v.to_bits() });
+    }
+    out.push(ExportParameter::MissingCodes {
+        count: p.missing_codes.len() as u64,
+    });
+    out.push(ExportParameter::Seed(spec.random_seed));
+    out
+}
+
+/// A paired spec's settings, by the allow-list.
+fn paired_parameters(spec: &OperationSpec<PairedParams>) -> Vec<ExportParameter> {
+    let p = &spec.parameters;
+    let mut out = shape(&spec.inputs);
+    out.push(ExportParameter::Column {
+        position: p.first.0 .0,
+        role: ColumnRole::First,
+    });
+    out.push(ExportParameter::Column {
+        position: p.second.0 .0,
+        role: ColumnRole::Second,
+    });
     out.push(ExportParameter::MissingCodes {
         count: p.missing_codes.len() as u64,
     });
@@ -2159,6 +2275,43 @@ mod tests {
         (describe, ttest)
     }
 
+    /// A one-sample spec with its test value and missing codes filled, and a
+    /// paired spec (Research OS, Phase 8D-2a, decision 264).
+    fn onesample_specs() -> (OperationSpec<OneSampleParams>, OperationSpec<PairedParams>) {
+        let confirmation = ConfirmationId::parse(&"c".repeat(64)).unwrap();
+        let one = OperationSpec {
+            schema_version: SchemaVersion,
+            operation_id: OperationId(5),
+            workspace_id: WorkspaceId::Statistics,
+            capability_id: stats_onesample::one_sample_capability_id(),
+            capability_version: 1,
+            inputs: vec![input()],
+            parameters: OneSampleParams {
+                outcome: Alias(ColumnAlias(2)),
+                test_value: Some(0.1),
+                missing_codes: vec![-99.0],
+            },
+            random_seed: Some(11),
+            confirmation_refs: vec![confirmation.clone()],
+        };
+        let paired = OperationSpec {
+            schema_version: SchemaVersion,
+            operation_id: OperationId(6),
+            workspace_id: WorkspaceId::Statistics,
+            capability_id: stats_onesample::paired_capability_id(),
+            capability_version: 1,
+            inputs: vec![input()],
+            parameters: PairedParams {
+                first: Alias(ColumnAlias(1)),
+                second: Alias(ColumnAlias(2)),
+                missing_codes: vec![-1.0],
+            },
+            random_seed: Some(13),
+            confirmation_refs: vec![confirmation],
+        };
+        (one, paired)
+    }
+
     /// Every leaf of a JSON value, by path, `[]` for an array's elements.
     fn paths(v: &Value, at: &str, out: &mut BTreeSet<String>) {
         match v {
@@ -2189,6 +2342,9 @@ mod tests {
         let mut seen = BTreeSet::new();
         paths(&serde_json::to_value(&d).unwrap(), "", &mut seen);
         paths(&serde_json::to_value(&t).unwrap(), "", &mut seen);
+        let (one, paired) = onesample_specs();
+        paths(&serde_json::to_value(&one).unwrap(), "", &mut seen);
+        paths(&serde_json::to_value(&paired).unwrap(), "", &mut seen);
         let listed: BTreeSet<String> = SPEC_FIELDS.iter().map(|(p, _)| p.to_string()).collect();
         let unlisted: Vec<&String> = seen.difference(&listed).collect();
         assert!(
@@ -2682,8 +2838,9 @@ mod tests {
 
     /// The methods table (Research OS, Phase 8C, decision 249): every row
     /// names a capability the Statistics registry has, no capability has two
-    /// rows, no two rows share a run kind, and the two methods a project runs
-    /// again and exports today each have exactly one.
+    /// rows, no two rows share a run kind, and the four methods a project
+    /// runs again and exports today each have exactly one (Phase 8D-2a, the
+    /// one-sample and paired t-tests).
     #[test]
     fn every_method_row_is_a_registered_capability_and_each_shipped_method_has_one() {
         let registered: Vec<String> = gaply_core::stats_registry::Registry::statistics()
@@ -2698,7 +2855,12 @@ mod tests {
                 row.capability
             );
         }
-        for id in [stats_desc::CAPABILITY_ID, stats_ttest::CAPABILITY_ID] {
+        for id in [
+            stats_desc::CAPABILITY_ID,
+            stats_ttest::CAPABILITY_ID,
+            stats_onesample::ONE_SAMPLE_ID,
+            stats_onesample::PAIRED_ID,
+        ] {
             assert_eq!(
                 METHODS.iter().filter(|m| m.capability == id).count(),
                 1,
@@ -2824,6 +2986,165 @@ reproducibility: None"#;
             .iter()
             .zip(want)
             .filter(|(g, w)| g.as_str() != *w)
+            .map(|(g, _)| g.clone())
+            .collect();
+        assert!(
+            wrong.is_empty(),
+            "\n--- got ---\n{}\n",
+            wrong.join("\n--- next ---\n")
+        );
+    }
+
+    /// [`pinned`] for the one-sample and paired t-tests (Research OS, Phase
+    /// 8D-2a): the same fields, the output hash pinned only on macOS aarch64,
+    /// where it was captured, because each result's p goes through the
+    /// platform's maths library.
+    fn pinned_onesample(run: &ExportRun) -> String {
+        let m = run.manifest.as_ref();
+        let captured = cfg!(all(target_os = "macos", target_arch = "aarch64"));
+        format!(
+            "capability: {}\nparameters: {:?}\nexclusions: {:?}\nlimitations: {:?}\nnotes: {:?}\nfailure: {:?}\nengine_version: {:?}\ninputs: {:?}\nparameters_hash: {:?}\noutput_hash: {}\nrows_read: {:?}\nrows_used: {:?}\nreproducibility: {:?}",
+            run.run.capability_id.as_str(),
+            run.parameters,
+            run.exclusions,
+            run.limitations,
+            run.notes,
+            run.failure,
+            m.map(|m| &m.engine_version),
+            m.map(|m| m.inputs.iter().map(|h| h.as_hex().to_string()).collect::<Vec<_>>()),
+            m.map(|m| m.parameters_hash.as_hex().to_string()),
+            match m {
+                Some(_) if !captured => "pinned on macOS aarch64 only".to_string(),
+                m => format!("{:?}", m.map(|m| m.output_hash.as_hex().to_string())),
+            },
+            m.map(|m| m.rows_read),
+            m.map(|m| m.rows_used),
+            m.map(|m| &m.reproducibility),
+        )
+    }
+
+    /// `export_input`'s `ExportRun` for a saved one-sample t-test, a saved
+    /// paired t-test and a saved paired t-test that failed, pinned in full
+    /// (Research OS, Phase 8D-2a, decision 264): the test value's bits, the
+    /// roles first and second, the shared codes, and the failure's code.
+    #[test]
+    fn export_input_gives_the_one_sample_and_paired_runs_settings_codes_and_manifest() {
+        const PAIRS: &[u8] = b"a,b\n10,12.5\n20,21\n30,33.25\n40,41\n50,54.5\n";
+        const SHIFTED: &[u8] = b"a,b\n1,2\n2,3\n4,5\n8,9\n";
+        let paired = |slot: &Slot| {
+            stats_onesample::paired_spec(
+                OperationId(2),
+                slot.dataset(),
+                PairedParams {
+                    first: Alias(ColumnAlias(1)),
+                    second: Alias(ColumnAlias(2)),
+                    missing_codes: vec![],
+                },
+            )
+        };
+        let runs = Arc::new(Runs::default());
+        let one = saved_request(&runs, PAIRS, |runs, slot| {
+            let spec = stats_onesample::one_sample_spec(
+                OperationId(1),
+                slot.dataset(),
+                OneSampleParams {
+                    outcome: Alias(ColumnAlias(1)),
+                    test_value: Some(12.5),
+                    missing_codes: vec![-99.0],
+                },
+            );
+            runs.start_one_sample(slot, spec).unwrap()
+        });
+        let pair = saved_request(&runs, PAIRS, |runs, slot| {
+            let spec = paired(&slot);
+            runs.start_paired(slot, spec).unwrap()
+        });
+        let failed = saved_request(&runs, SHIFTED, |runs, slot| {
+            let spec = paired(&slot);
+            runs.start_paired(slot, spec).unwrap()
+        });
+        assert_eq!(failed.run.state, RunState::Failed, "every difference is -1");
+
+        let root = std::env::temp_dir().join(format!("gaply-8d2a-export-{}", std::process::id()));
+        let store = ProjectRoot::open_root_with(&root, Caps::REAL).expect("store opens");
+        let (mut h, _) =
+            ProjectRoot::create_with_save(&store, &ProjectTitle::parse("8d2a").unwrap(), one)
+                .expect("project created");
+        h.save(pair).expect("the paired t-test saves");
+        h.save(failed).expect("the failed paired t-test saves");
+        let input = export_input(&mut h);
+        // Deleted before anything can fail, so a red run leaves no project.
+        let id = h.id().as_str().to_string();
+        h.close();
+        ProjectRoot::delete(&store, &id).expect("the project is deleted");
+        let got: Vec<String> = input
+            .expect("the export's input")
+            .runs
+            .iter()
+            .map(pinned_onesample)
+            .collect();
+
+        // Captured from this step's code on macOS aarch64, 26 Oct 2026.
+        let captured = cfg!(all(target_os = "macos", target_arch = "aarch64"));
+        let hash = |h: &str| {
+            if captured {
+                format!("Some(\"{h}\")")
+            } else {
+                "pinned on macOS aarch64 only".to_string()
+            }
+        };
+        let want_one = format!(
+            r#"capability: stats.analyze.one_sample_t
+parameters: [InputShape {{ rows: 5, columns: 2 }}, Column {{ position: 1, role: Outcome }}, TestValue {{ bits: 4623226492472524800 }}, MissingCodes {{ count: 1 }}, Seed(None)]
+exclusions: []
+limitations: [ExportCode {{ code: ClosedWord("stats.onesample.values_normality_not_assessed"), params: [] }}, ExportCode {{ code: ClosedWord("stats.onesample.cohens_d_has_no_interval"), params: [] }}]
+notes: []
+failure: None
+engine_version: Some(1)
+inputs: Some(["3a029340c4cc5537ead4c6762d1dfa90503a9cbab25f74d50bfbe2aca26a22f2"])
+parameters_hash: Some("6e68870598bb459021cd90e072bf51f66d85a3dfbfa1ef01acd2058593e5534a")
+output_hash: {}
+rows_read: Some(5)
+rows_used: Some(5)
+reproducibility: Some(Bitwise)"#,
+            hash("0dc436b81d6dac23acadf2773cba04c5aaa850bf2210078289ee512a5d97ac9f")
+        );
+        let want_pair = format!(
+            r#"capability: stats.analyze.paired_t
+parameters: [InputShape {{ rows: 5, columns: 2 }}, Column {{ position: 1, role: First }}, Column {{ position: 2, role: Second }}, MissingCodes {{ count: 0 }}, Seed(None)]
+exclusions: []
+limitations: [ExportCode {{ code: ClosedWord("stats.onesample.differences_normality_not_assessed"), params: [] }}, ExportCode {{ code: ClosedWord("stats.onesample.cohens_d_has_no_interval"), params: [] }}]
+notes: []
+failure: None
+engine_version: Some(1)
+inputs: Some(["3a029340c4cc5537ead4c6762d1dfa90503a9cbab25f74d50bfbe2aca26a22f2"])
+parameters_hash: Some("0e53cb1333569e55199758fc17a457521bd92d30d38193362f20c9624eb007b9")
+output_hash: {}
+rows_read: Some(5)
+rows_used: Some(5)
+reproducibility: Some(Bitwise)"#,
+            hash("dbceb46dc78b46c8a22d5fba3f5016908bd0aa94426cbc1204c8dee86fda227e")
+        );
+        let want_failed = r#"capability: stats.analyze.paired_t
+parameters: [InputShape { rows: 4, columns: 2 }, Column { position: 1, role: First }, Column { position: 2, role: Second }, MissingCodes { count: 0 }, Seed(None)]
+exclusions: []
+limitations: []
+notes: []
+failure: Some(ExportCode { code: ClosedWord("stats.onesample.differences_constant"), params: [] })
+engine_version: None
+inputs: None
+parameters_hash: None
+output_hash: None
+rows_read: None
+rows_used: None
+reproducibility: None"#
+            .to_string();
+        let want: [String; 3] = [want_one, want_pair, want_failed];
+        assert_eq!(got.len(), 3);
+        let wrong: Vec<String> = got
+            .iter()
+            .zip(&want)
+            .filter(|(g, w)| g.as_str() != w.as_str())
             .map(|(g, _)| g.clone())
             .collect();
         assert!(

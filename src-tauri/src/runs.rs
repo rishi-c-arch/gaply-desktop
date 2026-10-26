@@ -87,6 +87,9 @@ use gaply_core::research_project::DataFormat;
 use gaply_core::stats_adapters;
 use gaply_core::stats_desc::{self, DescCode, DescribeParams, DescribeResult, Halt};
 use gaply_core::stats_l1::dataset::Dataset;
+use gaply_core::stats_onesample::{
+    self, OneSampleCode, OneSampleParams, OneSampleResult, PairedParams, PairedResult,
+};
 use gaply_core::stats_ttest::{self, TTestCode, TTestParams, TTestResult};
 use serde::Serialize;
 
@@ -313,6 +316,11 @@ pub enum RunKind {
     Describe,
     /// `stats.analyze.independent_t`, through the `stats_ttest_*` commands.
     Ttest,
+    /// `stats.analyze.one_sample_t`, through the `stats_onesample_*`
+    /// commands (Research OS, Phase 8D-2a, decision 263).
+    OneSample,
+    /// `stats.analyze.paired_t`, through the `stats_paired_*` commands.
+    Paired,
 }
 
 /// The data a run read: its slot, and the SHA-256 of the original bytes the
@@ -426,6 +434,8 @@ pub struct RunCopy {
 enum Held {
     Describe(Outputs<DescribeResult, DescCode>),
     Ttest(Outputs<TTestResult, TTestCode>),
+    OneSample(Outputs<OneSampleResult, OneSampleCode>),
+    Paired(Outputs<PairedResult, OneSampleCode>),
 }
 
 impl Held {
@@ -483,6 +493,8 @@ pub enum NotStarted {
 enum Job {
     Describe(OperationSpec<DescribeParams>),
     Ttest(OperationSpec<TTestParams>),
+    OneSample(OperationSpec<OneSampleParams>),
+    Paired(OperationSpec<PairedParams>),
 }
 
 impl Job {
@@ -505,6 +517,8 @@ impl Job {
 enum Report {
     Describe(ValidationReport<DescCode>),
     Ttest(ValidationReport<TTestCode>),
+    OneSample(ValidationReport<OneSampleCode>),
+    Paired(ValidationReport<OneSampleCode>),
 }
 
 impl Report {
@@ -518,6 +532,8 @@ impl Report {
 enum Done {
     Describe(Finished<Summary>),
     Ttest(Finished<IndependentT>),
+    OneSample(Finished<OneSampleT>),
+    Paired(Finished<PairedT>),
 }
 
 /* ------------------------------------------------------------------------ *
@@ -539,6 +555,14 @@ macro_rules! by_method {
             }
             $enum::Ttest($x) => {
                 type $m = IndependentT;
+                $body
+            }
+            $enum::OneSample($x) => {
+                type $m = OneSampleT;
+                $body
+            }
+            $enum::Paired($x) => {
+                type $m = PairedT;
                 $body
             }
         }
@@ -819,6 +843,210 @@ impl Method for IndependentT {
     }
 }
 
+/// `stats.analyze.one_sample_t`, through the `stats_onesample_*` commands
+/// (Research OS, Phase 8D-2a, decision 263).
+struct OneSampleT;
+
+impl Method for OneSampleT {
+    const KIND: RunKind = RunKind::OneSample;
+    type Params = OneSampleParams;
+    type Result = OneSampleResult;
+    type Code = OneSampleCode;
+    type Halt = stats_onesample::Halt<Stop>;
+
+    /// None: its state view carries no columns.
+    fn columns_total(_: &OperationSpec<OneSampleParams>) -> usize {
+        0
+    }
+
+    fn validate(
+        spec: &OperationSpec<OneSampleParams>,
+        dataset: &Dataset,
+    ) -> ValidationReport<OneSampleCode> {
+        // Through `stats.analyze.one_sample_t`'s façade: the registry first,
+        // then `stats_onesample::one_sample_validate`, unchanged.
+        stats_adapters::one_sample_validate(spec, crate::workspace::build(), dataset)
+    }
+
+    fn compute(
+        spec: &OperationSpec<OneSampleParams>,
+        build: Build,
+        dataset: &Dataset,
+        checkpoint: impl FnMut(usize) -> ControlFlow<Stop>,
+    ) -> Result<OneSampleResult, stats_onesample::Halt<Stop>> {
+        // Its one check point, before its arithmetic.
+        stats_adapters::one_sample_run(spec, build, dataset, checkpoint)
+    }
+
+    fn manifest(
+        spec: &OperationSpec<OneSampleParams>,
+        dataset: &Dataset,
+        result: &OneSampleResult,
+        elapsed: u64,
+    ) -> RunManifest<OneSampleCode> {
+        stats_onesample::one_sample_manifest(spec, dataset, result, elapsed, Platform::current())
+    }
+
+    /// The result's own limitations, as notes.
+    fn limitations(result: &OneSampleResult) -> Vec<Diagnostic<OneSampleCode>> {
+        result
+            .limitations
+            .iter()
+            .map(|c| Diagnostic::note(*c))
+            .collect()
+    }
+
+    /// Never: it counts no columns, and its stop has none.
+    fn columns_done(_: usize, _: &Outcome<Self>) -> Option<usize> {
+        None
+    }
+
+    fn halted(halt: stats_onesample::Halt<Stop>) -> Halted<OneSampleCode> {
+        match halt {
+            stats_onesample::Halt::Stopped { reason } => Halted::Stopped(reason),
+            stats_onesample::Halt::Refused(d) => Halted::Refused(d),
+        }
+    }
+
+    fn panicked() {
+        tracing::warn!("stats_desc: the one-sample t-test panicked");
+    }
+
+    fn outputs(held: &Held) -> Option<&Outputs<OneSampleResult, OneSampleCode>> {
+        if let Held::OneSample(o) = held {
+            Some(o)
+        } else {
+            None
+        }
+    }
+
+    fn outputs_mut(held: &mut Held) -> Option<&mut Outputs<OneSampleResult, OneSampleCode>> {
+        if let Held::OneSample(o) = held {
+            Some(o)
+        } else {
+            None
+        }
+    }
+
+    fn held(outputs: Outputs<OneSampleResult, OneSampleCode>) -> Held {
+        Held::OneSample(outputs)
+    }
+
+    fn job(spec: OperationSpec<OneSampleParams>) -> Job {
+        Job::OneSample(spec)
+    }
+
+    fn report(report: ValidationReport<OneSampleCode>) -> Report {
+        Report::OneSample(report)
+    }
+
+    fn done(finished: Finished<Self>) -> Done {
+        Done::OneSample(finished)
+    }
+}
+
+/// `stats.analyze.paired_t`, through the `stats_paired_*` commands (Research
+/// OS, Phase 8D-2a, decision 263).
+struct PairedT;
+
+impl Method for PairedT {
+    const KIND: RunKind = RunKind::Paired;
+    type Params = PairedParams;
+    type Result = PairedResult;
+    type Code = OneSampleCode;
+    type Halt = stats_onesample::Halt<Stop>;
+
+    /// None: its state view carries no columns.
+    fn columns_total(_: &OperationSpec<PairedParams>) -> usize {
+        0
+    }
+
+    fn validate(
+        spec: &OperationSpec<PairedParams>,
+        dataset: &Dataset,
+    ) -> ValidationReport<OneSampleCode> {
+        // Through `stats.analyze.paired_t`'s façade: the registry first, then
+        // `stats_onesample::paired_validate`, unchanged.
+        stats_adapters::paired_validate(spec, crate::workspace::build(), dataset)
+    }
+
+    fn compute(
+        spec: &OperationSpec<PairedParams>,
+        build: Build,
+        dataset: &Dataset,
+        checkpoint: impl FnMut(usize) -> ControlFlow<Stop>,
+    ) -> Result<PairedResult, stats_onesample::Halt<Stop>> {
+        // Its one check point, before its arithmetic.
+        stats_adapters::paired_run(spec, build, dataset, checkpoint)
+    }
+
+    fn manifest(
+        spec: &OperationSpec<PairedParams>,
+        dataset: &Dataset,
+        result: &PairedResult,
+        elapsed: u64,
+    ) -> RunManifest<OneSampleCode> {
+        stats_onesample::paired_manifest(spec, dataset, result, elapsed, Platform::current())
+    }
+
+    /// The result's own limitations, as notes.
+    fn limitations(result: &PairedResult) -> Vec<Diagnostic<OneSampleCode>> {
+        result
+            .limitations
+            .iter()
+            .map(|c| Diagnostic::note(*c))
+            .collect()
+    }
+
+    /// Never: it counts no columns, and its stop has none.
+    fn columns_done(_: usize, _: &Outcome<Self>) -> Option<usize> {
+        None
+    }
+
+    fn halted(halt: stats_onesample::Halt<Stop>) -> Halted<OneSampleCode> {
+        match halt {
+            stats_onesample::Halt::Stopped { reason } => Halted::Stopped(reason),
+            stats_onesample::Halt::Refused(d) => Halted::Refused(d),
+        }
+    }
+
+    fn panicked() {
+        tracing::warn!("stats_desc: the paired t-test panicked");
+    }
+
+    fn outputs(held: &Held) -> Option<&Outputs<PairedResult, OneSampleCode>> {
+        if let Held::Paired(o) = held {
+            Some(o)
+        } else {
+            None
+        }
+    }
+
+    fn outputs_mut(held: &mut Held) -> Option<&mut Outputs<PairedResult, OneSampleCode>> {
+        if let Held::Paired(o) = held {
+            Some(o)
+        } else {
+            None
+        }
+    }
+
+    fn held(outputs: Outputs<PairedResult, OneSampleCode>) -> Held {
+        Held::Paired(outputs)
+    }
+
+    fn job(spec: OperationSpec<PairedParams>) -> Job {
+        Job::Paired(spec)
+    }
+
+    fn report(report: ValidationReport<OneSampleCode>) -> Report {
+        Report::Paired(report)
+    }
+
+    fn done(finished: Finished<Self>) -> Done {
+        Done::Paired(finished)
+    }
+}
+
 /// An end hook that is due, with what it is called with: called only once
 /// the records' lock is released (Phase 5C-1a).
 struct Due {
@@ -993,6 +1221,46 @@ impl Runs {
         end: EndHook,
     ) -> Result<RunId, NotStarted> {
         self.begin::<IndependentT>(slot, spec, Some(end))
+    }
+
+    /// [`Runs::start`] for a one-sample t-test (Research OS, Phase 8D-2a,
+    /// decision 263).
+    pub fn start_one_sample(
+        self: &Arc<Self>,
+        slot: Arc<Slot>,
+        spec: OperationSpec<OneSampleParams>,
+    ) -> Result<RunId, NotStarted> {
+        self.begin::<OneSampleT>(slot, spec, None)
+    }
+
+    /// [`Runs::start_one_sample`], with an end hook: a rerun.
+    pub fn start_one_sample_then(
+        self: &Arc<Self>,
+        slot: Arc<Slot>,
+        spec: OperationSpec<OneSampleParams>,
+        end: EndHook,
+    ) -> Result<RunId, NotStarted> {
+        self.begin::<OneSampleT>(slot, spec, Some(end))
+    }
+
+    /// [`Runs::start`] for a paired t-test (Research OS, Phase 8D-2a,
+    /// decision 263).
+    pub fn start_paired(
+        self: &Arc<Self>,
+        slot: Arc<Slot>,
+        spec: OperationSpec<PairedParams>,
+    ) -> Result<RunId, NotStarted> {
+        self.begin::<PairedT>(slot, spec, None)
+    }
+
+    /// [`Runs::start_paired`], with an end hook: a rerun.
+    pub fn start_paired_then(
+        self: &Arc<Self>,
+        slot: Arc<Slot>,
+        spec: OperationSpec<PairedParams>,
+        end: EndHook,
+    ) -> Result<RunId, NotStarted> {
+        self.begin::<PairedT>(slot, spec, Some(end))
     }
 
     /// Every start, of any method (Research OS, Phase 8C): the record, then
@@ -1345,6 +1613,16 @@ impl Runs {
         self.snapshot_as::<IndependentT>(run)
     }
 
+    /// A one-sample t-test's run; `run.wrong_kind` for another kind's.
+    pub fn one_sample_snapshot(&self, run: RunId) -> Result<RunSnapshot<OneSampleCode>, RunCode> {
+        self.snapshot_as::<OneSampleT>(run)
+    }
+
+    /// A paired t-test's run; `run.wrong_kind` for another kind's.
+    pub fn paired_snapshot(&self, run: RunId) -> Result<RunSnapshot<OneSampleCode>, RunCode> {
+        self.snapshot_as::<PairedT>(run)
+    }
+
     /// Asks the run to stop. Queued: cancelled now. Running: the flag is set,
     /// and the next check point, or the worker's last step if no check point
     /// is left, ends it `Cancelled`. Finished: unchanged.
@@ -1386,6 +1664,16 @@ impl Runs {
         self.cancel_as::<IndependentT>(run)
     }
 
+    /// Cancels a one-sample t-test's run; `run.wrong_kind` for another kind's.
+    pub fn one_sample_cancel(&self, run: RunId) -> Result<RunSnapshot<OneSampleCode>, RunCode> {
+        self.cancel_as::<OneSampleT>(run)
+    }
+
+    /// Cancels a paired t-test's run; `run.wrong_kind` for another kind's.
+    pub fn paired_cancel(&self, run: RunId) -> Result<RunSnapshot<OneSampleCode>, RunCode> {
+        self.cancel_as::<PairedT>(run)
+    }
+
     /// The result of a run of `M`'s kind that succeeded. Otherwise the closed
     /// reason: `not_finished`, `cancelled`, `timed_out`, `no_result`, or
     /// `wrong_kind` for another kind's run.
@@ -1412,6 +1700,24 @@ impl Runs {
         run: RunId,
     ) -> Result<ResultBundle<TTestResult, TTestCode>, RunCode> {
         self.result_as::<IndependentT>(run)
+    }
+
+    /// [`Runs::result`] for a one-sample t-test; `wrong_kind` for another
+    /// kind's run.
+    pub fn one_sample_result(
+        &self,
+        run: RunId,
+    ) -> Result<ResultBundle<OneSampleResult, OneSampleCode>, RunCode> {
+        self.result_as::<OneSampleT>(run)
+    }
+
+    /// [`Runs::result`] for a paired t-test; `wrong_kind` for another kind's
+    /// run.
+    pub fn paired_result(
+        &self,
+        run: RunId,
+    ) -> Result<ResultBundle<PairedResult, OneSampleCode>, RunCode> {
+        self.result_as::<PairedT>(run)
     }
 
     /// A copy of `run` for a project Save (Phase 5B-2), of either kind:
@@ -2103,5 +2409,269 @@ mod tests {
         assert_eq!(s.record.state, RunState::Cancelled);
         assert_eq!((s.columns_done, s.columns_total), (0, 0));
         assert_eq!(runs.ttest_result(run).map(|_| ()), Err(RunCode::Cancelled));
+    }
+
+    /* ---- Phase 8D-2a: the one-sample and paired t-tests (decision 263) ---- */
+
+    use gaply_core::stats_onesample::{self, OneSampleParams, PairedParams};
+
+    /// Two numeric columns, `a` and `b`, whose differences vary.
+    fn two_columns() -> Arc<Slot> {
+        let rows = [
+            ("1", "2"),
+            ("2", "5"),
+            ("4", "5"),
+            ("3", "7"),
+            ("5", "6"),
+            ("8", "9"),
+        ];
+        let dataset = build_dataset(
+            RawTable::from_rows(
+                vec!["a".into(), "b".into()],
+                rows.iter()
+                    .map(|(a, b)| vec![a.to_string(), b.to_string()])
+                    .collect(),
+            ),
+            DataFingerprint::of_bytes(b"synthetic two columns", "unit", TableRef::FirstTable),
+        )
+        .expect("dataset");
+        Arc::new(Slot {
+            id: 2,
+            display_name: "synthetic pairs".into(),
+            dataset,
+            source: None,
+        })
+    }
+
+    /// The one-sample t-test of `a` against 2.5.
+    fn one_sample_of(slot: &Slot) -> OperationSpec<OneSampleParams> {
+        stats_onesample::one_sample_spec(
+            OperationId(3),
+            slot.dataset(),
+            OneSampleParams {
+                outcome: Alias(ColumnAlias(1)),
+                test_value: Some(2.5),
+                missing_codes: vec![],
+            },
+        )
+    }
+
+    /// The paired t-test of `a` and `b`.
+    fn paired_of(slot: &Slot) -> OperationSpec<PairedParams> {
+        stats_onesample::paired_spec(
+            OperationId(4),
+            slot.dataset(),
+            PairedParams {
+                first: Alias(ColumnAlias(1)),
+                second: Alias(ColumnAlias(2)),
+                missing_codes: vec![],
+            },
+        )
+    }
+
+    /// Each new kind checks once, at 0, counts no columns and works on the
+    /// thread named `stats-desc-run`, as the independent t-test does.
+    #[test]
+    fn the_one_sample_and_paired_kinds_reach_their_one_check_point_on_the_run_thread() {
+        let slot = two_columns();
+        let thread = Some("stats-desc-run".to_string());
+        for paired in [false, true] {
+            let seen: Seen = Arc::default();
+            let runs = watching(&seen);
+            let run = if paired {
+                runs.start_paired(Arc::clone(&slot), paired_of(&slot))
+            } else {
+                runs.start_one_sample(Arc::clone(&slot), one_sample_of(&slot))
+            }
+            .unwrap();
+            let snapshot = |r| {
+                if paired {
+                    runs.paired_snapshot(r)
+                } else {
+                    runs.one_sample_snapshot(r)
+                }
+            };
+            wait_for("the run ended", || {
+                snapshot(run).unwrap().record.state.is_terminal()
+            });
+            let s = snapshot(run).unwrap();
+            assert_eq!(s.record.state, RunState::Succeeded, "paired {paired}");
+            assert_eq!((s.columns_done, s.columns_total), (0, 0), "paired {paired}");
+            let points: Vec<_> = seen.lock().unwrap().iter().map(|(p, _)| *p).collect();
+            assert_eq!(
+                points,
+                [Point::BeforeStart, Point::Column(0), Point::Passed(0)],
+                "paired {paired}"
+            );
+            assert!(seen.lock().unwrap().iter().all(|(_, n)| *n == thread));
+        }
+    }
+
+    /// A cancel that lands after the one check point wins, for each new
+    /// kind, and leaves no column count and no result.
+    #[test]
+    fn a_one_sample_or_paired_cancel_after_its_check_point_wins_and_counts_no_columns() {
+        for paired in [false, true] {
+            let (reached, at_passed) = mpsc::channel::<()>();
+            let (go, gate) = mpsc::channel::<()>();
+            let gate = Mutex::new(gate);
+            let hook: CheckpointHook = Arc::new(move |_run, p| {
+                if p == Point::Passed(0) {
+                    reached.send(()).unwrap();
+                    let _ = gate.lock().unwrap().recv();
+                }
+            });
+            let runs = Arc::new(Runs::with_hooks(
+                Arc::new(SinceStart(Instant::now())),
+                Some(hook),
+                RUN_CEILING_MS,
+            ));
+            let slot = two_columns();
+            let run = if paired {
+                runs.start_paired(Arc::clone(&slot), paired_of(&slot))
+            } else {
+                runs.start_one_sample(Arc::clone(&slot), one_sample_of(&slot))
+            }
+            .unwrap();
+            at_passed
+                .recv_timeout(Duration::from_secs(10))
+                .expect("the run reached its check point");
+            if paired {
+                runs.paired_cancel(run).unwrap();
+            } else {
+                runs.one_sample_cancel(run).unwrap();
+            }
+            go.send(()).unwrap();
+            let snapshot = |r| {
+                if paired {
+                    runs.paired_snapshot(r)
+                } else {
+                    runs.one_sample_snapshot(r)
+                }
+            };
+            wait_for("the run ended", || {
+                snapshot(run).unwrap().record.state.is_terminal()
+            });
+            let s = snapshot(run).unwrap();
+            assert_eq!(s.record.state, RunState::Cancelled, "paired {paired}");
+            assert_eq!((s.columns_done, s.columns_total), (0, 0), "paired {paired}");
+            let result = if paired {
+                runs.paired_result(run).map(|_| ())
+            } else {
+                runs.one_sample_result(run).map(|_| ())
+            };
+            assert_eq!(result, Err(RunCode::Cancelled), "paired {paired}");
+        }
+    }
+
+    /// Every kind's snapshot, result and cancel, by the kind's index: 0 the
+    /// summary, 1 the t-test, 2 the one-sample t-test, 3 the paired t-test.
+    /// Each answers `Ok(())` or the run manager's code.
+    fn read_as(runs: &Runs, kind: usize, run: RunId) -> [Result<(), RunCode>; 3] {
+        match kind {
+            0 => [
+                runs.snapshot(run).map(drop),
+                runs.result(run).map(drop),
+                runs.cancel(run).map(drop),
+            ],
+            1 => [
+                runs.ttest_snapshot(run).map(drop),
+                runs.ttest_result(run).map(drop),
+                runs.ttest_cancel(run).map(drop),
+            ],
+            2 => [
+                runs.one_sample_snapshot(run).map(drop),
+                runs.one_sample_result(run).map(drop),
+                runs.one_sample_cancel(run).map(drop),
+            ],
+            _ => [
+                runs.paired_snapshot(run).map(drop),
+                runs.paired_result(run).map(drop),
+                runs.paired_cancel(run).map(drop),
+            ],
+        }
+    }
+
+    /// `run.wrong_kind` between every pair of the four kinds, both ways, for
+    /// status, result and cancel; each kind reads its own run.
+    #[test]
+    fn every_kind_refuses_every_other_kinds_run_as_wrong_kind() {
+        let runs = Arc::new(Runs::default());
+        let groups = two_groups();
+        let pairs = two_columns();
+        let mut ids = Vec::new();
+        for kind in 0..4 {
+            let run = match kind {
+                0 => runs.start(Arc::clone(&groups), summary_of_both(&groups)),
+                1 => runs.start_ttest(Arc::clone(&groups), ttest_of(&groups)),
+                2 => runs.start_one_sample(Arc::clone(&pairs), one_sample_of(&pairs)),
+                _ => runs.start_paired(Arc::clone(&pairs), paired_of(&pairs)),
+            }
+            .unwrap();
+            wait_for("the run ended", || {
+                runs.copy_for_save(run).unwrap().state.is_terminal()
+            });
+            assert_eq!(
+                runs.copy_for_save(run).unwrap().state,
+                RunState::Succeeded,
+                "kind {kind}"
+            );
+            ids.push(run);
+        }
+        for (owner, run) in ids.iter().enumerate() {
+            for reader in 0..4 {
+                let got = read_as(&runs, reader, *run);
+                if reader == owner {
+                    assert_eq!(
+                        got,
+                        [Ok(()), Ok(()), Ok(())],
+                        "kind {owner} reads its own run"
+                    );
+                } else {
+                    assert_eq!(
+                        got,
+                        [Err(RunCode::WrongKind); 3],
+                        "kind {reader} reads kind {owner}'s run"
+                    );
+                }
+            }
+        }
+    }
+
+    /// One foreground run across all four kinds: while a run of any kind is
+    /// parked before its start, a start of every kind is refused as busy.
+    #[test]
+    fn one_run_at_a_time_across_all_four_kinds() {
+        let groups = two_groups();
+        let pairs = two_columns();
+        let start = |runs: &Arc<Runs>, kind: usize| match kind {
+            0 => runs.start(Arc::clone(&groups), summary_of_both(&groups)),
+            1 => runs.start_ttest(Arc::clone(&groups), ttest_of(&groups)),
+            2 => runs.start_one_sample(Arc::clone(&pairs), one_sample_of(&pairs)),
+            _ => runs.start_paired(Arc::clone(&pairs), paired_of(&pairs)),
+        };
+        for parked in 0..4 {
+            let (runs, at_start, go) = parking();
+            let run = start(&runs, parked).unwrap();
+            at_start
+                .recv_timeout(Duration::from_secs(10))
+                .expect("the run reached its start");
+            for other in 0..4 {
+                assert_eq!(
+                    start(&runs, other).map(|_| ()),
+                    Err(NotStarted::Busy),
+                    "kind {other} while kind {parked} is parked"
+                );
+            }
+            go.send(()).unwrap();
+            wait_for("the parked run ended", || {
+                runs.copy_for_save(run).unwrap().state.is_terminal()
+            });
+            assert_eq!(
+                runs.copy_for_save(run).unwrap().state,
+                RunState::Succeeded,
+                "kind {parked}"
+            );
+        }
     }
 }

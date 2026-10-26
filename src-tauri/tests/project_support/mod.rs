@@ -19,12 +19,14 @@ use sha2::{Digest, Sha256};
 use app_lib::project_commands::ProjectSession;
 use app_lib::runs::{CheckpointHook, Clock, Point, Runs};
 use app_lib::stats_desc_commands as desc;
+use app_lib::stats_onesample_commands as onesample;
 use app_lib::stats_ttest_commands as ttest;
 use app_lib::workspace::{readiness, RunsFactory, StatisticsEngine, WorkspaceSession};
 use gaply_core::contracts::{OperationId, RunId, RunState, WorkspaceId};
 use gaply_core::research_project::Caps;
 use gaply_core::stats_desc::{self, Alias, DescribeParams};
 use gaply_core::stats_l1::dataset::ColumnAlias;
+use gaply_core::stats_onesample::{self, OneSampleParams, PairedParams};
 use gaply_core::stats_ttest::{self, TTestParams, Variant};
 use gaply_core::GaplyError;
 
@@ -183,6 +185,70 @@ impl World {
             .run_id;
         self.wait(id);
         id
+    }
+
+    /// A one-sample t-test of column `column` of `slot` against
+    /// `test_value`, run to its end (Research OS, Phase 8D-2a).
+    pub fn one_sample(&self, slot: u64, column: u32, test_value: f64) -> u64 {
+        let e = self.engine();
+        let held = e.datasets.get(slot).expect("the slot");
+        let spec = stats_onesample::one_sample_spec(
+            OperationId(3),
+            held.dataset(),
+            OneSampleParams {
+                outcome: Alias(ColumnAlias(column)),
+                test_value: Some(test_value),
+                missing_codes: Vec::new(),
+            },
+        );
+        let id = onesample::run_one_sample(&e.runs, &e.datasets, slot, spec)
+            .expect("the run starts")
+            .run_id;
+        self.wait_new_kind(id);
+        id
+    }
+
+    /// A paired t-test of columns `first` and `second` of `slot`, run to its
+    /// end (Research OS, Phase 8D-2a).
+    pub fn paired(&self, slot: u64, first: u32, second: u32) -> u64 {
+        let e = self.engine();
+        let held = e.datasets.get(slot).expect("the slot");
+        let spec = stats_onesample::paired_spec(
+            OperationId(4),
+            held.dataset(),
+            PairedParams {
+                first: Alias(ColumnAlias(first)),
+                second: Alias(ColumnAlias(second)),
+                missing_codes: Vec::new(),
+            },
+        );
+        let id = onesample::run_paired(&e.runs, &e.datasets, slot, spec)
+            .expect("the run starts")
+            .run_id;
+        self.wait_new_kind(id);
+        id
+    }
+
+    /// Waits until a one-sample or paired run has ended; its state.
+    pub fn wait_new_kind(&self, run: u64) -> RunState {
+        let e = self.engine();
+        let start = Instant::now();
+        loop {
+            let state = e
+                .runs
+                .one_sample_snapshot(RunId(run))
+                .map(|s| s.record.state)
+                .or_else(|_| e.runs.paired_snapshot(RunId(run)).map(|s| s.record.state))
+                .expect("the run is held");
+            if state.is_terminal() {
+                return state;
+            }
+            assert!(
+                start.elapsed() < Duration::from_secs(20),
+                "the run never ended"
+            );
+            std::thread::sleep(Duration::from_millis(2));
+        }
     }
 
     /// Waits until the run has ended; its state.

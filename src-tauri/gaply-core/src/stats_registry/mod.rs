@@ -20,8 +20,9 @@
 //!   `stats_ttest`'s id and version.
 //! * `stats.analyze.one_sample_t` and `stats.analyze.paired_t`: the one-sample
 //!   and paired t-tests on the user's own data (Phase 8D-1, decision 253),
-//!   with `stats_onesample`'s ids and versions. Planned until their screens
-//!   exist (8D-2), so every façade refuses them in every build.
+//!   with `stats_onesample`'s ids and versions. Beta since Phase 8D-2a
+//!   (decision 265): their commands, runs and projects exist, and their
+//!   screens are 8D-2b's.
 //!
 //! `run_stats_preview` and `run_stats_verify` are the legacy lane, not
 //! capabilities: they are not here.
@@ -141,9 +142,9 @@ const LIFECYCLES: &[(&str, Lifecycle)] = &[
     (CHECK_ID, Lifecycle::Stable),
     (CAPABILITY_ID, Lifecycle::Beta),
     (TTEST_ID, Lifecycle::Beta),
-    // Planned until 8D-2's screens exist (decision 253).
-    (ONE_SAMPLE_ID, Lifecycle::Planned),
-    (PAIRED_ID, Lifecycle::Planned),
+    // Beta since 8D-2a (decision 265).
+    (ONE_SAMPLE_ID, Lifecycle::Beta),
+    (PAIRED_ID, Lifecycle::Beta),
 ];
 /// A Level 1 method `L1Registry` implements.
 const VERIFY_IMPLEMENTED: Lifecycle = Lifecycle::Beta;
@@ -648,11 +649,11 @@ mod tests {
         assert_eq!(checked, 2 * 12, "twelve capabilities, two builds");
     }
 
-    /// Phase 8D-1 (decision 253): the one-sample and paired t-tests are
-    /// listed, Planned, refused as not runnable in both builds, each with its
-    /// own title, description and limitations.
+    /// Phase 8D-1 (decision 253), made Beta in 8D-2a (decision 265): the
+    /// one-sample and paired t-tests are listed, Beta, runnable in both
+    /// builds, each with its own title, description and limitations.
     #[test]
-    fn the_one_sample_and_paired_t_tests_are_listed_as_planned_and_never_run() {
+    fn the_one_sample_and_paired_t_tests_are_listed_as_beta_and_runnable() {
         let t = Registry::statistics();
         for (word, kind, title, description, normality) in [
             (
@@ -674,7 +675,7 @@ mod tests {
             let e = t.lookup(&id).expect("listed");
             let d = &e.descriptor;
             assert_eq!(e.kind, kind, "{word}");
-            assert_eq!((d.version, d.lifecycle), (1, Lifecycle::Planned), "{word}");
+            assert_eq!((d.version, d.lifecycle), (1, Lifecycle::Beta), "{word}");
             assert_eq!(
                 (d.title_code, d.description_code),
                 (title, description),
@@ -691,10 +692,8 @@ mod tests {
                 "{word}: no levels limitation, since neither reads levels"
             );
             for build in [Build::Standard, Build::Devtools] {
-                let r = t
-                    .require_runnable(&id, 1, build)
-                    .expect_err("Planned never runs");
-                assert_eq!(r.code, CapabilityCode::NotRunnable, "{word}");
+                t.require_runnable(&id, 1, build)
+                    .unwrap_or_else(|r| panic!("{word}: Beta runs in {build:?}: {r:?}"));
             }
         }
         let ids: Vec<String> = t.ids().iter().map(|i| i.as_str().to_string()).collect();

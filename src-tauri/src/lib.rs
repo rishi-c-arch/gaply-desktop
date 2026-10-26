@@ -43,6 +43,7 @@ pub mod stats_desc_commands;
 pub mod stats_l1_commands;
 pub mod stats_l1_ingest;
 pub mod stats_legacy;
+pub mod stats_onesample_commands;
 pub mod stats_reproduction;
 pub mod stats_ttest_commands;
 // Research OS Phase 5D-1a: the Stored data section's command; read only.
@@ -374,6 +375,20 @@ pub fn run() {
             stats_ttest_commands::stats_ttest_export,
             stats_ttest_commands::stats_ttest_group_levels,
             stats_ttest_commands::capability_list,
+            // Research OS, Phase 8D-2a (decision 263): the one-sample and
+            // paired t-tests, with no screen of their own until 8D-2b.
+            stats_onesample_commands::stats_onesample_validate,
+            stats_onesample_commands::stats_onesample_run,
+            stats_onesample_commands::stats_onesample_status,
+            stats_onesample_commands::stats_onesample_result,
+            stats_onesample_commands::stats_onesample_cancel,
+            stats_onesample_commands::stats_onesample_export,
+            stats_onesample_commands::stats_paired_validate,
+            stats_onesample_commands::stats_paired_run,
+            stats_onesample_commands::stats_paired_status,
+            stats_onesample_commands::stats_paired_result,
+            stats_onesample_commands::stats_paired_cancel,
+            stats_onesample_commands::stats_paired_export,
             // Research OS, Phase 3: the window's one active workspace. Only
             // `workspace_activate` activates one.
             workspace::workspace_list,

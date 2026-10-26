@@ -52,6 +52,10 @@ const SCANNED: &[&str] = &[
     "gaply-core/src/stats_ttest",
     // Phase 5B-2: the project commands write nothing themselves.
     "src/project_commands.rs",
+    // Phase 8D-2a: the one-sample and paired t-tests' commands and their
+    // operations.
+    "src/stats_onesample_commands.rs",
+    "gaply-core/src/stats_onesample",
 ];
 
 /// The one Research OS module allowed to write (Phase 5B-1, ADR-009): the

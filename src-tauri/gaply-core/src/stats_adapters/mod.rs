@@ -30,8 +30,8 @@
 //!   (`stats.analyze.one_sample_t`), [`paired_validate`] and [`paired_run`]
 //!   (`stats.analyze.paired_t`), Phase 8D-1: `stats_onesample`'s functions,
 //!   the same way, a registry refusal worded `stats.onesample.unknown_capability`
-//!   or `stats.onesample.capability_version_mismatch`. Both are Planned in
-//!   8D-1, so the real registry refuses them in every build.
+//!   or `stats.onesample.capability_version_mismatch`. Planned in 8D-1, both
+//!   are Beta since 8D-2a (decision 265), so the real registry admits them.
 //!
 //! The Level 0 and Level 1 specs carry no parameters (`()`) and no
 //! `InputRef`: their inputs are the manuscript's extraction and Level 1's
@@ -753,9 +753,9 @@ mod ttest_facade_tests {
     }
 }
 
-/// The one-sample and paired façades (Phase 8D-1): the real registry refuses
-/// both in both builds, since they are Planned; with a test-only table where
-/// they are Beta, each refuses an id of another façade, a wrong version, a
+/// The one-sample and paired façades (Phase 8D-1): the real registry admits
+/// both in both builds, since they are Beta (8D-2a, decision 265); with a
+/// test-only table where they are Beta, each refuses an id of another façade, a wrong version, a
 /// Planned table and a confirmation, and runs the real spec exactly as
 /// `stats_onesample` does.
 #[cfg(test)]
@@ -836,29 +836,27 @@ mod onesample_facade_tests {
     }
 
     #[test]
-    fn the_real_registry_refuses_both_in_both_builds_because_they_are_planned() {
+    fn the_real_registry_admits_both_in_both_builds_because_they_are_beta() {
         let d = data();
         let (o, p) = (one(&d, ONE_SAMPLE_ID, 1), paired(&d, PAIRED_ID, 1));
         for build in [Build::Standard, Build::Devtools] {
             for r in [one_sample_admit(&o, build), paired_admit(&p, build)] {
-                let r = r.expect_err("Planned");
-                assert_eq!(r.code, CapabilityCode::NotRunnable);
-                assert_eq!(
-                    r.params.get(&ParamKey::Lifecycle),
-                    Some(&ParamValue::Lifecycle(Lifecycle::Planned))
-                );
+                r.unwrap_or_else(|r| panic!("Beta is admitted in {build:?}: {r:?}"));
             }
+            assert!(one_sample_validate(&o, build, &d).may_run(), "{build:?}");
+            assert!(paired_validate(&p, build, &d).may_run(), "{build:?}");
             assert_eq!(
-                codes(&one_sample_validate(&o, build, &d)),
-                [OneSampleCode::UnknownCapability]
+                one_sample_run(&o, build, &d, go).ok(),
+                crate::stats_onesample::one_sample_compute(&d, &o.parameters).ok(),
+                "{build:?}: the module's own result"
             );
             assert_eq!(
-                codes(&paired_validate(&p, build, &d)),
-                [OneSampleCode::UnknownCapability]
+                paired_run(&p, build, &d, go).ok(),
+                crate::stats_onesample::paired_compute(&d, &p.parameters).ok(),
+                "{build:?}: the module's own result"
             );
-            assert!(!one_sample_validate(&o, build, &d).may_run());
-            assert_eq!(one_sample_run(&o, build, &d, go).unwrap_err(), unknown());
-            assert_eq!(paired_run(&p, build, &d, go).unwrap_err(), unknown());
+            assert!(one_sample_run(&o, build, &d, go).is_ok(), "{build:?}");
+            assert!(paired_run(&p, build, &d, go).is_ok(), "{build:?}");
         }
     }
 
@@ -906,9 +904,12 @@ mod onesample_facade_tests {
         );
         let v = paired_validate_in(&beta(), &paired(&d, PAIRED_ID, 2), b, &d);
         assert_eq!(codes(&v), [OneSampleCode::CapabilityVersionMismatch]);
-        // A Planned table: the real one.
+        // A Planned table: the real one, with both set back to Planned (they
+        // are Beta since 8D-2a, decision 265).
         let (good_one, good_paired) = (one(&d, ONE_SAMPLE_ID, 1), paired(&d, PAIRED_ID, 1));
-        let planned = Registry::statistics();
+        let planned = Registry::statistics()
+            .with_lifecycle(ONE_SAMPLE_ID, Lifecycle::Planned)
+            .with_lifecycle(PAIRED_ID, Lifecycle::Planned);
         assert_eq!(
             codes(&one_sample_validate_in(&planned, &good_one, b, &d)),
             [OneSampleCode::UnknownCapability]

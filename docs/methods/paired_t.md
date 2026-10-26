@@ -1,7 +1,8 @@
 # The paired-samples t-test, as an analysis
 
-Capability `stats.analyze.paired_t`, version 1, **Planned**, in the Statistics
-workspace (Research OS, Phase 8D-1; decisions 252 to 257 of 26 Oct 2026). This
+Capability `stats.analyze.paired_t`, version 1, **Beta**, in the Statistics
+workspace (Research OS, Phase 8D-1; decisions 252 to 257 of 26 Oct 2026; Beta
+since Phase 8D-2a, decisions 262 to 265). This
 page is the capability's `documentation_id` (`methods/paired_t`).
 
 It computes the paired t-test on two numeric columns of the user's own data,
@@ -12,9 +13,12 @@ differences against 0, and Gaply computes it so**: `stats_verify::t_test_paired`
 forms the differences and calls the one arithmetic the one-sample test uses
 (`methods/one_sample_t`), with a test value of 0. The pure core is
 `gaply_core::stats_onesample`; its façades are `stats_adapters::paired_admit`,
-`paired_validate` and `paired_run`. In 8D-1 it is Planned: every façade refuses
-it in every build, and the Statistics home lists it under "Planned" with no
-card. The app side is 8D-2.
+`paired_validate` and `paired_run`. Planned in 8D-1, it is Beta since 8D-2a:
+the run manager runs it (`RunKind::Paired`), the `stats_paired_*` commands
+validate, run, report, cancel and export it, and a project saves, reruns and
+exports it, its columns named in the report by position and the roles `first`
+and `second`. Its screen is 8D-2b's; until then the Statistics home shows it as
+a card that says it has no screen of its own here yet.
 
 ## 1. Inputs and the spec
 
@@ -136,7 +140,7 @@ Gaply's threshold computes with the same bits as before
 (`tests/essentially_constant.rs`). The exact check comes first: all differences
 equal is still `differences_constant`. The rule only refuses: every result that
 computed before computes with the same bits
-(`tests/essentially_constant_bytes_pin.rs`). The screen's sentence, for 8D-2:
+(`tests/essentially_constant_bytes_pin.rs`). The screen's sentence, for 8D-2b:
 "The differences vary so little, compared with the size of the values, that
 the standard error is lost in rounding, so t is not computed. This happens when
 every pair differs by the same amount, such as 0.1, which a computer stores
@@ -190,6 +194,18 @@ The wording is neutral: no "significant", no stars, no verdict.
 
 ## 9. The R reference
 
+**R's reader and Gaply's can read one CSV differently (decision 261).** R
+4.6.1's `read.csv` reads some 17-digit cells as the neighbouring double:
+measured in 8D-1b, it reads 1000.0000000000001 as 1000, and 3.8180000000000005
+and 999999.60999999999 one unit in the last place off. Gaply reads every cell
+as the double its text names (`str::parse::<f64>`). On such a file R and Gaply
+compute on different numbers, so their results can differ in the last digits,
+and one of them can call data "essentially constant" while the other does not
+(`tests/fixtures/essentially_constant/r_outcomes.csv` names four such cases).
+This is a property of R's reader, not of either test. Every R comparison here
+checks the bits R read against Gaply's first, so no golden case rests on a
+misread cell. No code changes for it.
+
 The one-sample test's script (`methods/one_sample_t` §9), with
 `t.test(a, b, paired = TRUE, conf.level = 0.95)` in the (x, y) form, never a
 formula (R 4.4 and later refuse `paired = TRUE` with a formula), and
@@ -212,7 +228,7 @@ observations").
 | Formula/method and variant documented | this page §2, §4; `stats_onesample/mod.rs` header | done |
 | Golden fixtures and edge cases pass | `onesample_r_golden` (15 paired cases, 4 refused), `onesample_validate` | done |
 | Missing values, ties, weights, precision and sample size handled according to the method | §5, the ties and missing cases, §8, §6, `too_few_pairs`, the df boundary | done; weights not supported, stated |
-| Diagnostic meanings and limitations documented | §5, §8; `OneSampleCode` doc comments; the title, description and normality sentences in `capabilityWording.ts` | partly: the screen's code sentences are 8D-2 |
+| Diagnostic meanings and limitations documented | §5, §8; `OneSampleCode` doc comments; the title, description and normality sentences in `capabilityWording.ts` | partly: the screen's code sentences are 8D-2b |
 | Independent reference comparison completed | R `t.test(paired = TRUE)` and effectsize, §6, §9 | done |
-| Unsupported designs return explicit reasons | §5 (`same_column`, `too_few_pairs`, `differences_constant`, …), §8; at the command boundary and on the screen | core done; commands and screen 8D-2 |
-| Result manifest and export verified | `onesample_validate` (CSV round trip with the column rows, sentinels, rows add up, ten runs byte-identical) | core done; app side 8D-2 |
+| Unsupported designs return explicit reasons | §5 (`same_column`, `too_few_pairs`, `differences_constant`, …), §8; at the command boundary (`stats_onesample_commands::each_refusal_has_its_exact_code`, `differences_essentially_constant` included) and on the screen | core and commands done (8D-2a); screen 8D-2b |
+| Result manifest and export verified | `onesample_validate` (CSV round trip with the column rows, sentinels, rows add up, ten runs byte-identical); through IPC (`stats_onesample_commands`), the privacy matrix (`stats_onesample_privacy_matrix`), a project's save, rerun and export (`project_onesample`, the export-input pin); the screen and the save dialog | core and app side done (8D-2a); screen and save dialog 8D-2b |

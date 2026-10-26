@@ -26,13 +26,14 @@ use gaply_core::stats_l1::compute::L1Registry;
 use gaply_core::stats_registry::{self, Kind, Registry};
 
 /// The sorted list, one `id version lifecycle` line each, measured 26 Oct
-/// 2026 (Phase 8D-1; Phase 4B-1's ten plus `stats.analyze.one_sample_t` and
-/// `stats.analyze.paired_t`, both Planned, decision 253):
+/// 2026 (Phase 8D-2a; Phase 4B-1's ten plus `stats.analyze.one_sample_t` and
+/// `stats.analyze.paired_t`, Planned in 8D-1 (decision 253) and Beta since
+/// 8D-2a (decision 265)):
 ///
 /// ```text
 /// stats.analyze.independent_t 1 beta
-/// stats.analyze.one_sample_t 1 planned
-/// stats.analyze.paired_t 1 planned
+/// stats.analyze.one_sample_t 1 beta
+/// stats.analyze.paired_t 1 beta
 /// stats.check 1 stable
 /// stats.describe 1 beta
 /// stats.verify.chi_square_independence 1 beta
@@ -43,7 +44,7 @@ use gaply_core::stats_registry::{self, Kind, Registry};
 /// stats.verify.pearson 1 beta
 /// stats.verify.spearman 1 beta
 /// ```
-const PIN: &str = "468877907184b8b5104dee1ab522629350a40e09dd15dd81ac426b27c94e0157";
+const PIN: &str = "48e6e1dfbda772f782c37b6a0d5b122d448147206fd2648b398444e7c97c4c15";
 
 fn listing() -> String {
     let mut lines: Vec<String> = Registry::statistics()

@@ -1,0 +1,72 @@
+{
+  "runId": 5,
+  "status": "succeeded",
+  "result": {
+    "n": 9,
+    "mean": 63.125,
+    "sd": 29.25,
+    "testValue": 50.5,
+    "t": 1.5,
+    "df": 8.0,
+    "p": 0.125,
+    "meanDifference": 12.625,
+    "standardError": 9.75,
+    "confidenceLevel": 0.95,
+    "ciLower": -9.875,
+    "ciUpper": 35.125,
+    "cohensD": 0.4375,
+    "exclusions": [
+      {
+        "code": "stats.onesample.missing_value",
+        "count": 1,
+        "params": {
+          "column": 1
+        }
+      }
+    ],
+    "limitations": [
+      "stats.onesample.values_normality_not_assessed",
+      "stats.onesample.cohens_d_has_no_interval"
+    ]
+  },
+  "diagnostics": [
+    {
+      "code": "stats.onesample.suspect_missing_code",
+      "params": {
+        "column": 1,
+        "count": 2,
+        "value": 99
+      },
+      "severity": "warning"
+    }
+  ],
+  "manifest": {
+    "schemaVersion": 1,
+    "capabilityId": "stats.analyze.one_sample_t",
+    "capabilityVersion": 1,
+    "engineVersion": 1,
+    "inputs": [
+      "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    ],
+    "parametersHash": "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+    "seed": 7,
+    "rowsRead": 10,
+    "rowsUsed": 9,
+    "exclusions": [
+      {
+        "code": "stats.onesample.missing_value",
+        "count": 1,
+        "params": {
+          "column": 1
+        }
+      }
+    ],
+    "platform": {
+      "os": "macos",
+      "arch": "aarch64"
+    },
+    "elapsedMs": 3,
+    "outputHash": "5fd0af5daee4d8dfcb466411096e7f26e513bf2cadfb0e1605ff085026fe5b4a",
+    "reproducibility": "bitwise"
+  }
+}

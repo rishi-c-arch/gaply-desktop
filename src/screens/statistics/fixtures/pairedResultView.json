@@ -1,0 +1,78 @@
+{
+  "runId": 6,
+  "status": "succeeded",
+  "result": {
+    "nPairs": 9,
+    "first": {
+      "mean": 63.125,
+      "sd": 29.25
+    },
+    "second": {
+      "mean": 33.0625,
+      "sd": 22.75
+    },
+    "t": 2.5,
+    "df": 8.0,
+    "p": 0.0375,
+    "meanDifference": 30.0625,
+    "sdDifferences": 36.0,
+    "standardError": 12.0,
+    "confidenceLevel": 0.95,
+    "ciLower": 2.375,
+    "ciUpper": 57.75,
+    "cohensDz": 0.8125,
+    "exclusions": [
+      {
+        "code": "stats.onesample.missing_second",
+        "count": 1,
+        "params": {
+          "column": 2
+        }
+      }
+    ],
+    "limitations": [
+      "stats.onesample.differences_normality_not_assessed",
+      "stats.onesample.cohens_d_has_no_interval"
+    ]
+  },
+  "diagnostics": [
+    {
+      "code": "stats.onesample.suspect_missing_code",
+      "params": {
+        "column": 1,
+        "count": 2,
+        "value": 99
+      },
+      "severity": "warning"
+    }
+  ],
+  "manifest": {
+    "schemaVersion": 1,
+    "capabilityId": "stats.analyze.paired_t",
+    "capabilityVersion": 1,
+    "engineVersion": 1,
+    "inputs": [
+      "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    ],
+    "parametersHash": "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+    "seed": 7,
+    "rowsRead": 10,
+    "rowsUsed": 9,
+    "exclusions": [
+      {
+        "code": "stats.onesample.missing_second",
+        "count": 1,
+        "params": {
+          "column": 2
+        }
+      }
+    ],
+    "platform": {
+      "os": "macos",
+      "arch": "aarch64"
+    },
+    "elapsedMs": 3,
+    "outputHash": "5fd0af5daee4d8dfcb466411096e7f26e513bf2cadfb0e1605ff085026fe5b4a",
+    "reproducibility": "bitwise"
+  }
+}

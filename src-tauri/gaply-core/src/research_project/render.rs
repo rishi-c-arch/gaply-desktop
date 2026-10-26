@@ -65,6 +65,11 @@ closed! {
         Outcome => "outcome",
         /// The t-test's group.
         Group => "group",
+        /// The paired t-test's first column; the differences are first minus
+        /// second (Research OS, Phase 8D-2a, decision 264).
+        First => "first",
+        /// The paired t-test's second column.
+        Second => "second",
     }
 }
 
@@ -94,6 +99,10 @@ pub enum ExportParameter {
     MissingCodes { count: u64 },
     /// The random seed, if the run used one.
     Seed(Option<u64>),
+    /// The one-sample t-test's test value, as the bits of its double: a
+    /// setting the user chose, not their data (decision 264). Bits, so the
+    /// type keeps `Eq`.
+    TestValue { bits: u64 },
 }
 
 /// A closed code with its integer parameters. A closed-word parameter is
@@ -417,6 +426,11 @@ fn parameter_line(p: &ExportParameter) -> String {
         }
         ExportParameter::Seed(Some(s)) => format!("Random seed: {s}"),
         ExportParameter::Seed(None) => "Random seed: none".into(),
+        // As the CSV export writes it: Rust's shortest form that reads back
+        // to the same double, so 1e-7 is 0.0000001 in both.
+        ExportParameter::TestValue { bits } => {
+            format!("Test value: {}", f64::from_bits(*bits))
+        }
     }
 }
 
@@ -832,7 +846,9 @@ mod tests {
                 "summarised_numeric",
                 "summarised_categorical",
                 "outcome",
-                "group"
+                "group",
+                "first",
+                "second"
             ]
         );
         let variants: Vec<&str> = TestVariant::ALL.iter().map(|c| c.wire()).collect();

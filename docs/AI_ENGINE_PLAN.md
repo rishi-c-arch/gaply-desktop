@@ -26540,3 +26540,171 @@ No golden, property, pin or R fixture changed.
 - CI's eslint: exit 0 over 312 files.
 - `npm run build`: exit 0, with `build/index.html` present and `public/sitemap.xml`
   written back from HEAD (`cmp` equal).
+
+### D298 — Research OS, Phase 8D-2a: the one-sample and paired t-tests in the app, without their screens, and both Beta `[src]` `[test]` `[measured]`
+
+**Added** on `feat/research-os-8` after `2c65275` (D297). It follows decisions
+261 to 265 of 26 Oct 2026 (`~/gaply-corpus/os/decisions.md`), with 74, 75, 143,
+186 to 193, 249, 250 and 252 to 260.
+- The report is `~/gaply-corpus/os/phase8/phase8d2a_report.md`.
+- The real-app check is `~/gaply-corpus/os/phase8/realapp_8d2a.md`, run by the
+  user on 27 Oct 2026: passed.
+- Their screens, bridges, TypeScript types, wording, routes and the frontend's
+  per-kind records are 8D-2b's (decision 262). No frontend source changed here.
+
+**Against D295's list of what a new method touches, for each of the two:**
+- **`runs.rs`:**
+  - one `RunKind` variant (`OneSample`, "one_sample"; `Paired`, "paired");
+  - one variant in each of `Held`, `Job`, `Report` and `Done`;
+  - one arm in `by_method!`;
+  - its unit struct and `impl Method` (`OneSampleT`, `PairedT`), whose
+    `validate` and `compute` call its own façades (`stats_adapters::one_sample_*`,
+    `paired_*`): code type `OneSampleCode`, halt `stats_onesample::Halt<Stop>`,
+    no columns, one check point, its limitations as notes, its own panic line;
+  - five one-line public wrappers each (`start_one_sample`, `_then`,
+    `one_sample_snapshot`, `_cancel`, `_result`; the same with `paired`).
+  - No other match arm.
+- **`project_commands.rs`:**
+  - one `METHODS` row each, and `impl Rerun` and `impl SavedSpec` for its spec;
+  - `one_sample_parameters` (input shape, `Column{outcome}`,
+    `TestValue{bits}` when the spec has one, missing codes, seed);
+  - `paired_parameters` (input shape, `Column{first}`, `Column{second}`,
+    missing codes, seed);
+  - `SPEC_FIELDS` rows for `parameters.testValue`, `.first` and `.second`, all
+    Reported.
+- **Decision 250's list:**
+  - the façades and registry entries were 8D-1's;
+  - the export vocabulary gains `ColumnRole::First` and `Second` and
+    `ExportParameter::TestValue { bits: u64 }`, keeping `Eq`. `parameter_line`
+    prints "Test value: {f64::from_bits}" with `{}`, as the CSV writes it
+    (decision 264);
+  - both ids were registered in 8D-1.
+- **The commands:** `src/stats_onesample_commands.rs`, twelve commands, each as the
+  independent t-test's:
+  - `require_statistics` first, then `check_spec`;
+  - the registry's admit before the slot is read, its `capability.*` code
+    returned as it is;
+  - `run.wrong_kind` for another kind's run.
+  - All twelve are registered in `lib.rs`. No levels command.
+
+**The views and fixtures:**
+- `OneSampleValidationView` and `OneSampleRunStateView` are shared;
+  `OneSampleResultView` and `PairedResultView` are one each.
+- Four new fixtures in `src/screens/statistics/fixtures/`
+  (`onesampleValidationView`, `onesampleRunStateView`, `onesampleResultView`,
+  `pairedResultView`), each filling every field.
+- `onesampleCodes.json` holds `OneSampleCode`'s 29 words with the run,
+  workspace and capability codes, 51 in all, sorted.
+- All of these are pinned byte for byte by `tests/stats_onesample_wire.rs`. No
+  TypeScript reads them yet.
+
+**The privacy matrix** (`tests/stats_onesample_privacy_matrix.rs`, alone in its
+binary):
+- Eight sentinels over 176 surfaces, 24 refusals, 121 tracing lines and the
+  app-data folder's three files.
+- The two headers, the file name and the unselected text cell appear in
+  `DatasetView` only.
+- The test value `3.14159` appears in the one-sample spec, its result view
+  (manifest apart) and its CSV only.
+- The selected value, the unselected number and the folder appear nowhere.
+- The app-data folder is SHA-256-identical before and after.
+
+**The test value's round trip (decision 264), measured:**
+- **Six values read back exactly** under serde_json 1.0.150 without
+  `float_roundtrip`: 0.1, 0.30000000000000004, 1e-7, −123456.789,
+  2.2250738585072014e-308 and 1.7976931348623157e308. Each is saved, its rerun
+  is `Identical`, and each report line equals its CSV cell as a string (1e-7
+  prints 0.0000001 in both).
+- **0.10922441798986729 reads back one ulp low.** Its rerun is refused with
+  `project.rerun_unsupported` (decision 188's exact read-back). Its report line
+  prints 0.10922441798986728 where its CSV cell prints 0.10922441798986729. Both
+  are pinned, and nothing was changed for it; the report's open question 1 asks
+  whether to change it.
+
+**The flip (decision 265).**
+- Both are Beta in `LIFECYCLES`.
+- The registry pin is now `48e6e1dfbd…`; the old one is reproduced by the same
+  method, `468877907…`.
+- Until 8D-2b, the Statistics home shows each as a card with the existing "no
+  screen of its own here yet" line, and the Planned panel is empty and not
+  shown. No frontend code changed for either.
+
+**Existing tests changed, and why:**
+- `capability_registry.rs`: the pin and its list (the flip).
+- Two renamed by the rules, each asserting Beta and runnable:
+  - `stats_registry::the_one_sample_and_paired_t_tests_are_listed_as_planned_and_never_run`
+    → `…_listed_as_beta_and_runnable`;
+  - `stats_adapters::…::the_real_registry_refuses_both_in_both_builds_because_they_are_planned`
+    → `…_admits_both_in_both_builds_because_they_are_beta`.
+- **Not on the rules' list:** `stats_adapters::onesample_facade_tests::with_both_beta_each_facade_refuses_forged_specs_and_runs_the_real_one_as_the_module_does`.
+  It used the real registry as "a Planned table", and the flip removed that
+  premise. Its Planned table is now the real one with both set back through the
+  test-only `with_lifecycle` (decision 96), and nothing else in it changed.
+- `research_project`'s `the_word_lists_are_pinned`: `first`, `second`.
+- `verifier_facade_guards.rs`: `OneSampleT` and `PairedT`, their four starts,
+  and the four direct calls forbidden.
+- `workspace_guards.rs`: a new list of the twelve, and its test.
+- `stats_desc_writes_nothing.rs`: two `SCANNED` paths.
+- `runs_seam_lines.rs`:
+  - the helper widened to four kinds, with an enum in place of `ttest: bool`;
+  - a two-numeric-column dataset for the new kinds;
+  - the counts: one panic line each, "the run's work panicked" 2 → 4,
+    "run ended" 4 → 8.
+- `project_commands.rs`:
+  - `every_method_row_…` takes four ids;
+  - `every_spec_field_…` also reads the new `onesample_specs()`.
+- `stats_ttest_commands.rs`: two arms in its exhaustive `RunKind` match.
+- `project_support/mod.rs`: the helpers `one_sample`, `paired` and
+  `wait_new_kind`.
+- No other existing test changed. No existing fixture, golden or code list
+  changed.
+
+**New tests:**
+- `runs.rs`: 4, covering the check points and thread, a cancel that wins,
+  `wrong_kind` between all four kinds both ways, and one run across four kinds.
+- `tests/stats_onesample_commands.rs`: 7, through IPC, covering the flow and
+  both exports, every refusal code, inactive, registry before slot, wrong kind,
+  cancel races and the foreground run.
+- The privacy matrix: 1. The wire test: 3. `tests/project_onesample.rs`: 3.
+- `project_commands`' `export_input_gives_the_one_sample_and_paired_runs_settings_codes_and_manifest`,
+  with its own `pinned_onesample`. The output hashes are asserted on macOS
+  aarch64 only.
+- `workspace_guards`: 1.
+
+**Mutations,** each restored with its SHA-256 equal and green after:
+1. Paired back to Planned: the pin, both registry tests and 6 of the 7 command
+   tests (all but the inactive-workspace one) went red. The registry-before-slot test went red too, which I had not
+   predicted: Planned is refused before the slot.
+2. A statement before `stats_paired_status`' workspace check: the new
+   workspace-guard test went red.
+3. `OneSampleT::validate` calling `stats_onesample::one_sample_validate`
+   directly: `each_operation_path_calls_its_facade` went red.
+4. An `fs::write` in the new command file: `…write_no_file` went red.
+5. The paired panic line reworded: `runs_seam_lines` went red, 0 where 1 was
+   expected.
+6. The paired `METHODS` row removed: the row guard and the export pin went red.
+7. `parameters.testValue` dropped from `SPEC_FIELDS`: the spec-field test went
+   red.
+8. `First` and `Second` swapped: the word-list pin went red.
+
+**Suites, measured 26 and 27 Oct 2026 on macOS aarch64, each in its own log under
+`~/gaply-corpus/os/phase8/8d2a/logs/`, and each predicted before it ran:**
+- `cargo test --workspace --no-fail-fast` (both `lib.rs` touched,
+  `CARGO_TERM_COLOR=never`):
+  - 136 targets (132 + 4), 3,052 passed (3,032 + 20), 12 ignored, none failed;
+  - by name, every base test passes but the two renamed ones, and the new names
+    are the two renames and the twenty new tests.
+- `cargo test -p app --features devtools`: 59 targets, 868 → 888 passed.
+- `cargo test -p gaply_core`: 83 targets, 2,181 passed, unchanged (its two
+  changes are renames).
+- `cargo check --workspace --all-targets`: exit 0. Its 45 warnings are the same
+  count as before, and none is new.
+- vitest: 127 files and 1,717 tests on its own, unchanged, since no frontend source
+  changed. Statistics with projects and workspace: 32 files, 519 tests.
+- `npx tsc --noEmit`, CI's eslint and `npm run build`: exit 0, with
+  `public/sitemap.xml` written back from HEAD (`cmp` equal).
+
+Before the flip, the new success tests ran red with `capability.not_runnable`
+(`lifecycle: planned`). Two run-manager tests first hung on a `recv()` with no
+timeout, because a refused run never reaches a check point. They now wait 10 s
+and fail, and their red was recorded after that change.

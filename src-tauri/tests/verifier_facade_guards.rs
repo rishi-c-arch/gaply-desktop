@@ -160,6 +160,17 @@ fn each_operation_path_calls_its_facade() {
             "stats_adapters::ttest_validate(",
             "stats_adapters::ttest_run(",
         ),
+        // Phase 8D-2a (decision 263).
+        (
+            "OneSampleT",
+            "stats_adapters::one_sample_validate(",
+            "stats_adapters::one_sample_run(",
+        ),
+        (
+            "PairedT",
+            "stats_adapters::paired_validate(",
+            "stats_adapters::paired_run(",
+        ),
     ] {
         let block = impl_block(&runs_src, &format!("impl Method for {method} {{"));
         for (f, facade) in [("validate", validate), ("compute", compute)] {
@@ -176,6 +187,10 @@ fn each_operation_path_calls_its_facade() {
         ("start_then", "self.begin::<Summary>("),
         ("start_ttest", "self.begin::<IndependentT>("),
         ("start_ttest_then", "self.begin::<IndependentT>("),
+        ("start_one_sample", "self.begin::<OneSampleT>("),
+        ("start_one_sample_then", "self.begin::<OneSampleT>("),
+        ("start_paired", "self.begin::<PairedT>("),
+        ("start_paired_then", "self.begin::<PairedT>("),
     ] {
         assert!(
             squash(fn_body(&runs_src, f)).contains(through),
@@ -189,6 +204,10 @@ fn each_operation_path_calls_its_facade() {
         "stats_desc::describe_until(",
         "stats_ttest::validate(",
         "stats_ttest::run(",
+        "stats_onesample::one_sample_validate(",
+        "stats_onesample::one_sample_run(",
+        "stats_onesample::paired_validate(",
+        "stats_onesample::paired_run(",
     ] {
         assert!(
             !runs.contains(direct),

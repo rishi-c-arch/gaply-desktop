@@ -420,6 +420,75 @@ fn every_ttest_command_checks_the_workspace_first_and_capability_list_does_not()
     );
 }
 
+/// Phase 8D-2a (decision 263): the one-sample and paired t-tests' commands,
+/// each checking the workspace first, in the same form; none is exempt.
+/// (registered path)
+const ONESAMPLE_OPERATIONS: &[&str] = &[
+    "stats_onesample_commands::stats_onesample_validate",
+    "stats_onesample_commands::stats_onesample_run",
+    "stats_onesample_commands::stats_onesample_status",
+    "stats_onesample_commands::stats_onesample_result",
+    "stats_onesample_commands::stats_onesample_cancel",
+    "stats_onesample_commands::stats_onesample_export",
+    "stats_onesample_commands::stats_paired_validate",
+    "stats_onesample_commands::stats_paired_run",
+    "stats_onesample_commands::stats_paired_status",
+    "stats_onesample_commands::stats_paired_result",
+    "stats_onesample_commands::stats_paired_cancel",
+    "stats_onesample_commands::stats_paired_export",
+];
+
+#[test]
+fn every_onesample_and_paired_command_checks_the_workspace_first() {
+    let all = registered();
+    assert!(all.len() > 100, "the handler parse is inert");
+    let mut family: Vec<&str> = all
+        .iter()
+        .map(|p| p.as_str())
+        .filter(|p| p.starts_with("stats_onesample_commands::"))
+        .collect();
+    family.sort_unstable();
+    let mut listed: Vec<&str> = ONESAMPLE_OPERATIONS.to_vec();
+    listed.sort_unstable();
+    assert_eq!(
+        family, listed,
+        "every registered stats_onesample_commands command is listed, and every listed one is registered"
+    );
+    // Nothing registers a stats_onesample_* or stats_paired_* command from
+    // another module.
+    for p in &all {
+        if p.rsplit("::")
+            .next()
+            .is_some_and(|n| n.starts_with("stats_onesample_") || n.starts_with("stats_paired_"))
+        {
+            assert!(p.starts_with("stats_onesample_commands::"), "{p}");
+        }
+    }
+
+    let src = without_line_comments(&read(&root().join("src/stats_onesample_commands.rs")));
+    let mut failures = Vec::new();
+    for path in ONESAMPLE_OPERATIONS {
+        let name = path.rsplit("::").next().unwrap();
+        match fn_body(&src, name) {
+            Some(body) if checks_first(body) => {}
+            Some(body) => failures.push(format!(
+                "{path}: first statement is `{}`",
+                body.split(';').next().unwrap_or("").trim()
+            )),
+            None => failures.push(format!("{path}: no body found")),
+        }
+    }
+    println!(
+        "gated {} one-sample and paired commands",
+        ONESAMPLE_OPERATIONS.len()
+    );
+    assert!(
+        failures.is_empty(),
+        "decision 263:\n{}",
+        failures.join("\n")
+    );
+}
+
 /// Phase 5B-2 (decision 120): the project commands that need Statistics,
 /// with the work function each runs. (registered path, work function)
 const PROJECT_GATED: &[(&str, &str)] = &[
