@@ -1,0 +1,15 @@
+{
+  "bundleJson": "{\"schemaVersion\":1,\"runId\":1,\"status\":\"succeeded\",\"primaryOutputs\":{\"n\":6,\"mean\":3.3333333333333335,\"sd\":1.3662601021279464,\"testValue\":3.0,\"t\":0.597614304667197,\"df\":5.0,\"p\":0.5761317257177403,\"meanDifference\":0.3333333333333335,\"standardError\":0.5577733510227171,\"confidenceLevel\":0.95,\"ciLower\":-1.1004687112076619,\"ciUpper\":1.7671353778743288,\"cohensD\":0.2439750182371334,\"exclusions\":[],\"limitations\":[\"stats.onesample.values_normality_not_assessed\",\"stats.onesample.cohens_d_has_no_interval\"]},\"diagnostics\":[],\"limitations\":[{\"code\":\"stats.onesample.values_normality_not_assessed\",\"params\":{},\"severity\":\"note\"},{\"code\":\"stats.onesample.cohens_d_has_no_interval\",\"params\":{},\"severity\":\"note\"}],\"manifest\":{\"schemaVersion\":1,\"capabilityId\":\"stats.analyze.one_sample_t\",\"capabilityVersion\":1,\"engineVersion\":1,\"inputs\":[\"71dd6fa21cc7d91451fbd4e29854706c89847306d4f6b525361f9d04481d94aa\"],\"parametersHash\":\"c57d0b8cde834ca872c47b993cf1c5cc22c6f1c0192486e3f83632de440fcd32\",\"seed\":null,\"rowsRead\":6,\"rowsUsed\":6,\"exclusions\":[],\"platform\":{\"os\":\"macos\",\"arch\":\"aarch64\"},\"elapsedMs\":0,\"outputHash\":\"96caee089aead64a57eec1c8139195e8a5b7f52bd549af1134ab98a04089f905\",\"reproducibility\":\"bitwise\"}}",
+  "capabilityId": "stats.analyze.one_sample_t",
+  "dataFile": {
+    "bytes": 48,
+    "format": "csv",
+    "kind": "data_file",
+    "sha256": "71dd6fa21cc7d91451fbd4e29854706c89847306d4f6b525361f9d04481d94aa"
+  },
+  "failureJson": null,
+  "manifestJson": "{\"schemaVersion\":1,\"capabilityId\":\"stats.analyze.one_sample_t\",\"capabilityVersion\":1,\"engineVersion\":1,\"inputs\":[\"71dd6fa21cc7d91451fbd4e29854706c89847306d4f6b525361f9d04481d94aa\"],\"parametersHash\":\"c57d0b8cde834ca872c47b993cf1c5cc22c6f1c0192486e3f83632de440fcd32\",\"seed\":null,\"rowsRead\":6,\"rowsUsed\":6,\"exclusions\":[],\"platform\":{\"os\":\"macos\",\"arch\":\"aarch64\"},\"elapsedMs\":0,\"outputHash\":\"96caee089aead64a57eec1c8139195e8a5b7f52bd549af1134ab98a04089f905\",\"reproducibility\":\"bitwise\"}",
+  "specJson": "{\"schemaVersion\":1,\"operationId\":3,\"workspaceId\":\"statistics\",\"capabilityId\":\"stats.analyze.one_sample_t\",\"capabilityVersion\":1,\"inputs\":[{\"contentHash\":\"71dd6fa21cc7d91451fbd4e29854706c89847306d4f6b525361f9d04481d94aa\",\"rows\":6,\"columns\":2,\"semanticRole\":\"table\"}],\"parameters\":{\"outcome\":\"C1\",\"testValue\":3.0,\"missingCodes\":[]},\"randomSeed\":null,\"confirmationRefs\":[]}",
+  "state": "succeeded",
+  "storedRunId": 1
+}

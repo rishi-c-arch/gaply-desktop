@@ -4,7 +4,8 @@
 // field the live result components read, and only then hands them the same
 // props the live screens give them.
 //
-// * The capability must be one this app knows (the summary or the t-test),
+// * The capability must be one this app knows (the summary, the t-test, or
+//   since Phase 8D-2b the one-sample t-test),
 //   and every schema version the one this app reads: 1, the literal type of
 //   `schemaVersion` in describeTypes.ts and ttestTypes.ts and Rust's
 //   `SchemaVersion::NUMBER` (gaply-core/src/contracts/mod.rs).
@@ -17,8 +18,10 @@
 //   or returns any part of what failed. The outcome is a closed case.
 import type { ColumnResult, Diagnostic, ResultBundleView, RunManifest } from '../describeTypes';
 import type { TTestDiagnostic, TTestResultView } from '../ttestTypes';
+import type { OneSampleDiagnostic, OneSampleResultView } from '../onesampleTypes';
 import DESCRIBE_CODES from '../describeCodes.json';
 import TTEST_CODES from '../ttestCodes.json';
+import ONESAMPLE_CODES from '../onesampleCodes.json';
 import { capabilityOfKind } from '../methods';
 
 /** The schema version this app reads, for every stored part. */
@@ -27,15 +30,23 @@ export const KNOWN_SCHEMA_VERSION = 1;
 /** The two methods' capability ids, from the methods table (Phase 8C). */
 export const SUMMARY_CAPABILITY = capabilityOfKind('describe');
 export const TTEST_CAPABILITY = capabilityOfKind('ttest');
+export const ONE_SAMPLE_CAPABILITY = capabilityOfKind('one_sample');
 
 /** A data file's formats: the ingest's (DataFormat in Rust, without json). */
 const DATA_FORMATS = ['csv', 'tsv', 'xlsx', 'xlsm', 'xlsb', 'xls', 'ods', 'sav', 'mat'];
+
+/** The case a method's checked results are shown as. */
+export type CaseKind = 'summary' | 'ttest' | 'one_sample';
+
+/** A failed run's stored diagnostic, in its method's codes. */
+export type StoredFailure = Diagnostic | TTestDiagnostic | OneSampleDiagnostic;
 
 /** What a saved result is, once checked: what to show, or why not. */
 export type Checked =
   | { kind: 'summary'; result: ResultBundleView; dataFile: DataFileFacts }
   | { kind: 'ttest'; result: TTestResultView; dataFile: DataFileFacts }
-  | { kind: 'failed'; capability: 'summary' | 'ttest'; failure: Diagnostic | TTestDiagnostic; dataFile: DataFileFacts }
+  | { kind: 'one_sample'; result: OneSampleResultView; dataFile: DataFileFacts }
+  | { kind: 'failed'; capability: CaseKind; failure: StoredFailure; dataFile: DataFileFacts }
   | { kind: 'unknownCapability' }
   | { kind: 'unknownSchema' }
   | { kind: 'badShape' };
@@ -60,9 +71,11 @@ const arrayOf = (v: unknown, each: (x: unknown) => boolean): boolean => Array.is
 
 const DESC_CODES = (DESCRIBE_CODES as string[]).filter((c) => c.indexOf('stats.desc.') === 0);
 const T_CODES = (TTEST_CODES as string[]).filter((c) => c.indexOf('stats.ttest.') === 0);
+const OS_CODES = (ONESAMPLE_CODES as string[]).filter((c) => c.indexOf('stats.onesample.') === 0);
 const SEVERITIES = ['error', 'warning', 'note'];
 const DESC_PARAM_KEYS = ['column', 'count', 'index', 'value', 'limit', 'expected', 'found', 'from', 'event'];
 const T_PARAM_KEYS = ['column', 'count', 'index', 'value', 'limit', 'expected', 'found'];
+const OS_PARAM_KEYS = ['column', 'count', 'index', 'value', 'limit', 'expected', 'found'];
 const RUN_STATES = [
   'draft',
   'validating',
@@ -210,13 +223,40 @@ function ttestBundle(v: O): TTestResultView | null {
   };
 }
 
+/* ---- the one-sample t-test (Phase 8D-2b, decision 269) ---------------------- */
+
+function oneSampleBundle(v: O): OneSampleResultView | null {
+  const d = diagnostic(OS_CODES, OS_PARAM_KEYS, false);
+  const r = v.primaryOutputs;
+  const ok =
+    isCount(v.runId) &&
+    v.status === 'succeeded' &&
+    isObject(r) &&
+    isCount(r.n) &&
+    [r.mean, r.sd, r.testValue, r.t, r.df, r.p, r.meanDifference, r.standardError, r.confidenceLevel, r.ciLower, r.ciUpper, r.cohensD].every(isNum) &&
+    arrayOf(r.exclusions, exclusion(OS_CODES, OS_PARAM_KEYS, false)) &&
+    arrayOf(r.limitations, (c) => oneOf(c, OS_CODES)) &&
+    arrayOf(v.diagnostics, d) &&
+    arrayOf(v.limitations, d) &&
+    manifest(v.manifest, ONE_SAMPLE_CAPABILITY, OS_CODES, OS_PARAM_KEYS, false);
+  if (!ok) return null;
+  // As Rust's stats_onesample_commands::result_one_sample makes the live view.
+  return {
+    runId: v.runId as number,
+    status: 'succeeded',
+    result: r as unknown as OneSampleResultView['result'],
+    diagnostics: v.diagnostics as OneSampleDiagnostic[],
+    manifest: v.manifest as OneSampleResultView['manifest'],
+  };
+}
+
 /* ---- the checkers, one per method (Phase 8C; decision 249) ------------------- */
 
 /** How one method's saved result is checked: the case it is shown as, its
  *  code list, its parameter keys, whether a parameter may be a string, and
  *  its bundle's check. */
 interface StoredChecker {
-  which: 'summary' | 'ttest';
+  which: CaseKind;
   codes: readonly string[];
   keys: readonly string[];
   strings: boolean;
@@ -245,6 +285,16 @@ export const STORED_CHECKERS: Record<string, StoredChecker> = {
       return result ? { kind: 'ttest', result, dataFile } : null;
     },
   },
+  [ONE_SAMPLE_CAPABILITY]: {
+    which: 'one_sample',
+    codes: OS_CODES,
+    keys: OS_PARAM_KEYS,
+    strings: false,
+    bundle: (v, dataFile) => {
+      const result = oneSampleBundle(v);
+      return result ? { kind: 'one_sample', result, dataFile } : null;
+    },
+  },
 };
 
 /** A capability's checker, or undefined for one no method has. An own key
@@ -254,7 +304,7 @@ function checkerFor(capability: string): StoredChecker | undefined {
 }
 
 /** The capability id whose checked results are shown as `which`. */
-export function capabilityOfCase(which: 'summary' | 'ttest'): string {
+export function capabilityOfCase(which: CaseKind): string {
   for (const id of Object.keys(STORED_CHECKERS)) if (STORED_CHECKERS[id].which === which) return id;
   throw new Error('a case with no checker');
 }
@@ -322,7 +372,7 @@ function check(view: unknown): Checked {
     if (!isObject(record) || record.status !== 'failed') return { kind: 'badShape' };
     const ok = diagnostic(checker.codes, checker.keys, checker.strings);
     if (!ok(record.failure)) return { kind: 'badShape' };
-    return { kind: 'failed', capability: which, failure: record.failure as Diagnostic | TTestDiagnostic, dataFile };
+    return { kind: 'failed', capability: which, failure: record.failure as StoredFailure, dataFile };
   }
   if (!isObject(bundle)) return { kind: 'badShape' };
   return checker.bundle(bundle, dataFile) ?? { kind: 'badShape' };

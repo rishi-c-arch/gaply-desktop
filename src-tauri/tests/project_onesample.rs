@@ -8,10 +8,9 @@
 //! * the test value read back: six values, from 0.1 to the largest double,
 //!   each saved, run again `Identical`, and printed in the report exactly as
 //!   the CSV export writes it;
-//! * a test value serde_json's parser reads one unit in the last place off
-//!   (it is built without `float_roundtrip`): the rerun is refused with
-//!   `project.rerun_unsupported`, as decision 188's exact read-back says, and
-//!   its report line is recorded against its CSV cell.
+//! * a test value serde_json's parser once read one unit in the last place
+//!   off, before `float_roundtrip` was turned on (Phase 8D-2b, decision 267):
+//!   its rerun is now identical, and its report line equals its CSV cell.
 //!
 //! Every file is synthetic and in a folder the test creates and removes.
 
@@ -150,8 +149,9 @@ fn a_one_sample_and_a_paired_result_are_saved_run_again_identical_and_reported()
 
 /// Decision 264's round trip: each test value is printed in the report as the
 /// CSV export writes it, and its saved spec reads back to exactly its bytes,
-/// so its rerun is identical. Measured before this step: all six read back
-/// exactly under serde_json 1.0.150 without `float_roundtrip`.
+/// so its rerun is identical. Measured in 8D-2a: all six read back exactly
+/// under serde_json 1.0.150 even without `float_roundtrip`, which 8D-2b
+/// turned on (decision 267).
 #[test]
 fn each_test_value_reads_back_exactly_and_prints_as_the_csv_does() {
     const VALUES: [f64; 6] = [
@@ -215,12 +215,13 @@ fn each_test_value_reads_back_exactly_and_prints_as_the_csv_does() {
     assert_eq!(lines, want, "each report line is its CSV cell, exactly");
 }
 
-/// A value serde_json reads one unit in the last place off: the saved spec
-/// does not read back to its own bytes, so the rerun is refused, and nothing
-/// here changes that (the step's open question). Its report line and its
-/// CSV cell are recorded against each other.
+/// A value serde_json read one unit in the last place off while it was
+/// built without `float_roundtrip` (8D-2a: the rerun was refused and the
+/// report printed …728 where the CSV printed …729). With the feature on
+/// (Phase 8D-2b, decision 267) the saved spec reads back to its own bytes,
+/// the rerun is identical, and the report line is the CSV cell.
 #[test]
-fn a_test_value_the_parser_reads_one_ulp_off_is_refused_a_rerun() {
+fn a_test_value_serde_json_once_read_one_ulp_off_reruns_identical() {
     const V: f64 = 0.10922441798986729;
     let w = World::new("8d2a-ulp-off");
     let slot = w.open("spread.csv", b"x\n10\n20\n30\n40\n50\n");
@@ -229,14 +230,17 @@ fn a_test_value_the_parser_reads_one_ulp_off_is_refused_a_rerun() {
     let id = pc::save_run(&w.root(), &w.ws, run, new_project("One ulp"))
         .expect("saves")
         .project_id;
-    let code = code(&pc::rerun(&w.root(), &w.ws, 1).expect_err("the rerun is refused"));
-    assert_eq!(code, "project.rerun_unsupported");
+    pc::rerun(&w.root(), &w.ws, 1).expect("the rerun starts");
+    let r = settled(&w);
+    assert_eq!((r.status, r.code), (RerunProgress::Saved, None));
+    let rerun = r.stored_run_id.expect("saved");
+    assert_eq!(comparison(&w, &id, rerun), Some(RerunComparison::Identical));
     let lines = report_test_values(&report(&w, &id));
-    println!("CSV cell: {cell}\nreport line: {lines:?}");
-    // Measured 26 Oct 2026: the CSV writes the double the run used; the
-    // report prints the spec as serde_json's parser read it back, one unit
-    // in the last place lower. Pinned, so the day either changes (for
-    // example `float_roundtrip`), this test says so.
+    println!("CSV cell: {cell}\nreport lines: {lines:?}");
     assert_eq!(cell, "0.10922441798986729");
-    assert_eq!(lines, ["0.10922441798986728"]);
+    assert_eq!(
+        lines,
+        [cell.clone(), cell],
+        "the run's line and its rerun's"
+    );
 }

@@ -43,7 +43,7 @@ function routeTo(p: string) {
   render(
     <MemoryRouter initialEntries={[p]}>
       <Routes>
-        {statisticsRoutes(<div data-testid="home-here" />, <div data-testid="ttest-here" />)}
+        {statisticsRoutes(<div data-testid="home-here" />, <div data-testid="ttest-here" />, <div data-testid="one-sample-here" />)}
         {describeRoute(<div data-testid="describe-here" />)}
         <Route path="*" element={<div data-testid="no-route" />} />
       </Routes>

@@ -26708,3 +26708,182 @@ Before the flip, the new success tests ran red with `capability.not_runnable`
 (`lifecycle: planned`). Two run-manager tests first hung on a `recv()` with no
 timeout, because a refused run never reaches a check point. They now wait 10 s
 and fail, and their red was recorded after that change.
+
+### D299 — Research OS, Phase 8D-2b: serde_json reads every number back exactly; the shared screen pieces; the one-sample t-test's screen, its row and its saved results `[src]` `[test]` `[measured]`
+
+**Added** on `feat/research-os-8` after `e489b4b` (D298). It follows decisions
+266 to 269 of 27 Oct 2026 (`~/gaply-corpus/os/decisions.md`), with 66, 140,
+188, 243, 250, 259, 262, 264 and 265.
+- The report is `~/gaply-corpus/os/phase8/phase8d2b_report.md`.
+- The real-app check is `~/gaply-corpus/os/phase8/realapp_8d2b.md`, run by the
+  user on 27 Oct 2026: passed.
+- The paired t-test's screen and its stored fixtures are 8D-2c's (decision 266).
+  Its words are written here, because the two methods share `OneSampleCode`.
+
+**`float_roundtrip` (decision 267).**
+- `serde_json = { version = "1.0", features = ["float_roundtrip"] }` in
+  `src-tauri/Cargo.toml` (:91) and `src-tauri/gaply-core/Cargo.toml` (:27). No
+  other feature changed. `Cargo.lock` is unchanged (SHA-256 `ec178bc7…`, before
+  and after).
+- **This supersedes D278's "Found on the way" note** (serde_json "may land one
+  ulp off") and **D298's 0.10922441798986729 row**. D278's note stays as it was
+  written; it was true of the build it describes.
+- The test that pinned the refusal is renamed
+  `project_onesample::a_test_value_serde_json_once_read_one_ulp_off_reruns_identical`.
+  It now asserts a Saved rerun, `Identical`, and the two report lines
+  `[cell, cell]`, both `0.10922441798986729`. Red before the feature, with
+  `project.rerun_unsupported`; green after.
+- The six values D298 read back exactly still do. No wire, project or render
+  fixture, golden or rerun test changed. By name, the workspace run with the
+  feature differs from D298's only by the rename.
+- **Mutation:** the feature removed from both manifests makes the renamed test
+  red (`project.rerun_unsupported`). Restored with both SHA-256 equal; green.
+- The comments that described the one-ulp misread are reworded in place, with no
+  code change: `project_onesample.rs`'s header and the test,
+  `stats_ttest_commands.rs` (:237-242, keeping "A webview's JSON.parse rounds
+  correctly.") and `stats_onesample_commands.rs` (:144-147).
+
+**The shared pieces (decision 268), moved one at a time out of
+`TTestFlow.tsx`.** After each move, `TTestFlow.vitest.tsx` and
+`SavedResult.vitest.tsx` stayed 51/51 green and `tsc` exited 0.
+`TTestFlow.vitest.tsx` and `ttestTypes.vitest.ts` are byte-identical to HEAD
+(SHA-256 `9e2ae324…` and `00f44794…`). `TTestFlow.tsx` keeps every `tt-` id.
+- `flowParts.tsx`: `DiagnosticList`, `StageNav`, `FileSummary`, `ProfileTable`,
+  `SettingsActions`, `RunCard`, `ExportCard`, `ManifestPanel`, `MethodPage`.
+  Each takes its test-id prefix and its sentences as props.
+- `flowHooks.ts`: `useStageFocus`, `useCloseOnUnmount`, `useRunPolling`,
+  `actWith`, `fileActions`, `saveExactly`.
+- `statsInvoke.ts`: `invoke`, `recorder` and `MockResponse`, out of
+  `ttestBridge.ts`, which imports them.
+- No component is copied: `TTestFlow.tsx` is 262 lines shorter, 69 longer.
+
+**The one-sample screen.**
+- `onesampleTypes.ts`: the `OneSampleCode` union (29 words, in Rust's order),
+  the views, `OneSampleSpec` and `PairedSpec`. Pinned to 8D-2a's four fixtures
+  and `onesampleCodes.json` by `onesampleTypes.vitest.ts`, both ways.
+- `onesampleBridge.ts`: one `MethodBridge` shape. `TauriOneSampleBridge` uses
+  `stats_onesample_*`; `TauriPairedBridge` uses `stats_paired_*` (for 8D-2c).
+  It also exports both mocks.
+- `onesampleWording.ts`: a sentence for each of the 51 codes, the paired ones
+  included, with decision 259's two sentences word for word. It also holds the
+  stage headings ("Choose the column and the test value"), the export choices
+  for both tests and the rows-used note. `onesampleWording.vitest.ts` checks the
+  neutral wording (decision 66) over every sentence the module can build.
+- `OneSampleFlow.tsx`, prefix `os-`, at `/app/statistics/one-sample` behind
+  `REACT_APP_FEATURE_STATS_DESCRIBE`:
+  - the t-test's seven stages;
+  - the test value is a text field, empty at first, `inputMode="decimal"`;
+    `testValueOf` sends `Number(text)` when the trimmed text is not empty and
+    finite, and `null` otherwise;
+  - Check the settings waits for a column only;
+  - "The mean difference is the mean minus the test value." beside the field;
+  - `OneSampleResultCard` shows the numbers decision 268 lists, with "Cohen's d
+    is shown without a confidence interval: Gaply does not compute one for d
+    yet.";
+  - Save to a project… on results and on a failed run (decision 140).
+
+**Against D295's list of the places a method touches on screen:**
+- `methods.ts`: one row, `one_sample` / `stats.analyze.one_sample_t` /
+  "One-sample t-test" / "one-sample t-test" / `ONE_SAMPLE_PATH`. `RunKind`,
+  `capabilityName`, `KIND_NAMES`, `kindOf` and the home's routes read it. The
+  home's card opens the screen, and the "no screen of its own here yet" line
+  stays on the paired card only.
+- `storedShape.ts`: one checker entry keyed by `ONE_SAMPLE_CAPABILITY`, with
+  `which: 'one_sample'`, the onesample code list, no string parameters and its
+  own `Checked` case.
+- `SavedResult.tsx`: one renderer through `OneSampleResultCard`, not hidden
+  behind a flag (decision 269).
+- The per-kind records: `WorkspaceShell.tsx` (`oneSampleRuns`, kind
+  `one_sample`) and `ProjectPage.tsx` (`oneSample`, its cancel).
+- The route: `statisticsRoute.tsx` (`ONE_SAMPLE_PATH`, a third element),
+  `App.tsx` and `GaplyScreens.tsx`.
+- `capabilityWording.ts:43`: the stale "Planned" comment now says Beta since
+  8D-2a (decision 266).
+- No Rust source changed: nothing under `src-tauri/src` or
+  `src-tauri/gaply-core/src`.
+
+**Saved results (decision 269).**
+- `project_commands::stored_one_sample_results_have_the_layout_of_their_fixtures`
+  wrote `stored/one_sample.json` and `one_sample_failed.json` (`values_constant`)
+  once, with `GAPLY_WRITE_PROJECT_FIXTURES=1`. It checks them by layout after
+  that. Red first, with no file.
+- The existing three stored fixtures are unchanged. Neither new file holds a
+  file name or a header.
+- `projects/savedOneSample.vitest.tsx`: both snapshots pass the shape check,
+  each as its own case. The saved result renders through `OneSampleResultCard`
+  with the same text as the live results screen, with no button. The failed run
+  shows its code's sentence.
+
+**Existing tests changed, and why:**
+- `project_onesample.rs`: the rename and its assertions (decision 267).
+- `methods.vitest.ts`: three rows, and the onesample result view's id; its
+  title loses "as before".
+- `SavedResult.vitest.tsx`: five snapshots in the stored folder; the
+  field-removal table gains both new fixtures, the null/string table gains
+  `one_sample.json`.
+- `statisticsRoute.vitest.tsx`: passes a third element.
+- **Appended, nothing in them changed:** a describe each in
+  `StatisticsHome.vitest.tsx` (the one-sample card opens its route; the paired
+  card keeps the line), `WorkspaceShell.vitest.tsx` (a one-sample run's job
+  line, read and cancelled through its own commands) and
+  `projectReruns.vitest.tsx` (a one-sample rerun cancelled through
+  `stats_onesample_cancel`).
+- **Not on the rules' list:**
+  - the ProjectPage case is in `projectReruns.vitest.tsx`, where the
+    project page's rerun-cancel tests and their helpers already are;
+  - `statisticsRoutes`' third element is optional, because
+    `projectPageScreens.vitest.tsx:117` calls it with two and is left unchanged;
+  - `docs/methods/paired_t.md` now says its screen is 8D-2c's.
+
+**Found on the way.** `projectGuards.vitest.ts` ("only the project bridge
+names a project command") went red on the first run of the statistics folders.
+The saved-result test, first written beside `OneSampleFlow`, names
+`project_run_result`, and only tests in `projects/` may. It moved to
+`projects/savedOneSample.vitest.tsx` with its paths. The guard was right, and
+nothing in it changed.
+
+**Mutations,** each with SHA-256 equal after its restore and green after:
+1. The feature removed from both manifests: the renamed test went red.
+2. `testValueOf('')` returning 0: two `OneSampleFlow` tests went red.
+3. The `one_sample` row removed from `methods.ts`: two of `methods.vitest.ts`'s
+   three went red. A renamed kind did the same.
+4. The one-sample checker's key changed so no entry matched it: all three of
+   `savedOneSample.vitest.tsx` went red, before the move and again after.
+5. `SettingsActions`' check button without its prefix: 9 of
+   `TTestFlow.vitest.tsx`'s 28 tests went red.
+6. The one-sample row's path set to null: the new home test went red.
+7. `WorkspaceShell.tsx`'s `one_sample` entry re-keyed: the new shell test went
+   red.
+8. `ProjectPage.tsx`'s `one_sample` cancel re-keyed: the new rerun test went
+   red.
+
+The screen's and the new modules' tests were written with or after their
+source and were not run red first. The mutations above are their reds; five
+screen tests have none.
+
+**R's numbers for the real-app check.** R 4.6.1, `t.test(x, mu = 2500)` on the
+synthetic `~/gaply-corpus/os/phase8/8b/HTOK_5000.csv`:
+- n 5000, mean 2501, sd 1443.520003;
+- t 0.04898489661, df 4999, p 0.9609332891;
+- mean difference 1, se 20.41445566, interval −39.02128783 to 41.02128783 (R's
+  interval for the mean less 2500);
+- d = (mean − 2500)/sd = 0.0006927510514.
+
+**Suites, measured 27 Oct 2026 on macOS aarch64, each in its own log under
+`~/gaply-corpus/os/phase8/8d2b/logs/`, and each predicted before it ran:**
+- `cargo test --workspace --no-fail-fast` (both `lib.rs` touched,
+  `CARGO_TERM_COLOR=never`): exit 0, 136 Running targets and 2 doc-test targets,
+  3,053 passed (3,052 + 1), 12 ignored, none failed. By name against the
+  feature's run, the one new name is the stored-fixture test.
+- `cargo test -p app --features devtools`: 59 targets, 888 → 889 passed.
+- `cargo test -p gaply_core`: 83 targets, 2,181 passed, unchanged.
+- `cargo check --workspace --all-targets`: exit 0, the same 45 warnings.
+- vitest on its own: 131 files and 1,749 tests (127 and 1,717 before: 4 new
+  files; 32 new tests, 9 + 9 + 5 + 3 in them, 1 each in the home, shell and
+  rerun files, and 3 table rows in `SavedResult.vitest.tsx`). Statistics,
+  projects and workspace: 36 files, 551 tests.
+- `npx tsc --noEmit`, CI's eslint and `npm run build`: exit 0, with
+  `build/index.html` present and `public/sitemap.xml` written back from HEAD
+  (`cmp` equal).
+- rustfmt on the four changed test files: clean after one assertion in
+  `project_onesample.rs` was wrapped. `git diff --check`: clean.

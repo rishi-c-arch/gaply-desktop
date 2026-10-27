@@ -15,16 +15,25 @@ import { isFeatureEnabled } from '../../config/featureFlags';
 
 export const STATISTICS_HOME_PATH = '/app/statistics';
 export const TTEST_PATH = '/app/statistics/ttest';
+/** The one-sample t-test's screen (Research OS, Phase 8D-2b, decision 268). */
+export const ONE_SAMPLE_PATH = '/app/statistics/one-sample';
 export const STATISTICS_TILE = { label: 'Statistical Methods', href: STATISTICS_HOME_PATH };
 
-/** The selector's and the t-test's routes, or nothing while the flag is off.
- *  Called inside `<Routes>`. */
-export function statisticsRoutes(home: React.ReactElement, ttest: React.ReactElement): React.ReactElement[] {
+/** The selector's, the t-test's and the one-sample t-test's routes, or
+ *  nothing while the flag is off. Called inside `<Routes>`. A caller that
+ *  gives no one-sample element gets no one-sample route. */
+export function statisticsRoutes(
+  home: React.ReactElement,
+  ttest: React.ReactElement,
+  oneSample?: React.ReactElement
+): React.ReactElement[] {
   if (!isFeatureEnabled('statsDescribe')) return [];
-  return [
+  const routes = [
     <Route key="stats-home" path={STATISTICS_HOME_PATH} element={home} />,
     <Route key="stats-ttest" path={TTEST_PATH} element={ttest} />,
   ];
+  if (oneSample) routes.push(<Route key="stats-one-sample" path={ONE_SAMPLE_PATH} element={oneSample} />);
+  return routes;
 }
 
 /** The hub tile, or none while the flag is off. With the workspaces flag on

@@ -22,21 +22,23 @@ const sorted = (ids: string[]) => ids.slice().sort();
 
 describe('the methods table', () => {
   it('names the ids the result views carry, and the checkers and renderers name the same', () => {
-    const fromViews = sorted([manifestId('resultBundleView.json'), manifestId('ttestResultView.json')]);
-    expect(fromViews).toEqual(['stats.analyze.independent_t', 'stats.describe']);
+    const fromViews = sorted([manifestId('resultBundleView.json'), manifestId('ttestResultView.json'), manifestId('onesampleResultView.json')]);
+    expect(fromViews).toEqual(['stats.analyze.independent_t', 'stats.analyze.one_sample_t', 'stats.describe']);
     expect(sorted(METHODS.map((m) => m.capabilityId))).toEqual(fromViews);
     expect(sorted(Object.keys(STORED_CHECKERS))).toEqual(fromViews);
     expect(sorted(Object.keys(SAVED_RENDERERS))).toEqual(fromViews);
   });
 
-  it('keeps the two kinds, their words, names and job names as before', () => {
-    expect(METHODS.map((m) => m.kind)).toEqual(['describe', 'ttest']);
-    expect(byKind((m) => m.jobName)).toEqual({ describe: null, ttest: 'independent-samples t-test' });
+  it('keeps the three kinds, their words, names and job names', () => {
+    expect(METHODS.map((m) => m.kind)).toEqual(['describe', 'ttest', 'one_sample']);
+    expect(byKind((m) => m.jobName)).toEqual({ describe: null, ttest: 'independent-samples t-test', one_sample: 'one-sample t-test' });
     expect(capabilityOfKind('describe')).toBe(manifestId('resultBundleView.json'));
     expect(capabilityOfKind('ttest')).toBe(manifestId('ttestResultView.json'));
+    expect(capabilityOfKind('one_sample')).toBe(manifestId('onesampleResultView.json'));
     expect(capabilityName(manifestId('resultBundleView.json'))).toBe('Descriptive summary');
     expect(capabilityName(manifestId('ttestResultView.json'))).toBe('Independent-samples t-test');
-    expect(METHODS.map((m) => m.path)).toEqual(['/app/statistics/describe', '/app/statistics/ttest']);
+    expect(capabilityName(manifestId('onesampleResultView.json'))).toBe('One-sample t-test');
+    expect(METHODS.map((m) => m.path)).toEqual(['/app/statistics/describe', '/app/statistics/ttest', '/app/statistics/one-sample']);
   });
 
   it('finds no row for a capability no method has, nor for a word from Object.prototype', () => {

@@ -234,12 +234,13 @@ fn open_validate_run_status_result_export_close_through_ipc() {
         missing_codes: vec![],
     };
     let direct = stats_ttest::compute(&dataset, &params).expect("computes");
-    // The view went to JSON text and back, and serde_json is built without
-    // `float_roundtrip`, so its parse of that text may land one ulp off
-    // (measured: p 0.10922441798986729 read back as …728). So the view is
-    // compared with the direct result through the same text; the bit-for-bit
-    // claim rests on the output hash and the CSV bytes below, which never
-    // pass through a float parse. A webview's JSON.parse rounds correctly.
+    // The view went to JSON text and back. serde_json was built without
+    // `float_roundtrip` until Phase 8D-2b (decision 267), and its parse of that
+    // text could land one ulp off (measured: p 0.10922441798986729 read back
+    // as …728). The view is still compared with the direct result through the
+    // same text; the bit-for-bit claim rests on the output hash and the CSV
+    // bytes below, which never pass through a float parse. A webview's
+    // JSON.parse rounds correctly.
     let through_text: Value =
         serde_json::from_str(&serde_json::to_string(&direct).unwrap()).unwrap();
     assert_eq!(r["result"], through_text);

@@ -25,14 +25,25 @@ import React, { useEffect, useState } from 'react';
 import { isFeatureEnabled } from '../../../config/featureFlags';
 import { DescribeResult } from '../DescribeFlow';
 import { ResultCard } from '../TTestFlow';
+import { OneSampleResultCard } from '../OneSampleFlow';
 import { diagnosticSentence } from '../describeWording';
 import { ttestSentence, type TTestNames } from '../ttestWording';
+import { oneSampleSentence } from '../onesampleWording';
+import type { OneSampleDiagnostic } from '../onesampleTypes';
 import type { Diagnostic } from '../describeTypes';
 import type { TTestDiagnostic, TTestResultView } from '../ttestTypes';
 import type { ProjectBridge } from './projectBridge';
 import type { StoredRunView } from './projectTypes';
 import { capabilityName, PROJECT_TEXT, projectSentence, rerunLines, SAVED_TEXT, savedResultLine } from './projectWording';
-import { capabilityOfCase, checkStored, SUMMARY_CAPABILITY, TTEST_CAPABILITY, type Checked } from './storedShape';
+import {
+  capabilityOfCase,
+  checkStored,
+  ONE_SAMPLE_CAPABILITY,
+  SUMMARY_CAPABILITY,
+  TTEST_CAPABILITY,
+  type Checked,
+  type StoredFailure,
+} from './storedShape';
 import type { Generation } from './useGeneration';
 
 /** A column by its position: the stored result holds no headers for its
@@ -71,7 +82,7 @@ export class SavedResultBoundary extends React.Component<BoundaryProps, { failed
  *  failure's sentence, its result through the live screen's own component,
  *  and whether a flag hides its saved results. */
 interface SavedRenderer {
-  failedSentence: (failure: Diagnostic | TTestDiagnostic) => string;
+  failedSentence: (failure: StoredFailure) => string;
   result: (checked: Checked) => React.ReactNode;
   hidden: () => boolean;
 }
@@ -87,6 +98,14 @@ export const SAVED_RENDERERS: Record<string, SavedRenderer> = {
   [TTEST_CAPABILITY]: {
     failedSentence: (failure) => ttestSentence(failure as TTestDiagnostic),
     result: (checked) => (checked.kind === 'ttest' ? <ResultCard result={checked.result} names={ttestNames(checked.result)} /> : null),
+    hidden: () => false,
+  },
+  // Phase 8D-2b (decision 269): columns by position, as the t-test's are;
+  // not behind a flag in a saved result.
+  [ONE_SAMPLE_CAPABILITY]: {
+    failedSentence: (failure) => oneSampleSentence(failure as OneSampleDiagnostic, { column: BY_POSITION }),
+    result: (checked) =>
+      checked.kind === 'one_sample' ? <OneSampleResultCard result={checked.result} names={{ column: BY_POSITION }} /> : null,
     hidden: () => false,
   },
 };

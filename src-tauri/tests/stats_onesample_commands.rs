@@ -143,10 +143,11 @@ fn code_of(err: &Value) -> String {
     refusal(err)["code"].as_str().unwrap().to_string()
 }
 
-/// JSON text and back, as the view went: serde_json is built without
-/// `float_roundtrip`, so the view is compared with the direct result through
-/// the same text. The bit-for-bit claim rests on the output hash and the CSV
-/// bytes, which never pass through a float parse.
+/// JSON text and back, as the view went: the view is compared with the
+/// direct result through the same text, as it was while serde_json was built
+/// without `float_roundtrip` (on since Phase 8D-2b, decision 267). The
+/// bit-for-bit claim rests on the output hash and the CSV bytes, which never
+/// pass through a float parse.
 fn through_text<T: serde::Serialize>(v: &T) -> Value {
     serde_json::from_str(&serde_json::to_string(v).unwrap()).unwrap()
 }

@@ -2,7 +2,8 @@
 
 Capability `stats.analyze.one_sample_t`, version 1, **Beta**, in the
 Statistics workspace (Research OS, Phase 8D-1; decisions 252 to 257 of 26 Oct
-2026; Beta since Phase 8D-2a, decisions 262 to 265). This page is the capability's `documentation_id` (`methods/one_sample_t`).
+2026; Beta since Phase 8D-2a, decisions 262 to 265; its screen since Phase
+8D-2b, decisions 266 to 269). This page is the capability's `documentation_id` (`methods/one_sample_t`).
 
 It computes the t-test of one numeric column of the user's own data against a
 value the user gives. The pure core is `gaply_core::stats_onesample`, which it
@@ -12,8 +13,11 @@ shares with the paired t-test (`methods/paired_t`); its façades are
 runs it (`RunKind::OneSample`), the `stats_onesample_*` commands validate,
 run, report, cancel and export it, and a project saves, reruns and exports it,
 with the test value on a line of its own in the report ("Test value: …", as the
-CSV writes it). Its screen is 8D-2b's; until then the Statistics home shows it
-as a card that says it has no screen of its own here yet.
+CSV writes it). Since 8D-2b it has its own screen (`OneSampleFlow`, at
+`/app/statistics/one-sample`), opened from its card on the Statistics home: the
+test value is a text field, empty at first, and Gaply never fills it in. A saved
+result renders through the same result card, and its failure through its
+code's sentence.
 
 ## 1. Inputs and the spec
 
@@ -120,7 +124,7 @@ the rule does not catch, as R's does not: a spread lost in rounding that is
 still above 10 · ε · |mean|, for example values near 0 whose mean is tiny
 beside their rounding. `tests/essentially_constant_r.rs` checks the boundary
 against R on six cases, each at least ten times either side of R's threshold.
-The screen's sentence, for 8D-2b: "The values vary so little, compared with
+The screen's sentence (8D-2b, `onesampleWording.ts`): "The values vary so little, compared with
 their size, that the standard error is lost in rounding, so t is not computed.
 R refuses such data too: "data are essentially constant"."
 
@@ -225,7 +229,7 @@ observations").
 | Formula/method and variant documented | this page §2, §4; `stats_onesample/mod.rs` header | done |
 | Golden fixtures and edge cases pass | `onesample_r_golden` (17 one-sample cases, 3 refused), `onesample_validate` | done |
 | Missing values, ties, weights, precision and sample size handled according to the method | §5 (exclusions, codes), ties case, §8 (no weights), §6 (gates), `too_few_values`, the df boundary | done; weights not supported, stated |
-| Diagnostic meanings and limitations documented | §5, §8; `OneSampleCode` doc comments; the title, description and normality sentences in `capabilityWording.ts`; the screen's sentence for each code | partly: the screen's code sentences are 8D-2b |
+| Diagnostic meanings and limitations documented | §5, §8; `OneSampleCode` doc comments; the title, description and normality sentences in `capabilityWording.ts`; the screen's sentence for each code (`onesampleWording.ts`, `onesampleWording.vitest.ts`: one per code, neutral) | done (8D-2b) |
 | Independent reference comparison completed | R `t.test` and effectsize, §6, §9 | done |
-| Unsupported designs return explicit reasons | §5 (`test_value_not_chosen`, `too_few_values`, …), §8; at the command boundary (`stats_onesample_commands::each_refusal_has_its_exact_code`, the essentially-constant codes included) and on the screen | core and commands done (8D-2a); screen 8D-2b |
-| Result manifest and export verified | `onesample_validate` (CSV round trip, sentinels, rows add up, ten runs byte-identical); through IPC (`stats_onesample_commands`: the result, the CSV and the manifest export), the privacy matrix (`stats_onesample_privacy_matrix`), a project's save, rerun and export (`project_onesample`, `export_input_gives_the_one_sample_and_paired_runs_settings_codes_and_manifest`); the screen and the save dialog | core and app side done (8D-2a); screen and save dialog 8D-2b |
+| Unsupported designs return explicit reasons | §5 (`test_value_not_chosen`, `too_few_values`, …), §8; at the command boundary (`stats_onesample_commands::each_refusal_has_its_exact_code`, the essentially-constant codes included) and on the screen (`OneSampleFlow.vitest.tsx`: `test_value_not_chosen`, a refusal, a failed run) | done (core and commands 8D-2a; screen 8D-2b) |
+| Result manifest and export verified | `onesample_validate` (CSV round trip, sentinels, rows add up, ten runs byte-identical); through IPC (`stats_onesample_commands`: the result, the CSV and the manifest export), the privacy matrix (`stats_onesample_privacy_matrix`), a project's save, rerun and export (`project_onesample`, `export_input_gives_the_one_sample_and_paired_runs_settings_codes_and_manifest`); the screen's export and Save to a project… (`OneSampleFlow.vitest.tsx`), the stored snapshots (`stored_one_sample_results_have_the_layout_of_their_fixtures`, `savedOneSample.vitest.tsx`) | done (core and app side 8D-2a; screen, save dialog and saved result 8D-2b; the real-app check `realapp_8d2b.md` is the user's) |

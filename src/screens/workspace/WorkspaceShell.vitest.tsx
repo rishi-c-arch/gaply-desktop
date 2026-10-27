@@ -11,6 +11,7 @@ import { WorkspaceShell } from './WorkspaceShell';
 import { makeMockWorkspaceBridge } from './workspaceBridge';
 import { makeMockDescribeBridge } from '../statistics/describeBridge';
 import { makeMockTTestBridge } from '../statistics/ttestBridge';
+import { makeMockOneSampleBridge } from '../statistics/onesampleBridge';
 import type { TTestRunStateView } from '../statistics/ttestTypes';
 import type { RunKind, WorkspaceStateView } from './workspaceTypes';
 import type { RunStateView } from '../statistics/describeTypes';
@@ -240,5 +241,62 @@ describe('WorkspaceShell', () => {
     expect(await screen.findByText('Statistics is not open in this window.')).toBeTruthy();
     expect((screen.getByTestId('ws-switch') as HTMLButtonElement).disabled).toBe(true);
     expect(ws.calls.every(([c]) => c === 'workspace_state')).toBe(true);
+  });
+});
+
+// Research OS, Phase 8D-2b (decision 268): a one-sample t-test's run, read and
+// cancelled through its own bridge, and named by the methods table's job name.
+describe('a one-sample t-test run in the shell', () => {
+  it('shows it, reads it through its own status, and Cancel cancels it through its own command', async () => {
+    let ended = false;
+    const ws = makeMockWorkspaceBridge({
+      workspace_state: () => ACTIVE(ended ? null : 7, 'one_sample'),
+      workspace_deactivate: () => {
+        if (!ended) {
+          throw Object.assign(
+            new Error(JSON.stringify({ code: 'workspace.run_active', params: { workspace: 'statistics', run: 7 }, severity: 'error' })),
+            { code: 'validation' }
+          );
+        }
+        return NONE;
+      },
+    });
+    const desc = makeMockDescribeBridge({});
+    const ttest = makeMockTTestBridge({});
+    const view = (state: 'running' | 'cancelled', terminal: boolean) => ({
+      runId: 7,
+      state,
+      terminal,
+      elapsedMs: 80,
+      cancelRequested: false,
+      diagnostics: [],
+    });
+    const oneSample = makeMockOneSampleBridge({
+      stats_onesample_status: () => (ended ? view('cancelled', true) : view('running', false)),
+      stats_onesample_cancel: () => {
+        ended = true;
+        return view('running', false);
+      },
+    });
+    render(
+      <MemoryRouter initialEntries={['/app/workspaces/statistics']}>
+        <Routes>
+          <Route
+            path="/app/workspaces/statistics"
+            element={<WorkspaceShell bridge={ws} runs={desc} ttestRuns={ttest} oneSampleRuns={oneSample} pollMs={20} />}
+          />
+          <Route path="/app/workspaces" element={<div data-testid="chooser-here" />} />
+        </Routes>
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(screen.getByTestId('ws-job').textContent).toBe('Run 7 (one-sample t-test): Running.'));
+    fireEvent.click(screen.getByTestId('ws-switch'));
+    await screen.findByTestId('ws-switch-dialog');
+    fireEvent.click(screen.getByTestId('ws-switch-cancel'));
+    await screen.findByTestId('chooser-here');
+    expect(oneSample.calls.filter(([c]) => c === 'stats_onesample_cancel')).toEqual([['stats_onesample_cancel', { runId: 7 }]]);
+    // Never through another kind's commands.
+    expect(desc.calls).toEqual([]);
+    expect(ttest.calls).toEqual([]);
   });
 });

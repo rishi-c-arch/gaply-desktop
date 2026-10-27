@@ -57,6 +57,7 @@ import { describeBridge, type DescribeBridge } from '../describeBridge';
 import { RUN_STATE_NAMES } from '../describeWording';
 import { methodFor } from '../methods';
 import { ttestBridge, type TTestBridge } from '../ttestBridge';
+import { oneSampleBridge, type OneSampleBridge } from '../onesampleBridge';
 import { projectBridge, type ProjectBridge } from './projectBridge';
 import { EXPORTS, prepareExport, type ExportKind, type SaveFile } from './projectExport';
 import { projectsShown } from './projectGate';
@@ -102,6 +103,7 @@ export interface ProjectPageProps {
   /** A rerun's cancel, by its kind. */
   describe?: DescribeBridge;
   ttest?: TTestBridge;
+  oneSample?: OneSampleBridge;
   /** How often project_current is read while a rerun is going. */
   pollMs?: number;
 }
@@ -162,16 +164,22 @@ const ProjectPageShown: React.FC<ProjectPageProps> = ({
   save = saveTextFile,
   describe: givenDescribe,
   ttest: givenTtest,
+  oneSample: givenOneSample,
   pollMs = 250,
 }) => {
   const bridge = useMemo(() => given ?? projectBridge(), [given]);
   const workspace = useMemo(() => givenWorkspace ?? workspaceBridge(), [givenWorkspace]);
   const describe = useMemo(() => givenDescribe ?? describeBridge(), [givenDescribe]);
   const ttest = useMemo(() => givenTtest ?? ttestBridge(), [givenTtest]);
+  const oneSample = useMemo(() => givenOneSample ?? oneSampleBridge(), [givenOneSample]);
   // Each kind's cancel, from the bridges given (Phase 8C).
   const cancels = useMemo<Record<RerunKind, (runId: number) => Promise<unknown>>>(
-    () => ({ describe: (runId) => describe.cancel(runId), ttest: (runId) => ttest.cancel(runId) }),
-    [describe, ttest]
+    () => ({
+      describe: (runId) => describe.cancel(runId),
+      ttest: (runId) => ttest.cancel(runId),
+      one_sample: (runId) => oneSample.cancel(runId),
+    }),
+    [describe, ttest, oneSample]
   );
   const gen = useGeneration();
   const [view, setView] = useState<View>({ kind: 'loading' });

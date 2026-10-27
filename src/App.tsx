@@ -70,6 +70,7 @@ const GaplyStatsVerifierRoute = React.lazy(() => import('./screens/GaplyScreens'
 const GaplyDescribeRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.DescribeRoute })));
 const GaplyStatisticsHomeRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.StatisticsHomeRoute })));
 const GaplyTTestRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.TTestRoute })));
+const GaplyOneSampleRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.OneSampleRoute })));
 const GaplyProjectPageRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.ProjectPageRoute })));
 const GaplyWorkspaceChooserRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.WorkspaceChooserRoute })));
 const GaplyWorkspaceShellRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.WorkspaceShellRoute })));
@@ -674,10 +675,11 @@ const AppContent: React.FC = () => {
           <Route path="/app/statsverifier" element={<Suspense fallback={null}><GaplyStatsVerifierRoute /></Suspense>} />
           {/* The Research OS descriptive summary: only while its flag is on. */}
           {describeRoute(<Suspense fallback={null}><GaplyDescribeRoute /></Suspense>)}
-          {/* The Research OS method selector and the t-test: only while the same flag is on. */}
+          {/* The Research OS method selector and the methods' screens: only while the same flag is on. */}
           {statisticsRoutes(
             <Suspense fallback={null}><GaplyStatisticsHomeRoute /></Suspense>,
-            <Suspense fallback={null}><GaplyTTestRoute /></Suspense>
+            <Suspense fallback={null}><GaplyTTestRoute /></Suspense>,
+            <Suspense fallback={null}><GaplyOneSampleRoute /></Suspense>
           )}
           {/* An open project's page: only while the project screens show (Phase 5B-3b). */}
           {projectRoutes(<Suspense fallback={null}><GaplyProjectPageRoute /></Suspense>)}

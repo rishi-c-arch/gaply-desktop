@@ -40,7 +40,8 @@ export const CAPABILITY_WORDS: Record<string, string> = {
     "The group's levels follow Level 1's reading of cells and are listed in the order Gaply reads them; you choose the two to compare.",
   'stats.capability.limit.analyze.normality_not_assessed': 'Normality is not assessed: Gaply does not check whether each group is roughly normal.',
   'stats.capability.limit.analyze.cohens_d_has_no_interval': "Cohen's d is shown without a confidence interval.",
-  // Phase 8D-1 (decision 253): the one-sample and paired t-tests, Planned.
+  // Phase 8D-1 (decision 253): the one-sample and paired t-tests, Beta since
+  // Phase 8D-2a (decision 265).
   'stats.capability.analyze.one_sample_t.title': 'One-sample t-test on your data',
   'stats.capability.analyze.one_sample_t.description': 'Compares the mean of one numeric column with a value you give.',
   'stats.capability.analyze.paired_t.title': 'Paired-samples t-test on your data',

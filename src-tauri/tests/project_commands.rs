@@ -1233,6 +1233,40 @@ fn stored_results_have_the_layout_of_their_fixtures() {
     );
 }
 
+/// The one-sample t-test's saved results (Research OS, Phase 8D-2b, decision
+/// 269): a result, and a failed run whose values are all equal, laid out as
+/// their fixtures, for the webview's shape check, as the three above are.
+#[test]
+fn stored_one_sample_results_have_the_layout_of_their_fixtures() {
+    let w = World::new("stored-one-sample");
+    let slot = w.open("a.csv", CSV);
+    let run = w.one_sample(slot, 1, 3.0);
+    let id = pc::save_run(&w.root(), &w.ws, run, new_project("Stored one-sample"))
+        .unwrap()
+        .project_id;
+    let equal = w.open("equal.csv", b"x\n4\n4\n4\n");
+    let f = w.one_sample(equal, 1, 3.0);
+    assert_eq!(w.wait_new_kind(f), RunState::Failed);
+    pc::save_run(&w.root(), &w.ws, f, into_open(&id)).unwrap();
+    for (n, name, state) in [
+        (1, "one_sample.json", RunState::Succeeded),
+        (2, "one_sample_failed.json", RunState::Failed),
+    ] {
+        let back = pc::run_result(&w.root(), &w.ws, &id, n).expect("read back");
+        assert_eq!(back.state, state, "{name}");
+        assert_eq!(back.capability_id, "stats.analyze.one_sample_t", "{name}");
+        assert_stored_fixture(name, &back);
+    }
+    let failure = pc::run_result(&w.root(), &w.ws, &id, 2)
+        .unwrap()
+        .failure_json
+        .expect("a failure record");
+    assert!(
+        failure.contains("stats.onesample.values_constant"),
+        "{failure}"
+    );
+}
+
 #[test]
 fn the_project_code_list_is_pinned() {
     let codes: Vec<&str> = ProjectCode::ALL.iter().map(|c| c.wire()).collect();

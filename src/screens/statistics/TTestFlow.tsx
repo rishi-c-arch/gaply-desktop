@@ -26,18 +26,28 @@
 //
 // Behind REACT_APP_FEATURE_STATS_DESCRIBE, which hides unfinished UI and is
 // not an authorization boundary.
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { AppShell, Button, Card, GaplyGlobe, HeaderBar, NavRail, Panel } from '../../design-system';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
+import { Button, Card } from '../../design-system';
 import { CELL_PADDING } from '../../design-system/primitives';
 import { pickManuscriptPath } from '../common/pickFile';
 import { saveTextFile } from '../../utils/saveTextFile';
 import { ttestBridge, type TTestBridge } from './ttestBridge';
-import { savableOnScreen, SaveToProject } from './projects/SaveToProject';
+import { SaveToProject } from './projects/SaveToProject';
+import {
+  DiagnosticList,
+  ExportCard,
+  FileSummary,
+  ManifestPanel,
+  MethodPage,
+  ProfileTable,
+  RunCard,
+  SettingsActions,
+  StageNav,
+} from './flowParts';
+import { actWith, fileActions, saveExactly, useCloseOnUnmount, useRunPolling, useStageFocus } from './flowHooks';
 import type { ColumnProfile, DatasetView, ExportFormat } from './describeTypes';
 import type {
   GroupLevel,
-  TTestDiagnostic,
   TTestResultView,
   TTestRunStateView,
   TTestSpec,
@@ -45,14 +55,7 @@ import type {
   Variant,
 } from './ttestTypes';
 import {
-  computeTimeSentence,
-  elapsedSentence,
-  platformName,
-  reproducibilitySentence,
-  RUN_STATE_NAMES,
-  shortHash,
   Stage,
-  STAGES,
   STATUS_SENTENCES,
 } from './describeWording';
 import {
@@ -143,15 +146,6 @@ function buildSpec(
   };
 }
 
-const DiagnosticList: React.FC<{ items: TTestDiagnostic[]; names: TTestNames; testId: string }> = ({ items, names, testId }) =>
-  items.length === 0 ? null : (
-    <ul data-testid={testId} style={{ margin: 0 }}>
-      {items.map((d, i) => (
-        <li key={i}>{ttestSentence(d, names)}</li>
-      ))}
-    </ul>
-  );
-
 const TTestFlow: React.FC<TTestFlowProps> = ({
   bridge,
   pickPath = () => pickManuscriptPath(DATA_EXTENSIONS, 'Data file'),
@@ -178,21 +172,10 @@ const TTestFlow: React.FC<TTestFlowProps> = ({
   const slot = useRef<number | null>(null);
 
   // Focus moves to each stage's heading when the stage changes.
-  const heading = useRef<HTMLHeadingElement>(null);
-  const shownStage = useRef<Stage>(stage);
-  useEffect(() => {
-    if (shownStage.current === stage) return;
-    shownStage.current = stage;
-    heading.current?.focus();
-  }, [stage]);
+  const heading = useStageFocus(stage);
 
   // The file is closed, and its rows dropped in Rust, when the screen goes.
-  useEffect(
-    () => () => {
-      if (slot.current !== null) void bridge.close(slot.current).catch(() => undefined);
-    },
-    [bridge]
-  );
+  useCloseOnUnmount(bridge, slot);
 
   const outcomeColumn = useMemo(() => view?.profile.columns.find((c) => c.alias === outcome), [view, outcome]);
   const offered = useMemo(() => outcomeColumn?.suspectMissingCodes ?? [], [outcomeColumn]);
@@ -215,32 +198,9 @@ const TTestFlow: React.FC<TTestFlowProps> = ({
   }, [view, outcome, group, levels, variant, missingCodes]);
 
   // While a run is unfinished, its state is read every `pollMs`.
-  useEffect(() => {
-    if (!runView || runView.terminal) return;
-    let live = true;
-    const t = setTimeout(() => {
-      bridge
-        .status(runView.runId)
-        .then((s) => live && setRunView(s))
-        .catch((e) => live && setError(ttestRefusalSentence(e)));
-    }, pollMs);
-    return () => {
-      live = false;
-      clearTimeout(t);
-    };
-  }, [runView, bridge, pollMs]);
+  useRunPolling(runView, setRunView, bridge, setError, ttestRefusalSentence, pollMs);
 
-  const act = async (f: () => Promise<void>) => {
-    setBusy(true);
-    setError(null);
-    try {
-      await f();
-    } catch (e) {
-      setError(ttestRefusalSentence(e));
-    } finally {
-      setBusy(false);
-    }
-  };
+  const act = actWith(setBusy, setError, ttestRefusalSentence);
 
   const reset = () => {
     setOutcome('');
@@ -254,26 +214,22 @@ const TTestFlow: React.FC<TTestFlowProps> = ({
     setResult(null);
   };
 
-  const choose = () =>
-    act(async () => {
-      const path = await pickPath();
-      if (!path) return;
-      const opened = await bridge.open(path);
-      if (slot.current !== null) void bridge.close(slot.current).catch(() => undefined);
-      slot.current = opened.slot;
+  const { choose, closeFile } = fileActions({
+    bridge,
+    slot,
+    pickPath,
+    act,
+    onOpened: (opened) => {
       setView(opened);
       reset();
       setStage('profile');
-    });
-
-  const closeFile = () =>
-    act(async () => {
-      if (slot.current !== null) await bridge.close(slot.current);
-      slot.current = null;
+    },
+    onClosed: () => {
       setView(null);
       reset();
       setStage('import');
-    });
+    },
+  });
 
   const check = () =>
     act(async () => {
@@ -307,16 +263,12 @@ const TTestFlow: React.FC<TTestFlowProps> = ({
       setExportNote(null);
       const choice = TTEST_EXPORT_CHOICES.find((c) => c.format === format) ?? TTEST_EXPORT_CHOICES[0];
       const out = await bridge.export(result.runId, format);
-      const bytes = Uint8Array.from(out.bytes);
-      const text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
-      // What is written must be the bytes Rust returned, and their hash.
-      const again = new TextEncoder().encode(text);
-      if (again.length !== bytes.length || again.some((b, i) => b !== bytes[i])) {
-        setError('The export could not be saved exactly as Gaply made it, so it was not saved.');
+      const saved = await saveExactly(out, choice, save);
+      if ('error' in saved) {
+        setError(saved.error);
         return;
       }
-      const where = await save(choice.file, text, choice.mime);
-      setExportNote(where ? `Saved. SHA-256 of the file: ${shortHash(out.sha256)}` : 'Not saved: the save dialog was closed.');
+      setExportNote(saved.note);
     });
 
   const chooseGroup = (alias: string) =>
@@ -339,15 +291,7 @@ const TTestFlow: React.FC<TTestFlowProps> = ({
     });
   const toggleCode = (code: number, on: boolean) => setTicked((t) => (on ? [...t.filter((x) => x !== code), code] : t.filter((x) => x !== code)));
 
-  const stageNav = (
-    <nav aria-label="Steps" data-testid="tt-steps" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-      {STAGES.map((s) => (
-        <span key={s.id} aria-current={s.id === stage ? 'step' : undefined} style={{ fontWeight: s.id === stage ? 700 : 400 }}>
-          {s.label}
-        </span>
-      ))}
-    </nav>
-  );
+  const stageNav = <StageNav prefix="tt" stage={stage} />;
 
   const title = (
     <h3 className="gds-card__title" ref={heading} tabIndex={-1} data-testid="tt-stage-heading">
@@ -367,12 +311,7 @@ const TTestFlow: React.FC<TTestFlowProps> = ({
           </Button>
         )}
       </div>
-      {view && stage !== 'import' && (
-        <p data-testid="tt-file-summary" style={{ margin: 0 }}>
-          <span className="gds-mono">{view.displayName}</span>: {view.profile.rows} rows, {view.profile.columns.length}{' '}
-          {view.profile.columns.length === 1 ? 'column' : 'columns'}.
-        </p>
-      )}
+      {view && stage !== 'import' && <FileSummary prefix="tt" view={view} />}
       {error && (
         <p role="alert" data-testid="tt-error">
           {error}
@@ -395,33 +334,7 @@ const TTestFlow: React.FC<TTestFlowProps> = ({
         <Card>
           {title}
           <p data-testid="tt-levels-rule">{TTEST_LEVELS_RULE}</p>
-          <table data-testid="tt-profile" style={{ borderCollapse: 'collapse' }}>
-            <thead>
-              <tr>
-                {['Column', 'Kind', 'n', 'Missing', 'Levels'].map((h) => (
-                  <th key={h} scope="col" style={{ textAlign: 'left', ...CELL_PADDING }}>
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {view.profile.columns.map((c) => (
-                <tr key={c.alias}>
-                  <td style={CELL_PADDING}>
-                    <span className="gds-mono">{c.alias}</span> {c.header}
-                  </td>
-                  <td style={CELL_PADDING}>{c.kind === 'numeric' ? 'Numeric' : c.kind === 'categorical' ? 'Categorical' : 'Empty'}</td>
-                  <td className="gds-mono" style={CELL_PADDING}>{c.n}</td>
-                  <td className="gds-mono" style={CELL_PADDING}>{c.missing}</td>
-                  <td style={CELL_PADDING}>
-                    {(c.levels ?? []).slice(0, 12).map((l) => `${l.label} (${l.count})`).join(', ')}
-                    {(c.levels?.length ?? 0) > 12 ? `, and ${(c.levels?.length ?? 0) - 12} more` : ''}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <ProfileTable prefix="tt" view={view} />
           <Button onClick={() => setStage('settings')} data-testid="tt-to-settings">
             Continue to settings
           </Button>
@@ -522,14 +435,7 @@ const TTestFlow: React.FC<TTestFlowProps> = ({
               </fieldset>
             )}
           </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <Button variant="secondary" onClick={() => setStage('profile')} data-testid="tt-back-profile">
-              Back to the profile
-            </Button>
-            <Button onClick={() => void check()} disabled={busy || !ready} data-testid="tt-check">
-              Check the settings
-            </Button>
-          </div>
+          <SettingsActions prefix="tt" busy={busy} ready={ready} onBack={() => setStage('profile')} onCheck={() => void check()} />
         </Card>
       )}
 
@@ -539,9 +445,9 @@ const TTestFlow: React.FC<TTestFlowProps> = ({
           <p role="status" data-testid="tt-validation-status">
             {STATUS_SENTENCES[report.status]}
           </p>
-          <DiagnosticList items={report.errors} names={names} testId="tt-validation-errors" />
-          <DiagnosticList items={report.missingInformation} names={names} testId="tt-validation-questions" />
-          <DiagnosticList items={report.warnings} names={names} testId="tt-validation-warnings" />
+          <DiagnosticList items={report.errors} sentence={(d) => ttestSentence(d, names)} testId="tt-validation-errors" />
+          <DiagnosticList items={report.missingInformation} sentence={(d) => ttestSentence(d, names)} testId="tt-validation-questions" />
+          <DiagnosticList items={report.warnings} sentence={(d) => ttestSentence(d, names)} testId="tt-validation-warnings" />
           <div style={{ display: 'flex', gap: 8 }}>
             <Button variant="secondary" onClick={() => setStage('settings')} data-testid="tt-back-settings">
               Back to settings
@@ -558,42 +464,17 @@ const TTestFlow: React.FC<TTestFlowProps> = ({
       )}
 
       {stage === 'run' && runView && (
-        <Card>
-          {title}
-          <div role="status" aria-live="polite" data-testid="tt-run-status">
-            <p style={{ margin: 0 }} data-testid="tt-run-state">
-              {RUN_STATE_NAMES[runView.state]}
-            </p>
-            <p style={{ margin: 0 }} data-testid="tt-elapsed">
-              {elapsedSentence(runView.elapsedMs)}
-            </p>
-          </div>
-          {runView.terminal && runView.state !== 'succeeded' && (
-            <>
-              <p data-testid="tt-run-ended">{ttestRunEndedSentence(runView.state)}</p>
-              <DiagnosticList items={runView.diagnostics} names={names} testId="tt-run-diagnostics" />
-              {/* A failed run is saved where its failure is shown (decision 140). */}
-              {runView.terminal && savableOnScreen(runView) && <SaveToProject runId={runView.runId} testId="tt-project-save" />}
-            </>
-          )}
-          <div style={{ display: 'flex', gap: 8 }}>
-            {!runView.terminal && (
-              <Button variant="secondary" onClick={() => void cancel()} disabled={runView.cancelRequested} data-testid="tt-cancel">
-                {runView.cancelRequested ? 'Cancelling…' : 'Cancel'}
-              </Button>
-            )}
-            {runView.terminal && runView.state === 'succeeded' && (
-              <Button onClick={() => void seeResults()} disabled={busy} data-testid="tt-see-results">
-                See the results
-              </Button>
-            )}
-            {runView.terminal && (
-              <Button variant="secondary" onClick={() => setStage('settings')} data-testid="tt-run-back">
-                Back to settings
-              </Button>
-            )}
-          </div>
-        </Card>
+        <RunCard
+          prefix="tt"
+          title={title}
+          runView={runView}
+          endedSentence={ttestRunEndedSentence}
+          diagnostics={<DiagnosticList items={runView.diagnostics} sentence={(d) => ttestSentence(d, names)} testId="tt-run-diagnostics" />}
+          busy={busy}
+          onCancel={() => void cancel()}
+          onSeeResults={() => void seeResults()}
+          onBack={() => setStage('settings')}
+        />
       )}
 
       {stage === 'results' && result && (
@@ -613,39 +494,18 @@ const TTestFlow: React.FC<TTestFlowProps> = ({
       )}
 
       {stage === 'export' && result && (
-        <Card>
-          {title}
-          <p className="gds-jc__disclaimer">{TTEST_EXPORT_TEXT}</p>
-          <fieldset data-testid="tt-export-choice">
-            <legend>What to save</legend>
-            {TTEST_EXPORT_CHOICES.map((c) => (
-              <label key={c.format} style={{ display: 'block' }}>
-                <input
-                  type="radio"
-                  name="tt-export"
-                  value={c.format}
-                  checked={format === c.format}
-                  data-testid={`tt-export-${c.format}`}
-                  onChange={() => setFormat(c.format)}
-                />{' '}
-                {c.label}
-              </label>
-            ))}
-          </fieldset>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <Button variant="secondary" onClick={() => setStage('results')} data-testid="tt-export-back">
-              Back to the results
-            </Button>
-            <Button onClick={() => void saveExport()} disabled={busy} data-testid="tt-save">
-              Save…
-            </Button>
-          </div>
-          {exportNote && (
-            <p role="status" data-testid="tt-export-note">
-              {exportNote}
-            </p>
-          )}
-        </Card>
+        <ExportCard
+          prefix="tt"
+          title={title}
+          text={TTEST_EXPORT_TEXT}
+          choices={TTEST_EXPORT_CHOICES}
+          format={format}
+          onFormat={setFormat}
+          busy={busy}
+          onBack={() => setStage('results')}
+          onSave={() => void saveExport()}
+          note={exportNote}
+        />
       )}
     </div>
   );
@@ -660,7 +520,7 @@ export const ResultCard: React.FC<{ result: TTestResultView; names: TTestNames }
   const n = shownNumber;
   return (
     <div data-testid="tt-result-card" data-tone="neutral" style={{ display: 'grid', gap: 8 }}>
-      <DiagnosticList items={result.diagnostics} names={names} testId="tt-result-notes" />
+      <DiagnosticList items={result.diagnostics} sentence={(d) => ttestSentence(d, names)} testId="tt-result-notes" />
       <dl data-testid="tt-result-numbers" style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '2px 12px', margin: 0 }}>
         <dt>Test</dt>
         <dd data-testid="tt-variant-name">{VARIANT_NAMES[r.variant]}</dd>
@@ -755,43 +615,7 @@ export const ResultCard: React.FC<{ result: TTestResultView; names: TTestNames }
         </ul>
       </section>
       <p className="gds-jc__disclaimer">{TTEST_DIGITS_NOTE}</p>
-      <aside aria-label="Run manifest" data-testid="tt-manifest">
-        <h4 style={{ margin: '8px 0 4px' }}>Run manifest</h4>
-        <dl style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '2px 12px', margin: 0 }}>
-          <dt>Data file (SHA-256)</dt>
-          <dd className="gds-mono" data-testid="tt-manifest-input">
-            {m.inputs.map(shortHash).join(', ')}
-          </dd>
-          <dt>Capability</dt>
-          <dd data-testid="tt-manifest-capability">
-            {m.capabilityId}, version {m.capabilityVersion}
-          </dd>
-          <dt>Engine version</dt>
-          <dd data-testid="tt-manifest-engine">{m.engineVersion}</dd>
-          <dt>Rows read</dt>
-          <dd className="gds-mono" data-testid="tt-manifest-rows-read">
-            {m.rowsRead}
-          </dd>
-          <dt>Rows used</dt>
-          <dd>
-            <span className="gds-mono" data-testid="tt-manifest-rows-used">
-              {m.rowsUsed}
-            </span>
-            <br />
-            <span>{TTEST_ROWS_USED_NOTE}</span>
-          </dd>
-          <dt>Time to compute</dt>
-          <dd data-testid="tt-manifest-compute-time">{computeTimeSentence(m.elapsedMs)}</dd>
-          <dt>Platform</dt>
-          <dd data-testid="tt-manifest-platform">{platformName(m.platform)}</dd>
-          <dt>Reproducibility</dt>
-          <dd data-testid="tt-manifest-reproducibility">{reproducibilitySentence(m.reproducibility)}</dd>
-          <dt>Result (SHA-256)</dt>
-          <dd className="gds-mono" data-testid="tt-manifest-output">
-            {shortHash(m.outputHash)}
-          </dd>
-        </dl>
-      </aside>
+      <ManifestPanel prefix="tt" manifest={m} rowsUsedNote={TTEST_ROWS_USED_NOTE} />
     </div>
   );
 };
@@ -800,27 +624,10 @@ export default TTestFlow;
 
 /** /app/statistics/ttest — the page around the flow. */
 export const TTestPage: React.FC<{ bridge?: TTestBridge }> = ({ bridge }) => {
-  const navigate = useNavigate();
   const b = useMemo(() => bridge ?? ttestBridge(), [bridge]);
   return (
-    <div className="gds-root" style={{ height: '100vh', overflow: 'auto' }} data-testid="ttest-page">
-      <AppShell
-        rail={
-          <NavRail
-            items={[
-              { id: 'home', label: 'Home', icon: '◫', onSelect: () => navigate('/app') },
-              { id: 'statistics', label: 'Statistics', icon: 'Σ', onSelect: () => navigate('/app/statistics') },
-            ]}
-            activeId="statistics"
-            brand={<GaplyGlobe scale="mark" />}
-          />
-        }
-        header={<HeaderBar title="Independent-samples t-test" />}
-      >
-        <Panel title="Independent-samples t-test on a data file">
-          <TTestFlow bridge={b} />
-        </Panel>
-      </AppShell>
-    </div>
+    <MethodPage testId="ttest-page" header="Independent-samples t-test" panelTitle="Independent-samples t-test on a data file">
+      <TTestFlow bridge={b} />
+    </MethodPage>
   );
 };

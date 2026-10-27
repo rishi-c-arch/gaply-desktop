@@ -9,7 +9,7 @@
 // checker and saved-result renderer stay with the code that uses them,
 // keyed by the same kind or capability id. A new method adds one row.
 import { DESCRIBE_PATH } from './describeRoute';
-import { TTEST_PATH } from './statisticsRoute';
+import { ONE_SAMPLE_PATH, TTEST_PATH } from './statisticsRoute';
 
 export const METHODS = [
   {
@@ -25,6 +25,14 @@ export const METHODS = [
     name: 'Independent-samples t-test',
     jobName: 'independent-samples t-test',
     path: TTEST_PATH,
+  },
+  // Research OS, Phase 8D-2b (decision 268).
+  {
+    kind: 'one_sample',
+    capabilityId: 'stats.analyze.one_sample_t',
+    name: 'One-sample t-test',
+    jobName: 'one-sample t-test',
+    path: ONE_SAMPLE_PATH,
   },
 ] as const;
 

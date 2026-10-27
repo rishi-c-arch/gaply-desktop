@@ -26,6 +26,7 @@ import { makeMockWorkspaceBridge } from '../../workspace/workspaceBridge';
 import type { WorkspaceStateView } from '../../workspace/workspaceTypes';
 import { makeMockDescribeBridge } from '../describeBridge';
 import { makeMockTTestBridge } from '../ttestBridge';
+import { makeMockOneSampleBridge } from '../onesampleBridge';
 import { makeMockProjectBridge } from './projectBridge';
 import type { SaveFile } from './projectExport';
 import { openProjectStore } from './projectSession';
@@ -614,5 +615,50 @@ describe('the focus across a rerun (decision 232)', () => {
     };
     const retry = await screen.findByTestId('project-rerun-retry');
     await waitFor(() => expect(focused()).toBe(retry));
+  });
+});
+
+// Research OS, Phase 8D-2b (decision 268): a rerun that project_rerun says is
+// a one-sample t-test's is cancelled through the one-sample bridge, its own.
+describe('a one-sample rerun on the project page', () => {
+  it("Cancel calls the one-sample test's own cancel", async () => {
+    const w = world({ rerun: () => ({ runId: 7, kind: 'one_sample' }) });
+    const bridge = makeMockProjectBridge({
+      project_current: () => (typeof w.current === 'function' ? w.current() : w.current),
+      project_list: LIST,
+      project_sizes: SIZES,
+      project_runs: () => w.runs,
+      project_rerun: (a: Record<string, unknown>) => w.rerun(a),
+      project_run_result: (a: Record<string, unknown>) => w.runResult(a),
+      project_report: () => w.report,
+      project_close: { closed: true },
+    });
+    const describeBridge = makeMockDescribeBridge({ stats_desc_cancel: { runId: 0 } });
+    const ttest = makeMockTTestBridge({ stats_ttest_cancel: { runId: 0 } });
+    const oneSample = makeMockOneSampleBridge({ stats_onesample_cancel: { runId: 7 } });
+    render(
+      <ProjectPage
+        projectId={A}
+        bridge={bridge}
+        workspace={makeMockWorkspaceBridge({ workspace_state: ACTIVE })}
+        describe={describeBridge}
+        ttest={ttest}
+        oneSample={oneSample}
+        desktop
+        save={async () => '/chosen/place'}
+        pollMs={5}
+        onClosed={vi.fn()}
+        onBack={vi.fn()}
+      />
+    );
+    await screen.findByTestId('project-runs-list');
+    w.current = currentWith(rerunView(7, 1, 'going'));
+    fireEvent.click(screen.getByTestId('project-run-rerun-1'));
+    fireEvent.click(screen.getByTestId('project-rerun-confirm'));
+    await screen.findByTestId('project-rerun-running');
+    fireEvent.click(screen.getByTestId('project-rerun-cancel'));
+    await waitFor(() => expect(calls(oneSample, 'stats_onesample_cancel')).toEqual([['stats_onesample_cancel', { runId: 7 }]]));
+    expect(describeBridge.calls).toEqual([]);
+    expect(ttest.calls).toEqual([]);
   });
 });

@@ -1,0 +1,15 @@
+{
+  "bundleJson": null,
+  "capabilityId": "stats.analyze.one_sample_t",
+  "dataFile": {
+    "bytes": 8,
+    "format": "csv",
+    "kind": "data_file",
+    "sha256": "cdf11fc24d7b04afd0eb345d0d3128adba5d54cfdb658d0f392aae8e2924059e"
+  },
+  "failureJson": "{\"failure\":{\"code\":\"stats.onesample.values_constant\",\"params\":{},\"severity\":\"error\"},\"schemaVersion\":1,\"status\":\"failed\"}",
+  "manifestJson": null,
+  "specJson": "{\"schemaVersion\":1,\"operationId\":3,\"workspaceId\":\"statistics\",\"capabilityId\":\"stats.analyze.one_sample_t\",\"capabilityVersion\":1,\"inputs\":[{\"contentHash\":\"cdf11fc24d7b04afd0eb345d0d3128adba5d54cfdb658d0f392aae8e2924059e\",\"rows\":3,\"columns\":1,\"semanticRole\":\"table\"}],\"parameters\":{\"outcome\":\"C1\",\"testValue\":3.0,\"missingCodes\":[]},\"randomSeed\":null,\"confirmationRefs\":[]}",
+  "state": "failed",
+  "storedRunId": 2
+}

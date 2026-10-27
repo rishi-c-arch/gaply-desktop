@@ -6,6 +6,7 @@
 // choices, and shows what comes back. Export returns bytes; the save dialog
 // writes the one file the user names, and Rust writes nothing.
 import { isTauri } from '../../utils/isTauri';
+import { invoke, recorder, type MockResponse } from './statsInvoke';
 import type { DatasetView, ExportFormat, ExportView, RunStartedView } from './describeTypes';
 import type {
   CapabilityView,
@@ -35,12 +36,6 @@ export interface TTestBridge {
 /** The method selector's one call: needs no workspace (decision 76). */
 export interface CapabilityBridge {
   list(): Promise<CapabilityView[]>;
-}
-
-async function invoke<T>(cmd: string, args: Record<string, unknown> = {}): Promise<T> {
-  if (!isTauri) throw new Error('The Statistics methods run in the Gaply desktop app.');
-  const { invoke: tauriInvoke } = await import('@tauri-apps/api/core');
-  return tauriInvoke<T>(cmd, args);
 }
 
 export class TauriTTestBridge implements TTestBridge {
@@ -77,25 +72,6 @@ export class TauriCapabilityBridge implements CapabilityBridge {
   list() {
     return invoke<CapabilityView[]>('capability_list');
   }
-}
-
-/** A canned response, or a function of the call's arguments (a sequence of
- *  status polls, a refusal). */
-type MockResponse = unknown | ((args: Record<string, unknown>) => unknown);
-
-function recorder(responses: Partial<Record<string, MockResponse>>) {
-  const calls: Array<[string, Record<string, unknown>]> = [];
-  const call = <T>(cmd: string, args: Record<string, unknown> = {}, recorded = args): Promise<T> => {
-    calls.push([cmd, recorded]);
-    if (!(cmd in responses)) return Promise.reject(new Error(`no mock response for ${cmd}`));
-    const r = responses[cmd];
-    try {
-      return Promise.resolve((typeof r === 'function' ? (r as (a: Record<string, unknown>) => unknown)(args) : r) as T);
-    } catch (e) {
-      return Promise.reject(e);
-    }
-  };
-  return { calls, call };
 }
 
 /** Test/dev double: records every call and its arguments, and returns what
