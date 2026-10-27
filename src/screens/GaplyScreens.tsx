@@ -36,6 +36,7 @@ import { DescribePage } from './statistics/DescribeFlow';
 import { StatisticsHomePage } from './statistics/StatisticsHome';
 import { TTestPage } from './statistics/TTestFlow';
 import { OneSamplePage } from './statistics/OneSampleFlow';
+import { PairedPage } from './statistics/PairedFlow';
 import { ProjectPageScreen } from './statistics/ProjectPageScreen';
 import { WorkspaceChooser } from './workspace/WorkspaceChooser';
 import { WorkspaceShell } from './workspace/WorkspaceShell';
@@ -263,6 +264,19 @@ export const OneSampleRoute: React.FC = () => (
     <RequireAuth>
       <RequireWorkspace id="statistics" body="Open the Statistics workspace to use the one-sample t-test.">
         <OneSamplePage />
+      </RequireWorkspace>
+    </RequireAuth>
+  </GaplySessionProvider>
+);
+
+/** /app/statistics/paired — the paired-samples t-test (Research OS, Phase
+ *  8D-2c, decision 271), shown only while the Statistics workspace is
+ *  active, as the one-sample t-test's is. */
+export const PairedRoute: React.FC = () => (
+  <GaplySessionProvider>
+    <RequireAuth>
+      <RequireWorkspace id="statistics" body="Open the Statistics workspace to use the paired-samples t-test.">
+        <PairedPage />
       </RequireWorkspace>
     </RequireAuth>
   </GaplySessionProvider>

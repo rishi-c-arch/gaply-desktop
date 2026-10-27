@@ -26,7 +26,7 @@ import { makeMockWorkspaceBridge } from '../../workspace/workspaceBridge';
 import type { WorkspaceStateView } from '../../workspace/workspaceTypes';
 import { makeMockDescribeBridge } from '../describeBridge';
 import { makeMockTTestBridge } from '../ttestBridge';
-import { makeMockOneSampleBridge } from '../onesampleBridge';
+import { makeMockOneSampleBridge, makeMockPairedBridge } from '../onesampleBridge';
 import { makeMockProjectBridge } from './projectBridge';
 import type { SaveFile } from './projectExport';
 import { openProjectStore } from './projectSession';
@@ -660,5 +660,53 @@ describe('a one-sample rerun on the project page', () => {
     await waitFor(() => expect(calls(oneSample, 'stats_onesample_cancel')).toEqual([['stats_onesample_cancel', { runId: 7 }]]));
     expect(describeBridge.calls).toEqual([]);
     expect(ttest.calls).toEqual([]);
+  });
+});
+
+// Research OS, Phase 8D-2c (decision 271): a rerun that project_rerun says is
+// a paired t-test's is cancelled through the paired bridge, its own.
+describe('a paired rerun on the project page', () => {
+  it("Cancel calls the paired test's own cancel", async () => {
+    const w = world({ rerun: () => ({ runId: 8, kind: 'paired' }) });
+    const bridge = makeMockProjectBridge({
+      project_current: () => (typeof w.current === 'function' ? w.current() : w.current),
+      project_list: LIST,
+      project_sizes: SIZES,
+      project_runs: () => w.runs,
+      project_rerun: (a: Record<string, unknown>) => w.rerun(a),
+      project_run_result: (a: Record<string, unknown>) => w.runResult(a),
+      project_report: () => w.report,
+      project_close: { closed: true },
+    });
+    const describeBridge = makeMockDescribeBridge({ stats_desc_cancel: { runId: 0 } });
+    const ttest = makeMockTTestBridge({ stats_ttest_cancel: { runId: 0 } });
+    const oneSample = makeMockOneSampleBridge({ stats_onesample_cancel: { runId: 0 } });
+    const paired = makeMockPairedBridge({ stats_paired_cancel: { runId: 8 } });
+    render(
+      <ProjectPage
+        projectId={A}
+        bridge={bridge}
+        workspace={makeMockWorkspaceBridge({ workspace_state: ACTIVE })}
+        describe={describeBridge}
+        ttest={ttest}
+        oneSample={oneSample}
+        paired={paired}
+        desktop
+        save={async () => '/chosen/place'}
+        pollMs={5}
+        onClosed={vi.fn()}
+        onBack={vi.fn()}
+      />
+    );
+    await screen.findByTestId('project-runs-list');
+    w.current = currentWith(rerunView(8, 1, 'going'));
+    fireEvent.click(screen.getByTestId('project-run-rerun-1'));
+    fireEvent.click(screen.getByTestId('project-rerun-confirm'));
+    await screen.findByTestId('project-rerun-running');
+    fireEvent.click(screen.getByTestId('project-rerun-cancel'));
+    await waitFor(() => expect(calls(paired, 'stats_paired_cancel')).toEqual([['stats_paired_cancel', { runId: 8 }]]));
+    expect(describeBridge.calls).toEqual([]);
+    expect(ttest.calls).toEqual([]);
+    expect(oneSample.calls).toEqual([]);
   });
 });

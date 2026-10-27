@@ -26,6 +26,7 @@ import { isFeatureEnabled } from '../../../config/featureFlags';
 import { DescribeResult } from '../DescribeFlow';
 import { ResultCard } from '../TTestFlow';
 import { OneSampleResultCard } from '../OneSampleFlow';
+import { PairedResultCard } from '../PairedFlow';
 import { diagnosticSentence } from '../describeWording';
 import { ttestSentence, type TTestNames } from '../ttestWording';
 import { oneSampleSentence } from '../onesampleWording';
@@ -39,6 +40,7 @@ import {
   capabilityOfCase,
   checkStored,
   ONE_SAMPLE_CAPABILITY,
+  PAIRED_CAPABILITY,
   SUMMARY_CAPABILITY,
   TTEST_CAPABILITY,
   type Checked,
@@ -106,6 +108,13 @@ export const SAVED_RENDERERS: Record<string, SavedRenderer> = {
     failedSentence: (failure) => oneSampleSentence(failure as OneSampleDiagnostic, { column: BY_POSITION }),
     result: (checked) =>
       checked.kind === 'one_sample' ? <OneSampleResultCard result={checked.result} names={{ column: BY_POSITION }} /> : null,
+    hidden: () => false,
+  },
+  // Phase 8D-2c (decision 272): as the one-sample test's; its card names the
+  // columns by role, so the saved card reads as the live one.
+  [PAIRED_CAPABILITY]: {
+    failedSentence: (failure) => oneSampleSentence(failure as OneSampleDiagnostic, { column: BY_POSITION }),
+    result: (checked) => (checked.kind === 'paired' ? <PairedResultCard result={checked.result} names={{ column: BY_POSITION }} /> : null),
     hidden: () => false,
   },
 };

@@ -17,23 +17,27 @@ export const STATISTICS_HOME_PATH = '/app/statistics';
 export const TTEST_PATH = '/app/statistics/ttest';
 /** The one-sample t-test's screen (Research OS, Phase 8D-2b, decision 268). */
 export const ONE_SAMPLE_PATH = '/app/statistics/one-sample';
+/** The paired-samples t-test's screen (Research OS, Phase 8D-2c, decision 271). */
+export const PAIRED_PATH = '/app/statistics/paired';
 export const STATISTICS_TILE = { label: 'Statistical Methods', href: STATISTICS_HOME_PATH };
 
-/** The selector's, the t-test's and the one-sample t-test's routes, or
- *  nothing while the flag is off. Called inside `<Routes>`. A caller that
- *  gives no one-sample element gets no one-sample route. */
+/** The selector's and every method's screen's routes (the t-test's, the
+ *  one-sample t-test's and the paired t-test's), or nothing while the flag is
+ *  off. Called inside `<Routes>`. Every element is required, so a caller
+ *  cannot leave a method without its route (decision 271). */
 export function statisticsRoutes(
   home: React.ReactElement,
   ttest: React.ReactElement,
-  oneSample?: React.ReactElement
+  oneSample: React.ReactElement,
+  paired: React.ReactElement
 ): React.ReactElement[] {
   if (!isFeatureEnabled('statsDescribe')) return [];
-  const routes = [
+  return [
     <Route key="stats-home" path={STATISTICS_HOME_PATH} element={home} />,
     <Route key="stats-ttest" path={TTEST_PATH} element={ttest} />,
+    <Route key="stats-one-sample" path={ONE_SAMPLE_PATH} element={oneSample} />,
+    <Route key="stats-paired" path={PAIRED_PATH} element={paired} />,
   ];
-  if (oneSample) routes.push(<Route key="stats-one-sample" path={ONE_SAMPLE_PATH} element={oneSample} />);
-  return routes;
 }
 
 /** The hub tile, or none while the flag is off. With the workspaces flag on

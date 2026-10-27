@@ -1,0 +1,15 @@
+{
+  "bundleJson": null,
+  "capabilityId": "stats.analyze.paired_t",
+  "dataFile": {
+    "bytes": 16,
+    "format": "csv",
+    "kind": "data_file",
+    "sha256": "510b5c74f7aed32739a77982abfab5ea67f172b7621e1fe44e44aeaf3bb1e157"
+  },
+  "failureJson": "{\"failure\":{\"code\":\"stats.onesample.differences_constant\",\"params\":{},\"severity\":\"error\"},\"schemaVersion\":1,\"status\":\"failed\"}",
+  "manifestJson": null,
+  "specJson": "{\"schemaVersion\":1,\"operationId\":4,\"workspaceId\":\"statistics\",\"capabilityId\":\"stats.analyze.paired_t\",\"capabilityVersion\":1,\"inputs\":[{\"contentHash\":\"510b5c74f7aed32739a77982abfab5ea67f172b7621e1fe44e44aeaf3bb1e157\",\"rows\":3,\"columns\":2,\"semanticRole\":\"table\"}],\"parameters\":{\"first\":\"C1\",\"second\":\"C2\",\"missingCodes\":[]},\"randomSeed\":null,\"confirmationRefs\":[]}",
+  "state": "failed",
+  "storedRunId": 2
+}

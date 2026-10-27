@@ -109,8 +109,16 @@ function withStored(name: string, field: 'bundleJson' | 'failureJson' | 'specJso
 /* ---- the shape check ----------------------------------------------------------- */
 
 describe('the shape check', () => {
-  it('has the five snapshots Rust wrote, and accepts every one', () => {
-    expect(SNAPSHOTS).toEqual(['one_sample.json', 'one_sample_failed.json', 'summary.json', 'ttest.json', 'ttest_failed.json']);
+  it('has the seven snapshots Rust wrote, and accepts every one', () => {
+    expect(SNAPSHOTS).toEqual([
+      'one_sample.json',
+      'one_sample_failed.json',
+      'paired.json',
+      'paired_failed.json',
+      'summary.json',
+      'ttest.json',
+      'ttest_failed.json',
+    ]);
     expect(checkStored(stored('summary.json')).kind).toBe('summary');
     expect(checkStored(stored('ttest.json')).kind).toBe('ttest');
     const failed = checkStored(stored('ttest_failed.json'));
@@ -124,6 +132,8 @@ describe('the shape check', () => {
     ['ttest_failed.json', 'failureJson'],
     ['one_sample.json', 'bundleJson'],
     ['one_sample_failed.json', 'failureJson'],
+    ['paired.json', 'bundleJson'],
+    ['paired_failed.json', 'failureJson'],
   ] as const)('%s: rejects it with any one field of its %s removed', (name, field) => {
     const all = paths(JSON.parse(stored(name)[field] as string)).filter((p) => typeof p[p.length - 1] === 'string');
     expect(all.length).toBeGreaterThan(5);
@@ -140,6 +150,7 @@ describe('the shape check', () => {
     ['ttest.json', 'bundleJson'],
     ['ttest_failed.json', 'failureJson'],
     ['one_sample.json', 'bundleJson'],
+    ['paired.json', 'bundleJson'],
   ] as const)('%s: rejects it with any one number in its %s made null, or made a string', (name, field) => {
     const v0 = JSON.parse(stored(name)[field] as string);
     const numbers = paths(v0).filter((p) => typeof getAt(v0, p) === 'number');

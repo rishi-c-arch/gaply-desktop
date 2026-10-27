@@ -5,7 +5,7 @@
 // props the live screens give them.
 //
 // * The capability must be one this app knows (the summary, the t-test, or
-//   since Phase 8D-2b the one-sample t-test),
+//   since Phase 8D-2b the one-sample t-test, and since 8D-2c the paired),
 //   and every schema version the one this app reads: 1, the literal type of
 //   `schemaVersion` in describeTypes.ts and ttestTypes.ts and Rust's
 //   `SchemaVersion::NUMBER` (gaply-core/src/contracts/mod.rs).
@@ -18,7 +18,7 @@
 //   or returns any part of what failed. The outcome is a closed case.
 import type { ColumnResult, Diagnostic, ResultBundleView, RunManifest } from '../describeTypes';
 import type { TTestDiagnostic, TTestResultView } from '../ttestTypes';
-import type { OneSampleDiagnostic, OneSampleResultView } from '../onesampleTypes';
+import type { OneSampleDiagnostic, OneSampleResultView, PairedResultView } from '../onesampleTypes';
 import DESCRIBE_CODES from '../describeCodes.json';
 import TTEST_CODES from '../ttestCodes.json';
 import ONESAMPLE_CODES from '../onesampleCodes.json';
@@ -31,12 +31,13 @@ export const KNOWN_SCHEMA_VERSION = 1;
 export const SUMMARY_CAPABILITY = capabilityOfKind('describe');
 export const TTEST_CAPABILITY = capabilityOfKind('ttest');
 export const ONE_SAMPLE_CAPABILITY = capabilityOfKind('one_sample');
+export const PAIRED_CAPABILITY = capabilityOfKind('paired');
 
 /** A data file's formats: the ingest's (DataFormat in Rust, without json). */
 const DATA_FORMATS = ['csv', 'tsv', 'xlsx', 'xlsm', 'xlsb', 'xls', 'ods', 'sav', 'mat'];
 
 /** The case a method's checked results are shown as. */
-export type CaseKind = 'summary' | 'ttest' | 'one_sample';
+export type CaseKind = 'summary' | 'ttest' | 'one_sample' | 'paired';
 
 /** A failed run's stored diagnostic, in its method's codes. */
 export type StoredFailure = Diagnostic | TTestDiagnostic | OneSampleDiagnostic;
@@ -46,6 +47,7 @@ export type Checked =
   | { kind: 'summary'; result: ResultBundleView; dataFile: DataFileFacts }
   | { kind: 'ttest'; result: TTestResultView; dataFile: DataFileFacts }
   | { kind: 'one_sample'; result: OneSampleResultView; dataFile: DataFileFacts }
+  | { kind: 'paired'; result: PairedResultView; dataFile: DataFileFacts }
   | { kind: 'failed'; capability: CaseKind; failure: StoredFailure; dataFile: DataFileFacts }
   | { kind: 'unknownCapability' }
   | { kind: 'unknownSchema' }
@@ -250,6 +252,37 @@ function oneSampleBundle(v: O): OneSampleResultView | null {
   };
 }
 
+/* ---- the paired t-test (Phase 8D-2c, decision 272) --------------------------- */
+
+const columnStats = (v: unknown) => isObject(v) && isNum(v.mean) && isNum(v.sd);
+
+function pairedBundle(v: O): PairedResultView | null {
+  const d = diagnostic(OS_CODES, OS_PARAM_KEYS, false);
+  const r = v.primaryOutputs;
+  const ok =
+    isCount(v.runId) &&
+    v.status === 'succeeded' &&
+    isObject(r) &&
+    isCount(r.nPairs) &&
+    columnStats(r.first) &&
+    columnStats(r.second) &&
+    [r.t, r.df, r.p, r.meanDifference, r.sdDifferences, r.standardError, r.confidenceLevel, r.ciLower, r.ciUpper, r.cohensDz].every(isNum) &&
+    arrayOf(r.exclusions, exclusion(OS_CODES, OS_PARAM_KEYS, false)) &&
+    arrayOf(r.limitations, (c) => oneOf(c, OS_CODES)) &&
+    arrayOf(v.diagnostics, d) &&
+    arrayOf(v.limitations, d) &&
+    manifest(v.manifest, PAIRED_CAPABILITY, OS_CODES, OS_PARAM_KEYS, false);
+  if (!ok) return null;
+  // As Rust's stats_onesample_commands::result_paired makes the live view.
+  return {
+    runId: v.runId as number,
+    status: 'succeeded',
+    result: r as unknown as PairedResultView['result'],
+    diagnostics: v.diagnostics as OneSampleDiagnostic[],
+    manifest: v.manifest as PairedResultView['manifest'],
+  };
+}
+
 /* ---- the checkers, one per method (Phase 8C; decision 249) ------------------- */
 
 /** How one method's saved result is checked: the case it is shown as, its
@@ -293,6 +326,16 @@ export const STORED_CHECKERS: Record<string, StoredChecker> = {
     bundle: (v, dataFile) => {
       const result = oneSampleBundle(v);
       return result ? { kind: 'one_sample', result, dataFile } : null;
+    },
+  },
+  [PAIRED_CAPABILITY]: {
+    which: 'paired',
+    codes: OS_CODES,
+    keys: OS_PARAM_KEYS,
+    strings: false,
+    bundle: (v, dataFile) => {
+      const result = pairedBundle(v);
+      return result ? { kind: 'paired', result, dataFile } : null;
     },
   },
 };

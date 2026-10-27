@@ -11,7 +11,7 @@ import { WorkspaceShell } from './WorkspaceShell';
 import { makeMockWorkspaceBridge } from './workspaceBridge';
 import { makeMockDescribeBridge } from '../statistics/describeBridge';
 import { makeMockTTestBridge } from '../statistics/ttestBridge';
-import { makeMockOneSampleBridge } from '../statistics/onesampleBridge';
+import { makeMockOneSampleBridge, makeMockPairedBridge } from '../statistics/onesampleBridge';
 import type { TTestRunStateView } from '../statistics/ttestTypes';
 import type { RunKind, WorkspaceStateView } from './workspaceTypes';
 import type { RunStateView } from '../statistics/describeTypes';
@@ -298,5 +298,65 @@ describe('a one-sample t-test run in the shell', () => {
     // Never through another kind's commands.
     expect(desc.calls).toEqual([]);
     expect(ttest.calls).toEqual([]);
+  });
+});
+
+// Research OS, Phase 8D-2c (decision 271): a paired t-test's run, read and
+// cancelled through the paired bridge, and named by the methods table's job
+// name.
+describe('a paired t-test run in the shell', () => {
+  it('shows it, reads it through its own status, and Cancel cancels it through its own command', async () => {
+    let ended = false;
+    const ws = makeMockWorkspaceBridge({
+      workspace_state: () => ACTIVE(ended ? null : 8, 'paired'),
+      workspace_deactivate: () => {
+        if (!ended) {
+          throw Object.assign(
+            new Error(JSON.stringify({ code: 'workspace.run_active', params: { workspace: 'statistics', run: 8 }, severity: 'error' })),
+            { code: 'validation' }
+          );
+        }
+        return NONE;
+      },
+    });
+    const desc = makeMockDescribeBridge({});
+    const ttest = makeMockTTestBridge({});
+    const oneSample = makeMockOneSampleBridge({});
+    const view = (state: 'running' | 'cancelled', terminal: boolean) => ({
+      runId: 8,
+      state,
+      terminal,
+      elapsedMs: 80,
+      cancelRequested: false,
+      diagnostics: [],
+    });
+    const paired = makeMockPairedBridge({
+      stats_paired_status: () => (ended ? view('cancelled', true) : view('running', false)),
+      stats_paired_cancel: () => {
+        ended = true;
+        return view('running', false);
+      },
+    });
+    render(
+      <MemoryRouter initialEntries={['/app/workspaces/statistics']}>
+        <Routes>
+          <Route
+            path="/app/workspaces/statistics"
+            element={<WorkspaceShell bridge={ws} runs={desc} ttestRuns={ttest} oneSampleRuns={oneSample} pairedRuns={paired} pollMs={20} />}
+          />
+          <Route path="/app/workspaces" element={<div data-testid="chooser-here" />} />
+        </Routes>
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(screen.getByTestId('ws-job').textContent).toBe('Run 8 (paired-samples t-test): Running.'));
+    fireEvent.click(screen.getByTestId('ws-switch'));
+    await screen.findByTestId('ws-switch-dialog');
+    fireEvent.click(screen.getByTestId('ws-switch-cancel'));
+    await screen.findByTestId('chooser-here');
+    expect(paired.calls.filter(([c]) => c === 'stats_paired_cancel')).toEqual([['stats_paired_cancel', { runId: 8 }]]);
+    // Never through another kind's commands.
+    expect(desc.calls).toEqual([]);
+    expect(ttest.calls).toEqual([]);
+    expect(oneSample.calls).toEqual([]);
   });
 });

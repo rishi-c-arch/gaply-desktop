@@ -57,7 +57,7 @@ import { describeBridge, type DescribeBridge } from '../describeBridge';
 import { RUN_STATE_NAMES } from '../describeWording';
 import { methodFor } from '../methods';
 import { ttestBridge, type TTestBridge } from '../ttestBridge';
-import { oneSampleBridge, type OneSampleBridge } from '../onesampleBridge';
+import { oneSampleBridge, pairedBridge, type OneSampleBridge, type PairedBridge } from '../onesampleBridge';
 import { projectBridge, type ProjectBridge } from './projectBridge';
 import { EXPORTS, prepareExport, type ExportKind, type SaveFile } from './projectExport';
 import { projectsShown } from './projectGate';
@@ -104,6 +104,7 @@ export interface ProjectPageProps {
   describe?: DescribeBridge;
   ttest?: TTestBridge;
   oneSample?: OneSampleBridge;
+  paired?: PairedBridge;
   /** How often project_current is read while a rerun is going. */
   pollMs?: number;
 }
@@ -165,6 +166,7 @@ const ProjectPageShown: React.FC<ProjectPageProps> = ({
   describe: givenDescribe,
   ttest: givenTtest,
   oneSample: givenOneSample,
+  paired: givenPaired,
   pollMs = 250,
 }) => {
   const bridge = useMemo(() => given ?? projectBridge(), [given]);
@@ -172,14 +174,16 @@ const ProjectPageShown: React.FC<ProjectPageProps> = ({
   const describe = useMemo(() => givenDescribe ?? describeBridge(), [givenDescribe]);
   const ttest = useMemo(() => givenTtest ?? ttestBridge(), [givenTtest]);
   const oneSample = useMemo(() => givenOneSample ?? oneSampleBridge(), [givenOneSample]);
+  const paired = useMemo(() => givenPaired ?? pairedBridge(), [givenPaired]);
   // Each kind's cancel, from the bridges given (Phase 8C).
   const cancels = useMemo<Record<RerunKind, (runId: number) => Promise<unknown>>>(
     () => ({
       describe: (runId) => describe.cancel(runId),
       ttest: (runId) => ttest.cancel(runId),
       one_sample: (runId) => oneSample.cancel(runId),
+      paired: (runId) => paired.cancel(runId),
     }),
-    [describe, ttest, oneSample]
+    [describe, ttest, oneSample, paired]
   );
   const gen = useGeneration();
   const [view, setView] = useState<View>({ kind: 'loading' });

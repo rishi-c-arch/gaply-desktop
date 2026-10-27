@@ -17,7 +17,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { STATISTICS_HOME_PATH, statisticsRoutes, statisticsTiles, TTEST_PATH } from './statisticsRoute';
+import { ONE_SAMPLE_PATH, PAIRED_PATH, STATISTICS_HOME_PATH, statisticsRoutes, statisticsTiles, TTEST_PATH } from './statisticsRoute';
 import { DESCRIBE_PATH, describeRoute } from './describeRoute';
 import AppHomeHero from '../home/AppHomeHero';
 import { ThemeProvider } from '../../contexts/ThemeContext';
@@ -43,7 +43,12 @@ function routeTo(p: string) {
   render(
     <MemoryRouter initialEntries={[p]}>
       <Routes>
-        {statisticsRoutes(<div data-testid="home-here" />, <div data-testid="ttest-here" />, <div data-testid="one-sample-here" />)}
+        {statisticsRoutes(
+          <div data-testid="home-here" />,
+          <div data-testid="ttest-here" />,
+          <div data-testid="one-sample-here" />,
+          <div data-testid="paired-here" />
+        )}
         {describeRoute(<div data-testid="describe-here" />)}
         <Route path="*" element={<div data-testid="no-route" />} />
       </Routes>
@@ -120,6 +125,28 @@ describe('the method selector and the t-test, under each flag', () => {
     const link = await screen.findByText('Statistical Methods');
     expect(link.closest('a')?.getAttribute('href')).toBe(STATISTICS_HOME_PATH);
     expect(tools.textContent).not.toContain('Descriptive Summary');
+  });
+});
+
+// Research OS, Phase 8D-2c (decision 271): each new method's path reaches its
+// own element, and none while the flag is off.
+describe('the one-sample and paired t-tests\' routes', () => {
+  it('with the flag on, ONE_SAMPLE_PATH and PAIRED_PATH each reach their own element', () => {
+    flags.describe = true;
+    flags.workspaces = true;
+    expect(ONE_SAMPLE_PATH).toBe('/app/statistics/one-sample');
+    expect(PAIRED_PATH).toBe('/app/statistics/paired');
+    for (const [p, id] of [
+      ['/app/statistics/one-sample', 'one-sample-here'],
+      ['/app/statistics/paired', 'paired-here'],
+    ]) {
+      routeTo(p);
+      expect(screen.getByTestId(id), p).toBeTruthy();
+      cleanup();
+    }
+    flags.describe = false;
+    routeTo('/app/statistics/paired');
+    expect(screen.getByTestId('no-route')).toBeTruthy();
   });
 });
 

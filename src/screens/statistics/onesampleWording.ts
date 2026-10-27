@@ -213,3 +213,36 @@ export const ONE_SAMPLE_EXPORT_TEXT =
 
 /** Rows used is n, so the three counts add up. */
 export const ONE_SAMPLE_ROWS_USED_NOTE = 'The values used. Rows read is rows used plus the rows left out above.';
+
+/* ---- the paired-samples t-test's screen (Phase 8D-2c, decision 271) ---- */
+
+export const PAIRED_STAGE_HEADINGS: Record<Stage, string> = {
+  ...ONE_SAMPLE_STAGE_HEADINGS,
+  settings: 'Choose the first and the second column',
+};
+
+export const PAIRED_ENTRY_TEXT =
+  'A paired-samples t-test on your own data: the mean of the differences between two numeric columns measured on the same rows, first minus second. The file is read on this device and nothing is sent anywhere. The data stays in memory while this screen is open and is dropped when you close the file or the app.';
+
+/** The line beside the two column pickers. */
+export const PAIRED_DIFFERENCE_LINE = 'The difference is first minus second.';
+
+export const PAIRED_EXPORT_TEXT =
+  "Gaply writes only the file you name in the save dialog and keeps no copy. The result table holds the numbers, with each column's mean and SD marked first or second. The manifest holds hashes, versions and counts, never your data, headers or file name.";
+
+/** Rows used is the number of pairs, so the three counts add up. */
+export const PAIRED_ROWS_USED_NOTE = 'The pairs used. Rows read is rows used plus the rows left out above.';
+
+/** A column as a missing-code question names it: its header and how many of
+ *  its cells hold the code (0 where none does). */
+export interface CodeColumn {
+  header: string;
+  cells: number;
+}
+
+/** A candidate missing code in either chosen column, as one question naming
+ *  both columns' counts: never applied unless ticked, and then every pair in
+ *  which either column holds it is left out, as Rust does. */
+export function pairedMissingCodeQuestion(code: number, first: CodeColumn, second: CodeColumn): string {
+  return `Is ${code} a code for a missing value? It appears in the first column "${first.header}" (${cells(first.cells)}) and in the second column "${second.header}" (${cells(second.cells)}). If you tick it, every pair in which either column holds ${code} is left out.`;
+}

@@ -218,11 +218,12 @@ describe('StatisticsHome', () => {
   });
 });
 
-// Research OS, Phase 8D-2b (decision 268): the one-sample t-test has a
-// screen, so its card opens it; the paired t-test has none until 8D-2c, so
-// its card keeps the line that says so.
+// Research OS, Phases 8D-2b and 8D-2c (decisions 268 and 271): the one-sample
+// and paired t-tests each have a screen, so each card opens its own, and
+// neither keeps the "no screen of its own here yet" line (tested at :131 on a
+// card with no screen).
 describe('the one-sample and paired t-tests on the home', () => {
-  it('the one-sample card opens its screen, and the paired card says it has no screen of its own', async () => {
+  it('the one-sample and paired cards each open their own screen', async () => {
     const list = [
       cap('stats.analyze.one_sample_t', 'beta', true, 'stats.capability.analyze.one_sample_t.title'),
       cap('stats.analyze.paired_t', 'beta', true, 'stats.capability.analyze.paired_t.title'),
@@ -234,6 +235,7 @@ describe('the one-sample and paired t-tests on the home', () => {
           <Routes>
             <Route path="/app/statistics" element={<StatisticsHome bridge={bridge} forceEntitlement="entitled" />} />
             <Route path="/app/statistics/one-sample" element={<div data-testid="one-sample-here" />} />
+            <Route path="/app/statistics/paired" element={<div data-testid="paired-here" />} />
           </Routes>
         </GaplySessionProvider>
       </MemoryRouter>
@@ -241,11 +243,22 @@ describe('the one-sample and paired t-tests on the home', () => {
     const card = await screen.findByTestId('stats-card-stats.analyze.one_sample_t');
     expect(within(card).getByText('One-sample t-test on your data')).toBeTruthy();
     expect(screen.queryByTestId('stats-no-route-stats.analyze.one_sample_t')).toBeNull();
-    expect(screen.getByTestId('stats-no-route-stats.analyze.paired_t').textContent).toBe(
-      'This method runs in Gaply, but has no screen of its own here yet.'
-    );
-    expect(screen.queryByTestId('stats-open-stats.analyze.paired_t')).toBeNull();
+    expect(screen.queryByTestId('stats-no-route-stats.analyze.paired_t')).toBeNull();
+    expect(screen.getByTestId('stats-open-stats.analyze.paired_t').getAttribute('href')).toBe('/app/statistics/paired');
     fireEvent.click(screen.getByTestId('stats-open-stats.analyze.one_sample_t'));
     expect(await screen.findByTestId('one-sample-here')).toBeTruthy();
+    cleanup();
+    render(
+      <MemoryRouter initialEntries={['/app/statistics']}>
+        <GaplySessionProvider authService={auth()}>
+          <Routes>
+            <Route path="/app/statistics" element={<StatisticsHome bridge={bridge} forceEntitlement="entitled" />} />
+            <Route path="/app/statistics/paired" element={<div data-testid="paired-here" />} />
+          </Routes>
+        </GaplySessionProvider>
+      </MemoryRouter>
+    );
+    fireEvent.click(await screen.findByTestId('stats-open-stats.analyze.paired_t'));
+    expect(await screen.findByTestId('paired-here')).toBeTruthy();
   });
 });

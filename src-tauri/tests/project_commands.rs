@@ -1267,6 +1267,43 @@ fn stored_one_sample_results_have_the_layout_of_their_fixtures() {
     );
 }
 
+/// The paired t-test's saved results (Research OS, Phase 8D-2c, decision
+/// 272): a result, and a failed run whose two different columns hold equal
+/// values, so every difference is 0 (`differences_constant`, a run's
+/// refusal; `same_column` would need one alias twice), laid out as their
+/// fixtures, as the one-sample test's are. The shared CSV has one numeric
+/// column, so this opens its own two-column bytes.
+#[test]
+fn stored_paired_results_have_the_layout_of_their_fixtures() {
+    let w = World::new("stored-paired");
+    let slot = w.open("pairs.csv", b"a,b\n1.5,1.0\n2.5,2.25\n3.0,2.0\n4.5,3.75\n");
+    let run = w.paired(slot, 1, 2);
+    let id = pc::save_run(&w.root(), &w.ws, run, new_project("Stored paired"))
+        .unwrap()
+        .project_id;
+    let equal = w.open("equal_pairs.csv", b"a,b\n4,4\n5,5\n6,6\n");
+    let f = w.paired(equal, 1, 2);
+    assert_eq!(w.wait_new_kind(f), RunState::Failed);
+    pc::save_run(&w.root(), &w.ws, f, into_open(&id)).unwrap();
+    for (n, name, state) in [
+        (1, "paired.json", RunState::Succeeded),
+        (2, "paired_failed.json", RunState::Failed),
+    ] {
+        let back = pc::run_result(&w.root(), &w.ws, &id, n).expect("read back");
+        assert_eq!(back.state, state, "{name}");
+        assert_eq!(back.capability_id, "stats.analyze.paired_t", "{name}");
+        assert_stored_fixture(name, &back);
+    }
+    let failure = pc::run_result(&w.root(), &w.ws, &id, 2)
+        .unwrap()
+        .failure_json
+        .expect("a failure record");
+    assert!(
+        failure.contains("stats.onesample.differences_constant"),
+        "{failure}"
+    );
+}
+
 #[test]
 fn the_project_code_list_is_pinned() {
     let codes: Vec<&str> = ProjectCode::ALL.iter().map(|c| c.wire()).collect();

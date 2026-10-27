@@ -26715,8 +26715,10 @@ and fail, and their red was recorded after that change.
 266 to 269 of 27 Oct 2026 (`~/gaply-corpus/os/decisions.md`), with 66, 140,
 188, 243, 250, 259, 262, 264 and 265.
 - The report is `~/gaply-corpus/os/phase8/phase8d2b_report.md`.
-- The real-app check is `~/gaply-corpus/os/phase8/realapp_8d2b.md`, run by the
-  user on 27 Oct 2026: passed.
+- The real-app check is `~/gaply-corpus/os/phase8/realapp_8d2b.md`. It was not
+  run before this step's commit (`cb050bc`); this line said it had been, and
+  decision 270 corrects it. Its steps are part of 8D-2c's check,
+  `realapp_8d2c.md` (D300).
 - The paired t-test's screen and its stored fixtures are 8D-2c's (decision 266).
   Its words are written here, because the two methods share `OneSampleCode`.
 
@@ -26887,3 +26889,152 @@ synthetic `~/gaply-corpus/os/phase8/8b/HTOK_5000.csv`:
   (`cmp` equal).
 - rustfmt on the four changed test files: clean after one assertion in
   `project_onesample.rs` was wrapped. `git diff --check`: clean.
+
+### D300 — Research OS, Phase 8D-2c: the paired t-test on screen, on 8D-2b's shared pieces; its row, routes, per-kind entries and saved results; D299's real-app line corrected `[src]` `[test]` `[measured]`
+
+**Added** on `feat/research-os-8` after `cb050bc` (D299). It follows decisions
+270 to 272 of 27 Oct 2026 (`~/gaply-corpus/os/decisions.md`), with 66, 140,
+249, 255, 256, 259 and 263 to 269.
+- The report is `~/gaply-corpus/os/phase8/phase8d2c_report.md`.
+- **The real-app check is `~/gaply-corpus/os/phase8/realapp_8d2c.md`, run by
+  the user on 27 Oct 2026: passed, both screens.** It covers both new screens:
+  Part B is `realapp_8d2b.md`'s one-sample steps, which were never run
+  (decision 270). **With it, Phase 8D is complete.**
+- **D299 is corrected (decision 270).** Its line said the user ran
+  `realapp_8d2b.md` and it passed. That was not so before `cb050bc`, and the
+  line now says that.
+
+**The screen (decision 271).** `src/screens/statistics/PairedFlow.tsx`, prefix
+`pt-`, at `PAIRED_PATH = '/app/statistics/paired'`, behind
+`REACT_APP_FEATURE_STATS_DESCRIBE`. It is built only from 8D-2b's pieces as they
+are: `flowParts.tsx`, `flowHooks.ts` and `statsInvoke.ts` are unchanged.
+- **The settings:**
+  - a first and a second column, each from the numeric columns, with no
+    default; the second list keeps the first's choice;
+  - "The difference is first minus second." beside them;
+  - Check the settings is enabled once both are chosen;
+  - the same column twice is sent, and Rust refuses it with `same_column`.
+- **Missing codes:** each candidate code of the first column, then each of the
+  second's not already offered, once. Its question gives both columns' counts
+  (0 where the code is absent) and says every pair in which either column holds
+  it is left out (`stats_onesample/mod.rs:354`).
+- **`PairedResultCard`:**
+  - shows the pairs, each column's mean and SD, the mean difference, the SD of
+    the differences, the standard error and 95% interval, t, df, two-sided p,
+    and d_z with decision 268's sentence;
+  - also the rows left out, the limitations and the manifest panel;
+  - its rows say "First column" and "Second column", never a header.
+- `PairedPage` (test id `paired-page`) and `GaplyScreens.tsx`'s `PairedRoute`,
+  "Open the Statistics workspace to use the paired-samples t-test.".
+- **Its words, new exports in `onesampleWording.ts`.** 33 lines were added and
+  none changed: `PAIRED_STAGE_HEADINGS`, `PAIRED_ENTRY_TEXT`,
+  `PAIRED_DIFFERENCE_LINE`, `PAIRED_EXPORT_TEXT`, `PAIRED_ROWS_USED_NOTE` and
+  `pairedMissingCodeQuestion`. The paired codes' sentences are 8D-2b's.
+
+**Against D295's list of the places a method touches on screen.** With this
+step, the paired t-test has every one:
+- **`methods.ts`:** the `paired` row, "Paired-samples t-test" /
+  "paired-samples t-test" / `PAIRED_PATH`. `RunKind`, `capabilityName`,
+  `KIND_NAMES`, `kindOf` and the home's routes read it, so the home's card
+  opens the screen and has no "no screen of its own" line.
+- **The routes:** `statisticsRoutes(home, ttest, oneSample, paired)`, with all
+  four required. All three callers pass four: `App.tsx`,
+  `statisticsRoute.vitest.tsx` and `projectPageScreens.vitest.tsx`.
+- **The per-kind records,** each of type `Record<MethodKind, …>`, so the row
+  forces an entry:
+  - `WorkspaceShell.tsx`: `pairedRuns`, kind `paired`;
+  - `ProjectPage.tsx`: `paired`, its cancel.
+- **`storedShape.ts`:** `PAIRED_CAPABILITY`, `pairedBundle`, the checker entry
+  and the `paired` Checked case.
+- **`SavedResult.tsx`:** the renderer through `PairedResultCard`, not behind a
+  flag.
+- No Rust source changed: nothing under `src-tauri/src` or
+  `src-tauri/gaply-core/src`, and no `Cargo.toml` or `Cargo.lock`.
+
+**Saved results (decision 272).**
+- `project_commands::stored_paired_results_have_the_layout_of_their_fixtures`
+  wrote `stored/paired.json` and `paired_failed.json` once, with
+  `GAPLY_WRITE_PROJECT_FIXTURES=1`.
+  - The failure is from two different columns with equal values, so it is
+    `differences_constant`.
+  - The test was red first, on the missing `paired.json`.
+  - The binary then passed 25/25 without the variable.
+- The existing five fixtures are unchanged. Neither new file holds a file name
+  or a header.
+- `projects/savedPaired.vitest.tsx`:
+  - both snapshots pass the shape check, each as its own case;
+  - the result renders through `PairedResultCard` with the live screen's text
+    and no button;
+  - the failed run shows `differences_constant`'s sentence.
+
+**Red first.**
+- `PairedFlow.tsx` was first a stub rendering nothing.
+- `PairedFlow.vitest.tsx` ran 9 cases, 9 failed. Each failed on the same first
+  assertion, the import heading (9 `AssertionError`s).
+- Every new or changed case in the existing vitests was then written and run
+  red, 12 failing. The exception is `SavedResult.vitest.tsx`'s "has the seven
+  snapshots…": it was green at once, because the Rust test had written both
+  fixtures before the red run.
+- After the code, two test-side corrections:
+  - the missing-code case read each label's text with the checkbox's leading
+    space, as the one-sample screen renders it, and now trims it;
+  - the `same_column` mock carries no parameters, as Rust's does
+    (`mod.rs:588`).
+
+**Existing tests changed, and why** (all on the rules' list):
+- `methods.vitest.ts`: four rows, four result-view fixtures, four paths; its
+  second case's name says four.
+- `statisticsRoute.vitest.tsx`: four elements, and one new case: with the flag
+  on, each new path reaches its own element.
+- `projectPageScreens.vitest.tsx:117`: four elements.
+- `StatisticsHome.vitest.tsx`: the 8D-2b case is turned round, so both cards
+  open their own screen. The no-screen line stays tested at :131.
+- `SavedResult.vitest.tsx`: seven snapshots; both field-removal tables gain the
+  paired fixtures.
+- Appended: `WorkspaceShell.vitest.tsx` and `projectReruns.vitest.tsx`, a
+  paired case each.
+- Unchanged: `TTestFlow.vitest.tsx`, `OneSampleFlow.vitest.tsx`,
+  `ttestTypes.vitest.ts`, `onesampleTypes.vitest.ts`,
+  `onesampleWording.vitest.ts`, `ProjectPage.vitest.tsx`.
+
+**Mutations,** each with SHA-256 equal after its restore and green after:
+1. `PairedFlow` swapping first and second in its spec: the walk case went red,
+   1 of 9.
+2. The paired row removed from `methods.ts`: 2 of 3 in `methods.vitest.ts`
+   went red.
+3. The paired checker removed from `storedShape.ts`: all 3 of
+   `savedPaired.vitest.tsx` went red.
+4. The missing-code question built from the first column's codes only: the
+   missing-code case went red, 1 of 9.
+
+**The check's data.** `~/gaply-corpus/os/phase8/8d2c/HTPAIRED.csv` (synthetic,
+40 rows, `before` and `after`, -99 once in each in different rows). R 4.6.1,
+`t.test(before, after, paired = TRUE)` on the 38 rows left:
+- t 19.39760383, df 37, p 5.567325252e-21;
+- mean difference 3.031578947, SD of the differences 0.9634132068, se
+  0.1562862595, interval 2.714912906 to 3.348244989;
+- d_z 3.14670686.
+
+The one-sample numbers are 8D-2b's.
+
+**Suites, measured 27 Oct 2026 on macOS aarch64, each in its own log under
+`~/gaply-corpus/os/phase8/8d2c/logs/`, and each predicted before it ran:**
+- `cargo test --workspace --no-fail-fast`: exit 0; 136 Running and 2 doc-test
+  targets; 3,054 passed (3,053 + 1), 12 ignored. By name against D299's run,
+  the one new name is the stored-paired test.
+  - **The first run failed one test, in code no step changed:**
+    `project_store::tests::a_folder_the_app_cannot_change_refuses_the_delete_and_keeps_everything`
+    got `OpenElsewhere` on its last `delete`, while tsc and eslint ran beside
+    it.
+  - Alone, it passed 5 of 5, and the rerun with nothing beside it was green.
+- `cargo test -p app --features devtools`: 59 targets, 889 → 890 passed.
+- `cargo test -p gaply_core`: 83 targets, 2,181 passed, unchanged.
+- `cargo check --workspace --all-targets`: exit 0, the same 45 warnings.
+- vitest on its own: 133 files and 1,767 tests (131 and 1,749 before: 2 new
+  files; 18 new tests, 9 + 3 in them, 1 each in the route, shell and rerun
+  files, and 3 table rows in `SavedResult.vitest.tsx`). Statistics, projects
+  and workspace: 38 files, 569 tests.
+- `npx tsc --noEmit`, CI's eslint and `npm run build`: exit 0, with
+  `build/index.html` present and `public/sitemap.xml` written back from HEAD
+  (`cmp` equal).
+- rustfmt on `tests/project_commands.rs` and `git diff --check`: clean.

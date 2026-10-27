@@ -2,7 +2,8 @@
 
 Capability `stats.analyze.paired_t`, version 1, **Beta**, in the Statistics
 workspace (Research OS, Phase 8D-1; decisions 252 to 257 of 26 Oct 2026; Beta
-since Phase 8D-2a, decisions 262 to 265). This
+since Phase 8D-2a, decisions 262 to 265; its screen since Phase 8D-2c,
+decisions 270 to 272). This
 page is the capability's `documentation_id` (`methods/paired_t`).
 
 It computes the paired t-test on two numeric columns of the user's own data,
@@ -17,9 +18,15 @@ forms the differences and calls the one arithmetic the one-sample test uses
 the run manager runs it (`RunKind::Paired`), the `stats_paired_*` commands
 validate, run, report, cancel and export it, and a project saves, reruns and
 exports it, its columns named in the report by position and the roles `first`
-and `second`. Its screen is 8D-2c's (decision 266 split the screens by method);
-until then the Statistics home shows it as a card that says it has no screen of
-its own here yet. Its words are already written, in 8D-2b's `onesampleWording.ts`.
+and `second`. Since 8D-2c it has its own screen (`PairedFlow`, at
+`/app/statistics/paired`), opened from its card on the Statistics home: a
+first and a second column, each picked from the numeric columns with no
+default, "The difference is first minus second." beside them, and each
+candidate missing code of either column asked once with both columns' counts.
+The same column twice is sent and refused by Rust (`same_column`). A saved
+result renders through the same result card, whose rows name the columns by
+role, never by header, and its failure through its code's sentence. Its words
+are in `onesampleWording.ts`.
 
 ## 1. Inputs and the spec
 
@@ -141,7 +148,7 @@ Gaply's threshold computes with the same bits as before
 (`tests/essentially_constant.rs`). The exact check comes first: all differences
 equal is still `differences_constant`. The rule only refuses: every result that
 computed before computes with the same bits
-(`tests/essentially_constant_bytes_pin.rs`). The screen's sentence (written in 8D-2b, shown from 8D-2c):
+(`tests/essentially_constant_bytes_pin.rs`). The screen's sentence (written in 8D-2b, shown since 8D-2c, `PairedFlow.vitest.tsx`):
 "The differences vary so little, compared with the size of the values, that
 the standard error is lost in rounding, so t is not computed. This happens when
 every pair differs by the same amount, such as 0.1, which a computer stores
@@ -229,7 +236,7 @@ observations").
 | Formula/method and variant documented | this page §2, §4; `stats_onesample/mod.rs` header | done |
 | Golden fixtures and edge cases pass | `onesample_r_golden` (15 paired cases, 4 refused), `onesample_validate` | done |
 | Missing values, ties, weights, precision and sample size handled according to the method | §5, the ties and missing cases, §8, §6, `too_few_pairs`, the df boundary | done; weights not supported, stated |
-| Diagnostic meanings and limitations documented | §5, §8; `OneSampleCode` doc comments; the title, description and normality sentences in `capabilityWording.ts` | partly: the code sentences are written (8D-2b, `onesampleWording.ts`); the screen is 8D-2c |
+| Diagnostic meanings and limitations documented | §5, §8; `OneSampleCode` doc comments; the title, description and normality sentences in `capabilityWording.ts`; the screen's sentence for each code (`onesampleWording.ts`, `onesampleWording.vitest.ts`: one per code, neutral) and its own words (`PairedFlow.vitest.tsx`) | done (sentences 8D-2b, screen 8D-2c) |
 | Independent reference comparison completed | R `t.test(paired = TRUE)` and effectsize, §6, §9 | done |
-| Unsupported designs return explicit reasons | §5 (`same_column`, `too_few_pairs`, `differences_constant`, …), §8; at the command boundary (`stats_onesample_commands::each_refusal_has_its_exact_code`, `differences_essentially_constant` included) and on the screen | core and commands done (8D-2a); screen 8D-2c |
-| Result manifest and export verified | `onesample_validate` (CSV round trip with the column rows, sentinels, rows add up, ten runs byte-identical); through IPC (`stats_onesample_commands`), the privacy matrix (`stats_onesample_privacy_matrix`), a project's save, rerun and export (`project_onesample`, the export-input pin); the screen and the save dialog | core and app side done (8D-2a); screen and save dialog 8D-2c |
+| Unsupported designs return explicit reasons | §5 (`same_column`, `too_few_pairs`, `differences_constant`, …), §8; at the command boundary (`stats_onesample_commands::each_refusal_has_its_exact_code`, `differences_essentially_constant` included) and on the screen (`PairedFlow.vitest.tsx`: `same_column` refused in its words, `differences_essentially_constant` on a failed run, a refusal from Rust) | done (core and commands 8D-2a; screen 8D-2c) |
+| Result manifest and export verified | `onesample_validate` (CSV round trip with the column rows, sentinels, rows add up, ten runs byte-identical); through IPC (`stats_onesample_commands`), the privacy matrix (`stats_onesample_privacy_matrix`), a project's save, rerun and export (`project_onesample`, the export-input pin); the screen's export and Save to a project… (`PairedFlow.vitest.tsx`), the stored snapshots (`stored_paired_results_have_the_layout_of_their_fixtures`, `projects/savedPaired.vitest.tsx`) | done (core and app side 8D-2a; screen, save dialog and saved result 8D-2c; the real-app check `realapp_8d2c.md`, run by the user on 27 Oct 2026: passed) |

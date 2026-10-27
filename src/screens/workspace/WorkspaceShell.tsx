@@ -23,7 +23,7 @@ import type { RunState } from '../statistics/describeTypes';
 import { STATISTICS_HOME_PATH, statisticsTools as selectorTools } from '../statistics/statisticsRoute';
 import { FOCUS_PROJECTS } from '../statistics/StatisticsHome';
 import { ttestBridge, type TTestBridge } from '../statistics/ttestBridge';
-import { oneSampleBridge, type OneSampleBridge } from '../statistics/onesampleBridge';
+import { oneSampleBridge, pairedBridge, type OneSampleBridge, type PairedBridge } from '../statistics/onesampleBridge';
 import { byKind } from '../statistics/methods';
 import { projectsShown } from '../statistics/projects/projectGate';
 import { noteWorkspaceState, openProjectStore } from '../statistics/projects/projectSession';
@@ -41,6 +41,8 @@ export interface WorkspaceShellProps {
   ttestRuns?: TTestBridge;
   /** Reads and cancels a one-sample t-test's run (Phase 8D-2b's bridge). */
   oneSampleRuns?: OneSampleBridge;
+  /** Reads and cancels a paired t-test's run (Phase 8D-2c, the same bridge). */
+  pairedRuns?: PairedBridge;
   /** How often the state and the newest run are read. */
   pollMs?: number;
 }
@@ -115,6 +117,7 @@ export const WorkspaceShell: React.FC<WorkspaceShellProps> = ({
   runs: givenRuns,
   ttestRuns: givenTTest,
   oneSampleRuns: givenOneSample,
+  pairedRuns: givenPaired,
   pollMs = 1000,
 }) => {
   const navigate = useNavigate();
@@ -122,6 +125,7 @@ export const WorkspaceShell: React.FC<WorkspaceShellProps> = ({
   const runs = useMemo(() => givenRuns ?? describeBridge(), [givenRuns]);
   const ttest = useMemo(() => givenTTest ?? ttestBridge(), [givenTTest]);
   const oneSample = useMemo(() => givenOneSample ?? oneSampleBridge(), [givenOneSample]);
+  const paired = useMemo(() => givenPaired ?? pairedBridge(), [givenPaired]);
   const [view, setView] = useState<WorkspaceStateView | null>(null);
   const [run, setRun] = useState<JobView | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -170,8 +174,15 @@ export const WorkspaceShell: React.FC<WorkspaceShellProps> = ({
         },
         cancel: (runId) => oneSample.cancel(runId).catch(() => null),
       },
+      paired: {
+        status: async (runId) => {
+          const r = await paired.status(runId).catch(() => null);
+          return r && { runId: r.runId, state: r.state, terminal: r.terminal, progress: null, kind: 'paired' };
+        },
+        cancel: (runId) => paired.cancel(runId).catch(() => null),
+      },
     }),
-    [runs, ttest, oneSample]
+    [runs, ttest, oneSample, paired]
   );
 
   /** A run's state, through its kind's status command (decision 80). */
