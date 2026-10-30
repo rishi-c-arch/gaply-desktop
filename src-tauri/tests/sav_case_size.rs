@@ -15,7 +15,8 @@
 //! (`parse_supplementary_with` under `SUPPLEMENTARY`, as `commands.rs`'s
 //! `run_publishready_measured` calls it), the Stats Verifier's legacy lane
 //! (`commands::run_stats_preview`, since `load_first_table` is private), the
-//! methods' open, and a proper file in either byte order reading as before.
+//! methods' open, and a proper file reading as before little-endian and
+//! refused big-endian (since 8F-3, decision 295; `sav_big_endian.rs`).
 //! Level 1's open and compute are in `stats_l1_commands.rs`, the
 //! reproduction in `stats_l1_reproduction.rs`, the rerun in
 //! `project_rerun.rs`. Each catches a panic so that every file is reported.
@@ -111,58 +112,58 @@ fn the_methods_open_gives_no_columns_or_malformed_with_no_panic() {
     );
 }
 
+/// A proper file reads as before little-endian, and is refused big-endian
+/// since 8F-3 (decision 295). Until 8F-3 the big-endian half pinned ambers
+/// 0.4.4's wrong reading (each value its big-endian bytes read the other way
+/// round, 1.5 as 3.13984e-319; D303's finding), under the name
+/// `a_proper_sav_reads_as_before_in_either_byte_order`.
 #[test]
-fn a_proper_sav_reads_as_before_in_either_byte_order() {
+fn a_proper_sav_reads_as_before_little_endian_and_is_refused_big_endian() {
     let dir = TempDir::new("sav_proper");
-    let mut tables = Vec::new();
-    for (order, name) in [(Order::Little, "le.sav"), (Order::Big, "be.sav")] {
-        let bytes = proper(order);
-        let p = dir.write(name, &bytes);
-        let ev = parse_supplementary_with(&p, IngestLimits::SUPPLEMENTARY)
-            .unwrap_or_else(|e| panic!("{order:?}: {e:?}"));
-        let t = &ev.tables[0];
-        assert_eq!(t.headers, ["X", "Y"], "{order:?}");
-        let numbers: Vec<Vec<f64>> = t
-            .rows
-            .iter()
-            .map(|r| r.iter().map(|c| c.parse::<f64>().unwrap()).collect())
-            .collect();
-        let written = [[1.5, 2.25], [3.0, 4.75]];
-        match order {
-            Order::Little => assert_eq!(numbers, written, "{order:?}"),
-            // As before 8F-2, and not correct: ambers 0.4.4 reads a
-            // big-endian file's header and dictionary in its byte order but
-            // its uncompressed cases as little-endian, so each value is its
-            // big-endian bytes read the other way round (1.5 reads as
-            // 3.13984e-319). Measured 30 Oct 2026; recorded in D303 as a
-            // finding, outside decision 291, which changes no read.
-            Order::Big => {
-                for (got, w) in numbers.iter().flatten().zip(written.iter().flatten()) {
-                    let swapped = f64::from_le_bytes(w.to_be_bytes());
-                    assert!(
-                        ((got - swapped) / swapped).abs() < 1e-4,
-                        "{got:e} is {w}'s bytes swapped ({swapped:e})"
-                    );
-                }
-            }
-        }
-        tables.push(t.rows.clone());
+    let bytes = proper(Order::Little);
+    let p = dir.write("le.sav", &bytes);
+    let ev = parse_supplementary_with(&p, IngestLimits::SUPPLEMENTARY)
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    let t = &ev.tables[0];
+    assert_eq!(t.headers, ["X", "Y"]);
+    let numbers: Vec<Vec<f64>> = t
+        .rows
+        .iter()
+        .map(|r| r.iter().map(|c| c.parse::<f64>().unwrap()).collect())
+        .collect();
+    assert_eq!(numbers, [[1.5, 2.25], [3.0, 4.75]]);
+    let ds = load_dataset_from_bytes_with(&bytes, DataFormat::Sav, IngestLimits::LEVEL_1)
+        .unwrap_or_else(|r| panic!("{r:?}"));
+    assert_eq!((ds.rows(), ds.schema.columns.len()), (2, 2));
+    let view = open_with(
+        &DatasetSlots::default(),
+        &p,
+        None,
+        IngestLimits::this_computer(),
+    )
+    .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(view.profile.rows, 2);
 
-        let ds = load_dataset_from_bytes_with(&bytes, DataFormat::Sav, IngestLimits::LEVEL_1)
-            .unwrap_or_else(|r| panic!("{order:?}: {r:?}"));
-        assert_eq!((ds.rows(), ds.schema.columns.len()), (2, 2), "{order:?}");
-        let view = open_with(
-            &DatasetSlots::default(),
-            &p,
-            None,
-            IngestLimits::this_computer(),
-        )
-        .unwrap_or_else(|e| panic!("{order:?}: {e:?}"));
-        assert_eq!(view.profile.rows, 2, "{order:?}");
-    }
+    let bytes = proper(Order::Big);
+    let p = dir.write("be.sav", &bytes);
+    let e = parse_supplementary_with(&p, IngestLimits::SUPPLEMENTARY)
+        .err()
+        .expect("refused");
+    assert!(malformed(&e), "{e:?}");
     assert_eq!(
-        tables[0].len(),
-        tables[1].len(),
-        "both byte orders read every case"
+        load_dataset_from_bytes_with(&bytes, DataFormat::Sav, IngestLimits::LEVEL_1).err(),
+        Some(gaply_core::stats_l1::dataset::L1IngestRefusal::SavBigEndian)
+    );
+    let e = open_with(
+        &DatasetSlots::default(),
+        &p,
+        None,
+        IngestLimits::this_computer(),
+    )
+    .err()
+    .expect("refused");
+    assert!(
+        matches!(&e, GaplyError::Validation(m) if m == r#"{"code":"sav_big_endian"}"#),
+        "{e:?}"
     );
 }

@@ -179,6 +179,7 @@ fn every_code() -> Vec<WireCode> {
         L1IngestRefusal::ContentTooLarge { limit_bytes: 1 },
         L1IngestRefusal::EncodingNotUtf8,
         L1IngestRefusal::TooManyCells { limit_cells: 1 },
+        L1IngestRefusal::SavBigEndian,
     ];
     for r in ingest {
         all.push(codes::l1_ingest_refusal(r));

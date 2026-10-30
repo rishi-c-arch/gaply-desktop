@@ -26,6 +26,17 @@
 # binary left on disk — the contamination D210 records. It also means the
 # devtools binaries (grrb, grrb-gate, ai-eval, label-cn, label-cs) are compiled
 # by CI for the first time.
+#
+# Research OS, Phase 8F-3 (decision 296): this job failed on every push of
+# feat/research-os-8 (#113 to #120), once with the runner out of disk and once
+# with `linking with cc failed` and no reason shown. `cargo test -p app` builds
+# every test target and every example, 154 executables and the app library
+# (5.59 GiB on a Mac, measured 31 Oct 2026, where debug information is kept
+# outside the binaries, so a lower bound for Linux). So the job frees the
+# runner's disk first, builds with no debug information (debug assertions and
+# overflow checks are separate settings and stay on), prints the disk and
+# memory at the end whatever happened, and on a failure prints the linker's
+# reasons as ::error:: lines.
 name: App crate tests
 
 on:
@@ -43,7 +54,19 @@ jobs:
   app:
     name: cargo test -p app
     runs-on: ubuntu-24.04
+    # At job level, so Swatinem/rust-cache's key (which hashes CARGO-prefixed
+    # variables) differs from a cache built with debug information.
+    env:
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
     steps:
+      # On GitHub's runner only. A missing path is harmless.
+      - name: Free the runner's disk
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          df -h /
+
       - uses: actions/checkout@v7
 
       # Tauri 2's Linux build prerequisites (webkit2gtk-4.1 and friends), plus
@@ -90,10 +113,19 @@ jobs:
           CARGO_TERM_COLOR: never
         run: |
           set -o pipefail
+          # The pipeline's status is captured, or bash -e would end the step
+          # before the linker's reasons are printed (decision 296).
+          status=0
           dbus-run-session -- bash -c '
             echo "" | gnome-keyring-daemon --unlock --components=secrets >/dev/null 2>&1 || true
             cargo test -p app --features devtools --no-fail-fast
-          ' 2>&1 | tee app-tests.log
+          ' 2>&1 | tee app-tests.log || status=$?
+          if [ "$status" -ne 0 ]; then
+            grep -nE 'No space left|Killed|signal 9|undefined reference|ld returned|cannot find -l|error: linking' app-tests.log \
+              | head -40 | sed 's/^/::error::/' || true
+            echo "::error::cargo test exited $status"
+            exit "$status"
+          fi
           T=$(grep -cE '^     Running ' app-tests.log || true)
           P=$(grep -E '^test result: ok' app-tests.log | awk '{p+=$4} END {print p+0}')
           echo "targets=$T passed=$P"
@@ -101,3 +133,9 @@ jobs:
             echo "::error::the app suite ran $T targets and $P tests; it did not really run"
             exit 1
           fi
+
+      - name: Disk and memory at the end
+        if: always()
+        run: |
+          df -h /
+          free -m

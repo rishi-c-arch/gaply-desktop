@@ -363,6 +363,7 @@ pub fn l1_ingest_refusal(r: L1IngestRefusal) -> WireCode {
         L1IngestRefusal::ContentTooLarge { limit_bytes } => c("content_too_large").num("limit_bytes", limit_bytes),
         L1IngestRefusal::EncodingNotUtf8 => c("encoding_not_utf8"),
         L1IngestRefusal::TooManyCells { limit_cells } => c("too_many_cells").num("limit_cells", limit_cells),
+        L1IngestRefusal::SavBigEndian => c("sav_big_endian"),
     }
 }
 
@@ -558,6 +559,7 @@ mod tests {
             L1IngestRefusal::ContentTooLarge { limit_bytes: 2_097_152 },
             L1IngestRefusal::EncodingNotUtf8,
             L1IngestRefusal::TooManyCells { limit_cells: 5_000_000 },
+            L1IngestRefusal::SavBigEndian,
         ] {
             got.push(j(l1_ingest_refusal(r)));
         }
@@ -692,6 +694,7 @@ mod tests {
             r#"{"code":"content_too_large","limit_bytes":2097152}"#,
             r#"{"code":"encoding_not_utf8"}"#,
             r#"{"code":"too_many_cells","limit_cells":5000000}"#,
+            r#"{"code":"sav_big_endian"}"#,
             r#"{"code":"token_stale","rejection":"claim_mismatch"}"#,
             r#"{"code":"refused","refusal":"zero_variance"}"#,
             r#"{"code":"data_unreadable","refusal":"no_table"}"#,

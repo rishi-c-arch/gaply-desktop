@@ -50,10 +50,13 @@ const LEVEL_1: Record<string, string> = {
 };
 
 /** Codes added after 735116e, with the one sentence Level 1's screens and
- *  the methods' screens both give them (Phase 8F-1, decision 282). */
+ *  the methods' screens both give them (Phase 8F-1, decision 282; Phase
+ *  8F-3, decision 295). */
 const SINCE_8F1: Record<string, string> = {
   too_many_cells:
     'The file has more than 5000000 cells (rows times columns), more than Gaply opens on this computer, so it was not opened.',
+  sav_big_endian:
+    'This SPSS file stores its numbers in big-endian byte order, which some older computers used. Gaply cannot read that order yet, so the file was not opened. Open it in SPSS or PSPP on a current computer, save it again, and choose the new file.',
 };
 
 describe('the ingest refusals on the methods screens', () => {

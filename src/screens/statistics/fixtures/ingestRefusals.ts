@@ -5,6 +5,7 @@
 // too_wide and no_columns nested in dataset, and both cases of
 // archive_too_large and of too_large. The screens' tests render each one.
 // Phase 8F-1 (decision 282) adds too_many_cells, the cell cap's refusal.
+// Phase 8F-3 (decision 295) adds sav_big_endian, a big-endian .sav's.
 export const INGEST_REFUSALS: Array<{ name: string; code: Record<string, unknown> }> = [
   { name: 'not_readable', code: { code: 'not_readable' } },
   { name: 'too_large, the ingest cap', code: { code: 'too_large', bytes: 10_485_761, limit: 10_485_760 } },
@@ -23,6 +24,7 @@ export const INGEST_REFUSALS: Array<{ name: string; code: Record<string, unknown
   { name: 'content_too_large', code: { code: 'content_too_large', limit_bytes: 2_097_152 } },
   { name: 'encoding_not_utf8', code: { code: 'encoding_not_utf8' } },
   { name: 'too_many_cells', code: { code: 'too_many_cells', limit_cells: 5_000_000 } },
+  { name: 'sav_big_endian', code: { code: 'sav_big_endian' } },
 ];
 
 /** A refusal as a command rejects with it: its code in JSON. */

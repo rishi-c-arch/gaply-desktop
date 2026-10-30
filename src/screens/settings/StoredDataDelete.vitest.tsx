@@ -337,7 +337,10 @@ describe('after a delete', () => {
     fireEvent.click(within(dialog).getByTestId('stored-delete-confirm'));
     await waitFor(() => expect(screen.getByTestId('stored-data-message').textContent).toBe('Deleted: 3 analyses.'));
     expect(screen.queryByTestId('stored-delete-dialog')).toBeNull();
-    expect(document.activeElement).toBe(screen.getByTestId('stored-data-heading'));
+    // The focus moves in the dialog's unmount cleanup, an effect that can run
+    // after the render that shows the message: wait for it (Research OS,
+    // Phase 8F-3, decision 297).
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId('stored-data-heading')));
     expect(screen.getByTestId('stored-data-heading').textContent).toBe(STORED_DATA_TEXT.heading);
     await waitFor(() => expect(screen.getByTestId('stored-count-manuscript_analyses').textContent).toBe('0 analyses. Size: 0 MB.'));
     expect(b.calls).toBe(2);

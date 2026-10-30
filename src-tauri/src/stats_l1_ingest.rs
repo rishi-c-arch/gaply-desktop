@@ -373,6 +373,9 @@ fn dataset_from_parts(
         } else if supplementary::not_utf8_text_bytes(&before, &ext) {
             // F10 (decision 52): text in another encoding, not malformed.
             L1IngestRefusal::EncodingNotUtf8
+        } else if supplementary::sav_big_endian_bytes(&before, &ext) {
+            // Research OS, Phase 8F-3 (decision 295): a big-endian .sav.
+            L1IngestRefusal::SavBigEndian
         } else {
             L1IngestRefusal::Malformed
         }

@@ -44,6 +44,53 @@ impl W {
 /// eight ASCII characters), `rows` cases of them, and `case_size` as the
 /// header's nominal case size (a proper file gives `vars.len()`).
 pub fn sav(order: Order, case_size: i32, vars: &[&str], rows: &[Vec<f64>]) -> Vec<u8> {
+    let mut w = dictionary(order, 0, case_size, vars, rows.len());
+    for row in rows {
+        assert_eq!(row.len(), vars.len());
+        for v in row {
+            w.f64(*v);
+        }
+    }
+    w.out
+}
+
+/// The same file bytecode-compressed (compression code 1, bias 100), as
+/// PSPP's chapter gives it (Research OS, Phase 8F-3, decision 295): the
+/// cases as blocks of eight one-byte commands, each block followed by the
+/// raw eight-byte values its 253 commands name. A whole number from -99 to
+/// 151 is the command `value + 100`; any other value is 253 and its raw
+/// bytes, in the file's byte order. The last block is padded with 0.
+pub fn sav_bytecode(order: Order, vars: &[&str], rows: &[Vec<f64>]) -> Vec<u8> {
+    let mut w = dictionary(order, 1, vars.len() as i32, vars, rows.len());
+    let values: Vec<f64> = rows
+        .iter()
+        .inspect(|r| assert_eq!(r.len(), vars.len()))
+        .flatten()
+        .copied()
+        .collect();
+    for block in values.chunks(8) {
+        let mut raw = Vec::new();
+        let mut commands = [0u8; 8];
+        for (k, v) in block.iter().enumerate() {
+            let code = v + 100.0;
+            if v.fract() == 0.0 && (1.0..=251.0).contains(&code) {
+                commands[k] = code as u8;
+            } else {
+                commands[k] = 253;
+                raw.push(*v);
+            }
+        }
+        w.out.extend_from_slice(&commands);
+        for v in raw {
+            w.f64(v);
+        }
+    }
+    w.out
+}
+
+/// The header and dictionary both builders share, through the record of
+/// type 999.
+fn dictionary(order: Order, compression: i32, case_size: i32, vars: &[&str], cases: usize) -> W {
     let mut w = W {
         order,
         out: Vec::new(),
@@ -53,9 +100,9 @@ pub fn sav(order: Order, case_size: i32, vars: &[&str], rows: &[Vec<f64>]) -> Ve
     w.padded("@(#) SPSS DATA FILE gaply synthetic", 60);
     w.i32(2); // layout code
     w.i32(case_size); // nominal case size
-    w.i32(0); // compression: none
+    w.i32(compression); // 0 none, 1 bytecode
     w.i32(0); // weight index: none
-    w.i32(rows.len() as i32); // cases
+    w.i32(cases as i32); // cases
     w.f64(100.0); // bias
     w.padded("01 Jan 26", 9);
     w.padded("00:00:00", 8);
@@ -76,13 +123,7 @@ pub fn sav(order: Order, case_size: i32, vars: &[&str], rows: &[Vec<f64>]) -> Ve
     // The dictionary's end.
     w.i32(999);
     w.i32(0);
-    for row in rows {
-        assert_eq!(row.len(), vars.len());
-        for v in row {
-            w.f64(*v);
-        }
-    }
-    w.out
+    w
 }
 
 /// The four files ambers 0.4.4 panics on (decision 291), each with its name:
@@ -107,6 +148,36 @@ pub fn crashing() -> Vec<(&'static str, Vec<u8>)> {
 /// A proper two-variable file, in `order`: 1.5, 2.25 and 3.0, 4.75.
 pub fn proper(order: Order) -> Vec<u8> {
     sav(order, 2, &["x", "y"], &[vec![1.5, 2.25], vec![3.0, 4.75]])
+}
+
+/// The values of [`same_values`]' files, by name, one variable `X`.
+pub const ONE_AND_A_HALF: [f64; 2] = [1.5, 2.25];
+pub const ONE_TO_FIVE: [f64; 5] = [1.0, 2.0, 3.0, 4.0, 5.0];
+
+/// Three files in `order` (Research OS, Phase 8F-3, decision 295), one
+/// variable `X` each: 1.5 and 2.25 uncompressed, the same bytecode-compressed
+/// (each value a 253 and its raw bytes), and 1 to 5 bytecode-compressed (each
+/// value a command from the bias' table, no raw bytes). ambers 0.4.4 reads
+/// the first two wrongly when big-endian, and the third rightly.
+pub fn same_values(order: Order) -> Vec<(&'static str, Vec<u8>, Vec<f64>)> {
+    let col = |v: &[f64]| v.iter().map(|x| vec![*x]).collect::<Vec<_>>();
+    vec![
+        (
+            "uncompressed_1_5",
+            sav(order, 1, &["x"], &col(&ONE_AND_A_HALF)),
+            ONE_AND_A_HALF.to_vec(),
+        ),
+        (
+            "bytecode_1_5",
+            sav_bytecode(order, &["x"], &col(&ONE_AND_A_HALF)),
+            ONE_AND_A_HALF.to_vec(),
+        ),
+        (
+            "bytecode_1_to_5",
+            sav_bytecode(order, &["x"], &col(&ONE_TO_FIVE)),
+            ONE_TO_FIVE.to_vec(),
+        ),
+    ]
 }
 
 /// The JSON a method's open gives for each of [`crashing`]'s files once

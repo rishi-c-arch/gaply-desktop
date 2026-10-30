@@ -145,6 +145,34 @@ fn a_sav_that_crashed_ambers_gives_could_not_check_with_no_panic() {
     assert!(wrong.is_empty(), "{wrong:#?}");
 }
 
+/// Research OS, Phase 8F-3 (decision 295): a big-endian `.sav` read again by
+/// the reproduction gives every claim could not check, its refusal
+/// `SavBigEndian`, uncompressed or compressed.
+#[test]
+fn a_big_endian_sav_gives_could_not_check_sav_big_endian() {
+    use gaply_core::stats_l1::dataset::L1IngestRefusal;
+    use gaply_core::stats_l1::reproduce::L1CouldNotCheck;
+    let dir = std::env::temp_dir().join(format!("gaply_8f3_sav_repro_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut wrong = Vec::new();
+    for (name, bytes, _) in sav_support::same_values(sav_support::Order::Big) {
+        let p = dir.join(format!("{name}.sav"));
+        std::fs::write(&p, &bytes).unwrap();
+        let out = run_reading(&fixture("exit_manuscript.txt"), Some(&p));
+        let want = L1Verdict::CouldNotCheck(L1CouldNotCheck::DataUnreadable(
+            L1IngestRefusal::SavBigEndian,
+        ));
+        if out.claims.len() != 6 || !out.claims.iter().all(|c| c.verdict == want) {
+            wrong.push(format!(
+                "{name}: {:?}",
+                out.claims.iter().map(|c| &c.verdict).collect::<Vec<_>>()
+            ));
+        }
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
 fn changed(from: &str, to: &str) -> String {
     let m = fixture("exit_manuscript.txt");
     assert_eq!(m.matches(from).count(), 1, "{from:?} occurs once in the fixture");

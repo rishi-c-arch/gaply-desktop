@@ -1681,7 +1681,8 @@ pub fn rerun_ingest_code(refusal: L1IngestRefusal) -> ProjectCode {
         | R::XlsNotReadable
         | R::Dataset(_)
         | R::NotARegularFile
-        | R::EncodingNotUtf8 => ProjectCode::RerunDataUnreadable,
+        | R::EncodingNotUtf8
+        | R::SavBigEndian => ProjectCode::RerunDataUnreadable,
     }
 }
 

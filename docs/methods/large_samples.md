@@ -297,6 +297,9 @@ rows, 128 columns, 10 MiB, 2 MiB of cell text).
   is refused before any cell is converted. Such a file is refused as
   `too_many_cells`: "The file has more than N cells (rows times columns), more
   than Gaply opens on this computer, so it was not opened."
+- **A big-endian `.sav` is refused** (since 8F-3, D304), compressed or not, as
+  `sav_big_endian`, before it is read: the reader takes its values as
+  little-endian and gave wrong numbers with no warning.
 - **The open datasets' budget counts cells only.** It does not count the
   file's bytes that each open dataset keeps for a project Save, nor the copy a
   rerun reads. An open drops the oldest open datasets until the cells held fit;

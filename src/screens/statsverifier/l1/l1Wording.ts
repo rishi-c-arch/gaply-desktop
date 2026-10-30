@@ -261,6 +261,10 @@ export const WORDS: Record<string, Words> = {
   // produces it, since its cell cap is its rows times its columns.
   too_many_cells: (c) =>
     `The file has more than ${num(c, 'limit_cells') ?? '?'} cells (rows times columns), more than Gaply opens on this computer, so it was not opened.`,
+  // A big-endian .sav, refused before it is read (Research OS, Phase 8F-3,
+  // decision 295). The same sentence on Level 1's screens and the methods'.
+  sav_big_endian: () =>
+    'This SPSS file stores its numbers in big-endian byte order, which some older computers used. Gaply cannot read that order yet, so the file was not opened. Open it in SPSS or PSPP on a current computer, save it again, and choose the new file.',
 
   /* ---- why a claim could not be checked ---------------------------------- */
   spearman_exact_p: () => "Gaply does not compute Spearman's exact p.",

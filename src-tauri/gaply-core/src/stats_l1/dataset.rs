@@ -429,6 +429,11 @@ pub enum L1IngestRefusal {
     /// 8F-1, decision 282). Level 1 never produces it: its cell cap is its
     /// rows times its columns, so those bind first.
     TooManyCells { limit_cells: usize },
+    /// An SPSS `.sav` in big-endian byte order, compressed or not, found
+    /// from its header's layout code before the file is read (Research OS,
+    /// Phase 8F-3, decision 295): its reader takes such a file's values as
+    /// little-endian and gives wrong numbers with no warning.
+    SavBigEndian,
 }
 
 /// Why no schema was built at all.

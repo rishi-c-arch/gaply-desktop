@@ -124,6 +124,13 @@ describe('AI status + install', () => {
     const generativeStarted = new Promise<void>((resolve) => {
       releaseGenerative = resolve;
     });
+    // The generative install stays pending until the assertions are done, so
+    // the progress it reported is on screen however late waitFor looks
+    // (Research OS, Phase 8F-3, decision 297); it returned after 50 ms before.
+    let finishGenerative: () => void = () => {};
+    const generativeHeld = new Promise<void>((resolve) => {
+      finishGenerative = resolve;
+    });
     const bridge = {
       modelStatus: async () => ({ ...READY, embedding: { state: 'notInstalled' } }),
       installEmbedding: async (cb: any) => {
@@ -133,7 +140,7 @@ describe('AI status + install', () => {
       installGenerative: async (_id: string, cb: any) => {
         cb({ kind: 'progress', file: 'qwen.gguf', bytes: 300, totalBytes: 1000 });
         releaseGenerative();
-        await new Promise((r) => setTimeout(r, 50));
+        await generativeHeld;
       },
       cancelInstall: async () => {},
     };
@@ -144,6 +151,8 @@ describe('AI status + install', () => {
     await waitFor(() => expect(screen.getByText(/qwen\.gguf — 30%/)).toBeTruthy());
     expect(screen.queryByTestId('ai-install')).toBeNull();
     expect(screen.getByTestId('ai-install-progress')).toBeTruthy();
+    finishGenerative();
+    await waitFor(() => expect(screen.getByTestId('ai-install')).toBeTruthy());
   });
 
   it('the NotInstalled affordance explains rather than disabling silently', () => {

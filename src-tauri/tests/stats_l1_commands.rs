@@ -282,6 +282,71 @@ fn a_sav_that_crashed_ambers_is_refused_by_level_1s_open_and_compute_with_no_pan
     assert!(wrong.is_empty(), "{wrong:#?}");
 }
 
+/// Research OS, Phase 8F-3 (decision 295): a big-endian `.sav`, uncompressed
+/// or bytecode-compressed, is refused by Level 1's open as `data_refused`
+/// with the reason `sav_big_endian`; and a compute that reads such a file
+/// again, after the proper little-endian file it was opened with is
+/// replaced, gives could not check with the same refusal. The whole numbers
+/// 1 to 5, which ambers reads rightly, are refused too.
+#[test]
+fn a_big_endian_sav_is_refused_by_level_1s_open_and_compute() {
+    let mut wrong = Vec::new();
+    for (name, bytes, _) in sav_support::same_values(sav_support::Order::Big) {
+        let w = world_with(MockTransport::new());
+        let p = w.files.data.with_file_name(format!("{FILE}_be_{name}.sav"));
+        std::fs::write(&p, &bytes).unwrap();
+        match l1::open(&w.db, &w.runs, &w.ai, &w.files.manuscript, &p) {
+            Ok(_) => wrong.push(format!("open {name}: opened")),
+            Err(GaplyError::Validation(m)) => {
+                let v: serde_json::Value = serde_json::from_str(&m).expect("a closed code in JSON");
+                // A code with no parameters is a bare word inside another code.
+                if v != json!({ "code": "data_refused", "reason": "sav_big_endian" }) {
+                    wrong.push(format!("open {name}: {v}"));
+                }
+            }
+            Err(e) => wrong.push(format!("open {name}: {e:?}")),
+        }
+
+        let mut x = TREATED.to_vec();
+        x.extend(CONTROL);
+        let rows: Vec<Vec<f64>> = x
+            .iter()
+            .enumerate()
+            .map(|(i, v)| vec![*v, if i < 4 { 1.0 } else { 2.0 }])
+            .collect();
+        let good = sav_support::sav(sav_support::Order::Little, 2, &["score", "arm"], &rows);
+        let q = w
+            .files
+            .data
+            .with_file_name(format!("{FILE}_be_{name}_good.sav"));
+        std::fs::write(&q, &good).unwrap();
+        let v = l1::open(&w.db, &w.runs, &w.ai, &w.files.manuscript, &q)
+            .expect("the proper .sav opens");
+        let first = l1::proposals(&w.runs, v.run)
+            .unwrap()
+            .first()
+            .map(|p| p.proposal)
+            .expect("a local proposal");
+        let mut edits = manual_edits();
+        edits.levels[0].levels = vec!["1".into(), "2".into()];
+        let token = l1::confirm_binding(&w.runs, v.run, first, Some(&edits))
+            .expect("confirmed")
+            .token;
+        std::fs::write(&q, &bytes).unwrap();
+        match l1::compute(&w.runs, v.run, &[token]) {
+            Err(e) => wrong.push(format!("compute {name}: {e:?}")),
+            Ok(out) => {
+                let verdict = serde_json::to_value(&out.claims[0].verdict).unwrap();
+                let want = json!({ "kind": "couldNotCheck", "reason": { "code": "data_unreadable", "refusal": "sav_big_endian" } });
+                if verdict != want {
+                    wrong.push(format!("compute {name}: {verdict}"));
+                }
+            }
+        }
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
 /* ---- tokens --------------------------------------------------------------- */
 
 #[test]

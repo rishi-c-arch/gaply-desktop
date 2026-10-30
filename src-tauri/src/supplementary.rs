@@ -499,6 +499,7 @@ fn evidence_from_bytes(
             ),
             SavHeader::NoVariables => sav_evidence(Ok(no_variables()), file_name, rows, limits),
             SavHeader::CaseSizeNotPositive => Err(case_size_not_positive()),
+            SavHeader::BigEndian => Err(big_endian()),
         },
         "mat" => mat_evidence(bytes, file_name, rows, limits),
         "xlsx" | "xls" | "xlsb" | "ods" | "xlsm" => {
@@ -1288,6 +1289,7 @@ fn parse_sav(
         ),
         SavHeader::NoVariables => sav_evidence(Ok(no_variables()), file_name, &counted, limits),
         SavHeader::CaseSizeNotPositive => Err(case_size_not_positive()),
+        SavHeader::BigEndian => Err(big_endian()),
     }
 }
 
@@ -1307,6 +1309,15 @@ enum SavHeader {
     NoVariables,
     /// Variables, and a nominal case size of 0 or less.
     CaseSizeNotPositive,
+    /// Variables, a positive case size, and the layout code in big-endian
+    /// order (Research OS, Phase 8F-3, decision 295). ambers 0.4.4 reads such
+    /// a file's header and dictionary in its order but an uncompressed
+    /// file's values, a compressed file's raw values (after bytecode 253)
+    /// and its value labels as little-endian, so 1.5 reads as 3.13984e-319
+    /// with no warning. A compressed file's whole numbers from the bias'
+    /// table read rightly, but nothing in the header says which values took
+    /// which path, so every big-endian file is refused.
+    BigEndian,
 }
 
 /// The bytes [`sav_header`] reads: the 176-byte header and the first
@@ -1349,8 +1360,19 @@ fn sav_header(bytes: &[u8]) -> SavHeader {
     }
     match read(68) {
         Some(case_size) if case_size <= 0 => SavHeader::CaseSizeNotPositive,
+        _ if !little => SavHeader::BigEndian,
         _ => SavHeader::Read,
     }
+}
+
+/// **Level 1 and the methods (Research OS, Phase 8F-3, decision 295): is a
+/// `.sav` in big-endian byte order?** Called only after a parse has FAILED,
+/// like [`xls_not_compound_document_bytes`], so a file that opens is never
+/// affected; it reads the header as [`sav_header`] does, never the error's
+/// text. A big-endian file with no variables or a case size of 0 or less
+/// keeps 8F-2's outcome (decision 291), so this is false for it.
+pub fn sav_big_endian_bytes(bytes: &[u8], ext: &str) -> bool {
+    ext == "sav" && sav_header(bytes) == SavHeader::BigEndian
 }
 
 /// What ambers would have read from a file with no variables: no columns,
@@ -1371,6 +1393,15 @@ fn no_variables() -> (arrow::record_batch::RecordBatch, ambers::SpssMetadata) {
 fn case_size_not_positive() -> GaplyError {
     GaplyError::Validation(
         "malformed or unsupported .sav file: its header gives a case size of 0 or less".into(),
+    )
+}
+
+/// The refusal of a big-endian `.sav` (decision 295), in [`sav_evidence`]'s
+/// words, so the reviewer agent's files and the legacy lane give it as
+/// malformed and the ingest tells it apart with [`sav_big_endian_bytes`].
+fn big_endian() -> GaplyError {
+    GaplyError::Validation(
+        "malformed or unsupported .sav file: it is in big-endian byte order, which Gaply cannot read yet".into(),
     )
 }
 

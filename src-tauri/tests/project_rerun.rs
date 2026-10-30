@@ -985,6 +985,40 @@ fn a_saved_5001_row_result_reruns_identical() {
     assert_eq!(compared, Some(Identical));
 }
 
+/// Research OS, Phase 8F-3 (decision 295): a stored big-endian `.sav`,
+/// uncompressed or compressed, is refused by the rerun as
+/// `project.rerun_data_unreadable`, as a malformed one is, and nothing is
+/// written.
+#[test]
+fn a_stored_big_endian_sav_is_refused_by_the_rerun_as_unreadable() {
+    let w = World::new("rr-be");
+    let (id, _) = with_a_summary(&w);
+    let spec = pc::run_result(&w.root(), &w.ws, &id, 1).unwrap().spec_json;
+    let mut wrong = Vec::new();
+    for (name, bytes, _) in sav_support::same_values(sav_support::Order::Big) {
+        let stored = store_a_row(
+            &w,
+            &id,
+            ("stats.describe", 1),
+            RunState::Succeeded,
+            (&bytes, DataFormat::Sav),
+            spec.as_bytes(),
+        );
+        let before = state_of(&w, &id);
+        match pc::rerun(&w.root(), &w.ws, stored) {
+            Ok(_) => wrong.push(format!("{name}: started")),
+            Err(e) if code(&e) != "project.rerun_data_unreadable" => {
+                wrong.push(format!("{name}: {}", code(&e)))
+            }
+            Err(_) if state_of(&w, &id) != before => {
+                wrong.push(format!("{name}: something was written"))
+            }
+            Err(_) => {}
+        }
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
 /// Research OS, Phase 8F-2 (decision 291): a stored `.sav` ambers 0.4.4
 /// panicked on is refused by the rerun as `project.rerun_data_unreadable`,
 /// with no panic, and nothing is written.

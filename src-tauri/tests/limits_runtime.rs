@@ -118,7 +118,7 @@ fn a_slot_held_by_a_run_keeps_its_handle_when_dropped_for_the_budget() {
 }
 
 #[test]
-fn the_production_budget_is_four_full_slots_and_never_binds_first() {
+fn the_default_budget_is_four_full_slots_and_never_binds_first() {
     assert_eq!(SLOT_BUDGET_CELLS, 2_560_000);
     assert_eq!(DatasetSlots::default().cell_budget(), 2_560_000);
     assert_eq!(
@@ -381,6 +381,7 @@ fn the_rerun_gives_over_limits_for_the_four_tier_size_refusals_and_unreadable_ot
             },
             over,
         ),
+        (R::SavBigEndian, unreadable),
     ];
     for (refusal, want) in every {
         assert_eq!(rerun_ingest_code(refusal), want, "{refusal:?}");

@@ -598,6 +598,11 @@ describe('the focus across a rerun (decision 232)', () => {
   it('with the focus moved elsewhere, it stays there', async () => {
     const w = world();
     await started(w);
+    // The start moves the focus to Cancel in an effect after the render that
+    // shows it (decision 232), which can come after findBy has returned: wait
+    // for it, as "after a failed poll" does, before moving the focus away
+    // (Research OS, Phase 8F-3, decision 297).
+    await waitFor(() => expect(focused()).toBe(screen.getByTestId('project-rerun-cancel')));
     const report = screen.getByTestId('project-export-report');
     report.focus();
     w.current = currentWith(rerunView(7, 1, 'not_saved', { code: 'project.run_cancelled' }));
