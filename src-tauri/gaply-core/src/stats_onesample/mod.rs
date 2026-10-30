@@ -22,8 +22,11 @@
 //!
 //! **One implementation of each formula (decision 254).** t, df and the
 //! standard error come from `stats_verify::t_test_one_sample` and
-//! `t_test_paired`; p from `stats_l0::pvalue::t_two_tailed`; the 95% interval
-//! from `stats_ttest::interval_95`, around `stats_ttest::t_quantile_975`;
+//! `t_test_paired`; p from `stats_ttest::two_sided_p` and the 95% interval
+//! from `stats_ttest::interval_95`, the t family's one p and one interval,
+//! both through `stats_dist` (`stats_l0::pvalue`'s values at df ≤ 1e4, bit
+//! for bit; Hill's p and the Cornish–Fisher quantile above, to df 1e7;
+//! Research OS, Phase 8E, decision 275);
 //! every mean and variance from `stats_verify::mean` and `sample_variance`.
 //! Nothing here computes a variance, a quantile or a p of its own.
 //!
@@ -47,8 +50,9 @@
 //! R uses only the first, and the other two are Gaply's own, because the
 //! rounding in first minus second grows with the size of the values;
 //! decision 259, `stats_ttest::essentially_constant`); above
-//! `stats_ttest::QUANTILE_MAX_DF` degrees of freedom the interval is
-//! `quantile_out_of_range` (decision 242.7); a sum, square or root a double
+//! `stats_ttest::QUANTILE_MAX_DF` degrees of freedom (1e7 since 8E; 1e4
+//! before it, decision 242.7) the run is `quantile_out_of_range`; a sum,
+//! square or root a double
 //! cannot hold is `overflow`, a sum of squares that falls below the smallest
 //! normal double although the values differ is `underflow`, and any other
 //! refusal of the arithmetic is `arithmetic_refused`.
@@ -76,10 +80,11 @@ use crate::contracts::{
     ValidationReport, WorkspaceId,
 };
 use crate::stats_desc::{input_ref, Alias};
-use crate::stats_l0::pvalue::t_two_tailed;
 use crate::stats_l1::binding::suspect_codes_in;
 use crate::stats_l1::dataset::{Cell, Dataset};
-use crate::stats_ttest::{column, essentially_constant, interval_95, non_finite_cells};
+use crate::stats_ttest::{
+    column, essentially_constant, interval_95, non_finite_cells, two_sided_p,
+};
 use crate::stats_verify::{mean, sample_variance, t_test_one_sample, t_test_paired, RangeFault};
 
 /// The one-sample t-test's id in the registry.
@@ -142,8 +147,8 @@ closed! {
         /// Not computable: the arithmetic refused for a reason it did not
         /// name.
         ArithmeticRefused => "arithmetic_refused",
-        /// Not computable: the interval's quantile is not measured at this
-        /// many degrees of freedom (above `stats_ttest::QUANTILE_MAX_DF`).
+        /// Not computable: the t distribution is not measured at this many
+        /// degrees of freedom (above `stats_ttest::QUANTILE_MAX_DF`, 1e7).
         QuantileOutOfRange => "quantile_out_of_range",
         /// Excluded: the row's value is empty or a missing-value token.
         MissingValue => "missing_value",
@@ -866,7 +871,12 @@ fn one_sample_numbers(values: &[f64], test_value: f64) -> Result<OneSampleNumber
     if essentially_constant(r.se, r.mean_a.abs()) {
         return Err(OneSampleCode::ValuesEssentiallyConstant);
     }
-    let p = t_two_tailed(r.t, r.df).ok_or(OneSampleCode::ArithmeticRefused)?;
+    let p = two_sided_p(
+        r.t,
+        r.df,
+        OneSampleCode::QuantileOutOfRange,
+        OneSampleCode::ArithmeticRefused,
+    )?;
     let mean_difference = finite(r.mean_a - test_value)?;
     let ci = interval_95(
         mean_difference,
@@ -925,7 +935,12 @@ fn paired_numbers(first: &[f64], second: &[f64]) -> Result<PairedNumbers, OneSam
     if essentially_constant(r.se, scale) {
         return Err(OneSampleCode::DifferencesEssentiallyConstant);
     }
-    let p = t_two_tailed(r.t, r.df).ok_or(OneSampleCode::ArithmeticRefused)?;
+    let p = two_sided_p(
+        r.t,
+        r.df,
+        OneSampleCode::QuantileOutOfRange,
+        OneSampleCode::ArithmeticRefused,
+    )?;
     let ci = interval_95(
         mean_difference,
         r.se,

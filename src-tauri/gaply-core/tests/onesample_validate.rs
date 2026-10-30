@@ -10,8 +10,9 @@
 //!   module's codes.
 //! * Each row is left out once, by the first reason that applies, in decision
 //!   255's order.
-//! * df 10,000 computes and 10,001 is refused with `quantile_out_of_range`;
-//!   fewer than two values or pairs is refused at validation.
+//! * df 10,000 and 10,001 both compute (Research OS, Phase 8E: above 1e4 the
+//!   p and the quantile are `stats_dist`'s); fewer than two values or pairs is
+//!   refused at validation.
 //! * The check point is called once, before the arithmetic, and a `Break`
 //!   stops the run there.
 //! * Ten runs give byte-identical result and manifest bytes, `elapsed_ms` set
@@ -259,19 +260,18 @@ fn column_of(n: usize, f: impl Fn(usize) -> f64) -> Dataset {
 }
 
 #[test]
-fn df_10000_computes_and_10001_is_refused_and_too_few_is_refused_at_validation() {
+fn df_10000_and_10001_both_compute_and_too_few_is_refused_at_validation() {
     let v = |i: usize| ((i * 7919) % 1000) as f64 / 8.0;
-    for (n, ok) in [(10_001usize, true), (10_002, false)] {
+    // 10,001 values give df 10,000, the bisection's last df; 10,002 give
+    // 10,001, the first the large-sample formulas serve (Research OS, Phase
+    // 8E, decision 275). Both compute; before 8E the second was refused.
+    for n in [10_001usize, 10_002] {
         let d = column_of(n, v);
+        let df = (n - 1) as f64;
         let one = one_sample_compute(&d, &one_params(Some(60.0), vec![]));
         let two = paired_compute(&d, &paired_params(1, 2, vec![]));
-        if ok {
-            assert_eq!(one.expect("computes").df, 10_000.0);
-            assert_eq!(two.expect("computes").df, 10_000.0);
-        } else {
-            assert_eq!(one.unwrap_err().code, OneSampleCode::QuantileOutOfRange);
-            assert_eq!(two.unwrap_err().code, OneSampleCode::QuantileOutOfRange);
-        }
+        assert_eq!(one.expect("computes").df, df);
+        assert_eq!(two.expect("computes").df, df);
     }
     let d = column_of(1, v);
     let r = one_sample_validate(

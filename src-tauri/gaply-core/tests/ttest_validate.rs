@@ -15,7 +15,8 @@ use gaply_core::stats_l1::dataset::{
     build_dataset, ColumnAlias, DataFingerprint, Dataset, RawTable, TableRef,
 };
 use gaply_core::stats_ttest::{
-    compute, group_levels, run, spec, validate, Halt, Stat, TTestCode, TTestParams, Variant,
+    compute, group_levels, run, spec, t_quantile_975, validate, Halt, Stat, TTestCode, TTestParams,
+    Variant,
 };
 
 fn table(headers: &[&str], rows: &[&[&str]]) -> Dataset {
@@ -342,10 +343,13 @@ fn the_check_point_runs_once_before_the_arithmetic_and_can_stop_it() {
 }
 
 #[test]
-fn a_df_above_the_quantiles_measured_range_is_not_computable() {
-    // 10,004 rows: Student's df is 10,002, above QUANTILE_MAX_DF (1e4). The
-    // ingest's 5,000-row cap keeps a real file below it; a dataset built in
-    // memory is not capped, so the refusal is pinned here.
+fn ten_thousand_and_four_rows_compute_with_df_10002_and_the_interval_from_t_quantile_975() {
+    // 10,004 rows: Student's df is 10,002, above stats_dist::LARGE_DF (1e4),
+    // where the quantile is the Cornish–Fisher expansion and p is Hill's
+    // (Research OS, Phase 8E, decision 275). Refused until 8E. The ingest's
+    // 5,000-row cap keeps a real file below it, so a dataset built in memory
+    // pins it here: the interval is the mean difference ± q · se, bit for bit,
+    // q being `t_quantile_975(10_002.0)`.
     let rows: Vec<[String; 2]> = (0..10_004)
         .map(|i| {
             [
@@ -360,9 +364,14 @@ fn a_df_above_the_quantiles_measured_range_is_not_computable() {
         .collect();
     let rows: Vec<&[&str]> = rows.iter().map(|r| r.as_slice()).collect();
     let d = table(&["y", "g"], &rows);
-    let e = compute(&d, &p(None, Some(Variant::Student))).unwrap_err();
-    assert_eq!(e.code, TTestCode::QuantileOutOfRange);
-    // 10,002 rows give df 10,000 exactly: inside the range, computed.
+    let r = compute(&d, &p(None, Some(Variant::Student))).expect("computes above df 1e4");
+    assert_eq!(r.df, 10_002.0);
+    let q = t_quantile_975(10_002.0).expect("the quantile at df 10,002");
+    let half = q * r.standard_error;
+    assert_eq!(r.ci_lower.to_bits(), (r.mean_difference - half).to_bits());
+    assert_eq!(r.ci_upper.to_bits(), (r.mean_difference + half).to_bits());
+    assert!(r.p > 0.0 && r.p <= 1.0, "p {}", r.p);
+    // 10,002 rows give df 10,000 exactly: the bisection's last df, computed.
     let d = table(&["y", "g"], &rows[..10_002]);
     let r = compute(&d, &p(None, Some(Variant::Student))).expect("computes");
     assert_eq!(r.df, 10_000.0);

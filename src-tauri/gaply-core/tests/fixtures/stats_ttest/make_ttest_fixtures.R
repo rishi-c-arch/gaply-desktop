@@ -13,8 +13,9 @@
 # (data_*.csv, a two-line '#' header, then `id,y,g`), golden.csv with R's
 # answer for every case and variant, quantiles.csv with qt(0.975, df) over a
 # grid of df, and cells_bits.csv with the IEEE 754 bits of every number R
-# read. Every data file is written, READ BACK with read.csv(na.strings = "",
-# g as character), and everything is computed on what was read.
+# read (data_large_df.csv's 10,200 rows aside, to keep the file small). Every
+# data file is written, READ BACK with read.csv(na.strings = "", g as
+# character), and everything is computed on what was read.
 #
 # How a case maps onto Gaply's spec (decision 65):
 #   * the group's levels are the distinct non-missing g, sorted with
@@ -62,14 +63,15 @@ add <- function(case, data, l1, l2, codes, variant, statistic, value) {
 
 # Write `df` (id, y, g), read it back, return what was read. The provenance
 # header is prepended AFTER the read, so the lines R analysed are exactly the
-# lines below the '#' header that the Rust test parses.
-roundtrip <- function(df, name) {
+# lines below the '#' header that the Rust test parses. bits = FALSE leaves
+# the file's cells out of cells_bits.csv (Research OS, Phase 8E).
+roundtrip <- function(df, name, bits = TRUE) {
   path <- file.path(here, name)
   write.csv(df, path, row.names = FALSE, quote = FALSE, na = "", fileEncoding = "UTF-8")
   back <- read.csv(path, na.strings = "", stringsAsFactors = FALSE, encoding = "UTF-8",
                    colClasses = c(id = "integer", y = "numeric", g = "character"))
   v <- back$y
-  for (i in which(!is.na(v))) {
+  for (i in if (bits) which(!is.na(v)) else integer(0)) {
     b <- paste(as.character(writeBin(as.numeric(v[i]), raw(), size = 8, endian = "big")), collapse = "")
     cell_bits[[length(cell_bits) + 1]] <<- data.frame(data = name, row = i, bits = b, stringsAsFactors = FALSE)
   }
@@ -212,6 +214,16 @@ ttest_case("codepoint_order", "data_codepoint.csv", d)
 # 16. Integer group codes, read as levels "1" and "2".
 d <- roundtrip(two(round(rnorm(16, 0, 1), 4), round(rnorm(18, 0.5, 1), 4), "1", "2"), "data_numeric_group.csv")
 ttest_case("numeric_group", "data_numeric_group.csv", d)
+
+# 17. Above df 1e4 (Research OS, Phase 8E, decision 276): 5,100 per group, so
+#     Student's df is 10,198 and Welch's about 10,194, where the p is Hill's
+#     and the quantile the Cornish-Fisher expansion (stats_dist). Drawn after
+#     every other case, so no existing draw moves; bits = FALSE keeps
+#     cells_bits.csv as it is.
+d <- roundtrip(two(round(rnorm(5100, 0, 1), 3), round(rnorm(5100, 0.03, 1.02), 3)), "data_large_df.csv", bits = FALSE)
+stopifnot(unname(t.test(y ~ g, data = d, var.equal = TRUE)$parameter) > 1e4,
+          unname(t.test(y ~ g, data = d, var.equal = FALSE)$parameter) > 1e4)
+ttest_case("large_df", "data_large_df.csv", d)
 
 all <- do.call(rbind, rows)
 header <- c(

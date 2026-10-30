@@ -11,9 +11,16 @@
 //! `canonical_bytes()` (what the manifest's `output_hash` hashes); then one
 //! SHA-256 over those lines, pinned with the number of cases. Every line is
 //! printed, so a changed digest names its case. The bytes hold p, which goes
-//! through the platform's maths library, so the digests are asserted on
-//! macOS aarch64 only, where they were captured; elsewhere the test prints
-//! them and asserts only the counts (decision 251's item 1).
+//! through the platform's maths library. Since Research OS Phase 8E
+//! (decision 277) the cases at df ≤ 1e4 are asserted on every platform: the
+//! reviewer got macOS's digests on Linux x86_64 at `3d1253e`, CI's Linux job
+//! checks them on every push, and the Windows job on a pull request is
+//! Windows's measurement. The cases above df 1e4 (`large_df` under Student
+//! and Welch; `one_df_10001` and `paired_df_10001`), which compute since 8E
+//! through Hill's p (`ln_1p` and statrs's `erfc`, which calls the platform's
+//! `exp`), are a second digest per golden file, captured on macOS aarch64
+//! and asserted there only; elsewhere the test prints it and asserts the
+//! count.
 
 use std::collections::BTreeMap;
 
@@ -27,11 +34,24 @@ use gaply_core::stats_ttest::{compute, TTestParams, Variant};
 
 const FIXTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures");
 
-/// Captured on `04d8705`'s code, macOS aarch64, 26 Oct 2026.
+/// The cases at df ≤ 1e4: captured on `04d8705`'s code, macOS aarch64,
+/// 26 Oct 2026, and unchanged by 8E (every line is printed, so 8E's report
+/// diffs them against the run before it). Asserted on every platform.
 const TTEST_CASES: usize = 32;
 const TTEST_DIGEST: &str = "048fc4d482c0e61ee5b0af196d561859ddf99530476ba816f421040061755540";
 const ONESAMPLE_CASES: usize = 25;
 const ONESAMPLE_DIGEST: &str = "54c4645e15801ac74508bd85801d979d8c60d1e98958c6314a5a00082bde3939";
+/// The cases above df 1e4, computed since 8E: captured on macOS aarch64,
+/// 30 Oct 2026, and asserted there only (decision 277).
+const TTEST_LARGE_CASES: usize = 2;
+const TTEST_LARGE_DIGEST: &str = "82c5161839bf61c306d3e81b7ef51bdc26e19dcd03a9f54b4d4e8bb74e70ee6a";
+const ONESAMPLE_LARGE_CASES: usize = 2;
+const ONESAMPLE_LARGE_DIGEST: &str =
+    "df6a98f4c0a78cb4b7118f8aa975253e39ca7f19e4475682c4cf695eb1db6fe3";
+
+/// The switch of `stats_dist` (its `LARGE_DF`): a case above it goes through
+/// the platform's `exp`.
+const LARGE_DF: f64 = 1e4;
 
 /// A golden file's rows grouped by their key columns, in file order of first
 /// appearance; `key` is the number of leading columns that name a case.
@@ -105,14 +125,16 @@ fn digest(lines: &[String]) -> String {
         .to_string()
 }
 
-fn check(name: &str, lines: &[String], cases: usize, pinned: &str) {
+/// `everywhere`: asserted on every platform (the cases at df ≤ 1e4), or on
+/// macOS aarch64 only (the cases above).
+fn check(name: &str, lines: &[String], cases: usize, pinned: &str, everywhere: bool) {
     for l in lines {
         println!("{name}: {l}");
     }
     let got = digest(lines);
     println!("{name}: {} cases, digest {got}", lines.len());
     assert_eq!(lines.len(), cases, "{name}: the computed cases");
-    if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+    if everywhere || cfg!(all(target_os = "macos", target_arch = "aarch64")) {
         assert_eq!(got, pinned, "{name}: a computed result's bytes changed");
     }
 }
@@ -121,6 +143,7 @@ fn check(name: &str, lines: &[String], cases: usize, pinned: &str) {
 fn every_computed_t_test_golden_case_keeps_its_bytes() {
     // case, data, level_index1, level_index2, missing_codes, variant.
     let mut lines = Vec::new();
+    let mut large = Vec::new();
     let mut seen: BTreeMap<String, ()> = BTreeMap::new();
     for (k, stats) in cases("stats_ttest", 6) {
         if refused(&stats) {
@@ -149,30 +172,41 @@ fn every_computed_t_test_golden_case_keeps_its_bytes() {
             seen.insert(format!("{} {}", k[0], k[5]), ()).is_none(),
             "{line}: twice"
         );
-        lines.push(line);
+        if r.df > LARGE_DF {
+            large.push(line);
+        } else {
+            lines.push(line);
+        }
     }
-    check("ttest", &lines, TTEST_CASES, TTEST_DIGEST);
+    check("ttest", &lines, TTEST_CASES, TTEST_DIGEST, true);
+    check(
+        "ttest above 1e4",
+        &large,
+        TTEST_LARGE_CASES,
+        TTEST_LARGE_DIGEST,
+        false,
+    );
 }
 
 #[test]
 fn every_computed_one_sample_and_paired_golden_case_keeps_its_bytes() {
     // case, data, method, test_value, missing_codes.
     let mut lines = Vec::new();
+    let mut large = Vec::new();
     for (k, stats) in cases("stats_onesample", 5) {
         if refused(&stats) {
             continue;
         }
         let d = data("stats_onesample", &k[1]);
-        let bytes = match k[2].as_str() {
+        let (df, bytes) = match k[2].as_str() {
             "one_sample" => {
                 let p = OneSampleParams {
                     outcome: alias(&d, "x"),
                     test_value: Some(k[3].parse().expect("test value")),
                     missing_codes: codes(&k[4]),
                 };
-                one_sample_compute(&d, &p)
-                    .unwrap_or_else(|e| panic!("{}: {e:?}", k[0]))
-                    .canonical_bytes()
+                let r = one_sample_compute(&d, &p).unwrap_or_else(|e| panic!("{}: {e:?}", k[0]));
+                (r.df, r.canonical_bytes())
             }
             "paired" => {
                 let p = PairedParams {
@@ -180,18 +214,29 @@ fn every_computed_one_sample_and_paired_golden_case_keeps_its_bytes() {
                     second: alias(&d, "b"),
                     missing_codes: codes(&k[4]),
                 };
-                paired_compute(&d, &p)
-                    .unwrap_or_else(|e| panic!("{}: {e:?}", k[0]))
-                    .canonical_bytes()
+                let r = paired_compute(&d, &p).unwrap_or_else(|e| panic!("{}: {e:?}", k[0]));
+                (r.df, r.canonical_bytes())
             }
             other => panic!("method {other}"),
         };
-        lines.push(format!(
+        let line = format!(
             "{} {} {}",
             k[0],
             k[2],
             ContentHash::of_bytes(&bytes).as_hex()
-        ));
+        );
+        if df > LARGE_DF {
+            large.push(line);
+        } else {
+            lines.push(line);
+        }
     }
-    check("onesample", &lines, ONESAMPLE_CASES, ONESAMPLE_DIGEST);
+    check("onesample", &lines, ONESAMPLE_CASES, ONESAMPLE_DIGEST, true);
+    check(
+        "onesample above 1e4",
+        &large,
+        ONESAMPLE_LARGE_CASES,
+        ONESAMPLE_LARGE_DIGEST,
+        false,
+    );
 }

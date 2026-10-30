@@ -70,6 +70,20 @@
 //! test is in `tests/research_project_properties.rs`, since this scan reads
 //! test code too.
 //!
+//! Phase 8E adds `src/stats_dist/`, the methods' distribution functions
+//! (decision 275), to checks 1, 2 and 3: no route to a file, the network, a
+//! process, the clock, a model or a log; from outside the crate `std` and
+//! `statrs` (its `erfc` and `Normal`), the roots passed to the import scan
+//! for that directory alone, since adding statrs to `EXTERNAL_ROOTS` would
+//! let every scanned module import it; inside the crate exactly
+//! `crate::stats_l0::pvalue::{t_two_tailed as l0_t_two_tailed, f_upper as
+//! l0_f_upper}`, Level 0's two tails under aliases because its own functions
+//! have the same names (the list holds the alias text, as `REGISTRY_ITEMS`
+//! does); and `contracts` never names it. `stats_ttest`'s p and quantile
+//! come from `crate::stats_dist` now (`t_quantile_975`, `MEASURED_MAX_DF as
+//! QUANTILE_MAX_DF`, `t_two_tailed`), and `stats_onesample` takes
+//! `two_sided_p` from `stats_ttest` and names no `stats_l0` item.
+//!
 //! What it cannot see: a route through a helper in an allowed module (a
 //! function of `stats_l1::dataset` that read a file would not be caught
 //! here; `stats_l1_is_llm_free_and_offline.rs` guards that directory), and
@@ -83,6 +97,7 @@ const STATS_REGISTRY: &str = "src/stats_registry";
 const STATS_ADAPTERS: &str = "src/stats_adapters";
 const STATS_TTEST: &str = "src/stats_ttest";
 const STATS_ONESAMPLE: &str = "src/stats_onesample";
+const STATS_DIST: &str = "src/stats_dist";
 const RESEARCH_PROJECT: &str = "src/research_project";
 
 const FORBIDDEN: &[(&str, &str)] = &[
@@ -218,7 +233,7 @@ const STATS_TTEST_CRATE_PATHS: &[&str] = &[
     "crate::contracts",
     "crate::stats_desc::export",
     "crate::stats_desc",
-    "crate::stats_l0::pvalue",
+    "crate::stats_dist",
     "crate::stats_l1::binding",
     "crate::stats_l1::dataset",
     "crate::stats_verify",
@@ -235,7 +250,14 @@ const TTEST_ITEMS: &[(&str, &[&str])] = &[
             "RangeFault",
         ],
     ),
-    ("crate::stats_l0::pvalue", &["t_two_tailed"]),
+    (
+        "crate::stats_dist",
+        &[
+            "t_quantile_975",
+            "MEASURED_MAX_DF as QUANTILE_MAX_DF",
+            "t_two_tailed",
+        ],
+    ),
     ("crate::stats_l1::binding", &["suspect_codes_in"]),
     ("crate::stats_desc::export", &["text"]),
     ("crate::stats_desc", &["input_ref", "Alias"]),
@@ -248,7 +270,6 @@ const STATS_ONESAMPLE_CRATE_PATHS: &[&str] = &[
     "crate::contracts",
     "crate::stats_desc::export",
     "crate::stats_desc",
-    "crate::stats_l0::pvalue",
     "crate::stats_l1::binding",
     "crate::stats_l1::dataset",
     "crate::stats_verify",
@@ -274,13 +295,29 @@ const ONESAMPLE_ITEMS: &[(&str, &[&str])] = &[
             "essentially_constant",
             "interval_95",
             "non_finite_cells",
+            "two_sided_p",
         ],
     ),
-    ("crate::stats_l0::pvalue", &["t_two_tailed"]),
     ("crate::stats_l1::binding", &["suspect_codes_in"]),
     ("crate::stats_desc::export", &["text"]),
     ("crate::stats_desc", &["input_ref", "Alias"]),
 ];
+
+/// What `stats_dist` may name inside the crate (Phase 8E, decision 275):
+/// Level 0's two tail functions only.
+const STATS_DIST_CRATE_PATHS: &[&str] = &["crate::stats_l0::pvalue"];
+/// The items `stats_dist` may import, by exact text: the alias text
+/// `imported_names` returns (as `REGISTRY_ITEMS`'s `CAPABILITY_ID as
+/// TTEST_ID`), because its own functions have the same names.
+const DIST_ITEMS: &[(&str, &[&str])] = &[(
+    "crate::stats_l0::pvalue",
+    &["t_two_tailed as l0_t_two_tailed", "f_upper as l0_f_upper"],
+)];
+/// `stats_dist`'s roots from outside the crate: `std`, and `statrs`, whose
+/// `erfc` and `Normal` it is built on. Passed to the import scan for that
+/// directory alone: on `EXTERNAL_ROOTS`, statrs would be open to every
+/// scanned module.
+const DIST_EXTERNAL_ROOTS: &[&str] = &["std", "statrs"];
 
 /// The modules `contracts` must never name.
 const DOMAIN_MODULES: &[&str] = &[
@@ -295,6 +332,7 @@ const DOMAIN_MODULES: &[&str] = &[
     "stats_adapters",
     "stats_ttest",
     "stats_onesample",
+    "stats_dist",
     "research_project",
 ];
 /// Where their types are declared, read to build the type list.
@@ -308,6 +346,7 @@ const DOMAIN_SOURCES: &[&str] = &[
     "src/stats_adapters",
     "src/stats_ttest",
     "src/stats_onesample",
+    "src/stats_dist",
     "src/research_project",
 ];
 
@@ -472,11 +511,14 @@ fn imported_names(statement: &str, prefix: &str) -> Vec<String> {
         .collect()
 }
 
+/// `roots`: the crates allowed from outside this one, `EXTERNAL_ROOTS` for
+/// every directory but `stats_dist`, which passes `DIST_EXTERNAL_ROOTS`.
 fn import_violations(
     path: &str,
     code: &str,
     crate_paths: &[&str],
     items: &[(&str, &[&str])],
+    roots: &[&str],
 ) -> Vec<String> {
     let mut out = Vec::new();
     for statement in use_statements(code) {
@@ -505,7 +547,7 @@ fn import_violations(
                     }
                 }
             }
-            r if EXTERNAL_ROOTS.contains(&r) => {}
+            r if roots.contains(&r) => {}
             other => out.push(format!(
                 "{path}: `use {statement}` — `{other}` is not on the import allowlist"
             )),
@@ -624,13 +666,14 @@ fn contracts_and_stats_desc_reach_no_file_network_process_clock_model_or_log() {
         .chain(sources(STATS_ADAPTERS, 2).iter())
         .chain(sources(STATS_TTEST, 2).iter())
         .chain(sources(STATS_ONESAMPLE, 2).iter())
+        .chain(sources(STATS_DIST, 1).iter())
         .chain(sources(RESEARCH_PROJECT, 2).iter())
     {
         found.extend(forbidden_in(path, code));
     }
     assert!(
         found.is_empty(),
-        "contracts, stats_desc, stats_registry, stats_adapters, stats_ttest, stats_onesample and research_project are pure. Found:\n{}",
+        "contracts, stats_desc, stats_registry, stats_adapters, stats_ttest, stats_onesample, stats_dist and research_project are pure. Found:\n{}",
         found.join("\n")
     );
 }
@@ -639,53 +682,73 @@ fn contracts_and_stats_desc_reach_no_file_network_process_clock_model_or_log() {
 fn imports_are_std_serde_serde_json_sha2_and_the_named_crate_paths_only() {
     let mut found = Vec::new();
     let mut statements = 0;
-    for (dir, crate_paths, verifier, inline) in [
+    for (dir, crate_paths, verifier, inline, roots) in [
         (
             CONTRACTS,
             CONTRACTS_CRATE_PATHS,
             &[][..],
             CONTRACTS_CRATE_PATHS,
+            EXTERNAL_ROOTS,
         ),
         (
             STATS_DESC,
             STATS_DESC_CRATE_PATHS,
             VERIFIER_ITEMS,
             STATS_DESC_CRATE_PATHS,
+            EXTERNAL_ROOTS,
         ),
         (
             STATS_REGISTRY,
             STATS_REGISTRY_CRATE_PATHS,
             REGISTRY_ITEMS,
             STATS_REGISTRY_CRATE_PATHS,
+            EXTERNAL_ROOTS,
         ),
         (
             STATS_ADAPTERS,
             STATS_ADAPTERS_CRATE_PATHS,
             ADAPTER_ITEMS,
             STATS_ADAPTERS_INLINE_PATHS,
+            EXTERNAL_ROOTS,
         ),
         (
             STATS_TTEST,
             STATS_TTEST_CRATE_PATHS,
             TTEST_ITEMS,
             STATS_TTEST_CRATE_PATHS,
+            EXTERNAL_ROOTS,
         ),
         (
             STATS_ONESAMPLE,
             STATS_ONESAMPLE_CRATE_PATHS,
             ONESAMPLE_ITEMS,
             STATS_ONESAMPLE_CRATE_PATHS,
+            EXTERNAL_ROOTS,
+        ),
+        (
+            STATS_DIST,
+            STATS_DIST_CRATE_PATHS,
+            DIST_ITEMS,
+            STATS_DIST_CRATE_PATHS,
+            DIST_EXTERNAL_ROOTS,
         ),
         (
             RESEARCH_PROJECT,
             RESEARCH_PROJECT_CRATE_PATHS,
             &[][..],
             RESEARCH_PROJECT_CRATE_PATHS,
+            EXTERNAL_ROOTS,
         ),
     ] {
         for (path, code) in sources(dir, 1) {
             statements += use_statements(&code).len();
-            found.extend(import_violations(&path, &code, crate_paths, verifier));
+            found.extend(import_violations(
+                &path,
+                &code,
+                crate_paths,
+                verifier,
+                roots,
+            ));
             found.extend(crate_path_violations(&path, &code, inline));
         }
     }
@@ -771,6 +834,24 @@ fn imports_are_std_serde_serde_json_sha2_and_the_named_crate_paths_only() {
             assert!(
                 imported.iter().any(|i| i == name),
                 "stats_onesample no longer imports {prefix}::{name}; update the list"
+            );
+        }
+    }
+    // And stats_dist each item on its list (decision 275), by its alias text.
+    let dist: String = sources(STATS_DIST, 1).into_iter().map(|(_, c)| c).collect();
+    for (prefix, names) in DIST_ITEMS {
+        let imported: Vec<String> = use_statements(&dist)
+            .iter()
+            .filter(|s| {
+                s.starts_with(prefix)
+                    && STATS_DIST_CRATE_PATHS.iter().find(|p| s.starts_with(*p)) == Some(prefix)
+            })
+            .flat_map(|s| imported_names(s, prefix))
+            .collect();
+        for name in *names {
+            assert!(
+                imported.iter().any(|i| i == name),
+                "stats_dist no longer imports {prefix}::{name}; update the list"
             );
         }
     }
@@ -1199,18 +1280,44 @@ fn the_guard_catches_each_kind_of_violation() {
     .is_empty());
 
     let bad_root = "use regex::Regex;\n";
-    assert!(
-        !import_violations("s.rs", bad_root, STATS_DESC_CRATE_PATHS, VERIFIER_ITEMS).is_empty()
-    );
+    assert!(!import_violations(
+        "s.rs",
+        bad_root,
+        STATS_DESC_CRATE_PATHS,
+        VERIFIER_ITEMS,
+        EXTERNAL_ROOTS
+    )
+    .is_empty());
     let wrapped = "use crate::stats_verify::{\n    mean,\n    t_test_welch,\n};\n";
     assert!(
-        !import_violations("s.rs", wrapped, STATS_DESC_CRATE_PATHS, VERIFIER_ITEMS).is_empty(),
+        !import_violations(
+            "s.rs",
+            wrapped,
+            STATS_DESC_CRATE_PATHS,
+            VERIFIER_ITEMS,
+            EXTERNAL_ROOTS
+        )
+        .is_empty(),
         "a wrapped use with an unlisted item"
     );
     let ok = "use crate::stats_verify::{mean, sample_variance, RangeFault};\nuse crate::stats_l1::dataset::Cell;\n";
-    assert!(import_violations("s.rs", ok, STATS_DESC_CRATE_PATHS, VERIFIER_ITEMS).is_empty());
+    assert!(import_violations(
+        "s.rs",
+        ok,
+        STATS_DESC_CRATE_PATHS,
+        VERIFIER_ITEMS,
+        EXTERNAL_ROOTS
+    )
+    .is_empty());
     let l0 = "use crate::stats_l0::pvalue::p_t;\n";
-    assert!(!import_violations("s.rs", l0, STATS_DESC_CRATE_PATHS, VERIFIER_ITEMS).is_empty());
+    assert!(!import_violations(
+        "s.rs",
+        l0,
+        STATS_DESC_CRATE_PATHS,
+        VERIFIER_ITEMS,
+        EXTERNAL_ROOTS
+    )
+    .is_empty());
     let inline = "fn p() -> f64 { crate::stats_l0::pvalue::p_t(1.0, 2.0) }\n";
     assert!(
         !crate_path_violations("s.rs", inline, STATS_DESC_CRATE_PATHS).is_empty(),
@@ -1220,7 +1327,14 @@ fn the_guard_catches_each_kind_of_violation() {
     // Phase 4A's lists refuse what they do not name.
     let reader = "use crate::extract::docparse::parse_path;\n";
     assert!(
-        !import_violations("a.rs", reader, STATS_ADAPTERS_CRATE_PATHS, ADAPTER_ITEMS).is_empty(),
+        !import_violations(
+            "a.rs",
+            reader,
+            STATS_ADAPTERS_CRATE_PATHS,
+            ADAPTER_ITEMS,
+            EXTERNAL_ROOTS
+        )
+        .is_empty(),
         "an extract item off the list"
     );
     let inline_reader = "fn x(p: &std::path::Path) { let _ = crate::extract::extract_path(p); }\n";
@@ -1229,10 +1343,24 @@ fn the_guard_catches_each_kind_of_violation() {
         "an inline path to extract's file reader"
     );
     let input = "use crate::extract::ExtractionResult;\n";
-    assert!(import_violations("a.rs", input, STATS_ADAPTERS_CRATE_PATHS, ADAPTER_ITEMS).is_empty());
+    assert!(import_violations(
+        "a.rs",
+        input,
+        STATS_ADAPTERS_CRATE_PATHS,
+        ADAPTER_ITEMS,
+        EXTERNAL_ROOTS
+    )
+    .is_empty());
     let binding = "use crate::stats_l1::binding::confirm;\n";
     assert!(
-        !import_violations("r.rs", binding, STATS_REGISTRY_CRATE_PATHS, REGISTRY_ITEMS).is_empty(),
+        !import_violations(
+            "r.rs",
+            binding,
+            STATS_REGISTRY_CRATE_PATHS,
+            REGISTRY_ITEMS,
+            EXTERNAL_ROOTS
+        )
+        .is_empty(),
         "the registry names the catalogue and Level 1's registry only"
     );
     let helper = "use crate::stats_assist::spec::HelperTask;\n";

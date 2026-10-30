@@ -74,7 +74,9 @@ closed! {
         VerifyDescription => "verify.description",
         DescribeTitle => "describe.title",
         DescribeDescription => "describe.description",
-        /// p-values come from statrs 0.18.0, MIT (`stats_l0::pvalue`).
+        /// p-values and quantiles come from statrs 0.18.0, MIT
+        /// (`stats_l0::pvalue` for Level 0 and Level 1; `stats_dist`, on
+        /// its `erfc` and `Normal`, for the methods).
         LicenseStatrsMit => "license.statrs_mit",
         /// `MethodRegistry::SUMMARY` (GRIM, percent and count) never runs
         /// on a manuscript: Level 0 cannot read its inputs from one.
@@ -351,8 +353,9 @@ fn analyze_independent_t() -> Entry {
             method_schema_version: 1,
             supported_formats: TABLE_FORMATS.to_vec(),
             dependency_ids: Vec::new(),
-            // p and the interval's quantile come from statrs's Student t
-            // through `stats_l0::pvalue`.
+            // p and the interval's quantile come through `stats_dist`,
+            // still from statrs (its Student t at df ≤ 1e4; its erfc and
+            // Normal above, Phase 8E).
             license_notes: vec![StatsWording::LicenseStatrsMit],
             // The descriptive summary's profile: the same ingest, and the
             // same run manager's ceiling and check point (Phase 4B-2).

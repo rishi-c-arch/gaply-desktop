@@ -12,10 +12,11 @@
 //! rounding in first minus second grows with the size of the values.
 //!
 //! Each method also has a case at least ten times above its threshold that
-//! computes before and after with the same bytes, pinned on macOS aarch64,
-//! where they were captured (the bytes hold p, which goes through the
-//! platform's maths library); elsewhere only the refusal and the ratio are
-//! asserted.
+//! computes before and after with the same bytes, captured on macOS aarch64
+//! (the bytes hold p, which goes through the platform's maths library) and
+//! asserted on every platform since Research OS Phase 8E (decision 277: the
+//! reviewer got macOS's bytes on Linux x86_64 at `3d1253e`; CI's Linux job
+//! checks them on every push, the Windows job on a pull request).
 //!
 //! The codes are compared by their wire words so that this file compiled,
 //! and ran red, before the codes existed.
@@ -200,9 +201,11 @@ const PAIRED_ABOVE: &str = "e60fc218e3758eda4b2c2574feff1a85fc1bd0ff9953dd71f1d1
 fn pinned(name: &str, bytes: &[u8], want: &str) {
     let got = ContentHash::of_bytes(bytes);
     println!("{name}: {}", got.as_hex());
-    if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
-        assert_eq!(got.as_hex(), want, "{name}: the bytes changed");
-    }
+    assert_eq!(
+        got.as_hex(),
+        want,
+        "{name}: the bytes changed (captured on macOS aarch64)"
+    );
 }
 
 fn above(name: &str, se: f64, scale: f64) {

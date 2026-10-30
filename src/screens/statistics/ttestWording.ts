@@ -148,7 +148,7 @@ export const TTEST_WORDS: Record<string, Words> = {
   'stats.ttest.underflow': () => 'The arithmetic went below the smallest number a double can hold, though the values differ.',
   'stats.ttest.arithmetic_refused': () => 'The arithmetic refused to give a value.',
   'stats.ttest.quantile_out_of_range': () =>
-    'The interval needs a t quantile at more than 10,000 degrees of freedom, where Gaply has not measured its accuracy, so nothing was computed.',
+    'The test needs the t distribution at more than 10,000,000 degrees of freedom, where Gaply has not measured its accuracy, so nothing was computed.',
   'stats.ttest.sd_ratio_undefined': () => "The SD ratio is not defined, because one group's SD is 0.",
   'stats.ttest.missing_group': (d) =>
     `${rows(d.count)} had no group (an empty cell or a missing-value token), and ${was(d.count)} left out.`,

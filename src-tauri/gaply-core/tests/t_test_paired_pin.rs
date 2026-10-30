@@ -17,8 +17,10 @@
 //!   `GaplyError` has no `PartialEq`). Checked on every platform: these are
 //!   sums, products, quotients and square roots, which IEEE 754 fixes.
 //! * `P` covers `p_two_sided`, which goes through the platform's maths
-//!   library (statrs' Student t). Checked on macOS aarch64 only, where it was
-//!   captured; elsewhere the test prints it.
+//!   library (statrs' Student t). Captured on macOS aarch64 and, since
+//!   Research OS Phase 8E (decision 277), checked on every platform: the
+//!   reviewer got the same digest on Linux x86_64 at `3d1253e`; CI's Linux
+//!   job checks it on every push, the Windows job on a pull request.
 
 use gaply_core::contracts::ContentHash;
 use gaply_core::stats_verify::t_test_paired;
@@ -188,11 +190,9 @@ fn t_test_paired_gives_the_same_bits_and_refusals_as_before_8d1() {
         CORE,
         "t, df, se, the means, the method or a refusal changed:\n{core}"
     );
-    if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
-        assert_eq!(
-            p_hash.as_hex(),
-            P,
-            "p changed on the platform it was captured on:\n{p}"
-        );
-    }
+    assert_eq!(
+        p_hash.as_hex(),
+        P,
+        "p changed (captured on macOS aarch64):\n{p}"
+    );
 }

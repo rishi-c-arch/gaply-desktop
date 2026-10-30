@@ -103,7 +103,7 @@ export const ONE_SAMPLE_WORDS: Record<string, Words> = {
   'stats.onesample.underflow': () => 'The arithmetic went below the smallest number a double can hold, though the values differ.',
   'stats.onesample.arithmetic_refused': () => 'The arithmetic refused to give a value.',
   'stats.onesample.quantile_out_of_range': () =>
-    'The interval needs a t quantile at more than 10,000 degrees of freedom, where Gaply has not measured its accuracy, so nothing was computed.',
+    'The test needs the t distribution at more than 10,000,000 degrees of freedom, where Gaply has not measured its accuracy, so nothing was computed.',
   'stats.onesample.missing_value': (d) =>
     `${rows(d.count)} had no value (an empty cell or a missing-value token), and ${was(d.count)} left out.`,
   'stats.onesample.missing_first': (d) =>

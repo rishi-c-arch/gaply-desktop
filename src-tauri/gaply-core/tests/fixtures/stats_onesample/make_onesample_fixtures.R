@@ -211,9 +211,10 @@ one_case("one_large_5000", "data_one_large.csv", d, 100)
 d <- roundtrip(one(round(rnorm(10001, 0.02, 1), 3)), "data_one_df10000.csv", bits = FALSE)
 one_case("one_df_10000", "data_one_df10000.csv", d, 0)
 
-# df = 10,001: R computes; Gaply refuses the interval (decision 242.7).
+# df = 10,001: above 1e4, where the p and the quantile are stats_dist's
+# (Research OS, Phase 8E, decision 275); computes. Refused until 8E.
 d <- roundtrip(one(round(rnorm(10002, 0.02, 1), 3)), "data_one_df10001.csv", bits = FALSE)
-one_case("one_df_10001", "data_one_df10001.csv", d, 0, refusal = "stats.onesample.quantile_out_of_range")
+one_case("one_df_10001", "data_one_df10001.csv", d, 0)
 
 x <- round(rnorm(40, 10, 3), 3)
 x[c(3, 8, 15, 22)] <- NA
@@ -270,7 +271,8 @@ paired_case("paired_df_10000", "data_paired_df10000.csv", d)
 
 a <- round(rnorm(10002, 0, 1), 3)
 d <- roundtrip(two(a, round(a + rnorm(10002, 0.02, 1), 3)), "data_paired_df10001.csv", bits = FALSE)
-paired_case("paired_df_10001", "data_paired_df10001.csv", d, refusal = "stats.onesample.quantile_out_of_range")
+# df = 10,001: computes since 8E, as the one-sample case above.
+paired_case("paired_df_10001", "data_paired_df10001.csv", d)
 
 # A missing first, a missing second, and both in one row (counted as
 # missing_first, the first reason).

@@ -67,8 +67,13 @@ mean m_d, sample variance v_d and sd s_d = √v_d.
   order, **never** the mean of the first minus the mean of the second; R's
   estimate is mean(x − y). The sd of the differences: `sample_variance` of the
   same values.
-- p: `stats_l0::pvalue::t_two_tailed`, from t and df.
-- The interval: `stats_ttest::interval_95`, the one interval of the t family.
+- p: `stats_ttest::two_sided_p`, the t family's one p, over
+  `stats_dist::t_two_tailed` (Level 0's `stats_l0::pvalue::t_two_tailed` at
+  df ≤ 1e4, bit for bit; Hill's 1970 formula above, to df 1e7; Research OS,
+  Phase 8E, decision 275, [large_samples.md](large_samples.md)), from t and df.
+- The interval: `stats_ttest::interval_95`, the one interval of the t family,
+  around `stats_ttest::t_quantile_975` (`stats_dist`'s since 8E: the bisection
+  at df ≤ 1e4, the Abramowitz and Stegun 26.7.5 expansion above, to df 1e7).
 - Each column's mean and sd: `stats_verify::mean` and `sample_variance` over
   the pairs used, in the pairs' order.
 - d_z: the mean difference over s_d. effectsize's own page for `cohens_d`
@@ -114,7 +119,7 @@ then the second, so permuting the rows changes no bit.
 | fewer than 2 pairs after exclusions | refused, `too_few_pairs` {count}, at validation and at run |
 | every difference equal (se exactly 0), identical columns included | not computable, `differences_constant`; validation passes, the run refuses. R stops ("data are essentially constant") when the mean difference is not 0, and answers t = NaN for identical columns |
 | se not 0 but below 10 · ε · max(\|mean of the differences\|, mean of \|first\|, mean of \|second\|) | not computable, `differences_essentially_constant`; validation passes, the run refuses. R's scale is the first term only; the other two are Gaply's own, so Gaply refuses some data R computes (below) |
-| df above 1e4 (10,002 pairs or more) | not computable, `quantile_out_of_range` (decision 242.7, until 8E); 10,001 pairs compute |
+| df above 1e7 (more than 10,000,002 pairs) | not computable, `quantile_out_of_range`; unreachable through the ingest. Until 8E the limit was 1e4 (decision 242.7); 10,001 and 10,002 pairs, df 10,000 and 10,001, both compute (`onesample_validate`) |
 | the same column twice | invalid, `same_column` |
 | a column holds text, NaN or an infinity | invalid, `column_holds_text` / `column_non_finite` {column, count} |
 | overflow, underflow, any other refusal | `overflow`, `underflow`, `arithmetic_refused`, as for the one-sample test |
@@ -170,11 +175,14 @@ with a tiny rounding error."
 | d_z | ε · max(\|d_z\|, M / s_d) | the difference's rounding over s_d |
 | p | 1e-9 · p + 1e-15 + 2 f(\|t\|) · (t's gate) | Level 0's gate against R, an absolute floor, and t's permitted error carried through f |
 
-**Measured** (26 Oct 2026, macOS aarch64), over the 25 computed cases of both
-tests: ci_upper 1.925e-1 (paired_df_10000), sd_differences 3.118e-3,
-se 3.306e-3, mean_second 2.165e-3, sd_first 1.990e-3, sd_second 1.226e-3,
-cohens_dz 9.989e-3 (all paired_df_10000 but sd_second, paired_large_5000),
-mean_first 1.505e-4 (paired_ties). Every value is inside its gate.
+**Measured** (30 Oct 2026, macOS aarch64, after 8E), over the 27 computed cases
+of both tests: ci_upper 1.925e-1 (paired_df_10000), p 4.232e-2, cohens_dz
+4.118e-2, sd_first 3.676e-3, sd_second 2.208e-3 (all paired_df_10001, the
+first paired case above df 1e4), se 3.306e-3, sd_differences 3.118e-3,
+mean_second 2.165e-3 (paired_df_10000), mean_first 1.505e-4 (paired_ties).
+Every value is inside its gate. Before 8E (26 Oct 2026, 25 cases) the largest
+was the same ci_upper 1.925e-1, and every case at df ≤ 1e4 is unchanged bit
+for bit (`tests/essentially_constant_bytes_pin.rs`).
 
 ## 7. Properties (`tests/onesample_properties.rs`)
 
@@ -222,7 +230,8 @@ directly as mean(a − b) / sd(a − b) and required to agree within 1e-14 relat
 
 15 cases: n = 2; strongly and weakly related columns; negative differences;
 ties; a 1e9 offset in both columns; heavy tails; 5,000 pairs; 10,001 pairs
-(computes) and 10,002 (refused, `quantile_out_of_range`; R computes); a missing
+(df 10,000) and 10,002 (df 10,001, above 1e4: Hill's p and the expansion;
+refused until 8E); a missing
 first, a missing second and both on one row; −99 ticked in either column and in
 both on one row; identical columns (refused, `differences_constant`; R: t = NaN);
 a constant difference of 2 on a quarter grid (refused; R: "data are essentially
@@ -234,7 +243,7 @@ observations").
 | item | evidence | status |
 |---|---|---|
 | Formula/method and variant documented | this page §2, §4; `stats_onesample/mod.rs` header | done |
-| Golden fixtures and edge cases pass | `onesample_r_golden` (15 paired cases, 4 refused), `onesample_validate` | done |
+| Golden fixtures and edge cases pass | `onesample_r_golden` (15 paired cases, 3 refused), `onesample_validate`, `stats_dist_reference` | done |
 | Missing values, ties, weights, precision and sample size handled according to the method | §5, the ties and missing cases, §8, §6, `too_few_pairs`, the df boundary | done; weights not supported, stated |
 | Diagnostic meanings and limitations documented | §5, §8; `OneSampleCode` doc comments; the title, description and normality sentences in `capabilityWording.ts`; the screen's sentence for each code (`onesampleWording.ts`, `onesampleWording.vitest.ts`: one per code, neutral) and its own words (`PairedFlow.vitest.tsx`) | done (sentences 8D-2b, screen 8D-2c) |
 | Independent reference comparison completed | R `t.test(paired = TRUE)` and effectsize, §6, §9 | done |

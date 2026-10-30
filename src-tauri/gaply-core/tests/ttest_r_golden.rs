@@ -24,7 +24,9 @@
 //! | p | P · p + P_FLOOR + 2 · f(|t|) · (t's gate) |
 //!
 //! Q = 1e-12 is the quantile's own measured gate (`ttest_quantile.rs`); P =
-//! 1e-9 is `stats_l0::pvalue`'s gate against R (`l0_p_reference.rs`); P_FLOOR
+//! 1e-9 is the p engine's gate against R: `stats_l0::pvalue`'s at df ≤ 1e4
+//! (`l0_p_reference.rs`) and `stats_dist`'s above it, the same 1e-9
+//! (`stats_dist_reference.rs`, Research OS Phase 8E); P_FLOOR
 //! = 1e-15 is the absolute floor, so a tiny p cannot pass or fail on its
 //! relative error alone; f is Student's t density at R's |t|, carrying t's
 //! permitted error into p. The cancellation terms (M) are the conditioning
@@ -403,8 +405,9 @@ fn the_t_test_matches_r_within_the_gates() {
     for (name, (ratio, case)) in &worst.0 {
         println!("  {name:<16} {ratio:.3e}  ({case})");
     }
-    // 18 cases × 2 variants, of which both_constant and group_of_one refuse.
-    assert_eq!((computed, refused), (32, 4), "pairs compared");
+    // 19 cases × 2 variants (large_df, above df 1e4, since 8E), of which
+    // both_constant and group_of_one refuse.
+    assert_eq!((computed, refused), (34, 4), "pairs compared");
 }
 
 /// The golden values are R's answer on the numbers R read; that is the answer

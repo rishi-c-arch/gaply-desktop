@@ -50,7 +50,10 @@ sample variances v₁, v₂ (denominator n − 1).
   result gained one field, `se`, the standard error t divides by; nothing else
   in them changed, and Level 1's golden set is unchanged (`l1_r_golden`, and
   `stats_adapters_golden`'s 43 rows, identical before and after).
-- p: `stats_l0::pvalue::t_two_tailed`, Level 0's p.
+- p: `stats_ttest::two_sided_p`, the t family's one p, over
+  `stats_dist::t_two_tailed`: Level 0's `stats_l0::pvalue::t_two_tailed` at
+  df ≤ 1e4, bit for bit, and Hill's (1970) formula above it, to df 1e7
+  (Research OS, Phase 8E, decision 275; [large_samples.md](large_samples.md)).
 - Each group's mean and variance: `stats_verify::mean` (R's two-pass mean) and
   `sample_variance`, given the values in ascending order, as the descriptive
   summary gives them. So permuting the rows changes no bit of the result.
@@ -65,9 +68,12 @@ sample variances v₁, v₂ (denominator n − 1).
   `effectsize:::.effect_size_difference`) computes it as
   `s <- sqrt((s1^2 + s2^2)/2)`: the square root of the mean of the two
   variances, which is what decision 63 states.
-- The quantile q: the q whose `t_two_tailed(q, df)` is 0.05, by bisection on
-  [0, 1e3] (decision 62's fallback). statrs's `StudentsT::inverse_cdf` was
-  measured first and missed the gate (section 6).
+- The quantile q: `stats_dist::t_quantile_975`, re-exported by `stats_ttest`.
+  At df ≤ 1e4 it is the q whose `t_two_tailed(q, df)` is 0.05, by bisection on
+  [0, 1e3] (decision 62's fallback; statrs's `StudentsT::inverse_cdf` was
+  measured first and missed the gate, section 6), moved to `stats_dist` in 8E
+  with its 30 pinned bits unchanged; above 1e4 it is Abramowitz and Stegun
+  26.7.5, to df 1e7 ([large_samples.md](large_samples.md)).
 
 Every result says which standardizer d used (`dStandardizer`: `pooled_sd` or
 `root_mean_variance`) and its value (`dStandardizerValue`).
@@ -113,7 +119,7 @@ read.
 | a sum, square, quotient or root a double cannot hold | not computable, `overflow` |
 | a sum of squares below the smallest normal double though the values differ | not computable, `underflow` |
 | any other refusal of the arithmetic (no p for the statistic) | not computable, `arithmetic_refused` |
-| df above 1e4 | not computable, `quantile_out_of_range` (unreachable through the ingest's 5,000 rows) |
+| df above 1e7 | not computable, `quantile_out_of_range` (unreachable through the ingest's 5,000 rows, and through any dataset: it needs more than 10,000,002 rows; until 8E the limit was 1e4, decision 242.7) |
 | the outcome holds text, NaN or an infinity | invalid, `outcome_holds_text` / `outcome_non_finite` |
 | the group has fewer than 2 levels | invalid, `group_one_level` |
 | the group column has more than 50 levels | its levels are not listed: `stats_ttest_group_levels` refuses with `too_many_levels` {count, limit}, and the screen does not offer the column (decision 87); `validate` and `run` refuse it as the group with the same code, so a spec built anywhere is held to the limit (decision 94) |
@@ -181,12 +187,15 @@ s  <- t.test(y ~ f, data = data.frame(y = x$y, f), var.equal = TRUE)$stderr /
   effectsize::cohens_d(y ~ f, data = data.frame(y = x$y, f), pooled_sd = TRUE, ci = NULL)$Cohens_d
 ```
 
-**Measured** (18 Oct 2026, macOS aarch64, debug build), the largest
-|gaply − R| / gate over 32 computed (case, variant) pairs: ci_upper 9.989e-3
-(heavy_tail), ci_lower 9.751e-3, se 9.214e-4, sd2 9.592e-4, sd1 8.296e-4, p
-5.150e-4, cohens_d 4.485e-4, df (Welch) 4.480e-4, sd_ratio 4.318e-4, mean2
-3.282e-4, t 2.571e-4, mean_difference 1.575e-4, mean1 1.418e-4. Every value is
-at least 100× inside its gate.
+**Measured** (30 Oct 2026, macOS aarch64, debug build, after 8E), the largest
+|gaply − R| / gate over 34 computed (case, variant) pairs: cohens_d 5.412e-2,
+mean_difference 5.412e-2, t 5.412e-2, ci_upper 3.069e-2, ci_lower 3.054e-2,
+sd_ratio 3.019e-3, sd2 1.939e-3, mean2 1.602e-3, mean1 1.119e-3, sd1 1.109e-3
+(all `large_df`, the 10,200-row case above df 1e4), se 9.214e-4 (large_5000),
+p 5.150e-4 (large_5000), df (Welch) 4.480e-4 (numeric_group). Every value is
+at least 18× inside its gate. Before 8E (18 Oct 2026, 32 pairs) the largest
+was ci_upper 9.989e-3 (heavy_tail), and every row at df ≤ 1e4 is unchanged
+bit for bit (`tests/essentially_constant_bytes_pin.rs`).
 
 **The quantile** (`tests/ttest_quantile.rs`, 33 df from 1 to 1e7 against
 `qt(0.975, df)`; gate ε · R):
@@ -194,12 +203,17 @@ at least 100× inside its gate.
 | implementation | df ≤ 4,998 | df 1e4 | 1e5 | 1e6 | 1e7 |
 |---|---|---|---|---|---|
 | statrs `StudentsT::inverse_cdf` | ≤ 6.1e-13 | 9.7e-14 | 3.5e-6 | 6.1e-5 | 6.8e-2 |
-| bisection over `t_two_tailed` (shipped) | ≤ 2.9e-13 | 5.2e-13 | 1.8e-11 | 8.8e-11 | 3.6e-9 |
+| bisection over `t_two_tailed` (shipped at df ≤ 1e4) | ≤ 2.9e-13 | 5.2e-13 | 1.8e-11 | 8.8e-11 | 3.6e-9 |
+| Abramowitz and Stegun 26.7.5 (shipped above 1e4 since 8E) | 3.4e-16 at 2,500 | 2.3e-16 | 2.3e-16 | 2.3e-16 | 2.3e-16 |
 
 statrs fails the gate from 1e5. The bisection meets it up to 1e4 and not above,
-where it inherits `pvalue::t_two_tailed`'s own error at large df; so the
-quantile is refused above 1e4 (`QUANTILE_MAX_DF`) rather than given. The ingest
-caps a table at 5,000 rows, so df ≤ 4,998 for a file a user opens.
+where it inherits `pvalue::t_two_tailed`'s own error at large df; so above 1e4
+the quantile is the expansion (Research OS, Phase 8E, decision 275: within
+4.5e-16 of R's `qt` over 20 df from 1e3 to 1e7, `tests/stats_dist_reference.rs`,
+and 2.6e-16 of exact values in the reviewer's measurement,
+[large_samples.md](large_samples.md)), and above 1e7 (`QUANTILE_MAX_DF`) it is
+refused rather than given. The ingest caps a table at 5,000 rows, so df ≤ 4,998
+for a file a user opens.
 
 ## 7. Properties (`tests/ttest_properties.rs`)
 
@@ -247,11 +261,14 @@ estimate), `effectsize::cohens_d(y ~ f, pooled_sd = TRUE/FALSE, ci = NULL)`,
 `mean`, `sd`, `qt(0.975, df)`. The factor's levels are set explicitly to the
 two chosen, in Gaply's order (`sort(method = "radix")`), so the signs agree.
 Each data file is written, read back with `read.csv`, and computed on what was
-read; `cells_bits.csv` holds the bits of every number R read (5,613), all equal
+read; `cells_bits.csv` holds the bits of every number R read (5,613;
+`data_large_df.csv`'s 10,200 cells aside, to keep the file small), all equal
 to Gaply's.
 
-18 cases on 16 datasets: n of 2 per group; unequal n; unequal variances;
+19 cases on 17 datasets: n of 2 per group; unequal n; unequal variances;
 ties; a 1e9 offset; heavy tails (t with 1.5 df); negative values; 5,000 rows;
+10,200 rows (`large_df`: Student's df 10,198, Welch's about 10,194, above 1e4,
+so Hill's p and the expansion, 8E);
 one constant group; both constant; a group of one; three levels with two
 chosen, in both orders; missing outcomes and groups; -99 ticked and not
 ticked; code-point order (`B` before `a`); integer group codes. Expected
@@ -265,7 +282,7 @@ values).
 | item | evidence | status |
 |---|---|---|
 | Formula/method and variant documented | this page §2, §4; `stats_ttest/mod.rs` header | done |
-| Golden fixtures and edge cases pass | `ttest_r_golden` (32 computed, 4 refused pairs), `ttest_validate`, `ttest_quantile` | done |
+| Golden fixtures and edge cases pass | `ttest_r_golden` (34 computed, 4 refused pairs), `ttest_validate`, `ttest_quantile`, `stats_dist_reference` | done |
 | Missing values, ties, weights, precision and sample size handled according to the method | §5 (exclusions, codes), ties fixture, §8 (no weights), §6 (gates), `group_too_small` | done; weights not supported, stated |
 | Diagnostic meanings and limitations documented | §5, §8; `TTestCode` doc comments; a sentence for each of the 50 codes the screen can show in `src/screens/statistics/ttestWording.ts`, the list `ttestCodes.json` pinned to the Rust sets by `src-tauri/tests/stats_ttest_wire.rs`, every code covered and no sentence saying "significant" (`ttestWording.vitest.ts`); the five limitation and title codes' sentences in `capabilityWording.ts` | done |
 | Independent reference comparison completed | R `t.test` and effectsize, §6, §9 | done |

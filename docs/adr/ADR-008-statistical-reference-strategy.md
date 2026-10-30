@@ -68,7 +68,7 @@ the Research OS, so the rule is fixed here before more methods follow it.
    through the distribution's density. **A gate is measured and stated, and
    never loosened to make a case pass.** Where a computation cannot meet its
    gate over part of its domain, that part is refused with a closed code,
-   not reported (the t-test's quantile above df 1e4).
+   not reported (the t family above df 1e7; above df 1e4 until 8E).
 7. **The test prints its measurement**: the largest |gaply − R| / gate per
    statistic and the case it came from, so the method's page quotes a run.
 
@@ -104,8 +104,8 @@ the Research OS, so the rule is fixed here before more methods follow it.
 - A fixture regenerated with another R or package version is a visible diff in
   the golden header and data; the version is part of the evidence.
 - A computation that cannot meet its gate somewhere is refused there, which can
-  narrow a method's domain (the quantile above df 1e4) and is documented on its
-  page.
+  narrow a method's domain (the t family above df 1e7; above df 1e4 until 8E)
+  and is documented on its page.
 - R and the approved CRAN packages must be installable on the developer's
   machine to regenerate fixtures; CI only reads the committed fixtures.
 

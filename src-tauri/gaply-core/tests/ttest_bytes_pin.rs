@@ -8,9 +8,12 @@
 //! The SHA-256 of `TTestResult::canonical_bytes()` (what the manifest's
 //! `output_hash` hashes) for Student's test, Welch's test, and a case with
 //! rows left out under two reasons. The bytes hold p, which goes through the
-//! platform's maths library, so the digests are asserted on macOS aarch64
-//! only, where they were captured; elsewhere the test prints them and asserts
-//! nothing (decision 251's item 1: the other platforms are measured in 8E).
+//! platform's maths library; captured on macOS aarch64, and asserted on
+//! every platform since Research OS Phase 8E (decision 277): the reviewer
+//! ran this pin on Linux x86_64 at `3d1253e` with the assertion forced on and
+//! got macOS's bytes, CI's Linux job checks it on every push, and the Windows
+//! job on a pull request is Windows's measurement. A red there names the
+//! platform's digest, and "Bitwise" then needs its word in a step of its own.
 
 use gaply_core::contracts::ContentHash;
 use gaply_core::stats_desc::Alias;
@@ -85,7 +88,6 @@ fn the_independent_t_tests_canonical_bytes_are_as_before_8d1() {
             EXCLUSIONS,
         ),
     ];
-    let captured = cfg!(all(target_os = "macos", target_arch = "aarch64"));
     let mut changed = Vec::new();
     for (name, rows, p, pinned) in cases {
         let r = compute(&dataset(rows), &p).unwrap_or_else(|e| panic!("{name}: {e:?}"));
@@ -103,10 +105,8 @@ fn the_independent_t_tests_canonical_bytes_are_as_before_8d1() {
             changed.push(name);
         }
     }
-    if captured {
-        assert!(
-            changed.is_empty(),
-            "the canonical bytes changed: {changed:?}"
-        );
-    }
+    assert!(
+        changed.is_empty(),
+        "the canonical bytes changed (captured on macOS aarch64): {changed:?}"
+    );
 }

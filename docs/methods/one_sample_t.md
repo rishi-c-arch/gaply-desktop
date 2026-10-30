@@ -56,13 +56,18 @@ variance v (denominator n − 1) and sd s = √v; let μ be the test value.
   (`tests/t_test_paired_pin.rs`: 203 inputs computed, 5 refused, one digest of
   t, df, se, both means and every refusal checked on every platform, and one of
   p checked on macOS aarch64).
-- p: `stats_l0::pvalue::t_two_tailed`, Level 0's p, from t and df.
+- p: `stats_ttest::two_sided_p`, the t family's one p, over
+  `stats_dist::t_two_tailed` (Level 0's `stats_l0::pvalue::t_two_tailed` at
+  df ≤ 1e4, bit for bit; Hill's 1970 formula above, to df 1e7; Research OS,
+  Phase 8E, decision 275, [large_samples.md](large_samples.md)), from t and df.
   `stats_verify`'s own `p_two_sided` is not used, as in `stats_ttest`.
 - m and v: `stats_verify::mean` (R's two-pass mean) and `sample_variance`,
   given the values in ascending order (`total_cmp`), so permuting the rows
   changes no bit.
 - The interval: `stats_ttest::interval_95`, the one interval of the t family,
-  around `stats_ttest::t_quantile_975`. It moved out of the independent
+  around `stats_ttest::t_quantile_975` (`stats_dist`'s since 8E: the bisection
+  at df ≤ 1e4, the Abramowitz and Stegun 26.7.5 expansion above, to df 1e7,
+  [large_samples.md](large_samples.md)). It moved out of the independent
   t-test's arithmetic in 8D-1, as written there; the independent t-test's
   canonical bytes on three computed cases are unchanged
   (`tests/ttest_bytes_pin.rs`, captured before the move), and so is 8C's
@@ -98,7 +103,7 @@ the rows left out equal the rows read.
 | fewer than 2 values after exclusions | refused, `too_few_values` {count}, at validation and at run |
 | every value equal (se exactly 0) | not computable, `values_constant`; validation passes, the run refuses. R stops ("data are essentially constant") when the mean is not 0 and answers t = NaN when every value is 0 |
 | se not 0 but below 10 · ε · \|mean\| (ε = `f64::EPSILON`) | not computable, `values_essentially_constant`; validation passes, the run refuses. R's own rule and scale (decision 259) |
-| df above 1e4 (10,002 values or more) | not computable, `quantile_out_of_range` (decision 242.7, until 8E); 10,001 values compute |
+| df above 1e7 (more than 10,000,002 values) | not computable, `quantile_out_of_range`; unreachable through the ingest. Until 8E the limit was 1e4 (decision 242.7); 10,001 and 10,002 values, df 10,000 and 10,001, both compute (`onesample_validate`) |
 | a sum, square, quotient or root a double cannot hold | not computable, `overflow` |
 | a sum of squares below the smallest normal double though the values differ | not computable, `underflow` |
 | any other refusal of the arithmetic | not computable, `arithmetic_refused` |
@@ -147,12 +152,16 @@ R refuses such data too: "data are essentially constant"."
 These are the independent t-test's gates with its cancellation term written
 for one mean and a test value. None was loosened to make a case pass.
 
-**Measured** (26 Oct 2026, macOS aarch64, debug build), the largest
-|gaply − R| / gate over the 25 computed one-sample and paired cases: ci_lower
-3.124e-1 (one_df_10000), ci_upper 1.925e-1 (paired_df_10000), t 7.647e-2,
-cohens_d 7.646e-2, mean_difference 7.569e-2 (all one_df_10000), p 2.048e-2,
-se 3.306e-3, sd 1.448e-3, mean 1.288e-3. Every value is inside its gate; the
-largest are at df 10,000, where the quantile's own error is largest.
+**Measured** (30 Oct 2026, macOS aarch64, debug build, after 8E), the largest
+|gaply − R| / gate over the 27 computed one-sample and paired cases: ci_lower
+3.124e-1 (one_df_10000), ci_upper 1.925e-1 (paired_df_10000), t 9.604e-2,
+cohens_d 9.593e-2, mean_difference 9.481e-2 (all one_df_10001), p 4.232e-2
+(paired_df_10001), se 3.306e-3, mean 1.653e-3 (one_df_10001), sd 1.448e-3
+(one_large_5000). Every value is inside its gate; the largest are at df 10,000,
+the bisection's last df, where the quantile's own error is largest, and at
+df 10,001, the first df the expansion and Hill's p serve. Before 8E (26 Oct
+2026, 25 cases) the largest was the same ci_lower 3.124e-1, and every case at
+df ≤ 1e4 is unchanged bit for bit (`tests/essentially_constant_bytes_pin.rs`).
 
 ## 7. Properties (`tests/onesample_properties.rs`)
 
@@ -216,8 +225,9 @@ datasets of 10,001 and 10,002 rows aside), all equal to Gaply's.
 17 cases: n = 2; a spread; ties; a 1e9 offset with a test value near the mean;
 heavy tails (t with 1.5 df); negative values; test values of 0, positive and
 negative; a test value equal to a mean that is exact in any order (1, 2, 3, 6
-against 3: t = 0, p = 1); 5,000 values; 10,001 values (computes); 10,002
-(refused, `quantile_out_of_range`; R computes); missing values; −99 as a ticked
+against 3: t = 0, p = 1); 5,000 values; 10,001 values (df 10,000, the
+bisection's last) and 10,002 (df 10,001, the first above 1e4: Hill's p and the
+expansion; refused until 8E); missing values; −99 as a ticked
 code; all values 2.5 against 1 (refused, `values_constant`; R: "data are
 essentially constant"); one value (refused, `too_few_values`; R: "not enough 'x'
 observations").
@@ -227,7 +237,7 @@ observations").
 | item | evidence | status |
 |---|---|---|
 | Formula/method and variant documented | this page §2, §4; `stats_onesample/mod.rs` header | done |
-| Golden fixtures and edge cases pass | `onesample_r_golden` (17 one-sample cases, 3 refused), `onesample_validate` | done |
+| Golden fixtures and edge cases pass | `onesample_r_golden` (17 one-sample cases, 2 refused), `onesample_validate`, `stats_dist_reference` | done |
 | Missing values, ties, weights, precision and sample size handled according to the method | §5 (exclusions, codes), ties case, §8 (no weights), §6 (gates), `too_few_values`, the df boundary | done; weights not supported, stated |
 | Diagnostic meanings and limitations documented | §5, §8; `OneSampleCode` doc comments; the title, description and normality sentences in `capabilityWording.ts`; the screen's sentence for each code (`onesampleWording.ts`, `onesampleWording.vitest.ts`: one per code, neutral) | done (8D-2b) |
 | Independent reference comparison completed | R `t.test` and effectsize, §6, §9 | done |

@@ -27038,3 +27038,177 @@ The one-sample numbers are 8D-2b's.
   `build/index.html` present and `public/sitemap.xml` written back from HEAD
   (`cmp` equal).
 - rustfmt on `tests/project_commands.rs` and `git diff --check`: clean.
+
+### D301 — Research OS, Phase 8E: accuracy at large samples: one pure module of distribution functions, `stats_dist`, Hill's p and the Abramowitz and Stegun quantile above df 1e4, measured against R to 1e7; the three t-tests compute between df 1e4 and 1e7; no bit at df ≤ 1e4 changes `[src]` `[test]` `[measured]`
+
+**Added** on `feat/research-os-8` after `3d1253e` (D300). It follows decisions
+273 to 277 of 27 Oct 2026 (`~/gaply-corpus/os/decisions.md`), with 62, 90,
+242 (242.7 and 242.8), 251 and 254. The report is
+`~/gaply-corpus/os/phase8/phase8e_report.md`; the method page is
+`docs/methods/large_samples.md`; the real-app check, a regression check, is
+`~/gaply-corpus/os/phase8/realapp_8e.md`. **The user ran it on 30 Oct 2026
+and reported that it passed:** all three results matched their tables, the
+independent t-test and the one-sample test on `HTOK_5000.csv` and the paired
+test on `HTPAIRED.csv` (38 pairs, t 19.3976, df 37, p 5.56733e-21). The
+paired test was first opened on `HTOK_5000.csv` by mistake and redone on
+`HTPAIRED.csv`.
+- **8D is closed (decision 273):** the user ran `realapp_8d2c.md` on 27 Oct
+  2026 and reported that it passed, both screens, which covered the
+  one-sample screen's check too (decision 270).
+- Nothing a user can reach changes on screen: the ingest still holds a file
+  to 5,000 rows (df at most 4,999), so no run above df 1e4 can exist before
+  8F. The two `quantile_out_of_range` sentences now say 10,000,000.
+
+**The module (decision 275).** `gaply_core::stats_dist`
+(`src/stats_dist/mod.rs`), pure, with only `std` and statrs 0.18.0 (its
+`erfc` and `Normal`) from outside the crate and `stats_l0::pvalue`'s two tail
+functions under aliases (`l0_t_two_tailed`, `l0_f_upper`) from inside it.
+Two constants, `LARGE_DF = 1e4` and `MEASURED_MAX_DF = 1e7`, and one private
+predicate `df > LARGE_DF` that decides the switch for the p, the quantile and
+F alike; above `MEASURED_MAX_DF` every function that takes a df is `None`.
+- `t_two_tailed(t, df)`: `stats_l0`'s value bit for bit at df ≤ 1e4; above,
+  Hill's formula (G. W. Hill, Algorithm 395, CACM 13(10), 1970: a = df − 0.5,
+  b = 48a², y = a · ln_1p(t²/df), z = (((((−0.4y − 3.3)y − 24)y − 85.5) /
+  (0.8y² + 100 + b) + y + 3) / b + 1) · √y, p = erfc(z/√2)); a y of 1,500 or
+  more is 0, so an overflowing t² is 0, never NaN. The ACM page answered 403
+  on 30 Oct 2026; the branch was read in Alan Miller's Fortran transcription
+  of Algorithm 395 (`jblevins.org/mirror/amiller/cacm395.f90`), whose
+  coefficients are decision 275's.
+- `t_quantile_975(df)`: 4B-1's bisection over `stats_l0`'s p at df ≤ 1e4,
+  moved out of `stats_ttest` verbatim, with its target
+  `2.0 * (1.0 - UPPER_TAIL_POINT)` (0.050000000000000044, not 0.05: writing
+  0.05 changes bits, mutation 7); above, `cornish_fisher_975(df)`, Abramowitz
+  and Stegun 26.7.5 (p. 949, read as the page's scan at
+  `personal.math.ubc.ca/~cbm/aands/page_949.htm`, 30 Oct 2026), g1 to g4 as
+  the page prints them, public from df 1e3 so the coefficients are checked
+  where the last terms are largest.
+- `f_upper(f, df1, df2)`: df1 = 1 above df2 1e4 is Hill's formula on f/df2;
+  every other case is `stats_l0::pvalue::f_upper` bit for bit, and df1 ≥ 2 is
+  not gated at large df2 (8G measures its ANOVA's range).
+- `normal_quantile_975()`: statrs's `Normal(0, 1).inverse_cdf(0.975)`.
+- `stats_ttest` keeps its paths: `pub use` of `t_quantile_975` and of
+  `MEASURED_MAX_DF as QUANTILE_MAX_DF`, and `use` of `t_two_tailed` for the
+  new `pub(crate) two_sided_p(t, df, out_of_range, refused)` beside
+  `interval_95`: `out_of_range` when `!(df <= QUANTILE_MAX_DF)` (a NaN df
+  too), else `stats_dist`'s p or `refused`. `arithmetic`, `one_sample_numbers`
+  and `paired_numbers` call it where they computed p; `stats_onesample` names
+  no `stats_l0` or `stats_dist` item. A unit test at the end of
+  `stats_ttest/mod.rs` pins the check at df 1e7, just above it, at a NaN df
+  and at a NaN t, since no dataset in a test reaches df 1e7.
+- Engine versions stay 1: no number a saved or reachable run computes
+  changes.
+
+**What stays with `stats_l0`, and why.** Nothing under `src/stats_l0`
+changed. Level 0 and Level 1 keep `stats_l0::pvalue` and Level 0's Could not
+check above df 1e5 (decision 90). Level 0 could take Hill's p above 1e5 in a
+verifier step of its own; 8E does not. The purity guard
+(`contracts_are_pure.rs`) scans `src/stats_dist/` in checks 1, 2 and 3, with
+its own crate paths, its alias-text item list, and the outside roots `std`
+and `statrs` passed to `import_violations` as a new parameter (every other
+directory passes `EXTERNAL_ROOTS`, so statrs opens to no other module).
+
+**Measured against R 4.6.1 (`tests/stats_dist_reference.rs` over
+`tests/fixtures/stats_dist/`, `make_dist_fixtures.R`: 20 + 1 + 338 + 198
+rows, each statistic placed through R's quantile function), macOS aarch64,
+30 Oct 2026; the full tables are on `docs/methods/large_samples.md`:**
+
+| function | gate | largest measured |
+|---|---|---|
+| `cornish_fisher_975`, 20 df from 1e3 to 1e7 | 1e-14 | 4.531e-16 (df 10,002) |
+| `t_quantile_975`, the same 20 | 1e-12 | 5.171e-13 (df 1e4, the bisection's pinned bits) |
+| `normal_quantile_975` | 1e-15 | 2.266e-16, 2 ulps |
+| `t_two_tailed`, 13 df × 26 t, p to 1e-300 | 1e-9 · p | 8.572e-11 (every df above 1e4, at t = 1: statrs's `erfc`); `stats_l0`'s own, ungated, 1.242e-7 at df 1e7 and over 1e-9 from df 99,998 |
+| `f_upper`, df1 = 1, 16 df2 × 9 F | 1e-9 · p | 8.213e-11 (df2 10,001 to 1e7); `stats_l0`'s own 1.719e-8 at df2 1e7, and within 1.6e-11 on 8A's unmeasured stretch, df2 5e3 to 5e4 |
+| `f_upper`, df1 = 2 and 3, 54 rows | `stats_l0`'s bits | equal on every row; its error 6.162e-10 at df1 3, df2 1e6 |
+| p at the quantile, 17 df ≥ 1e4 | 1e-9 | 4.492e-11 |
+
+At the df 1e4 rows every t p and every F with df1 = 1 at df2 ≤ 1e4 is
+`stats_l0`'s bits. The reviewer's measurements against exact values (Linux
+x86_64, mpmath: Hill 8.6e-11 to df 1e9, the expansion 2.6e-16, `qnorm` 2
+ulps, F with df1 = 1 7.1e-11, `stats_l0`'s t engine 1.7e-10, 8.7e-10 and
+3.6e-8 at df 1e5, 1e6 and 1e7) are on the page, labelled as the reviewer's.
+
+**The t-tests now compute between df 1e4 and 1e7.** The one-sample golden's
+`one_df_10001` and `paired_df_10001` compute (R's numbers written by
+`make_onesample_fixtures.R` with their refusal argument dropped: 25 rows in,
+4 out, no other row or data file changed; 27 computed, 5 refused). The
+independent golden gains `large_df` (5,100 per group, `roundtrip(…, bits =
+FALSE)` after the last existing case, so no draw moved and `cells_bits.csv`
+and `quantiles.csv` are byte-identical; Student's df 10,198, Welch's 10,194.4;
+40 rows appended; 34 computed and 4 refused pairs over 19 cases). Largest
+|gaply − R| / gate after: independent cohens_d, mean_difference and t
+5.412e-2 (large_df; before, ci_upper 9.989e-3 heavy_tail); one-sample t
+9.604e-2 (one_df_10001; before, ci_lower 3.124e-1 one_df_10000, unchanged);
+paired p 4.232e-2 (paired_df_10001). `ttest_validate`'s 10,004-row test now
+computes df 10,002 with the interval bit for bit the mean difference ±
+`t_quantile_975(10_002.0)` · se; `onesample_validate` computes df 10,000 and
+10,001 both.
+
+**Decision 277's pins.** `ttest_bytes_pin.rs`, `essentially_constant.rs`'s
+four `_ABOVE` pins, `t_test_paired_pin.rs`'s `P` and
+`essentially_constant_bytes_pin.rs`'s two digests (32 and 25 cases at df ≤
+1e4, unchanged) lost their `cfg!(macos aarch64)` gate and assert on every
+platform; the reviewer got macOS's bytes on Linux x86_64 at `3d1253e`. The
+bytes pin's 57 per-case lines were diffed against the run before the change:
+identical. The four cases above 1e4 are a second digest per golden file
+(`82c51618…`, `df6a98f4…`), asserted on macOS aarch64 only. The new
+`the_quantile_keeps_its_bits_to_df_1e4` pins the bisection's 30 bits on every
+platform, green on `3d1253e`'s code before any change and after the move; all
+30 equal the reviewer's Linux capture.
+
+**Existing tests changed, each red first on the unchanged methods and green
+after** (7 targets red, as predicted): `ttest_quantile.rs` ((30, 3) → (33, 0);
+the range test's 1e5 → the double just above 1e7); `ttest_validate.rs` (the
+refusal test → `ten_thousand_and_four_rows_compute_with_df_10002_and_the_interval_from_t_quantile_975`);
+`onesample_validate.rs` (`df_10000_and_10001_both_compute_…`);
+`onesample_r_golden.rs` ((25, 7) → (27, 5)); `ttest_r_golden.rs` ((32, 4) →
+(34, 4)); both goldens' gate docs; `essentially_constant_bytes_pin.rs`;
+`contracts_are_pure.rs` (the lists above; its seven self-check calls changed
+by the new argument only); the three platform pins (green either way on this
+Mac). `stats_registry/mod.rs` changed two comments. The `stats_dist` tests
+could not compile before the module existed; their red is the mutation record.
+
+**Mutations,** each red at the named test and green after a SHA-256-equal
+restore with a fresh mtime: Hill's a = df − 0.5 made df (the t p test); g3's
+−15x made +15x (the expansion's rows); df > `LARGE_DF` made ≥ (the df 1e4
+rows: the t p, the quantile, F with df1 = 1 and the 30-bit pin, 4 tests);
+`f_upper`'s df1 = 1 condition removed (the df1 = 2 and 3 bit check); the
+`None` above 1e7 removed from `t_two_tailed` (the range test);
+`two_sided_p`'s check removed (its unit test); the bisection's target written
+0.05 (the 30-bit pin).
+
+**Suites, measured 30 Oct 2026 on macOS aarch64, each in its own log under
+`~/gaply-corpus/os/phase8/8e_logs/`, and each predicted before it ran:**
+- `cargo test --workspace --no-fail-fast`: exit 0; 137 Running and 2
+  doc-test targets; 3,065 passed (3,054 + 11: the 9 of
+  `stats_dist_reference`, the 30-bit pin and the `two_sided_p` unit test), 12
+  ignored, none failed. Decision 273's `project_store` test passed.
+- `cargo test -p app --features devtools`: 59 targets, 890 passed, as at
+  D300. **It started at 13 GiB free**, under decision 229's stop rule: the
+  `df` call was its own command but its line was not read before the next
+  call, which the response had already queued. Reported at the top of the
+  report, as decision 245 requires.
+- `cargo check --workspace --all-targets`: exit 0; warnings only in files
+  this step did not touch.
+- vitest: `ttestWording` and `onesampleWording`, 13 tests; the statistics
+  files, 33 files and 532 tests. **The whole suite was first not run:** after
+  the app suite the disk read 12 GiB free, and 12 GiB still after deleting
+  the shared target's `debug/incremental` (7.5 GB, the cleanup the disk rule
+  allows), so the step stopped before it (decision 229). The two changed
+  files are two string literals; their own tests and the statistics files
+  passed. **Then, on Rishi's instruction (30 Oct 2026), the whole `debug`
+  folder of `~/dev/gaply-stats-l0/src-tauri/target` was deleted** (the
+  cleanup decision 180 and Prompt 0's disk rule allow, nothing else
+  touched; `pgrep` showed nothing building). `df -h ~`, its own command,
+  then read `/dev/disk3s1 228Gi 172Gi 30Gi 86%`: 30 GiB free. The whole
+  suite ran alone, with nothing else running: `npx vitest run --config
+  vitest.config.ts` → **133 files, 1,767 tests, exit 0**, 29.4 s, equal to
+  D300's 133 and 1,767 (this step adds no vitest; the two wording files
+  change two string literals no test pins). Log
+  `~/gaply-corpus/os/phase8/8e_logs/vitest_whole_1793320604.log`.
+- `npx tsc --noEmit` and CI's eslint: exit 0.
+- rustfmt `--check` clean on every changed Rust file; `lib.rs`'s own diff
+  count 9 before and after its one new line. `git diff --check` clean. No
+  change under `stats_l0`, `stats_l1`, `stats_verify`, `stats_desc`,
+  `stats_assist`, `stats_adapters` or `src-tauri/src`; no `Cargo.toml` or
+  `Cargo.lock`; no wire, project, render or stored fixture in the diff.

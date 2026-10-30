@@ -22,17 +22,25 @@
 //! **One implementation of each formula (decision 62).** t, df and the
 //! standard error come from `stats_verify::t_test_student` and
 //! `t_test_welch` (the standard error is their `se` field, the number t
-//! divides by); p from `stats_l0::pvalue::t_two_tailed`; each group's mean and
+//! divides by); p from [`two_sided_p`], THE p of the t family, over
+//! `stats_dist::t_two_tailed` (`stats_l0::pvalue`'s p at df ≤ 1e4, bit for
+//! bit, and Hill's 1970 formula above; Research OS, Phase 8E, decision 275);
+//! each group's mean and
 //! variance from `stats_verify::mean` and `sample_variance`, given the values
 //! in ascending order as `stats_desc` gives them, so permuting the rows changes
 //! no bit of the result. Nothing here computes a pooled variance: Student's d
 //! divides by the pooled sd recovered from Student's own standard error,
 //! se / sqrt(1/n1 + 1/n2). Welch's d divides by sqrt((v1 + v2) / 2), the
 //! standardizer of `effectsize::cohens_d(pooled_sd = FALSE)` (decision 63),
-//! which no other module computes. The 95% quantile inverts
-//! `pvalue::t_two_tailed` by bisection ([`t_quantile_975`]): statrs's
-//! `StudentsT::inverse_cdf` missed R's `qt` by up to 6.8e-2 at large df
-//! (`tests/ttest_quantile.rs` measures the shipped one against R).
+//! which no other module computes. The 95% quantile is
+//! `stats_dist::t_quantile_975`, re-exported here as [`t_quantile_975`]: at
+//! df ≤ 1e4 the bisection over `pvalue::t_two_tailed` this module shipped in
+//! 4B-1 (statrs's `StudentsT::inverse_cdf` missed R's `qt` by up to 6.8e-2 at
+//! large df), moved to `stats_dist` in 8E bit for bit; above 1e4 Abramowitz
+//! and Stegun 26.7.5. Both are measured against R to df 1e7
+//! (`tests/ttest_quantile.rs`, `tests/stats_dist_reference.rs`); above
+//! [`QUANTILE_MAX_DF`] (1e7) a run is `quantile_out_of_range`, the code a df
+//! above 1e4 had until 8E.
 //!
 //! **The data (decision 65).** The outcome must hold numbers only. The group
 //! is read as categorical with Level 1's reading of cells (`Cell::level_code`:
@@ -83,7 +91,9 @@ use crate::contracts::{
     ValidationReport, WorkspaceId,
 };
 use crate::stats_desc::{input_ref, Alias};
-use crate::stats_l0::pvalue::t_two_tailed;
+pub use crate::stats_dist::t_quantile_975;
+use crate::stats_dist::t_two_tailed;
+pub use crate::stats_dist::MEASURED_MAX_DF as QUANTILE_MAX_DF;
 use crate::stats_l1::binding::suspect_codes_in;
 use crate::stats_l1::dataset::{Cell, ColumnIssue, ColumnSummary, Dataset};
 use crate::stats_verify::{mean, sample_variance, t_test_student, t_test_welch, RangeFault};
@@ -102,8 +112,6 @@ pub const CONFIDENCE_LEVEL: f64 = 0.95;
 /// constant; the screen reads it from `ttestLimits.json`, pinned to it by
 /// `src-tauri/tests/stats_ttest_wire.rs`.
 pub const MAX_GROUP_LEVELS: usize = 50;
-/// The quantile the interval uses: 1 − (1 − 0.95) / 2.
-const UPPER_TAIL_POINT: f64 = 0.975;
 
 closed! {
     /// Every finding, outcome, exclusion and limitation of the t-test.
@@ -157,8 +165,9 @@ closed! {
         /// name (no p for the statistic, or a refusal that is not a range
         /// fault).
         ArithmeticRefused => "arithmetic_refused",
-        /// Not computable: the interval's quantile is not measured at this
-        /// many degrees of freedom (above `QUANTILE_MAX_DF`).
+        /// Not computable: the t distribution is not measured at this many
+        /// degrees of freedom (above `QUANTILE_MAX_DF`, 1e7 since 8E; 1e4
+        /// before it).
         QuantileOutOfRange => "quantile_out_of_range",
         /// The sd ratio is not defined: a group's sd is 0.
         SdRatioUndefined => "sd_ratio_undefined",
@@ -778,59 +787,6 @@ fn refused(fault: Option<RangeFault>) -> TTestCode {
     }
 }
 
-/// The bracket the quantile is searched in. At df = 1 the two-sided p of
-/// 1e3 is about 6.4e-4, below 0.05, so every df of 1 or more has its root
-/// inside.
-const QUANTILE_BRACKET: [f64; 2] = [0.0, 1e3];
-/// More halvings than a width of 1e3 needs to reach one unit in the last
-/// place (about 62); the loop stops earlier, when the midpoint is an end.
-const QUANTILE_MAX_HALVINGS: u32 = 200;
-/// The largest df the quantile is measured to meet its gate at (5.2e-13 of
-/// R's `qt` at 1e4). Above it the root inherits `pvalue::t_two_tailed`'s own
-/// error at large df (1.8e-11 at 1e5, 3.6e-9 at 1e7), so the quantile is
-/// refused rather than given. Unreachable through the ingest: 5,000 rows
-/// give at most df 4,998.
-pub const QUANTILE_MAX_DF: f64 = 1e4;
-
-/// The upper 97.5% point of Student's t with `df` degrees of freedom: the q
-/// whose two-sided p, `stats_l0::pvalue::t_two_tailed(q, df)`, is 0.05, found
-/// by bisection on [0, 1e3] (decision 62's fallback). statrs's own
-/// `StudentsT::inverse_cdf` was measured first and did not meet the gate:
-/// within 6.1e-13 of R's `qt` up to df 4,998, but 3.5e-6 off at df 1e5 and
-/// 6.8e-2 at 1e7 (Phase 4B-1 report). `None` for a df that is not finite and
-/// above 0, above [`QUANTILE_MAX_DF`], or whose root is not in the bracket.
-/// Measured against R's `qt` in `tests/ttest_quantile.rs`.
-pub fn t_quantile_975(df: f64) -> Option<f64> {
-    if !(df.is_finite() && df > 0.0 && df <= QUANTILE_MAX_DF) {
-        return None;
-    }
-    let target = 2.0 * (1.0 - UPPER_TAIL_POINT);
-    let p = |q: f64| t_two_tailed(q, df);
-    let [mut lo, mut hi] = QUANTILE_BRACKET;
-    // p falls as q rises: above the target at lo, below it at hi.
-    if !(p(lo)? > target && p(hi)? < target) {
-        return None;
-    }
-    for _ in 0..QUANTILE_MAX_HALVINGS {
-        let mid = lo + (hi - lo) / 2.0;
-        if mid == lo || mid == hi {
-            break;
-        }
-        if p(mid)? > target {
-            lo = mid;
-        } else {
-            hi = mid;
-        }
-    }
-    // The end whose p is nearer the target; the lower one on a tie.
-    let q = if (p(hi)? - target).abs() < (p(lo)? - target).abs() {
-        hi
-    } else {
-        lo
-    };
-    (q.is_finite() && q > 0.0).then_some(q)
-}
-
 /// The 95% interval `estimate ± q · se`, q being [`t_quantile_975`] at `df`:
 /// THE interval of the t family (Research OS, Phase 8D-1, decision 254),
 /// shared with `stats_onesample` and generic over the caller's codes, so this
@@ -848,6 +804,24 @@ pub(crate) fn interval_95<C: Copy>(
     let q = t_quantile_975(df).ok_or(out_of_range)?;
     let half = finite(q * se)?;
     Ok([finite(estimate - half)?, finite(estimate + half)?])
+}
+
+/// The two-sided p of the t family at `t` and `df`: THE p of the three
+/// t-tests (Research OS, Phase 8E, decision 275), shared with
+/// `stats_onesample` and generic over the caller's codes, as [`interval_95`]
+/// is. `out_of_range` when `df` is not at or below [`QUANTILE_MAX_DF`]
+/// (written `!(df <= QUANTILE_MAX_DF)`, so a NaN df gives it too): the code
+/// a df beyond the measured range has carried since 4B-1, so a df above 1e7
+/// keeps the code a df above 1e4 had. Otherwise `stats_dist::t_two_tailed`'s
+/// p (`stats_l0::pvalue`'s at df ≤ 1e4, bit for bit; Hill's above), or
+/// `refused` when that is `None` (a t that is not a number, or a df that
+/// defines no distribution). A df above 1e7 cannot be reached through a
+/// dataset, so the unit test at the end of this file pins the check.
+pub(crate) fn two_sided_p<C: Copy>(t: f64, df: f64, out_of_range: C, refused: C) -> Result<f64, C> {
+    if !(df <= QUANTILE_MAX_DF) {
+        return Err(out_of_range);
+    }
+    t_two_tailed(t, df).ok_or(refused)
 }
 
 /// Whether a standard error is rounding rather than spread: `se` below
@@ -881,7 +855,12 @@ fn arithmetic(values: &[Vec<f64>; 2], variant: Variant) -> Result<Numbers, TTest
     if essentially_constant(r.se, r.mean_a.abs().max(r.mean_b.abs())) {
         return Err(TTestCode::GroupsEssentiallyConstant);
     }
-    let p = t_two_tailed(r.t, r.df).ok_or(TTestCode::ArithmeticRefused)?;
+    let p = two_sided_p(
+        r.t,
+        r.df,
+        TTestCode::QuantileOutOfRange,
+        TTestCode::ArithmeticRefused,
+    )?;
     let mean_difference = finite(r.mean_a - r.mean_b)?;
     let ci = interval_95(
         mean_difference,
@@ -971,5 +950,37 @@ pub fn manifest(
         elapsed_ms,
         output_hash: ContentHash::of_bytes(&result.canonical_bytes()),
         reproducibility: Reproducibility::Bitwise,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A df above `QUANTILE_MAX_DF` (1e7) cannot be reached through a dataset
+    /// in a test: it needs more than 10,000,002 rows. So the range check of
+    /// `two_sided_p` is pinned here (Research OS, Phase 8E, decision 275),
+    /// with the two kinds of `None` beneath it.
+    #[test]
+    fn two_sided_p_gives_stats_dists_p_to_1e7_out_of_range_above_or_at_a_nan_df_and_refused_for_a_nan_t(
+    ) {
+        let p = |t: f64, df: f64| {
+            two_sided_p(
+                t,
+                df,
+                TTestCode::QuantileOutOfRange,
+                TTestCode::ArithmeticRefused,
+            )
+        };
+        assert_eq!(
+            p(2.0, 1e7),
+            Ok(t_two_tailed(2.0, 1e7).expect("a p at df 1e7"))
+        );
+        assert_eq!(
+            p(2.0, f64::from_bits(1e7f64.to_bits() + 1)),
+            Err(TTestCode::QuantileOutOfRange)
+        );
+        assert_eq!(p(2.0, f64::NAN), Err(TTestCode::QuantileOutOfRange));
+        assert_eq!(p(f64::NAN, 1e5), Err(TTestCode::ArithmeticRefused));
     }
 }
