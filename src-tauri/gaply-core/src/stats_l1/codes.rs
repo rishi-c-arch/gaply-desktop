@@ -362,6 +362,7 @@ pub fn l1_ingest_refusal(r: L1IngestRefusal) -> WireCode {
         L1IngestRefusal::ArchiveTooLarge { declared, limit } => c("archive_too_large").num64("declared", declared).num64("limit", limit),
         L1IngestRefusal::ContentTooLarge { limit_bytes } => c("content_too_large").num("limit_bytes", limit_bytes),
         L1IngestRefusal::EncodingNotUtf8 => c("encoding_not_utf8"),
+        L1IngestRefusal::TooManyCells { limit_cells } => c("too_many_cells").num("limit_cells", limit_cells),
     }
 }
 
@@ -556,6 +557,7 @@ mod tests {
             L1IngestRefusal::ArchiveTooLarge { declared: 1_572_865_485, limit: 67_108_864 },
             L1IngestRefusal::ContentTooLarge { limit_bytes: 2_097_152 },
             L1IngestRefusal::EncodingNotUtf8,
+            L1IngestRefusal::TooManyCells { limit_cells: 5_000_000 },
         ] {
             got.push(j(l1_ingest_refusal(r)));
         }
@@ -689,6 +691,7 @@ mod tests {
             r#"{"code":"archive_too_large","declared":1572865485,"limit":67108864}"#,
             r#"{"code":"content_too_large","limit_bytes":2097152}"#,
             r#"{"code":"encoding_not_utf8"}"#,
+            r#"{"code":"too_many_cells","limit_cells":5000000}"#,
             r#"{"code":"token_stale","rejection":"claim_mismatch"}"#,
             r#"{"code":"refused","refusal":"zero_variance"}"#,
             r#"{"code":"data_unreadable","refusal":"no_table"}"#,

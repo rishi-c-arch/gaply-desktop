@@ -67,7 +67,7 @@ use gaply_core::stats_registry;
 use gaply_core::GaplyError;
 
 use crate::project_commands::ProjectSession;
-use crate::runs::{DatasetSlots, RunKind, Runs};
+use crate::runs::{DatasetSlots, OpenProgress, RunKind, Runs};
 
 /// A readiness check's answer (blueprint §9.2's `health_check`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -94,10 +94,12 @@ pub fn readiness(id: WorkspaceId) -> Health {
 }
 
 /// What the Statistics workspace runs on: Phase 2B's run records and dataset
-/// slots, in memory only.
+/// slots, and the methods' opens in flight with their rows read (Research
+/// OS, Phase 8F-1, decision 280), in memory only.
 pub struct StatisticsEngine {
     pub runs: Arc<Runs>,
     pub datasets: Arc<DatasetSlots>,
+    pub open_progress: Arc<OpenProgress>,
 }
 
 struct Inner {
@@ -243,6 +245,7 @@ impl WorkspaceSession {
                 Ok(Arc::new(StatisticsEngine {
                     runs,
                     datasets: Arc::new(datasets),
+                    open_progress: Arc::default(),
                 }))
             }
             // Compute and Design have no engine to build.

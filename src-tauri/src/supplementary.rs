@@ -31,8 +31,10 @@
 //! reimplementation. It is DETECTED and refused with an actionable message
 //! rather than mis-parsed.
 
+use std::cell::Cell;
 use std::io::Read;
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::Serialize;
 
@@ -86,6 +88,15 @@ pub struct IngestLimits {
     /// What a zip workbook's parts, a `.zsav`'s blocks or a `.mat`'s
     /// compressed elements may inflate to.
     pub max_workbook_uncompressed_bytes: u64,
+    /// Cells: the data rows kept (the header excluded, at most `max_rows`)
+    /// times the columns kept (the header's width, at most `max_cols`); for
+    /// a `.sav` or `.mat`, the rows kept times the variables kept (Research
+    /// OS, Phase 8F-1, decision 282). Checked while parsing, after the row
+    /// and the column checks of the same row; a file over it sets
+    /// [`SupplementaryEvidence::cells_over`], and the ingest refuses it as
+    /// `too_many_cells`. Every named value takes `max_rows × max_cols`, so
+    /// their rows and columns bind first and none of them can be over it.
+    pub max_cells: usize,
 }
 
 impl IngestLimits {
@@ -97,6 +108,7 @@ impl IngestLimits {
         max_file_size_bytes: MAX_FILE_SIZE_BYTES,
         max_total_chars: MAX_TOTAL_CHARS,
         max_workbook_uncompressed_bytes: crate::stats_l1_ingest::MAX_WORKBOOK_UNCOMPRESSED_BYTES,
+        max_cells: MAX_ROWS * MAX_COLS,
     };
     /// The reviewer agent's supplementary files and the Stats Verifier
     /// page's legacy lane (`load_first_table`, under `run_stats_preview` and
@@ -107,6 +119,7 @@ impl IngestLimits {
         max_file_size_bytes: MAX_FILE_SIZE_BYTES,
         max_total_chars: MAX_TOTAL_CHARS,
         max_workbook_uncompressed_bytes: crate::stats_l1_ingest::MAX_WORKBOOK_UNCOMPRESSED_BYTES,
+        max_cells: MAX_ROWS * MAX_COLS,
     };
     /// The methods on the user's data: the descriptive summary, the t-test
     /// and their reruns. Today's numbers until 8F (decision 242).
@@ -116,7 +129,117 @@ impl IngestLimits {
         max_file_size_bytes: MAX_FILE_SIZE_BYTES,
         max_total_chars: MAX_TOTAL_CHARS,
         max_workbook_uncompressed_bytes: crate::stats_l1_ingest::MAX_WORKBOOK_UNCOMPRESSED_BYTES,
+        max_cells: MAX_ROWS * MAX_COLS,
     };
+
+    /// The methods' limits on a computer of `tier`, decision 281's table
+    /// (Research OS, Phase 8F-1). Built here because nothing outside this
+    /// impl builds an `IngestLimits` (`tests/ingest_limits_guard.rs`).
+    /// `memory_tier::MethodLimits` pairs it with the tier's slot budget.
+    /// No production caller passes it in 8F-1: the methods' open and the
+    /// rerun keep [`IngestLimits::METHODS`] until 8F-2 (decision 279).
+    ///
+    /// No tier goes above 100,000 rows (decision 242.3), and every file cap
+    /// stays under decision 107's 100 MiB project cap. On 16 and 32 GB the
+    /// cell cap is `100,000 × 128`, so the rows and the columns bind first.
+    pub const fn for_tier(tier: crate::memory_tier::MemoryTier) -> IngestLimits {
+        use crate::memory_tier::MemoryTier;
+        const MIB: u64 = 1024 * 1024;
+        match tier {
+            MemoryTier::Gb8 => IngestLimits {
+                max_rows: 100_000,
+                max_cols: MAX_COLS,
+                max_file_size_bytes: 64 * MIB,
+                max_total_chars: 64 * MIB as usize,
+                max_workbook_uncompressed_bytes: 96 * MIB,
+                max_cells: 5_000_000,
+            },
+            MemoryTier::Gb16 | MemoryTier::Gb32 => IngestLimits {
+                max_rows: 100_000,
+                max_cols: MAX_COLS,
+                max_file_size_bytes: 96 * MIB,
+                max_total_chars: 96 * MIB as usize,
+                max_workbook_uncompressed_bytes: 256 * MIB,
+                max_cells: 100_000 * MAX_COLS,
+            },
+        }
+    }
+}
+
+/// How often the open's rows read are stored: every this many data rows,
+/// and once more on every exit, success or refusal (Research OS, Phase 8F-1,
+/// decision 280).
+pub const PROGRESS_EVERY_ROWS: usize = 1_000;
+
+/// One parse's rows read: data rows taken into the table, the header not
+/// counted (decision 280). A CSV or TSV counts them as its records are read;
+/// a workbook, `.sav` or `.mat`, whose reader delivers its rows at once,
+/// counts them as they are converted. A record that is refused is not
+/// counted. Stored into the open's counter, when it has one, every
+/// [`PROGRESS_EVERY_ROWS`] rows and by [`RowsRead::finish`]. A count only.
+struct RowsRead<'a> {
+    progress: Option<&'a AtomicU64>,
+    rows: Cell<usize>,
+}
+
+impl<'a> RowsRead<'a> {
+    fn to(progress: Option<&'a AtomicU64>) -> RowsRead<'a> {
+        RowsRead {
+            progress,
+            rows: Cell::new(0),
+        }
+    }
+
+    /// `rows` data rows are now in the table.
+    fn row(&self, rows: usize) {
+        self.rows.set(rows);
+        if rows % PROGRESS_EVERY_ROWS == 0 {
+            self.store();
+        }
+    }
+
+    /// The last count, on the parse's exit.
+    fn finish(&self) {
+        self.store();
+    }
+
+    fn store(&self) {
+        if let Some(p) = self.progress {
+            p.store(self.rows.get() as u64, Ordering::Relaxed);
+        }
+    }
+}
+
+/// The rows a table of `columns` kept columns may keep: `max_rows`, or fewer
+/// when the cell cap allows fewer (decision 282). Zero columns hold no
+/// cells, so only the row limit applies, and such a file is refused for
+/// having no columns, as before; never a division by zero.
+fn rows_the_cells_allow(columns: usize, limits: IngestLimits) -> usize {
+    limits
+        .max_cells
+        .checked_div(columns)
+        .map_or(limits.max_rows, |rows| rows.min(limits.max_rows))
+}
+
+/// The evidence of a CSV, TSV or workbook over the cell cap: no cell kept,
+/// the flag set (decision 282).
+fn over_the_cells(file_name: String, kind: SupplementaryKind) -> SupplementaryEvidence {
+    SupplementaryEvidence {
+        file_name,
+        kind,
+        tables: vec![Table {
+            headers: Vec::new(),
+            rows: Vec::new(),
+        }],
+        text_summary: String::new(),
+        notes: Vec::new(),
+        variables: Vec::new(),
+        weight_variable: None,
+        rows_truncated: false,
+        variables_held: None,
+        sheet_name: None,
+        cells_over: true,
+    }
 }
 
 /// The version of this parser, recorded in every Level 1 data fingerprint
@@ -223,12 +346,22 @@ pub struct SupplementaryEvidence {
     /// The sheet a spreadsheet's table was read from. Not serialised.
     #[serde(skip)]
     pub sheet_name: Option<String>,
+    /// `true` when the table holds more cells than the parse's `max_cells`
+    /// (Research OS, Phase 8F-1, decision 282). The parse stopped where the
+    /// cap was crossed and `tables` holds no rows: a CSV or TSV at the first
+    /// record over it, a workbook, `.sav` or `.mat` before any cell was
+    /// converted. Not a parse error, so no classifier re-reads the file; the
+    /// ingest refuses it as `too_many_cells`. No named value's cap can be
+    /// reached (its rows and columns bind first), so the reviewer agent's
+    /// files never set it. Not serialised, like `rows_truncated`.
+    #[serde(skip)]
+    pub cells_over: bool,
 }
 
 /// Counts only, never the text (part C follow-up, item 7).
 impl std::fmt::Debug for SupplementaryEvidence {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SupplementaryEvidence").field("kind", &self.kind).field("tables", &self.tables).field("text_chars", &self.text_summary.chars().count()).field("notes", &self.notes.len()).field("variables", &self.variables.len()).field("weight_variable", &self.weight_variable.is_some()).field("rows_truncated", &self.rows_truncated).field("variables_held", &self.variables_held).finish_non_exhaustive()
+        f.debug_struct("SupplementaryEvidence").field("kind", &self.kind).field("tables", &self.tables).field("text_chars", &self.text_summary.chars().count()).field("notes", &self.notes.len()).field("variables", &self.variables.len()).field("weight_variable", &self.weight_variable.is_some()).field("rows_truncated", &self.rows_truncated).field("variables_held", &self.variables_held).field("cells_over", &self.cells_over).finish_non_exhaustive()
     }
 }
 
@@ -304,6 +437,34 @@ pub fn parse_supplementary_bytes_with(
     ext: &str,
     limits: IngestLimits,
 ) -> Result<SupplementaryEvidence, GaplyError> {
+    parse_supplementary_bytes_with_progress(bytes, ext, None, limits)
+}
+
+/// [`parse_supplementary_bytes_with`], storing its rows read into
+/// `progress` as it parses (Research OS, Phase 8F-1, decision 280): every
+/// [`PROGRESS_EVERY_ROWS`] data rows, and once on its exit, success or
+/// refusal. Only the methods' open passes a counter
+/// (`stats_l1_ingest::load_dataset_keeping_bytes_with_progress`).
+pub fn parse_supplementary_bytes_with_progress(
+    bytes: &[u8],
+    ext: &str,
+    progress: Option<&AtomicU64>,
+    limits: IngestLimits,
+) -> Result<SupplementaryEvidence, GaplyError> {
+    let rows = RowsRead::to(progress);
+    let out = evidence_from_bytes(bytes, ext, &rows, limits);
+    rows.finish();
+    out
+}
+
+/// The parse of [`parse_supplementary_bytes_with_progress`], counting its
+/// rows into `rows`.
+fn evidence_from_bytes(
+    bytes: &[u8],
+    ext: &str,
+    rows: &RowsRead<'_>,
+    limits: IngestLimits,
+) -> Result<SupplementaryEvidence, GaplyError> {
     let size = bytes.len() as u64;
     if size > limits.max_file_size_bytes {
         return Err(GaplyError::Validation(format!(
@@ -318,16 +479,18 @@ pub fn parse_supplementary_bytes_with(
             ambers::scan_sav_from_reader(std::io::Cursor::new(bytes), SAV_BATCH_ROWS)
                 .and_then(|s| read_sav_rows_with(s, limits)),
             file_name,
+            rows,
             limits,
         ),
-        "mat" => mat_evidence(bytes, file_name, limits),
+        "mat" => mat_evidence(bytes, file_name, rows, limits),
         "xlsx" | "xls" | "xlsb" | "ods" | "xlsm" => {
-            spreadsheet_evidence(workbook_from_bytes(bytes, ext), file_name, limits)
+            spreadsheet_evidence(workbook_from_bytes(bytes, ext), file_name, rows, limits)
         }
         "csv" | "tsv" => csv_evidence(
             bytes,
             file_name,
             if ext == "tsv" { b'\t' } else { b',' },
+            rows,
             limits,
         ),
         "txt" | "text" | "md" | "log" => text_evidence(bytes, file_name, limits),
@@ -648,7 +811,12 @@ fn parse_spreadsheet(
     file_name: String,
     limits: IngestLimits,
 ) -> Result<SupplementaryEvidence, GaplyError> {
-    spreadsheet_evidence(calamine::open_workbook_auto(path), file_name, limits)
+    spreadsheet_evidence(
+        calamine::open_workbook_auto(path),
+        file_name,
+        &RowsRead::to(None),
+        limits,
+    )
 }
 
 /// The spreadsheet parser after the workbook is opened, from a path or from
@@ -656,6 +824,7 @@ fn parse_spreadsheet(
 fn spreadsheet_evidence<RS: Read + std::io::Seek>(
     wb: Result<calamine::Sheets<RS>, calamine::Error>,
     file_name: String,
+    counted: &RowsRead<'_>,
     limits: IngestLimits,
 ) -> Result<SupplementaryEvidence, GaplyError> {
     use calamine::Reader;
@@ -684,6 +853,12 @@ fn spreadsheet_evidence<RS: Read + std::io::Seek>(
             limits.max_cols
         )));
     }
+    // The cells, from the range's size, before any cell is converted
+    // (Research OS, Phase 8F-1, decision 282). calamine has built the range
+    // by now; the ingest's inflation cap is the guard before it.
+    if height.saturating_sub(1).saturating_mul(width) > limits.max_cells {
+        return Ok(over_the_cells(file_name, SupplementaryKind::Spreadsheet));
+    }
 
     let mut notes = Vec::new();
     let mut total = 0usize;
@@ -711,6 +886,7 @@ fn spreadsheet_evidence<RS: Read + std::io::Seek>(
             headers = out_row;
         } else {
             rows.push(out_row);
+            counted.row(rows.len());
         }
     }
     if clamped > 0 {
@@ -728,6 +904,7 @@ fn spreadsheet_evidence<RS: Read + std::io::Seek>(
         rows_truncated: false,
         variables_held: None,
         sheet_name: Some(sheet),
+        cells_over: false,
     })
 }
 
@@ -752,13 +929,14 @@ fn parse_mat(
 ) -> Result<SupplementaryEvidence, GaplyError> {
     let bytes = std::fs::read(path)
         .map_err(|e| GaplyError::Validation(format!("cannot read .mat: {e}")))?;
-    mat_evidence(&bytes, file_name, limits)
+    mat_evidence(&bytes, file_name, &RowsRead::to(None), limits)
 }
 
 /// The `.mat` parser on the file's bytes, read from a path or already read.
 fn mat_evidence(
     bytes: &[u8],
     file_name: String,
+    counted: &RowsRead<'_>,
     limits: IngestLimits,
 ) -> Result<SupplementaryEvidence, GaplyError> {
     if is_matlab_73(bytes) {
@@ -792,8 +970,28 @@ fn mat_evidence(
     let mut variables = Vec::new();
     let mut notes = Vec::new();
     let mut rows_truncated = false;
+    // The cells: the rows kept (the longest variable's, at most max_rows)
+    // times the variables kept, from each array's length before any value
+    // is rendered (Research OS, Phase 8F-1, decision 282).
+    let kept = mat.arrays().len().min(limits.max_cols);
+    let depth = mat
+        .arrays()
+        .iter()
+        .take(kept)
+        .map(matlab_len)
+        .max()
+        .unwrap_or(0);
+    let cells_over = depth.min(limits.max_rows).saturating_mul(kept) > limits.max_cells;
     for arr in mat.arrays().iter().take(limits.max_cols) {
-        let (declared_type, cells, truncated) = matlab_cells(arr, limits);
+        let (declared_type, cells, truncated) = if cells_over {
+            (
+                matlab_type(arr),
+                Vec::new(),
+                matlab_len(arr) > limits.max_rows,
+            )
+        } else {
+            matlab_cells(arr, limits)
+        };
         rows_truncated |= truncated;
         headers.push(arr.name().to_string());
         variables.push(VariableMeta {
@@ -830,7 +1028,7 @@ fn mat_evidence(
             declared - mat.arrays().len()
         ));
     }
-    let rows = columns_to_rows(&columns, &mut notes, limits);
+    let rows = columns_to_rows(&columns, &mut notes, counted, limits);
     Ok(SupplementaryEvidence {
         file_name,
         kind: SupplementaryKind::Matlab,
@@ -842,6 +1040,7 @@ fn mat_evidence(
         rows_truncated,
         variables_held: (mat.arrays().len() > limits.max_cols).then_some(mat.arrays().len()),
         sheet_name: None,
+        cells_over,
     })
 }
 
@@ -994,12 +1193,6 @@ pub fn zsav_trailer(bytes: &[u8]) -> ZsavTrailer {
 /// (ONTOLOGY §4.20, TEXT).
 fn matlab_cells(arr: &matfile::Array, limits: IngestLimits) -> (String, Vec<String>, bool) {
     use matfile::NumericData;
-    let dims = arr
-        .size()
-        .iter()
-        .map(|d| d.to_string())
-        .collect::<Vec<_>>()
-        .join("x");
     macro_rules! render {
         ($v:expr) => {
             (
@@ -1023,7 +1216,36 @@ fn matlab_cells(arr: &matfile::Array, limits: IngestLimits) -> (String, Vec<Stri
         NumericData::Int64 { real, .. } => render!(real),
         NumericData::UInt64 { real, .. } => render!(real),
     };
-    (format!("matlab:{dims}"), cells, truncated)
+    (matlab_type(arr), cells, truncated)
+}
+
+/// A MATLAB array's declared type, `matlab:` and its dimensions.
+fn matlab_type(arr: &matfile::Array) -> String {
+    let dims = arr
+        .size()
+        .iter()
+        .map(|d| d.to_string())
+        .collect::<Vec<_>>()
+        .join("x");
+    format!("matlab:{dims}")
+}
+
+/// The values a MATLAB array holds, counted without rendering one (decision
+/// 282).
+fn matlab_len(arr: &matfile::Array) -> usize {
+    use matfile::NumericData;
+    match arr.data() {
+        NumericData::Double { real, .. } => real.len(),
+        NumericData::Single { real, .. } => real.len(),
+        NumericData::Int8 { real, .. } => real.len(),
+        NumericData::UInt8 { real, .. } => real.len(),
+        NumericData::Int16 { real, .. } => real.len(),
+        NumericData::UInt16 { real, .. } => real.len(),
+        NumericData::Int32 { real, .. } => real.len(),
+        NumericData::UInt32 { real, .. } => real.len(),
+        NumericData::Int64 { real, .. } => real.len(),
+        NumericData::UInt64 { real, .. } => real.len(),
+    }
 }
 
 /// SPSS `.sav`, via `ambers` (pure Rust).
@@ -1035,6 +1257,7 @@ fn parse_sav(
     sav_evidence(
         ambers::scan_sav(path).and_then(|s| read_sav_rows_with(s, limits)),
         file_name,
+        &RowsRead::to(None),
         limits,
     )
 }
@@ -1049,7 +1272,9 @@ fn read_sav_rows<R: Read + std::io::Seek>(
 }
 
 /// The rows of an opened `.sav` and its metadata: at most `limits.max_rows`
-/// + 1 rows, enough to keep `max_rows` and to know there were more (part C
+/// + 1 rows, or one more than the cell cap allows for the variables kept
+/// when that is fewer (decision 282), enough to keep what the limits allow
+/// and to know there were more (part C
 /// follow-up, item 4). A byte-coded or zlib-compressed (`.zsav`) file holds
 /// rows far beyond its size on disk, and `ambers::read_sav` reads every one:
 /// measured, 40 million rows in a 40 KB file peaked at 330 MB. The output is
@@ -1059,7 +1284,10 @@ fn read_sav_rows_with<R: Read + std::io::Seek>(
     limits: IngestLimits,
 ) -> Result<(arrow::record_batch::RecordBatch, ambers::SpssMetadata), ambers::error::SpssError> {
     let meta = scanner.metadata().clone();
-    scanner.limit(limits.max_rows + 1);
+    // Research OS, Phase 8F-1 (decision 282): no further than the rows the
+    // cell cap allows for the variables kept, plus one, when that is fewer.
+    let kept = meta.variable_names.len().min(limits.max_cols);
+    scanner.limit(rows_the_cells_allow(kept, limits) + 1);
     let batch = scanner.collect_single()?;
     Ok((batch, meta))
 }
@@ -1069,6 +1297,7 @@ fn read_sav_rows_with<R: Read + std::io::Seek>(
 fn sav_evidence(
     read: Result<(arrow::record_batch::RecordBatch, ambers::SpssMetadata), ambers::error::SpssError>,
     file_name: String,
+    counted: &RowsRead<'_>,
     limits: IngestLimits,
 ) -> Result<SupplementaryEvidence, GaplyError> {
     let (batch, meta) =
@@ -1119,15 +1348,26 @@ fn sav_evidence(
             limits.max_cols
         ));
     }
-    let columns: Vec<Vec<String>> = (0..headers.len())
-        .map(|i| {
-            let col = batch.column(i);
-            (0..col.len().min(limits.max_rows))
-                .map(|r| arrow_cell(col, r))
-                .collect()
-        })
-        .collect();
-    let rows = columns_to_rows(&columns, &mut notes, limits);
+    // The cells: the rows kept times the variables kept, before any row is
+    // converted (Research OS, Phase 8F-1, decision 282).
+    let cells_over = batch
+        .num_rows()
+        .min(limits.max_rows)
+        .saturating_mul(headers.len())
+        > limits.max_cells;
+    let columns: Vec<Vec<String>> = if cells_over {
+        Vec::new()
+    } else {
+        (0..headers.len())
+            .map(|i| {
+                let col = batch.column(i);
+                (0..col.len().min(limits.max_rows))
+                    .map(|r| arrow_cell(col, r))
+                    .collect()
+            })
+            .collect()
+    };
+    let rows = columns_to_rows(&columns, &mut notes, counted, limits);
     Ok(SupplementaryEvidence {
         file_name,
         kind: SupplementaryKind::Spss,
@@ -1144,6 +1384,7 @@ fn sav_evidence(
         variables_held: (meta.variable_names.len() > limits.max_cols)
             .then_some(meta.variable_names.len()),
         sheet_name: None,
+        cells_over,
     })
 }
 
@@ -1183,6 +1424,7 @@ fn arrow_cell(col: &std::sync::Arc<dyn arrow::array::Array>, row: usize) -> Stri
 fn columns_to_rows(
     columns: &[Vec<String>],
     notes: &mut Vec<String>,
+    counted: &RowsRead<'_>,
     limits: IngestLimits,
 ) -> Vec<Vec<String>> {
     let depth = columns
@@ -1195,7 +1437,14 @@ fn columns_to_rows(
         notes.push("variables have differing lengths; short ones padded".into());
     }
     (0..depth)
-        .map(|r| columns.iter().map(|c| c.get(r).cloned().unwrap_or_default()).collect())
+        .map(|r| {
+            let row = columns
+                .iter()
+                .map(|c| c.get(r).cloned().unwrap_or_default())
+                .collect();
+            counted.row(r + 1);
+            row
+        })
         .collect()
 }
 
@@ -1207,7 +1456,13 @@ fn parse_csv(
 ) -> Result<SupplementaryEvidence, GaplyError> {
     let file = std::fs::File::open(path)
         .map_err(|e| GaplyError::Validation(format!("cannot open csv: {e}")))?;
-    csv_evidence(std::io::BufReader::new(file), file_name, delim, limits)
+    csv_evidence(
+        std::io::BufReader::new(file),
+        file_name,
+        delim,
+        &RowsRead::to(None),
+        limits,
+    )
 }
 
 /// The CSV parser on a reader: an opened file, or bytes already read.
@@ -1215,6 +1470,7 @@ fn csv_evidence(
     reader: impl Read,
     file_name: String,
     delim: u8,
+    counted: &RowsRead<'_>,
     limits: IngestLimits,
 ) -> Result<SupplementaryEvidence, GaplyError> {
     let mut rdr = csv::ReaderBuilder::new()
@@ -1228,6 +1484,7 @@ fn csv_evidence(
     let mut clamped = 0usize;
     let mut headers: Vec<String> = Vec::new();
     let mut rows: Vec<Vec<String>> = Vec::new();
+    let mut width = 0usize;
 
     // Streaming: only ever one record + our capped output is resident.
     for (i, rec) in rdr.records().enumerate() {
@@ -1244,6 +1501,14 @@ fn csv_evidence(
                 rec.len(),
                 limits.max_cols
             )));
+        }
+        // The cells: `i` data rows of the header's width, checked after this
+        // record's rows and columns and before its text (Research OS, Phase
+        // 8F-1, decision 282). The first record over the cap stops the read.
+        if i == 0 {
+            width = rec.len();
+        } else if i.saturating_mul(width) > limits.max_cells {
+            return Ok(over_the_cells(file_name, SupplementaryKind::Csv));
         }
         let mut out_row = Vec::with_capacity(rec.len());
         for field in rec.iter() {
@@ -1264,6 +1529,7 @@ fn csv_evidence(
             headers = out_row;
         } else {
             rows.push(out_row);
+            counted.row(rows.len());
         }
     }
     if clamped > 0 {
@@ -1281,6 +1547,7 @@ fn csv_evidence(
         rows_truncated: false,
         variables_held: None,
         sheet_name: None,
+        cells_over: false,
     })
 }
 
@@ -1329,6 +1596,7 @@ fn text_evidence(
         rows_truncated: false,
         variables_held: None,
         sheet_name: None,
+        cells_over: false,
     })
 }
 
@@ -1372,6 +1640,72 @@ mod tests {
         let ev = parse_supplementary_bytes(&bytes, "sav").unwrap();
         assert!(ev.rows_truncated);
         assert_eq!(ev.tables[0].rows.len(), MAX_ROWS);
+    }
+
+    /// Research OS, Phase 8F-1 (decision 282): a `.sav` is read no further
+    /// than the rows its cell cap allows, plus one, when that is fewer than
+    /// its row limit allows: max_cells divided by the variables kept. Three
+    /// variables and a cap of 12 cells allow 4 rows, so 5 are read, of
+    /// 200,000; and none is converted.
+    /// Decision 282: zero variables hold zero cells, so only the row limit
+    /// applies, through `checked_div`, never a division by zero.
+    #[test]
+    fn zero_columns_allow_the_row_limit_and_never_divide_by_zero() {
+        let limits = IngestLimits {
+            max_rows: 50,
+            max_cells: 12,
+            ..IngestLimits::METHODS
+        };
+        assert_eq!(rows_the_cells_allow(0, limits), 50);
+        assert_eq!(rows_the_cells_allow(3, limits), 4);
+        assert_eq!(rows_the_cells_allow(5, limits), 2);
+        assert_eq!(rows_the_cells_allow(13, limits), 0);
+        assert_eq!(rows_the_cells_allow(1, limits), 12);
+        assert_eq!(
+            rows_the_cells_allow(
+                1,
+                IngestLimits {
+                    max_cells: 1_000,
+                    ..limits
+                }
+            ),
+            50,
+            "the rows bind first"
+        );
+    }
+
+    #[test]
+    fn a_sav_is_read_no_further_than_one_row_past_what_its_cells_allow() {
+        use arrow::array::Float64Array;
+        use arrow::datatypes::{DataType, Field, Schema};
+        let rows = 200_000;
+        let fields: Vec<Field> = ["x", "y", "z"]
+            .iter()
+            .map(|n| Field::new(*n, DataType::Float64, false))
+            .collect();
+        let columns: Vec<std::sync::Arc<dyn arrow::array::Array>> = (0..3)
+            .map(|_| std::sync::Arc::new(Float64Array::from(vec![1.0; rows])) as _)
+            .collect();
+        let batch = arrow::record_batch::RecordBatch::try_new(
+            std::sync::Arc::new(Schema::new(fields)),
+            columns,
+        )
+        .unwrap();
+        let mut buf = std::io::Cursor::new(Vec::new());
+        ambers::write_sav_to_writer(&mut buf, &batch, &ambers::SpssMetadata::default(), ambers::Compression::Zlib, None).unwrap();
+        let bytes = buf.into_inner();
+        let limits = IngestLimits { max_cells: 12, ..IngestLimits::METHODS };
+        let scanner = ambers::scan_sav_from_reader(std::io::Cursor::new(&bytes[..]), SAV_BATCH_ROWS).unwrap();
+        let (read, _) = read_sav_rows_with(scanner, limits).unwrap();
+        assert_eq!(read.num_rows(), 5, "the 4 rows 12 cells allow, plus one");
+        let ev = parse_supplementary_bytes_with(&bytes, "sav", limits).unwrap();
+        assert!(ev.cells_over && !ev.rows_truncated);
+        assert!(ev.tables[0].rows.is_empty(), "no row converted");
+        // Its row limit still reads one past itself when the cells allow more.
+        let scanner =
+            ambers::scan_sav_from_reader(std::io::Cursor::new(&bytes[..]), SAV_BATCH_ROWS).unwrap();
+        let (read, _) = read_sav_rows_with(scanner, IngestLimits::METHODS).unwrap();
+        assert_eq!(read.num_rows(), MAX_ROWS + 1);
     }
 
     #[test]

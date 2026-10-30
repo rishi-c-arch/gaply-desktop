@@ -1,7 +1,8 @@
 //! Shared by the descriptive summary's command tests (Research OS, Phase
 //! 2B): temporary folders the test creates and removes, a workbook built in
-//! the test, and an app over Tauri's mock runtime with the eight
-//! `stats_desc_*` commands, so a test calls them through IPC with the
+//! the test, and an app over Tauri's mock runtime with the ten
+//! `stats_desc_*` commands (eight until Phase 8F-1 added `stats_desc_limits`
+//! and `stats_desc_open_progress`), so a test calls them through IPC with the
 //! webview's argument names and reads the JSON the webview reads.
 //!
 //! Phase 3: the app also has the four `workspace_*` commands, and the
@@ -246,6 +247,9 @@ pub fn app_with(
             desc::stats_desc_cancel,
             desc::stats_desc_export,
             desc::stats_desc_close,
+            // Research OS, Phase 8F-1 (decision 284).
+            desc::stats_desc_limits,
+            desc::stats_desc_open_progress,
             ws::workspace_list,
             ws::workspace_state,
             ws::workspace_activate,

@@ -126,6 +126,7 @@
   "token_stale",
   "too_few_complete_cases",
   "too_large",
+  "too_many_cells",
   "too_wide",
   "truncated",
   "truncated_in_magnitude",

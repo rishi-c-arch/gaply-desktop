@@ -18,6 +18,7 @@ pub mod journal_openalex;
 pub mod journal_registry;
 pub mod journal_site_summary;
 pub mod journal_verify;
+pub mod memory_tier;
 pub mod oa_fetch;
 pub mod paper_corpus;
 pub mod pipeline;
@@ -364,6 +365,8 @@ pub fn run() {
             stats_desc_commands::stats_desc_cancel,
             stats_desc_commands::stats_desc_export,
             stats_desc_commands::stats_desc_close,
+            stats_desc_commands::stats_desc_limits,
+            stats_desc_commands::stats_desc_open_progress,
             // Research OS, Phase 4B-2: the independent-samples t-test, behind
             // the workspace check (decision 74), and the method selector's
             // list, which reads only the static registry (decision 76).

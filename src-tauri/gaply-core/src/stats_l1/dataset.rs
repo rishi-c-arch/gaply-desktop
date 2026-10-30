@@ -424,6 +424,11 @@ pub enum L1IngestRefusal {
     /// that opens is affected; bytes that are not text stay `Malformed`
     /// (Research OS evaluation of Phases 2 and 3, F10; decision 52).
     EncodingNotUtf8,
+    /// More cells (data rows kept times columns kept) than `limit_cells`,
+    /// the ingest's cell cap, checked while parsing (Research OS, Phase
+    /// 8F-1, decision 282). Level 1 never produces it: its cell cap is its
+    /// rows times its columns, so those bind first.
+    TooManyCells { limit_cells: usize },
 }
 
 /// Why no schema was built at all.

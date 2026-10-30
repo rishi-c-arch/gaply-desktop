@@ -58,6 +58,7 @@
 //! computed on are the bytes fingerprinted at that moment.
 
 use std::path::Path;
+use std::sync::atomic::AtomicU64;
 
 use gaply_core::extract::docparse::DocumentShape;
 use std::io::Read;
@@ -136,8 +137,24 @@ pub fn load_dataset_keeping_bytes(
     path: &Path,
     limits: IngestLimits,
 ) -> Result<(Dataset, Vec<u8>, String), L1IngestRefusal> {
+    load_dataset_keeping_bytes_with_progress(path, None, limits)
+}
+
+/// [`load_dataset_keeping_bytes`], storing the parse's rows read into
+/// `progress` (Research OS, Phase 8F-1, decision 280): the methods' open
+/// (`stats_desc_commands::open_with`) passes the counter its open's id
+/// holds. The same checks, the same one read and the same parse. The rows
+/// move during the parse only: the dataset's build comes after the last
+/// count.
+#[doc(hidden)]
+#[tracing::instrument(skip_all)]
+pub fn load_dataset_keeping_bytes_with_progress(
+    path: &Path,
+    progress: Option<&AtomicU64>,
+    limits: IngestLimits,
+) -> Result<(Dataset, Vec<u8>, String), L1IngestRefusal> {
     let checked = check_file_with(path, limits)?;
-    let dataset = dataset_from_parts(&checked.bytes, &checked.ext, limits)?;
+    let dataset = dataset_from_parts(&checked.bytes, &checked.ext, progress, limits)?;
     Ok((dataset, checked.bytes, checked.ext))
 }
 
@@ -175,7 +192,7 @@ pub fn load_dataset_from_bytes_with(
     }
     check_size(bytes.len() as u64, limits)?;
     check_bytes(bytes, ext, limits)?;
-    dataset_from_parts(bytes, ext, limits)
+    dataset_from_parts(bytes, ext, None, limits)
 }
 
 /// A data file opened, checked and read once: its bytes and its extension.
@@ -325,19 +342,22 @@ pub fn dataset_from_checked_with(
     checked: CheckedFile,
     limits: IngestLimits,
 ) -> Result<Dataset, L1IngestRefusal> {
-    dataset_from_parts(&checked.bytes, &checked.ext, limits)
+    dataset_from_parts(&checked.bytes, &checked.ext, None, limits)
 }
 
-/// [`dataset_from_checked`]'s body, over the checked bytes and extension.
+/// [`dataset_from_checked`]'s body, over the checked bytes and extension;
+/// the parse stores its rows read into `progress` when it is given one
+/// (decision 280).
 fn dataset_from_parts(
     before: &[u8],
     ext: &str,
+    progress: Option<&AtomicU64>,
     limits: IngestLimits,
 ) -> Result<Dataset, L1IngestRefusal> {
     // A failed parse is classified by a typed check of its own
     // (`exceeds_row_cap`), never by reading the parser's message, which the
     // existing Stats Verifier shows unchanged.
-    let evidence = supplementary::parse_supplementary_bytes_with(&before, &ext, limits).map_err(|_| {
+    let evidence = supplementary::parse_supplementary_bytes_with_progress(&before, &ext, progress, limits).map_err(|_| {
         if supplementary::exceeds_row_cap_bytes(&before, &ext, limits) {
             L1IngestRefusal::FileTooLarge { limit_rows: limits.max_rows }
         } else if let Some(columns) = supplementary::exceeds_col_cap_bytes(&before, &ext, limits) {
@@ -368,6 +388,14 @@ fn dataset_from_parts(
             columns,
             limit: limits.max_cols,
         }));
+    }
+    // More cells than the cap, after the rows and the variables (Research
+    // OS, Phase 8F-1, decision 282). Never under the named values, whose
+    // rows and columns bind first.
+    if evidence.cells_over {
+        return Err(L1IngestRefusal::TooManyCells {
+            limit_cells: limits.max_cells,
+        });
     }
     let table_ref = match evidence.kind {
         SupplementaryKind::Csv => TableRef::FirstTable,

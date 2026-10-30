@@ -18,9 +18,11 @@
 //! Windows's measurement. The cases above df 1e4 (`large_df` under Student
 //! and Welch; `one_df_10001` and `paired_df_10001`), which compute since 8E
 //! through Hill's p (`ln_1p` and statrs's `erfc`, which calls the platform's
-//! `exp`), are a second digest per golden file, captured on macOS aarch64
-//! and asserted there only; elsewhere the test prints it and asserts the
-//! count.
+//! `exp`), are a second digest per golden file, captured on macOS aarch64.
+//! Since Phase 8F-1 (decision 278) they too are asserted on every platform:
+//! the reviewer ran this file at `14d90c8` on Linux x86_64 (Ubuntu 24.04,
+//! CI's image) with the macOS gate forced off, and both digests equal
+//! macOS's. Windows is measured by its pull-request job.
 
 use std::collections::BTreeMap;
 
@@ -42,7 +44,7 @@ const TTEST_DIGEST: &str = "048fc4d482c0e61ee5b0af196d561859ddf99530476ba816f421
 const ONESAMPLE_CASES: usize = 25;
 const ONESAMPLE_DIGEST: &str = "54c4645e15801ac74508bd85801d979d8c60d1e98958c6314a5a00082bde3939";
 /// The cases above df 1e4, computed since 8E: captured on macOS aarch64,
-/// 30 Oct 2026, and asserted there only (decision 277).
+/// 30 Oct 2026, and asserted on every platform since 8F-1 (decision 278).
 const TTEST_LARGE_CASES: usize = 2;
 const TTEST_LARGE_DIGEST: &str = "82c5161839bf61c306d3e81b7ef51bdc26e19dcd03a9f54b4d4e8bb74e70ee6a";
 const ONESAMPLE_LARGE_CASES: usize = 2;
@@ -125,18 +127,15 @@ fn digest(lines: &[String]) -> String {
         .to_string()
 }
 
-/// `everywhere`: asserted on every platform (the cases at df ≤ 1e4), or on
-/// macOS aarch64 only (the cases above).
-fn check(name: &str, lines: &[String], cases: usize, pinned: &str, everywhere: bool) {
+/// Asserted on every platform (decisions 277 and 278).
+fn check(name: &str, lines: &[String], cases: usize, pinned: &str) {
     for l in lines {
         println!("{name}: {l}");
     }
     let got = digest(lines);
     println!("{name}: {} cases, digest {got}", lines.len());
     assert_eq!(lines.len(), cases, "{name}: the computed cases");
-    if everywhere || cfg!(all(target_os = "macos", target_arch = "aarch64")) {
-        assert_eq!(got, pinned, "{name}: a computed result's bytes changed");
-    }
+    assert_eq!(got, pinned, "{name}: a computed result's bytes changed");
 }
 
 #[test]
@@ -178,13 +177,12 @@ fn every_computed_t_test_golden_case_keeps_its_bytes() {
             lines.push(line);
         }
     }
-    check("ttest", &lines, TTEST_CASES, TTEST_DIGEST, true);
+    check("ttest", &lines, TTEST_CASES, TTEST_DIGEST);
     check(
         "ttest above 1e4",
         &large,
         TTEST_LARGE_CASES,
         TTEST_LARGE_DIGEST,
-        false,
     );
 }
 
@@ -231,12 +229,11 @@ fn every_computed_one_sample_and_paired_golden_case_keeps_its_bytes() {
             lines.push(line);
         }
     }
-    check("onesample", &lines, ONESAMPLE_CASES, ONESAMPLE_DIGEST, true);
+    check("onesample", &lines, ONESAMPLE_CASES, ONESAMPLE_DIGEST);
     check(
         "onesample above 1e4",
         &large,
         ONESAMPLE_LARGE_CASES,
         ONESAMPLE_LARGE_DIGEST,
-        false,
     );
 }

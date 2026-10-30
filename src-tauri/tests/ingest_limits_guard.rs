@@ -31,6 +31,18 @@
 //! It constrains what is TYPED: a value reaching the ingest through a
 //! variable, a constant of another name or a macro is not seen, and the
 //! check that a named value is passed then fails rather than passing.
+//!
+//! **Phase 8F-1 (decision 286) moved the check up one level, loosening
+//! nothing.** The methods' open is `stats_desc_commands::open_with(slots,
+//! path, progress, limits)`, whose limits are its own parameter: it calls
+//! the ingest's progress sibling, `load_dataset_keeping_bytes_with_progress`,
+//! with them. So both join [`CALLEES`]; `open_with`'s whole item, its
+//! signature included, is left out of the call scan ([`EXEMPT_ITEMS`]), as
+//! the two ingest files are, and must be found to be left out; the open's
+//! row becomes two, `stats_desc_open` and `open`, each passing `METHODS` to
+//! `open_with`; and a progress counter is never the last argument. 8F-2's
+//! switch to this computer's limits is those two rows and the rerun's, and
+//! needs one more accepted form in [`named_value`].
 
 use std::path::{Path, PathBuf};
 
@@ -57,10 +69,11 @@ const CALLS: &[(&str, &str, &str, &str)] = &[
     ),
     (
         "src/stats_desc_commands.rs",
-        "open",
-        "load_dataset_keeping_bytes",
+        "stats_desc_open",
+        "open_with",
         "METHODS",
     ),
+    ("src/stats_desc_commands.rs", "open", "open_with", "METHODS"),
     (
         "src/project_commands.rs",
         "rerun_open",
@@ -84,9 +97,17 @@ const CALLS: &[(&str, &str, &str, &str)] = &[
 const CALLEES: &[&str] = &[
     "load_dataset_with",
     "load_dataset_keeping_bytes",
+    "load_dataset_keeping_bytes_with_progress",
     "load_dataset_from_bytes_with",
     "parse_supplementary_with",
+    "open_with",
 ];
+
+/// `(file, function)`: an item whose limits are its own parameter, left out
+/// of the call scan, signature and body, as [`INGEST_FILES`] are (decision
+/// 286). The scan reads any name followed by `(` as a call, so the item's
+/// own definition would otherwise count as one.
+const EXEMPT_ITEMS: &[(&str, &str)] = &[("src/stats_desc_commands.rs", "open_with")];
 
 /// The wrappers that keep the old names and pass one fixed value.
 const OLD_NAMES: &[&str] = &[
@@ -269,6 +290,19 @@ fn enclosing_fn(src: &str, at: usize) -> String {
         .collect()
 }
 
+/// `src` with the item that defines `fn name` removed, from the start of its
+/// line to the end of its body; `None` when it is not found.
+fn without_fn(src: &str, name: &str) -> Option<String> {
+    let at = occurrences(src, "fn")
+        .into_iter()
+        .find(|&i| src[i + 2..].trim_start().starts_with(&format!("{name}(")))?;
+    let open = at + src[at..].find('{')?;
+    let start = src[..at].rfind('\n').map_or(0, |i| i + 1);
+    let mut out = src[..start].to_string();
+    out.push_str(&src[block_end(src, open)..]);
+    Some(out)
+}
+
 /// `IngestLimits::X`, perhaps with its module path, as `X`.
 fn named_value(arg: &str) -> Option<&str> {
     let tail = arg.strip_prefix("crate::").unwrap_or(arg);
@@ -296,10 +330,24 @@ fn each_production_caller_of_the_ingest_passes_its_named_limits() {
     );
     let mut found: Vec<(String, String, String, String)> = Vec::new();
     let mut failures = Vec::new();
+    let mut exempted = 0;
     for (file, src) in &sources {
         if INGEST_FILES.contains(&file.as_str()) {
             continue;
         }
+        let mut src = src.clone();
+        for (f, name) in EXEMPT_ITEMS.iter().filter(|(f, _)| f == file) {
+            match without_fn(&src, name) {
+                Some(rest) => {
+                    src = rest;
+                    exempted += 1;
+                }
+                None => failures.push(format!(
+                    "{f}: fn {name}, which the scan leaves out, was not found"
+                )),
+            }
+        }
+        let src = &src;
         for callee in CALLEES {
             for at in occurrences(src, callee) {
                 let Some(args) = arguments(src, at + callee.len()) else {
@@ -307,6 +355,12 @@ fn each_production_caller_of_the_ingest_passes_its_named_limits() {
                 };
                 let f = enclosing_fn(src, at);
                 let arg = last_argument(args);
+                if arg.to_lowercase().contains("progress") {
+                    failures.push(format!(
+                        "{file}: {f} calls {callee} with a progress counter last; the limits come last"
+                    ));
+                    continue;
+                }
                 match named_value(&arg) {
                     Some(v) => found.push((file.clone(), f, callee.to_string(), v.to_string())),
                     None => failures.push(format!(
@@ -349,6 +403,11 @@ fn each_production_caller_of_the_ingest_passes_its_named_limits() {
             failures.push(format!("{file}: {f} calls {callee} with IngestLimits::{value}, a call the table does not list"));
         }
     }
+    assert_eq!(
+        exempted,
+        EXEMPT_ITEMS.len(),
+        "an exempt item was not found, so the scan may read its definition: {failures:#?}"
+    );
     assert!(
         found.len() >= CALLS.len(),
         "found {} call sites, fewer than the {} the table lists: {failures:#?}",

@@ -154,13 +154,14 @@ describe('the project view fixtures Rust writes', () => {
     expect(keys(copy)).toEqual(keys(json));
   });
 
-  it('the code list is PROJECT_CODES, in order, the three lock codes and the six rerun codes included', () => {
+  it('the code list is PROJECT_CODES, in order, the three lock codes and the seven rerun codes included', () => {
     const codes = fixture('projectCodes.json') as string[];
     expect(codes).toEqual([...PROJECT_CODES]);
-    expect(codes).toHaveLength(55);
+    expect(codes).toHaveLength(56);
     expect(codes.slice(45, 48)).toEqual(['project.open_elsewhere', 'project.being_deleted', 'project.lock_failed']);
-    // The six rerun codes, then F1's folder code last (5E-fix-1, decision 223).
-    expect(codes.slice(-7, -1)).toEqual([
+    // The six rerun codes, then F1's folder code (5E-fix-1, decision 223),
+    // then the rerun over this computer's limits last (8F-1, decision 283).
+    expect(codes.slice(-8, -2)).toEqual([
       'project.rerun_unsupported',
       'project.rerun_not_succeeded',
       'project.rerun_busy',
@@ -168,7 +169,8 @@ describe('the project view fixtures Rust writes', () => {
       'project.rerun_in_progress',
       'project.rerun_data_unreadable',
     ]);
-    expect(codes.at(-1)).toBe('project.folder_unchangeable');
+    expect(codes.at(-2)).toBe('project.folder_unchangeable');
+    expect(codes.at(-1)).toBe('project.rerun_over_limits');
   });
 });
 

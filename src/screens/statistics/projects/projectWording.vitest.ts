@@ -48,7 +48,7 @@ const VERDICT = /\b(significant|correct|incorrect|accurate|inaccurate|reliable|u
 
 describe('every project code has one plain sentence', () => {
   it('for each code in projectCodes.json, and for no other', () => {
-    expect(CODES).toHaveLength(55);
+    expect(CODES).toHaveLength(56);
     expect(Object.keys(PROJECT_WORDS).sort()).toEqual([...CODES].sort());
     for (const code of CODES) {
       const s = projectSentence(err({ code, needed: 2097152, limit: 1048576 }));
@@ -62,7 +62,7 @@ describe('every project code has one plain sentence', () => {
 
   // 5C-1a (decisions 185 to 190): each rerun refusal in the prompt's words,
   // and none passes a verdict on either result.
-  it('words the six rerun codes plainly and passes no verdict', () => {
+  it('words the seven rerun codes plainly and passes no verdict', () => {
     const want: Record<string, string> = {
       'project.rerun_unsupported':
         'This result was made by a method, or with settings, that this version of Gaply cannot run again, so nothing was run.',
@@ -72,6 +72,9 @@ describe('every project code has one plain sentence', () => {
       'project.rerun_in_progress': 'A run is still going in this project. Wait for it to finish, or cancel it, first.',
       'project.rerun_data_unreadable':
         'The copy of the data file kept in this project could not be read this time, so nothing was run.',
+      // 8F-1 (decision 283).
+      'project.rerun_over_limits':
+        "This result's data file is larger than this computer's limits allow, so it cannot be run again here. It can be run again on a computer with more memory.",
     };
     expect(CODES.filter((c) => c.startsWith('project.rerun_')).sort()).toEqual(Object.keys(want).sort());
     for (const [code, sentence] of Object.entries(want)) {

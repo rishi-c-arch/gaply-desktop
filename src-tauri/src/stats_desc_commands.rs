@@ -41,8 +41,20 @@
 //! built (`workspace.wrong_workspace`). `tests/workspace_guards.rs` reads
 //! `lib.rs`'s handler list and fails if a registered `stats_desc_*` command
 //! does not start with the check.
+//!
+//! **Research OS, Phase 8F-1 (decisions 280, 284 and 286).** The open's body
+//! is [`open_with`], which takes its limits last and an optional counter for
+//! its rows read; `stats_desc_open` and [`open`] both pass
+//! `IngestLimits::METHODS` (`tests/ingest_limits_guard.rs`), so no limit
+//! changes. `stats_desc_open` takes an optional `progressId`: while that open
+//! runs, `stats_desc_open_progress` answers its rows read, a count only.
+//! `stats_desc_limits` answers this computer's memory tier and the methods'
+//! limits for it, numbers and closed words only, never the memory itself. No
+//! screen calls either until 8F-2, which switches the open and the rerun to
+//! this computer's limits.
 
 use std::path::Path;
+use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -63,8 +75,11 @@ use gaply_core::contracts::WorkspaceId;
 
 use gaply_core::research_project::DataFormat;
 
-use crate::runs::{DatasetSlots, NotStarted, RunSnapshot, Runs, SourceFile};
-use crate::stats_l1_ingest::load_dataset_keeping_bytes;
+use crate::memory_tier::{self, MemoryReading, MethodLimits};
+use crate::runs::{
+    DatasetSlots, NotStarted, OpenProgress, ProgressEntry, RunSnapshot, Runs, SourceFile,
+};
+use crate::stats_l1_ingest::load_dataset_keeping_bytes_with_progress;
 use crate::supplementary::IngestLimits;
 use crate::workspace::{refuse as refuse_workspace, refuse_inactive};
 
@@ -134,6 +149,30 @@ pub struct ExportView {
     pub sha256: String,
 }
 
+/// This computer's memory tier and the methods' limits for it (Research OS,
+/// Phase 8F-1, decision 284): the tier's word (`8gb`, `16gb` or `32gb`),
+/// whether the memory was read, and the numbers of the tier's
+/// `IngestLimits`. Never the memory itself.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MethodLimitsView {
+    pub tier: &'static str,
+    pub memory_known: bool,
+    pub max_rows: u64,
+    pub max_columns: u64,
+    pub max_cells: u64,
+    pub max_file_bytes: u64,
+    pub max_text_bytes: u64,
+    pub max_workbook_bytes: u64,
+}
+
+/// An open in flight's rows read (decision 280). A count only.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenProgressView {
+    pub rows_read: u64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ExportFormat {
@@ -181,8 +220,24 @@ fn display_name(path: &Path) -> String {
  *  The commands' bodies: what each command runs, and what the tests drive
  * ------------------------------------------------------------------------ */
 
+/// [`open_with`] under [`IngestLimits::METHODS`], with no counter: what the
+/// tests drive.
 pub fn open(slots: &DatasetSlots, path: &Path) -> Result<DatasetView, GaplyError> {
-    let (dataset, bytes, ext) = load_dataset_keeping_bytes(path, IngestLimits::METHODS)
+    open_with(slots, path, None, IngestLimits::METHODS)
+}
+
+/// The open's body (Research OS, Phase 8F-1, decision 286): the file read
+/// through the ingest under `limits`, its rows read stored into `progress`
+/// while it is parsed, profiled and held in a slot. Production passes
+/// `IngestLimits::METHODS` from `stats_desc_open` and [`open`]
+/// (`tests/ingest_limits_guard.rs`).
+pub fn open_with(
+    slots: &DatasetSlots,
+    path: &Path,
+    progress: Option<&AtomicU64>,
+    limits: IngestLimits,
+) -> Result<DatasetView, GaplyError> {
+    let (dataset, bytes, ext) = load_dataset_keeping_bytes_with_progress(path, progress, limits)
         .map_err(|r| refuse_ingest(l1_ingest_refusal(r)))?;
     let display_name = display_name(path);
     let profile = stats_desc::profile(&dataset);
@@ -273,6 +328,30 @@ pub fn close(slots: &DatasetSlots, slot: u64) -> bool {
     slots.close(slot)
 }
 
+/// The view of a tier's limits (decision 284). Pure, so each tier's wire
+/// fixture is built from an injected reading.
+pub fn limits_view(reading: MemoryReading) -> MethodLimitsView {
+    let l = MethodLimits::for_tier(reading.tier).ingest;
+    MethodLimitsView {
+        tier: reading.tier.word(),
+        memory_known: reading.memory_known,
+        max_rows: l.max_rows as u64,
+        max_columns: l.max_cols as u64,
+        max_cells: l.max_cells as u64,
+        max_file_bytes: l.max_file_size_bytes,
+        max_text_bytes: l.max_total_chars as u64,
+        max_workbook_bytes: l.max_workbook_uncompressed_bytes,
+    }
+}
+
+/// The rows read by the open in flight with `id`, or `None` when no open has
+/// that id (decision 280).
+pub fn open_progress(progress: &OpenProgress, id: u64) -> Option<OpenProgressView> {
+    progress
+        .rows_read(id)
+        .map(|rows_read| OpenProgressView { rows_read })
+}
+
 /* ------------------------------------------------------------------------ *
  *  The Tauri commands
  * ------------------------------------------------------------------------ */
@@ -289,13 +368,55 @@ async fn blocking<T: Send + 'static>(
 
 #[tauri::command]
 #[tracing::instrument(skip_all)]
-pub async fn stats_desc_open(state: St<'_>, path: String) -> Result<DatasetView, GaplyError> {
+pub async fn stats_desc_open(
+    state: St<'_>,
+    path: String,
+    progress_id: Option<u64>,
+) -> Result<DatasetView, GaplyError> {
     let engine = state
         .workspace
         .require_statistics()
         .map_err(refuse_workspace)?;
     let slots = engine.datasets.clone();
-    blocking(move || open(&slots, Path::new(&path))).await
+    let progress = engine.open_progress.clone();
+    blocking(move || {
+        // Removed when this closure returns, by the entry being dropped.
+        let entry = progress_id.map(|id| progress.begin(id));
+        open_with(
+            &slots,
+            Path::new(&path),
+            entry.as_ref().map(ProgressEntry::counter),
+            IngestLimits::METHODS,
+        )
+    })
+    .await
+}
+
+/// This computer's memory tier and the methods' limits for it (decision
+/// 284). No screen calls it until 8F-2.
+#[tauri::command]
+#[tracing::instrument(skip_all)]
+pub async fn stats_desc_limits(state: St<'_>) -> Result<MethodLimitsView, GaplyError> {
+    let _engine = state
+        .workspace
+        .require_statistics()
+        .map_err(refuse_workspace)?;
+    Ok(limits_view(memory_tier::this_computer()))
+}
+
+/// The rows read by the open in flight with `progress_id`, or `null` when
+/// no open has that id (decision 280). No screen calls it until 8F-2.
+#[tauri::command]
+#[tracing::instrument(skip_all)]
+pub async fn stats_desc_open_progress(
+    state: St<'_>,
+    progress_id: u64,
+) -> Result<Option<OpenProgressView>, GaplyError> {
+    let engine = state
+        .workspace
+        .require_statistics()
+        .map_err(refuse_workspace)?;
+    Ok(open_progress(&engine.open_progress, progress_id))
 }
 
 #[tauri::command]

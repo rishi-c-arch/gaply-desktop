@@ -1,0 +1,10 @@
+{
+  "tier": "8gb",
+  "memoryKnown": false,
+  "maxRows": 100000,
+  "maxColumns": 128,
+  "maxCells": 5000000,
+  "maxFileBytes": 67108864,
+  "maxTextBytes": 67108864,
+  "maxWorkbookBytes": 100663296
+}

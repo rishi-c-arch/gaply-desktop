@@ -49,6 +49,13 @@ const LEVEL_1: Record<string, string> = {
     'This file is text saved in an encoding other than UTF-8, such as Latin-1 or UTF-16, so it was not opened. Save a copy in UTF-8 and open that copy instead.',
 };
 
+/** Codes added after 735116e, with the one sentence Level 1's screens and
+ *  the methods' screens both give them (Phase 8F-1, decision 282). */
+const SINCE_8F1: Record<string, string> = {
+  too_many_cells:
+    'The file has more than 5000000 cells (rows times columns), more than Gaply opens on this computer, so it was not opened.',
+};
+
 describe('the ingest refusals on the methods screens', () => {
   it('says decision 243 four sentences exactly, with their numbers, on both screens', () => {
     for (const { screen, say } of SCREENS) {
@@ -72,7 +79,7 @@ describe('the ingest refusals on the methods screens', () => {
     for (const { screen, say } of SCREENS) {
       for (const { name, code } of INGEST_REFUSALS) {
         if (name in OWN) continue;
-        expect(say(rejection(code)), `${screen}: ${name}`).toBe(LEVEL_1[name]);
+        expect(say(rejection(code)), `${screen}: ${name}`).toBe(LEVEL_1[name] ?? SINCE_8F1[name]);
       }
       expect(say(rejection({ code: 'archive_too_large', declared: 4097, limit: 67_108_864 }))).toBe(
         'This file unpacks to more than its own contents list says, so it was not opened.',
@@ -81,13 +88,14 @@ describe('the ingest refusals on the methods screens', () => {
   });
 
   it("keeps every sentence Level 1's screens give these codes", () => {
-    expect(Object.keys(LEVEL_1).sort()).toEqual(INGEST_REFUSALS.map((r) => r.name).sort());
+    expect([...Object.keys(LEVEL_1), ...Object.keys(SINCE_8F1)].sort()).toEqual(INGEST_REFUSALS.map((r) => r.name).sort());
     for (const { name, code } of INGEST_REFUSALS) {
-      expect(sentenceFor(code as never), name).toBe(LEVEL_1[name]);
+      const said = LEVEL_1[name] ?? SINCE_8F1[name];
+      expect(sentenceFor(code as never), name).toBe(said);
       // Level 1's open refuses a data file as data_refused, its reason the
       // ingest's code (stats_l1_commands.rs's open), and L1Flow words it
       // through l1Wording's refusalSentence.
-      expect(l1RefusalSentence(rejection({ code: 'data_refused', reason: code })), name).toBe(LEVEL_1[name]);
+      expect(l1RefusalSentence(rejection({ code: 'data_refused', reason: code })), name).toBe(said);
     }
   });
 });

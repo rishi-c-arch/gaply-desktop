@@ -122,6 +122,9 @@ export const PROJECT_WORDS: Record<ProjectCode, Say> = {
   // 5E-fix-1 (F1 and F7, decision 223).
   'project.folder_unchangeable': () =>
     "Gaply cannot change this project's folder, so it cannot open or delete this project, and nothing in it was changed. The folder's permissions may have been changed outside Gaply.",
+  // 8F-1 (decision 283): the data file is over one of this computer's size limits.
+  'project.rerun_over_limits': () =>
+    "This result's data file is larger than this computer's limits allow, so it cannot be run again here. It can be run again on a computer with more memory.",
 };
 
 /** For a refusal this table does not know. */

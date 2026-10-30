@@ -27212,3 +27212,76 @@ rows: the t p, the quantile, F with df1 = 1 and the 30-bit pin, 4 tests);
   change under `stats_l0`, `stats_l1`, `stats_verify`, `stats_desc`,
   `stats_assist`, `stats_adapters` or `src-tauri/src`; no `Cargo.toml` or
   `Cargo.lock`; no wire, project, render or stored fixture in the diff.
+
+### D302 — Research OS, Phase 8F-1: the limits by memory, built and measured; nothing a user can reach changes `[src]` `[test]` `[measured]`
+
+**Decisions followed:** 242 (the 8A proposal, §6 and §8), 278 to 286 (`~/gaply-corpus/os/decisions.md`), 107 (the 100 MiB project cap), 229 and 245 (the disk rule).
+
+**What a user sees: nothing new.** The two production calls that read a file for the methods still pass `IngestLimits::METHODS`: the methods' open (`stats_desc_open` and its test form `open`, both through `stats_desc_commands::open_with`) and the rerun (`project_commands::rerun_open`). The slots keep a production budget that never binds before their count. No screen calls the two new commands. **8F-2 switches the limits on**: the open and the rerun take this computer's `MethodLimits`, the slots its budget, with the limits line before a file is chosen, the open's progress line, the new sentences on screen, the capability text, and the real-app check with Activity Monitor.
+
+**The tiers** (`src-tauri/src/memory_tier.rs`). Total memory is read once per process (`OnceLock`): on macOS through `models::total_physical_ram_bytes()` (`hw.memsize`), called unchanged; on Linux through `sysinfo(2)` (`totalram × mem_unit`, with `checked_mul`); on Windows through `GlobalMemoryStatusEx`'s `ullTotalPhys`. Each is one call with its SAFETY comment. `tier_for` is pure: under 12 GiB the 8 GB tier, 12 GiB to under 24 GiB the 16 GB tier, 24 GiB or more the 32 GB tier. **Unknown, or 0, is the 8 GB tier with `memory_known` false**, the opposite of the AI check's "unknown means allow", which does not change. A failed reading logs a closed fact, "total memory could not be read", never the OS's error. This Mac reads as the 8 GB tier with its memory known. The Linux branch compiles only on Linux, and CI's Linux jobs build it; the Windows branch only on Windows, and the Windows job builds it on a pull request. No local command builds either.
+
+**The table** (`MethodLimits::for_tier`; its `IngestLimits` from `IngestLimits::for_tier`, a `const fn` inside `impl IngestLimits`):
+
+| | 8 GB | 16 GB | 32 GB |
+|---|---|---|---|
+| data rows | 100,000 | 100,000 | 100,000 |
+| columns | 128 | 128 | 128 |
+| cells | 5,000,000 | 12,800,000 | 12,800,000 |
+| file bytes | 64 MiB | 96 MiB | 96 MiB |
+| cell text in all | 64 MiB | 96 MiB | 96 MiB |
+| workbook inflated | 96 MiB | 256 MiB | 256 MiB |
+| slot budget (cells) | 10,000,000 | 51,200,000 | 51,200,000 |
+
+**The cell cap** (`IngestLimits::max_cells`). Cells are the data rows kept times the columns kept: the header's width for a CSV or TSV, the range's width for a workbook, the variables kept for a `.sav` or `.mat`. It is checked while parsing, after the row and the column checks of the same row:
+
+- a CSV or TSV at the first record that takes it over, before that record's text;
+- a workbook from its range's size, before any cell is converted;
+- a `.sav` by reading no more than `min(max_rows, max_cells / variables kept)` + 1 rows (`checked_div`: zero variables mean no cell limit, never a division);
+- a `.mat` from each array's length, before any value is rendered.
+
+Over the cap, the evidence sets `cells_over` (`#[serde(skip)]`) and holds no rows; it is not a parse error, so no classifier re-reads the file. `dataset_from_parts` refuses in the order `rows_truncated`, `variables_held`, `cells_over`. LEVEL_1, SUPPLEMENTARY and METHODS take `max_rows × max_cols` (640,000), so their rows and columns bind first and nothing changes for any caller. That is proved by a pin and by corner tests at 50 × 4 (200 cells) for a CSV, an xlsx, a `.sav` and a `.mat`, through the methods' open and through `parse_supplementary_with`, each equal to the same file with no cell cap at all.
+
+**The slots.** `DatasetSlots` gains a budget in cells: an open drops the oldest slots until the cells held fit, and never drops the dataset just opened; the count stays `MAX_SLOTS`. `Default` is written by hand with `SLOT_BUDGET_CELLS` = `MAX_SLOTS × METHODS.max_cells` = 2,560,000, and `with_cell_budget` takes another budget.
+
+**Two codes.** `L1IngestRefusal::TooManyCells { limit_cells }`, wire `too_many_cells`, the one change under `stats_l1` (`dataset.rs`, `codes.rs` and its `every_code_is_listed` entry). Level 1 never produces it. Its sentence in `l1Wording.ts`, reached by every method screen through `sentenceFor`: "The file has more than N cells (rows times columns), more than Gaply opens on this computer, so it was not opened." `ProjectCode::RerunOverLimits`, `project.rerun_over_limits`, carries no numbers. `project_commands::rerun_ingest_code` maps `too_large`, `archive_too_large`, `content_too_large` and `too_many_cells` to it and every other refusal to `rerun_data_unreadable`; the match is exhaustive. Its sentence: "This result's data file is larger than this computer's limits allow, so it cannot be run again here. It can be run again on a computer with more memory." Neither can be reached in 8F-1.
+
+**The open's progress.** `stats_desc_open` takes an optional `progressId`. Its open's entry in the engine's `OpenProgress` table (`runs.rs`, held by `StatisticsEngine` beside the slots) receives the parse's rows read: every 1,000 data rows and on every exit. The entry is removed when the open returns, by its `ProgressEntry` being dropped, and only if it is still that open's own (`Arc::ptr_eq`). The count reaches the parser through one sibling chain: `open_with` → `load_dataset_keeping_bytes_with_progress` → `dataset_from_parts` → `parse_supplementary_bytes_with_progress` → the private evidence functions, through a private `RowsRead`. Every existing public function keeps its signature. **Two commands**, both behind `require_statistics`: `stats_desc_limits` → `MethodLimitsView` (the tier's word, `memoryKnown` and six numbers, never the memory), and `stats_desc_open_progress(progressId)` → `{ rowsRead }` or `null`. Both are registered in `lib.rs` and the tests' harness, with wire fixtures `methodLimitsView8gb/16gb/32gb.json` (8 GB as the unknown reading) and `openProgressView.json`.
+
+**8B's guard, one level up** (`tests/ingest_limits_guard.rs`). `open_with` and `load_dataset_keeping_bytes_with_progress` join `CALLEES`. `open_with`'s whole item is left out of the call scan (`EXEMPT_ITEMS`), and its absence fails the guard. The open's row becomes (`stats_desc_open`, `open_with`, METHODS) and (`open`, `open_with`, METHODS), with the rerun's unchanged; a progress counter as the last argument fails. 8F-2 needs one more accepted form in `named_value`.
+
+**windows-sys 0.59.0** becomes a direct dependency of the app crate, Windows only, features `Win32_Foundation` and `Win32_System_SystemInformation`. `Cargo.lock` gains one line, the app's edge. `GlobalMemoryStatusEx` returns `Foundation::BOOL`, which needs `Win32_Foundation`, a feature decision 281 does not name. Other crates already enable it (`cargo tree --target x86_64-pc-windows-msvc -e features -i windows-sys@0.59.0`), so `Win32_System_SystemInformation` alone compiled through feature unification. `Win32_Foundation` is named anyway, so the build does not rest on another crate's features; adding it left `Cargo.lock`'s SHA-256 unchanged, and `cargo check --workspace --all-targets` exits 0. Advisories: <https://rustsec.org/packages/windows-sys.html> and <https://github.com/rustsec/advisory-db/tree/main/crates/windows-sys> both answer 404, while the same URL shapes for `time` list RUSTSEC-2020-0071 and RUSTSEC-2026-0009; so no advisory is recorded (read 30 Oct 2026).
+
+**The measurement** (release probe through `open_with` and `Runs`, one case per process; macOS aarch64, 8 GiB; ADR-010's 8F-1 addendum has the method):
+
+| case | open s | rows read | validate s | summary s | peak footprint |
+|---|---|---|---|---|---|
+| 8 GB, 100,000 × 50 | 2.76 | 100,000 | 1.30 | 5.27 | 670 MiB (8A: 642–648) |
+| 8 GB, 100,000 × 51 | 0.23 to `too_many_cells` | 98,039 | — | — | 278 MiB |
+| 8 GB, 100,000 × 80 | 0.23 to `too_many_cells` | 62,500 | — | — | 309 MiB |
+| 8 GB, three 5,000,000-cell opens | 2.60, 2.53, 2.65 | — | — | — | 637 MiB; the oldest dropped |
+| 16 GB, 100,000 × 128, on an 8 GB Mac | 6.16 | 100,000 | 3.77 | 14.08 | 1,690 MiB; swap grew in both runs |
+
+Decision 285's stop (more than 25% above 0.65 GB) was not reached.
+
+**Every existing test changed, and why:**
+
+- `tests/ingest_limits.rs`'s named-value pin gains `max_cells` = rows × columns = 640,000.
+- `tests/ingest_limits_guard.rs` moves up one level, as above.
+- `codes.rs`'s `every_code_is_listed`, `stats_l1_code_set.rs`, `l1Codes.json`, `research_project`'s `the_codes_are_the_pinned_list`, `projectCodes.json`, `projectTypes.ts`'s `PROJECT_CODES`, `projectTypes.vitest.ts` (56 codes, the rerun codes at -8..-2, folder at -2, the new code last) and `projectWording.vitest.ts` (56; the seven rerun sentences) each take the one new code.
+- `fixtures/ingestRefusals.ts` gains `too_many_cells`. `methodsIngestWording.vitest.ts` puts it in a table of its own, `SINCE_8F1`, beside the 735116e table.
+- `workspace_session.rs`'s list of every `stats_desc_*` command takes the two new commands (8 → 10).
+- `tests/desc_support/mod.rs` registers them.
+- `essentially_constant_bytes_pin.rs` loses its macOS-only gate (decision 278).
+
+**The suites:**
+
+- `cargo test --workspace --no-fail-fast`: 140 targets + 2 doc targets, 3,089 passed, 12 ignored (base 137, 3,065; +3 targets, +22 integration tests and 2 unit tests, as predicted). The `project_store` test of decision 273 passed.
+- `cargo test -p app --features devtools`: 62 targets, 914 passed (base 59, 890).
+- `cargo test -p gaply_core`: 84 targets, 2,192 passed, 3 ignored.
+- vitest, the whole suite alone: 133 files, 1,771 tests, of which 1,770 passed. The +4 are one generated case each in `DescribeFlow`, `TTestFlow`, `SaveToProject` and `ProjectsPanel`. `projectReruns.vitest.tsx`'s focus test ("with the focus moved elsewhere, it stays there") failed once; alone it failed 1 of 5 runs. Its file alone 10 more times: 10 passed. Run once more, alone with nothing else running, the whole suite passed: 133 files, 1,771 of 1,771. The test file is unchanged in 8F-1. Three of the 72 files it imports, directly or through others, changed: `projectTypes.ts`, `projectWording.ts` and `l1Wording.ts`. Each change only adds a code or a sentence, and none touches focus, timers or rendering. So it is a timing flake beside those D292 lists: 1 failure in 15 lone runs.
+- `npx tsc --noEmit`, CI's eslint and `npm run build`: exit 0.
+
+**Eleven mutations**, each red then restored and green: the 12 GiB boundary, unknown memory as 32 GB, the CSV's cell check after the last record (rows read 2,500 where 4), the cell check before the row check, the budget dropping the newest, `too_many_cells` as `rerun_data_unreadable`, a progress id never removed, `stats_desc_open` passing LEVEL_1, and the three code-list entries.
+
+**A finding outside this step:** ambers 0.4.4, the `.sav` reader, divides by zero on a `.sav` with no variables, in each of its three read paths (`scanner.rs`: `256 MiB / row_bytes`), under any limits, so before 8F-1 too. Gaply's own arithmetic for that case is `checked_div`.

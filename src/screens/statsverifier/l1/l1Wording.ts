@@ -256,6 +256,11 @@ export const WORDS: Record<string, Words> = {
   // evaluation, F10). Shown by the descriptive summary too.
   encoding_not_utf8: () =>
     'This file is text saved in an encoding other than UTF-8, such as Latin-1 or UTF-16, so it was not opened. Save a copy in UTF-8 and open that copy instead.',
+  // The ingest's cell cap (Research OS, Phase 8F-1, decision 282). The same
+  // sentence on Level 1's screens and the methods' screens; Level 1 never
+  // produces it, since its cell cap is its rows times its columns.
+  too_many_cells: (c) =>
+    `The file has more than ${num(c, 'limit_cells') ?? '?'} cells (rows times columns), more than Gaply opens on this computer, so it was not opened.`,
 
   /* ---- why a claim could not be checked ---------------------------------- */
   spearman_exact_p: () => "Gaply does not compute Spearman's exact p.",

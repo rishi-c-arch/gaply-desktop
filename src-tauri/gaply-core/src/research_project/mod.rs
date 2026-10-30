@@ -197,6 +197,12 @@ closed! {
         /// immutable or append-only flag — so Gaply can neither open nor
         /// delete the project, and changed nothing.
         FolderUnchangeable => "folder_unchangeable",
+        /// Research OS, Phase 8F-1 (decision 283): the project's copy of the
+        /// data file is over one of this computer's size limits (its bytes,
+        /// its unpacked size, its cell text or its cells), so it was not run
+        /// here; it can be run on a computer with more memory. Nothing was
+        /// run.
+        RerunOverLimits => "rerun_over_limits",
     }
 }
 
@@ -719,6 +725,7 @@ mod tests {
                 "project.rerun_in_progress",
                 "project.rerun_data_unreadable",
                 "project.folder_unchangeable",
+                "project.rerun_over_limits",
             ]
         );
         let kinds: Vec<&str> = ArtifactKind::ALL.iter().map(|c| c.wire()).collect();

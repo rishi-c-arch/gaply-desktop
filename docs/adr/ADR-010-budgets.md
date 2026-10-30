@@ -147,3 +147,33 @@ which does not fit the 8 GB class beside the app. Until it is measured,
 `stats.check`'s 8 GB class holds for manuscripts up to the measured size
 only. Level 1's OLS at the caps is seven times the descriptive summary's
 peak; both fit the 8 GB class.
+
+## Addendum: the methods' open at the 8 GB limits (Phase 8F-1, decision 285)
+
+**What was measured, and how.** A release probe (`cargo build --release
+--example p8f1_probe`, 3 min 41 s; the source kept as
+`~/gaply-corpus/os/phase8/8f1/p8f1_probe.rs.kept`, SHA-256 `e610ef5e…`, and
+removed from `examples/` after the runs) called the methods' own open,
+`stats_desc_commands::open_with`, with each tier's `IngestLimits` and a
+counter for its rows read, then `validate`, then the summary through the run
+manager (`Runs::start`, polled to its end). One case per process under
+`/usr/bin/time -l`, through `run_probe.sh`, which refused to run under 15 GiB
+free and waited while anything built. The footprint is `proc_pid_rusage`'s
+`ri_lifetime_max_phys_footprint` (decision 242.9), with stops at 3 GiB and
+120 s; neither was reached. Synthetic CSVs, numbers `ddd.dd`, seed 20261026.
+macOS aarch64, 8 GiB RAM, 30 Oct 2026. A run during which swap grew was run
+once more, as 8A did; the clean run is quoted.
+
+| case | limits | open s (with the profile) | rows read | validate s | summary s | peak footprint MiB | note |
+|---|---|---|---|---|---|---|---|
+| 100,000 × 50, 5,000,000 cells | 8 GB | 2.76 | 100,000 | 1.30 | 5.27 | **670** | opens; the slot then holds 206 MiB (about 43 B a cell); 8A: 642–648 MiB, so +3.5% |
+| 100,000 × 51 | 8 GB | 0.23 to the refusal | 98,039 | — | — | 278 | `too_many_cells`, while parsing |
+| 100,000 × 80 | 8 GB | 0.23 to the refusal | 62,500 | — | — | 309 | `too_many_cells`, while parsing |
+| three opens of 5,000,000 cells | 8 GB, budget 10,000,000 | 2.60, 2.53, 2.65 | — | — | — | 637 | the oldest dropped at the third; two held, 525 MiB after |
+| 100,000 × 128, 12,800,000 cells | 16 GB, **on an 8 GB Mac** | 6.16 | 100,000 | 3.77 | 14.08 | 1,690 | swap grew in both runs: contaminated (first run 1,754); 8A: 1,611 |
+
+Decision 285's stop (the 8 GB open's peak more than 25% above 8A's 0.65 GB)
+was not reached: 670 MiB. The 16 and 32 GB tiers stay inferred: the row above
+is their largest open measured on this 8 GB Mac. The app's own memory (the
+webview and the rest) comes on top of every figure here; 8F-2's real-app
+check reads it in Activity Monitor.

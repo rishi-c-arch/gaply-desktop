@@ -113,7 +113,7 @@ use crate::project_store::{
 use crate::runs::{Clock, EndHook, NotStarted, RunCopy, RunInput, RunKind, Runs, Slot, SourceFile};
 #[cfg(test)]
 use crate::stats_l1_ingest::load_dataset_from_bytes;
-use crate::stats_l1_ingest::load_dataset_from_bytes_with;
+use crate::stats_l1_ingest::{load_dataset_from_bytes_with, L1IngestRefusal};
 use crate::supplementary::IngestLimits;
 use crate::workspace::{refuse as refuse_workspace, refuse_inactive, WorkspaceSession};
 
@@ -1655,6 +1655,36 @@ pub fn rerun(_root: &Path, ws: &WorkspaceSession, run_id: u64) -> Res<RerunStart
     rerun_open(projects, open, &engine.runs, run_id)
 }
 
+/// The code a rerun gives when the ingest refuses the project's copy of its
+/// data file (Research OS, Phase 8F-1, decision 283). The four size
+/// refusals that depend on this computer's tier (the file's bytes, its
+/// unpacked size, its cell text and its cells) are `rerun_over_limits`: the
+/// file can be run again on a computer with more memory. Every other
+/// refusal is `rerun_data_unreadable`, as before 8F-1, `file_too_large` and
+/// `too_wide` included: every tier has the same rows and columns, so a
+/// smaller tier cannot cause them. Exhaustive, so a new refusal must be
+/// placed here before it builds. Unreachable through a rerun in 8F-1, which
+/// keeps `IngestLimits::METHODS`.
+pub fn rerun_ingest_code(refusal: L1IngestRefusal) -> ProjectCode {
+    use L1IngestRefusal as R;
+    match refusal {
+        R::TooLarge { .. }
+        | R::ArchiveTooLarge { .. }
+        | R::ContentTooLarge { .. }
+        | R::TooManyCells { .. } => ProjectCode::RerunOverLimits,
+        R::NotReadable
+        | R::UnsupportedFormat
+        | R::Malformed
+        | R::NoTable
+        | R::FileTooLarge { .. }
+        | R::FileChangedWhileReading
+        | R::XlsNotReadable
+        | R::Dataset(_)
+        | R::NotARegularFile
+        | R::EncodingNotUtf8 => ProjectCode::RerunDataUnreadable,
+    }
+}
+
 /// [`rerun`] after its workspace check: checks 2 to 9, in order, under the
 /// open project's lock; then the rerun is going, and the lock is released
 /// before the run starts, because a run that ends at once (a refusal in the
@@ -1699,7 +1729,7 @@ fn rerun_open(
     // The project's copy of the data file, through the ingest's own checks
     // and parse, as `stats_desc_open` reads a file.
     let dataset = load_dataset_from_bytes_with(&data, arts.data.format, IngestLimits::METHODS)
-        .map_err(|_| refuse(ProjectCode::RerunDataUnreadable))?;
+        .map_err(|r| refuse(rerun_ingest_code(r)))?;
     // 9. The spec passes validation, as an ordinary run's must.
     let build = crate::workspace::build();
     if !job.valid_on(build, &dataset) {

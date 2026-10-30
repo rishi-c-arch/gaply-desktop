@@ -164,6 +164,15 @@ tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 # termios, so `label-cn` can read a single keypress (§11 D71).
 libc = "0.2"
 
+# Research OS Phase 8F-1 (decisions 242.10 and 281): GlobalMemoryStatusEx's
+# ullTotalPhys, for the methods' memory tier (src/memory_tier.rs). 0.59.0 is
+# the version Cargo.lock already held as a transitive dependency; MIT OR
+# Apache-2.0; its one dependency, windows-targets 0.52.6, was already locked.
+# Win32_Foundation is named because GlobalMemoryStatusEx's binding needs it;
+# other crates enable it today, and the build should not rest on that.
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.59.0", features = ["Win32_Foundation", "Win32_System_SystemInformation"] }
+
 # §11 D228: this header was replaced by `cfg(unix)` in 69a5ad1 (4 Sep) to give
 # `label-cn` libc on Linux, which also moved Metal and objc2 under unix: the app
 # crate did not compile on Linux (`objc2` only works on Apple platforms) until

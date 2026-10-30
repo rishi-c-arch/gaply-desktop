@@ -97,6 +97,13 @@ use serde::Serialize;
 pub const MAX_RUNS: usize = 8;
 /// Dataset slots held at once (decision 6).
 pub const MAX_SLOTS: usize = 4;
+/// The cells the slots hold in all, in production (Research OS, Phase 8F-1,
+/// decision 282): [`MAX_SLOTS`] datasets at `IngestLimits::METHODS`'s cell
+/// cap, 2,560,000. Every dataset the methods open has at most that many
+/// cells, so the slot count binds first and nothing changes in 8F-1. 8F-2
+/// gives the slots this computer's budget (`memory_tier::MethodLimits`).
+pub const SLOT_BUDGET_CELLS: u64 =
+    MAX_SLOTS as u64 * crate::supplementary::IngestLimits::METHODS.max_cells as u64;
 /// A run's wall-clock ceiling, from its start (Queued → Running).
 pub const RUN_CEILING_MS: u64 = 30_000;
 
@@ -219,7 +226,6 @@ impl Slot {
     }
 }
 
-#[derive(Default)]
 pub struct DatasetSlots {
     /// The last slot number handed out. Shared by every engine one workspace
     /// session builds ([`DatasetSlots::numbered_by`]), so an open that lands
@@ -227,19 +233,56 @@ pub struct DatasetSlots {
     /// hands out (evaluation of Phases 2 and 3, F8).
     next: Arc<AtomicU64>,
     slots: Mutex<VecDeque<(u64, Arc<Slot>)>>,
+    /// The cells the slots may hold in all, the newest dataset included
+    /// (decision 282). Cells only: not the file bytes a slot keeps, nor a
+    /// rerun's one-run slot.
+    budget_cells: u64,
+}
+
+/// Written by hand for the production budget (decision 282).
+impl Default for DatasetSlots {
+    fn default() -> DatasetSlots {
+        DatasetSlots::numbered_by(Arc::default())
+    }
 }
 
 impl DatasetSlots {
-    /// Slots numbered from `counter`, which other slot sets may share.
+    /// Slots numbered from `counter`, which other slot sets may share, with
+    /// the production budget, [`SLOT_BUDGET_CELLS`].
     pub fn numbered_by(counter: Arc<AtomicU64>) -> DatasetSlots {
         DatasetSlots {
             next: counter,
             slots: Mutex::new(VecDeque::new()),
+            budget_cells: SLOT_BUDGET_CELLS,
         }
     }
 
-    /// Holds the dataset and returns its slot. A fifth drops the oldest; a run
-    /// already using it keeps its own handle until it ends.
+    /// Slots with a budget of `budget_cells`, for the tests and the release
+    /// probe (decision 282).
+    pub fn with_cell_budget(budget_cells: u64) -> DatasetSlots {
+        DatasetSlots {
+            budget_cells,
+            ..DatasetSlots::default()
+        }
+    }
+
+    /// The cells the slots may hold in all.
+    pub fn cell_budget(&self) -> u64 {
+        self.budget_cells
+    }
+
+    /// The cells the slots hold now.
+    pub fn cells_held(&self) -> u64 {
+        lock(&self.slots)
+            .iter()
+            .map(|(_, s)| cells_of(s.dataset()))
+            .sum()
+    }
+
+    /// Holds the dataset and returns its slot. A fifth drops the oldest, and
+    /// so does an open that takes the cells held past the budget; the
+    /// dataset just opened is never dropped. A run already using a dropped
+    /// slot keeps its own handle until it ends, so its memory is freed then.
     pub fn insert(&self, display_name: String, dataset: Dataset) -> u64 {
         self.insert_with_source(display_name, dataset, None)
     }
@@ -263,8 +306,16 @@ impl DatasetSlots {
                 source,
             }),
         ));
+        // The count first, then the budget in cells (decision 282); the
+        // dataset just opened, at the back, is never dropped.
         while slots.len() > MAX_SLOTS {
             slots.pop_front();
+        }
+        let mut held: u64 = slots.iter().map(|(_, s)| cells_of(s.dataset())).sum();
+        while slots.len() > 1 && held > self.budget_cells {
+            if let Some((_, oldest)) = slots.pop_front() {
+                held -= cells_of(oldest.dataset());
+            }
         }
         id
     }
@@ -298,6 +349,82 @@ impl DatasetSlots {
     /// never reused.
     pub fn continue_after(&self, last: u64) {
         self.next.fetch_max(last, Ordering::SeqCst);
+    }
+}
+
+/// A dataset's cells: its rows times its columns (decision 282).
+fn cells_of(d: &Dataset) -> u64 {
+    (d.rows() as u64).saturating_mul(d.schema.columns.len() as u64)
+}
+
+/* ------------------------------------------------------------------------ *
+ *  The open's progress
+ * ------------------------------------------------------------------------ */
+
+/// **The methods' opens in flight, and each one's rows read (Research OS,
+/// Phase 8F-1, decision 280).** `stats_desc_open` takes an optional
+/// `progressId`, a number the screen chooses; while that open runs, the
+/// parse stores its rows read into the counter [`OpenProgress::begin`]
+/// gave it, and `stats_desc_open_progress` reads it. A count only, never a
+/// value or a name. An open's entry is removed when the open returns, by the
+/// [`ProgressEntry`] it holds being dropped. A second open with an id still
+/// in flight takes its entry; each removes the entry on return only if it is
+/// still its own.
+#[derive(Default)]
+pub struct OpenProgress {
+    opens: Mutex<BTreeMap<u64, Arc<AtomicU64>>>,
+}
+
+impl OpenProgress {
+    /// An entry for `id`, replacing any open's entry of the same id.
+    pub fn begin(self: &Arc<Self>, id: u64) -> ProgressEntry {
+        let rows = Arc::new(AtomicU64::new(0));
+        lock(&self.opens).insert(id, Arc::clone(&rows));
+        ProgressEntry {
+            table: Arc::clone(self),
+            id,
+            rows,
+        }
+    }
+
+    /// The rows read by the open in flight with `id`; `None` when no open
+    /// has that id.
+    pub fn rows_read(&self, id: u64) -> Option<u64> {
+        lock(&self.opens)
+            .get(&id)
+            .map(|r| r.load(Ordering::Relaxed))
+    }
+
+    /// The opens in flight.
+    pub fn in_flight(&self) -> usize {
+        lock(&self.opens).len()
+    }
+}
+
+/// One open's entry in [`OpenProgress`]: its counter, and its removal when
+/// it is dropped, whether the open succeeded, was refused or panicked.
+pub struct ProgressEntry {
+    table: Arc<OpenProgress>,
+    id: u64,
+    rows: Arc<AtomicU64>,
+}
+
+impl ProgressEntry {
+    /// The counter the parse stores its rows read into.
+    pub fn counter(&self) -> &AtomicU64 {
+        &self.rows
+    }
+}
+
+impl Drop for ProgressEntry {
+    fn drop(&mut self) {
+        let mut opens = lock(&self.table.opens);
+        if opens
+            .get(&self.id)
+            .is_some_and(|r| Arc::ptr_eq(r, &self.rows))
+        {
+            opens.remove(&self.id);
+        }
     }
 }
 

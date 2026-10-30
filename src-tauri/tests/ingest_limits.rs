@@ -138,6 +138,10 @@ fn each_named_value_is_todays_constants_and_its_capabilities_profiles() {
             l.max_workbook_uncompressed_bytes, MAX_WORKBOOK_UNCOMPRESSED_BYTES,
             "{name}"
         );
+        // Phase 8F-1 (decision 282): the cell cap is the rows times the
+        // columns, 640,000, so the rows and the columns bind first.
+        assert_eq!(l.max_cells, l.max_rows * l.max_cols, "{name}");
+        assert_eq!(l.max_cells, 640_000, "{name}");
         assert!(
             l.max_cols <= MAX_COLUMNS,
             "{name}: the dataset's own width is the ceiling"

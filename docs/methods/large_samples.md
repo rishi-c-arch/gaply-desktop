@@ -260,5 +260,46 @@ ran each at `3d1253e` on Linux x86_64 with the assertion forced on and got
 macOS's bytes; CI's Linux job checks them on every push, and the Windows job on
 a pull request is Windows's measurement. The four golden cases above df 1e4 go
 through `ln_1p` and statrs's `erfc`, which calls the platform's `exp`, so they
-are a second digest per golden file, asserted on macOS aarch64 only until the
-reviewer has run them on Linux.
+are a second digest per golden file. Since 8F-1 (decision 278) they too assert
+on every platform: the reviewer ran them at `14d90c8` on Linux x86_64 with the
+macOS gate forced off and got macOS's digests.
+
+## 8. Limits by this computer's memory (8F-1: built, not switched on)
+
+8E makes the t family accurate to df 1e7, so the methods can take files above
+5,000 rows. Phase 8F-1 builds the limits that will let them in, set by this
+computer's total memory (decisions 279 and 281), and **switches nothing on**:
+every method still opens files to today's limits (`IngestLimits::METHODS`),
+and 8F-2 makes the change, with its screens and its real-app check.
+
+| | 8 GB | 16 GB | 32 GB |
+|---|---|---|---|
+| total memory | under 12 GiB, or unknown | 12 GiB to under 24 GiB | 24 GiB or more |
+| data rows | 100,000 | 100,000 | 100,000 |
+| columns | 128 | 128 | 128 |
+| cells (data rows × columns) | 5,000,000 | 12,800,000 | 12,800,000 |
+| file bytes | 64 MiB | 96 MiB | 96 MiB |
+| cell text in all | 64 MiB | 96 MiB | 96 MiB |
+| workbook inflated | 96 MiB | 256 MiB | 256 MiB |
+| cells held across the open datasets | 10,000,000 | 51,200,000 | 51,200,000 |
+
+- **A computer whose memory Gaply cannot read gets the 8 GB limits**, never
+  "allow".
+- **Cells** are the data rows kept times the columns kept (for a `.sav` or
+  `.mat`, the variables kept). The cap is checked while the file is parsed: a
+  CSV stops at the first row that takes it over; a workbook, `.sav` or `.mat`
+  is refused before any cell is converted. Such a file is refused as
+  `too_many_cells`: "The file has more than N cells (rows times columns), more
+  than Gaply opens on this computer, so it was not opened."
+- **The open datasets' budget counts cells only.** It does not count the
+  file's bytes that each open dataset keeps for a project Save, nor the copy a
+  rerun reads. An open drops the oldest open datasets until the cells held fit;
+  it never drops the one just opened, and the four-dataset count still holds.
+- **A rerun over this computer's limits** (its file's bytes, unpacked size,
+  cell text or cells) is refused as `project.rerun_over_limits`: "This
+  result's data file is larger than this computer's limits allow, so it cannot
+  be run again here. It can be run again on a computer with more memory." Too
+  many rows or columns stays `project.rerun_data_unreadable`: every tier has the
+  same rows and columns.
+- The 16 and 32 GB tiers are inferred, not measured on such a computer. The
+  release measurement (ADR-010's 8F-1 addendum) is from an 8 GB Mac.
