@@ -35,14 +35,26 @@ import {
   DiagnosticList,
   ExportCard,
   FileSummary,
+  LimitsLine,
   ManifestPanel,
   MethodPage,
+  OpenProgressLine,
   ProfileTable,
   RunCard,
   SettingsActions,
   StageNav,
 } from './flowParts';
-import { actWith, fileActions, saveExactly, useCloseOnUnmount, useRunPolling, useStageFocus } from './flowHooks';
+import {
+  actWith,
+  fileActions,
+  saveExactly,
+  useCloseOnUnmount,
+  useMethodLimits,
+  useOpenProgress,
+  useRunPolling,
+  useStageFocus,
+} from './flowHooks';
+import { readMethodLimits } from './statsInvoke';
 import type { DatasetView, ExportFormat } from './describeTypes';
 import type { OneSampleRunStateView, OneSampleValidationView, PairedResultView, PairedSpec } from './onesampleTypes';
 import { Stage, STATUS_SENTENCES } from './describeWording';
@@ -73,6 +85,9 @@ export interface PairedFlowProps {
   save?: (name: string, text: string, mime: string) => Promise<string | null>;
   /** How often a run's state is read while it runs. */
   pollMs?: number;
+  /** This computer's limits for the methods, read once (Research OS, Phase
+   *  8F-2, decision 289); stats_desc_limits by default. */
+  limits?: () => Promise<unknown>;
 }
 
 const aliasNumber = (alias: string) => Number(alias.replace(/^C/, ''));
@@ -107,7 +122,10 @@ const PairedFlow: React.FC<PairedFlowProps> = ({
   pickPath = () => pickManuscriptPath(DATA_EXTENSIONS, 'Data file'),
   save = saveTextFile,
   pollMs = 250,
+  limits = readMethodLimits,
 }) => {
+  const methodLimits = useMethodLimits(limits);
+  const openProgress = useOpenProgress();
   const [stage, setStage] = useState<Stage>('import');
   const [view, setView] = useState<DatasetView | null>(null);
   const [first, setFirst] = useState('');
@@ -176,6 +194,7 @@ const PairedFlow: React.FC<PairedFlowProps> = ({
 
   const { choose, closeFile } = fileActions({
     bridge,
+    track: openProgress.track,
     slot,
     pickPath,
     act,
@@ -270,6 +289,7 @@ const PairedFlow: React.FC<PairedFlowProps> = ({
         )}
       </div>
       {view && stage !== 'import' && <FileSummary prefix="pt" view={view} />}
+      <OpenProgressLine prefix="pt" rowsRead={openProgress.rowsRead} />
       {error && (
         <p role="alert" data-testid="pt-error">
           {error}
@@ -282,6 +302,7 @@ const PairedFlow: React.FC<PairedFlowProps> = ({
           <p className="gds-jc__disclaimer" data-testid="pt-entry-text">
             {PAIRED_ENTRY_TEXT}
           </p>
+          <LimitsLine prefix="pt" limits={methodLimits} />
           <Button onClick={() => void choose()} disabled={busy} data-testid="pt-choose">
             Choose a data file
           </Button>

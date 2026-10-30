@@ -18,11 +18,12 @@
 //!   outside that impl builds one) and its slot budget in cells.
 //! * [`this_computer`] takes the reading once per process and keeps it.
 //!
-//! **Nothing a user can reach reads these in 8F-1.** The methods' open and
-//! the rerun keep `IngestLimits::METHODS`, and the slots their production
-//! budget; 8F-2 switches them to this computer's limits. The screens read
-//! the tier through `stats_desc_limits`, which sends the tier's word and its
-//! numbers, never the memory itself.
+//! **Switched on in 8F-2 (decision 288).** The methods' open and the rerun
+//! read through `IngestLimits::this_computer()`, and the Statistics engine's
+//! slots take [`this_computer`]'s slot budget. The screens read the tier
+//! through `stats_desc_limits`, which sends the tier's word and its numbers,
+//! never the memory itself. Level 1, the Stats Verifier and the
+//! supplementary files keep their own limits.
 //!
 //! The 16 and 32 GB tiers are inferred, not measured on such a machine
 //! (8A §6): the release measurement is from an 8 GB Mac.

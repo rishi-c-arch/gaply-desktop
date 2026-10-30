@@ -24,6 +24,7 @@
 //! tests are in `src/project_store.rs`'s own tests.
 
 mod project_support;
+mod sav_support;
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -942,4 +943,83 @@ fn a_reruns_dataset_evicts_no_open_dataset() {
     }
     assert_eq!(e.datasets.last_id(), last, "no slot number was handed out");
     assert_eq!(pc::runs(&w.root(), &w.ws, &id).unwrap().len(), 2);
+}
+
+/// Research OS, Phase 8F-2 (decision 288): a saved result of a 5,001-row
+/// file, which the limits before 8F-2 refused, reruns identical: the open
+/// and the rerun both read through this computer's limits.
+#[test]
+fn a_saved_5001_row_result_reruns_identical() {
+    use app_lib::supplementary::IngestLimits;
+    use gaply_core::research_project::RerunComparison::Identical;
+    let w = World::new("rr-5001");
+    let mut csv = String::from("a,b\n");
+    for i in 0..5_001u32 {
+        csv.push_str(&format!("{}.{},{}\n", i % 97, i % 13, i % 7));
+    }
+    let p = w.dir.write("rows_5001.csv", csv.as_bytes());
+    let slot = desc::open_with(
+        &w.engine().datasets,
+        &p,
+        None,
+        IngestLimits::this_computer(),
+    )
+    .expect("a 5,001-row file opens")
+    .slot;
+    let run = w.describe(slot);
+    let id = pc::save_run(&w.root(), &w.ws, run, new_project("Rows"))
+        .expect("saved")
+        .project_id;
+    pc::rerun(&w.root(), &w.ws, 1).expect("the rerun starts");
+    let r = settled(&w);
+    assert_eq!(
+        (r.status, r.stored_run_id, r.code),
+        (RerunProgress::Saved, Some(2), None)
+    );
+    let compared = pc::runs(&w.root(), &w.ws, &id)
+        .unwrap()
+        .into_iter()
+        .find(|r| r.stored_run_id == 2)
+        .unwrap()
+        .comparison;
+    assert_eq!(compared, Some(Identical));
+}
+
+/// Research OS, Phase 8F-2 (decision 291): a stored `.sav` ambers 0.4.4
+/// panicked on is refused by the rerun as `project.rerun_data_unreadable`,
+/// with no panic, and nothing is written.
+#[test]
+fn a_stored_sav_that_crashed_ambers_is_refused_by_the_rerun_with_no_panic() {
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+    let w = World::new("rr-sav");
+    let (id, _) = with_a_summary(&w);
+    let spec = pc::run_result(&w.root(), &w.ws, &id, 1).unwrap().spec_json;
+    let mut wrong = Vec::new();
+    for (name, bytes) in sav_support::crashing() {
+        let stored = store_a_row(
+            &w,
+            &id,
+            ("stats.describe", 1),
+            RunState::Succeeded,
+            (&bytes, DataFormat::Sav),
+            spec.as_bytes(),
+        );
+        let before = state_of(&w, &id);
+        match catch_unwind(AssertUnwindSafe(|| pc::rerun(&w.root(), &w.ws, stored))) {
+            Err(_) => {
+                wrong.push(format!("{name}: panicked"));
+                break;
+            }
+            Ok(Ok(_)) => wrong.push(format!("{name}: started")),
+            Ok(Err(e)) if code(&e) != "project.rerun_data_unreadable" => {
+                wrong.push(format!("{name}: {}", code(&e)))
+            }
+            Ok(Err(_)) => {
+                if state_of(&w, &id) != before {
+                    wrong.push(format!("{name}: something was written"));
+                }
+            }
+        }
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
 }

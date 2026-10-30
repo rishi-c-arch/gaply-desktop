@@ -119,7 +119,7 @@ read.
 | a sum, square, quotient or root a double cannot hold | not computable, `overflow` |
 | a sum of squares below the smallest normal double though the values differ | not computable, `underflow` |
 | any other refusal of the arithmetic (no p for the statistic) | not computable, `arithmetic_refused` |
-| df above 1e7 | not computable, `quantile_out_of_range` (unreachable through the ingest's 5,000 rows, and through any dataset: it needs more than 10,000,002 rows; until 8E the limit was 1e4, decision 242.7) |
+| df above 1e7 | not computable, `quantile_out_of_range` (unreachable through the methods' open, which takes at most 100,000 data rows on every computer since 8F-2, and through any dataset: it needs more than 10,000,002 rows; until 8E the limit was 1e4, decision 242.7) |
 | the outcome holds text, NaN or an infinity | invalid, `outcome_holds_text` / `outcome_non_finite` |
 | the group has fewer than 2 levels | invalid, `group_one_level` |
 | the group column has more than 50 levels | its levels are not listed: `stats_ttest_group_levels` refuses with `too_many_levels` {count, limit}, and the screen does not offer the column (decision 87); `validate` and `run` refuse it as the group with the same code, so a spec built anywhere is held to the limit (decision 94) |
@@ -212,8 +212,9 @@ the quantile is the expansion (Research OS, Phase 8E, decision 275: within
 4.5e-16 of R's `qt` over 20 df from 1e3 to 1e7, `tests/stats_dist_reference.rs`,
 and 2.6e-16 of exact values in the reviewer's measurement,
 [large_samples.md](large_samples.md)), and above 1e7 (`QUANTILE_MAX_DF`) it is
-refused rather than given. The ingest caps a table at 5,000 rows, so df ≤ 4,998
-for a file a user opens.
+refused rather than given. Since 8F-2 the methods open at most 100,000 data
+rows on every computer, so df ≤ 99,998 for a file a user opens (5,000 rows,
+df ≤ 4,998, before it).
 
 ## 7. Properties (`tests/ttest_properties.rs`)
 
@@ -244,8 +245,17 @@ wording codes:
 - the design is the user's claim: a paired, clustered or repeated-measures
   design given as two independent groups cannot be detected from the table;
 - no weights: the capability takes none;
-- a CSV or TSV must be UTF-8, and 2 MiB of cell text binds first on a wide
-  table (the shared ingest's limits).
+- how large a file opens depends on this computer's memory (Phase 8F-2,
+  D303; [large_samples.md](large_samples.md) §8): 100,000 data rows and 128
+  columns on every computer, and 5,000,000 cells and 64 MiB on an 8 GB
+  computer, 12,800,000 cells and 96 MiB on 16 and 32 GB; the screen states
+  the limits before a file is chosen. A CSV or TSV must be UTF-8;
+- not measured in 8F-2: the run's 30 s ceiling stays, and the 16 GB tier's
+  12,800,000-cell summary took 14.08 s on an 8 GB Mac, so a slower computer
+  near that size could reach it; a text-heavy 64 MB file (an open dataset
+  also keeps the file's bytes, for a project Save); a categorical column can
+  now carry up to 100,000 levels into the profile; and two 64 MB files cannot
+  share one project, because decision 107's 100 MiB cap is per project..
 
 The wording is neutral: no "significant", no stars, no verdict (decision 66).
 

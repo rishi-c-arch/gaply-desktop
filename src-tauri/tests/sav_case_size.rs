@@ -1,0 +1,168 @@
+//! **A `.sav` that crashed ambers is refused with no panic (Research OS,
+//! Phase 8F-2, decision 291).** ambers 0.4.4 divides by the header's nominal
+//! case size × 8 on each of its three read paths, so a file with no
+//! variables, or with variables and a case size of 0 or less (which PSPP's
+//! "System File Format" chapter says some software writes), panicked under
+//! every caller. `supplementary`'s check reads the header's layout code and
+//! case size and the first record's type, in the file's own byte order:
+//!
+//! * the dictionary's end right after the header → an empty SPSS table, as a
+//!   file with no columns gives;
+//! * otherwise a case size of 0 or less → malformed;
+//! * otherwise the file goes to ambers as before.
+//!
+//! Here: the reviewer agent's supplementary files
+//! (`parse_supplementary_with` under `SUPPLEMENTARY`, as `commands.rs`'s
+//! `run_publishready_measured` calls it), the Stats Verifier's legacy lane
+//! (`commands::run_stats_preview`, since `load_first_table` is private), the
+//! methods' open, and a proper file in either byte order reading as before.
+//! Level 1's open and compute are in `stats_l1_commands.rs`, the
+//! reproduction in `stats_l1_reproduction.rs`, the rerun in
+//! `project_rerun.rs`. Each catches a panic so that every file is reported.
+
+mod desc_support;
+mod sav_support;
+
+use std::panic::{catch_unwind, AssertUnwindSafe};
+
+use app_lib::commands::run_stats_preview;
+use app_lib::runs::DatasetSlots;
+use app_lib::stats_desc_commands::open_with;
+use app_lib::stats_l1_ingest::load_dataset_from_bytes_with;
+use app_lib::supplementary::{parse_supplementary_with, IngestLimits};
+use desc_support::TempDir;
+use gaply_core::research_project::DataFormat;
+use gaply_core::GaplyError;
+use sav_support::{crashing, expected_refusal, proper, Order};
+
+/// Runs `f` on each crashing file, written under `dir`, and fails naming
+/// every file that panicked or gave something other than `want(name)`.
+fn each<T: std::fmt::Debug>(
+    dir: &TempDir,
+    f: impl Fn(&std::path::Path) -> T,
+    ok: impl Fn(&str, &T) -> bool,
+) {
+    let mut wrong = Vec::new();
+    for (name, bytes) in crashing() {
+        let p = dir.write(&format!("{name}.sav"), &bytes);
+        match catch_unwind(AssertUnwindSafe(|| f(&p))) {
+            Err(_) => wrong.push(format!("{name}: panicked")),
+            Ok(got) if !ok(name, &got) => wrong.push(format!("{name}: {got:?}")),
+            Ok(_) => {}
+        }
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+fn malformed(e: &GaplyError) -> bool {
+    matches!(e, GaplyError::Validation(m) if m.starts_with("malformed or unsupported .sav file"))
+}
+
+#[test]
+fn the_reviewer_agents_files_give_an_empty_table_or_malformed_with_no_panic() {
+    let dir = TempDir::new("sav_reviewer");
+    each(
+        &dir,
+        |p| parse_supplementary_with(p, IngestLimits::SUPPLEMENTARY),
+        |name, got| match got {
+            Ok(ev) => {
+                name == "no_variables"
+                    && ev.tables.len() == 1
+                    && ev.tables[0].headers.is_empty()
+                    && ev.tables[0].rows.is_empty()
+            }
+            Err(e) => name != "no_variables" && malformed(e),
+        },
+    );
+}
+
+#[test]
+fn the_legacy_lane_gives_an_empty_preview_or_malformed_with_no_panic() {
+    let dir = TempDir::new("sav_legacy");
+    each(
+        &dir,
+        |p| run_stats_preview(p.to_string_lossy().into_owned(), None),
+        |name, got| match got {
+            Ok(v) => name == "no_variables" && v.headers.is_empty() && v.row_count == 0,
+            Err(e) => name != "no_variables" && malformed(e),
+        },
+    );
+}
+
+#[test]
+fn the_methods_open_gives_no_columns_or_malformed_with_no_panic() {
+    let dir = TempDir::new("sav_methods");
+    each(
+        &dir,
+        |p| {
+            open_with(
+                &DatasetSlots::default(),
+                p,
+                None,
+                IngestLimits::this_computer(),
+            )
+            .map(|v| v.profile.rows)
+            .map_err(|e| match e {
+                GaplyError::Validation(m) => serde_json::from_str::<serde_json::Value>(&m).unwrap(),
+                other => panic!("not a validation error: {other:?}"),
+            })
+        },
+        |name, got| got.as_ref().err() == Some(&expected_refusal(name)),
+    );
+}
+
+#[test]
+fn a_proper_sav_reads_as_before_in_either_byte_order() {
+    let dir = TempDir::new("sav_proper");
+    let mut tables = Vec::new();
+    for (order, name) in [(Order::Little, "le.sav"), (Order::Big, "be.sav")] {
+        let bytes = proper(order);
+        let p = dir.write(name, &bytes);
+        let ev = parse_supplementary_with(&p, IngestLimits::SUPPLEMENTARY)
+            .unwrap_or_else(|e| panic!("{order:?}: {e:?}"));
+        let t = &ev.tables[0];
+        assert_eq!(t.headers, ["X", "Y"], "{order:?}");
+        let numbers: Vec<Vec<f64>> = t
+            .rows
+            .iter()
+            .map(|r| r.iter().map(|c| c.parse::<f64>().unwrap()).collect())
+            .collect();
+        let written = [[1.5, 2.25], [3.0, 4.75]];
+        match order {
+            Order::Little => assert_eq!(numbers, written, "{order:?}"),
+            // As before 8F-2, and not correct: ambers 0.4.4 reads a
+            // big-endian file's header and dictionary in its byte order but
+            // its uncompressed cases as little-endian, so each value is its
+            // big-endian bytes read the other way round (1.5 reads as
+            // 3.13984e-319). Measured 30 Oct 2026; recorded in D303 as a
+            // finding, outside decision 291, which changes no read.
+            Order::Big => {
+                for (got, w) in numbers.iter().flatten().zip(written.iter().flatten()) {
+                    let swapped = f64::from_le_bytes(w.to_be_bytes());
+                    assert!(
+                        ((got - swapped) / swapped).abs() < 1e-4,
+                        "{got:e} is {w}'s bytes swapped ({swapped:e})"
+                    );
+                }
+            }
+        }
+        tables.push(t.rows.clone());
+
+        let ds = load_dataset_from_bytes_with(&bytes, DataFormat::Sav, IngestLimits::LEVEL_1)
+            .unwrap_or_else(|r| panic!("{order:?}: {r:?}"));
+        assert_eq!((ds.rows(), ds.schema.columns.len()), (2, 2), "{order:?}");
+        let view = open_with(
+            &DatasetSlots::default(),
+            &p,
+            None,
+            IngestLimits::this_computer(),
+        )
+        .unwrap_or_else(|e| panic!("{order:?}: {e:?}"));
+        assert_eq!(view.profile.rows, 2, "{order:?}");
+    }
+    assert_eq!(
+        tables[0].len(),
+        tables[1].len(),
+        "both byte orders read every case"
+    );
+}

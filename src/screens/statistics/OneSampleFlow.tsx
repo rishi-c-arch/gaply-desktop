@@ -34,14 +34,26 @@ import {
   DiagnosticList,
   ExportCard,
   FileSummary,
+  LimitsLine,
   ManifestPanel,
   MethodPage,
+  OpenProgressLine,
   ProfileTable,
   RunCard,
   SettingsActions,
   StageNav,
 } from './flowParts';
-import { actWith, fileActions, saveExactly, useCloseOnUnmount, useRunPolling, useStageFocus } from './flowHooks';
+import {
+  actWith,
+  fileActions,
+  saveExactly,
+  useCloseOnUnmount,
+  useMethodLimits,
+  useOpenProgress,
+  useRunPolling,
+  useStageFocus,
+} from './flowHooks';
+import { readMethodLimits } from './statsInvoke';
 import type { DatasetView, ExportFormat } from './describeTypes';
 import type { OneSampleResultView, OneSampleRunStateView, OneSampleSpec, OneSampleValidationView } from './onesampleTypes';
 import { Stage, STATUS_SENTENCES } from './describeWording';
@@ -73,6 +85,9 @@ export interface OneSampleFlowProps {
   save?: (name: string, text: string, mime: string) => Promise<string | null>;
   /** How often a run's state is read while it runs. */
   pollMs?: number;
+  /** This computer's limits for the methods, read once (Research OS, Phase
+   *  8F-2, decision 289); stats_desc_limits by default. */
+  limits?: () => Promise<unknown>;
 }
 
 const aliasNumber = (alias: string) => Number(alias.replace(/^C/, ''));
@@ -107,7 +122,10 @@ const OneSampleFlow: React.FC<OneSampleFlowProps> = ({
   pickPath = () => pickManuscriptPath(DATA_EXTENSIONS, 'Data file'),
   save = saveTextFile,
   pollMs = 250,
+  limits = readMethodLimits,
 }) => {
+  const methodLimits = useMethodLimits(limits);
+  const openProgress = useOpenProgress();
   const [stage, setStage] = useState<Stage>('import');
   const [view, setView] = useState<DatasetView | null>(null);
   const [outcome, setOutcome] = useState('');
@@ -164,6 +182,7 @@ const OneSampleFlow: React.FC<OneSampleFlowProps> = ({
 
   const { choose, closeFile } = fileActions({
     bridge,
+    track: openProgress.track,
     slot,
     pickPath,
     act,
@@ -244,6 +263,7 @@ const OneSampleFlow: React.FC<OneSampleFlowProps> = ({
         )}
       </div>
       {view && stage !== 'import' && <FileSummary prefix="os" view={view} />}
+      <OpenProgressLine prefix="os" rowsRead={openProgress.rowsRead} />
       {error && (
         <p role="alert" data-testid="os-error">
           {error}
@@ -256,6 +276,7 @@ const OneSampleFlow: React.FC<OneSampleFlowProps> = ({
           <p className="gds-jc__disclaimer" data-testid="os-entry-text">
             {ONE_SAMPLE_ENTRY_TEXT}
           </p>
+          <LimitsLine prefix="os" limits={methodLimits} />
           <Button onClick={() => void choose()} disabled={busy} data-testid="os-choose">
             Choose a data file
           </Button>

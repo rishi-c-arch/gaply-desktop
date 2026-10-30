@@ -405,12 +405,13 @@ fn in_the_named_values_shape_every_format_behaves_as_with_no_cell_cap() {
     }
 }
 
-/// A `.sav` with no variables is not here: the reader itself, ambers 0.4.4,
-/// divides by the row's width while reading one (`scanner.rs`, each of its
-/// three read paths), under any limits, so no such file reaches the parse,
-/// before 8F-1 or after. Gaply's own arithmetic for it, `max_cells` over
-/// zero variables, is pinned in `supplementary.rs`'s unit tests
-/// (`zero_columns_allow_the_row_limit_and_never_divide_by_zero`).
+/// A `.sav` with no variables is not here: ambers 0.4.4 divided by the row's
+/// width while reading one (`scanner.rs`, each of its three read paths), so
+/// before 8F-2 it panicked under any limits. Since 8F-2 (decision 291)
+/// `supplementary`'s header check gives it an empty table first, tested in
+/// `tests/sav_case_size.rs` under every caller. Gaply's own arithmetic for
+/// it, `max_cells` over zero variables, is pinned in `supplementary.rs`'s
+/// unit tests (`zero_columns_allow_the_row_limit_and_never_divide_by_zero`).
 #[test]
 fn a_file_with_no_columns_is_refused_as_before_without_a_panic() {
     let d = TempDir::new("cells_no_columns");

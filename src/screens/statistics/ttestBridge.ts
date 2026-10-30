@@ -6,7 +6,7 @@
 // choices, and shows what comes back. Export returns bytes; the save dialog
 // writes the one file the user names, and Rust writes nothing.
 import { isTauri } from '../../utils/isTauri';
-import { invoke, recorder, type MockResponse } from './statsInvoke';
+import { invoke, openWithProgress, recorder, type MockResponse } from './statsInvoke';
 import type { DatasetView, ExportFormat, ExportView, RunStartedView } from './describeTypes';
 import type {
   CapabilityView,
@@ -19,8 +19,9 @@ import type {
 
 export interface TTestBridge {
   /** Reads the file through Level 1's ingest (stats_desc_open). The path is
-   *  not kept. */
-  open(path: string): Promise<DatasetView>;
+   *  not kept. `onRowsRead` gets the open's rows read while it runs
+   *  (Research OS, Phase 8F-2, decision 290); a mock ignores it. */
+  open(path: string, onRowsRead?: (rowsRead: number) => void): Promise<DatasetView>;
   /** A column's levels as the t-test indexes them (decision 81). */
   groupLevels(slot: number, column: string): Promise<GroupLevelsView>;
   validate(slot: number, spec: TTestSpec): Promise<TTestValidationReportView>;
@@ -39,8 +40,8 @@ export interface CapabilityBridge {
 }
 
 export class TauriTTestBridge implements TTestBridge {
-  open(path: string) {
-    return invoke<DatasetView>('stats_desc_open', { path });
+  open(path: string, onRowsRead?: (rowsRead: number) => void) {
+    return openWithProgress<DatasetView>(path, onRowsRead);
   }
   groupLevels(slot: number, column: string) {
     return invoke<GroupLevelsView>('stats_ttest_group_levels', { slot, column });

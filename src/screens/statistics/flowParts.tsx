@@ -21,8 +21,58 @@ import {
   STAGES,
   type Stage,
 } from './describeWording';
-import type { DatasetView, ExportFormat, Platform, Reproducibility, RunState } from './describeTypes';
+import type { DatasetView, ExportFormat, MethodLimitsView, Platform, Reproducibility, RunState } from './describeTypes';
+import { megabytes } from '../statsverifier/l1/l1Wording';
 import { savableOnScreen, SaveToProject } from './projects/SaveToProject';
+
+const TIERS = ['8gb', '16gb', '32gb'];
+const LIMIT_NUMBERS = ['maxRows', 'maxColumns', 'maxCells', 'maxFileBytes', 'maxTextBytes', 'maxWorkbookBytes'] as const;
+
+/** Whether an answer of stats_desc_limits has MethodLimitsView's shape: a
+ *  tier word, a boolean, and six whole numbers (Research OS, Phase 8F-2,
+ *  decision 289). A refusal, null or anything else is not one. */
+export function isMethodLimitsView(v: unknown): v is MethodLimitsView {
+  if (!v || typeof v !== 'object') return false;
+  const o = v as Record<string, unknown>;
+  return (
+    typeof o.tier === 'string' &&
+    TIERS.includes(o.tier) &&
+    typeof o.memoryKnown === 'boolean' &&
+    LIMIT_NUMBERS.every((k) => typeof o[k] === 'number' && Number.isInteger(o[k]) && (o[k] as number) >= 0)
+  );
+}
+
+/** The limits line's words (decision 289): the numbers as raw integers, as
+ *  the refusal sentences write them, and the file's bytes in megabytes. */
+export function limitsSentence(l: MethodLimitsView): string {
+  const line =
+    `On this computer, Gaply opens a file of up to ${l.maxRows} rows, ${l.maxColumns} columns and ${l.maxCells} cells ` +
+    `(rows times columns), and of up to ${megabytes(l.maxFileBytes)}. A file near these limits takes a few seconds to open.`;
+  return l.memoryKnown ? line : `${line} Gaply could not read this computer's memory, so it uses its smallest limits.`;
+}
+
+/** The open's progress line's words (decision 290): a count only. */
+export function openProgressSentence(rowsRead: number): string {
+  return `Opening the file: ${rowsRead} rows read. After the last row, Gaply builds the table and its profile, which takes a few more seconds.`;
+}
+
+/** This computer's limits, on a method's Import stage; nothing when there is
+ *  no view. Test id `${prefix}-limits`. */
+export const LimitsLine: React.FC<{ prefix: string; limits: MethodLimitsView | null }> = ({ prefix, limits }) =>
+  limits ? (
+    <p className="gds-jc__disclaimer" data-testid={`${prefix}-limits`}>
+      {limitsSentence(limits)}
+    </p>
+  ) : null;
+
+/** The rows read by the open in flight; nothing before a count arrives or
+ *  once the open has settled. Test id `${prefix}-open-progress`. */
+export const OpenProgressLine: React.FC<{ prefix: string; rowsRead: number | null }> = ({ prefix, rowsRead }) =>
+  rowsRead === null ? null : (
+    <p role="status" data-testid={`${prefix}-open-progress`} style={{ margin: 0 }}>
+      {openProgressSentence(rowsRead)}
+    </p>
+  );
 
 /** A list of findings, each in its method's own sentence; nothing for none. */
 export function DiagnosticList<T>({

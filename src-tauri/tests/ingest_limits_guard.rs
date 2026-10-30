@@ -43,6 +43,11 @@
 //! `open_with`; and a progress counter is never the last argument. 8F-2's
 //! switch to this computer's limits is those two rows and the rerun's, and
 //! needs one more accepted form in [`named_value`].
+//!
+//! **Phase 8F-2 (decision 288) made that switch.** `named_value` accepts
+//! `IngestLimits::this_computer()`, typed inline as the call's last argument,
+//! and the rows for `stats_desc_open` and `rerun_open` take it; `open` keeps
+//! `METHODS`. Nothing else here changed.
 
 use std::path::{Path, PathBuf};
 
@@ -67,18 +72,19 @@ const CALLS: &[(&str, &str, &str, &str)] = &[
         "load_dataset_with",
         "LEVEL_1",
     ),
+    // Phase 8F-2 (decision 288): this computer's limits.
     (
         "src/stats_desc_commands.rs",
         "stats_desc_open",
         "open_with",
-        "METHODS",
+        "this_computer()",
     ),
     ("src/stats_desc_commands.rs", "open", "open_with", "METHODS"),
     (
         "src/project_commands.rs",
         "rerun_open",
         "load_dataset_from_bytes_with",
-        "METHODS",
+        "this_computer()",
     ),
     (
         "src/commands.rs",
@@ -303,12 +309,14 @@ fn without_fn(src: &str, name: &str) -> Option<String> {
     Some(out)
 }
 
-/// `IngestLimits::X`, perhaps with its module path, as `X`.
+/// `IngestLimits::X`, perhaps with its module path, as `X`. The fourth form,
+/// `IngestLimits::this_computer()`, is the methods' limits for this
+/// computer's memory, known only at run time (Phase 8F-2, decision 288).
 fn named_value(arg: &str) -> Option<&str> {
     let tail = arg.strip_prefix("crate::").unwrap_or(arg);
     let tail = tail.strip_prefix("supplementary::").unwrap_or(tail);
     let value = tail.strip_prefix("IngestLimits::")?;
-    ["LEVEL_1", "SUPPLEMENTARY", "METHODS"]
+    ["LEVEL_1", "SUPPLEMENTARY", "METHODS", "this_computer()"]
         .into_iter()
         .find(|v| *v == value)
 }

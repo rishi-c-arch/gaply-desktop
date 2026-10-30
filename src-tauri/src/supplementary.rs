@@ -121,8 +121,10 @@ impl IngestLimits {
         max_workbook_uncompressed_bytes: crate::stats_l1_ingest::MAX_WORKBOOK_UNCOMPRESSED_BYTES,
         max_cells: MAX_ROWS * MAX_COLS,
     };
-    /// The methods on the user's data: the descriptive summary, the t-test
-    /// and their reruns. Today's numbers until 8F (decision 242).
+    /// The methods' limits before 8F-2, today's constants: kept by
+    /// `stats_desc_commands::open` (the tests' wrapper) and by
+    /// `load_dataset_from_bytes`. Since 8F-2 the methods' open and rerun
+    /// read through [`IngestLimits::this_computer`] (decision 288).
     pub const METHODS: IngestLimits = IngestLimits {
         max_rows: MAX_ROWS,
         max_cols: MAX_COLS,
@@ -136,8 +138,8 @@ impl IngestLimits {
     /// (Research OS, Phase 8F-1). Built here because nothing outside this
     /// impl builds an `IngestLimits` (`tests/ingest_limits_guard.rs`).
     /// `memory_tier::MethodLimits` pairs it with the tier's slot budget.
-    /// No production caller passes it in 8F-1: the methods' open and the
-    /// rerun keep [`IngestLimits::METHODS`] until 8F-2 (decision 279).
+    /// Production reaches it through [`IngestLimits::this_computer`], since
+    /// 8F-2 (decision 288).
     ///
     /// No tier goes above 100,000 rows (decision 242.3), and every file cap
     /// stays under decision 107's 100 MiB project cap. On 16 and 32 GB the
@@ -163,6 +165,18 @@ impl IngestLimits {
                 max_cells: 100_000 * MAX_COLS,
             },
         }
+    }
+
+    /// The methods' limits on this computer (Research OS, Phase 8F-2,
+    /// decision 288): [`IngestLimits::for_tier`] of
+    /// `memory_tier::this_computer()`'s tier, the memory read once per
+    /// process. `stats_desc_open` and the rerun type it inline as their
+    /// call's last argument (`tests/ingest_limits_guard.rs`); [`open`] keeps
+    /// [`IngestLimits::METHODS`].
+    ///
+    /// [`open`]: crate::stats_desc_commands::open
+    pub fn this_computer() -> IngestLimits {
+        IngestLimits::for_tier(crate::memory_tier::this_computer().tier)
     }
 }
 
@@ -475,13 +489,17 @@ fn evidence_from_bytes(
     }
     let file_name = String::new();
     match ext {
-        "sav" => sav_evidence(
-            ambers::scan_sav_from_reader(std::io::Cursor::new(bytes), SAV_BATCH_ROWS)
-                .and_then(|s| read_sav_rows_with(s, limits)),
-            file_name,
-            rows,
-            limits,
-        ),
+        "sav" => match sav_header(bytes) {
+            SavHeader::Read => sav_evidence(
+                ambers::scan_sav_from_reader(std::io::Cursor::new(bytes), SAV_BATCH_ROWS)
+                    .and_then(|s| read_sav_rows_with(s, limits)),
+                file_name,
+                rows,
+                limits,
+            ),
+            SavHeader::NoVariables => sav_evidence(Ok(no_variables()), file_name, rows, limits),
+            SavHeader::CaseSizeNotPositive => Err(case_size_not_positive()),
+        },
         "mat" => mat_evidence(bytes, file_name, rows, limits),
         "xlsx" | "xls" | "xlsb" | "ods" | "xlsm" => {
             spreadsheet_evidence(workbook_from_bytes(bytes, ext), file_name, rows, limits)
@@ -1248,17 +1266,111 @@ fn matlab_len(arr: &matfile::Array) -> usize {
     }
 }
 
-/// SPSS `.sav`, via `ambers` (pure Rust).
+/// SPSS `.sav`, via `ambers` (pure Rust), after [`sav_header`]'s check of
+/// the file's first [`SAV_HEADER_READ`] bytes. A file whose head cannot be
+/// read goes to ambers, which refuses it as before.
 fn parse_sav(
     path: &Path,
     file_name: String,
     limits: IngestLimits,
 ) -> Result<SupplementaryEvidence, GaplyError> {
-    sav_evidence(
-        ambers::scan_sav(path).and_then(|s| read_sav_rows_with(s, limits)),
-        file_name,
-        &RowsRead::to(None),
-        limits,
+    let mut head = Vec::with_capacity(SAV_HEADER_READ);
+    let checked = std::fs::File::open(path)
+        .and_then(|f| f.take(SAV_HEADER_READ as u64).read_to_end(&mut head))
+        .map_or(SavHeader::Read, |_| sav_header(&head));
+    let counted = RowsRead::to(None);
+    match checked {
+        SavHeader::Read => sav_evidence(
+            ambers::scan_sav(path).and_then(|s| read_sav_rows_with(s, limits)),
+            file_name,
+            &counted,
+            limits,
+        ),
+        SavHeader::NoVariables => sav_evidence(Ok(no_variables()), file_name, &counted, limits),
+        SavHeader::CaseSizeNotPositive => Err(case_size_not_positive()),
+    }
+}
+
+/// What a `.sav`'s header says before ambers reads it (Research OS, Phase
+/// 8F-2, decision 291). ambers 0.4.4 divides by the header's nominal case
+/// size × 8 on each of its three read paths (`scanner.rs`), so a file with no
+/// variables, or one whose case size is 0 or less, ended its read in a
+/// panic. PSPP's "System File Format" chapter says some software writes -1 or
+/// 0 there, so a file can have variables and still say so.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SavHeader {
+    /// Go to ambers, unchanged: a proper header, or one ambers refuses itself
+    /// (too short, not `$FL2` or `$FL3`, a layout code of neither order).
+    Read,
+    /// The record right after the 176-byte header is the dictionary's end
+    /// (type 999): no variable records, which PSPP's chapter puts first.
+    NoVariables,
+    /// Variables, and a nominal case size of 0 or less.
+    CaseSizeNotPositive,
+}
+
+/// The bytes [`sav_header`] reads: the 176-byte header and the first
+/// record's type.
+const SAV_HEADER_READ: usize = 180;
+
+/// Reads two numbers from the header (the layout code at 64, the nominal
+/// case size at 68) and the first record's type (at 176), never a value,
+/// each in the file's own byte order, found from the layout code as ambers'
+/// `detect_endianness` finds it: 2 or 3 read little-endian, else 2 or 3 read
+/// big-endian. Read in the wrong order a big-endian case size of 128 is
+/// negative and a type 2 is 0x02000000, so files that read today would be
+/// refused. The dictionary's end is checked first.
+fn sav_header(bytes: &[u8]) -> SavHeader {
+    if !matches!(bytes.get(..4), Some(b"$FL2") | Some(b"$FL3")) {
+        return SavHeader::Read;
+    }
+    let word = |at: usize| -> Option<[u8; 4]> { bytes.get(at..at + 4)?.try_into().ok() };
+    let Some(layout) = word(64) else {
+        return SavHeader::Read;
+    };
+    let little = if matches!(i32::from_le_bytes(layout), 2 | 3) {
+        true
+    } else if matches!(i32::from_be_bytes(layout), 2 | 3) {
+        false
+    } else {
+        return SavHeader::Read;
+    };
+    let read = |at: usize| -> Option<i32> {
+        word(at).map(|w| {
+            if little {
+                i32::from_le_bytes(w)
+            } else {
+                i32::from_be_bytes(w)
+            }
+        })
+    };
+    if read(176) == Some(999) {
+        return SavHeader::NoVariables;
+    }
+    match read(68) {
+        Some(case_size) if case_size <= 0 => SavHeader::CaseSizeNotPositive,
+        _ => SavHeader::Read,
+    }
+}
+
+/// What ambers would have read from a file with no variables: no columns,
+/// no rows, and no metadata, so [`sav_evidence`] builds the empty SPSS table
+/// a file with no columns gives.
+fn no_variables() -> (arrow::record_batch::RecordBatch, ambers::SpssMetadata) {
+    (
+        arrow::record_batch::RecordBatch::new_empty(std::sync::Arc::new(
+            arrow::datatypes::Schema::empty(),
+        )),
+        ambers::SpssMetadata::default(),
+    )
+}
+
+/// The refusal of a `.sav` whose header gives variables and a case size of
+/// 0 or less: Gaply cannot read it. In [`sav_evidence`]'s words, so the
+/// ingest classifies it as malformed, as any other unreadable `.sav`.
+fn case_size_not_positive() -> GaplyError {
+    GaplyError::Validation(
+        "malformed or unsupported .sav file: its header gives a case size of 0 or less".into(),
     )
 }
 

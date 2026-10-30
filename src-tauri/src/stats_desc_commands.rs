@@ -44,14 +44,18 @@
 //!
 //! **Research OS, Phase 8F-1 (decisions 280, 284 and 286).** The open's body
 //! is [`open_with`], which takes its limits last and an optional counter for
-//! its rows read; `stats_desc_open` and [`open`] both pass
-//! `IngestLimits::METHODS` (`tests/ingest_limits_guard.rs`), so no limit
-//! changes. `stats_desc_open` takes an optional `progressId`: while that open
-//! runs, `stats_desc_open_progress` answers its rows read, a count only.
+//! its rows read. `stats_desc_open` takes an optional `progressId`: while that
+//! open runs, `stats_desc_open_progress` answers its rows read, a count only.
 //! `stats_desc_limits` answers this computer's memory tier and the methods'
-//! limits for it, numbers and closed words only, never the memory itself. No
-//! screen calls either until 8F-2, which switches the open and the rerun to
-//! this computer's limits.
+//! limits for it, numbers and closed words only, never the memory itself.
+//!
+//! **Phase 8F-2 (decisions 288 to 290) switched them on.** `stats_desc_open`
+//! passes `IngestLimits::this_computer()` (on an 8 GB Mac: 100,000 rows,
+//! 128 columns, 5,000,000 cells, 64 MiB), and the rerun does too; [`open`],
+//! the tests' wrapper, keeps `IngestLimits::METHODS`
+//! (`tests/ingest_limits_guard.rs`). Each method's screen reads
+//! `stats_desc_limits` once for its limits line, and polls
+//! `stats_desc_open_progress` during an open for its progress line.
 
 use std::path::Path;
 use std::sync::atomic::AtomicU64;
@@ -228,9 +232,9 @@ pub fn open(slots: &DatasetSlots, path: &Path) -> Result<DatasetView, GaplyError
 
 /// The open's body (Research OS, Phase 8F-1, decision 286): the file read
 /// through the ingest under `limits`, its rows read stored into `progress`
-/// while it is parsed, profiled and held in a slot. Production passes
-/// `IngestLimits::METHODS` from `stats_desc_open` and [`open`]
-/// (`tests/ingest_limits_guard.rs`).
+/// while it is parsed, profiled and held in a slot. `stats_desc_open` passes
+/// `IngestLimits::this_computer()` (Phase 8F-2, decision 288) and [`open`]
+/// `IngestLimits::METHODS` (`tests/ingest_limits_guard.rs`).
 pub fn open_with(
     slots: &DatasetSlots,
     path: &Path,
@@ -386,14 +390,15 @@ pub async fn stats_desc_open(
             &slots,
             Path::new(&path),
             entry.as_ref().map(ProgressEntry::counter),
-            IngestLimits::METHODS,
+            IngestLimits::this_computer(),
         )
     })
     .await
 }
 
 /// This computer's memory tier and the methods' limits for it (decision
-/// 284). No screen calls it until 8F-2.
+/// 284). Each method's screen reads it once, for its limits line (Phase
+/// 8F-2, decision 289).
 #[tauri::command]
 #[tracing::instrument(skip_all)]
 pub async fn stats_desc_limits(state: St<'_>) -> Result<MethodLimitsView, GaplyError> {
@@ -405,7 +410,8 @@ pub async fn stats_desc_limits(state: St<'_>) -> Result<MethodLimitsView, GaplyE
 }
 
 /// The rows read by the open in flight with `progress_id`, or `null` when
-/// no open has that id (decision 280). No screen calls it until 8F-2.
+/// no open has that id (decision 280). A screen polls it every 250 ms during
+/// an open, for its progress line (Phase 8F-2, decision 290).
 #[tauri::command]
 #[tracing::instrument(skip_all)]
 pub async fn stats_desc_open_progress(

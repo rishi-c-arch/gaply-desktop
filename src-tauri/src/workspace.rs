@@ -66,6 +66,7 @@ use gaply_core::contracts::{Diagnostic, ParamKey, ParamValue, WorkspaceId};
 use gaply_core::stats_registry;
 use gaply_core::GaplyError;
 
+use crate::memory_tier::{self, MethodLimits};
 use crate::project_commands::ProjectSession;
 use crate::runs::{DatasetSlots, OpenProgress, RunKind, Runs};
 
@@ -241,7 +242,12 @@ impl WorkspaceSession {
             (None, WorkspaceId::Statistics) => {
                 let runs = (self.runs)();
                 runs.continue_after(inner.last_run);
-                let datasets = DatasetSlots::numbered_by(Arc::clone(&inner.slot_numbers));
+                // This computer's slot budget (Research OS, Phase 8F-2,
+                // decision 288).
+                let datasets = DatasetSlots::numbered_with_budget(
+                    Arc::clone(&inner.slot_numbers),
+                    MethodLimits::for_tier(memory_tier::this_computer().tier).slot_budget_cells,
+                );
                 Ok(Arc::new(StatisticsEngine {
                     runs,
                     datasets: Arc::new(datasets),

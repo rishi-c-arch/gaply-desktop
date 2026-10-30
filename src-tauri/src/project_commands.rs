@@ -1663,8 +1663,8 @@ pub fn rerun(_root: &Path, ws: &WorkspaceSession, run_id: u64) -> Res<RerunStart
 /// refusal is `rerun_data_unreadable`, as before 8F-1, `file_too_large` and
 /// `too_wide` included: every tier has the same rows and columns, so a
 /// smaller tier cannot cause them. Exhaustive, so a new refusal must be
-/// placed here before it builds. Unreachable through a rerun in 8F-1, which
-/// keeps `IngestLimits::METHODS`.
+/// placed here before it builds. Reachable since 8F-2, when the rerun reads
+/// through `IngestLimits::this_computer()` (decision 288).
 pub fn rerun_ingest_code(refusal: L1IngestRefusal) -> ProjectCode {
     use L1IngestRefusal as R;
     match refusal {
@@ -1728,8 +1728,9 @@ fn rerun_open(
     let job = (method.read_back)(&spec).map_err(refuse)?;
     // The project's copy of the data file, through the ingest's own checks
     // and parse, as `stats_desc_open` reads a file.
-    let dataset = load_dataset_from_bytes_with(&data, arts.data.format, IngestLimits::METHODS)
-        .map_err(|r| refuse(rerun_ingest_code(r)))?;
+    let dataset =
+        load_dataset_from_bytes_with(&data, arts.data.format, IngestLimits::this_computer())
+            .map_err(|r| refuse(rerun_ingest_code(r)))?;
     // 9. The spec passes validation, as an ordinary run's must.
     let build = crate::workspace::build();
     if !job.valid_on(build, &dataset) {

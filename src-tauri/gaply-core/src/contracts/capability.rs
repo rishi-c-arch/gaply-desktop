@@ -166,7 +166,8 @@ pub enum Cancel {
 }
 
 /// What a capability reads and may use while it runs (blueprint §17). A limit
-/// that does not exist is `None`, never a guess.
+/// that does not exist is `None`, never a guess, or a limit set by the
+/// computer, which the descriptor's limitation states.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResourceProfile {

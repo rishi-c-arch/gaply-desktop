@@ -460,7 +460,8 @@ fn every_ttest_command_is_refused_while_statistics_is_not_active() {
         t["knownLimitations"],
         json!([
             "stats.capability.limit.table.text_files_utf8_only",
-            "stats.capability.limit.table.cell_text_cap",
+            // Phase 8F-2 (decision 288): the limits depend on the memory.
+            "stats.capability.limit.table.limits_by_memory",
             "stats.capability.limit.analyze.levels_follow_level_1",
             "stats.capability.limit.analyze.normality_not_assessed",
             "stats.capability.limit.analyze.cohens_d_has_no_interval"

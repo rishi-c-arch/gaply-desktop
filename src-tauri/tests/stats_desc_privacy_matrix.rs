@@ -218,8 +218,10 @@ fn no_sentinel_reaches_a_surface_it_is_not_allowed_on() {
 
     // Refusals.
     let missing = folder.join(format!("{FILE}_missing.csv"));
+    // Phase 8F-2 (decision 288): 100,001 rows, over every tier's rows, since
+    // stats_desc_open now opens 5,001.
     let mut long = format!("{HDR}\n");
-    for i in 0..5_001 {
+    for i in 0..100_001 {
         long.push_str(&format!("{i}\n"));
     }
     let too_long = folder.join(format!("{FILE}_long.csv"));

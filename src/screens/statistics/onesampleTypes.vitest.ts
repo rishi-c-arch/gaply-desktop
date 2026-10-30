@@ -221,7 +221,8 @@ describe('the one-sample and paired bridges', () => {
     const seen = invoke.mock.calls.map(([cmd, args]) => [cmd, Object.keys(args ?? {}).sort()]);
     expect(seen).toEqual([
       // The dataset is opened and closed with Phase 2B's commands.
-      ['stats_desc_open', ['path']],
+      // Phase 8F-2 (decision 290): the open carries its progress id.
+      ['stats_desc_open', ['path', 'progressId']],
       ['stats_onesample_validate', ['slot', 'spec']],
       ['stats_onesample_run', ['slot', 'spec']],
       ['stats_onesample_status', ['runId']],

@@ -134,6 +134,20 @@ describe('StatisticsHome', () => {
     expect(await screen.findByTestId('ttest-here')).toBeTruthy();
   });
 
+  it("shows a method's limits by memory in their own sentence (Phase 8F-2, decision 288)", async () => {
+    renderHome([
+      {
+        ...cap('stats.describe', 'beta', true, 'stats.capability.describe.title'),
+        knownLimitations: ['stats.capability.limit.table.text_files_utf8_only', 'stats.capability.limit.table.limits_by_memory'],
+      },
+    ]);
+    const limits = await screen.findByTestId('stats-limits-stats.describe');
+    expect(within(limits).getAllByRole('listitem').map((l) => l.textContent)).toEqual([
+      'A CSV or TSV file must be UTF-8: a file in another encoding is refused.',
+      "How large a file Gaply opens depends on this computer's memory. Each method's screen states the limits before you choose a file.",
+    ]);
+  });
+
   it('lists Planned methods only on the roadmap and Deprecated ones only as retired', async () => {
     renderHome();
     const roadmap = await screen.findByTestId('stats-roadmap');

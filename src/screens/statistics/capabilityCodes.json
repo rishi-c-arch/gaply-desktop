@@ -20,6 +20,7 @@
   "stats.capability.limit.describe.levels_follow_level_1",
   "stats.capability.limit.describe.rows_used_equals_rows_read",
   "stats.capability.limit.table.cell_text_cap",
+  "stats.capability.limit.table.limits_by_memory",
   "stats.capability.limit.table.text_files_utf8_only",
   "stats.capability.verify.chi_square_independence.title",
   "stats.capability.verify.description",

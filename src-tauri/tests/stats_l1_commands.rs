@@ -7,6 +7,7 @@
 //! with every test thread in its binary, and alone it is deterministic.
 
 mod l1_support;
+mod sav_support;
 
 use std::path::Path;
 use std::sync::atomic::AtomicBool;
@@ -205,6 +206,80 @@ fn a_data_file_over_the_cell_text_cap_is_refused_with_its_own_code() {
     assert_eq!(v["code"], "data_refused", "{v}");
     assert_eq!(v["reason"], json!({ "code": "content_too_large", "limit_bytes": 2_097_152 }), "{v}");
     assert!(!m.contains(FILE) && !m.contains(PATH), "no name or folder in the refusal: {m}");
+}
+
+/// Research OS, Phase 8F-2 (decision 291): a `.sav` ambers 0.4.4 panicked
+/// on (no variables; a case size of 0, of -1, of -1 big-endian) is refused
+/// by Level 1's open as `data_refused` with no panic, its reason no columns
+/// or malformed; and a compute that reads such a file again, after the
+/// proper file it was opened with is replaced, gives could not check with
+/// the same refusal. Level 1's limits are unchanged.
+#[test]
+fn a_sav_that_crashed_ambers_is_refused_by_level_1s_open_and_compute_with_no_panic() {
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+    let mut wrong = Vec::new();
+    for (name, bytes) in sav_support::crashing() {
+        let w = world_with(MockTransport::new());
+        let p = w.files.data.with_file_name(format!("{FILE}_{name}.sav"));
+        std::fs::write(&p, &bytes).unwrap();
+        match catch_unwind(AssertUnwindSafe(|| {
+            l1::open(&w.db, &w.runs, &w.ai, &w.files.manuscript, &p)
+        })) {
+            Err(_) => wrong.push(format!("open {name}: panicked")),
+            Ok(Ok(_)) => wrong.push(format!("open {name}: opened")),
+            Ok(Err(GaplyError::Validation(m))) => {
+                let v: serde_json::Value = serde_json::from_str(&m).expect("a closed code in JSON");
+                if v["code"] != "data_refused"
+                    || v["reason"] != sav_support::expected_level_1_reason(name)
+                {
+                    wrong.push(format!("open {name}: {v}"));
+                }
+            }
+            Ok(Err(e)) => wrong.push(format!("open {name}: {e:?}")),
+        }
+
+        // Opened from a proper file of the same shape as the CSV: the outcome
+        // numeric, the group 1 and 2.
+        let mut x = TREATED.to_vec();
+        x.extend(CONTROL);
+        let rows: Vec<Vec<f64>> = x
+            .iter()
+            .enumerate()
+            .map(|(i, v)| vec![*v, if i < 4 { 1.0 } else { 2.0 }])
+            .collect();
+        let good = sav_support::sav(sav_support::Order::Little, 2, &["score", "arm"], &rows);
+        let q = w
+            .files
+            .data
+            .with_file_name(format!("{FILE}_{name}_good.sav"));
+        std::fs::write(&q, &good).unwrap();
+        let v = l1::open(&w.db, &w.runs, &w.ai, &w.files.manuscript, &q)
+            .expect("the proper .sav opens");
+        let first = l1::proposals(&w.runs, v.run)
+            .unwrap()
+            .first()
+            .map(|p| p.proposal)
+            .expect("a local proposal");
+        let mut edits = manual_edits();
+        edits.levels[0].levels = vec!["1".into(), "2".into()];
+        let token = l1::confirm_binding(&w.runs, v.run, first, Some(&edits))
+            .expect("confirmed")
+            .token;
+        std::fs::write(&q, &bytes).unwrap();
+        match catch_unwind(AssertUnwindSafe(|| {
+            l1::compute(&w.runs, v.run, &[token.clone()])
+        })) {
+            Err(_) => wrong.push(format!("compute {name}: panicked")),
+            Ok(Err(e)) => wrong.push(format!("compute {name}: {e:?}")),
+            Ok(Ok(out)) => {
+                let verdict = serde_json::to_value(&out.claims[0].verdict).unwrap();
+                if out.counts.could_not_check != 1 || verdict["kind"] != "couldNotCheck" {
+                    wrong.push(format!("compute {name}: {verdict}"));
+                }
+            }
+        }
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
 }
 
 /* ---- tokens --------------------------------------------------------------- */

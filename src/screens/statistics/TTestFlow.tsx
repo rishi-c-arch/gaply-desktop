@@ -37,14 +37,26 @@ import {
   DiagnosticList,
   ExportCard,
   FileSummary,
+  LimitsLine,
   ManifestPanel,
   MethodPage,
+  OpenProgressLine,
   ProfileTable,
   RunCard,
   SettingsActions,
   StageNav,
 } from './flowParts';
-import { actWith, fileActions, saveExactly, useCloseOnUnmount, useRunPolling, useStageFocus } from './flowHooks';
+import {
+  actWith,
+  fileActions,
+  saveExactly,
+  useCloseOnUnmount,
+  useMethodLimits,
+  useOpenProgress,
+  useRunPolling,
+  useStageFocus,
+} from './flowHooks';
+import { readMethodLimits } from './statsInvoke';
 import type { ColumnProfile, DatasetView, ExportFormat } from './describeTypes';
 import type {
   GroupLevel,
@@ -95,6 +107,9 @@ export interface TTestFlowProps {
   save?: (name: string, text: string, mime: string) => Promise<string | null>;
   /** How often a run's state is read while it runs. */
   pollMs?: number;
+  /** This computer's limits for the methods, read once (Research OS, Phase
+   *  8F-2, decision 289); stats_desc_limits by default. */
+  limits?: () => Promise<unknown>;
 }
 
 const aliasNumber = (alias: string) => Number(alias.replace(/^C/, ''));
@@ -151,7 +166,10 @@ const TTestFlow: React.FC<TTestFlowProps> = ({
   pickPath = () => pickManuscriptPath(DATA_EXTENSIONS, 'Data file'),
   save = saveTextFile,
   pollMs = 250,
+  limits = readMethodLimits,
 }) => {
+  const methodLimits = useMethodLimits(limits);
+  const openProgress = useOpenProgress();
   const [stage, setStage] = useState<Stage>('import');
   const [view, setView] = useState<DatasetView | null>(null);
   const [outcome, setOutcome] = useState('');
@@ -216,6 +234,7 @@ const TTestFlow: React.FC<TTestFlowProps> = ({
 
   const { choose, closeFile } = fileActions({
     bridge,
+    track: openProgress.track,
     slot,
     pickPath,
     act,
@@ -312,6 +331,7 @@ const TTestFlow: React.FC<TTestFlowProps> = ({
         )}
       </div>
       {view && stage !== 'import' && <FileSummary prefix="tt" view={view} />}
+      <OpenProgressLine prefix="tt" rowsRead={openProgress.rowsRead} />
       {error && (
         <p role="alert" data-testid="tt-error">
           {error}
@@ -324,6 +344,7 @@ const TTestFlow: React.FC<TTestFlowProps> = ({
           <p className="gds-jc__disclaimer" data-testid="tt-entry-text">
             {TTEST_ENTRY_TEXT}
           </p>
+          <LimitsLine prefix="tt" limits={methodLimits} />
           <Button onClick={() => void choose()} disabled={busy} data-testid="tt-choose">
             Choose a data file
           </Button>

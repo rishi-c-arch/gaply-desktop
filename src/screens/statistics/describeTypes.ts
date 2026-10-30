@@ -254,3 +254,20 @@ export interface Refusal {
   code: string;
   [param: string]: unknown;
 }
+
+/** This computer's memory tier and the methods' limits for it, as
+ *  stats_desc_limits answers them (Research OS, Phase 8F-1, decision 284;
+ *  read by the screens since 8F-2, decision 289). Numbers and closed words
+ *  only, never the memory itself. Pinned to Rust by the three wire fixtures
+ *  fixtures/methodLimitsView{8,16,32}gb.json. */
+export interface MethodLimitsView {
+  tier: '8gb' | '16gb' | '32gb';
+  /** false when the memory could not be read: the tier is then 8 GB. */
+  memoryKnown: boolean;
+  maxRows: number;
+  maxColumns: number;
+  maxCells: number;
+  maxFileBytes: number;
+  maxTextBytes: number;
+  maxWorkbookBytes: number;
+}

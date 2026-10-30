@@ -97,11 +97,13 @@ use serde::Serialize;
 pub const MAX_RUNS: usize = 8;
 /// Dataset slots held at once (decision 6).
 pub const MAX_SLOTS: usize = 4;
-/// The cells the slots hold in all, in production (Research OS, Phase 8F-1,
-/// decision 282): [`MAX_SLOTS`] datasets at `IngestLimits::METHODS`'s cell
-/// cap, 2,560,000. Every dataset the methods open has at most that many
-/// cells, so the slot count binds first and nothing changes in 8F-1. 8F-2
-/// gives the slots this computer's budget (`memory_tier::MethodLimits`).
+/// The cells [`DatasetSlots::default`] and [`DatasetSlots::numbered_by`]
+/// hold in all (Research OS, Phase 8F-1, decision 282): [`MAX_SLOTS`]
+/// datasets at `IngestLimits::METHODS`'s cell cap, 2,560,000. Since 8F-2 the
+/// Statistics engine's slots take this computer's budget instead
+/// (`memory_tier::MethodLimits::slot_budget_cells`, through
+/// [`DatasetSlots::numbered_with_budget`]; decision 288): 10,000,000 cells on
+/// 8 GB, 51,200,000 on 16 and 32 GB.
 pub const SLOT_BUDGET_CELLS: u64 =
     MAX_SLOTS as u64 * crate::supplementary::IngestLimits::METHODS.max_cells as u64;
 /// A run's wall-clock ceiling, from its start (Queued → Running).
@@ -250,10 +252,18 @@ impl DatasetSlots {
     /// Slots numbered from `counter`, which other slot sets may share, with
     /// the production budget, [`SLOT_BUDGET_CELLS`].
     pub fn numbered_by(counter: Arc<AtomicU64>) -> DatasetSlots {
+        DatasetSlots::numbered_with_budget(counter, SLOT_BUDGET_CELLS)
+    }
+
+    /// Slots numbered from `counter`, with a budget of `budget_cells`: the
+    /// Statistics engine's, at this computer's slot budget
+    /// (`memory_tier::MethodLimits::slot_budget_cells`; Research OS, Phase
+    /// 8F-2, decision 288).
+    pub fn numbered_with_budget(counter: Arc<AtomicU64>, budget_cells: u64) -> DatasetSlots {
         DatasetSlots {
             next: counter,
             slots: Mutex::new(VecDeque::new()),
-            budget_cells: SLOT_BUDGET_CELLS,
+            budget_cells,
         }
     }
 

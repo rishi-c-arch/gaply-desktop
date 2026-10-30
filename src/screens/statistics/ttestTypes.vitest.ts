@@ -202,7 +202,8 @@ describe('TauriTTestBridge', () => {
     const seen = invoke.mock.calls.map(([cmd, args]) => [cmd, Object.keys(args ?? {}).sort()]);
     expect(seen).toEqual([
       // The dataset is opened and closed with Phase 2B's commands (decision 74).
-      ['stats_desc_open', ['path']],
+      // Phase 8F-2 (decision 290): the open carries its progress id.
+      ['stats_desc_open', ['path', 'progressId']],
       ['stats_ttest_group_levels', ['column', 'slot']],
       ['stats_ttest_validate', ['slot', 'spec']],
       ['stats_ttest_run', ['slot', 'spec']],

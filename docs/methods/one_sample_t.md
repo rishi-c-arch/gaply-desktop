@@ -192,8 +192,17 @@ codes:
 - independence of the rows is the user's claim: repeated measurements of one
   subject given as one column cannot be detected from the table;
 - no weights;
-- a CSV or TSV must be UTF-8, and 2 MiB of cell text binds first on a wide
-  table (the shared ingest's limits).
+- how large a file opens depends on this computer's memory (Phase 8F-2,
+  D303; [large_samples.md](large_samples.md) §8): 100,000 data rows and 128
+  columns on every computer, and 5,000,000 cells and 64 MiB on an 8 GB
+  computer, 12,800,000 cells and 96 MiB on 16 and 32 GB; the screen states
+  the limits before a file is chosen. A CSV or TSV must be UTF-8;
+- not measured in 8F-2: the run's 30 s ceiling stays, and the 16 GB tier's
+  12,800,000-cell summary took 14.08 s on an 8 GB Mac, so a slower computer
+  near that size could reach it; a text-heavy 64 MB file (an open dataset
+  also keeps the file's bytes, for a project Save); a categorical column can
+  now carry up to 100,000 levels into the profile; and two 64 MB files cannot
+  share one project, because decision 107's 100 MiB cap is per project..
 
 The wording is neutral: no "significant", no stars, no verdict.
 

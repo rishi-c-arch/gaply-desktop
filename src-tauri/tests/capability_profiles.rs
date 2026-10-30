@@ -5,7 +5,12 @@
 //!
 //! * `max_rows` = `supplementary::MAX_ROWS`, `max_columns` = `MAX_COLS` and
 //!   `max_input_bytes` = `MAX_TOTAL_CHARS` (cell text, UTF-8 bytes) for
-//!   `stats.verify.*`, `stats.describe` and `stats.analyze.independent_t`;
+//!   `stats.verify.*`;
+//! * for the methods on the user's data (`stats.describe` and the three
+//!   t-tests), since Phase 8F-2 (decision 288): `max_rows` and `max_columns`
+//!   = every memory tier's `IngestLimits::for_tier` rows and columns, the
+//!   same on every tier, and `max_input_bytes` none, since it is set by the
+//!   computer;
 //! * `ceiling_ms` = `runs::RUN_CEILING_MS` for `stats.describe` and
 //!   `stats.analyze.independent_t` (Phase 4B-1: the same run manager's
 //!   ceiling and check point), and none for Level 0 and Level 1, which have
@@ -15,6 +20,8 @@
 //! Level 0's manuscript cap is pinned to `import_guard::MAX_BYTES` in
 //! `gaply-core/tests/capability_registry.rs`.
 
+use app_lib::memory_tier::MemoryTier;
+use app_lib::supplementary::IngestLimits;
 use app_lib::{runs, stats_l1_ingest, supplementary};
 use gaply_core::contracts::capability::{Cancel, FileFormat};
 use gaply_core::stats_registry::{Kind, Registry};
@@ -33,6 +40,30 @@ fn every_profile_literal_is_the_app_constant_it_copies() {
     let mut tables = 0;
     for e in t.entries() {
         let p = e.descriptor.resource_profile;
+        let id = e.descriptor.id.as_str();
+        match e.kind {
+            Kind::Verify(_) => {
+                assert_eq!(p.max_rows, Some(supplementary::MAX_ROWS as u64), "{id}");
+                assert_eq!(p.max_columns, Some(supplementary::MAX_COLS as u64), "{id}");
+                assert_eq!(
+                    p.max_input_bytes,
+                    Some(supplementary::MAX_TOTAL_CHARS as u64),
+                    "{id}"
+                );
+            }
+            Kind::Describe
+            | Kind::AnalyzeIndependentT
+            | Kind::AnalyzeOneSampleT
+            | Kind::AnalyzePairedT => {
+                for tier in [MemoryTier::Gb8, MemoryTier::Gb16, MemoryTier::Gb32] {
+                    let l = IngestLimits::for_tier(tier);
+                    assert_eq!(p.max_rows, Some(l.max_rows as u64), "{id} {tier:?}");
+                    assert_eq!(p.max_columns, Some(l.max_cols as u64), "{id} {tier:?}");
+                }
+                assert_eq!(p.max_input_bytes, None, "{id}: set by the computer");
+            }
+            Kind::Check => {}
+        }
         match e.kind {
             Kind::Verify(_)
             | Kind::Describe
@@ -40,24 +71,6 @@ fn every_profile_literal_is_the_app_constant_it_copies() {
             | Kind::AnalyzeOneSampleT
             | Kind::AnalyzePairedT => {
                 tables += 1;
-                assert_eq!(
-                    p.max_rows,
-                    Some(supplementary::MAX_ROWS as u64),
-                    "{}",
-                    e.descriptor.id.as_str()
-                );
-                assert_eq!(
-                    p.max_columns,
-                    Some(supplementary::MAX_COLS as u64),
-                    "{}",
-                    e.descriptor.id.as_str()
-                );
-                assert_eq!(
-                    p.max_input_bytes,
-                    Some(supplementary::MAX_TOTAL_CHARS as u64),
-                    "{}",
-                    e.descriptor.id.as_str()
-                );
                 let mut formats: Vec<String> = e
                     .descriptor
                     .supported_formats

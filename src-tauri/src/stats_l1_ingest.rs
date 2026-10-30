@@ -179,7 +179,8 @@ pub fn load_dataset_from_bytes(
 }
 
 /// [`load_dataset_from_bytes`] under the `limits` it is given: a rerun passes
-/// [`IngestLimits::METHODS`] (Research OS, Phase 8B, decision 243).
+/// [`IngestLimits::this_computer`] (Research OS, Phase 8B, decision 243;
+/// Phase 8F-2, decision 288).
 #[doc(hidden)]
 pub fn load_dataset_from_bytes_with(
     bytes: &[u8],

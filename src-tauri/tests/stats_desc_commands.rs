@@ -26,6 +26,7 @@ use tauri::Manager;
 
 use app_lib::runs::{CheckpointHook, Clock, DatasetSlots, Point, Runs, MAX_RUNS};
 use app_lib::state::AppState;
+use app_lib::stats_desc_commands as desc;
 use desc_support::*;
 use gaply_core::contracts::{OperationId, RunId, RunState};
 use gaply_core::stats_desc::{self, DescribeParams};
@@ -299,13 +300,27 @@ fn open_profile_validate_run_status_result_export_close_through_ipc() {
 
 /* ---- refusals --------------------------------------------------------------- */
 
+/// A refusal from `desc::open`, as the JSON the webview reads.
+fn refused(e: gaply_core::GaplyError) -> Value {
+    match e {
+        gaply_core::GaplyError::Validation(m) => {
+            serde_json::from_str(&m).expect("a closed code in JSON")
+        }
+        other => panic!("not a validation error: {other:?}"),
+    }
+}
+
 #[test]
 fn open_refuses_the_cell_text_cap_with_its_own_code_and_opens_a_file_at_it() {
     // Evaluation of Phases 2 and 3, F4 and decision 37. The ingest keeps at
     // most 2 MiB of cell text (`supplementary::MAX_TOTAL_CHARS`, counted in
     // UTF-8 bytes after each cell is clamped). Before the fix a file over it
     // was refused as `malformed`.
-    let w = world(None);
+    //
+    // Phase 8F-2 (decision 288): `stats_desc_open` now reads through this
+    // computer's limits, whose text cap is 64 MiB or more, so these 2 MiB
+    // cases go through `open`, the same body under `IngestLimits::METHODS`.
+    let slots = DatasetSlots::default();
     let dir = TempDir::new("textcap");
 
     // The evaluation's shape: 5,000 rows by 128 columns of numbers, 3.8 MB,
@@ -324,14 +339,9 @@ fn open_refuses_the_cell_text_cap_with_its_own_code_and_opens_a_file_at_it() {
     }
     assert!(wide.len() < 10 * 1024 * 1024);
     let p = dir.write("wide_5000x128.csv", wide.as_bytes());
-    let e = call(
-        &w.w,
-        "stats_desc_open",
-        json!({ "path": p.to_string_lossy() }),
-    )
-    .unwrap_err();
+    let e = desc::open(&slots, &p).err().expect("refused");
     assert_eq!(
-        refusal(&e),
+        refused(e),
         json!({ "code": "content_too_large", "limit_bytes": 2_097_152 })
     );
 
@@ -355,22 +365,12 @@ fn open_refuses_the_cell_text_cap_with_its_own_code_and_opens_a_file_at_it() {
         s.into_bytes()
     };
     let p = dir.write("at_cap.csv", &at_cap("1.25"));
-    let o = call(
-        &w.w,
-        "stats_desc_open",
-        json!({ "path": p.to_string_lossy() }),
-    )
-    .expect("a file at the cap opens");
-    assert_eq!(o["profile"]["rows"], 2_048, "{}", o["profile"]["rows"]);
+    let o = desc::open(&slots, &p).expect("a file at the cap opens");
+    assert_eq!(o.profile.rows, 2_048, "{}", o.profile.rows);
     // One byte more is over it.
     let p = dir.write("over_cap.csv", &at_cap("1.255"));
-    let e = call(
-        &w.w,
-        "stats_desc_open",
-        json!({ "path": p.to_string_lossy() }),
-    )
-    .unwrap_err();
-    assert_eq!(refusal(&e)["code"], "content_too_large");
+    let e = desc::open(&slots, &p).err().expect("refused");
+    assert_eq!(refused(e)["code"], "content_too_large");
 
     // A workbook too: 65 rows of 64 text cells of 512 characters (the cell
     // cap), 2,129,920 bytes of cell text with the headers.
@@ -379,14 +379,9 @@ fn open_refuses_the_cell_text_cap_with_its_own_code_and_opens_a_file_at_it() {
     let headers: Vec<&str> = headers.iter().map(String::as_str).collect();
     let rows: Vec<Vec<C>> = (0..65).map(|_| vec![C::T(&long); 64]).collect();
     let p = dir.write("text_cap.xlsx", &xlsx(&headers, &rows));
-    let e = call(
-        &w.w,
-        "stats_desc_open",
-        json!({ "path": p.to_string_lossy() }),
-    )
-    .unwrap_err();
+    let e = desc::open(&slots, &p).err().expect("refused");
     assert_eq!(
-        refusal(&e),
+        refused(e),
         json!({ "code": "content_too_large", "limit_bytes": 2_097_152 })
     );
 }
@@ -396,12 +391,38 @@ fn open_refuses_a_file_over_the_caps_with_its_code_and_holds_nothing() {
     let w = world(None);
     let dir = TempDir::new("caps");
 
+    // Phase 8F-2 (decision 288): today's 5,000 rows and 10 MiB are
+    // `IngestLimits::METHODS`'s, which `open` keeps; `stats_desc_open` reads
+    // through this computer's limits, and is tested below with what every
+    // tier refuses.
+    let slots = DatasetSlots::default();
     // 5,001 rows: over the row cap.
     let mut long = String::from("x\n");
     for i in 0..5_001 {
         long.push_str(&format!("{i}\n"));
     }
     let p = dir.write("long.csv", long.as_bytes());
+    let e = desc::open(&slots, &p).err().expect("refused");
+    assert_eq!(
+        refused(e),
+        json!({ "code": "file_too_large", "limit_rows": 5000 })
+    );
+
+    // Over 10 MiB: refused from its size before it is parsed.
+    let big = vec![b'1'; 10 * 1024 * 1024 + 2];
+    let p = dir.write("big.csv", &big);
+    let e = desc::open(&slots, &p).err().expect("refused");
+    let c = refused(e);
+    assert_eq!(c["code"], "too_large", "{c}");
+    assert_eq!(c["limit"], 10 * 1024 * 1024);
+    assert_eq!(slots.held(), 0, "nothing was held by `open`");
+
+    // Through IPC, 100,001 rows: over every tier's rows.
+    let mut longer = String::from("x\n");
+    for i in 0..100_001 {
+        longer.push_str(&format!("{i}\n"));
+    }
+    let p = dir.write("longer.csv", longer.as_bytes());
     let e = call(
         &w.w,
         "stats_desc_open",
@@ -410,21 +431,8 @@ fn open_refuses_a_file_over_the_caps_with_its_code_and_holds_nothing() {
     .unwrap_err();
     assert_eq!(
         refusal(&e),
-        json!({ "code": "file_too_large", "limit_rows": 5000 })
+        json!({ "code": "file_too_large", "limit_rows": 100_000 })
     );
-
-    // Over 10 MiB: refused from its size before it is parsed.
-    let big = vec![b'1'; 10 * 1024 * 1024 + 2];
-    let p = dir.write("big.csv", &big);
-    let e = call(
-        &w.w,
-        "stats_desc_open",
-        json!({ "path": p.to_string_lossy() }),
-    )
-    .unwrap_err();
-    let c = refusal(&e);
-    assert_eq!(c["code"], "too_large", "{c}");
-    assert_eq!(c["limit"], 10 * 1024 * 1024);
 
     // Not a regular file: a folder.
     let e = call(

@@ -29,6 +29,8 @@ export const CAPABILITY_WORDS: Record<string, string> = {
   'stats.capability.limit.table.text_files_utf8_only': 'A CSV or TSV file must be UTF-8: a file in another encoding is refused.',
   'stats.capability.limit.table.cell_text_cap':
     'A table may hold at most 2 MiB of cell text, which can be reached before the row and column limits on a wide table.',
+  'stats.capability.limit.table.limits_by_memory':
+    "How large a file Gaply opens depends on this computer's memory. Each method's screen states the limits before you choose a file.",
   'stats.capability.limit.describe.levels_follow_level_1':
     "Levels follow Level 1's reading of cells: 1 and 1.0 are one level, and text is trimmed of spaces at either end.",
   'stats.capability.limit.describe.rows_used_equals_rows_read':

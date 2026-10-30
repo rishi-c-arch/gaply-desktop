@@ -115,8 +115,9 @@ correlations use it.
   "The test needs the t distribution at more than 10,000,000 degrees of
   freedom, where Gaply has not measured its accuracy, so nothing was
   computed." It cannot be reached through a dataset: a df above 1e7 needs more
-  than 10,000,002 rows, and the ingest holds a file to 5,000 rows until 8F. So
-  `stats_ttest`'s unit test pins the check directly.
+  than 10,000,002 rows, and the methods open at most 100,000 data rows on every
+  computer (5,000 before 8F-2). So `stats_ttest`'s unit test pins the check
+  directly.
 
 ## 4. Measured against R 4.6.1 on this Mac (macOS aarch64)
 
@@ -264,13 +265,18 @@ are a second digest per golden file. Since 8F-1 (decision 278) they too assert
 on every platform: the reviewer ran them at `14d90c8` on Linux x86_64 with the
 macOS gate forced off and got macOS's digests.
 
-## 8. Limits by this computer's memory (8F-1: built, not switched on)
+## 8. Limits by this computer's memory (8F-1 built them; 8F-2 switched them on)
 
 8E makes the t family accurate to df 1e7, so the methods can take files above
-5,000 rows. Phase 8F-1 builds the limits that will let them in, set by this
-computer's total memory (decisions 279 and 281), and **switches nothing on**:
-every method still opens files to today's limits (`IngestLimits::METHODS`),
-and 8F-2 makes the change, with its screens and its real-app check.
+5,000 rows. Phase 8F-1 built the limits that let them in, set by this
+computer's total memory (decisions 279 and 281), and switched nothing on.
+**Phase 8F-2 (D303, decision 288) switched them on** for the methods on the
+user's data: the summary and the three t-tests open, and a project reruns,
+through `IngestLimits::this_computer()`, and the open datasets take this
+computer's budget. Each method's screen states the limits on its Import stage
+before a file is chosen, and shows the rows read while a file opens. Level 1,
+the Stats Verifier and the supplementary files keep their own limits (5,000
+rows, 128 columns, 10 MiB, 2 MiB of cell text).
 
 | | 8 GB | 16 GB | 32 GB |
 |---|---|---|---|
@@ -303,3 +309,9 @@ and 8F-2 makes the change, with its screens and its real-app check.
   same rows and columns.
 - The 16 and 32 GB tiers are inferred, not measured on such a computer. The
   release measurement (ADR-010's 8F-1 addendum) is from an 8 GB Mac.
+- **Not measured in 8F-2:** the run's 30 s ceiling stays, and the 16 GB tier's
+  12,800,000-cell summary took 14.08 s on an 8 GB Mac, so a slower computer
+  near that size could reach it; a text-heavy 64 MB file (an open dataset also
+  keeps the file's bytes); a categorical column can now carry up to 100,000
+  levels into the profile; and two 64 MB files cannot share one project,
+  because decision 107's 100 MiB cap is per project.

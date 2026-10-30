@@ -9,7 +9,7 @@
 // Export returns bytes; the save dialog writes the one file the user names.
 // The method selector's list is the t-test bridge's capability bridge, shared.
 import { isTauri } from '../../utils/isTauri';
-import { invoke, recorder, type MockResponse } from './statsInvoke';
+import { invoke, openWithProgress, recorder, type MockResponse } from './statsInvoke';
 import type { DatasetView, ExportFormat, ExportView, RunStartedView } from './describeTypes';
 import type {
   OneSampleResultView,
@@ -23,8 +23,9 @@ import type {
 /** One test's commands: the file's open and close, and its six own. */
 export interface MethodBridge<S, R> {
   /** Reads the file through Level 1's ingest (stats_desc_open). The path is
-   *  not kept. */
-  open(path: string): Promise<DatasetView>;
+   *  not kept. `onRowsRead` gets the open's rows read while it runs
+   *  (Research OS, Phase 8F-2, decision 290); a mock ignores it. */
+  open(path: string, onRowsRead?: (rowsRead: number) => void): Promise<DatasetView>;
   validate(slot: number, spec: S): Promise<OneSampleValidationView>;
   /** Starts a detached run and returns its id at once. */
   run(slot: number, spec: S): Promise<RunStartedView>;
@@ -44,8 +45,8 @@ export const PAIRED_PREFIX = 'stats_paired';
 
 class TauriMethodBridge<S, R> implements MethodBridge<S, R> {
   constructor(private readonly prefix: string) {}
-  open(path: string) {
-    return invoke<DatasetView>('stats_desc_open', { path });
+  open(path: string, onRowsRead?: (rowsRead: number) => void) {
+    return openWithProgress<DatasetView>(path, onRowsRead);
   }
   validate(slot: number, spec: S) {
     return invoke<OneSampleValidationView>(`${this.prefix}_validate`, { slot, spec });

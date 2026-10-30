@@ -33,6 +33,7 @@ use std::sync::Arc;
 
 use serde_json::json;
 
+use app_lib::memory_tier::MemoryTier;
 use app_lib::stats_l1_ingest::{
     declared_uncompressed_total, load_dataset_from_bytes, load_dataset_from_bytes_with,
     load_dataset_keeping_bytes, load_dataset_with, L1IngestRefusal,
@@ -150,26 +151,34 @@ fn each_named_value_is_todays_constants_and_its_capabilities_profiles() {
     let (mut verify, mut methods) = (0, 0);
     for e in Registry::statistics().entries() {
         let p = e.descriptor.resource_profile;
-        let l = match e.kind {
+        let id = e.descriptor.id.as_str();
+        match e.kind {
             Kind::Verify(_) => {
                 verify += 1;
-                IngestLimits::LEVEL_1
+                let l = IngestLimits::LEVEL_1;
+                assert_eq!(p.max_rows, Some(l.max_rows as u64), "{id}");
+                assert_eq!(p.max_columns, Some(l.max_cols as u64), "{id}");
+                assert_eq!(p.max_input_bytes, Some(l.max_total_chars as u64), "{id}");
             }
             // Phase 8D-1: the one-sample and paired t-tests are methods on the
             // user's data, Planned until 8D-2, with the methods' profile.
+            // Phase 8F-2 (decision 288): the methods open through this
+            // computer's limits, whose rows and columns are the same on every
+            // tier, and whose bytes depend on the computer, so no bytes.
             Kind::Describe
             | Kind::AnalyzeIndependentT
             | Kind::AnalyzeOneSampleT
             | Kind::AnalyzePairedT => {
                 methods += 1;
-                IngestLimits::METHODS
+                for tier in [MemoryTier::Gb8, MemoryTier::Gb16, MemoryTier::Gb32] {
+                    let l = IngestLimits::for_tier(tier);
+                    assert_eq!(p.max_rows, Some(l.max_rows as u64), "{id} {tier:?}");
+                    assert_eq!(p.max_columns, Some(l.max_cols as u64), "{id} {tier:?}");
+                }
+                assert_eq!(p.max_input_bytes, None, "{id}: set by the computer");
             }
             Kind::Check => continue,
-        };
-        let id = e.descriptor.id.as_str();
-        assert_eq!(p.max_rows, Some(l.max_rows as u64), "{id}");
-        assert_eq!(p.max_columns, Some(l.max_cols as u64), "{id}");
-        assert_eq!(p.max_input_bytes, Some(l.max_total_chars as u64), "{id}");
+        }
     }
     assert_eq!(
         (verify, methods),

@@ -121,7 +121,7 @@ A limit that does not exist is `None`.
 |---|---|---|---|---|---|---|---|---|
 | `stats.check` | 8 GB (unconfirmed at the cap, below) | none | none | 104,857,600: the manuscript file (`import_guard::MAX_BYTES`) | none | none | no | no |
 | `stats.verify.*` (7) | 8 GB | 5,000 | 128 | 2,097,152: cell text in UTF-8 bytes (`MAX_TOTAL_CHARS`) | none | none: compute is one call | no | no |
-| `stats.describe` | 8 GB | 5,000 | 128 | 2,097,152, as above | 30,000 ms (`RUN_CEILING_MS`) | cooperative, per column | no | no |
+| `stats.describe` | 8 GB | 5,000; 100,000 since 8F-2 | 128 | 2,097,152, as above; none since 8F-2, set by the computer (below) | 30,000 ms (`RUN_CEILING_MS`) | cooperative, per column | no | no |
 
 **What was measured, and how.** Peak resident memory with `/usr/bin/time -l`,
 one capability per process, through a probe in `src-tauri/examples/` that
@@ -177,3 +177,41 @@ was not reached: 670 MiB. The 16 and 32 GB tiers stay inferred: the row above
 is their largest open measured on this 8 GB Mac. The app's own memory (the
 webview and the rest) comes on top of every figure here; 8F-2's real-app
 check reads it in Activity Monitor.
+
+## Addendum: the methods' limits in force, by tier (Phase 8F-2, decision 288)
+
+**Status: Proposed** (this ADR stays Proposed). Research OS Phase 8F-2,
+30 Oct 2026, D303. The methods on the user's data (the summary and the three
+t-tests) open, and a project reruns, through `IngestLimits::this_computer()`:
+`IngestLimits::for_tier` of `memory_tier::this_computer()`'s tier, the memory
+read once per process. The Statistics engine's open datasets take
+`MethodLimits::for_tier`'s slot budget. Each method's screen states the limits
+before a file is chosen (`stats_desc_limits`).
+
+| in force | 8 GB (under 12 GiB, or unknown) | 16 GB | 32 GB |
+|---|---|---|---|
+| data rows | 100,000 | 100,000 | 100,000 |
+| columns | 128 | 128 | 128 |
+| cells | 5,000,000 | 12,800,000 | 12,800,000 |
+| file bytes | 64 MiB | 96 MiB | 96 MiB |
+| cell text in all | 64 MiB | 96 MiB | 96 MiB |
+| workbook inflated | 96 MiB | 256 MiB | 256 MiB |
+| cells held across the open datasets | 10,000,000 | 51,200,000 | 51,200,000 |
+
+The four methods' resource profiles in `stats_registry` give 100,000 rows and
+128 columns (the same on every tier) and no input bytes, since those depend on
+the computer; their limitation `limit.table.limits_by_memory` says so in place
+of `limit.table.cell_text_cap`. **Unchanged:** Level 1 (`stats.verify.*`, and
+`stats_reproduction`), the Stats Verifier's legacy lane and the reviewer
+agent's supplementary files keep 5,000 rows, 128 columns, 10 MiB and 2 MiB of
+cell text, and their profiles and limitations; `stats_desc_commands::open`
+(the tests' wrapper), `load_dataset_from_bytes` and `DatasetSlots::default()`
+keep `IngestLimits::METHODS`'s numbers.
+
+**Not measured in 8F-2:** the 30 s run ceiling stays, and the 16 GB tier's
+12,800,000-cell summary took 14.08 s on an 8 GB Mac (8F-1 above), so a slower
+computer near that size could reach it; a text-heavy 64 MB file; a
+categorical column of up to 100,000 levels in the profile; and two 64 MB files
+in one project, which decision 107's per-project cap refuses. The real-app
+check (`~/gaply-corpus/os/phase8/realapp_8f2.md`) reads the app's memory in
+Activity Monitor; its figure is recorded when it has run.

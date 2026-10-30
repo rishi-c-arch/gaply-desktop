@@ -90,6 +90,10 @@ closed! {
         /// 2 MiB of cell text binds before the row and column caps on a wide
         /// numeric table (ADR-010 §1).
         LimitTableCellTextCap => "limit.table.cell_text_cap",
+        /// How large a file the methods on the user's data open depends on
+        /// the computer's memory, and each method's screen states it
+        /// (Research OS, Phase 8F-2, decision 288).
+        LimitTableLimitsByMemory => "limit.table.limits_by_memory",
         /// Levels follow Level 1's reading of cells (decision 17).
         LimitDescribeLevelsFollowLevel1 => "limit.describe.levels_follow_level_1",
         /// Cells are left out, never rows, so rows used equals rows read
@@ -179,6 +183,13 @@ const MANUSCRIPT_FORMATS: &[FileFormat] = &[
 const TABLE_MAX_ROWS: u64 = 5_000;
 const TABLE_MAX_COLUMNS: u64 = 128;
 const TABLE_MAX_CELL_TEXT_BYTES: u64 = 2_097_152;
+/// The methods on the user's data (the summary and the three t-tests) since
+/// Research OS Phase 8F-2 (decision 288): the rows and columns every memory
+/// tier opens, `IngestLimits::for_tier`'s, copied. Their bytes depend on the
+/// computer, so their profiles give none, and their limitation says so.
+/// `TABLE_MAX_*` stay, for Level 1.
+const METHOD_MAX_ROWS: u64 = 100_000;
+const METHOD_MAX_COLUMNS: u64 = 128;
 /// `runs::RUN_CEILING_MS`, copied.
 const DESCRIBE_CEILING_MS: u64 = 30_000;
 /// `import_guard::MAX_BYTES`: the manuscript file's bytes, copied.
@@ -316,9 +327,9 @@ fn describe() -> Entry {
             license_notes: Vec::new(),
             resource_profile: ResourceProfile {
                 ram_class: RamClass::Gb8,
-                max_rows: Some(TABLE_MAX_ROWS),
-                max_columns: Some(TABLE_MAX_COLUMNS),
-                max_input_bytes: Some(TABLE_MAX_CELL_TEXT_BYTES),
+                max_rows: Some(METHOD_MAX_ROWS),
+                max_columns: Some(METHOD_MAX_COLUMNS),
+                max_input_bytes: None,
                 ceiling_ms: Some(DESCRIBE_CEILING_MS),
                 cancel: Cancel::Cooperative,
                 uses_gpu: false,
@@ -328,7 +339,7 @@ fn describe() -> Entry {
             validation_suite_id: SuiteId("desc_r_golden"),
             known_limitation_codes: vec![
                 StatsWording::LimitTableTextFilesUtf8Only,
-                StatsWording::LimitTableCellTextCap,
+                StatsWording::LimitTableLimitsByMemory,
                 StatsWording::LimitDescribeLevelsFollowLevel1,
                 StatsWording::LimitDescribeRowsUsedEqualsRowsRead,
             ],
@@ -361,9 +372,9 @@ fn analyze_independent_t() -> Entry {
             // same run manager's ceiling and check point (Phase 4B-2).
             resource_profile: ResourceProfile {
                 ram_class: RamClass::Gb8,
-                max_rows: Some(TABLE_MAX_ROWS),
-                max_columns: Some(TABLE_MAX_COLUMNS),
-                max_input_bytes: Some(TABLE_MAX_CELL_TEXT_BYTES),
+                max_rows: Some(METHOD_MAX_ROWS),
+                max_columns: Some(METHOD_MAX_COLUMNS),
+                max_input_bytes: None,
                 ceiling_ms: Some(DESCRIBE_CEILING_MS),
                 cancel: Cancel::Cooperative,
                 uses_gpu: false,
@@ -373,7 +384,7 @@ fn analyze_independent_t() -> Entry {
             validation_suite_id: SuiteId("ttest_r_golden"),
             known_limitation_codes: vec![
                 StatsWording::LimitTableTextFilesUtf8Only,
-                StatsWording::LimitTableCellTextCap,
+                StatsWording::LimitTableLimitsByMemory,
                 StatsWording::LimitAnalyzeLevelsFollowLevel1,
                 StatsWording::LimitAnalyzeNormalityNotAssessed,
                 StatsWording::LimitAnalyzeCohensDHasNoInterval,
@@ -414,9 +425,9 @@ fn analyze_t(
             license_notes: vec![StatsWording::LicenseStatrsMit],
             resource_profile: ResourceProfile {
                 ram_class: RamClass::Gb8,
-                max_rows: Some(TABLE_MAX_ROWS),
-                max_columns: Some(TABLE_MAX_COLUMNS),
-                max_input_bytes: Some(TABLE_MAX_CELL_TEXT_BYTES),
+                max_rows: Some(METHOD_MAX_ROWS),
+                max_columns: Some(METHOD_MAX_COLUMNS),
+                max_input_bytes: None,
                 ceiling_ms: Some(DESCRIBE_CEILING_MS),
                 cancel: Cancel::Cooperative,
                 uses_gpu: false,
@@ -426,7 +437,7 @@ fn analyze_t(
             validation_suite_id: SuiteId("onesample_r_golden"),
             known_limitation_codes: vec![
                 StatsWording::LimitTableTextFilesUtf8Only,
-                StatsWording::LimitTableCellTextCap,
+                StatsWording::LimitTableLimitsByMemory,
                 normality,
                 StatsWording::LimitAnalyzeCohensDHasNoInterval,
             ],
@@ -688,7 +699,8 @@ mod tests {
                 d.known_limitation_codes,
                 [
                     StatsWording::LimitTableTextFilesUtf8Only,
-                    StatsWording::LimitTableCellTextCap,
+                    // Phase 8F-2 (decision 288).
+                    StatsWording::LimitTableLimitsByMemory,
                     normality,
                     StatsWording::LimitAnalyzeCohensDHasNoInterval,
                 ],
@@ -705,6 +717,62 @@ mod tests {
             [TTEST_ID, ONE_SAMPLE_ID, PAIRED_ID],
             "appended after the independent t-test, one-sample first"
         );
+    }
+
+    /// Research OS, Phase 8F-2 (decision 288): the methods on the user's
+    /// data say their limits depend on the computer's memory, and carry the
+    /// rows and columns every tier shares and no bytes; Level 1 keeps the
+    /// cell text cap and its profile, unchanged.
+    #[test]
+    fn the_methods_state_the_limits_by_memory_and_level_1_keeps_the_cell_text_cap() {
+        let (mut methods, mut verify) = (0, 0);
+        for e in Registry::statistics().entries() {
+            let codes = &e.descriptor.known_limitation_codes;
+            let p = e.descriptor.resource_profile;
+            let id = e.descriptor.id.as_str();
+            match e.kind {
+                Kind::Describe
+                | Kind::AnalyzeIndependentT
+                | Kind::AnalyzeOneSampleT
+                | Kind::AnalyzePairedT => {
+                    methods += 1;
+                    assert!(
+                        codes.contains(&StatsWording::LimitTableLimitsByMemory),
+                        "{id}"
+                    );
+                    assert!(
+                        !codes.contains(&StatsWording::LimitTableCellTextCap),
+                        "{id}"
+                    );
+                    assert_eq!(
+                        (p.max_rows, p.max_columns, p.max_input_bytes),
+                        (Some(100_000), Some(128), None),
+                        "{id}"
+                    );
+                }
+                Kind::Verify(_) => {
+                    verify += 1;
+                    assert!(codes.contains(&StatsWording::LimitTableCellTextCap), "{id}");
+                    assert!(
+                        !codes.contains(&StatsWording::LimitTableLimitsByMemory),
+                        "{id}"
+                    );
+                    assert_eq!(
+                        (p.max_rows, p.max_columns, p.max_input_bytes),
+                        (Some(5_000), Some(128), Some(2_097_152)),
+                        "{id}"
+                    );
+                }
+                Kind::Check => {
+                    assert!(
+                        !codes.contains(&StatsWording::LimitTableLimitsByMemory),
+                        "{id}"
+                    );
+                }
+            }
+        }
+        assert_eq!((methods, verify), (4, 7));
+        assert_eq!((METHOD_MAX_ROWS, METHOD_MAX_COLUMNS), (100_000, 128));
     }
 
     #[test]

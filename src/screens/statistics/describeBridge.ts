@@ -4,6 +4,7 @@
 // user's choices, and shows what comes back. Export returns bytes; the save
 // dialog writes the one file the user names, and Rust writes nothing.
 import { isTauri } from '../../utils/isTauri';
+import { openWithProgress } from './statsInvoke';
 import type {
   DatasetView,
   ExportFormat,
@@ -16,8 +17,10 @@ import type {
 } from './describeTypes';
 
 export interface DescribeBridge {
-  /** Reads the file through Level 1's ingest. The path is not kept. */
-  open(path: string): Promise<DatasetView>;
+  /** Reads the file through Level 1's ingest. The path is not kept.
+   *  `onRowsRead` gets the open's rows read while it runs (Research OS,
+   *  Phase 8F-2, decision 290); a mock ignores it. */
+  open(path: string, onRowsRead?: (rowsRead: number) => void): Promise<DatasetView>;
   validate(slot: number, spec: OperationSpec): Promise<ValidationReportView>;
   /** Starts a detached run and returns its id at once. */
   run(slot: number, spec: OperationSpec): Promise<RunStartedView>;
@@ -35,8 +38,10 @@ export class TauriDescribeBridge implements DescribeBridge {
     return invoke<T>(cmd, args);
   }
 
-  open(path: string) {
-    return this.invoke<DatasetView>('stats_desc_open', { path });
+  async open(path: string, onRowsRead?: (rowsRead: number) => void) {
+    // Its own refusal outside the desktop app, then the shared open.
+    if (!isTauri) throw new Error('The descriptive summary runs in the Gaply desktop app.');
+    return openWithProgress<DatasetView>(path, onRowsRead);
   }
   validate(slot: number, spec: OperationSpec) {
     return this.invoke<ValidationReportView>('stats_desc_validate', { slot, spec });

@@ -16,7 +16,9 @@
 //! Also the guard: `ReproductionOutcome` and `ReproductionView` carry no
 //! field named score, percent, probability, confidence or grade.
 
-use std::path::PathBuf;
+mod sav_support;
+
+use std::path::{Path, PathBuf};
 
 use app_lib::stats_l1_ingest::load_dataset;
 use app_lib::stats_reproduction::{reproduction_view, run_stats_reproduction_measured, ReproductionView};
@@ -71,6 +73,12 @@ fn binding(i: usize) -> BindingDraft {
 
 /// The whole path for `manuscript`, with every claim bound and confirmed.
 fn run(manuscript: &str) -> ReproductionOutcome {
+    run_reading(manuscript, None)
+}
+
+/// [`run`], with the reproduction reading `read` again instead of the CSV
+/// when one is given.
+fn run_reading(manuscript: &str, read: Option<&Path>) -> ReproductionOutcome {
     let ex = extract_from_text(manuscript);
     let reading = read_results(&ex, TableStructure::NotAvailable);
     assert_eq!(reading.results.len(), 6, "Level 0 reads all six results: {:?}", reading.not_read.iter().map(|n| n.reason).collect::<Vec<_>>());
@@ -89,7 +97,52 @@ fn run(manuscript: &str) -> ReproductionOutcome {
         let (_, token) = s.confirm(id).unwrap_or_else(|e| panic!("claim {i}: {e:?}"));
         pairs.push((s.claim(ClaimId(i)).unwrap().revision.clone(), token));
     }
-    run_stats_reproduction_measured(&s, &path, &pairs)
+    run_stats_reproduction_measured(&s, read.unwrap_or(&path), &pairs)
+}
+
+/// Research OS, Phase 8F-2 (decision 291): a `.sav` ambers 0.4.4 panicked on,
+/// read again by the reproduction, gives every claim could not check with
+/// the ingest's refusal (no columns, or malformed), and no panic.
+#[test]
+fn a_sav_that_crashed_ambers_gives_could_not_check_with_no_panic() {
+    use gaply_core::stats_l1::dataset::DatasetRefusal;
+    use gaply_core::stats_l1::dataset::L1IngestRefusal;
+    use gaply_core::stats_l1::reproduce::L1CouldNotCheck;
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+    let dir = std::env::temp_dir().join(format!("gaply_8f2_sav_repro_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut wrong = Vec::new();
+    for (name, bytes) in sav_support::crashing() {
+        let p = dir.join(format!("{name}.sav"));
+        std::fs::write(&p, &bytes).unwrap();
+        let want = if name == "no_variables" {
+            L1IngestRefusal::Dataset(DatasetRefusal::NoColumns)
+        } else {
+            L1IngestRefusal::Malformed
+        };
+        match catch_unwind(AssertUnwindSafe(|| {
+            run_reading(&fixture("exit_manuscript.txt"), Some(&p))
+        })) {
+            Err(_) => wrong.push(format!("{name}: panicked")),
+            Ok(out) => {
+                if out.claims.len() != 6
+                    || !out.claims.iter().all(|c| {
+                        c.verdict
+                            == L1Verdict::CouldNotCheck(L1CouldNotCheck::DataUnreadable(
+                                want.clone(),
+                            ))
+                    })
+                {
+                    wrong.push(format!(
+                        "{name}: {:?}",
+                        out.claims.iter().map(|c| &c.verdict).collect::<Vec<_>>()
+                    ));
+                }
+            }
+        }
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(wrong.is_empty(), "{wrong:#?}");
 }
 
 fn changed(from: &str, to: &str) -> String {

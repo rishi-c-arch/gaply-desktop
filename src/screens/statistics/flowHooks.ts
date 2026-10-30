@@ -6,9 +6,10 @@
 // None of it keeps, logs or sends anything: a file's slot lives in the
 // screen's ref, a refusal becomes the method's own sentence, and an export
 // goes only to the file the user names in the save dialog.
-import { useEffect, useRef, type MutableRefObject, type RefObject } from 'react';
+import { useCallback, useEffect, useRef, useState, type MutableRefObject, type RefObject } from 'react';
 import { shortHash } from './describeWording';
-import type { ExportView } from './describeTypes';
+import type { ExportView, MethodLimitsView } from './describeTypes';
+import { isMethodLimitsView } from './flowParts';
 
 /** Focus moves to each stage's heading when the stage changes; the heading
  *  takes the returned ref. */
@@ -82,24 +83,81 @@ export function actWith(
   };
 }
 
+/** This computer's limits, read once per screen through `load`
+ *  (stats_desc_limits by default; Research OS, Phase 8F-2, decision 289).
+ *  Null until an answer with MethodLimitsView's shape arrives, and null for
+ *  ever after a refusal, a rejection, null or any other answer. */
+export function useMethodLimits(load: () => Promise<unknown>): MethodLimitsView | null {
+  const [limits, setLimits] = useState<MethodLimitsView | null>(null);
+  useEffect(() => {
+    let live = true;
+    Promise.resolve()
+      .then(load)
+      .then(
+        (v) => {
+          if (live && isMethodLimitsView(v)) setLimits(v);
+        },
+        () => undefined
+      );
+    return () => {
+      live = false;
+    };
+  }, [load]);
+  return limits;
+}
+
+/** An open's rows read, for the progress line (decision 290): `track` runs
+ *  one open, giving it the function its counts go to; `rowsRead` is the last
+ *  count while that open is in flight, and null before the first count and
+ *  once the open has returned or been refused. A count for an open that has
+ *  settled, or for one a newer open replaced, is ignored. */
+export function useOpenProgress(): {
+  rowsRead: number | null;
+  track: <T>(open: (onRowsRead: (rowsRead: number) => void) => Promise<T>) => Promise<T>;
+} {
+  const [rowsRead, setRowsRead] = useState<number | null>(null);
+  const current = useRef(0);
+  const track = useCallback(async <T,>(open: (onRowsRead: (rowsRead: number) => void) => Promise<T>): Promise<T> => {
+    current.current += 1;
+    const mine = current.current;
+    setRowsRead(null);
+    try {
+      return await open((n) => {
+        if (current.current === mine) setRowsRead(n);
+      });
+    } finally {
+      if (current.current === mine) {
+        current.current += 1;
+        setRowsRead(null);
+      }
+    }
+  }, []);
+  return { rowsRead, track };
+}
+
 /** Choosing a data file and closing it: the path goes to `open` once and is
  *  never kept; the file open before is closed, so Rust drops its rows. What
- *  the screen does after each is its own. */
+ *  the screen does after each is its own. With `track`, the open's rows read
+ *  go to the progress line (decision 290). */
 export function fileActions<V extends { slot: number }>(o: {
-  bridge: { open(path: string): Promise<V>; close(slot: number): Promise<unknown> };
+  bridge: {
+    open(path: string, onRowsRead?: (rowsRead: number) => void): Promise<V>;
+    close(slot: number): Promise<unknown>;
+  };
   slot: MutableRefObject<number | null>;
   pickPath: () => Promise<string | null>;
   act: (f: () => Promise<void>) => Promise<void>;
   onOpened: (opened: V) => void;
   onClosed: () => void;
+  track?: ReturnType<typeof useOpenProgress>['track'];
 }): { choose: () => Promise<void>; closeFile: () => Promise<void> } {
-  const { bridge, slot, pickPath, act, onOpened, onClosed } = o;
+  const { bridge, slot, pickPath, act, onOpened, onClosed, track } = o;
   return {
     choose: () =>
       act(async () => {
         const path = await pickPath();
         if (!path) return;
-        const opened = await bridge.open(path);
+        const opened = track ? await track((onRowsRead) => bridge.open(path, onRowsRead)) : await bridge.open(path);
         if (slot.current !== null) void bridge.close(slot.current).catch(() => undefined);
         slot.current = opened.slot;
         onOpened(opened);

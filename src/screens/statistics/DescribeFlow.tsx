@@ -22,6 +22,9 @@ import { pickManuscriptPath } from '../common/pickFile';
 import { saveTextFile } from '../../utils/saveTextFile';
 import { describeBridge, type DescribeBridge } from './describeBridge';
 import { savableOnScreen, SaveToProject } from './projects/SaveToProject';
+import { LimitsLine, OpenProgressLine } from './flowParts';
+import { useMethodLimits, useOpenProgress } from './flowHooks';
+import { readMethodLimits } from './statsInvoke';
 import type {
   ColumnProfile,
   ColumnResult,
@@ -75,6 +78,9 @@ export interface DescribeFlowProps {
   save?: (name: string, text: string, mime: string) => Promise<string | null>;
   /** How often a run's state is read while it runs. */
   pollMs?: number;
+  /** This computer's limits for the methods, read once (Research OS, Phase
+   *  8F-2, decision 289); stats_desc_limits by default. */
+  limits?: () => Promise<unknown>;
 }
 
 interface Pick {
@@ -262,7 +268,10 @@ const DescribeFlow: React.FC<DescribeFlowProps> = ({
   pickPath = () => pickManuscriptPath(DATA_EXTENSIONS, 'Data file'),
   save = saveTextFile,
   pollMs = 250,
+  limits = readMethodLimits,
 }) => {
+  const methodLimits = useMethodLimits(limits);
+  const openProgress = useOpenProgress();
   const [stage, setStage] = useState<Stage>('import');
   const [view, setView] = useState<DatasetView | null>(null);
   const [picks, setPicks] = useState<Record<string, Pick>>({});
@@ -340,7 +349,8 @@ const DescribeFlow: React.FC<DescribeFlowProps> = ({
     act(async () => {
       const path = await pickPath();
       if (!path) return;
-      const opened = await bridge.open(path);
+      // Its rows read go to the progress line while it runs (decision 290).
+      const opened = await openProgress.track((onRowsRead) => bridge.open(path, onRowsRead));
       if (slot.current !== null) void bridge.close(slot.current).catch(() => undefined);
       slot.current = opened.slot;
       setView(opened);
@@ -462,6 +472,7 @@ const DescribeFlow: React.FC<DescribeFlowProps> = ({
           {view.profile.columns.length === 1 ? 'column' : 'columns'}.
         </p>
       )}
+      <OpenProgressLine prefix="desc" rowsRead={openProgress.rowsRead} />
       {error && (
         <p role="alert" data-testid="desc-error">
           {error}
@@ -474,6 +485,7 @@ const DescribeFlow: React.FC<DescribeFlowProps> = ({
           <p className="gds-jc__disclaimer" data-testid="desc-entry-text">
             {ENTRY_TEXT}
           </p>
+          <LimitsLine prefix="desc" limits={methodLimits} />
           <Button onClick={() => void choose()} disabled={busy} data-testid="desc-choose">
             Choose a data file
           </Button>
