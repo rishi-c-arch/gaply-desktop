@@ -134,7 +134,7 @@ candle-nn = "0.11"
 candle-transformers = "0.11"
 tokenizers = { version = "0.23", default-features = false, features = ["onig"] }
 matfile = "=0.5.0"
-ambers = "=0.4.4"
+ambers = "=0.4.6"
 # Counts what a .mat file's compressed elements inflate to before matfile
 # reads them (part C follow-up 2; approved by name in decisions.md, 17 Oct
 # 2026). Already in Cargo.lock through zip and ambers.

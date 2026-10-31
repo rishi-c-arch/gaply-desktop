@@ -79,6 +79,13 @@ fn run(manuscript: &str) -> ReproductionOutcome {
 /// [`run`], with the reproduction reading `read` again instead of the CSV
 /// when one is given.
 fn run_reading(manuscript: &str, read: Option<&Path>) -> ReproductionOutcome {
+    let path = data_file();
+    run_with(manuscript, &path, read.unwrap_or(&path))
+}
+
+/// [`run`], with the claims bound on `load` and the reproduction reading
+/// `read` again.
+fn run_with(manuscript: &str, load: &Path, read: &Path) -> ReproductionOutcome {
     let ex = extract_from_text(manuscript);
     let reading = read_results(&ex, TableStructure::NotAvailable);
     assert_eq!(reading.results.len(), 6, "Level 0 reads all six results: {:?}", reading.not_read.iter().map(|n| n.reason).collect::<Vec<_>>());
@@ -86,9 +93,8 @@ fn run_reading(manuscript: &str, read: Option<&Path>) -> ReproductionOutcome {
     let (claims, not_located) = claims_from_reading(&ex, &reading);
     assert_eq!(not_located, 0);
 
-    let path = data_file();
     let mut s = L1RunState::new();
-    s.load_dataset(load_dataset(&path).expect("the CSV loads"));
+    s.load_dataset(load_dataset(load).expect("the data file loads"));
     s.set_claims(claims);
     s.set_context(context);
     let mut pairs: Vec<(RevisionHash, ConfirmationToken)> = Vec::new();
@@ -97,14 +103,18 @@ fn run_reading(manuscript: &str, read: Option<&Path>) -> ReproductionOutcome {
         let (_, token) = s.confirm(id).unwrap_or_else(|e| panic!("claim {i}: {e:?}"));
         pairs.push((s.claim(ClaimId(i)).unwrap().revision.clone(), token));
     }
-    run_stats_reproduction_measured(&s, read.unwrap_or(&path), &pairs)
+    run_stats_reproduction_measured(&s, read, &pairs)
 }
 
 /// Research OS, Phase 8F-2 (decision 291): a `.sav` ambers 0.4.4 panicked on,
-/// read again by the reproduction, gives every claim could not check with
-/// the ingest's refusal (no columns, or malformed), and no panic.
+/// read again by the reproduction, gives every claim could not check, and no
+/// panic: no columns; since 8F-4 (decision 306) the big-endian file
+/// `SavBigEndian`, and the two little-endian files with variables, which now
+/// read, `FingerprintChanged`, since they are not the CSV the claims were
+/// bound on. Until 8F-4 those three were the ingest's `Malformed`.
 #[test]
 fn a_sav_that_crashed_ambers_gives_could_not_check_with_no_panic() {
+    use gaply_core::stats_l1::compute::L1Refusal;
     use gaply_core::stats_l1::dataset::DatasetRefusal;
     use gaply_core::stats_l1::dataset::L1IngestRefusal;
     use gaply_core::stats_l1::reproduce::L1CouldNotCheck;
@@ -115,10 +125,14 @@ fn a_sav_that_crashed_ambers_gives_could_not_check_with_no_panic() {
     for (name, bytes) in sav_support::crashing() {
         let p = dir.join(format!("{name}.sav"));
         std::fs::write(&p, &bytes).unwrap();
-        let want = if name == "no_variables" {
-            L1IngestRefusal::Dataset(DatasetRefusal::NoColumns)
-        } else {
-            L1IngestRefusal::Malformed
+        let want = match name {
+            "no_variables" => {
+                L1CouldNotCheck::DataUnreadable(L1IngestRefusal::Dataset(DatasetRefusal::NoColumns))
+            }
+            "case_size_minus_1_big_endian" => {
+                L1CouldNotCheck::DataUnreadable(L1IngestRefusal::SavBigEndian)
+            }
+            _ => L1CouldNotCheck::Refused(L1Refusal::FingerprintChanged),
         };
         match catch_unwind(AssertUnwindSafe(|| {
             run_reading(&fixture("exit_manuscript.txt"), Some(&p))
@@ -126,12 +140,10 @@ fn a_sav_that_crashed_ambers_gives_could_not_check_with_no_panic() {
             Err(_) => wrong.push(format!("{name}: panicked")),
             Ok(out) => {
                 if out.claims.len() != 6
-                    || !out.claims.iter().all(|c| {
-                        c.verdict
-                            == L1Verdict::CouldNotCheck(L1CouldNotCheck::DataUnreadable(
-                                want.clone(),
-                            ))
-                    })
+                    || !out
+                        .claims
+                        .iter()
+                        .all(|c| c.verdict == L1Verdict::CouldNotCheck(want.clone()))
                 {
                     wrong.push(format!(
                         "{name}: {:?}",
@@ -346,4 +358,191 @@ fn the_view_carries_closed_codes_and_provenance_without_the_p_outcome() {
         let camel = s.chars().next().is_some_and(|c| c.is_ascii_uppercase()) && s.chars().skip(1).any(|c| c.is_ascii_uppercase()) && !s.contains(' ');
         assert!(!camel, "a Debug-shaped string in the view: {s:?}");
     }
+}
+
+/// Research OS, Phase 8F-4 (decisions 306 and 307): the exit test's CSV as a
+/// `.sav` (its two text columns as strings of width 8), in the shapes ambers
+/// 0.4.6 reads rightly: a header of 0 cases with the rows behind it, a case
+/// size larger than the variable list, and a case size of 0 and of -1,
+/// uncompressed and bytecode. Bound and read again, each reproduces all six
+/// claims, with the verdicts the CSV gives.
+fn exit_sav(f: impl Fn(&mut sav_support::Spec)) -> Vec<u8> {
+    use sav_support::{Cell, Spec, Var};
+    let csv = fixture("exit_data.csv");
+    let mut lines = csv.lines();
+    let headers: Vec<&str> = lines.next().unwrap().split(',').collect();
+    let rows: Vec<Vec<&str>> = lines
+        .filter(|l| !l.is_empty())
+        .map(|l| l.split(',').collect())
+        .collect();
+    let text = |i: usize| rows.iter().any(|r| r[i].parse::<f64>().is_err());
+    let vars = headers
+        .iter()
+        .enumerate()
+        .map(|(i, h)| {
+            if text(i) {
+                Var::text(h.as_bytes())
+            } else {
+                Var::number(h.as_bytes())
+            }
+        })
+        .collect();
+    let cells = rows
+        .iter()
+        .map(|r| {
+            r.iter()
+                .enumerate()
+                .map(|(i, c)| {
+                    if text(i) {
+                        Cell::Text(c.as_bytes().to_vec())
+                    } else {
+                        Cell::Number(c.parse().unwrap())
+                    }
+                })
+                .collect()
+        })
+        .collect();
+    let mut s = Spec::new(vars, cells);
+    f(&mut s);
+    s.bytes()
+}
+
+fn reproduces_as_the_csv(files: Vec<(&str, Vec<u8>)>) {
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+    let csv = run(&fixture("exit_manuscript.txt"));
+    assert!(
+        csv.claims.iter().all(|c| kind(&c.verdict) == "Reproduced"),
+        "the CSV reproduces all six"
+    );
+    // A folder of each test's own: two tests share this, in parallel.
+    let dir = std::env::temp_dir().join(format!(
+        "gaply_8f4_sav_repro_{}_{}",
+        std::process::id(),
+        files[0].0
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut wrong = Vec::new();
+    for (name, bytes) in files {
+        let p = dir.join(format!("{name}.sav"));
+        std::fs::write(&p, &bytes).unwrap();
+        match catch_unwind(AssertUnwindSafe(|| {
+            run_with(&fixture("exit_manuscript.txt"), &p, &p)
+        })) {
+            Err(_) => wrong.push(format!("{name}: panicked")),
+            Ok(out) => {
+                let got: Vec<_> = out.claims.iter().map(|c| &c.verdict).collect();
+                let want: Vec<_> = csv.claims.iter().map(|c| &c.verdict).collect();
+                if got != want {
+                    wrong.push(format!("{name}: {got:?}"));
+                }
+            }
+        }
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+#[test]
+fn the_exit_data_as_a_sav_ambers_0_4_6_reads_rightly_reproduces_as_the_csv() {
+    let mut files = vec![
+        ("proper", exit_sav(|_| {})),
+        ("zero_cases_uncompressed", exit_sav(|s| s.cases = Some(0))),
+        (
+            "zero_cases_bytecode",
+            exit_sav(|s| {
+                s.cases = Some(0);
+                s.compression = 1
+            }),
+        ),
+        (
+            "case_size_larger_uncompressed",
+            exit_sav(|s| s.case_size = Some(14)),
+        ),
+        (
+            "case_size_larger_bytecode",
+            exit_sav(|s| {
+                s.case_size = Some(14);
+                s.compression = 1
+            }),
+        ),
+    ];
+    for (name, cs, compression) in [
+        ("case_size_0", 0, 0),
+        ("case_size_0_bytecode", 0, 1),
+        ("case_size_minus_1", -1, 0),
+        ("case_size_minus_1_bytecode", -1, 1),
+    ] {
+        files.push((
+            name,
+            exit_sav(|s| {
+                s.case_size = Some(cs);
+                s.compression = compression
+            }),
+        ));
+    }
+    reproduces_as_the_csv(files);
+}
+
+/// The smaller case size, never read under ambers 0.4.4.
+#[test]
+fn the_exit_data_as_a_sav_with_a_case_size_smaller_than_its_variables_reproduces_as_the_csv() {
+    sav_support::require_ambers_0_4_5_or_later("case_size_smaller");
+    reproduces_as_the_csv(vec![
+        (
+            "case_size_smaller_uncompressed",
+            exit_sav(|s| s.case_size = Some(12)),
+        ),
+        (
+            "case_size_smaller_bytecode",
+            exit_sav(|s| {
+                s.case_size = Some(12);
+                s.compression = 1
+            }),
+        ),
+    ]);
+}
+
+/// Decision 307's files ambers 0.4.6 refuses, read again by the
+/// reproduction: every claim could not check, `DataUnreadable(Malformed)`.
+fn reproduction_refuses(names: &[&str]) {
+    use gaply_core::stats_l1::dataset::L1IngestRefusal;
+    use gaply_core::stats_l1::reproduce::L1CouldNotCheck;
+    let dir = std::env::temp_dir().join(format!(
+        "gaply_8f4_sav_refused_{}_{}",
+        std::process::id(),
+        names[0]
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let all = sav_support::fixes();
+    let mut wrong = Vec::new();
+    for name in names {
+        let (_, bytes, _, safe) = all.iter().find(|f| f.0 == *name).unwrap();
+        if !safe {
+            sav_support::require_ambers_0_4_5_or_later(name);
+        }
+        let p = dir.join(format!("{name}.sav"));
+        std::fs::write(&p, bytes).unwrap();
+        let out = run_reading(&fixture("exit_manuscript.txt"), Some(&p));
+        let want =
+            L1Verdict::CouldNotCheck(L1CouldNotCheck::DataUnreadable(L1IngestRefusal::Malformed));
+        if out.claims.len() != 6 || !out.claims.iter().all(|c| c.verdict == want) {
+            wrong.push(format!(
+                "{name}: {:?}",
+                out.claims.iter().map(|c| &c.verdict).collect::<Vec<_>>()
+            ));
+        }
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+#[test]
+fn a_sav_ambers_0_4_6_refuses_gives_could_not_check_malformed() {
+    reproduction_refuses(&["duplicate_names", "type_field_256"]);
+}
+
+/// The oversized declarations, never read under ambers 0.4.4.
+#[test]
+fn a_sav_declaring_sizes_beyond_itself_gives_could_not_check_malformed() {
+    reproduction_refuses(&["label_count_oversized", "info_record_oversized"]);
 }

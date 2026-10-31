@@ -1020,8 +1020,12 @@ fn a_stored_big_endian_sav_is_refused_by_the_rerun_as_unreadable() {
 }
 
 /// Research OS, Phase 8F-2 (decision 291): a stored `.sav` ambers 0.4.4
-/// panicked on is refused by the rerun as `project.rerun_data_unreadable`,
-/// with no panic, and nothing is written.
+/// panicked on is refused by the rerun with no panic, and nothing is
+/// written: no variables, and since 8F-4 (decision 306) the big-endian file,
+/// as `project.rerun_data_unreadable`. The two little-endian files with
+/// variables, which read since 8F-4, are stored under the summary of
+/// another file's columns, so the rerun refuses them as
+/// `project.rerun_refused`; until 8F-4 they were unreadable too.
 #[test]
 fn a_stored_sav_that_crashed_ambers_is_refused_by_the_rerun_with_no_panic() {
     use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -1045,7 +1049,14 @@ fn a_stored_sav_that_crashed_ambers_is_refused_by_the_rerun_with_no_panic() {
                 break;
             }
             Ok(Ok(_)) => wrong.push(format!("{name}: started")),
-            Ok(Err(e)) if code(&e) != "project.rerun_data_unreadable" => {
+            Ok(Err(e))
+                if code(&e)
+                    != if sav_support::reads_since_8f4(name) {
+                        "project.rerun_refused"
+                    } else {
+                        "project.rerun_data_unreadable"
+                    } =>
+            {
                 wrong.push(format!("{name}: {}", code(&e)))
             }
             Ok(Err(_)) => {
@@ -1056,4 +1067,150 @@ fn a_stored_sav_that_crashed_ambers_is_refused_by_the_rerun_with_no_panic() {
         }
     }
     assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+/// Research OS, Phase 8F-4 (decisions 306 and 307): the `.sav` files ambers
+/// 0.4.6 reads rightly open with every row, and a summary of each, saved,
+/// reruns identical: a header of 0 cases with five rows behind it, a case
+/// size larger than the variable list, and a case size of 0 and of -1 on
+/// each of ambers' three read paths. Those it refuses are refused by the
+/// rerun as `project.rerun_data_unreadable`, with nothing written.
+fn opens_and_reruns_identical(name: &str, bytes: &[u8], rows: u64) -> Result<(), String> {
+    use app_lib::supplementary::IngestLimits;
+    use gaply_core::research_project::RerunComparison::Identical;
+    let w = World::new(&format!("rr-8f4-{name}"));
+    let p = w.dir.write(&format!("{name}.sav"), bytes);
+    let view = desc::open_with(
+        &w.engine().datasets,
+        &p,
+        None,
+        IngestLimits::this_computer(),
+    )
+    .map_err(|e| format!("open: {e:?}"))?;
+    if view.profile.rows != rows {
+        return Err(format!(
+            "opened with {} rows, not {rows}",
+            view.profile.rows
+        ));
+    }
+    let run = w.describe(view.slot);
+    let id = pc::save_run(&w.root(), &w.ws, run, new_project("Sav"))
+        .map_err(|e| format!("save: {e:?}"))?
+        .project_id;
+    pc::rerun(&w.root(), &w.ws, 1).map_err(|e| format!("rerun: {}", code(&e)))?;
+    let r = settled(&w);
+    if (r.status, r.stored_run_id, r.code.clone()) != (RerunProgress::Saved, Some(2), None) {
+        return Err(format!("rerun settled as {:?} {:?}", r.status, r.code));
+    }
+    let compared = pc::runs(&w.root(), &w.ws, &id)
+        .unwrap()
+        .into_iter()
+        .find(|r| r.stored_run_id == 2)
+        .unwrap()
+        .comparison;
+    if compared != Some(Identical) {
+        return Err(format!("compared {compared:?}"));
+    }
+    Ok(())
+}
+
+fn rerun_reads_all(files: Vec<(String, Vec<u8>, u64)>) {
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+    let mut wrong = Vec::new();
+    for (name, bytes, rows) in files {
+        match catch_unwind(AssertUnwindSafe(|| {
+            opens_and_reruns_identical(&name, &bytes, rows)
+        })) {
+            Err(_) => wrong.push(format!("{name}: panicked")),
+            Ok(Err(e)) => wrong.push(format!("{name}: {e}")),
+            Ok(Ok(())) => {}
+        }
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+fn fix(name: &str) -> (String, Vec<u8>, u64) {
+    let (_, bytes, want, _) = sav_support::fixes()
+        .into_iter()
+        .find(|f| f.0 == name)
+        .unwrap();
+    let sav_support::Want::Reads { rows, .. } = want else {
+        panic!("{name} is refused")
+    };
+    (name.to_string(), bytes, rows.len() as u64)
+}
+
+#[test]
+fn a_saved_summary_of_a_sav_ambers_0_4_6_reads_rightly_reruns_identical() {
+    let mut files: Vec<(String, Vec<u8>, u64)> = [
+        "zero_cases_uncompressed",
+        "zero_cases_bytecode",
+        "case_size_larger_uncompressed",
+        "case_size_larger_bytecode",
+    ]
+    .iter()
+    .map(|n| fix(n))
+    .collect();
+    files.extend(
+        sav_support::non_positive_case_size()
+            .into_iter()
+            .map(|(n, b, _)| (n, b, 2)),
+    );
+    rerun_reads_all(files);
+}
+
+/// The smaller case size, never read under ambers 0.4.4.
+#[test]
+fn a_saved_summary_of_a_sav_with_a_case_size_smaller_than_its_variables_reruns_identical() {
+    sav_support::require_ambers_0_4_5_or_later("case_size_smaller");
+    rerun_reads_all(vec![
+        fix("case_size_smaller_uncompressed"),
+        fix("case_size_smaller_bytecode"),
+    ]);
+}
+
+fn rerun_refuses(names: &[&str]) {
+    let w = World::new("rr-8f4-refused");
+    let (id, _) = with_a_summary(&w);
+    let spec = pc::run_result(&w.root(), &w.ws, &id, 1).unwrap().spec_json;
+    let all = sav_support::fixes();
+    let mut wrong = Vec::new();
+    for name in names {
+        let (_, bytes, want, safe) = all.iter().find(|f| f.0 == *name).unwrap();
+        assert_eq!(*want, sav_support::Want::Malformed, "{name}");
+        if !safe {
+            sav_support::require_ambers_0_4_5_or_later(name);
+        }
+        let stored = store_a_row(
+            &w,
+            &id,
+            ("stats.describe", 1),
+            RunState::Succeeded,
+            (bytes, DataFormat::Sav),
+            spec.as_bytes(),
+        );
+        let before = state_of(&w, &id);
+        match pc::rerun(&w.root(), &w.ws, stored) {
+            Ok(_) => wrong.push(format!("{name}: started")),
+            Err(e) if code(&e) != "project.rerun_data_unreadable" => {
+                wrong.push(format!("{name}: {}", code(&e)))
+            }
+            Err(_) if state_of(&w, &id) != before => {
+                wrong.push(format!("{name}: something was written"))
+            }
+            Err(_) => {}
+        }
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+#[test]
+fn a_stored_sav_ambers_0_4_6_refuses_is_refused_by_the_rerun_as_unreadable() {
+    rerun_refuses(&["duplicate_names", "type_field_256"]);
+}
+
+/// The oversized declarations, never read under ambers 0.4.4.
+#[test]
+fn a_stored_sav_declaring_sizes_beyond_itself_is_refused_by_the_rerun_as_unreadable() {
+    rerun_refuses(&["label_count_oversized", "info_record_oversized"]);
 }

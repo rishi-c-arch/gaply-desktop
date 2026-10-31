@@ -1,15 +1,21 @@
-//! **A `.sav` that crashed ambers is refused with no panic (Research OS,
-//! Phase 8F-2, decision 291).** ambers 0.4.4 divides by the header's nominal
-//! case size × 8 on each of its three read paths, so a file with no
-//! variables, or with variables and a case size of 0 or less (which PSPP's
-//! "System File Format" chapter says some software writes), panicked under
-//! every caller. `supplementary`'s check reads the header's layout code and
-//! case size and the first record's type, in the file's own byte order:
+//! **A `.sav` that crashed ambers reads or is refused with no panic
+//! (Research OS, Phase 8F-2, decision 291; 8F-4, decision 306).** ambers
+//! 0.4.4 divided by the header's nominal case size × 8 on each of its three
+//! read paths, so a file with no variables, or with variables and a case
+//! size of 0 or less (which PSPP's "System File Format" chapter says some
+//! software writes), panicked under every caller. `supplementary`'s check
+//! reads the header's layout code and the first record's type, in the file's
+//! own byte order:
 //!
 //! * the dictionary's end right after the header → an empty SPSS table, as a
 //!   file with no columns gives;
-//! * otherwise a case size of 0 or less → malformed;
-//! * otherwise the file goes to ambers as before.
+//! * otherwise a big-endian file → refused (8F-3, decision 295);
+//! * otherwise the file goes to ambers.
+//!
+//! Until 8F-4 a case size of 0 or less was refused as malformed. ambers
+//! 0.4.6 takes the row's width from the variable list, so since 8F-4 such a
+//! file with variables reads its values, and the big-endian one of case size
+//! -1 is refused as big-endian.
 //!
 //! Here: the reviewer agent's supplementary files
 //! (`parse_supplementary_with` under `SUPPLEMENTARY`, as `commands.rs`'s
@@ -34,7 +40,7 @@ use app_lib::supplementary::{parse_supplementary_with, IngestLimits};
 use desc_support::TempDir;
 use gaply_core::research_project::DataFormat;
 use gaply_core::GaplyError;
-use sav_support::{crashing, expected_refusal, proper, Order};
+use sav_support::{crashing, expected_refusal, proper, reads_since_8f4, Order, CRASHING_VALUES};
 
 /// Runs `f` on each crashing file, written under `dir`, and fails naming
 /// every file that panicked or gave something other than `want(name)`.
@@ -59,39 +65,58 @@ fn malformed(e: &GaplyError) -> bool {
     matches!(e, GaplyError::Validation(m) if m.starts_with("malformed or unsupported .sav file"))
 }
 
+/// Until 8F-4 `the_reviewer_agents_files_give_an_empty_table_or_malformed_with_no_panic`,
+/// with the two files of case size 0 and -1 malformed.
 #[test]
-fn the_reviewer_agents_files_give_an_empty_table_or_malformed_with_no_panic() {
+fn the_reviewer_agents_files_give_an_empty_table_the_values_or_malformed_with_no_panic() {
     let dir = TempDir::new("sav_reviewer");
     each(
         &dir,
         |p| parse_supplementary_with(p, IngestLimits::SUPPLEMENTARY),
         |name, got| match got {
-            Ok(ev) => {
-                name == "no_variables"
-                    && ev.tables.len() == 1
+            Ok(ev) if name == "no_variables" => {
+                ev.tables.len() == 1
                     && ev.tables[0].headers.is_empty()
                     && ev.tables[0].rows.is_empty()
             }
-            Err(e) => name != "no_variables" && malformed(e),
+            Ok(ev) => {
+                let numbers: Vec<Vec<f64>> = ev.tables[0]
+                    .rows
+                    .iter()
+                    .map(|r| {
+                        r.iter()
+                            .map(|c| c.parse::<f64>().unwrap_or(f64::NAN))
+                            .collect()
+                    })
+                    .collect();
+                reads_since_8f4(name)
+                    && ev.tables[0].headers == ["X", "Y"]
+                    && numbers == CRASHING_VALUES
+            }
+            Err(e) => name == "case_size_minus_1_big_endian" && malformed(e),
         },
     );
 }
 
+/// Until 8F-4 `the_legacy_lane_gives_an_empty_preview_or_malformed_with_no_panic`.
 #[test]
-fn the_legacy_lane_gives_an_empty_preview_or_malformed_with_no_panic() {
+fn the_legacy_lane_gives_an_empty_preview_the_rows_or_malformed_with_no_panic() {
     let dir = TempDir::new("sav_legacy");
     each(
         &dir,
         |p| run_stats_preview(p.to_string_lossy().into_owned(), None),
         |name, got| match got {
-            Ok(v) => name == "no_variables" && v.headers.is_empty() && v.row_count == 0,
-            Err(e) => name != "no_variables" && malformed(e),
+            Ok(v) if name == "no_variables" => v.headers.is_empty() && v.row_count == 0,
+            Ok(v) => reads_since_8f4(name) && v.headers == ["X", "Y"] && v.row_count == 2,
+            Err(e) => name == "case_size_minus_1_big_endian" && malformed(e),
         },
     );
 }
 
+/// Until 8F-4 `the_methods_open_gives_no_columns_or_malformed_with_no_panic`;
+/// the big-endian file was then malformed.
 #[test]
-fn the_methods_open_gives_no_columns_or_malformed_with_no_panic() {
+fn the_methods_open_gives_no_columns_the_rows_or_sav_big_endian_with_no_panic() {
     let dir = TempDir::new("sav_methods");
     each(
         &dir,
@@ -108,7 +133,10 @@ fn the_methods_open_gives_no_columns_or_malformed_with_no_panic() {
                 other => panic!("not a validation error: {other:?}"),
             })
         },
-        |name, got| got.as_ref().err() == Some(&expected_refusal(name)),
+        |name, got| match got {
+            Ok(rows) => reads_since_8f4(name) && *rows == 2,
+            Err(e) => !reads_since_8f4(name) && *e == expected_refusal(name),
+        },
     );
 }
 

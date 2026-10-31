@@ -299,7 +299,26 @@ rows, 128 columns, 10 MiB, 2 MiB of cell text).
   than Gaply opens on this computer, so it was not opened."
 - **A big-endian `.sav` is refused** (since 8F-3, D304), compressed or not, as
   `sav_big_endian`, before it is read: the reader takes its values as
-  little-endian and gave wrong numbers with no warning.
+  little-endian and gave wrong numbers with no warning. Since 8F-4 that holds
+  whatever the file's header gives as its case size.
+- **The `.sav` reader is ambers 0.4.6** (since 8F-4, D305; 0.4.4 before).
+  Every `.sav` the tests use reads exactly as before. What changed, for a
+  file that contradicts itself:
+  - a header declaring 0 cases with rows behind it reads the rows present
+    (0.4.4 read none, or crashed on a compressed file);
+  - a header case size that disagrees with the variable list, or is 0 or -1
+    as some software writes, reads from the variable list (0.4.4 read other
+    cells as the columns, or was refused as `malformed` since 8F-2);
+  - a date outside the years 1 to 9999 is a missing cell (0.4.4 gave text
+    such as "+12000-01-01", or a cast error, as the cell);
+  - in a file saved in a code page, such as windows-1252, a variable's name
+    and a text missing value read in that code page (0.4.4 garbled an
+    accented letter, so the missing value never matched);
+  - two variables with one name, a variable type SPSS does not define (256),
+    and sizes declared far beyond the file are refused as `malformed` (0.4.4
+    read the first two, and could ask for gigabytes on the third).
+  The reader's own findings on such files (for example "header declares 0
+  rows but 5 rows were read") are not shown or logged.
 - **The open datasets' budget counts cells only.** It does not count the
   file's bytes that each open dataset keeps for a project Save, nor the copy a
   rerun reads. An open drops the oldest open datasets until the cells held fit;

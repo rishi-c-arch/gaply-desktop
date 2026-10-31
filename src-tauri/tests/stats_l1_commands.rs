@@ -209,13 +209,16 @@ fn a_data_file_over_the_cell_text_cap_is_refused_with_its_own_code() {
 }
 
 /// Research OS, Phase 8F-2 (decision 291): a `.sav` ambers 0.4.4 panicked
-/// on (no variables; a case size of 0, of -1, of -1 big-endian) is refused
-/// by Level 1's open as `data_refused` with no panic, its reason no columns
-/// or malformed; and a compute that reads such a file again, after the
-/// proper file it was opened with is replaced, gives could not check with
-/// the same refusal. Level 1's limits are unchanged.
+/// on (no variables; a case size of 0, of -1, of -1 big-endian) opens or is
+/// refused by Level 1's open with no panic; and a compute that reads such a
+/// file again, after the proper file it was opened with is replaced, gives
+/// could not check. Level 1's limits are unchanged. Since 8F-4 (decision
+/// 306) the two little-endian files with variables open with their two
+/// columns, and the big-endian one is refused as `sav_big_endian`; until
+/// then the three were refused as malformed, under the name
+/// `a_sav_that_crashed_ambers_is_refused_by_level_1s_open_and_compute_with_no_panic`.
 #[test]
-fn a_sav_that_crashed_ambers_is_refused_by_level_1s_open_and_compute_with_no_panic() {
+fn a_sav_that_crashed_ambers_opens_or_is_refused_by_level_1s_open_and_compute_with_no_panic() {
     use std::panic::{catch_unwind, AssertUnwindSafe};
     let mut wrong = Vec::new();
     for (name, bytes) in sav_support::crashing() {
@@ -226,7 +229,15 @@ fn a_sav_that_crashed_ambers_is_refused_by_level_1s_open_and_compute_with_no_pan
             l1::open(&w.db, &w.runs, &w.ai, &w.files.manuscript, &p)
         })) {
             Err(_) => wrong.push(format!("open {name}: panicked")),
+            Ok(Ok(v)) if sav_support::reads_since_8f4(name) => {
+                if v.schema.columns.len() != 2 {
+                    wrong.push(format!("open {name}: {} columns", v.schema.columns.len()));
+                }
+            }
             Ok(Ok(_)) => wrong.push(format!("open {name}: opened")),
+            Ok(Err(_)) if sav_support::reads_since_8f4(name) => {
+                wrong.push(format!("open {name}: refused"))
+            }
             Ok(Err(GaplyError::Validation(m))) => {
                 let v: serde_json::Value = serde_json::from_str(&m).expect("a closed code in JSON");
                 if v["code"] != "data_refused"
@@ -682,4 +693,190 @@ fn a_draft_after_an_edit_is_the_only_way_back_to_a_confirmation_and_it_computes(
     assert_eq!(code(&l1::draft_proposal(&w.runs, v.run, other, Some(edited.proposal), &manual_edits()).unwrap_err()), "proposal_for_another_claim");
     let forged = L1Handle { run: v.run + 7, id: edited.proposal.id };
     assert_eq!(code(&l1::draft_proposal(&w.runs, v.run, 0, Some(forged), &manual_edits()).unwrap_err()), "proposal_from_another_run");
+}
+
+/// Research OS, Phase 8F-4 (decisions 306 and 307): a `.sav` ambers 0.4.6
+/// reads rightly, holding the CSV's scores and groups, opens in Level 1 and
+/// its claim is reproduced: a header of 0 cases with the rows behind it, a
+/// case size larger than the variable list, and a case size of 0 and of -1
+/// on each of ambers' three read paths. Under 0.4.4 these read no rows,
+/// panicked, read other cells, or were refused (8F-2).
+fn score_arm() -> Vec<Vec<f64>> {
+    let mut x = TREATED.to_vec();
+    x.extend(CONTROL);
+    x.iter()
+        .enumerate()
+        .map(|(i, v)| vec![*v, if i < 4 { 1.0 } else { 2.0 }])
+        .collect()
+}
+
+fn opens_and_reproduces(name: &str, bytes: &[u8]) -> Result<(), String> {
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+    let w = world_with(MockTransport::new());
+    let p = w
+        .files
+        .data
+        .with_file_name(format!("{FILE}_8f4_{name}.sav"));
+    std::fs::write(&p, bytes).unwrap();
+    let v = catch_unwind(AssertUnwindSafe(|| {
+        l1::open(&w.db, &w.runs, &w.ai, &w.files.manuscript, &p)
+    }))
+    .map_err(|_| "open panicked".to_string())?
+    .map_err(|e| format!("open: {e:?}"))?;
+    let first = l1::proposals(&w.runs, v.run)
+        .unwrap()
+        .first()
+        .map(|p| p.proposal)
+        .ok_or("no proposal")?;
+    let mut edits = manual_edits();
+    edits.levels[0].levels = vec!["1".into(), "2".into()];
+    let token = l1::confirm_binding(&w.runs, v.run, first, Some(&edits))
+        .map_err(|e| format!("confirm: {e:?}"))?
+        .token;
+    let out = catch_unwind(AssertUnwindSafe(|| l1::compute(&w.runs, v.run, &[token])))
+        .map_err(|_| "compute panicked".to_string())?
+        .map_err(|e| format!("compute: {e:?}"))?;
+    if out.counts.reproduced != 1 {
+        return Err(format!(
+            "compute: {}",
+            serde_json::to_value(&out.claims[0].verdict).unwrap()
+        ));
+    }
+    Ok(())
+}
+
+fn level_1_reproduces(files: Vec<(String, Vec<u8>)>) {
+    let mut wrong = Vec::new();
+    for (name, bytes) in files {
+        if let Err(e) = opens_and_reproduces(&name, &bytes) {
+            wrong.push(format!("{name}: {e}"));
+        }
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+fn score_arm_spec(f: impl Fn(&mut sav_support::Spec)) -> Vec<u8> {
+    let mut s = sav_support::Spec::numbers(&["score", "arm"], &score_arm());
+    f(&mut s);
+    s.bytes()
+}
+
+#[test]
+fn a_sav_ambers_0_4_6_reads_rightly_opens_in_level_1_and_reproduces() {
+    use sav_support::{sav, sav_bytecode_sized, zsav_sized, Order};
+    let rows = score_arm();
+    let mut files = vec![
+        (
+            "zero_cases_uncompressed".to_string(),
+            score_arm_spec(|s| s.cases = Some(0)),
+        ),
+        (
+            "zero_cases_bytecode".to_string(),
+            score_arm_spec(|s| {
+                s.cases = Some(0);
+                s.compression = 1
+            }),
+        ),
+        (
+            "case_size_larger_uncompressed".to_string(),
+            score_arm_spec(|s| s.case_size = Some(3)),
+        ),
+        (
+            "case_size_larger_bytecode".to_string(),
+            score_arm_spec(|s| {
+                s.case_size = Some(3);
+                s.compression = 1
+            }),
+        ),
+    ];
+    for cs in [0, -1] {
+        files.push((
+            format!("uncompressed_case_size_{cs}"),
+            sav(Order::Little, cs, &["score", "arm"], &rows),
+        ));
+        files.push((
+            format!("bytecode_case_size_{cs}"),
+            sav_bytecode_sized(Order::Little, cs, &["score", "arm"], &rows),
+        ));
+        files.push((
+            format!("zlib_case_size_{cs}"),
+            zsav_sized(cs, &["score", "arm"], &rows),
+        ));
+    }
+    level_1_reproduces(files);
+}
+
+/// The smaller case size, never read under ambers 0.4.4.
+#[test]
+fn a_sav_with_a_case_size_smaller_than_its_variables_opens_in_level_1_and_reproduces() {
+    sav_support::require_ambers_0_4_5_or_later("case_size_smaller");
+    level_1_reproduces(vec![
+        (
+            "case_size_smaller_uncompressed".to_string(),
+            score_arm_spec(|s| s.case_size = Some(1)),
+        ),
+        (
+            "case_size_smaller_bytecode".to_string(),
+            score_arm_spec(|s| {
+                s.case_size = Some(1);
+                s.compression = 1
+            }),
+        ),
+    ]);
+}
+
+/// Decision 307's other files in Level 1's open: the code-page file opens
+/// with its names decoded, the dates file opens, and the files 0.4.6
+/// refuses are `data_refused`, malformed.
+fn level_1_opens(names: &[&str]) {
+    let all = sav_support::fixes();
+    let mut wrong = Vec::new();
+    for name in names {
+        let (_, bytes, want, safe) = all.iter().find(|f| f.0 == *name).unwrap();
+        if !safe {
+            sav_support::require_ambers_0_4_5_or_later(name);
+        }
+        let w = world_with(MockTransport::new());
+        let p = w
+            .files
+            .data
+            .with_file_name(format!("{FILE}_8f4_{name}.sav"));
+        std::fs::write(&p, bytes).unwrap();
+        match (
+            l1::open(&w.db, &w.runs, &w.ai, &w.files.manuscript, &p),
+            want,
+        ) {
+            (Ok(v), sav_support::Want::Reads { headers, .. }) => {
+                let got: Vec<&str> = v.schema.columns.iter().map(|c| c.header.as_str()).collect();
+                if got != headers.iter().map(String::as_str).collect::<Vec<_>>() {
+                    wrong.push(format!("{name}: headers {got:?}"));
+                }
+            }
+            (Err(GaplyError::Validation(m)), sav_support::Want::Malformed) => {
+                let v: serde_json::Value = serde_json::from_str(&m).expect("a closed code in JSON");
+                if v != json!({ "code": "data_refused", "reason": "malformed" }) {
+                    wrong.push(format!("{name}: {v}"));
+                }
+            }
+            (Ok(_), _) => wrong.push(format!("{name}: opened")),
+            (Err(e), _) => wrong.push(format!("{name}: {e:?}")),
+        }
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+#[test]
+fn level_1s_open_reads_a_code_page_files_names_and_refuses_what_ambers_0_4_6_refuses() {
+    level_1_opens(&[
+        "code_page",
+        "date_out_of_range",
+        "duplicate_names",
+        "type_field_256",
+    ]);
+}
+
+/// The oversized declarations, never read under ambers 0.4.4.
+#[test]
+fn level_1s_open_refuses_a_sav_declaring_sizes_beyond_itself() {
+    level_1_opens(&["label_count_oversized", "info_record_oversized"]);
 }

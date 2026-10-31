@@ -259,8 +259,10 @@ fn over_the_cells(file_name: String, kind: SupplementaryKind) -> SupplementaryEv
 /// The version of this parser, recorded in every Level 1 data fingerprint
 /// beside the file's hash (Phase 2, Step 2). Bump it when a parse of the same
 /// bytes could change: the reader crates' exact versions are pinned in
-/// `Cargo.toml` (`ambers = "=0.4.4"`, `matfile = "=0.5.0"`) and `Cargo.lock`.
-pub const PARSER_VERSION: &str = "supplementary ingest 1; calamine 0.26, csv 1, ambers 0.4.4, matfile 0.5.0";
+/// `Cargo.toml` (`ambers = "=0.4.6"`, `matfile = "=0.5.0"`) and `Cargo.lock`.
+/// The ambers it names must be `Cargo.lock`'s (Research OS, Phase 8F-4,
+/// decision 305; `tests/sav_reader_fixes.rs`).
+pub const PARSER_VERSION: &str = "supplementary ingest 1; calamine 0.26, csv 1, ambers 0.4.6, matfile 0.5.0";
 
 /// The kind of supplementary source.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -498,7 +500,6 @@ fn evidence_from_bytes(
                 limits,
             ),
             SavHeader::NoVariables => sav_evidence(Ok(no_variables()), file_name, rows, limits),
-            SavHeader::CaseSizeNotPositive => Err(case_size_not_positive()),
             SavHeader::BigEndian => Err(big_endian()),
         },
         "mat" => mat_evidence(bytes, file_name, rows, limits),
@@ -1288,29 +1289,31 @@ fn parse_sav(
             limits,
         ),
         SavHeader::NoVariables => sav_evidence(Ok(no_variables()), file_name, &counted, limits),
-        SavHeader::CaseSizeNotPositive => Err(case_size_not_positive()),
         SavHeader::BigEndian => Err(big_endian()),
     }
 }
 
 /// What a `.sav`'s header says before ambers reads it (Research OS, Phase
-/// 8F-2, decision 291). ambers 0.4.4 divides by the header's nominal case
+/// 8F-2, decision 291). ambers 0.4.4 divided by the header's nominal case
 /// size × 8 on each of its three read paths (`scanner.rs`), so a file with no
-/// variables, or one whose case size is 0 or less, ended its read in a
-/// panic. PSPP's "System File Format" chapter says some software writes -1 or
-/// 0 there, so a file can have variables and still say so.
+/// variables, or one whose case size was 0 or less, ended its read in a
+/// panic. Since 8F-4 (decision 306) ambers 0.4.6 takes the row's width from
+/// the variable list and tolerates a case size of 0 or -1, which PSPP's
+/// "System File Format" chapter says some software writes, so such a file
+/// with variables goes to ambers and reads its values
+/// (`tests/sav_reader_fixes.rs`). A file with no variables ambers 0.4.6
+/// refuses as an invalid dictionary, so it keeps 8F-2's empty table.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SavHeader {
-    /// Go to ambers, unchanged: a proper header, or one ambers refuses itself
-    /// (too short, not `$FL2` or `$FL3`, a layout code of neither order).
+    /// Go to ambers, unchanged: a little-endian header with variables, or
+    /// one ambers refuses itself (too short, not `$FL2` or `$FL3`, a layout
+    /// code of neither order).
     Read,
     /// The record right after the 176-byte header is the dictionary's end
     /// (type 999): no variable records, which PSPP's chapter puts first.
     NoVariables,
-    /// Variables, and a nominal case size of 0 or less.
-    CaseSizeNotPositive,
-    /// Variables, a positive case size, and the layout code in big-endian
-    /// order (Research OS, Phase 8F-3, decision 295). ambers 0.4.4 reads such
+    /// Variables, and the layout code in big-endian order, whatever the case
+    /// size (Research OS, Phase 8F-3, decision 295). ambers 0.4.4 reads such
     /// a file's header and dictionary in its order but an uncompressed
     /// file's values, a compressed file's raw values (after bytecode 253)
     /// and its value labels as little-endian, so 1.5 reads as 3.13984e-319
@@ -1324,13 +1327,14 @@ enum SavHeader {
 /// record's type.
 const SAV_HEADER_READ: usize = 180;
 
-/// Reads two numbers from the header (the layout code at 64, the nominal
-/// case size at 68) and the first record's type (at 176), never a value,
-/// each in the file's own byte order, found from the layout code as ambers'
-/// `detect_endianness` finds it: 2 or 3 read little-endian, else 2 or 3 read
-/// big-endian. Read in the wrong order a big-endian case size of 128 is
-/// negative and a type 2 is 0x02000000, so files that read today would be
-/// refused. The dictionary's end is checked first.
+/// Reads the header's layout code (at 64) and the first record's type (at
+/// 176), never a value, the type in the file's own byte order, found from
+/// the layout code as ambers' `detect_endianness` finds it: 2 or 3 read
+/// little-endian, else 2 or 3 read big-endian. Read in the wrong order a
+/// type 2 is 0x02000000. The dictionary's end is checked first. The case
+/// size is not read since 8F-4 (decision 306): a big-endian file of any case
+/// size is `BigEndian`, never `Read`, so none reaches ambers to be read
+/// byte-swapped.
 fn sav_header(bytes: &[u8]) -> SavHeader {
     if !matches!(bytes.get(..4), Some(b"$FL2") | Some(b"$FL3")) {
         return SavHeader::Read;
@@ -1358,10 +1362,10 @@ fn sav_header(bytes: &[u8]) -> SavHeader {
     if read(176) == Some(999) {
         return SavHeader::NoVariables;
     }
-    match read(68) {
-        Some(case_size) if case_size <= 0 => SavHeader::CaseSizeNotPositive,
-        _ if !little => SavHeader::BigEndian,
-        _ => SavHeader::Read,
+    if little {
+        SavHeader::Read
+    } else {
+        SavHeader::BigEndian
     }
 }
 
@@ -1369,8 +1373,9 @@ fn sav_header(bytes: &[u8]) -> SavHeader {
 /// `.sav` in big-endian byte order?** Called only after a parse has FAILED,
 /// like [`xls_not_compound_document_bytes`], so a file that opens is never
 /// affected; it reads the header as [`sav_header`] does, never the error's
-/// text. A big-endian file with no variables or a case size of 0 or less
-/// keeps 8F-2's outcome (decision 291), so this is false for it.
+/// text. A big-endian file with no variables keeps 8F-2's empty table
+/// (decision 291), so this is false for it; one of any case size is
+/// big-endian (since 8F-4, decision 306).
 pub fn sav_big_endian_bytes(bytes: &[u8], ext: &str) -> bool {
     ext == "sav" && sav_header(bytes) == SavHeader::BigEndian
 }
@@ -1384,15 +1389,6 @@ fn no_variables() -> (arrow::record_batch::RecordBatch, ambers::SpssMetadata) {
             arrow::datatypes::Schema::empty(),
         )),
         ambers::SpssMetadata::default(),
-    )
-}
-
-/// The refusal of a `.sav` whose header gives variables and a case size of
-/// 0 or less: Gaply cannot read it. In [`sav_evidence`]'s words, so the
-/// ingest classifies it as malformed, as any other unreadable `.sav`.
-fn case_size_not_positive() -> GaplyError {
-    GaplyError::Validation(
-        "malformed or unsupported .sav file: its header gives a case size of 0 or less".into(),
     )
 }
 

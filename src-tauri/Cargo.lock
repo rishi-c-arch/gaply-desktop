@@ -81,9 +81,9 @@ checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
 name = "ambers"
-version = "0.4.4"
+version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f560de7bb5839b9135ed5ca35e833c39184ab9cd104ca5328056fbbf89b18e6f"
+checksum = "aa1561dbba77eb241ae02de7cc99d7c847cd14bfa1d72f32f90811777d5b1dfa"
 dependencies = [
  "arrow",
  "encoding_rs",
