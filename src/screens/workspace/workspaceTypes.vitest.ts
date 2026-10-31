@@ -49,6 +49,7 @@ const list = [
       'stats.analyze.independent_t',
       'stats.analyze.one_sample_t',
       'stats.analyze.paired_t',
+      'stats.analyze.one_way_anova',
     ],
     supportsOffline: true,
     supportedPlatforms: ['macos', 'windows', 'linux'],

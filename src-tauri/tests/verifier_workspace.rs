@@ -175,8 +175,9 @@ fn workspace_list_carries_the_registrys_capability_ids() {
         .collect();
     assert_eq!(ids, registry.iter().map(String::as_str).collect::<Vec<_>>());
     // Phase 8D-1: twelve, with `stats.analyze.one_sample_t` and
-    // `stats.analyze.paired_t` after `stats.analyze.independent_t`.
-    assert_eq!(ids.len(), 12);
+    // `stats.analyze.paired_t` after `stats.analyze.independent_t`; Phase 8G:
+    // thirteen, with `stats.analyze.one_way_anova` last (decision 321).
+    assert_eq!(ids.len(), 13);
 }
 
 #[test]

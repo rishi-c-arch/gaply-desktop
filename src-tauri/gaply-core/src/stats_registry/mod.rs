@@ -23,6 +23,11 @@
 //!   with `stats_onesample`'s ids and versions. Beta since Phase 8D-2a
 //!   (decision 265): their commands, runs and projects exist, and their
 //!   screens are 8D-2b's.
+//! * `stats.analyze.one_way_anova`: the one-way ANOVA on the user's own data
+//!   (Phase 8G, decision 312), with `stats_anova`'s id and version. Planned
+//!   (decisions 321 and 324): it has no command, run or screen yet, so every
+//!   façade refuses it in every build and the Statistics home lists it only
+//!   as planned.
 //!
 //! `run_stats_preview` and `run_stats_verify` are the legacy lane, not
 //! capabilities: they are not here.
@@ -46,6 +51,7 @@ use crate::contracts::capability::{
 use crate::contracts::codes::closed;
 use crate::contracts::workspace::{self, WorkspaceDescriptor};
 use crate::contracts::{CapabilityId, Diagnostic, ParamKey, ParamValue, WorkspaceId};
+use crate::stats_anova::{CAPABILITY_ID as ANOVA_ID, CAPABILITY_VERSION as ANOVA_VERSION};
 use crate::stats_desc::{CAPABILITY_ID, CAPABILITY_VERSION};
 use crate::stats_l1::catalogue::{L1MethodId, MethodCatalogue};
 use crate::stats_l1::compute::L1Registry;
@@ -116,6 +122,13 @@ closed! {
         LimitAnalyzeValuesNormalityNotAssessed => "limit.analyze.values_normality_not_assessed",
         /// The differences' normality is not assessed (decision 256).
         LimitAnalyzeDifferencesNormalityNotAssessed => "limit.analyze.differences_normality_not_assessed",
+        AnalyzeOneWayAnovaTitle => "analyze.one_way_anova.title",
+        AnalyzeOneWayAnovaDescription => "analyze.one_way_anova.description",
+        /// Eta and omega squared have no confidence interval (decision 319).
+        LimitAnalyzeEffectSizesHaveNoInterval => "limit.analyze.effect_sizes_have_no_interval",
+        /// No Brown–Forsythe test of means, no trend tests and no planned
+        /// contrasts (decision 319).
+        LimitAnalyzeNoRobustMeansTrendsOrContrasts => "limit.analyze.no_robust_means_trends_or_contrasts",
     }
 }
 
@@ -134,6 +147,8 @@ pub enum Kind {
     AnalyzeOneSampleT,
     /// `stats.analyze.paired_t` (Phase 8D-1).
     AnalyzePairedT,
+    /// `stats.analyze.one_way_anova` (Phase 8G).
+    AnalyzeOneWayAnova,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -151,6 +166,8 @@ const LIFECYCLES: &[(&str, Lifecycle)] = &[
     // Beta since 8D-2a (decision 265).
     (ONE_SAMPLE_ID, Lifecycle::Beta),
     (PAIRED_ID, Lifecycle::Beta),
+    // Planned until its commands, runs and screen exist (decision 321).
+    (ANOVA_ID, Lifecycle::Planned),
 ];
 /// A Level 1 method `L1Registry` implements.
 const VERIFY_IMPLEMENTED: Lifecycle = Lifecycle::Beta;
@@ -471,6 +488,51 @@ fn analyze_paired_t() -> Entry {
     )
 }
 
+/// The one-way ANOVA on the user's data (Phase 8G, decision 312): the
+/// t-tests' profile, formats and licence; the group's levels and normality
+/// limitations, as the independent t-test's, and its own two.
+fn analyze_one_way_anova() -> Entry {
+    Entry {
+        kind: Kind::AnalyzeOneWayAnova,
+        descriptor: StatsDescriptor {
+            id: id(ANOVA_ID),
+            version: ANOVA_VERSION,
+            workspace_id: WorkspaceId::Statistics,
+            title_code: StatsWording::AnalyzeOneWayAnovaTitle,
+            description_code: StatsWording::AnalyzeOneWayAnovaDescription,
+            lifecycle: lifecycle_of(ANOVA_ID),
+            input_schema_version: 1,
+            output_schema_version: 1,
+            method_schema_version: 1,
+            supported_formats: TABLE_FORMATS.to_vec(),
+            dependency_ids: Vec::new(),
+            license_notes: vec![StatsWording::LicenseStatrsMit],
+            resource_profile: ResourceProfile {
+                ram_class: RamClass::Gb8,
+                max_rows: Some(METHOD_MAX_ROWS),
+                max_columns: Some(METHOD_MAX_COLUMNS),
+                max_input_bytes: None,
+                ceiling_ms: Some(DESCRIBE_CEILING_MS),
+                cancel: Cancel::Cooperative,
+                uses_gpu: false,
+                temp_disk: false,
+            },
+            offline_behavior: OfflineBehavior::RunsOffline,
+            validation_suite_id: SuiteId("anova_r_golden"),
+            known_limitation_codes: vec![
+                StatsWording::LimitTableTextFilesUtf8Only,
+                StatsWording::LimitTableLimitsByMemory,
+                StatsWording::LimitAnalyzeLevelsFollowLevel1,
+                StatsWording::LimitAnalyzeNormalityNotAssessed,
+                StatsWording::LimitAnalyzeEffectSizesHaveNoInterval,
+                StatsWording::LimitAnalyzeNoRobustMeansTrendsOrContrasts,
+            ],
+            export_kinds: vec![ExportKind::Csv, ExportKind::Json],
+            documentation_id: DocId("methods/one_way_anova"),
+        },
+    }
+}
+
 /// A capability table. The Statistics one is [`Registry::statistics`]; a
 /// different table exists only inside this crate's own unit tests.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -481,8 +543,8 @@ pub struct Registry {
 impl Registry {
     /// THE Statistics table: `stats.check`, one `stats.verify.<method_id>`
     /// per catalogue entry in its order, `stats.describe`, then
-    /// `stats.analyze.independent_t`, `stats.analyze.one_sample_t` and
-    /// `stats.analyze.paired_t`.
+    /// `stats.analyze.independent_t`, `stats.analyze.one_sample_t`,
+    /// `stats.analyze.paired_t` and `stats.analyze.one_way_anova`.
     pub fn statistics() -> Registry {
         let mut entries = vec![check()];
         entries.extend(MethodCatalogue::ENTRIES.iter().map(|e| verify(e.id)));
@@ -490,6 +552,7 @@ impl Registry {
         entries.push(analyze_independent_t());
         entries.push(analyze_one_sample_t());
         entries.push(analyze_paired_t());
+        entries.push(analyze_one_way_anova());
         Registry { entries }
     }
 
@@ -660,7 +723,7 @@ mod tests {
                 checked += 1;
             }
         }
-        assert_eq!(checked, 2 * 12, "twelve capabilities, two builds");
+        assert_eq!(checked, 2 * 13, "thirteen capabilities, two builds");
     }
 
     /// Phase 8D-1 (decision 253), made Beta in 8D-2a (decision 265): the
@@ -713,7 +776,7 @@ mod tests {
         }
         let ids: Vec<String> = t.ids().iter().map(|i| i.as_str().to_string()).collect();
         assert_eq!(
-            &ids[ids.len() - 3..],
+            &ids[ids.len() - 4..ids.len() - 1],
             [TTEST_ID, ONE_SAMPLE_ID, PAIRED_ID],
             "appended after the independent t-test, one-sample first"
         );
@@ -734,7 +797,8 @@ mod tests {
                 Kind::Describe
                 | Kind::AnalyzeIndependentT
                 | Kind::AnalyzeOneSampleT
-                | Kind::AnalyzePairedT => {
+                | Kind::AnalyzePairedT
+                | Kind::AnalyzeOneWayAnova => {
                     methods += 1;
                     assert!(
                         codes.contains(&StatsWording::LimitTableLimitsByMemory),
@@ -771,8 +835,55 @@ mod tests {
                 }
             }
         }
-        assert_eq!((methods, verify), (4, 7));
+        assert_eq!((methods, verify), (5, 7));
         assert_eq!((METHOD_MAX_ROWS, METHOD_MAX_COLUMNS), (100_000, 128));
+    }
+
+    /// Phase 8G (decisions 321 and 324): the one-way ANOVA is listed last,
+    /// Planned, refused as not runnable in both builds, with its own title,
+    /// description and limitations, and its validation suite and page named.
+    #[test]
+    fn the_one_way_anova_is_listed_as_planned_and_never_runs() {
+        let t = Registry::statistics();
+        let id = CapabilityId::parse(ANOVA_ID).unwrap();
+        let e = t.lookup(&id).expect("listed");
+        let d = &e.descriptor;
+        assert_eq!(e.kind, Kind::AnalyzeOneWayAnova);
+        assert_eq!((d.version, d.lifecycle), (1, Lifecycle::Planned));
+        assert_eq!(
+            (d.title_code, d.description_code),
+            (
+                StatsWording::AnalyzeOneWayAnovaTitle,
+                StatsWording::AnalyzeOneWayAnovaDescription
+            )
+        );
+        assert_eq!(
+            d.known_limitation_codes,
+            [
+                StatsWording::LimitTableTextFilesUtf8Only,
+                StatsWording::LimitTableLimitsByMemory,
+                StatsWording::LimitAnalyzeLevelsFollowLevel1,
+                StatsWording::LimitAnalyzeNormalityNotAssessed,
+                StatsWording::LimitAnalyzeEffectSizesHaveNoInterval,
+                StatsWording::LimitAnalyzeNoRobustMeansTrendsOrContrasts,
+            ]
+        );
+        assert_eq!(
+            (d.validation_suite_id, d.documentation_id),
+            (SuiteId("anova_r_golden"), DocId("methods/one_way_anova"))
+        );
+        for build in [Build::Standard, Build::Devtools] {
+            let r = t
+                .require_runnable(&id, 1, build)
+                .expect_err("Planned never runs");
+            assert_eq!(r.code, CapabilityCode::NotRunnable, "{build:?}");
+        }
+        let ids: Vec<String> = t.ids().iter().map(|i| i.as_str().to_string()).collect();
+        assert_eq!(
+            ids.last().map(String::as_str),
+            Some(ANOVA_ID),
+            "appended last"
+        );
     }
 
     #[test]

@@ -157,9 +157,11 @@ const STATS_REGISTRY_CRATE_PATHS: &[&str] = &[
     "crate::stats_desc",
     "crate::stats_ttest",
     "crate::stats_onesample",
+    "crate::stats_anova",
 ];
 /// What `stats_registry` may import from the catalogue, Level 1's registry
-/// and the descriptive summary, by exact name.
+/// and the descriptive summary, by exact name. The one-way ANOVA's id and
+/// version since Phase 8G (decision 321).
 const REGISTRY_ITEMS: &[(&str, &[&str])] = &[
     (
         "crate::stats_l1::catalogue",
@@ -184,6 +186,13 @@ const REGISTRY_ITEMS: &[(&str, &[&str])] = &[
             "ONE_SAMPLE_VERSION",
             "PAIRED_ID",
             "PAIRED_VERSION",
+        ],
+    ),
+    (
+        "crate::stats_anova",
+        &[
+            "CAPABILITY_ID as ANOVA_ID",
+            "CAPABILITY_VERSION as ANOVA_VERSION",
         ],
     ),
 ];

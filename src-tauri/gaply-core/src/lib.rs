@@ -77,6 +77,7 @@ pub mod scientific_model;
 pub mod secrets;
 pub mod stage1_norms;
 pub mod stats_adapters;
+pub mod stats_anova;
 pub mod stats_assist;
 pub mod stats_chat;
 pub mod stats_desc;

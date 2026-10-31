@@ -1,0 +1,20 @@
+# written by: /usr/local/bin/Rscript make_anova_fixtures.R
+# R version 4.6.1 (2026-06-24), car 3.1.5, effectsize 1.0.3
+case	file	include	missing_codes
+k2	data_k2.csv	all	-
+k3_unequal	data_k3_unequal.csv	all	-
+k5_equal	data_k5_equal.csv	all	-
+k5_left_out	data_k5_equal.csv	0 2 3	-
+k10	data_k10.csv	all	-
+k50	data_k50.csv	all	-
+codepoint	data_codepoint.csv	all	-
+ties_offset	data_ties_offset.csv	all	-
+group_of_one	data_group_of_one.csv	all	-
+missing	data_missing.csv	all	-99
+outcome_constant	data_outcome_constant.csv	all	-
+all_groups_constant	data_all_groups_constant.csv	all	-
+some_constant	data_some_constant.csv	all	-
+n2	data_n2.csv	all	-
+negative_omega	data_negative_omega.csv	all	-
+large_f	data_large_f.csv	all	-
+big5	-	all	-

@@ -57,9 +57,18 @@
 //!   with d df, so Hill's formula on f/df2 is its upper tail. Every other
 //!   case is `stats_l0::pvalue::f_upper`'s value, bit for bit; with df1 of 2
 //!   or more it is not gated at large df2 (8A measured df1 2, 9, 10 and 50
-//!   within 1e-9 to df2 1e6), and 8G measures the range its ANOVA reaches.
+//!   within 1e-9 to df2 1e6), and 8G measures the range its ANOVA reaches:
+//!   df1 2 to 49, df2 to 1e5, within 2e-9 · p of R's `pf`
+//!   (`tests/studentized_range_reference.rs`, 1.09e-10 measured).
 //! * [`normal_quantile_975`]: statrs 0.18.0's `Normal(0, 1)::inverse_cdf` at
 //!   0.975, measured against R's `qnorm(0.975)`.
+//! * [`t_quantile`] (Phase 8G, the Bonferroni and Games-Howell intervals): any
+//!   upper point, by bisection on [`t_two_tailed`]; within 1e-10 of R's `qt`
+//!   where gated, and of [`t_quantile_975`] at 0.05.
+//! * [`studentized_range_upper`] and [`studentized_range_quantile`] (Phase 8G,
+//!   decision 314, Tukey and Games-Howell): the module `studentized_range`,
+//!   measured against an mpmath evaluation of the definition, 570 rows for k
+//!   2 to 50 and df 1 to infinite, within 6.3e-11 relative down to p 1e-10.
 //!
 //! Measured against R 4.6.1 in `tests/stats_dist_reference.rs` over
 //! `tests/fixtures/stats_dist/` (`make_dist_fixtures.R`): the quantile within
@@ -80,6 +89,13 @@ use statrs::function::erf::erfc;
 
 use crate::stats_l0::pvalue::f_upper as l0_f_upper;
 use crate::stats_l0::pvalue::t_two_tailed as l0_t_two_tailed;
+
+mod studentized_range;
+pub use self::studentized_range::{
+    studentized_range_quantile, studentized_range_upper, INNER_PANELS, INNER_TERM_FLOOR, MAX_DEPTH,
+    NODES, OUTER_NODES, OUTER_REL, QUANTILE_LN_GAP, QUANTILE_REL_WIDTH, SRANGE_MAX_K,
+    SRANGE_MIN_DF, SRANGE_MIN_K, SRANGE_P_FLOOR, W_NEGLIGIBLE, Z_END,
+};
 
 /// Above this many degrees of freedom the methods take the large-sample
 /// formulas (Hill's p, the Cornish–Fisher quantile); at or below it they
@@ -230,6 +246,50 @@ fn bisection_975(df: f64) -> Option<f64> {
         lo
     };
     (q.is_finite() && q > 0.0).then_some(q)
+}
+
+/// The t whose two-sided p, [`t_two_tailed`]`(t, df)`, is `p`, for any p in
+/// (0, 1) and any df [`t_two_tailed`] answers for: by bisection at every df
+/// (Research OS, Phase 8G, decision 314), the upper end doubled from 1 until
+/// its p is below `p`, then halved to adjacent doubles as
+/// [`t_quantile_975`]'s bisection is, and the end whose p is nearer `p`
+/// taken. Bonferroni's intervals take it at 0.05 / m. Every interval at 0.05
+/// keeps [`t_quantile_975`], whose target is 0.050000000000000044 and whose
+/// formula above 1e4 is Cornish–Fisher, so the two are not bit-equal at
+/// 0.05: `tests/studentized_range_reference.rs` measures and gates the gap.
+/// `None` for a p outside (0, 1), a df [`t_two_tailed`] refuses, or a root
+/// beyond 1e300.
+pub fn t_quantile(p: f64, df: f64) -> Option<f64> {
+    let df = measured(df)?;
+    if !(p > 0.0 && p < 1.0) {
+        return None;
+    }
+    let tp = |t: f64| t_two_tailed(t, df);
+    let (mut lo, mut hi) = (0.0, 1.0);
+    while tp(hi)? > p {
+        lo = hi;
+        hi *= 2.0;
+        if hi > 1e300 {
+            return None;
+        }
+    }
+    for _ in 0..QUANTILE_MAX_HALVINGS * 6 {
+        let mid = lo + (hi - lo) / 2.0;
+        if mid == lo || mid == hi {
+            break;
+        }
+        if tp(mid)? > p {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    let t = if (tp(hi)? - p).abs() < (tp(lo)? - p).abs() {
+        hi
+    } else {
+        lo
+    };
+    (t.is_finite() && t > 0.0).then_some(t)
 }
 
 /// Upper-tail p of an F statistic with `df1`, `df2` degrees of freedom. With

@@ -54,7 +54,8 @@ fn every_profile_literal_is_the_app_constant_it_copies() {
             Kind::Describe
             | Kind::AnalyzeIndependentT
             | Kind::AnalyzeOneSampleT
-            | Kind::AnalyzePairedT => {
+            | Kind::AnalyzePairedT
+            | Kind::AnalyzeOneWayAnova => {
                 for tier in [MemoryTier::Gb8, MemoryTier::Gb16, MemoryTier::Gb32] {
                     let l = IngestLimits::for_tier(tier);
                     assert_eq!(p.max_rows, Some(l.max_rows as u64), "{id} {tier:?}");
@@ -69,7 +70,8 @@ fn every_profile_literal_is_the_app_constant_it_copies() {
             | Kind::Describe
             | Kind::AnalyzeIndependentT
             | Kind::AnalyzeOneSampleT
-            | Kind::AnalyzePairedT => {
+            | Kind::AnalyzePairedT
+            | Kind::AnalyzeOneWayAnova => {
                 tables += 1;
                 let mut formats: Vec<String> = e
                     .descriptor
@@ -102,7 +104,8 @@ fn every_profile_literal_is_the_app_constant_it_copies() {
             Kind::Describe
             | Kind::AnalyzeIndependentT
             | Kind::AnalyzeOneSampleT
-            | Kind::AnalyzePairedT => {
+            | Kind::AnalyzePairedT
+            | Kind::AnalyzeOneWayAnova => {
                 assert_eq!(p.ceiling_ms, Some(runs::RUN_CEILING_MS));
                 assert_eq!(
                     p.cancel,
@@ -119,7 +122,7 @@ fn every_profile_literal_is_the_app_constant_it_copies() {
         assert!(!p.uses_gpu && !p.temp_disk, "{}", e.descriptor.id.as_str());
     }
     assert_eq!(
-        tables, 11,
-        "seven Level 1 capabilities, the descriptive summary and the three t-tests (Phase 8D-1)"
+        tables, 12,
+        "seven Level 1 capabilities, the descriptive summary, the three t-tests (Phase 8D-1) and the one-way ANOVA (Phase 8G)"
     );
 }

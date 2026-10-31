@@ -121,8 +121,9 @@ fn no_header_label_cell_manuscript_text_file_name_or_path_reaches_a_new_surface(
     let list = call(&w.w, "workspace_list", json!({})).unwrap();
     clean("workspace_list", &list.to_string());
     // Phase 8D-1: the registry's twelve ids, the one-sample and paired
-    // t-tests the eleventh and twelfth.
-    assert_eq!(list[0]["capabilityIds"].as_array().unwrap().len(), 12);
+    // t-tests the eleventh and twelfth; Phase 8G: thirteen, the one-way
+    // ANOVA, Planned, the thirteenth (decision 321).
+    assert_eq!(list[0]["capabilityIds"].as_array().unwrap().len(), 13);
 
     // 4. Active: the operation commands read the sentinel files.
     call(&w.w, "workspace_activate", json!({ "id": "statistics" })).expect("Statistics activates");

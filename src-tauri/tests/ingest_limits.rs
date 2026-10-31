@@ -168,7 +168,8 @@ fn each_named_value_is_todays_constants_and_its_capabilities_profiles() {
             Kind::Describe
             | Kind::AnalyzeIndependentT
             | Kind::AnalyzeOneSampleT
-            | Kind::AnalyzePairedT => {
+            | Kind::AnalyzePairedT
+            | Kind::AnalyzeOneWayAnova => {
                 methods += 1;
                 for tier in [MemoryTier::Gb8, MemoryTier::Gb16, MemoryTier::Gb32] {
                     let l = IngestLimits::for_tier(tier);
@@ -182,8 +183,8 @@ fn each_named_value_is_todays_constants_and_its_capabilities_profiles() {
     }
     assert_eq!(
         (verify, methods),
-        (7, 4),
-        "seven Level 1 capabilities; the summary and the three t-tests"
+        (7, 5),
+        "seven Level 1 capabilities; the summary, the three t-tests and the one-way ANOVA"
     );
 }
 

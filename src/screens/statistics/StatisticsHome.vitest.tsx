@@ -158,6 +158,22 @@ describe('StatisticsHome', () => {
     expect(within(retired).queryAllByRole('link')).toHaveLength(0);
   });
 
+  // Research OS, Phase 8G (decision 321): the one-way ANOVA is Planned, so the
+  // home names it on the roadmap and offers no way to open or run it.
+  it('lists the Planned one-way ANOVA on the roadmap only, with no card and no open', async () => {
+    renderHome([
+      cap('stats.describe', 'beta', true, 'stats.capability.describe.title'),
+      cap('stats.analyze.one_way_anova', 'planned', false, 'stats.capability.analyze.one_way_anova.title'),
+    ]);
+    const roadmap = await screen.findByTestId('stats-roadmap');
+    expect(within(roadmap).getByTestId('stats-roadmap-stats.analyze.one_way_anova').textContent).toBe('One-way ANOVA on your data');
+    expect(within(roadmap).queryAllByRole('link')).toHaveLength(0);
+    expect(within(roadmap).queryAllByRole('button')).toHaveLength(0);
+    expect(screen.queryByTestId('stats-card-stats.analyze.one_way_anova')).toBeNull();
+    expect(screen.queryByTestId('stats-open-stats.analyze.one_way_anova')).toBeNull();
+    expect(screen.queryByTestId('stats-no-route-stats.analyze.one_way_anova')).toBeNull();
+  });
+
   it('shows the runnable verifier methods as one Stats Verifier card with its entitlement', async () => {
     renderHome(TABLE, 'not_entitled');
     const card = await screen.findByTestId('stats-card-verifier');

@@ -404,6 +404,13 @@ pub struct AnovaResult {
     pub df_between: f64,
     pub df_within: f64,
     pub p: f64,
+    /// Σ nᵢ (meanᵢ − grand mean)², the sum F's numerator divides by its df
+    /// (Research OS, Phase 8G, decision 313: the one-way ANOVA on the user's
+    /// data reads it for its table and its effect sizes).
+    pub ss_between: f64,
+    /// Σ over groups of Σ (x − meanᵢ)², the sum F's denominator divides by
+    /// its df (decision 313).
+    pub ss_within: f64,
 }
 
 /// One-way ANOVA over `groups` (each a sample). Needs ≥ 2 groups and residual
@@ -449,7 +456,14 @@ pub fn one_way_anova(groups: &[&[f64]]) -> Result<AnovaResult, GaplyError> {
     // A NaN F used to reach statrs' beta function and panic there.
     let f = finite((ss_between / df_b) / ms_within)?;
     let p = (1.0 - FisherSnedecor::new(df_b, df_w).expect("df > 0").cdf(f)).clamp(0.0, 1.0);
-    Ok(AnovaResult { f, df_between: df_b, df_within: df_w, p })
+    Ok(AnovaResult {
+        f,
+        df_between: df_b,
+        df_within: df_w,
+        p,
+        ss_between,
+        ss_within,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -1072,6 +1086,20 @@ mod tests {
         assert!(close(r.df_within, 6.0, TIGHT));
         // scipy.stats.f_oneway: p ≈ 0.0010267.
         assert!(close(r.p, 0.0010267, 1e-4), "anova p = {}", r.p);
+    }
+
+    /// Research OS, Phase 8G, decision 313: the two sums of squares the
+    /// one-way ANOVA on the user's data reads, from the values this function
+    /// already computes, and nothing else changed.
+    #[test]
+    fn anova_reports_the_sums_of_squares_it_divides() {
+        let g1 = [1.0, 2.0, 3.0];
+        let g2 = [4.0, 5.0, 6.0];
+        let g3 = [7.0, 8.0, 9.0];
+        let r = one_way_anova(&[&g1, &g2, &g3]).unwrap();
+        assert_eq!(r.ss_between, 54.0);
+        assert_eq!(r.ss_within, 6.0);
+        assert_eq!(r.f, (r.ss_between / r.df_between) / (r.ss_within / r.df_within));
     }
 
     #[test]
