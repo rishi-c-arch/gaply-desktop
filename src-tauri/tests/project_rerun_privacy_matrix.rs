@@ -5,7 +5,10 @@
 //! * a header, `HDR_SENTINEL_q81`, of the selected numeric column;
 //! * a level label, `LVL_SENTINEL_k44`, of the selected categorical column;
 //! * the file name `FILE_SENTINEL_d17.csv`, in the folder `PATH_SENTINEL_w93`;
-//! * `7123.4567`, in a numeric column the user does not select;
+//! * `7123.4567`, in a numeric column the user does not select (the
+//!   correlations, since Phase 8H-2, select it as their second variable:
+//!   their result holds aliases, codes and numbers, and its column's mean
+//!   and SD are neither 7123.4567 nor 61.8129);
 //! * `61.8129`, in the selected numeric column (no statistic can be it: the
 //!   describe matrix's own data, checked there against R). Since Phase 8G-2
 //!   one row (95.5) is in the label's group, so under the one-way ANOVA too,
@@ -18,7 +21,9 @@
 //! summary, save it into a new project, run it again, let the save at the
 //! end land; since Phase 8G-2 (decision 330) the same for a one-way ANOVA of
 //! the selected column by the label's column, all three post hoc tests,
-//! saved into the open project and run again; read the project back (`project_current`, `project_runs`, each
+//! saved into the open project and run again; since Phase 8H-2 (decision
+//! 357) the same for correlations of the selected column and `aux`, all
+//! three coefficients, pairwise; read the project back (`project_current`, `project_runs`, each
 //! run's result) and render both exports, then delete the project.
 //!
 //! * In the app's data folder, the sentinels of the data appear only inside
@@ -48,6 +53,7 @@ use app_lib::stats_desc_commands as desc;
 use desc_support::{delimited, C};
 use gaply_core::contracts::OperationId;
 use gaply_core::stats_anova::{self, AnovaParams, PostHoc};
+use gaply_core::stats_corr::{self, Coefficient, CorrParams, MissingHandling};
 use gaply_core::stats_desc::{self, Alias, ColumnRequest, DescribeParams, TreatAs};
 use gaply_core::stats_l1::dataset::ColumnAlias;
 use gaply_core::Database;
@@ -259,12 +265,70 @@ fn a_rerun_puts_no_sentinel_anywhere_but_the_projects_artifacts_and_its_title() 
         "current (ANOVA)".into(),
         serde_json::to_string(&current).unwrap(),
     ));
+
+    // Phase 8H-2 (decision 357): correlations, saved into the open project
+    // and run again, the same way.
+    let held = e.datasets.get(opened.slot).unwrap();
+    let corr_spec = stats_corr::spec(
+        OperationId(3),
+        held.dataset(),
+        CorrParams {
+            variables: vec![Alias(ColumnAlias(1)), Alias(ColumnAlias(4))],
+            coefficients: vec![
+                Coefficient::Pearson,
+                Coefficient::Spearman,
+                Coefficient::Kendall,
+            ],
+            missing: MissingHandling::Pairwise,
+            missing_codes: vec![],
+        },
+    );
+    drop(held);
+    let corr_run = app_lib::stats_corr_commands::run(&e.runs, &e.datasets, opened.slot, corr_spec)
+        .unwrap()
+        .run_id;
+    w.wait_new_kind(corr_run);
+    let saved_corr = pc::save_run(
+        &app,
+        &w.ws,
+        corr_run,
+        SaveTarget::OpenProject {
+            project_id: id.clone(),
+        },
+    )
+    .expect("the correlations saved");
+    responses.push((
+        "save (correlations)".into(),
+        serde_json::to_string(&saved_corr).unwrap(),
+    ));
+    let started = pc::rerun(&app, &w.ws, 5).expect("the correlations' rerun starts");
+    responses.push((
+        "rerun (correlations)".into(),
+        serde_json::to_string(&started).unwrap(),
+    ));
+    let start = std::time::Instant::now();
+    let current = loop {
+        let c = pc::current(&w.ws).unwrap();
+        if c.rerun
+            .as_ref()
+            .is_some_and(|r| r.status != RerunProgress::Going && r.stored_run_id == Some(6))
+        {
+            break c;
+        }
+        assert!(start.elapsed() < std::time::Duration::from_secs(20));
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    };
+    assert_eq!(current.rerun.as_ref().unwrap().status, RerunProgress::Saved);
+    responses.push((
+        "current (correlations)".into(),
+        serde_json::to_string(&current).unwrap(),
+    ));
     responses.push((
         "runs".into(),
         serde_json::to_string(&pc::runs(&app, &w.ws, &id).unwrap()).unwrap(),
     ));
     let mut results = String::new();
-    for n in [1, 2, 3, 4] {
+    for n in [1, 2, 3, 4, 5, 6] {
         results.push_str(
             &serde_json::to_string(&pc::run_result(&app, &w.ws, &id, n).unwrap()).unwrap(),
         );
@@ -280,6 +344,11 @@ fn a_rerun_puts_no_sentinel_anywhere_but_the_projects_artifacts_and_its_title() 
     assert!(
         report.contains("Repeats run 3.") && report.contains("- Post hoc tests: tukey"),
         "the ANOVA and its rerun are in the report"
+    );
+    assert!(
+        report.contains("Repeats run 5.")
+            && report.contains("- Coefficients: pearson, spearman, kendall"),
+        "the correlations and their rerun are in the report"
     );
     assert!(prov.contains("wasInformedBy"), "and in the provenance");
 

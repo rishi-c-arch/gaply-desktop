@@ -61,7 +61,8 @@ export const CAPABILITY_WORDS: Record<string, string> = {
   'stats.capability.limit.analyze.effect_sizes_have_no_interval': 'Eta squared and omega squared are shown without confidence intervals.',
   'stats.capability.limit.analyze.no_robust_means_trends_or_contrasts':
     'There is no Brown–Forsythe test of means, no trend test and no planned contrast.',
-  // Phase 8H (decisions 336 and 344): the correlations, Planned.
+  // Phase 8H (decisions 336 and 344): the correlations, Planned in 8H and
+  // Beta since 8H-2 (decision 351).
   'stats.capability.analyze.correlations.title': 'Correlations on your data',
   'stats.capability.analyze.correlations.description':
     "Pearson's r, Spearman's rho and Kendall's tau-b between two or more numeric columns of your own data file, with each pair's n, p and 95% interval.",

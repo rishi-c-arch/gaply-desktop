@@ -26,6 +26,7 @@ import { ttestBridge, type TTestBridge } from '../statistics/ttestBridge';
 import { oneSampleBridge, pairedBridge, type OneSampleBridge, type PairedBridge } from '../statistics/onesampleBridge';
 import { anovaBridge, type AnovaBridge } from '../statistics/anovaBridge';
 import { stepsSentence } from '../statistics/anovaWording';
+import { corrBridge, type CorrBridge } from '../statistics/corrBridge';
 import { byKind } from '../statistics/methods';
 import { projectsShown } from '../statistics/projects/projectGate';
 import { noteWorkspaceState, openProjectStore } from '../statistics/projects/projectSession';
@@ -47,6 +48,8 @@ export interface WorkspaceShellProps {
   pairedRuns?: PairedBridge;
   /** Reads and cancels a one-way ANOVA's run (Phase 8G-2's bridge). */
   anovaRuns?: AnovaBridge;
+  /** Reads and cancels correlations' runs (Phase 8H-2's bridge). */
+  corrRuns?: CorrBridge;
   /** How often the state and the newest run are read. */
   pollMs?: number;
 }
@@ -75,8 +78,8 @@ interface JobView {
   runId: number;
   state: RunState;
   terminal: boolean;
-  /** The descriptive summary's column progress, or the one-way ANOVA's
-   *  steps (decision 328); a t-test has none. */
+  /** The descriptive summary's column progress, or the one-way ANOVA's or
+   *  the correlations' steps (decisions 328 and 355); a t-test has none. */
   progress: string | null;
   kind: RunEntry['kind'];
 }
@@ -124,6 +127,7 @@ export const WorkspaceShell: React.FC<WorkspaceShellProps> = ({
   oneSampleRuns: givenOneSample,
   pairedRuns: givenPaired,
   anovaRuns: givenAnova,
+  corrRuns: givenCorr,
   pollMs = 1000,
 }) => {
   const navigate = useNavigate();
@@ -133,6 +137,7 @@ export const WorkspaceShell: React.FC<WorkspaceShellProps> = ({
   const oneSample = useMemo(() => givenOneSample ?? oneSampleBridge(), [givenOneSample]);
   const paired = useMemo(() => givenPaired ?? pairedBridge(), [givenPaired]);
   const anova = useMemo(() => givenAnova ?? anovaBridge(), [givenAnova]);
+  const corr = useMemo(() => givenCorr ?? corrBridge(), [givenCorr]);
   const [view, setView] = useState<WorkspaceStateView | null>(null);
   const [run, setRun] = useState<JobView | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -203,8 +208,23 @@ export const WorkspaceShell: React.FC<WorkspaceShellProps> = ({
         },
         cancel: (runId) => anova.cancel(runId).catch(() => null),
       },
+      correlations: {
+        status: async (runId) => {
+          const r = await corr.status(runId).catch(() => null);
+          return (
+            r && {
+              runId: r.runId,
+              state: r.state,
+              terminal: r.terminal,
+              progress: `${stepsSentence(r.stepsDone, r.stepsTotal)}.`,
+              kind: 'correlations',
+            }
+          );
+        },
+        cancel: (runId) => corr.cancel(runId).catch(() => null),
+      },
     }),
-    [runs, ttest, oneSample, paired, anova]
+    [runs, ttest, oneSample, paired, anova, corr]
   );
 
   /** A run's state, through its kind's status command (decision 80). */

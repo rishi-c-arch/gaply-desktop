@@ -51,3 +51,6 @@ src-tauri/gaply-core/tests/fixtures/stats_anova/export_golden.csv -text
 # Research OS, Phase 8H addendum (decision 346): Linux x86_64's pin of the
 # same export, CRLF for the same reason.
 src-tauri/gaply-core/tests/fixtures/stats_anova/export_golden.linux-x86_64.csv -text
+# Research OS, Phase 8H-2 (decision 354): the correlations' export golden,
+# CRLF for the same reason, pinned by `corr_export.rs`.
+src-tauri/gaply-core/tests/fixtures/stats_corr/export_golden.csv -text

@@ -38,6 +38,7 @@ import { TTestPage } from './statistics/TTestFlow';
 import { OneSamplePage } from './statistics/OneSampleFlow';
 import { PairedPage } from './statistics/PairedFlow';
 import { AnovaPage } from './statistics/AnovaFlow';
+import { CorrPage } from './statistics/CorrFlow';
 import { ProjectPageScreen } from './statistics/ProjectPageScreen';
 import { WorkspaceChooser } from './workspace/WorkspaceChooser';
 import { WorkspaceShell } from './workspace/WorkspaceShell';
@@ -291,6 +292,19 @@ export const AnovaRoute: React.FC = () => (
     <RequireAuth>
       <RequireWorkspace id="statistics" body="Open the Statistics workspace to use the one-way ANOVA.">
         <AnovaPage />
+      </RequireWorkspace>
+    </RequireAuth>
+  </GaplySessionProvider>
+);
+
+/** /app/statistics/correlations — the correlations (Research OS, Phase
+ *  8H-2, decision 359), shown only while the Statistics workspace is active,
+ *  as the ANOVA's is. */
+export const CorrRoute: React.FC = () => (
+  <GaplySessionProvider>
+    <RequireAuth>
+      <RequireWorkspace id="statistics" body="Open the Statistics workspace to use the correlations.">
+        <CorrPage />
       </RequireWorkspace>
     </RequireAuth>
   </GaplySessionProvider>

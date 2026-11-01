@@ -68,6 +68,7 @@ function renderHome(list: CapabilityView[] = TABLE, forceEntitlement: Entitlemen
           <Route path="/app/statistics" element={<StatisticsHome bridge={bridge} forceEntitlement={forceEntitlement} />} />
           <Route path="/app/statistics/ttest" element={<div data-testid="ttest-here" />} />
           <Route path="/app/statistics/anova" element={<div data-testid="anova-here" />} />
+          <Route path="/app/statistics/correlations" element={<div data-testid="correlations-here" />} />
           <Route path="/app/statistics/describe" element={<div data-testid="describe-here" />} />
           <Route path="/app/statsverifier" element={<div data-testid="verifier-here" />} />
           <Route path="/app/check/stats" element={<div data-testid="check-here" />} />
@@ -215,6 +216,36 @@ describe('StatisticsHome', () => {
     expect(screen.queryByTestId('stats-roadmap-stats.analyze.one_way_anova')).toBeNull();
     fireEvent.click(open);
     expect(await screen.findByTestId('anova-here')).toBeTruthy();
+  });
+
+  // Research OS, Phase 8H-2 (decisions 351 and 359): Beta and runnable, with
+  // its screen, the correlations have their own card, their limitations from
+  // the descriptor, and a link to their route, where "no screen of its own
+  // here yet" stood while they had none.
+  it('gives the Beta correlations their card, their limitations and their route', async () => {
+    renderHome([
+      {
+        ...cap('stats.analyze.correlations', 'beta', true, 'stats.capability.analyze.correlations.title'),
+        descriptionCode: 'stats.capability.analyze.correlations.description',
+        knownLimitations: [
+          'stats.capability.limit.analyze.pearson_normality_not_checked',
+          'stats.capability.limit.analyze.two_tailed_no_partial',
+        ],
+      },
+    ]);
+    const card = await screen.findByTestId('stats-card-stats.analyze.correlations');
+    expect(within(card).getByRole('heading').textContent).toBe('Correlations on your data');
+    const items = within(card).getAllByRole('listitem').map((li) => li.textContent);
+    expect(items).toEqual([
+      "Pearson's p and interval assume the two columns are roughly normal together; Gaply does not check.",
+      'p values are two-tailed only, and there are no partial correlations.',
+    ]);
+    expect(screen.queryByTestId('stats-no-route-stats.analyze.correlations')).toBeNull();
+    const open = screen.getByTestId('stats-open-stats.analyze.correlations');
+    expect(open.getAttribute('href')).toBe('/app/statistics/correlations');
+    expect(screen.queryByTestId('stats-roadmap-stats.analyze.correlations')).toBeNull();
+    fireEvent.click(open);
+    expect(await screen.findByTestId('correlations-here')).toBeTruthy();
   });
 
   it('shows the runnable verifier methods as one Stats Verifier card with its entitlement', async () => {

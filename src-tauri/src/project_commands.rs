@@ -89,15 +89,16 @@ use gaply_core::contracts::{
     ValidationStatus, WorkspaceId,
 };
 use gaply_core::research_project::{
-    compare_rerun, ArtifactHash, ArtifactKind, ArtifactRef, Caps, ColumnRole, DataFormat,
-    ExportCode, ExportCount, ExportManifest, ExportParameter, ExportRun, PostHocTest, ProjectCode,
-    ProjectExportInput, ProjectId, ProjectRefusal, ProjectTitle, ProvEdge, ProvGraph,
-    RerunComparison, StoredRun, StoredRunId, TestVariant, UsedRole, PROV_FILE_NAME,
-    REPORT_FILE_NAME,
+    compare_rerun, ArtifactHash, ArtifactKind, ArtifactRef, Caps, ColumnRole,
+    CorrelationCoefficient, DataFormat, ExportCode, ExportCount, ExportManifest, ExportParameter,
+    ExportRun, MissingRows, PostHocTest, ProjectCode, ProjectExportInput, ProjectId,
+    ProjectRefusal, ProjectTitle, ProvEdge, ProvGraph, RerunComparison, StoredRun, StoredRunId,
+    TestVariant, UsedRole, PROV_FILE_NAME, REPORT_FILE_NAME,
 };
 use gaply_core::research_project::{render_prov_json, render_report_markdown};
 use gaply_core::stats_adapters;
 use gaply_core::stats_anova::{self, AnovaCode, AnovaParams, PostHoc};
+use gaply_core::stats_corr::{self, Coefficient, CorrCode, CorrParams, MissingHandling};
 use gaply_core::stats_desc::{self, DescCode, DescribeParams, TreatAs};
 use gaply_core::stats_l1::dataset::Dataset;
 use gaply_core::stats_onesample::{self, OneSampleCode, OneSampleParams, PairedParams};
@@ -1004,6 +1005,13 @@ const METHODS: &[MethodRow] = &[
         read_back: read_back::<OperationSpec<AnovaParams>>,
         export: export_with::<OperationSpec<AnovaParams>>,
     },
+    // Research OS, Phase 8H-2 (decision 357).
+    MethodRow {
+        capability: stats_corr::CAPABILITY_ID,
+        kind: RunKind::Correlations,
+        read_back: read_back::<OperationSpec<CorrParams>>,
+        export: export_with::<OperationSpec<CorrParams>>,
+    },
 ];
 
 /// The row of a capability, if a method has one.
@@ -1190,6 +1198,35 @@ impl SavedSpec for OperationSpec<AnovaParams> {
 
     fn parameters(&self) -> Vec<ExportParameter> {
         anova_parameters(self)
+    }
+}
+
+impl Rerun for OperationSpec<CorrParams> {
+    fn valid_on(&self, build: Build, dataset: &Dataset) -> bool {
+        check_spec(
+            WorkspaceId::Statistics,
+            self.workspace_id,
+            &self.capability_id,
+        )
+        .is_ok()
+            && passes(stats_adapters::corr_validate(self, build, dataset).status)
+    }
+
+    fn launch(
+        self: Box<Self>,
+        runs: &Arc<Runs>,
+        slot: Arc<Slot>,
+        end: EndHook,
+    ) -> Result<RunId, NotStarted> {
+        runs.start_corr_then(slot, *self, end)
+    }
+}
+
+impl SavedSpec for OperationSpec<CorrParams> {
+    type Code = CorrCode;
+
+    fn parameters(&self) -> Vec<ExportParameter> {
+        corr_parameters(self)
     }
 }
 
@@ -1823,10 +1860,12 @@ pub enum SpecFieldShown {
     Excluded(&'static str),
 }
 
-/// Every field of a saved describe, t-test, one-sample, paired or one-way
-/// ANOVA spec, by JSON path (`[]` for each element of an array). The ANOVA
-/// shares `outcome`, `group`, `levels[]` and `missingCodes[]` with the
-/// t-test's rows, and adds `postHoc[]` (decision 330).
+/// Every field of a saved describe, t-test, one-sample, paired, one-way
+/// ANOVA or correlations spec, by JSON path (`[]` for each element of an
+/// array). The ANOVA shares `outcome`, `group`, `levels[]` and
+/// `missingCodes[]` with the t-test's rows, and adds `postHoc[]` (decision
+/// 330); the correlations share `missingCodes[]` and add `variables[]`,
+/// `coefficients[]` and `missing` (decision 357).
 pub const SPEC_FIELDS: &[(&str, SpecFieldShown)] = &[
     (
         "schemaVersion",
@@ -1869,6 +1908,12 @@ pub const SPEC_FIELDS: &[(&str, SpecFieldShown)] = &[
     // Research OS, Phase 8G-2 (decision 330): the one-way ANOVA's post hoc
     // tests, closed words the user chose.
     ("parameters.postHoc[]", SpecFieldShown::Reported),
+    // Research OS, Phase 8H-2 (decision 357): the correlations' columns by
+    // position, and the coefficients and missing handling, closed words the
+    // user chose.
+    ("parameters.variables[]", SpecFieldShown::Reported),
+    ("parameters.coefficients[]", SpecFieldShown::Reported),
+    ("parameters.missing", SpecFieldShown::Reported),
 ];
 
 fn shape(spec_inputs: &[InputRef]) -> Vec<ExportParameter> {
@@ -1988,6 +2033,36 @@ fn anova_parameters(spec: &OperationSpec<AnovaParams>) -> Vec<ExportParameter> {
             })
             .collect(),
     ));
+    out.push(ExportParameter::MissingCodes {
+        count: p.missing_codes.len() as u64,
+    });
+    out.push(ExportParameter::Seed(spec.random_seed));
+    out
+}
+
+/// A correlations spec's settings, by the allow-list (decision 357): its
+/// columns by position, the coefficients and the missing handling as chosen,
+/// and how many missing codes.
+fn corr_parameters(spec: &OperationSpec<CorrParams>) -> Vec<ExportParameter> {
+    let p = &spec.parameters;
+    let mut out = shape(&spec.inputs);
+    out.push(ExportParameter::Variables(
+        p.variables.iter().map(|v| v.0 .0).collect(),
+    ));
+    out.push(ExportParameter::Coefficients(
+        p.coefficients
+            .iter()
+            .map(|c| match c {
+                Coefficient::Pearson => CorrelationCoefficient::Pearson,
+                Coefficient::Spearman => CorrelationCoefficient::Spearman,
+                Coefficient::Kendall => CorrelationCoefficient::Kendall,
+            })
+            .collect(),
+    ));
+    out.push(ExportParameter::MissingRows(match p.missing {
+        MissingHandling::Pairwise => MissingRows::Pairwise,
+        MissingHandling::Listwise => MissingRows::Listwise,
+    }));
     out.push(ExportParameter::MissingCodes {
         count: p.missing_codes.len() as u64,
     });
@@ -2476,6 +2551,63 @@ mod tests {
         assert_eq!(p[4], ExportParameter::PostHocTests(vec![]));
     }
 
+    /// A correlations spec, pairwise, all three coefficients and a missing
+    /// code (Research OS, Phase 8H-2, decision 357).
+    fn corr_spec() -> OperationSpec<CorrParams> {
+        OperationSpec {
+            schema_version: SchemaVersion,
+            operation_id: OperationId(8),
+            workspace_id: WorkspaceId::Statistics,
+            capability_id: stats_corr::capability_id(),
+            capability_version: 1,
+            inputs: vec![input()],
+            parameters: CorrParams {
+                variables: vec![Alias(ColumnAlias(1)), Alias(ColumnAlias(3))],
+                coefficients: vec![
+                    Coefficient::Pearson,
+                    Coefficient::Spearman,
+                    Coefficient::Kendall,
+                ],
+                missing: MissingHandling::Pairwise,
+                missing_codes: vec![-9.0, 99.0],
+            },
+            random_seed: None,
+            confirmation_refs: vec![ConfirmationId::parse(&"d".repeat(64)).unwrap()],
+        }
+    }
+
+    #[test]
+    fn the_corr_settings_are_positions_words_and_counts() {
+        let c = corr_spec();
+        assert_eq!(
+            corr_parameters(&c),
+            [
+                ExportParameter::InputShape {
+                    rows: 12,
+                    columns: 3
+                },
+                ExportParameter::Variables(vec![1, 3]),
+                ExportParameter::Coefficients(vec![
+                    CorrelationCoefficient::Pearson,
+                    CorrelationCoefficient::Spearman,
+                    CorrelationCoefficient::Kendall
+                ]),
+                ExportParameter::MissingRows(MissingRows::Pairwise),
+                ExportParameter::MissingCodes { count: 2 },
+                ExportParameter::Seed(None),
+            ]
+        );
+        let mut one = c;
+        one.parameters.coefficients = vec![Coefficient::Kendall];
+        one.parameters.missing = MissingHandling::Listwise;
+        let p = corr_parameters(&one);
+        assert_eq!(
+            p[2],
+            ExportParameter::Coefficients(vec![CorrelationCoefficient::Kendall])
+        );
+        assert_eq!(p[3], ExportParameter::MissingRows(MissingRows::Listwise));
+    }
+
     /// Every leaf of a JSON value, by path, `[]` for an array's elements.
     fn paths(v: &Value, at: &str, out: &mut BTreeSet<String>) {
         match v {
@@ -2510,6 +2642,7 @@ mod tests {
         paths(&serde_json::to_value(&one).unwrap(), "", &mut seen);
         paths(&serde_json::to_value(&paired).unwrap(), "", &mut seen);
         paths(&serde_json::to_value(anova_spec()).unwrap(), "", &mut seen);
+        paths(&serde_json::to_value(corr_spec()).unwrap(), "", &mut seen);
         let listed: BTreeSet<String> = SPEC_FIELDS.iter().map(|(p, _)| p.to_string()).collect();
         let unlisted: Vec<&String> = seen.difference(&listed).collect();
         assert!(

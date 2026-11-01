@@ -21,18 +21,21 @@ export const ONE_SAMPLE_PATH = '/app/statistics/one-sample';
 export const PAIRED_PATH = '/app/statistics/paired';
 /** The one-way ANOVA's screen (Research OS, Phase 8G-2, decision 331). */
 export const ANOVA_PATH = '/app/statistics/anova';
+/** The correlations' screen (Research OS, Phase 8H-2, decision 359). */
+export const CORR_PATH = '/app/statistics/correlations';
 export const STATISTICS_TILE = { label: 'Statistical Methods', href: STATISTICS_HOME_PATH };
 
 /** The selector's and every method's screen's routes (the t-test's, the
- *  one-sample t-test's, the paired t-test's and the one-way ANOVA's), or
- *  nothing while the flag is off. Called inside `<Routes>`. Every element is required, so a caller
+ *  one-sample t-test's, the paired t-test's, the one-way ANOVA's and the
+ *  correlations'), or nothing while the flag is off. Called inside `<Routes>`. Every element is required, so a caller
  *  cannot leave a method without its route (decision 271). */
 export function statisticsRoutes(
   home: React.ReactElement,
   ttest: React.ReactElement,
   oneSample: React.ReactElement,
   paired: React.ReactElement,
-  anova: React.ReactElement
+  anova: React.ReactElement,
+  correlations: React.ReactElement
 ): React.ReactElement[] {
   if (!isFeatureEnabled('statsDescribe')) return [];
   return [
@@ -41,6 +44,7 @@ export function statisticsRoutes(
     <Route key="stats-one-sample" path={ONE_SAMPLE_PATH} element={oneSample} />,
     <Route key="stats-paired" path={PAIRED_PATH} element={paired} />,
     <Route key="stats-anova" path={ANOVA_PATH} element={anova} />,
+    <Route key="stats-correlations" path={CORR_PATH} element={correlations} />,
   ];
 }
 

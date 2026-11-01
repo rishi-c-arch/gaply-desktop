@@ -4,9 +4,10 @@
 in `gaply_core::stats_dist` (`src-tauri/gaply-core/src/stats_dist/mod.rs`).
 The three t-tests on the user's data ([independent_t.md](independent_t.md),
 [one_sample_t.md](one_sample_t.md), [paired_t.md](paired_t.md)) and, since
-Phase 8G, the one-way ANOVA ([one_way_anova.md](one_way_anova.md)) take every
-p and quantile from it; the correlations and the regression will (decision
-275). Level 0 and Level 1 keep `stats_l0::pvalue` as it is.
+Phase 8G, the one-way ANOVA ([one_way_anova.md](one_way_anova.md)) and, since
+8H, the correlations ([correlations.md](correlations.md)) take every p and
+quantile from it; the regression will (decision 275). Level 0 and Level 1 keep
+`stats_l0::pvalue` as it is.
 
 ## 1. Why
 
@@ -97,7 +98,10 @@ equal to this Mac's.
 
 **The normal 0.975 quantile** is statrs 0.18.0's `Normal::new(0.0, 1.0)`
 (which cannot fail; its `expect` says why) `.inverse_cdf(0.975)`. 8H's
-correlations use it.
+correlations use it for every interval (Fisher's z), and take Kendall's p from
+`normal_two_tailed(z)` = erfc(|z|/√2), added in 8H and measured against R's
+`2 * pnorm(-abs(z))` within 9.958e-11 down to p 9.2e-308 (gate 1e-9,
+[correlations.md](correlations.md) §5).
 
 ## 3. What stays with `stats_l0`, and why
 

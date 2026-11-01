@@ -29,8 +29,9 @@
 //!   so its commands, runs and projects run through the façades.
 //! * `stats.analyze.correlations`: Pearson's r, Spearman's rho and Kendall's
 //!   tau-b on the user's own data (Phase 8H, decision 336), with
-//!   `stats_corr`'s id and version. Planned (decision 344): no command, run
-//!   or screen yet, so every façade refuses it in every build.
+//!   `stats_corr`'s id and version. Planned in 8H (decision 344); Beta since
+//!   8H-2's Part 1 (decision 351), so its commands, runs and projects run
+//!   through the façades.
 //!
 //! `run_stats_preview` and `run_stats_verify` are the legacy lane, not
 //! capabilities: they are not here.
@@ -183,8 +184,9 @@ const LIFECYCLES: &[(&str, Lifecycle)] = &[
     // Planned in 8G (decision 321); Beta at the start of 8G-2's Part 3
     // (decision 333), so its commands, runs and projects can run.
     (ANOVA_ID, Lifecycle::Beta),
-    // Planned in 8H (decision 344): no runnable method without its screen.
-    (CORR_ID, Lifecycle::Planned),
+    // Planned in 8H (decision 344); Beta at the start of 8H-2's Part 1
+    // (decision 351), so its commands, runs and projects can run.
+    (CORR_ID, Lifecycle::Beta),
 ];
 /// A Level 1 method `L1Registry` implements.
 const VERIFY_IMPLEMENTED: Lifecycle = Lifecycle::Beta;
@@ -949,18 +951,18 @@ mod tests {
         );
     }
 
-    /// Phase 8H (decision 344): the correlations are listed last, Planned,
-    /// with their own title, description and limitations, and their
-    /// validation suite and page named; refused in both builds, so no screen
-    /// can run them (decision 325's lesson: red first by the lifecycle).
+    /// Phase 8H (decision 344): the correlations are listed last, with their
+    /// own title, description and limitations, and their validation suite
+    /// and page named. Planned in 8H and refused in both builds; Beta since
+    /// 8H-2's Part 1 (decision 351), so runnable in both.
     #[test]
-    fn the_correlations_are_listed_last_as_planned_and_never_run() {
+    fn the_correlations_are_listed_last_as_beta_and_run_in_both_builds() {
         let t = Registry::statistics();
         let id = CapabilityId::parse(CORR_ID).unwrap();
         let e = t.lookup(&id).expect("listed");
         let d = &e.descriptor;
         assert_eq!(e.kind, Kind::AnalyzeCorrelations);
-        assert_eq!((d.version, d.lifecycle), (1, Lifecycle::Planned));
+        assert_eq!((d.version, d.lifecycle), (1, Lifecycle::Beta));
         assert_eq!(
             (d.title_code, d.description_code),
             (
@@ -982,8 +984,8 @@ mod tests {
             (SuiteId("corr_r_golden"), DocId("methods/correlations"))
         );
         for build in [Build::Standard, Build::Devtools] {
-            let r = t.require_runnable(&id, 1, build).unwrap_err();
-            assert_eq!(r.code, CapabilityCode::NotRunnable, "Planned in {build:?}");
+            t.require_runnable(&id, 1, build)
+                .unwrap_or_else(|r| panic!("Beta runs in {build:?}: {r:?}"));
         }
         let ids: Vec<String> = t.ids().iter().map(|i| i.as_str().to_string()).collect();
         assert_eq!(

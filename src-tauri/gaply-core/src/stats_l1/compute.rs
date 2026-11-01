@@ -537,7 +537,7 @@ fn has_ties(b: &ConfirmedBinding, d: &Dataset, rows: &[usize]) -> Result<bool, L
 
 /// How many units in the last place below 1 a |rho| may be and still count
 /// as 1 (part C).
-const RHO_ONE_ULPS: f64 = 4.0;
+pub(crate) const RHO_ONE_ULPS: f64 = 4.0;
 
 fn constant(xs: &[f64]) -> bool {
     xs.windows(2).all(|w| w[0] == w[1])

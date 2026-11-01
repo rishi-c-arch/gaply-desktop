@@ -59,6 +59,7 @@ import { methodFor } from '../methods';
 import { ttestBridge, type TTestBridge } from '../ttestBridge';
 import { oneSampleBridge, pairedBridge, type OneSampleBridge, type PairedBridge } from '../onesampleBridge';
 import { anovaBridge, type AnovaBridge } from '../anovaBridge';
+import { corrBridge, type CorrBridge } from '../corrBridge';
 import { projectBridge, type ProjectBridge } from './projectBridge';
 import { EXPORTS, prepareExport, type ExportKind, type SaveFile } from './projectExport';
 import { projectsShown } from './projectGate';
@@ -107,6 +108,7 @@ export interface ProjectPageProps {
   oneSample?: OneSampleBridge;
   paired?: PairedBridge;
   anova?: AnovaBridge;
+  correlations?: CorrBridge;
   /** How often project_current is read while a rerun is going. */
   pollMs?: number;
 }
@@ -170,6 +172,7 @@ const ProjectPageShown: React.FC<ProjectPageProps> = ({
   oneSample: givenOneSample,
   paired: givenPaired,
   anova: givenAnova,
+  correlations: givenCorr,
   pollMs = 250,
 }) => {
   const bridge = useMemo(() => given ?? projectBridge(), [given]);
@@ -179,6 +182,7 @@ const ProjectPageShown: React.FC<ProjectPageProps> = ({
   const oneSample = useMemo(() => givenOneSample ?? oneSampleBridge(), [givenOneSample]);
   const paired = useMemo(() => givenPaired ?? pairedBridge(), [givenPaired]);
   const anova = useMemo(() => givenAnova ?? anovaBridge(), [givenAnova]);
+  const correlations = useMemo(() => givenCorr ?? corrBridge(), [givenCorr]);
   // Each kind's cancel, from the bridges given (Phase 8C).
   const cancels = useMemo<Record<RerunKind, (runId: number) => Promise<unknown>>>(
     () => ({
@@ -187,8 +191,9 @@ const ProjectPageShown: React.FC<ProjectPageProps> = ({
       one_sample: (runId) => oneSample.cancel(runId),
       paired: (runId) => paired.cancel(runId),
       anova: (runId) => anova.cancel(runId),
+      correlations: (runId) => correlations.cancel(runId),
     }),
-    [describe, ttest, oneSample, paired, anova]
+    [describe, ttest, oneSample, paired, anova, correlations]
   );
   const gen = useGeneration();
   const [view, setView] = useState<View>({ kind: 'loading' });

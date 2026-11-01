@@ -30,6 +30,9 @@ import { PairedResultCard } from '../PairedFlow';
 import { AnovaResultCard } from '../AnovaFlow';
 import { anovaSentence, type AnovaNames } from '../anovaWording';
 import type { AnovaDiagnostic, AnovaResultView } from '../anovaTypes';
+import { CorrResultCard } from '../CorrFlow';
+import { corrSentence } from '../corrWording';
+import type { CorrDiagnostic } from '../corrTypes';
 import { diagnosticSentence } from '../describeWording';
 import { ttestSentence, type TTestNames } from '../ttestWording';
 import { oneSampleSentence } from '../onesampleWording';
@@ -42,6 +45,7 @@ import { capabilityName, PROJECT_TEXT, projectSentence, rerunLines, SAVED_TEXT, 
 import {
   ANOVA_CAPABILITY,
   capabilityOfCase,
+  CORR_CAPABILITY,
   checkStored,
   ONE_SAMPLE_CAPABILITY,
   PAIRED_CAPABILITY,
@@ -135,6 +139,14 @@ export const SAVED_RENDERERS: Record<string, SavedRenderer> = {
   [ANOVA_CAPABILITY]: {
     failedSentence: (failure) => anovaSentence(failure as AnovaDiagnostic, { column: BY_POSITION, level: (i) => `level ${i + 1}` }),
     result: (checked) => (checked.kind === 'anova' ? <AnovaResultCard result={checked.result} names={anovaNames(checked.result)} /> : null),
+    hidden: () => false,
+  },
+  // Phase 8H-2 (decision 359): through the live screen's own card, columns
+  // by position (C1, C2, …), as the result itself names them; not behind a
+  // flag.
+  [CORR_CAPABILITY]: {
+    failedSentence: (failure) => corrSentence(failure as CorrDiagnostic, { column: BY_POSITION }),
+    result: (checked) => (checked.kind === 'correlations' ? <CorrResultCard result={checked.result} names={{ column: BY_POSITION }} /> : null),
     hidden: () => false,
   },
 };

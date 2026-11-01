@@ -5,8 +5,8 @@
 // props the live screens give them.
 //
 // * The capability must be one this app knows (the summary, the t-test, or
-//   since Phase 8D-2b the one-sample t-test, since 8D-2c the paired, and
-//   since 8G-2 the one-way ANOVA),
+//   since Phase 8D-2b the one-sample t-test, since 8D-2c the paired, since
+//   8G-2 the one-way ANOVA, and since 8H-2 the correlations),
 //   and every schema version the one this app reads: 1, the literal type of
 //   `schemaVersion` in describeTypes.ts and ttestTypes.ts and Rust's
 //   `SchemaVersion::NUMBER` (gaply-core/src/contracts/mod.rs).
@@ -21,10 +21,12 @@ import type { ColumnResult, Diagnostic, ResultBundleView, RunManifest } from '..
 import type { TTestDiagnostic, TTestResultView } from '../ttestTypes';
 import type { OneSampleDiagnostic, OneSampleResultView, PairedResultView } from '../onesampleTypes';
 import type { AnovaDiagnostic, AnovaResultView } from '../anovaTypes';
+import type { CorrDiagnostic, CorrResultView } from '../corrTypes';
 import DESCRIBE_CODES from '../describeCodes.json';
 import TTEST_CODES from '../ttestCodes.json';
 import ONESAMPLE_CODES from '../onesampleCodes.json';
 import ANOVA_CODES from '../anovaCodes.json';
+import CORR_CODES from '../corrCodes.json';
 import { capabilityOfKind } from '../methods';
 
 /** The schema version this app reads, for every stored part. */
@@ -36,15 +38,16 @@ export const TTEST_CAPABILITY = capabilityOfKind('ttest');
 export const ONE_SAMPLE_CAPABILITY = capabilityOfKind('one_sample');
 export const PAIRED_CAPABILITY = capabilityOfKind('paired');
 export const ANOVA_CAPABILITY = capabilityOfKind('anova');
+export const CORR_CAPABILITY = capabilityOfKind('correlations');
 
 /** A data file's formats: the ingest's (DataFormat in Rust, without json). */
 const DATA_FORMATS = ['csv', 'tsv', 'xlsx', 'xlsm', 'xlsb', 'xls', 'ods', 'sav', 'mat'];
 
 /** The case a method's checked results are shown as. */
-export type CaseKind = 'summary' | 'ttest' | 'one_sample' | 'paired' | 'anova';
+export type CaseKind = 'summary' | 'ttest' | 'one_sample' | 'paired' | 'anova' | 'correlations';
 
 /** A failed run's stored diagnostic, in its method's codes. */
-export type StoredFailure = Diagnostic | TTestDiagnostic | OneSampleDiagnostic | AnovaDiagnostic;
+export type StoredFailure = Diagnostic | TTestDiagnostic | OneSampleDiagnostic | AnovaDiagnostic | CorrDiagnostic;
 
 /** What a saved result is, once checked: what to show, or why not. */
 export type Checked =
@@ -53,6 +56,7 @@ export type Checked =
   | { kind: 'one_sample'; result: OneSampleResultView; dataFile: DataFileFacts }
   | { kind: 'paired'; result: PairedResultView; dataFile: DataFileFacts }
   | { kind: 'anova'; result: AnovaResultView; dataFile: DataFileFacts }
+  | { kind: 'correlations'; result: CorrResultView; dataFile: DataFileFacts }
   | { kind: 'failed'; capability: CaseKind; failure: StoredFailure; dataFile: DataFileFacts }
   | { kind: 'unknownCapability' }
   | { kind: 'unknownSchema' }
@@ -80,11 +84,13 @@ const DESC_CODES = (DESCRIBE_CODES as string[]).filter((c) => c.indexOf('stats.d
 const T_CODES = (TTEST_CODES as string[]).filter((c) => c.indexOf('stats.ttest.') === 0);
 const OS_CODES = (ONESAMPLE_CODES as string[]).filter((c) => c.indexOf('stats.onesample.') === 0);
 const AN_CODES = (ANOVA_CODES as string[]).filter((c) => c.indexOf('stats.anova.') === 0);
+const CR_CODES = (CORR_CODES as string[]).filter((c) => c.indexOf('stats.corr.') === 0);
 const SEVERITIES = ['error', 'warning', 'note'];
 const DESC_PARAM_KEYS = ['column', 'count', 'index', 'value', 'limit', 'expected', 'found', 'from', 'event'];
 const T_PARAM_KEYS = ['column', 'count', 'index', 'value', 'limit', 'expected', 'found'];
 const OS_PARAM_KEYS = ['column', 'count', 'index', 'value', 'limit', 'expected', 'found'];
 const AN_PARAM_KEYS = ['column', 'count', 'index', 'value', 'limit', 'expected', 'found'];
+const CR_PARAM_KEYS = ['column', 'count', 'index', 'value', 'limit', 'expected', 'found'];
 const RUN_STATES = [
   'draft',
   'validating',
@@ -384,6 +390,65 @@ function anovaBundle(v: O): AnovaResultView | null {
   };
 }
 
+/* ---- the correlations (Phase 8H-2, decision 358) ------------------------------ */
+
+const crCode = (x: unknown) => oneOf(x, CR_CODES);
+const isAlias = (v: unknown) => isStr(v) && /^C[0-9]+$/.test(v);
+const cStat = (v: unknown) => oneKey(v, { value: isNum, not_computable: crCode });
+/** A t: a number, or the one closed word for an infinite t. */
+const bounded = (v: unknown) => oneKey(v, { value: isNum, infinite: (x) => x === 'stats.corr.perfect_coefficient' });
+const testStatistic = (v: unknown) =>
+  oneKey(v, {
+    t: (x) => isObject(x) && Object.keys(x).length === 2 && bounded(x.t) && isNum(x.df),
+    z: isNum,
+  });
+const interval = (v: unknown) =>
+  oneKey(v, { computed: (x) => isObject(x) && Object.keys(x).length === 2 && isNum(x.lower) && isNum(x.upper), not_computable: crCode });
+const corrPairStats = (v: unknown) => isObject(v) && isNum(v.estimate) && testStatistic(v.test) && isNum(v.p) && interval(v.interval);
+const corrPair = (v: unknown) =>
+  isObject(v) && isAlias(v.first) && isAlias(v.second) && isCount(v.n) && oneKey(v.outcome, { computed: corrPairStats, not_computable: crCode });
+const coefficientTable = (v: unknown) =>
+  isObject(v) && oneOf(v.coefficient, ['pearson', 'spearman', 'kendall']) && arrayOf(v.pairs, corrPair);
+const descriptive = (v: unknown) => isObject(v) && isAlias(v.variable) && isCount(v.n) && cStat(v.mean) && cStat(v.sd);
+
+/** A correlations exclusion, exactly as stats_corr writes it (decision 358,
+ *  337b's rule): missing_value and missing_code (listwise) always name their
+ *  column; fewer_than_two_values (pairwise) never does. */
+const CR_NAMED = ['stats.corr.missing_value', 'stats.corr.missing_code'];
+const crExclusion = (e: unknown) =>
+  exclusion(CR_CODES, CR_PARAM_KEYS, false)(e) &&
+  isObject(e) &&
+  isObject(e.params) &&
+  (CR_NAMED.indexOf(e.code as string) >= 0
+    ? isCount(e.params.column)
+    : e.code !== 'stats.corr.fewer_than_two_values' || Object.keys(e.params).length === 0);
+
+function corrBundle(v: O): CorrResultView | null {
+  const d = diagnostic(CR_CODES, CR_PARAM_KEYS, false);
+  const r = v.primaryOutputs;
+  const ok =
+    isCount(v.runId) &&
+    v.status === 'succeeded' &&
+    isObject(r) &&
+    arrayOf(r.descriptives, descriptive) &&
+    arrayOf(r.coefficients, coefficientTable) &&
+    isCount(r.rowsUsed) &&
+    arrayOf(r.exclusions, crExclusion) &&
+    arrayOf(r.limitations, crCode) &&
+    arrayOf(v.diagnostics, d) &&
+    arrayOf(v.limitations, d) &&
+    manifest(v.manifest, CORR_CAPABILITY, crExclusion);
+  if (!ok) return null;
+  // As Rust's stats_corr_commands::result makes the live view.
+  return {
+    runId: v.runId as number,
+    status: 'succeeded',
+    result: r as unknown as CorrResultView['result'],
+    diagnostics: v.diagnostics as CorrDiagnostic[],
+    manifest: v.manifest as CorrResultView['manifest'],
+  };
+}
+
 /* ---- the checkers, one per method (Phase 8C; decision 249) ------------------- */
 
 /** How one method's saved result is checked: the case it is shown as, its
@@ -447,6 +512,16 @@ export const STORED_CHECKERS: Record<string, StoredChecker> = {
     bundle: (v, dataFile) => {
       const result = anovaBundle(v);
       return result ? { kind: 'anova', result, dataFile } : null;
+    },
+  },
+  [CORR_CAPABILITY]: {
+    which: 'correlations',
+    codes: CR_CODES,
+    keys: CR_PARAM_KEYS,
+    strings: false,
+    bundle: (v, dataFile) => {
+      const result = corrBundle(v);
+      return result ? { kind: 'correlations', result, dataFile } : null;
     },
   },
 };

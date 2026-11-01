@@ -61,7 +61,8 @@
 //! `underflow`, by [`RangeFault::of`]); an interval of n ≤ 3, or n ≤ 4 for
 //! Kendall (`interval_too_few_rows`). A perfect coefficient is ±1 exactly:
 //! Pearson at `stats_verify`'s own boundary, an infinite t, on r clamped to
-//! [−1, 1]; Spearman when the two variables rank the pair's rows
+//! [−1, 1], or when 1 − |r| ≤ `RHO_ONE_ULPS` · ε / 2, Level 1's test for rho
+//! (decision 352: an exact line can give 1 − 2 ulp); Spearman when the two variables rank the pair's rows
 //! identically, or exactly in reverse, decided before any call; Kendall when
 //! |S| = n0 − n1 = n0 − n2, in integers. A perfect Pearson or Spearman
 //! coefficient's t is infinite: the result holds `perfect_coefficient` in
@@ -96,11 +97,14 @@ use crate::contracts::{
 use crate::stats_desc::{input_ref, Alias};
 use crate::stats_dist::{normal_quantile_975, normal_two_tailed, t_two_tailed};
 use crate::stats_l1::binding::suspect_codes_in;
+use crate::stats_l1::compute::RHO_ONE_ULPS;
 use crate::stats_l1::dataset::{Cell, Dataset};
 use crate::stats_ttest::{column, non_finite_cells};
 use crate::stats_verify::{
     mean, pearson_clamped, sample_variance, spearman, CorrelationResult, RangeFault,
 };
+
+pub mod export;
 
 /// The capability's id in the registry.
 pub const CAPABILITY_ID: &str = "stats.analyze.correlations";
@@ -940,7 +944,26 @@ fn pair(c: Coefficient, x: &[f64], y: &[f64]) -> PairOutcome {
     let computed = match c {
         Coefficient::Pearson => pearson_clamped(x, y)
             .map_err(|e| refused(RangeFault::of(&e)))
-            .and_then(|r| t_stats(&r, n, c)),
+            .and_then(|r| {
+                // Decision 352: an r within RHO_ONE_ULPS of ±1 is ±1, Level
+                // 1's test for rho; an exact line can give 1 − 2 ulp.
+                if r.statistic.is_infinite()
+                    || 1.0 - r.coefficient.abs() <= RHO_ONE_ULPS * f64::EPSILON / 2.0
+                {
+                    let sign = r.coefficient.signum();
+                    Ok(PairStats {
+                        estimate: sign,
+                        test: TestStatistic::T(TStat {
+                            t: Bounded::Infinite(CorrCode::PerfectCoefficient),
+                            df: (n - 2) as f64,
+                        }),
+                        p: 0.0,
+                        interval: interval(c, sign, n),
+                    })
+                } else {
+                    t_stats(&r, n, c)
+                }
+            }),
         Coefficient::Spearman => match rank_sign(x, y) {
             Some(sign) => Ok(PairStats {
                 estimate: sign,

@@ -41,6 +41,7 @@ pub mod state;
 pub mod stats_ai;
 pub mod stats_anova_commands;
 pub mod stats_consistency;
+pub mod stats_corr_commands;
 pub mod stats_desc_commands;
 pub mod stats_l1_commands;
 pub mod stats_l1_ingest;
@@ -402,6 +403,14 @@ pub fn run() {
             stats_anova_commands::stats_anova_cancel,
             stats_anova_commands::stats_anova_export,
             stats_anova_commands::stats_anova_group_levels,
+            // Research OS, Phase 8H-2 (decision 356): the correlations,
+            // behind the workspace check.
+            stats_corr_commands::stats_corr_validate,
+            stats_corr_commands::stats_corr_run,
+            stats_corr_commands::stats_corr_status,
+            stats_corr_commands::stats_corr_result,
+            stats_corr_commands::stats_corr_cancel,
+            stats_corr_commands::stats_corr_export,
             // Research OS, Phase 3: the window's one active workspace. Only
             // `workspace_activate` activates one.
             workspace::workspace_list,

@@ -13,6 +13,9 @@
 //! * A one-way ANOVA whose work panics, with no cancel (Phase 8G-2, decision
 //!   318): `stats_desc: the one-way ANOVA panicked`, and the run ends
 //!   `Failed`.
+//! * Correlations whose work panics, with no cancel (Phase 8H-2, decision
+//!   355): `stats_desc: the correlations panicked`, and the run ends
+//!   `Failed`.
 //! * Any kind whose work panics after a cancel was accepted: the shared
 //!   `stats_desc: the run's work panicked`, and the run ends `Cancelled`.
 //! * Every run that ends: the shared `stats_desc: run ended`.
@@ -33,6 +36,7 @@ use app_lib::stats_l1_ingest::load_dataset_from_bytes;
 use gaply_core::contracts::{OperationId, RunId, RunState};
 use gaply_core::research_project::DataFormat;
 use gaply_core::stats_anova::{self, AnovaParams, PostHoc};
+use gaply_core::stats_corr::{self, Coefficient, CorrParams, MissingHandling};
 use gaply_core::stats_desc::{self, Alias, DescribeParams};
 use gaply_core::stats_l1::dataset::ColumnAlias;
 use gaply_core::stats_onesample::{self, OneSampleParams, PairedParams};
@@ -73,6 +77,7 @@ enum Kind {
     OneSample,
     Paired,
     Anova,
+    Correlations,
 }
 
 /// A manager whose hook panics at `Column(0)`, after cancelling the run
@@ -92,6 +97,7 @@ fn panicking(what: AtColumn0, kind: Kind) -> Arc<Runs> {
                 Kind::OneSample => drop(runs.one_sample_cancel(run).expect("cancelled")),
                 Kind::Paired => drop(runs.paired_cancel(run).expect("cancelled")),
                 Kind::Anova => drop(runs.anova_cancel(run).expect("cancelled")),
+                Kind::Correlations => drop(runs.corr_cancel(run).expect("cancelled")),
             }
         }
         panic!("the test's hook panics at column 0");
@@ -178,6 +184,16 @@ fn each_kind_says_its_own_panic_and_both_say_the_shared_lines() {
             missing_codes: vec![],
         },
     );
+    let corr = stats_corr::spec(
+        OperationId(6),
+        &pairs,
+        CorrParams {
+            variables: vec![Alias(ColumnAlias(1)), Alias(ColumnAlias(2))],
+            coefficients: vec![Coefficient::Pearson],
+            missing: MissingHandling::Pairwise,
+            missing_codes: vec![],
+        },
+    );
     let pair_slot = slots
         .get(slots.insert("synthetic pairs".into(), pairs))
         .unwrap();
@@ -230,6 +246,15 @@ fn each_kind_says_its_own_panic_and_both_say_the_shared_lines() {
             runs.anova_snapshot(run).unwrap().record.state.is_terminal()
         });
         ends.push(runs.anova_snapshot(run).unwrap().record.state);
+
+        let runs = panicking(what, Kind::Correlations);
+        let run = runs
+            .start_corr(Arc::clone(&pair_slot), corr.clone())
+            .unwrap();
+        wait_for("the correlations ended", || {
+            runs.corr_snapshot(run).unwrap().record.state.is_terminal()
+        });
+        ends.push(runs.corr_snapshot(run).unwrap().record.state);
     }
     let _ = std::panic::take_hook();
 
@@ -241,6 +266,8 @@ fn each_kind_says_its_own_panic_and_both_say_the_shared_lines() {
             RunState::Failed,
             RunState::Failed,
             RunState::Failed,
+            RunState::Failed,
+            RunState::Cancelled,
             RunState::Cancelled,
             RunState::Cancelled,
             RunState::Cancelled,
@@ -256,7 +283,8 @@ fn each_kind_says_its_own_panic_and_both_say_the_shared_lines() {
     );
     assert_eq!(events(&lines, "stats_desc: the paired t-test panicked"), 1);
     assert_eq!(events(&lines, "stats_desc: the one-way ANOVA panicked"), 1);
-    assert_eq!(events(&lines, "stats_desc: the run's work panicked"), 5);
-    assert_eq!(events(&lines, "stats_desc: run ended"), 10);
+    assert_eq!(events(&lines, "stats_desc: the correlations panicked"), 1);
+    assert_eq!(events(&lines, "stats_desc: the run's work panicked"), 6);
+    assert_eq!(events(&lines, "stats_desc: run ended"), 12);
     assert_eq!(events(&lines, "stats_desc: a run event had no edge"), 0);
 }

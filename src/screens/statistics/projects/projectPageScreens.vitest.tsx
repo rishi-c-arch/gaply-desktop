@@ -114,7 +114,7 @@ function app(at: string, strict = false, extra: React.ReactNode = null) {
       <Where />
       {extra}
       <Routes>
-        {statisticsRoutes(<StatisticsHome bridge={{ list: () => Promise.resolve([]) }} />, <div />, <div />, <div />, <div />)}
+        {statisticsRoutes(<StatisticsHome bridge={{ list: () => Promise.resolve([]) }} />, <div />, <div />, <div />, <div />, <div />)}
         {projectRoutes(<ProjectPageScreen />)}
         <Route path="*" element={<div data-testid="no-route" />} />
       </Routes>

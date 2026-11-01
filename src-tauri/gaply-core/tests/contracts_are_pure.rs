@@ -239,6 +239,7 @@ const STATS_ADAPTERS_CRATE_PATHS: &[&str] = &[
     "crate::stats_ttest",
     "crate::stats_onesample",
     "crate::stats_anova",
+    "crate::stats_corr",
     "crate::extract",
 ];
 /// The one module outside decision 46's list `stats_adapters` reads, by
@@ -258,6 +259,7 @@ const STATS_ADAPTERS_INLINE_PATHS: &[&str] = &[
     "crate::stats_ttest",
     "crate::stats_onesample",
     "crate::stats_anova",
+    "crate::stats_corr",
     "crate::extract::ExtractionResult",
     "crate::extract::SectionKind",
     "crate::extract::extract_from_text",
@@ -395,11 +397,16 @@ const ANOVA_ITEMS: &[(&str, &[&str])] = &[
 ];
 
 /// What `stats_corr` may name inside the crate (Phase 8H, decision 343).
+/// The export's path comes before the descriptive summary's, so it is
+/// matched first; Level 1's compute only for its one constant (8H-2,
+/// decisions 352 and 353).
 const STATS_CORR_CRATE_PATHS: &[&str] = &[
     "crate::contracts",
+    "crate::stats_desc::export",
     "crate::stats_desc",
     "crate::stats_dist",
     "crate::stats_l1::binding",
+    "crate::stats_l1::compute",
     "crate::stats_l1::dataset",
     "crate::stats_ttest",
     "crate::stats_verify",
@@ -424,6 +431,8 @@ const CORR_ITEMS: &[(&str, &[&str])] = &[
     ),
     ("crate::stats_ttest", &["column", "non_finite_cells"]),
     ("crate::stats_l1::binding", &["suspect_codes_in"]),
+    ("crate::stats_l1::compute", &["RHO_ONE_ULPS"]),
+    ("crate::stats_desc::export", &["text"]),
     ("crate::stats_desc", &["input_ref", "Alias"]),
 ];
 
@@ -845,7 +854,7 @@ fn contracts_and_stats_desc_reach_no_file_network_process_clock_model_or_log() {
         .chain(sources(STATS_ONESAMPLE, 2).iter())
         .chain(sources(STATS_DIST, 1).iter())
         .chain(sources(STATS_ANOVA, 2).iter())
-        .chain(sources(STATS_CORR, 1).iter())
+        .chain(sources(STATS_CORR, 2).iter())
         .chain(sources(RESEARCH_PROJECT, 2).iter())
     {
         found.extend(forbidden_in(path, code));
@@ -1070,7 +1079,7 @@ fn imports_are_std_serde_serde_json_sha2_and_the_named_crate_paths_only() {
         }
     }
     // And stats_corr each item on its list (decision 343).
-    let corr: String = sources(STATS_CORR, 1).into_iter().map(|(_, c)| c).collect();
+    let corr: String = sources(STATS_CORR, 2).into_iter().map(|(_, c)| c).collect();
     for (prefix, names) in CORR_ITEMS {
         let imported: Vec<String> = use_statements(&corr)
             .iter()
@@ -1551,7 +1560,7 @@ fn no_stats_onesample_type_holds_text() {
 /// `Entry`, which hold the values, derive nothing.
 #[test]
 fn only_the_listed_stats_corr_types_derive_serialize_and_none_holds_a_cell() {
-    let items: Vec<Item> = sources(STATS_CORR, 1)
+    let items: Vec<Item> = sources(STATS_CORR, 2)
         .iter()
         .flat_map(|(_, c)| items(c))
         .collect();
@@ -1593,7 +1602,7 @@ fn only_the_listed_stats_corr_types_derive_serialize_and_none_holds_a_cell() {
 /// nothing of the user's data.
 #[test]
 fn no_stats_corr_type_holds_text() {
-    let items: Vec<Item> = sources(STATS_CORR, 1)
+    let items: Vec<Item> = sources(STATS_CORR, 2)
         .iter()
         .flat_map(|(_, c)| items(c))
         .collect();

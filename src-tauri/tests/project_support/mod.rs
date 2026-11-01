@@ -229,6 +229,35 @@ impl World {
         id
     }
 
+    /// Correlations between `variables` (Research OS, Phase 8H-2, decision
+    /// 357), run to their end.
+    pub fn corr(
+        &self,
+        slot: u64,
+        variables: &[u32],
+        coefficients: Vec<gaply_core::stats_corr::Coefficient>,
+        missing: gaply_core::stats_corr::MissingHandling,
+        missing_codes: Vec<f64>,
+    ) -> u64 {
+        let e = self.engine();
+        let held = e.datasets.get(slot).expect("the slot");
+        let spec = gaply_core::stats_corr::spec(
+            OperationId(9),
+            held.dataset(),
+            gaply_core::stats_corr::CorrParams {
+                variables: variables.iter().map(|v| Alias(ColumnAlias(*v))).collect(),
+                coefficients,
+                missing,
+                missing_codes,
+            },
+        );
+        let id = app_lib::stats_corr_commands::run(&e.runs, &e.datasets, slot, spec)
+            .expect("the run starts")
+            .run_id;
+        self.wait_new_kind(id);
+        id
+    }
+
     /// Waits until a one-sample or paired run has ended; its state.
     /// A one-way ANOVA of column `outcome` by column `group` (Research OS,
     /// Phase 8G-2, decision 330), run to its end.
@@ -270,6 +299,7 @@ impl World {
                 .map(|s| s.record.state)
                 .or_else(|_| e.runs.paired_snapshot(RunId(run)).map(|s| s.record.state))
                 .or_else(|_| e.runs.anova_snapshot(RunId(run)).map(|s| s.record.state))
+                .or_else(|_| e.runs.corr_snapshot(RunId(run)).map(|s| s.record.state))
                 .expect("the run is held");
             if state.is_terminal() {
                 return state;

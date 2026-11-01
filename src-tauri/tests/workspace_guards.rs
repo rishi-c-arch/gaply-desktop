@@ -24,7 +24,8 @@
 //!    reads only the static registry, does not check it at all.
 //!
 //!    Phase 8D-2a and 8G-2 add the one-sample, paired and one-way ANOVA
-//!    commands, each family listed, each checking the workspace first.
+//!    commands, each family listed, each checking the workspace first, and
+//!    8H-2 the correlations' commands, the same way.
 //!
 //! 6. Phase 5B-2 (decision 120): every `project_commands` command is in
 //!    exactly one of two lists. A gated one checks the workspace first, in
@@ -548,6 +549,64 @@ fn every_anova_command_checks_the_workspace_first() {
     assert!(
         failures.is_empty(),
         "decision 318:\n{}",
+        failures.join("\n")
+    );
+}
+
+/// Phase 8H-2 (decision 356): the correlations' commands, each checking the
+/// workspace first, in the same form; none is exempt. (registered path)
+const CORR_OPERATIONS: &[&str] = &[
+    "stats_corr_commands::stats_corr_validate",
+    "stats_corr_commands::stats_corr_run",
+    "stats_corr_commands::stats_corr_status",
+    "stats_corr_commands::stats_corr_result",
+    "stats_corr_commands::stats_corr_cancel",
+    "stats_corr_commands::stats_corr_export",
+];
+
+#[test]
+fn every_corr_command_checks_the_workspace_first() {
+    let all = registered();
+    assert!(all.len() > 100, "the handler parse is inert");
+    let mut family: Vec<&str> = all
+        .iter()
+        .map(|p| p.as_str())
+        .filter(|p| p.starts_with("stats_corr_commands::"))
+        .collect();
+    family.sort_unstable();
+    let mut listed: Vec<&str> = CORR_OPERATIONS.to_vec();
+    listed.sort_unstable();
+    assert_eq!(
+        family, listed,
+        "every registered stats_corr_commands command is listed, and every listed one is registered"
+    );
+    // Nothing registers a stats_corr_* command from another module.
+    for p in &all {
+        if p.rsplit("::")
+            .next()
+            .is_some_and(|n| n.starts_with("stats_corr_"))
+        {
+            assert!(p.starts_with("stats_corr_commands::"), "{p}");
+        }
+    }
+
+    let src = without_line_comments(&read(&root().join("src/stats_corr_commands.rs")));
+    let mut failures = Vec::new();
+    for path in CORR_OPERATIONS {
+        let name = path.rsplit("::").next().unwrap();
+        match fn_body(&src, name) {
+            Some(body) if checks_first(body) => {}
+            Some(body) => failures.push(format!(
+                "{path}: first statement is `{}`",
+                body.split(';').next().unwrap_or("").trim()
+            )),
+            None => failures.push(format!("{path}: no body found")),
+        }
+    }
+    println!("gated {} correlations commands", CORR_OPERATIONS.len());
+    assert!(
+        failures.is_empty(),
+        "decision 356:\n{}",
         failures.join("\n")
     );
 }

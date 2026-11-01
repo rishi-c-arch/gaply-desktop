@@ -13,7 +13,7 @@ use gaply_core::contracts::codes::Closed;
 use gaply_core::contracts::{OperationId, ParamKey, ParamValue};
 use gaply_core::stats_corr::{
     check_points, compute, estimated_seconds, run, spec, validate, Bounded, Coefficient, CorrCode,
-    CorrParams, Halt, MissingHandling, PairOutcome, TestStatistic, BUDGET_SECONDS,
+    CorrParams, Halt, Interval, MissingHandling, PairOutcome, TestStatistic, BUDGET_SECONDS,
 };
 use gaply_core::stats_desc::Alias;
 use gaply_core::stats_l1::dataset::{
@@ -278,24 +278,28 @@ fn a_perfect_coefficient_holds_its_code_in_place_of_t_and_the_result_has_no_null
             }
         }
     }
-    // x and y, an exact line: Spearman and Kendall +1; x and z, y and z:
-    // Spearman and Kendall -1. Pearson's x and y is NOT perfect here:
-    // stats_verify's pearson_r gives 1 - 2 ulp on this line, short of the
-    // boundary decision 338 makes Pearson's one predicate (an infinite t on
-    // r clamped to [-1, 1]), so its t is finite (about 8.2e7) where R's cor
-    // gives exactly 1 and an infinite t. Pinned so that a change to the
-    // predicate is deliberate; raised in 8H's report, open question 1.
-    assert_eq!(perfect, 6);
+    // x and y, an exact line: Pearson, Spearman and Kendall +1; x and z, y
+    // and z: Spearman and Kendall -1. stats_verify's pearson_r gives 1 - 2
+    // ulp on this line, where R's cor gives exactly 1 and an infinite t; a
+    // Pearson r within RHO_ONE_ULPS of +-1 is +-1, as Level 1's rho is
+    // (decision 352, 8H's open question 1). Before it, this pinned 1 - 2 ulp
+    // and a finite t of about 8.2e7.
+    assert_eq!(perfect, 7);
     let PairOutcome::Computed(xy) = r.coefficients[0].pairs[0].outcome else {
         panic!()
     };
-    assert_eq!(xy.estimate, 1.0 - 2.0 * f64::EPSILON / 2.0);
+    assert_eq!(xy.estimate, 1.0);
     let TestStatistic::T(t) = xy.test else {
         panic!()
     };
-    assert!(
-        matches!(t.t, Bounded::Value(v) if v > 8e7 && v < 9e7),
-        "{t:?}"
+    assert_eq!(t.t, Bounded::Infinite(CorrCode::PerfectCoefficient));
+    assert_eq!((t.df, xy.p), (3.0, 0.0));
+    assert_eq!(
+        xy.interval,
+        Interval::Computed {
+            lower: 1.0,
+            upper: 1.0
+        }
     );
     let text = String::from_utf8(r.canonical_bytes()).unwrap();
     // serde writes a non-finite f64 as null, so no null means no infinity.

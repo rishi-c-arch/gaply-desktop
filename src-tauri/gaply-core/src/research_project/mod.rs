@@ -30,9 +30,9 @@ mod render;
 pub use self::graph::{ProvEdge, ProvGraph, ProvNode};
 pub use self::render::{
     escape_markdown, iso_utc, render_prov_json, render_report_markdown, rerun_sentence, ColumnRole,
-    ExportCode, ExportCount, ExportManifest, ExportParameter, ExportRun, PostHocTest,
-    ProjectExportInput, TestVariant, PROV_FILE_NAME, PROV_NAMESPACE, REPORT_FILE_NAME,
-    REPORT_PREAMBLE,
+    CorrelationCoefficient, ExportCode, ExportCount, ExportManifest, ExportParameter, ExportRun,
+    MissingRows, PostHocTest, ProjectExportInput, TestVariant, PROV_FILE_NAME, PROV_NAMESPACE,
+    REPORT_FILE_NAME, REPORT_PREAMBLE,
 };
 
 use crate::contracts::codes::{closed, Closed};

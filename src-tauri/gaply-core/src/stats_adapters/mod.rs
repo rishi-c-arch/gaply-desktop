@@ -38,6 +38,12 @@
 //!   refusal worded `stats.anova.unknown_capability` or
 //!   `stats.anova.capability_version_mismatch`. Planned in 8G, Beta since
 //!   8G-2's Part 3 (decision 333), so the real registry admits it.
+//! * [`corr_admit`], [`corr_validate`] and [`corr_run`]
+//!   (`stats.analyze.correlations`, Phase 8H-2, decision 356):
+//!   `stats_corr::validate` and `stats_corr::run`, the same way, a registry
+//!   refusal worded `stats.corr.unknown_capability` or
+//!   `stats.corr.capability_version_mismatch`. Planned in 8H, Beta since
+//!   8H-2's Part 1 (decision 351), so the real registry admits it.
 //!
 //! The Level 0 and Level 1 specs carry no parameters (`()`) and no
 //! `InputRef`: their inputs are the manuscript's extraction and Level 1's
@@ -53,6 +59,7 @@ use crate::contracts::{
 };
 use crate::extract::ExtractionResult;
 use crate::stats_anova::{self, AnovaCode, AnovaOutcome, AnovaParams};
+use crate::stats_corr::{self, CorrCode, CorrOutcome, CorrParams};
 use crate::stats_desc::{self, DescCode, DescribeParams, DescribeResult, Halt};
 use crate::stats_l0::outcome::{check_reading, StatsConsistencyOutcome};
 use crate::stats_l0::result::{read_results, ResultReading, TableStructure};
@@ -717,6 +724,109 @@ pub(crate) fn anova_run_in<B>(
 }
 
 /* ------------------------------------------------------------------------ *
+ *  stats.analyze.correlations (Phase 8H-2)
+ * ------------------------------------------------------------------------ */
+
+/// A registry refusal in the correlations' own codes, as [`anova_refusal`]
+/// does.
+fn corr_refusal(r: &Refusal) -> Diagnostic<CorrCode> {
+    match r.code {
+        CapabilityCode::VersionMismatch => {
+            let int = |k| match r.params.get(&k) {
+                Some(ParamValue::Int(n)) => *n,
+                _ => 0,
+            };
+            Diagnostic::error(CorrCode::CapabilityVersionMismatch)
+                .int(ParamKey::Expected, int(ParamKey::Expected))
+                .int(ParamKey::Found, int(ParamKey::Found))
+        }
+        _ => Diagnostic::error(CorrCode::UnknownCapability),
+    }
+}
+
+/// The registry's check for a correlations spec, as [`anova_entry`] does: a
+/// registered, runnable entry of the correlations' kind, and no
+/// confirmation.
+fn corr_entry(
+    registry: &Registry,
+    spec: &OperationSpec<CorrParams>,
+    build: Build,
+) -> Result<(), Refusal> {
+    let entry = runnable(registry, spec, build)?;
+    if entry.kind != Kind::AnalyzeCorrelations {
+        return Err(refused(CapabilityCode::UnknownCapability));
+    }
+    no_confirmation(spec)
+}
+
+/// The registry's answer for a correlations spec, as it gives it, for the
+/// app's `stats_corr_*` commands, as [`anova_admit`] is for the ANOVA.
+pub fn corr_admit(spec: &OperationSpec<CorrParams>, build: Build) -> Result<(), Refusal> {
+    corr_entry(&Registry::statistics(), spec, build)
+}
+
+/// `stats.analyze.correlations`' validation: the registry first, so a spec
+/// the registry refuses is `Unsupported` before anything reads the dataset;
+/// then `stats_corr::validate`, unchanged, which refuses a spec over the
+/// budget (decision 355).
+pub fn corr_validate(
+    spec: &OperationSpec<CorrParams>,
+    build: Build,
+    dataset: &Dataset,
+) -> ValidationReport<CorrCode> {
+    corr_validate_in(&Registry::statistics(), spec, build, dataset)
+}
+
+pub(crate) fn corr_validate_in(
+    registry: &Registry,
+    spec: &OperationSpec<CorrParams>,
+    build: Build,
+    dataset: &Dataset,
+) -> ValidationReport<CorrCode> {
+    match corr_entry(registry, spec, build) {
+        Ok(()) => stats_corr::validate(dataset, spec),
+        Err(r) => {
+            let rows = dataset.rows() as u64;
+            let columns = spec.parameters.variables.len() as u64;
+            let estimate = ResourceEstimate {
+                rows,
+                columns,
+                cells: rows.saturating_mul(columns),
+            };
+            ValidationReport::new(
+                vec![corr_refusal(&r)],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                estimate,
+            )
+        }
+    }
+}
+
+/// `stats.analyze.correlations`' run: the registry again, then
+/// `stats_corr::run`, unchanged, with its check points.
+pub fn corr_run<B>(
+    spec: &OperationSpec<CorrParams>,
+    build: Build,
+    dataset: &Dataset,
+    checkpoint: impl FnMut(usize) -> ControlFlow<B>,
+) -> Result<CorrOutcome, stats_corr::Halt<B>> {
+    corr_run_in(&Registry::statistics(), spec, build, dataset, checkpoint)
+}
+
+pub(crate) fn corr_run_in<B>(
+    registry: &Registry,
+    spec: &OperationSpec<CorrParams>,
+    build: Build,
+    dataset: &Dataset,
+    checkpoint: impl FnMut(usize) -> ControlFlow<B>,
+) -> Result<CorrOutcome, stats_corr::Halt<B>> {
+    corr_entry(registry, spec, build).map_err(|r| stats_corr::Halt::Refused(corr_refusal(&r)))?;
+    stats_corr::run(dataset, &spec.parameters, checkpoint)
+}
+
+/* ------------------------------------------------------------------------ *
  *  AI: a method a model's answer names
  * ------------------------------------------------------------------------ */
 
@@ -1214,6 +1324,161 @@ mod anova_facade_tests {
         assert_eq!(
             anova_run_in(&real, &good, b, &d, go).unwrap(),
             stats_anova::compute(&d, &good.parameters).unwrap()
+        );
+    }
+}
+
+/// The correlations' façade (Research OS, Phase 8H-2, decisions 351 and
+/// 356): the real registry admits it in both builds, since it is Beta; it
+/// refuses an id of another façade, a wrong version, a Planned table and a
+/// confirmation, each in its own codes, and runs the real spec exactly as
+/// `stats_corr` does.
+#[cfg(test)]
+mod corr_facade_tests {
+    use super::*;
+    use crate::contracts::capability::Lifecycle;
+    use crate::stats_corr::{Coefficient, CorrParams, Halt, MissingHandling};
+    use crate::stats_desc::Alias;
+    use crate::stats_l1::dataset::{
+        build_dataset, ColumnAlias, DataFingerprint, RawTable, TableRef,
+    };
+
+    fn data() -> Dataset {
+        let rows: Vec<Vec<String>> = [
+            ("1.5", "2", "9"),
+            ("2.5", "1", "7.5"),
+            ("4", "3.5", "8"),
+            ("3", "5", "4"),
+            ("6.5", "4", "3"),
+            ("7", "8", "2.5"),
+        ]
+        .iter()
+        .map(|(a, b, c)| vec![a.to_string(), b.to_string(), c.to_string()])
+        .collect();
+        build_dataset(
+            RawTable::from_rows(vec!["a".into(), "b".into(), "c".into()], rows),
+            DataFingerprint::of_bytes(b"corr facade", "test", TableRef::FirstTable),
+        )
+        .expect("dataset")
+    }
+
+    fn forged(d: &Dataset, id: &str, version: u32) -> OperationSpec<CorrParams> {
+        let mut s = stats_corr::spec(
+            OperationId(8),
+            d,
+            CorrParams {
+                variables: (1..=3).map(|n| Alias(ColumnAlias(n))).collect(),
+                coefficients: vec![
+                    Coefficient::Pearson,
+                    Coefficient::Spearman,
+                    Coefficient::Kendall,
+                ],
+                missing: MissingHandling::Pairwise,
+                missing_codes: Vec::new(),
+            },
+        );
+        s.capability_id = CapabilityId::parse(id).unwrap();
+        s.capability_version = version;
+        s
+    }
+
+    fn go(_: usize) -> ControlFlow<()> {
+        ControlFlow::Continue(())
+    }
+
+    fn codes(r: &ValidationReport<CorrCode>) -> Vec<CorrCode> {
+        r.errors.iter().map(|e| e.code).collect()
+    }
+
+    fn unknown() -> Halt<()> {
+        Halt::Refused(Diagnostic::error(CorrCode::UnknownCapability))
+    }
+
+    #[test]
+    fn the_real_registry_admits_the_correlations_in_both_builds_because_they_are_beta() {
+        let d = data();
+        let s = forged(&d, stats_corr::CAPABILITY_ID, 1);
+        for build in [Build::Standard, Build::Devtools] {
+            corr_admit(&s, build)
+                .unwrap_or_else(|r| panic!("Beta is admitted in {build:?}: {r:?}"));
+            assert!(corr_validate(&s, build, &d).may_run(), "{build:?}");
+            assert_eq!(
+                corr_run(&s, build, &d, go).ok(),
+                stats_corr::compute(&d, &s.parameters).ok(),
+                "{build:?}: the module's own result"
+            );
+            assert!(corr_run(&s, build, &d, go).is_ok(), "{build:?}");
+        }
+    }
+
+    #[test]
+    fn the_corr_facade_refuses_forged_specs_and_runs_the_real_one_as_the_module_does() {
+        let d = data();
+        let b = Build::Devtools;
+        let real = Registry::statistics();
+        // Not in the table at all, and registered ids of other façades.
+        for id in [
+            "stats.analyze.partial_correlations",
+            "stats.describe",
+            "stats.analyze.one_way_anova",
+            "stats.verify.pearson",
+            "stats.verify.spearman",
+        ] {
+            let s = forged(&d, id, 1);
+            assert_eq!(
+                codes(&corr_validate_in(&real, &s, b, &d)),
+                [CorrCode::UnknownCapability],
+                "{id}"
+            );
+            assert!(!corr_validate_in(&real, &s, b, &d).may_run(), "{id}");
+            assert_eq!(
+                corr_run_in(&real, &s, b, &d, go).unwrap_err(),
+                unknown(),
+                "{id}"
+            );
+            assert!(corr_admit(&s, b).is_err(), "{id}");
+        }
+        // A wrong version, in the correlations' own codes with its numbers.
+        let v = corr_validate_in(&real, &forged(&d, stats_corr::CAPABILITY_ID, 2), b, &d);
+        assert_eq!(codes(&v), [CorrCode::CapabilityVersionMismatch]);
+        assert_eq!(
+            v.errors[0].params.get(&ParamKey::Expected),
+            Some(&ParamValue::Int(1))
+        );
+        assert_eq!(
+            v.errors[0].params.get(&ParamKey::Found),
+            Some(&ParamValue::Int(2))
+        );
+        // A Planned table: the real one, set back to Planned, as 8H had it.
+        let good = forged(&d, stats_corr::CAPABILITY_ID, 1);
+        let planned =
+            Registry::statistics().with_lifecycle(stats_corr::CAPABILITY_ID, Lifecycle::Planned);
+        for build in [Build::Standard, Build::Devtools] {
+            assert_eq!(
+                codes(&corr_validate_in(&planned, &good, build, &d)),
+                [CorrCode::UnknownCapability]
+            );
+            assert_eq!(
+                corr_run_in(&planned, &good, build, &d, go).unwrap_err(),
+                unknown()
+            );
+        }
+        // A confirmation on a capability that takes none.
+        let mut c = good.clone();
+        c.confirmation_refs = vec![ConfirmationId::parse(&"ef".repeat(32)).unwrap()];
+        assert_eq!(
+            codes(&corr_validate_in(&real, &c, b, &d)),
+            [CorrCode::UnknownCapability]
+        );
+
+        // The real spec: exactly the direct calls.
+        assert_eq!(
+            corr_validate_in(&real, &good, b, &d),
+            stats_corr::validate(&d, &good)
+        );
+        assert_eq!(
+            corr_run_in(&real, &good, b, &d, go).unwrap(),
+            stats_corr::compute(&d, &good.parameters).unwrap()
         );
     }
 }

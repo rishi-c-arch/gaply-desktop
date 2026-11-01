@@ -1,0 +1,38 @@
+{
+  "status": "invalid",
+  "errors": [
+    {
+      "code": "stats.corr.variable_holds_text",
+      "params": {
+        "column": 4,
+        "count": 10
+      },
+      "severity": "error"
+    },
+    {
+      "code": "stats.corr.over_budget",
+      "params": {
+        "count": 780,
+        "found": 100000
+      },
+      "severity": "error"
+    }
+  ],
+  "warnings": [
+    {
+      "code": "stats.corr.suspect_missing_code",
+      "params": {
+        "column": 3,
+        "count": 2,
+        "value": 99
+      },
+      "severity": "warning"
+    }
+  ],
+  "missingInformation": [],
+  "estimatedResources": {
+    "rows": 12,
+    "columns": 3,
+    "cells": 36
+  }
+}

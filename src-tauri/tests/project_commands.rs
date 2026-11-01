@@ -1351,6 +1351,75 @@ fn stored_anova_results_have_the_layout_of_their_fixtures() {
     }
 }
 
+/// The correlations' saved results (Research OS, Phase 8H-2, decision 357):
+/// one pairwise with all three coefficients and a ticked missing code, and
+/// one listwise with Pearson only, laid out as their fixtures, for the
+/// webview's shape check, as the other kinds' are.
+#[test]
+fn stored_corr_results_have_the_layout_of_their_fixtures() {
+    use gaply_core::stats_corr::{Coefficient, MissingHandling};
+    let w = World::new("stored-corr");
+    let slot = w.open(
+        "corr.csv",
+        b"a,b,c\n1.5,2,9\n2.25,,8.5\n3,3.5,-9\n4.5,4,6.25\n,6,5\n6.75,5.5,4\n7,8,3.5\n8.5,7.25,2\n9,,-9\n",
+    );
+    let pairwise = w.corr(
+        slot,
+        &[1, 2, 3],
+        vec![
+            Coefficient::Pearson,
+            Coefficient::Spearman,
+            Coefficient::Kendall,
+        ],
+        MissingHandling::Pairwise,
+        vec![-9.0],
+    );
+    let id = pc::save_run(
+        &w.root(),
+        &w.ws,
+        pairwise,
+        new_project("Stored correlations"),
+    )
+    .unwrap()
+    .project_id;
+    let listwise = w.corr(
+        slot,
+        &[1, 2, 3],
+        vec![Coefficient::Pearson],
+        MissingHandling::Listwise,
+        vec![-9.0],
+    );
+    pc::save_run(&w.root(), &w.ws, listwise, into_open(&id)).unwrap();
+    for (n, name, tables, missing) in [
+        (1, "corr_pairwise.json", 3, "pairwise"),
+        (2, "corr_listwise.json", 1, "listwise"),
+    ] {
+        let back = pc::run_result(&w.root(), &w.ws, &id, n).expect("read back");
+        assert_eq!(back.state, RunState::Succeeded, "{name}");
+        assert_eq!(back.capability_id, "stats.analyze.correlations", "{name}");
+        let bundle: Value = serde_json::from_str(back.bundle_json.as_deref().unwrap()).unwrap();
+        assert_eq!(
+            bundle["primaryOutputs"]["coefficients"]
+                .as_array()
+                .unwrap()
+                .len(),
+            tables,
+            "{name}"
+        );
+        let spec: Value = serde_json::from_str(&back.spec_json).unwrap();
+        assert_eq!(spec["parameters"]["missing"], missing, "{name}");
+        assert_eq!(spec["parameters"]["missingCodes"], json!([-9.0]), "{name}");
+        assert!(
+            !bundle["primaryOutputs"]["exclusions"]
+                .as_array()
+                .unwrap()
+                .is_empty(),
+            "{name}: a row is left out"
+        );
+        assert_stored_fixture(name, &back);
+    }
+}
+
 #[test]
 fn a_save_target_reads_from_the_webview_shape_and_nothing_else() {
     let t: SaveTarget =

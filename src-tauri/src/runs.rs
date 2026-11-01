@@ -73,6 +73,14 @@
 //! since with no levels named the ANOVA includes every level the dataset's
 //! group holds; the other four ignore it.
 //!
+//! Research OS, Phase 8H-2 (decision 355): a record may hold correlations,
+//! started with [`Runs::start_corr`]. Their check points are
+//! `stats_corr::run`'s, one before the arithmetic and one before each pair of
+//! each chosen coefficient, and the record's `columns_total` is
+//! `stats_corr::check_points`, from the spec alone, so their progress counts
+//! check points too. A spec over the budget is refused by validation, so it
+//! never starts.
+//!
 //! Phase 3: the run manager and the slots belong to the Statistics workspace
 //! (`crate::workspace`), built when it is activated and dropped when it is
 //! left. [`Runs::seal`] is how it is left: under the records' lock it either
@@ -95,6 +103,7 @@ use gaply_core::contracts::{
 use gaply_core::research_project::DataFormat;
 use gaply_core::stats_adapters;
 use gaply_core::stats_anova::{self, AnovaCode, AnovaOutcome, AnovaParams};
+use gaply_core::stats_corr::{self, CorrCode, CorrOutcome, CorrParams};
 use gaply_core::stats_desc::{self, DescCode, DescribeParams, DescribeResult, Halt};
 use gaply_core::stats_l1::dataset::Dataset;
 use gaply_core::stats_onesample::{
@@ -471,6 +480,9 @@ pub enum RunKind {
     /// `stats.analyze.one_way_anova`, through the `stats_anova_*` commands
     /// (Research OS, Phase 8G-2, decision 318).
     Anova,
+    /// `stats.analyze.correlations`, through the `stats_corr_*` commands
+    /// (Research OS, Phase 8H-2, decision 355).
+    Correlations,
 }
 
 /// The data a run read: its slot, and the SHA-256 of the original bytes the
@@ -587,6 +599,7 @@ enum Held {
     OneSample(Outputs<OneSampleResult, OneSampleCode>),
     Paired(Outputs<PairedResult, OneSampleCode>),
     Anova(Outputs<AnovaOutcome, AnovaCode>),
+    Correlations(Outputs<CorrOutcome, CorrCode>),
 }
 
 impl Held {
@@ -599,8 +612,8 @@ struct Entry {
     record: RunRecord,
     /// Every state the record has been in, in order.
     path: Vec<RunState>,
-    /// Describe's columns, or the ANOVA's check points; a t-test has none,
-    /// and its view does not carry them.
+    /// Describe's columns, or the ANOVA's or the correlations' check points;
+    /// a t-test has none, and its view does not carry them.
     columns_total: usize,
     columns_done: usize,
     cancel_requested: bool,
@@ -647,6 +660,7 @@ enum Job {
     OneSample(OperationSpec<OneSampleParams>),
     Paired(OperationSpec<PairedParams>),
     Anova(OperationSpec<AnovaParams>),
+    Correlations(OperationSpec<CorrParams>),
 }
 
 impl Job {
@@ -672,6 +686,7 @@ enum Report {
     OneSample(ValidationReport<OneSampleCode>),
     Paired(ValidationReport<OneSampleCode>),
     Anova(ValidationReport<AnovaCode>),
+    Correlations(ValidationReport<CorrCode>),
 }
 
 impl Report {
@@ -688,6 +703,7 @@ enum Done {
     OneSample(Finished<OneSampleT>),
     Paired(Finished<PairedT>),
     Anova(Finished<OneWayAnova>),
+    Correlations(Finished<Correlations>),
 }
 
 /* ------------------------------------------------------------------------ *
@@ -721,6 +737,10 @@ macro_rules! by_method {
             }
             $enum::Anova($x) => {
                 type $m = OneWayAnova;
+                $body
+            }
+            $enum::Correlations($x) => {
+                type $m = Correlations;
                 $body
             }
         }
@@ -1321,6 +1341,111 @@ impl Method for OneWayAnova {
     }
 }
 
+/// `stats.analyze.correlations`, through the `stats_corr_*` commands
+/// (Research OS, Phase 8H-2, decision 355).
+struct Correlations;
+
+impl Method for Correlations {
+    const KIND: RunKind = RunKind::Correlations;
+    type Params = CorrParams;
+    type Result = CorrOutcome;
+    type Code = CorrCode;
+    type Halt = stats_corr::Halt<Stop>;
+
+    /// `stats_corr::check_points`: one before the arithmetic and one before
+    /// each pair of each chosen coefficient, from the spec alone.
+    fn columns_total(spec: &OperationSpec<CorrParams>, _: &Dataset) -> usize {
+        stats_corr::check_points(&spec.parameters)
+    }
+
+    fn validate(spec: &OperationSpec<CorrParams>, dataset: &Dataset) -> ValidationReport<CorrCode> {
+        // Through `stats.analyze.correlations`' façade: the registry first,
+        // then `stats_corr::validate`, unchanged, which refuses a spec over
+        // the budget.
+        stats_adapters::corr_validate(spec, crate::workspace::build(), dataset)
+    }
+
+    fn compute(
+        spec: &OperationSpec<CorrParams>,
+        build: Build,
+        dataset: &Dataset,
+        checkpoint: impl FnMut(usize) -> ControlFlow<Stop>,
+    ) -> Result<CorrOutcome, stats_corr::Halt<Stop>> {
+        // A check point before the arithmetic and before each pair.
+        stats_adapters::corr_run(spec, build, dataset, checkpoint)
+    }
+
+    fn manifest(
+        spec: &OperationSpec<CorrParams>,
+        dataset: &Dataset,
+        result: &CorrOutcome,
+        elapsed: u64,
+    ) -> RunManifest<CorrCode> {
+        stats_corr::manifest(spec, dataset, result, elapsed, Platform::current())
+    }
+
+    /// The result's own limitations, as notes.
+    fn limitations(result: &CorrOutcome) -> Vec<Diagnostic<CorrCode>> {
+        result
+            .limitations
+            .iter()
+            .map(|c| Diagnostic::note(*c))
+            .collect()
+    }
+
+    /// Every check point on a result; a stop leaves the count the check
+    /// points set.
+    fn columns_done(total: usize, outcome: &Outcome<Self>) -> Option<usize> {
+        match outcome {
+            Ok(Ok(_)) => Some(total),
+            Ok(Err(_)) | Err(_) => None,
+        }
+    }
+
+    fn halted(halt: stats_corr::Halt<Stop>) -> Halted<CorrCode> {
+        match halt {
+            stats_corr::Halt::Stopped { reason } => Halted::Stopped(reason),
+            stats_corr::Halt::Refused(d) => Halted::Refused(d),
+        }
+    }
+
+    fn panicked() {
+        tracing::warn!("stats_desc: the correlations panicked");
+    }
+
+    fn outputs(held: &Held) -> Option<&Outputs<CorrOutcome, CorrCode>> {
+        if let Held::Correlations(o) = held {
+            Some(o)
+        } else {
+            None
+        }
+    }
+
+    fn outputs_mut(held: &mut Held) -> Option<&mut Outputs<CorrOutcome, CorrCode>> {
+        if let Held::Correlations(o) = held {
+            Some(o)
+        } else {
+            None
+        }
+    }
+
+    fn held(outputs: Outputs<CorrOutcome, CorrCode>) -> Held {
+        Held::Correlations(outputs)
+    }
+
+    fn job(spec: OperationSpec<CorrParams>) -> Job {
+        Job::Correlations(spec)
+    }
+
+    fn report(report: ValidationReport<CorrCode>) -> Report {
+        Report::Correlations(report)
+    }
+
+    fn done(finished: Finished<Self>) -> Done {
+        Done::Correlations(finished)
+    }
+}
+
 /// An end hook that is due, with what it is called with: called only once
 /// the records' lock is released (Phase 5C-1a).
 struct Due {
@@ -1555,6 +1680,26 @@ impl Runs {
         end: EndHook,
     ) -> Result<RunId, NotStarted> {
         self.begin::<OneWayAnova>(slot, spec, Some(end))
+    }
+
+    /// [`Runs::start`] for correlations (Research OS, Phase 8H-2, decision
+    /// 355).
+    pub fn start_corr(
+        self: &Arc<Self>,
+        slot: Arc<Slot>,
+        spec: OperationSpec<CorrParams>,
+    ) -> Result<RunId, NotStarted> {
+        self.begin::<Correlations>(slot, spec, None)
+    }
+
+    /// [`Runs::start_corr`], with an end hook: a rerun.
+    pub fn start_corr_then(
+        self: &Arc<Self>,
+        slot: Arc<Slot>,
+        spec: OperationSpec<CorrParams>,
+        end: EndHook,
+    ) -> Result<RunId, NotStarted> {
+        self.begin::<Correlations>(slot, spec, Some(end))
     }
 
     /// Every start, of any method (Research OS, Phase 8C): the record, then
@@ -1922,6 +2067,11 @@ impl Runs {
         self.snapshot_as::<OneWayAnova>(run)
     }
 
+    /// Correlations' run; `run.wrong_kind` for another kind's.
+    pub fn corr_snapshot(&self, run: RunId) -> Result<RunSnapshot<CorrCode>, RunCode> {
+        self.snapshot_as::<Correlations>(run)
+    }
+
     /// Asks the run to stop. Queued: cancelled now. Running: the flag is set,
     /// and the next check point, or the worker's last step if no check point
     /// is left, ends it `Cancelled`. Finished: unchanged.
@@ -1978,6 +2128,11 @@ impl Runs {
         self.cancel_as::<OneWayAnova>(run)
     }
 
+    /// Cancels correlations' run; `run.wrong_kind` for another kind's.
+    pub fn corr_cancel(&self, run: RunId) -> Result<RunSnapshot<CorrCode>, RunCode> {
+        self.cancel_as::<Correlations>(run)
+    }
+
     /// The result of a run of `M`'s kind that succeeded. Otherwise the closed
     /// reason: `not_finished`, `cancelled`, `timed_out`, `no_result`, or
     /// `wrong_kind` for another kind's run.
@@ -2031,6 +2186,12 @@ impl Runs {
         run: RunId,
     ) -> Result<ResultBundle<AnovaOutcome, AnovaCode>, RunCode> {
         self.result_as::<OneWayAnova>(run)
+    }
+
+    /// [`Runs::result`] for correlations; `wrong_kind` for another kind's
+    /// run.
+    pub fn corr_result(&self, run: RunId) -> Result<ResultBundle<CorrOutcome, CorrCode>, RunCode> {
+        self.result_as::<Correlations>(run)
     }
 
     /// A copy of `run` for a project Save (Phase 5B-2), of either kind:

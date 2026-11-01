@@ -84,6 +84,25 @@ closed! {
 }
 
 closed! {
+    /// A coefficient the user chose for the correlations (Research OS,
+    /// Phase 8H-2, decision 357), in the order the method runs them.
+    pub enum CorrelationCoefficient in "" {
+        Pearson => "pearson",
+        Spearman => "spearman",
+        Kendall => "kendall",
+    }
+}
+
+closed! {
+    /// How the correlations handled rows without a value, as the user chose
+    /// (decision 357).
+    pub enum MissingRows in "" {
+        Pairwise => "pairwise",
+        Listwise => "listwise",
+    }
+}
+
+closed! {
     /// Which t-test the user chose.
     pub enum TestVariant in "" {
         Student => "student",
@@ -118,6 +137,13 @@ pub enum ExportParameter {
     IncludedLevels(Option<Vec<u32>>),
     /// The one-way ANOVA's post hoc tests, as chosen; empty when none was.
     PostHocTests(Vec<PostHocTest>),
+    /// The correlations' variables, by their 1-based positions, in the
+    /// dataset's column order (decision 357).
+    Variables(Vec<u32>),
+    /// The correlations' coefficients, as chosen, in the method's order.
+    Coefficients(Vec<CorrelationCoefficient>),
+    /// The correlations' missing handling, as chosen.
+    MissingRows(MissingRows),
 }
 
 /// A closed code with its integer parameters. A closed-word parameter is
@@ -460,6 +486,21 @@ fn parameter_line(p: &ExportParameter) -> String {
         ExportParameter::PostHocTests(tests) => {
             let words: Vec<&str> = tests.iter().map(|t| t.wire()).collect();
             format!("Post hoc tests: {}", words.join(", "))
+        }
+        ExportParameter::Variables(positions) => {
+            let list: Vec<String> = positions.iter().map(u32::to_string).collect();
+            format!("Variables: columns {}, by position", list.join(", "))
+        }
+        ExportParameter::Coefficients(coefficients) => {
+            let words: Vec<&str> = coefficients.iter().map(|c| c.wire()).collect();
+            format!("Coefficients: {}", words.join(", "))
+        }
+        ExportParameter::MissingRows(MissingRows::Pairwise) => {
+            "Missing values: pairwise, each pair uses the rows where both have a value".into()
+        }
+        ExportParameter::MissingRows(MissingRows::Listwise) => {
+            "Missing values: listwise, every pair uses the rows where every variable has a value"
+                .into()
         }
     }
 }
@@ -914,6 +955,39 @@ mod tests {
         );
         let words: Vec<&str> = PostHocTest::ALL.iter().map(|c| c.wire()).collect();
         assert_eq!(words, ["tukey", "games_howell", "bonferroni"]);
+    }
+
+    /// Phase 8H-2 (decision 357): the correlations' variables as columns by
+    /// position, their chosen coefficients and their missing handling, each
+    /// with a line of its own, and the words pinned.
+    #[test]
+    fn the_correlations_parameters_have_lines_of_their_own() {
+        assert_eq!(
+            parameter_line(&ExportParameter::Variables(vec![1, 3, 4])),
+            "Variables: columns 1, 3, 4, by position"
+        );
+        assert_eq!(
+            parameter_line(&ExportParameter::Coefficients(vec![
+                CorrelationCoefficient::Pearson,
+                CorrelationCoefficient::Kendall,
+            ])),
+            "Coefficients: pearson, kendall"
+        );
+        assert_eq!(
+            parameter_line(&ExportParameter::MissingRows(MissingRows::Pairwise)),
+            "Missing values: pairwise, each pair uses the rows where both have a value"
+        );
+        assert_eq!(
+            parameter_line(&ExportParameter::MissingRows(MissingRows::Listwise)),
+            "Missing values: listwise, every pair uses the rows where every variable has a value"
+        );
+        let words: Vec<&str> = CorrelationCoefficient::ALL
+            .iter()
+            .map(|c| c.wire())
+            .collect();
+        assert_eq!(words, ["pearson", "spearman", "kendall"]);
+        let words: Vec<&str> = MissingRows::ALL.iter().map(|c| c.wire()).collect();
+        assert_eq!(words, ["pairwise", "listwise"]);
     }
 
     #[test]

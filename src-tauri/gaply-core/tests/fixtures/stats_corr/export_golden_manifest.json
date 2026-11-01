@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "capabilityId": "stats.analyze.correlations",
+  "capabilityVersion": 1,
+  "engineVersion": 1,
+  "inputs": [
+    "6143790592df0115a9fcda08820da7726d80cbe110caae754f1f090a24204853"
+  ],
+  "parametersHash": "1e622f355184f48225441de181e525e686b9e8715b75a679fea54871ec0ad2de",
+  "seed": null,
+  "rowsRead": 7,
+  "rowsUsed": 4,
+  "exclusions": [
+    {
+      "code": "stats.corr.missing_code",
+      "count": 1,
+      "params": {
+        "column": 1
+      }
+    },
+    {
+      "code": "stats.corr.missing_value",
+      "count": 1,
+      "params": {
+        "column": 2
+      }
+    },
+    {
+      "code": "stats.corr.missing_code",
+      "count": 1,
+      "params": {
+        "column": 3
+      }
+    }
+  ],
+  "platform": {
+    "os": "macos",
+    "arch": "aarch64"
+  },
+  "elapsedMs": 0,
+  "outputHash": "f07d7bac1e185d3200ccc944e0ef7ab69c607f47bf3ffb8679db0f7f5f761b92",
+  "reproducibility": "bitwise"
+}

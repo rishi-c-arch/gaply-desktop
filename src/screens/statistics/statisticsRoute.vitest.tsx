@@ -17,7 +17,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { ANOVA_PATH, ONE_SAMPLE_PATH, PAIRED_PATH, STATISTICS_HOME_PATH, statisticsRoutes, statisticsTiles, TTEST_PATH } from './statisticsRoute';
+import { ANOVA_PATH, CORR_PATH, ONE_SAMPLE_PATH, PAIRED_PATH, STATISTICS_HOME_PATH, statisticsRoutes, statisticsTiles, TTEST_PATH } from './statisticsRoute';
 import { DESCRIBE_PATH, describeRoute } from './describeRoute';
 import AppHomeHero from '../home/AppHomeHero';
 import { ThemeProvider } from '../../contexts/ThemeContext';
@@ -48,7 +48,8 @@ function routeTo(p: string) {
           <div data-testid="ttest-here" />,
           <div data-testid="one-sample-here" />,
           <div data-testid="paired-here" />,
-          <div data-testid="anova-here" />
+          <div data-testid="anova-here" />,
+          <div data-testid="correlations-here" />
         )}
         {describeRoute(<div data-testid="describe-here" />)}
         <Route path="*" element={<div data-testid="no-route" />} />
@@ -173,6 +174,31 @@ describe("the one-way ANOVA's route", () => {
     expect(at).toBeGreaterThan(0);
     const body = src.slice(at, src.indexOf(');', at));
     expect(body).toMatch(/<RequireWorkspace id="statistics"[^>]*>\s*<AnovaPage \/>\s*<\/RequireWorkspace>/);
+  });
+});
+
+// Research OS, Phase 8H-2 (decision 359): the correlations' path reaches its
+// own element, none while the flag is off, and its page needs the Statistics
+// workspace, as the ANOVA's does.
+describe("the correlations' route", () => {
+  it('with the flag on, CORR_PATH reaches its own element, and nothing with it off', () => {
+    flags.describe = true;
+    flags.workspaces = true;
+    expect(CORR_PATH).toBe('/app/statistics/correlations');
+    routeTo(CORR_PATH);
+    expect(screen.getByTestId('correlations-here')).toBeTruthy();
+    cleanup();
+    flags.describe = false;
+    routeTo(CORR_PATH);
+    expect(screen.getByTestId('no-route')).toBeTruthy();
+  });
+
+  it('is wrapped in RequireWorkspace id="statistics"', () => {
+    const src = fs.readFileSync(path.join(__dirname, '../GaplyScreens.tsx'), 'utf8');
+    const at = src.indexOf('export const CorrRoute');
+    expect(at).toBeGreaterThan(0);
+    const body = src.slice(at, src.indexOf(');', at));
+    expect(body).toMatch(/<RequireWorkspace id="statistics"[^>]*>\s*<CorrPage \/>\s*<\/RequireWorkspace>/);
   });
 });
 
