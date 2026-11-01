@@ -613,9 +613,14 @@ fn the_ceiling_stops_a_run_whose_check_point_sleeps_past_it() {
     assert_eq!(until_terminal_anova(&w.w, run)["state"], "succeeded");
 }
 
-/// Decision 329: one choice of levels, one spec, one parameters hash. Every
-/// level ticked is `levels: null`; the same levels named in any order are
-/// refused unless sorted; the post hoc tests, sorted.
+/// Decision 329: one choice of levels, one spec, one parameters hash. The
+/// same spec run twice gives the same hash; every level ticked is
+/// `levels: null`, and naming every level by index is a different spec with
+/// a different hash, as is naming a subset. The hash is of the parameters as
+/// sent: `stats_anova::check` sorts the named levels before it uses them and
+/// refuses only a repeat, and the post hoc tests are sorted and deduplicated
+/// without refusal, so the screen sends both sorted (decision 329) and this
+/// test sends them sorted too.
 #[test]
 fn one_choice_of_levels_gives_one_parameters_hash() {
     let w = world(None);

@@ -11,11 +11,16 @@
 //!   word `below`, never as a number of its own.
 //! * The manifest's hashes close the CSV; the manifest's JSON holds no
 //!   header, label, cell or path (sentinels, with positive controls).
-//! * The bytes are pinned: a golden CSV and the manifest's JSON for one
-//!   computed case with all three post hoc tests. Captured on macOS aarch64,
-//!   1 Nov 2026, and asserted on every platform, as `ttest_bytes_pin.rs` is
-//!   (decision 277): the bytes hold p through the platform's maths library,
-//!   so a red on Linux or Windows names that platform's bytes.
+//! * The bytes are pinned per platform (decision 346): a golden CSV and the
+//!   manifest's JSON for one computed case with all three post hoc tests.
+//!   The bytes hold the studentized range's p through the platform's maths
+//!   library, and Linux x86_64's differ from macOS aarch64's by one unit in
+//!   the last place in two p values, and so in the output hash (decision
+//!   345, Clean checkout #329 at 7fcb594). macOS aarch64 (captured 1 Nov
+//!   2026) and Linux x86_64 each check their own files exactly. Any other
+//!   platform checks the macOS pin's layout: every field byte for byte, each
+//!   number within `LAYOUT_ULPS` of the pin's, the output hash 64 lowercase
+//!   hex characters. It never passes by skipping.
 //! * Ten runs give byte-identical CSV and manifest bytes.
 
 use gaply_core::contracts::codes::Closed;
@@ -525,27 +530,250 @@ fn golden_case() -> (Vec<u8>, Vec<u8>) {
     (result_csv(&r, &m), manifest_json(&m))
 }
 
-fn pinned(name: &str, got: &[u8]) {
-    let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+fn pin_path(name: &str) -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/stats_anova")
-        .join(name);
+        .join(name)
+}
+
+fn pin_bytes(name: &str) -> Vec<u8> {
+    std::fs::read(pin_path(name)).unwrap_or_else(|e| panic!("{name}: {e}"))
+}
+
+/// The pin's difference from `got`, if any, so both files are reported.
+fn pinned(name: &str, got: &[u8]) -> Option<String> {
     if std::env::var_os("GAPLY_WRITE_ANOVA_EXPORT_PIN").is_some() {
-        std::fs::write(&p, got).expect("write the pin");
+        std::fs::write(pin_path(name), got).expect("write the pin");
     }
-    let want = std::fs::read(&p).unwrap_or_else(|e| panic!("{name}: {e}"));
-    assert!(
-        got == want.as_slice(),
-        "{name}: the bytes differ from the pin.\n--- got ---\n{}\n--- pinned ---\n{}",
-        String::from_utf8_lossy(got),
-        String::from_utf8_lossy(&want)
-    );
+    let want = pin_bytes(name);
+    (got != want.as_slice()).then(|| {
+        format!(
+            "{name}: the bytes differ from the pin.\n--- got ---\n{}\n--- pinned ---\n{}",
+            String::from_utf8_lossy(got),
+            String::from_utf8_lossy(&want)
+        )
+    })
+}
+
+/// The macOS aarch64 pin: its own platform's, and the layout every platform
+/// without a pin is checked against.
+const MAC_CSV: &str = "export_golden.csv";
+const MAC_JSON: &str = "export_golden_manifest.json";
+
+/// The pins of the platform this test runs on, by `target_os` and
+/// `target_arch` (decision 346); `None` where there is none.
+fn platform_pins() -> Option<(&'static str, &'static str)> {
+    if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+        Some((MAC_CSV, MAC_JSON))
+    } else if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
+        Some((
+            "export_golden.linux-x86_64.csv",
+            "export_golden_manifest.linux-x86_64.json",
+        ))
+    } else {
+        None
+    }
+}
+
+/// How far a number may be from the pin's on a platform with no pin of its
+/// own: Linux x86_64's measured difference is 1 (decision 345).
+const LAYOUT_ULPS: u64 = 4;
+
+/// Units in the last place between two doubles: their distance in the
+/// order of all doubles, so it holds across zero and a power of two.
+fn ulps(a: f64, b: f64) -> u64 {
+    let key = |x: f64| {
+        let magnitude = (x.to_bits() & !(1u64 << 63)) as i128;
+        if x.is_sign_negative() {
+            -magnitude
+        } else {
+            magnitude
+        }
+    };
+    (key(a) - key(b)).unsigned_abs() as u64
+}
+
+fn is_hash(s: &str) -> bool {
+    s.len() == 64 && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+}
+
+/// Each record's fields as written, quotes included. The pin has no CRLF
+/// inside a field; a `""` inside one flips the quote state twice.
+fn raw_records(bytes: &[u8]) -> Result<Vec<Vec<&str>>, String> {
+    let s = std::str::from_utf8(bytes).map_err(|e| e.to_string())?;
+    let body = s
+        .strip_suffix("\r\n")
+        .ok_or("no CRLF after the last record")?;
+    Ok(body
+        .split("\r\n")
+        .map(|line| {
+            let (mut fields, mut start, mut quoted) = (Vec::new(), 0, false);
+            for (i, c) in line.char_indices() {
+                match c {
+                    '"' => quoted = !quoted,
+                    ',' if !quoted => {
+                        fields.push(&line[start..i]);
+                        start = i + 1;
+                    }
+                    _ => {}
+                }
+            }
+            fields.push(&line[start..]);
+            fields
+        })
+        .collect())
+}
+
+/// Decision 346's check of `got` against the pin's layout: the same records
+/// and fields, every field byte for byte except the numbers (the unquoted
+/// value field, within `LAYOUT_ULPS` of the pin's) and the output hash (64
+/// lowercase hex characters).
+fn csv_layout_matches(got: &[u8], pin: &[u8]) -> Result<(), String> {
+    let (got, pin) = (raw_records(got)?, raw_records(pin)?);
+    if got.len() != pin.len() {
+        return Err(format!("{} records, the pin has {}", got.len(), pin.len()));
+    }
+    for (i, (g, p)) in got.iter().zip(&pin).enumerate() {
+        if g.len() != p.len() {
+            return Err(format!(
+                "record {i}: {} fields, the pin has {}",
+                g.len(),
+                p.len()
+            ));
+        }
+        let hash_line = p[0] == "\"manifest\"" && p[1] == "\"output_sha256\"";
+        for (k, (gf, pf)) in g.iter().zip(p).enumerate() {
+            if hash_line && k == 7 {
+                let hex = gf.strip_prefix('"').and_then(|h| h.strip_suffix('"'));
+                if !hex.is_some_and(is_hash) {
+                    return Err(format!("record {i}: {gf} is not a hash"));
+                }
+            } else if i > 0 && k == 6 && !pf.is_empty() && !pf.starts_with('"') {
+                let (a, b) = match (gf.parse::<f64>(), pf.parse::<f64>()) {
+                    (Ok(a), Ok(b)) => (a, b),
+                    _ => return Err(format!("record {i}: {gf} against the pin's {pf}")),
+                };
+                if ulps(a, b) > LAYOUT_ULPS {
+                    return Err(format!(
+                        "record {i}: {gf} is {} ulps from the pin's {pf}",
+                        ulps(a, b)
+                    ));
+                }
+            } else if gf != pf {
+                return Err(format!(
+                    "record {i}, field {k}: {gf} where the pin has {pf}"
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The same for the manifest's JSON: every line byte for byte (its numbers
+/// are counts and versions, which no maths library touches) except the
+/// output hash's.
+fn json_layout_matches(got: &[u8], pin: &[u8]) -> Result<(), String> {
+    let got = std::str::from_utf8(got).map_err(|e| e.to_string())?;
+    let pin = std::str::from_utf8(pin).map_err(|e| e.to_string())?;
+    let (g, p): (Vec<&str>, Vec<&str>) = (got.split('\n').collect(), pin.split('\n').collect());
+    if g.len() != p.len() {
+        return Err(format!("{} lines, the pin has {}", g.len(), p.len()));
+    }
+    const KEY: &str = "  \"outputHash\": \"";
+    for (i, (gl, pl)) in g.iter().zip(&p).enumerate() {
+        if let Some(rest) = pl.strip_prefix(KEY) {
+            let tail = &rest[64..];
+            let hex = gl.strip_prefix(KEY).and_then(|r| r.strip_suffix(tail));
+            if !hex.is_some_and(is_hash) {
+                return Err(format!("line {i}: {gl} is not the hash line"));
+            }
+        } else if gl != pl {
+            return Err(format!("line {i}: {gl} where the pin has {pl}"));
+        }
+    }
+    Ok(())
 }
 
 #[test]
 fn the_export_bytes_are_pinned() {
     let (csv, json) = golden_case();
-    pinned("export_golden.csv", &csv);
-    pinned("export_golden_manifest.json", &json);
+    match platform_pins() {
+        Some((csv_pin, json_pin)) => {
+            let differ: Vec<String> = [pinned(csv_pin, &csv), pinned(json_pin, &json)]
+                .into_iter()
+                .flatten()
+                .collect();
+            assert!(differ.is_empty(), "{}", differ.join("\n"));
+        }
+        None => {
+            if let Err(e) = csv_layout_matches(&csv, &pin_bytes(MAC_CSV)) {
+                panic!(
+                    "{MAC_CSV}: the layout differs: {e}\n--- got ---\n{}",
+                    String::from_utf8_lossy(&csv)
+                );
+            }
+            if let Err(e) = json_layout_matches(&json, &pin_bytes(MAC_JSON)) {
+                panic!(
+                    "{MAC_JSON}: the layout differs: {e}\n--- got ---\n{}",
+                    String::from_utf8_lossy(&json)
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn the_layout_check_allows_a_few_ulps_and_nothing_else() {
+    let pin = pin_bytes(MAC_CSV);
+    let text = String::from_utf8(pin.clone()).expect("utf-8");
+    let altered = |old: &str, new: &str| -> Vec<u8> {
+        assert_eq!(text.matches(old).count(), 1, "{old} once in the pin");
+        text.replacen(old, new, 1).into_bytes()
+    };
+    // Positive controls: the pin itself, and Linux x86_64's real bytes.
+    assert_eq!(csv_layout_matches(&pin, &pin), Ok(()));
+    assert_eq!(
+        csv_layout_matches(&pin_bytes("export_golden.linux-x86_64.csv"), &pin),
+        Ok(()),
+        "Linux x86_64's bytes are within the layout"
+    );
+    let json_pin = pin_bytes(MAC_JSON);
+    assert_eq!(json_layout_matches(&json_pin, &json_pin), Ok(()));
+    assert_eq!(
+        json_layout_matches(
+            &pin_bytes("export_golden_manifest.linux-x86_64.json"),
+            &json_pin
+        ),
+        Ok(())
+    );
+    // Tukey's p, ctrl minus dose_hi, moved by n units in the last place.
+    let p = "0.0005305341793506271";
+    let moved = |n: u64| {
+        let v: f64 = p.parse().expect("a number");
+        format!("{}", f64::from_bits(v.to_bits() + n))
+    };
+    assert_eq!(csv_layout_matches(&altered(p, &moved(1)), &pin), Ok(()));
+    assert!(
+        csv_layout_matches(&altered(p, &moved(5)), &pin).is_err(),
+        "5 ulps off"
+    );
+    // A changed word: Tukey's first statistic called t.
+    let q = "\"tukey\",\"statistic\",\"0\",\"ctrl\",\"1\",\"dose_hi\",8.485903865445168,\"q\"";
+    let t = q.replace("\"q\"", "\"t\"");
+    assert!(
+        csv_layout_matches(&altered(q, &t), &pin).is_err(),
+        "a changed word"
+    );
+    // A missing line: Tukey's p line.
+    let line = format!("\"tukey\",\"p\",\"0\",\"ctrl\",\"1\",\"dose_hi\",{p},\"\"\r\n");
+    assert!(
+        csv_layout_matches(&altered(&line, ""), &pin).is_err(),
+        "a missing line"
+    );
+    // The output hash: any 64 lowercase hex characters, nothing else.
+    let hash = "17a33d382041ba12516c09cab05122567a03005f2c7f39b01b08283509c1e356";
+    assert!(csv_layout_matches(&altered(hash, &hash.to_uppercase()), &pin).is_err());
+    assert!(csv_layout_matches(&altered(hash, &hash[1..]), &pin).is_err());
 }
 
 #[test]

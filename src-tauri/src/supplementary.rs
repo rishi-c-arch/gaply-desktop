@@ -1507,13 +1507,29 @@ fn sav_evidence(
             .collect()
     };
     let rows = columns_to_rows(&columns, &mut notes, counted, limits);
+    // The header's case count when it gives one above 0. A header of 0 or -1
+    // (ambers maps a negative count to None) can have rows behind it, so then
+    // the count is the rows read; the scan stops one row past what the limits
+    // allow (read_sav_rows_with), and a read that stopped there is "more
+    // than" that many, never a count (Research OS, Phase 8H, decision 337c).
+    let cases = match meta.number_rows {
+        Some(n) if n > 0 => n.to_string(),
+        _ => {
+            let kept = meta.variable_names.len().min(limits.max_cols);
+            let allowed = rows_the_cells_allow(kept, limits);
+            if batch.num_rows() > allowed {
+                format!("more than {allowed}")
+            } else {
+                batch.num_rows().to_string()
+            }
+        }
+    };
     Ok(SupplementaryEvidence {
         file_name,
         kind: SupplementaryKind::Spss,
         text_summary: format!(
-            "SPSS file with {} variable(s) and {} case(s)",
-            headers.len(),
-            meta.number_rows.unwrap_or_default()
+            "SPSS file with {} variable(s) and {cases} case(s)",
+            headers.len()
         ),
         tables: vec![Table { headers, rows }],
         notes,

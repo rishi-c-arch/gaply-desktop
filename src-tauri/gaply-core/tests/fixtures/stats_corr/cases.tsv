@@ -1,0 +1,26 @@
+# written by: /usr/local/bin/Rscript make_corr_fixtures.R
+# R version 4.6.1 (2026-06-24)
+case	file	variables	coefficients	missing	missing_codes
+k2_n30	data_basic.csv	v01 v02	pearson spearman kendall	pairwise	-
+k10_n30	data_basic.csv	v01 v02 v03 v04 v05 v06 v07 v08 v09 v10	pearson spearman kendall	listwise	-
+k5_n30_pk	data_basic.csv	v02 v04 v06 v08 v10	pearson kendall	pairwise	-
+k5_n10	data_n10.csv	a b c d e	pearson spearman kendall	listwise	-
+n3	data_n3.csv	x y	pearson spearman kendall	pairwise	-
+n4	data_n4.csv	x y w	pearson spearman kendall	listwise	-
+n5	data_n5.csv	x y w	pearson spearman kendall	pairwise	-
+perfect	data_perfect.csv	x up down cube	pearson spearman kendall	listwise	-
+perfect_ties	data_perfect_ties.csv	a b c	pearson spearman kendall	pairwise	-
+pearson_ulp	data_ulp.csv	x y	pearson spearman kendall	pairwise	-
+spearman_ulp	data_spearman_ulp.csv	x y	pearson spearman kendall	pairwise	-
+near_one	data_near_one.csv	x y z	pearson spearman kendall	listwise	-
+ties	data_ties.csv	x y	pearson spearman kendall	pairwise	-
+likert	data_likert.csv	q1 q2 q3 q4 q5	pearson spearman kendall	listwise	-
+offset	data_offset.csv	a b c	pearson spearman kendall	pairwise	-
+missing_pairwise	data_missing.csv	p q r s	pearson spearman kendall	pairwise	-99
+missing_listwise	data_missing.csv	p q r s	pearson spearman kendall	listwise	-99
+missing_uncoded	data_missing.csv	p q s	spearman	pairwise	-
+constant	data_constant.csv	x k y	pearson spearman kendall	pairwise	-
+pair_few	data_pair_few.csv	x y z	pearson spearman kendall	pairwise	-
+listwise_refused	data_pair_few.csv	x y z	pearson spearman kendall	listwise	-
+small_p	data_small_p.csv	a b c	pearson spearman kendall	listwise	-
+big	-	x y	pearson spearman kendall	listwise	-

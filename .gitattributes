@@ -48,3 +48,6 @@ src/screens/citations/fixtures/endnote.ris   -text
 # normalising it to LF would fail that pin on every fresh clone (CI) while it
 # passed in the working copy, D113's shape.
 src-tauri/gaply-core/tests/fixtures/stats_anova/export_golden.csv -text
+# Research OS, Phase 8H addendum (decision 346): Linux x86_64's pin of the
+# same export, CRLF for the same reason.
+src-tauri/gaply-core/tests/fixtures/stats_anova/export_golden.linux-x86_64.csv -text

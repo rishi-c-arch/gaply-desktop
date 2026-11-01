@@ -80,6 +80,7 @@ pub mod stats_adapters;
 pub mod stats_anova;
 pub mod stats_assist;
 pub mod stats_chat;
+pub mod stats_corr;
 pub mod stats_desc;
 pub mod stats_dist;
 pub mod stats_l0;

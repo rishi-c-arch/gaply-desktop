@@ -531,6 +531,17 @@ pub fn pearson(x: &[f64], y: &[f64]) -> Result<CorrelationResult, GaplyError> {
     r_to_result(r, x.len(), "pearson")
 }
 
+/// [`pearson`] with r clamped to [−1, 1] before its t (Research OS, Phase
+/// 8H, decision 339; the correlations on the user's data). For collinear
+/// data `pearson_r` can return 1 ± one unit in the last place; at 1 + ulp
+/// [`pearson`] refuses (1 − r² is negative), where the clamp gives r = 1 and
+/// the exact boundary's infinite t. R's `cor` gives 1 there. [`pearson`] and
+/// every Level 1 caller are unchanged.
+pub fn pearson_clamped(x: &[f64], y: &[f64]) -> Result<CorrelationResult, GaplyError> {
+    let r = pearson_r(x, y)?.clamp(-1.0, 1.0);
+    r_to_result(r, x.len(), "pearson")
+}
+
 /// Average ranks (ties share the mean of the ranks they'd occupy).
 fn average_ranks(xs: &[f64]) -> Vec<f64> {
     let n = xs.len();

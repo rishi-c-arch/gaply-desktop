@@ -61,6 +61,13 @@ export const CAPABILITY_WORDS: Record<string, string> = {
   'stats.capability.limit.analyze.effect_sizes_have_no_interval': 'Eta squared and omega squared are shown without confidence intervals.',
   'stats.capability.limit.analyze.no_robust_means_trends_or_contrasts':
     'There is no Brown–Forsythe test of means, no trend test and no planned contrast.',
+  // Phase 8H (decisions 336 and 344): the correlations, Planned.
+  'stats.capability.analyze.correlations.title': 'Correlations on your data',
+  'stats.capability.analyze.correlations.description':
+    "Pearson's r, Spearman's rho and Kendall's tau-b between two or more numeric columns of your own data file, with each pair's n, p and 95% interval.",
+  'stats.capability.limit.analyze.pearson_normality_not_checked':
+    "Pearson's p and interval assume the two columns are roughly normal together; Gaply does not check.",
+  'stats.capability.limit.analyze.two_tailed_no_partial': 'p values are two-tailed only, and there are no partial correlations.',
 };
 
 /** The words for a code; a code with no entry is shown as itself, never

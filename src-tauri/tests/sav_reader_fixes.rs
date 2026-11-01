@@ -28,7 +28,9 @@ use app_lib::commands::run_stats_preview;
 use app_lib::runs::DatasetSlots;
 use app_lib::stats_desc_commands::open_with;
 use app_lib::stats_l1_ingest::load_dataset_from_bytes_with;
-use app_lib::supplementary::{parse_supplementary_with, IngestLimits, PARSER_VERSION};
+use app_lib::supplementary::{
+    parse_supplementary_bytes_with, parse_supplementary_with, IngestLimits, PARSER_VERSION,
+};
 use desc_support::TempDir;
 use gaply_core::research_project::DataFormat;
 use gaply_core::stats_l1::dataset::{Cell, Dataset, L1IngestRefusal, MissingRule};
@@ -427,4 +429,65 @@ fn a_type_field_of_minus_2_is_read_as_a_continuation_slot() {
         &want,
     );
     assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+/* ---- decision 337c -------------------------------------------------------- */
+
+/// The reviewer agent's summary line of a file whose header declares `cases`
+/// cases, with `rows` rows of two numbers behind it, read under `limits`.
+fn summary_line(cases: i32, rows: usize, limits: IngestLimits) -> String {
+    let values: Vec<Vec<f64>> = (0..rows)
+        .map(|r| vec![r as f64, (r * 2) as f64 + 0.5])
+        .collect();
+    let mut spec = sav_support::Spec::numbers(&["x", "y"], &values);
+    spec.cases = Some(cases);
+    parse_supplementary_bytes_with(&spec.bytes(), "sav", limits)
+        .expect("the file reads")
+        .text_summary
+}
+
+/// A header of -1 cases (ambers gives no count) with 20 rows behind it: the
+/// line counts the 20 rows read, never "0 case(s)".
+#[test]
+fn a_header_of_minus_1_cases_gives_the_cases_read_in_the_summary_line() {
+    assert_eq!(
+        summary_line(-1, 20, IngestLimits::SUPPLEMENTARY),
+        "SPSS file with 2 variable(s) and 20 case(s)"
+    );
+}
+
+/// A header of 0 cases with 20 rows behind it: the 20 rows read.
+#[test]
+fn a_header_of_0_cases_gives_the_cases_read_in_the_summary_line() {
+    assert_eq!(
+        summary_line(0, 20, IngestLimits::SUPPLEMENTARY),
+        "SPSS file with 2 variable(s) and 20 case(s)"
+    );
+}
+
+/// When the read stopped one row past what the limits allow, the count is
+/// not known, so the line says "more than" the rows allowed; a header with a
+/// positive count is still taken as it is.
+#[test]
+fn a_read_stopped_at_the_limit_says_more_than_and_a_positive_header_is_kept() {
+    let limits = IngestLimits {
+        max_rows: 10,
+        ..IngestLimits::SUPPLEMENTARY
+    };
+    assert_eq!(
+        summary_line(-1, 20, limits),
+        "SPSS file with 2 variable(s) and more than 10 case(s)"
+    );
+    assert_eq!(
+        summary_line(0, 11, limits),
+        "SPSS file with 2 variable(s) and more than 10 case(s)"
+    );
+    assert_eq!(
+        summary_line(0, 10, limits),
+        "SPSS file with 2 variable(s) and 10 case(s)"
+    );
+    assert_eq!(
+        summary_line(20, 20, limits),
+        "SPSS file with 2 variable(s) and 20 case(s)"
+    );
 }

@@ -369,3 +369,47 @@ fn a_rerun_puts_no_sentinel_anywhere_but_the_projects_artifacts_and_its_title() 
         left.len()
     );
 }
+
+/// The matrix's negative control (Research OS, Phase 8H, decision 337d): on
+/// a table of its own in which `61.8129` IS its group's maximum (95.5 moved
+/// to the other group, so the label's group is 10.5, 61.8129, 50 and 31),
+/// the one-way ANOVA's result holds it, as each group's min and max. With
+/// the matrix's own pass, this shows that the 8G-2 placement, not anything
+/// else, is what keeps the value out of the ANOVA's saved result.
+///
+/// It calls `stats_anova::compute` directly, with no command, no project and
+/// no tracing of its own: the test above owns the process's subscriber.
+/// `build_dataset` logs only its two counts.
+#[test]
+fn the_anova_result_holds_the_value_when_it_is_its_groups_maximum() {
+    use gaply_core::stats_l1::dataset::{build_dataset, DataFingerprint, RawTable, TableRef};
+    let score = [
+        "44.1257", "10.5", "95.5", SEL_NUM, "23.25", "50", "82", "31", "70.75",
+    ];
+    let group = ["a", LVL, "a", LVL, "a", LVL, "a", LVL, "a"];
+    let rows: Vec<Vec<String>> = (0..9)
+        .map(|i| vec![score[i].to_string(), group[i].to_string()])
+        .collect();
+    let d = build_dataset(
+        RawTable::from_rows(vec![HDR.into(), "group".into()], rows),
+        DataFingerprint::of_bytes(b"negative control", "test", TableRef::FirstTable),
+    )
+    .expect("dataset");
+    let alias = |i: usize| Alias(d.schema.columns[i].alias);
+    let result = stats_anova::compute(
+        &d,
+        &AnovaParams {
+            outcome: alias(0),
+            group: alias(1),
+            levels: None,
+            post_hoc: Vec::new(),
+            missing_codes: Vec::new(),
+        },
+    )
+    .expect("the ANOVA computes");
+    let bytes = serde_json::to_vec(&result).unwrap();
+    assert!(
+        found(&bytes).contains(&SEL_NUM),
+        "61.8129 is its group's maximum here, so the result must hold it"
+    );
+}

@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "capabilityId": "stats.analyze.one_way_anova",
+  "capabilityVersion": 1,
+  "engineVersion": 1,
+  "inputs": [
+    "a9edebdb05a5acc833376fe24bc9602cd6a9fd5c25495c6784f907bf26207ad0"
+  ],
+  "parametersHash": "a16865e22770cf447e72d68eaebf010850ac5748da0eb5c1b6ef0d7bb75cfea4",
+  "seed": null,
+  "rowsRead": 15,
+  "rowsUsed": 12,
+  "exclusions": [
+    {
+      "code": "stats.anova.missing_group",
+      "count": 1,
+      "params": {
+        "column": 2
+      }
+    },
+    {
+      "code": "stats.anova.missing_outcome",
+      "count": 1,
+      "params": {
+        "column": 1
+      }
+    },
+    {
+      "code": "stats.anova.missing_code",
+      "count": 1,
+      "params": {
+        "column": 1
+      }
+    }
+  ],
+  "platform": {
+    "os": "macos",
+    "arch": "aarch64"
+  },
+  "elapsedMs": 0,
+  "outputHash": "f444175904c53095dbf6e02151e096829a998e9a5ce6d03d77e2c529e01fdd74",
+  "reproducibility": "bitwise"
+}

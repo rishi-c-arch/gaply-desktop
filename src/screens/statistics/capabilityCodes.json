@@ -1,4 +1,6 @@
 [
+  "stats.capability.analyze.correlations.description",
+  "stats.capability.analyze.correlations.title",
   "stats.capability.analyze.independent_t.description",
   "stats.capability.analyze.independent_t.title",
   "stats.capability.analyze.one_sample_t.description",
@@ -18,6 +20,8 @@
   "stats.capability.limit.analyze.levels_follow_level_1",
   "stats.capability.limit.analyze.no_robust_means_trends_or_contrasts",
   "stats.capability.limit.analyze.normality_not_assessed",
+  "stats.capability.limit.analyze.pearson_normality_not_checked",
+  "stats.capability.limit.analyze.two_tailed_no_partial",
   "stats.capability.limit.analyze.values_normality_not_assessed",
   "stats.capability.limit.check.summary_methods_not_on_manuscripts",
   "stats.capability.limit.check.tables_from_docx_only",

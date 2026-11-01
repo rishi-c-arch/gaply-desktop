@@ -116,12 +116,37 @@ const diagnostic = (codes: readonly string[], keys: readonly string[], strings: 
 const exclusion = (codes: readonly string[], keys: readonly string[], strings: boolean) => (v: unknown) =>
   isObject(v) && oneOf(v.code, codes) && isCount(v.count) && params(v.params, keys, strings);
 
+/** An exclusion that, when its code is one of `named`, names its column: the
+ *  codes on which the method's Rust sets a column every time, at every
+ *  commit that wrote stored results of it, so a stored one without it is not
+ *  one Rust wrote (decision 337b). A code not listed may name one or not. */
+const exclusionNaming =
+  (codes: readonly string[], keys: readonly string[], strings: boolean, named: readonly string[]) => (v: unknown) =>
+    exclusion(codes, keys, strings)(v) &&
+    isObject(v) &&
+    (named.indexOf(v.code as string) < 0 || (isObject(v.params) && isCount(v.params.column)));
+
+/* Each method's exclusions, and the codes of them that always name their
+ * column (decision 337b; measured in each module's history, 1 Nov 2026):
+ * stats_desc's manifest since 9c54030, stats_ttest's since ee244bc, and
+ * stats_onesample's since 04d8705, where the paired's missing_code names no
+ * column (a code in either column names neither). */
+const DESC_EXCLUSION = exclusionNaming(DESC_CODES, DESC_PARAM_KEYS, true, ['stats.desc.missing_cell', 'stats.desc.missing_code']);
+const T_EXCLUSION = exclusionNaming(T_CODES, T_PARAM_KEYS, false, [
+  'stats.ttest.missing_group',
+  'stats.ttest.other_level',
+  'stats.ttest.missing_outcome',
+  'stats.ttest.missing_code',
+]);
+const OS_EXCLUSION = exclusionNaming(OS_CODES, OS_PARAM_KEYS, false, ['stats.onesample.missing_value', 'stats.onesample.missing_code']);
+const PAIRED_EXCLUSION = exclusionNaming(OS_CODES, OS_PARAM_KEYS, false, ['stats.onesample.missing_first', 'stats.onesample.missing_second']);
+
 function reproducibility(v: unknown): boolean {
   if (v === 'bitwise' || v === 'not_reproducible') return true;
   return isObject(v) && isObject(v.within_tolerance) && isNum(v.within_tolerance.relative);
 }
 
-function manifest(v: unknown, capability: string, codes: readonly string[], keys: readonly string[], strings: boolean): boolean {
+function manifest(v: unknown, capability: string, excluded: (e: unknown) => boolean): boolean {
   return (
     isObject(v) &&
     v.schemaVersion === KNOWN_SCHEMA_VERSION &&
@@ -133,7 +158,7 @@ function manifest(v: unknown, capability: string, codes: readonly string[], keys
     (v.seed === null || isNum(v.seed)) &&
     isCount(v.rowsRead) &&
     isCount(v.rowsUsed) &&
-    arrayOf(v.exclusions, exclusion(codes, keys, strings)) &&
+    arrayOf(v.exclusions, excluded) &&
     isObject(v.platform) &&
     oneOf(v.platform.os, ['macos', 'windows', 'linux', 'other']) &&
     oneOf(v.platform.arch, ['aarch64', 'x86_64', 'other']) &&
@@ -182,7 +207,7 @@ function summaryBundle(v: O): ResultBundleView | null {
     arrayOf(v.primaryOutputs.columns, column) &&
     arrayOf(v.diagnostics, d) &&
     arrayOf(v.limitations, d) &&
-    manifest(v.manifest, SUMMARY_CAPABILITY, DESC_CODES, DESC_PARAM_KEYS, true);
+    manifest(v.manifest, SUMMARY_CAPABILITY, DESC_EXCLUSION);
   if (!ok) return null;
   // The same props the live screen gets: Rust's stats_desc_commands::result
   // makes its view from the bundle in exactly this way.
@@ -216,11 +241,11 @@ function ttestBundle(v: O): TTestResultView | null {
     r.groups.length === 2 &&
     r.groups.every(group) &&
     tStat(r.sdRatio) &&
-    arrayOf(r.exclusions, exclusion(T_CODES, T_PARAM_KEYS, false)) &&
+    arrayOf(r.exclusions, T_EXCLUSION) &&
     arrayOf(r.limitations, (c) => oneOf(c, T_CODES)) &&
     arrayOf(v.diagnostics, d) &&
     arrayOf(v.limitations, d) &&
-    manifest(v.manifest, TTEST_CAPABILITY, T_CODES, T_PARAM_KEYS, false);
+    manifest(v.manifest, TTEST_CAPABILITY, T_EXCLUSION);
   if (!ok) return null;
   // As Rust's stats_ttest_commands::result makes the live view.
   return {
@@ -243,11 +268,11 @@ function oneSampleBundle(v: O): OneSampleResultView | null {
     isObject(r) &&
     isCount(r.n) &&
     [r.mean, r.sd, r.testValue, r.t, r.df, r.p, r.meanDifference, r.standardError, r.confidenceLevel, r.ciLower, r.ciUpper, r.cohensD].every(isNum) &&
-    arrayOf(r.exclusions, exclusion(OS_CODES, OS_PARAM_KEYS, false)) &&
+    arrayOf(r.exclusions, OS_EXCLUSION) &&
     arrayOf(r.limitations, (c) => oneOf(c, OS_CODES)) &&
     arrayOf(v.diagnostics, d) &&
     arrayOf(v.limitations, d) &&
-    manifest(v.manifest, ONE_SAMPLE_CAPABILITY, OS_CODES, OS_PARAM_KEYS, false);
+    manifest(v.manifest, ONE_SAMPLE_CAPABILITY, OS_EXCLUSION);
   if (!ok) return null;
   // As Rust's stats_onesample_commands::result_one_sample makes the live view.
   return {
@@ -274,11 +299,11 @@ function pairedBundle(v: O): PairedResultView | null {
     columnStats(r.first) &&
     columnStats(r.second) &&
     [r.t, r.df, r.p, r.meanDifference, r.sdDifferences, r.standardError, r.confidenceLevel, r.ciLower, r.ciUpper, r.cohensDz].every(isNum) &&
-    arrayOf(r.exclusions, exclusion(OS_CODES, OS_PARAM_KEYS, false)) &&
+    arrayOf(r.exclusions, PAIRED_EXCLUSION) &&
     arrayOf(r.limitations, (c) => oneOf(c, OS_CODES)) &&
     arrayOf(v.diagnostics, d) &&
     arrayOf(v.limitations, d) &&
-    manifest(v.manifest, PAIRED_CAPABILITY, OS_CODES, OS_PARAM_KEYS, false);
+    manifest(v.manifest, PAIRED_CAPABILITY, PAIRED_EXCLUSION);
   if (!ok) return null;
   // As Rust's stats_onesample_commands::result_paired makes the live view.
   return {
@@ -347,8 +372,7 @@ function anovaBundle(v: O): AnovaResultView | null {
     arrayOf(r.limitations, anCode) &&
     arrayOf(v.diagnostics, d) &&
     arrayOf(v.limitations, d) &&
-    manifest(v.manifest, ANOVA_CAPABILITY, AN_CODES, AN_PARAM_KEYS, false) &&
-    arrayOf((v.manifest as O).exclusions, anExclusion);
+    manifest(v.manifest, ANOVA_CAPABILITY, anExclusion);
   if (!ok) return null;
   // As Rust's stats_anova_commands::result makes the live view.
   return {

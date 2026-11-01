@@ -181,6 +181,17 @@ pub fn normal_quantile_975() -> f64 {
         .inverse_cdf(UPPER_TAIL_POINT)
 }
 
+/// The two-tailed p of a standard normal z, P(|Z| ≥ |z|) = erfc(|z| / √2),
+/// with statrs's `erfc` (the function Hill's large-df p already uses), never
+/// as 2 · (1 − Φ(|z|)), which cancels to 0 below p ≈ 1e-16 (Phase 8H,
+/// decision 339; Kendall's tau-b's p). Measured against R's
+/// `2 * pnorm(-abs(z))` in `tests/corr_r_golden.rs` from z 0 to 40, p from 1
+/// down past 1e-300 to 0 (the gate and its measurement are there). A z that
+/// is NaN gives NaN; an infinite one gives 0.
+pub fn normal_two_tailed(z: f64) -> f64 {
+    erfc(z.abs() / SQRT_2)
+}
+
 /// The upper 97.5% point of Student's t by Abramowitz and Stegun 26.7.5,
 /// four terms, about x = [`normal_quantile_975`] (the module doc). Public so
 /// the reference test can check the coefficients at df 1e3, 2,500 and

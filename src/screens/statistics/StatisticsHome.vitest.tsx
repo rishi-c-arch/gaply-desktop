@@ -175,6 +175,22 @@ describe('StatisticsHome', () => {
     expect(screen.queryByTestId('stats-no-route-stats.analyze.one_way_anova')).toBeNull();
   });
 
+  // Research OS, Phase 8H (decision 344): the correlations are Planned, so the
+  // home names them on the roadmap and offers no way to open or run them.
+  it('lists the Planned correlations on the roadmap only, with no card and no open', async () => {
+    renderHome([
+      cap('stats.describe', 'beta', true, 'stats.capability.describe.title'),
+      cap('stats.analyze.correlations', 'planned', false, 'stats.capability.analyze.correlations.title'),
+    ]);
+    const roadmap = await screen.findByTestId('stats-roadmap');
+    expect(within(roadmap).getByTestId('stats-roadmap-stats.analyze.correlations').textContent).toBe('Correlations on your data');
+    expect(within(roadmap).queryAllByRole('link')).toHaveLength(0);
+    expect(within(roadmap).queryAllByRole('button')).toHaveLength(0);
+    expect(screen.queryByTestId('stats-card-stats.analyze.correlations')).toBeNull();
+    expect(screen.queryByTestId('stats-open-stats.analyze.correlations')).toBeNull();
+    expect(screen.queryByTestId('stats-no-route-stats.analyze.correlations')).toBeNull();
+  });
+
   // Research OS, Phase 8G-2 (decisions 331 and 333): Beta and runnable, with
   // its screen, the one-way ANOVA has its own card, its limitations from the
   // descriptor, and a link to its route, where "no screen of its own here
