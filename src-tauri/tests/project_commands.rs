@@ -1018,6 +1018,11 @@ fn every_response_serialises_to_its_fixture() {
                 rerun_of: None,
                 comparison: None,
                 engine_version_differs: None,
+                // Phase 8I (decision 366): absent, so the fixture's bytes stand.
+                platform: None,
+                repeated_platform: None,
+                platform_differs: None,
+                numbers_agree_to_last_digits: None,
             },
             StoredRunView {
                 // Phase 5C-1a (decision 189): a rerun, compared.
@@ -1033,6 +1038,11 @@ fn every_response_serialises_to_its_fixture() {
                 rerun_of: Some(1),
                 comparison: Some(RerunComparison::Identical),
                 engine_version_differs: Some(false),
+                // Phase 8I (decision 366): absent, so the fixture's bytes stand.
+                platform: None,
+                repeated_platform: None,
+                platform_differs: None,
+                numbers_agree_to_last_digits: None,
             },
         ],
     );

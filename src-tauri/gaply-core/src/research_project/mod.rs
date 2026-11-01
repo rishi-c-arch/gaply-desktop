@@ -36,7 +36,8 @@ pub use self::render::{
 };
 
 use crate::contracts::codes::{closed, Closed};
-use crate::contracts::{CapabilityId, ContentHash, RunState, WorkspaceId};
+use crate::contracts::{CapabilityId, ContentHash, Platform, RunState, WorkspaceId};
+use serde_json::Value;
 
 /// `project.db`'s schema version, kept in `PRAGMA user_version`. Version 2
 /// (Phase 5C-1a, decision 186) adds `runs.rerun_of`; a project at an older
@@ -556,6 +557,86 @@ pub fn compare_rerun(
     }
 }
 
+/// How far apart, in units in the last place, two numbers of a rerun's
+/// result and the result it repeats may be and still agree to their last
+/// digits (Research OS, Phase 8I, decision 366; decision 346's tolerance).
+pub const LAST_DIGITS_ULPS: u64 = 4;
+
+/// The parts of a result bundle that decision 366 compares. Never `runId`
+/// or the manifest, whose platform, elapsed time and output hash differ by
+/// design.
+pub const LAST_DIGITS_PARTS: [&str; 4] = ["primaryOutputs", "diagnostics", "limitations", "status"];
+
+/// Whether a rerun ran on another kind of computer than the run it repeats
+/// (decision 366), from each manifest's platform; `None` unless both name
+/// one, as a manifest written before the platform was recorded does not.
+pub fn platforms_differ(rerun: Option<Platform>, original: Option<Platform>) -> Option<bool> {
+    Some(rerun? != original?)
+}
+
+/// For a rerun whose output hash differs from the run it repeats and which
+/// ran on another kind of computer, whether the two results agree to their
+/// last digits (decision 366): [`LAST_DIGITS_PARTS`] of each bundle, the
+/// same structure, every word and flag equal, each number within
+/// [`LAST_DIGITS_ULPS`]. A fact about two results, never a verdict on
+/// either. `None` when the output hashes do not differ, the platforms are
+/// not known to differ, or a bundle cannot be read or lacks a part.
+pub fn numbers_agree_to_last_digits(
+    comparison: RerunComparison,
+    platform_differs: Option<bool>,
+    rerun: Option<&Value>,
+    original: Option<&Value>,
+) -> Option<bool> {
+    if comparison != RerunComparison::Different || platform_differs != Some(true) {
+        return None;
+    }
+    let (rerun, original) = (rerun?, original?);
+    let mut agree = true;
+    for part in LAST_DIGITS_PARTS {
+        agree &= agree_to_last_digits(rerun.get(part)?, original.get(part)?);
+    }
+    Some(agree)
+}
+
+/// The same structure, every word, flag and null equal, and each number
+/// within [`LAST_DIGITS_ULPS`] of the other's.
+fn agree_to_last_digits(a: &Value, b: &Value) -> bool {
+    match (a, b) {
+        (Value::Number(x), Value::Number(y)) => match (x.as_f64(), y.as_f64()) {
+            (Some(x), Some(y)) => ulps_apart(x, y) <= LAST_DIGITS_ULPS,
+            _ => x == y,
+        },
+        (Value::Array(x), Value::Array(y)) => {
+            x.len() == y.len() && x.iter().zip(y).all(|(x, y)| agree_to_last_digits(x, y))
+        }
+        (Value::Object(x), Value::Object(y)) => {
+            x.len() == y.len()
+                && x.iter()
+                    .all(|(k, v)| y.get(k).is_some_and(|w| agree_to_last_digits(v, w)))
+        }
+        _ => a == b,
+    }
+}
+
+/// The doubles between `x` and `y`, counted through zero, so -0 and +0 are
+/// 0 apart; `u64::MAX` when either is not finite (JSON holds none).
+fn ulps_apart(x: f64, y: f64) -> u64 {
+    if !(x.is_finite() && y.is_finite()) {
+        return u64::MAX;
+    }
+    // Each double's place on one line of integers: the bits of a positive
+    // one, minus those of its magnitude for a negative one.
+    let place = |v: f64| {
+        let bits = (v.to_bits() & !(1 << 63)) as i128;
+        if v.is_sign_negative() {
+            -bits
+        } else {
+            bits
+        }
+    };
+    (place(x) - place(y)).unsigned_abs().min(u64::MAX as u128) as u64
+}
+
 /// The project's own row.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProjectRecord {
@@ -1018,5 +1099,150 @@ mod tests {
             assert_eq!(workspace_from_word(workspace_word(w)), Some(w));
         }
         assert_eq!(workspace_from_word("stats"), None);
+    }
+
+    fn platform(os: crate::contracts::Os, arch: crate::contracts::Arch) -> Platform {
+        Platform { os, arch }
+    }
+
+    /// Decision 366: known only when both manifests name a platform.
+    #[test]
+    fn platforms_differ_only_when_both_are_known() {
+        use crate::contracts::{Arch, Os};
+        let mac = platform(Os::Macos, Arch::Aarch64);
+        let linux = platform(Os::Linux, Arch::X86_64);
+        let mac_intel = platform(Os::Macos, Arch::X86_64);
+        assert_eq!(platforms_differ(Some(mac), Some(linux)), Some(true));
+        assert_eq!(platforms_differ(Some(mac), Some(mac_intel)), Some(true));
+        assert_eq!(platforms_differ(Some(mac), Some(mac)), Some(false));
+        assert_eq!(platforms_differ(None, Some(mac)), None);
+        assert_eq!(platforms_differ(Some(mac), None), None);
+    }
+
+    /// A bundle whose one number `x` is `ulps` units in the last place from
+    /// 0.1, with a runId and a manifest of its own.
+    fn bundle(ulps: i64, run_id: u64, platform: &str) -> Value {
+        let x = f64::from_bits((0.1f64.to_bits() as i64 + ulps) as u64);
+        serde_json::json!({
+            "schemaVersion": 1,
+            "runId": run_id,
+            "status": "succeeded",
+            "primaryOutputs": [{"stat": "mean", "value": x, "n": 9}, {"stat": "sd", "value": null, "code": "x.y"}],
+            "diagnostics": [],
+            "limitations": ["stats.desc.l1"],
+            "manifest": {"platform": platform, "elapsedMs": run_id * 7, "outputHash": run_id.to_string()},
+        })
+    }
+
+    /// Decision 366: within 4 ulps agree, 5 do not; runId and the manifest
+    /// are never compared; a word, a flag, a key or a length that differs is
+    /// not agreement; nothing is said unless both conditions hold.
+    #[test]
+    fn numbers_agree_to_their_last_digits_within_four_ulps() {
+        let different = RerunComparison::Different;
+        let saved = bundle(0, 1, "linux");
+        let agree =
+            |b: &Value| numbers_agree_to_last_digits(different, Some(true), Some(b), Some(&saved));
+        assert_eq!(agree(&bundle(0, 2, "macos")), Some(true));
+        assert_eq!(agree(&bundle(1, 2, "macos")), Some(true));
+        assert_eq!(agree(&bundle(-4, 2, "macos")), Some(true));
+        assert_eq!(agree(&bundle(4, 2, "macos")), Some(true));
+        assert_eq!(agree(&bundle(5, 2, "macos")), Some(false));
+        assert_eq!(agree(&bundle(-5, 2, "macos")), Some(false));
+        let changed = |f: &dyn Fn(&mut Value)| {
+            let mut b = bundle(0, 2, "macos");
+            f(&mut b);
+            agree(&b)
+        };
+        assert_eq!(changed(&|b| b["status"] = "failed".into()), Some(false));
+        assert_eq!(
+            changed(&|b| b["limitations"] = serde_json::json!([])),
+            Some(false)
+        );
+        assert_eq!(
+            changed(&|b| b["primaryOutputs"][1]["code"] = "x.z".into()),
+            Some(false)
+        );
+        assert_eq!(
+            changed(&|b| b["primaryOutputs"][1]["value"] = 0.1.into()),
+            Some(false)
+        );
+        assert_eq!(
+            changed(&|b| b["primaryOutputs"][0]["n"] = 10.into()),
+            Some(false)
+        );
+        assert_eq!(
+            changed(&|b| b["primaryOutputs"][0]
+                .as_object_mut()
+                .unwrap()
+                .remove("n")
+                .map(|_| ())
+                .unwrap()),
+            Some(false)
+        );
+        assert_eq!(
+            changed(&|b| b["diagnostics"] = serde_json::json!([1])),
+            Some(false)
+        );
+        // runId and the manifest differ by design and are never read.
+        assert_eq!(
+            changed(&|b| b["manifest"] = serde_json::json!({"anything": [1, 2]})),
+            Some(true)
+        );
+        assert_eq!(changed(&|b| b["runId"] = 99.into()), Some(true));
+        // A part missing from either: not compared.
+        assert_eq!(
+            changed(&|b| b
+                .as_object_mut()
+                .unwrap()
+                .remove("diagnostics")
+                .map(|_| ())
+                .unwrap()),
+            None
+        );
+        assert_eq!(agree(&serde_json::json!({"test": "bundle"})), None);
+        // Not said unless the hashes differ and the platforms do.
+        let near = bundle(1, 2, "macos");
+        for (c, p) in [
+            (RerunComparison::Identical, Some(true)),
+            (RerunComparison::NotCompared, Some(true)),
+            (different, Some(false)),
+            (different, None),
+        ] {
+            assert_eq!(
+                numbers_agree_to_last_digits(c, p, Some(&near), Some(&saved)),
+                None,
+                "{c:?} {p:?}"
+            );
+        }
+        assert_eq!(
+            numbers_agree_to_last_digits(different, Some(true), None, Some(&saved)),
+            None
+        );
+        assert_eq!(
+            numbers_agree_to_last_digits(different, Some(true), Some(&near), None),
+            None
+        );
+    }
+
+    /// Across zero and between signs, the distance is counted through zero:
+    /// -0 and +0 agree, and the smallest subnormals either side are 2 apart.
+    #[test]
+    fn the_last_digits_count_through_zero() {
+        let one = |x: f64, y: f64| {
+            let b = |v: f64| serde_json::json!({"status": "succeeded", "primaryOutputs": [v], "diagnostics": [], "limitations": []});
+            numbers_agree_to_last_digits(
+                RerunComparison::Different,
+                Some(true),
+                Some(&b(x)),
+                Some(&b(y)),
+            )
+        };
+        let tiny = f64::from_bits(1);
+        assert_eq!(one(0.0, -0.0), Some(true));
+        assert_eq!(one(tiny, -tiny), Some(true));
+        assert_eq!(one(2.0 * tiny, -3.0 * tiny), Some(false));
+        assert_eq!(one(1.0, -1.0), Some(false));
+        assert_eq!(one(1e300, 1e300), Some(true));
     }
 }

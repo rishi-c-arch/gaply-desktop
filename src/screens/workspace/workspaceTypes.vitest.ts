@@ -51,6 +51,7 @@ const list = [
       'stats.analyze.paired_t',
       'stats.analyze.one_way_anova',
       'stats.analyze.correlations',
+      'stats.analyze.cronbach_alpha',
     ],
     supportsOffline: true,
     supportedPlatforms: ['macos', 'windows', 'linux'],

@@ -1,0 +1,46 @@
+# written by: /usr/local/bin/Rscript make_alpha_fixtures.R
+# R version 4.6.1 (2026-06-24)
+# psych 2.6.9
+big (100,000 rows, 5 items): R took 0.1 s
+qf beside the oracle, p 0.025 df1 2 df2 1e+07: oracle 3.6888808148974332, qf 3.688879454113934, relative 3.69e-07; pf at the oracle's root 0.025000000000000001
+qf beside the oracle, p 0.975 df1 2 df2 1e+07: oracle 0.025317808048389092, qf 0.025317807984289897, relative 2.53e-09; pf at the oracle's root 0.97499999999999987
+qf beside the oracle, p 0.5 df1 2 df2 1e+07: oracle 0.69314722860524869, qf 0.69314718055994529, relative 6.93e-08; pf at the oracle's root 0.50000000000000022
+qf beside the oracle, p 0.025 df1 4 df2 1e+07: oracle 2.7858229690481164, qf 2.7858216954694495, relative 4.57e-07; pf at the oracle's root 0.025000000000000036
+qf beside the oracle, p 0.975 df1 4 df2 1e+07: oracle 0.12110463009478714, qf 0.12110463927198251, relative 7.58e-08; pf at the oracle's root 0.97499999999999987
+qf beside the oracle, p 0.5 df1 4 df2 1e+07: oracle 0.83917355193341603, qf 0.83917349500833049, relative 6.78e-08; pf at the oracle's root 0.50000000000000089
+qf beside the oracle, p 0.025 df1 9 df2 1e+07: oracle 2.1136421371067167, qf 2.1136408665157371, relative 6.01e-07; pf at the oracle's root 0.025000000000000008
+qf beside the oracle, p 0.975 df1 9 df2 1e+07: oracle 0.30004321327215738, qf 0.30004327777559542, relative 2.15e-07; pf at the oracle's root 0.97499999999999987
+qf beside the oracle, p 0.5 df1 9 df2 1e+07: oracle 0.92698147248937701, qf 0.9269814102503281, relative 6.71e-08; pf at the oracle's root 0.50000000000000022
+qf beside the oracle, p 0.025 df1 29 df2 1e+07: oracle 1.576632020877915, qf 1.5766305449715359, relative 9.36e-07; pf at the oracle's root 0.024999999999999974
+qf beside the oracle, p 0.975 df1 29 df2 1e+07: oracle 0.55334699680184352, qf 0.55334729984016851, relative 5.48e-07; pf at the oracle's root 0.97499999999999987
+qf beside the oracle, p 0.5 df1 29 df2 1e+07: oracle 0.97710788826267414, qf 0.97710782298567045, relative 6.68e-08; pf at the oracle's root 0.5
+qf beside the oracle, p 0.025 df1 99 df2 1e+07: oracle 1.297193842497945, qf 1.2971918044832351, relative 1.57e-06; pf at the oracle's root 0.02499999999999997
+qf beside the oracle, p 0.975 df1 99 df2 1e+07: oracle 0.74102013618928819, qf 0.74102101203316828, relative 1.18e-06; pf at the oracle's root 0.97500000000000009
+qf beside the oracle, p 0.5 df1 99 df2 1e+07: oracle 0.99327418074784191, qf 0.99327411448963587, relative 6.67e-08; pf at the oracle's root 0.50000000000000122
+qf beside the oracle, p 0.025 df1 199 df2 1e+07: oracle 1.2058301369623206, qf 1.2058275468725839, relative 2.15e-06; pf at the oracle's root 0.025000000000000043
+qf beside the oracle, p 0.975 df1 199 df2 1e+07: oracle 0.81319546629750838, qf 0.81319689645048654, relative 1.76e-06; pf at the oracle's root 0.97499999999999987
+qf beside the oracle, p 0.5 df1 199 df2 1e+07: oracle 0.99665198524933718, qf 0.99665191878601356, relative 6.67e-08; pf at the oracle's root 0.49999999999999967
+qf beside the oracle, p 0.025 df1 999 df2 1e+07: oracle 1.0895816283717048, qf 1.0895766443703057, relative 4.57e-06; pf at the oracle's root 0.025000000000000029
+qf beside the oracle, p 0.975 df1 999 df2 1e+07: oracle 0.91421138767814314, qf 0.91421521351562907, relative 4.18e-06; pf at the oracle's root 0.97499999999999998
+qf beside the oracle, p 0.5 df1 999 df2 1e+07: oracle 0.99933281185395639, qf 0.99933274522781579, relative 6.67e-08; pf at the oracle's root 0.49999999999999989
+qf beside the oracle, p 0.025 df1 9999 df2 489951: oracle 1.0282018225514338, qf 1.0279084228679816, relative 0.000285; pf at the oracle's root 0.025000000000000626
+qf beside the oracle, p 0.975 df1 9999 df2 489951: oracle 0.97220070145460624, qf 0.97247047074857396, relative 0.000277; pf at the oracle's root 0.97499999999999976
+qf beside the oracle, p 0.5 df1 9999 df2 489951: oracle 0.99993468805516861, qf 0.99993332745633912, relative 1.36e-06; pf at the oracle's root 0.50000000000000444
+qf beside the oracle, p 0.025 df1 9999 df2 1.0099e+06: oracle 1.028051119695055, qf 1.0279084228679816, relative 0.000139; pf at the oracle's root 0.025000000000000893
+qf beside the oracle, p 0.975 df1 9999 df2 1.0099e+06: oracle 0.97233923813491341, qf 0.97247047074857396, relative 0.000135; pf at the oracle's root 0.97500000000000031
+qf beside the oracle, p 0.5 df1 9999 df2 1.0099e+06: oracle 0.99993398754854024, qf 0.99993332745633912, relative 6.6e-07; pf at the oracle's root 0.49999999999999822
+qf beside the oracle, p 0.025 df1 9999 df2 1e+07: oracle 1.0279228644199416, qf 1.0279084228679816, relative 1.4e-05; pf at the oracle's root 0.025000000000000494
+qf beside the oracle, p 0.975 df1 9999 df2 1e+07: oracle 0.97245718696338901, qf 0.97247047074857396, relative 1.37e-05; pf at the oracle's root 0.97499999999999964
+qf beside the oracle, p 0.5 df1 9999 df2 1e+07: oracle 0.99993339411895887, qf 0.99993332745633912, relative 6.67e-08; pf at the oracle's root 0.500000000000003
+qf beside the oracle, p 0.025 df1 99999 df2 899991: oracle 1.0092647944943154, qf 1.0087841970723128, relative 0.000476; pf at the oracle's root 0.024999999999997739
+qf beside the oracle, p 0.975 df1 99999 df2 899991: oracle 0.99078595574840966, qf 0.99125368936968039, relative 0.000472; pf at the oracle's root 0.97500000000000009
+qf beside the oracle, p 0.5 df1 99999 df2 899991: oracle 0.99999407401857965, qf 0.99999333327456741, relative 7.41e-07; pf at the oracle's root 0.49999999999999456
+qf beside the oracle, p 0.025 df1 99999 df2 1.89998e+06: oracle 1.0090149645018822, qf 1.0087841970723128, relative 0.000229; pf at the oracle's root 0.02500000000000506
+qf beside the oracle, p 0.975 df1 99999 df2 1.89998e+06: oracle 0.99102901530908538, qf 0.99125368936968039, relative 0.000227; pf at the oracle's root 0.97499999999999831
+qf beside the oracle, p 0.5 df1 99999 df2 1.89998e+06: oracle 0.99999368415321843, qf 0.99999333327456741, relative 3.51e-07; pf at the oracle's root 0.49999999999999678
+qf beside the oracle, p 0.025 df1 99999 df2 4.89995e+06: oracle 1.0088743733287253, qf 1.0087841970723128, relative 8.94e-05; pf at the oracle's root 0.025000000000002017
+qf beside the oracle, p 0.975 df1 99999 df2 4.89995e+06: oracle 0.99116587584596871, qf 0.99125368936968039, relative 8.86e-05; pf at the oracle's root 0.97500000000000075
+qf beside the oracle, p 0.5 df1 99999 df2 4.89995e+06: oracle 0.99999346932953537, qf 0.99999333327456741, relative 1.36e-07; pf at the oracle's root 0.49999999999999845
+qf beside the oracle, p 0.025 df1 99999 df2 1e+07: oracle 1.0088284953045599, qf 1.0087841970723128, relative 4.39e-05; pf at the oracle's root 0.024999999999998194
+qf beside the oracle, p 0.975 df1 99999 df2 1e+07: oracle 0.99121054886452986, qf 0.99125368936968039, relative 4.35e-05; pf at the oracle's root 0.97499999999999964
+qf beside the oracle, p 0.5 df1 99999 df2 1e+07: oracle 0.99999339994083203, qf 0.99999333327456741, relative 6.67e-08; pf at the oracle's root 0.49999999999999123

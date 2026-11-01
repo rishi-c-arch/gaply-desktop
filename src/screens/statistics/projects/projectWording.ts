@@ -13,6 +13,7 @@ import { workspaceSentence } from '../../workspace/workspaceWording';
 import { methodFor } from '../methods';
 import type { NameRefusal } from './projectName';
 import { PROJECT_CODES, type ProjectCode, type ProjectRefusalView, type StoredRunView } from './projectTypes';
+import type { Platform } from '../describeTypes';
 
 /* ---- decision 133, word for word ------------------------------------------ */
 
@@ -289,14 +290,25 @@ export const EXPORT_WORDS = {
 export const RERUN_SENTENCE =
   'Run this again? Gaply runs the same method, with the same settings, on the copy of the data file kept in this project. When it finishes, the new run is saved in this project, beside the saved one, which does not change.';
 
-/** A rerun's words (decisions 191 and 198). Each states a fact about two
- *  saved runs' output hashes or engine versions; none passes a verdict. */
+/** A platform's words (decision 366), for the values the manifest gives
+ *  (research_project's render.rs). */
+const OS_WORDS: Record<Platform['os'], string> = { macos: 'macOS', windows: 'Windows', linux: 'Linux', other: 'another system' };
+const ARCH_WORDS: Record<Platform['arch'], string> = { aarch64: 'aarch64', x86_64: 'x86_64', other: 'another processor' };
+const platformWords = (p: Platform) => `${OS_WORDS[p.os] ?? OS_WORDS.other}, ${ARCH_WORDS[p.arch] ?? ARCH_WORDS.other}`;
+
+/** A rerun's words (decisions 191, 198 and 366). Each states a fact about
+ *  two saved runs' output hashes, engine versions or platforms; none passes
+ *  a verdict. */
 export const RERUN_WORDS = {
   repeatsOn: (secs: number) => `Repeats the result saved on ${savedOn(secs)}.`,
   repeatsEarlier: 'Repeats an earlier result.',
   identical: 'Identical, byte for byte, to that result.',
   different: 'Not identical, byte for byte, to that result. Both are kept; Gaply does not judge which is right.',
   notCompared: 'Gaply could not compare it with that result.',
+  platformDiffers: (saved: Platform, again: Platform) =>
+    `It ran on a different kind of computer: the saved result on ${platformWords(saved)}, this run on ${platformWords(again)}.`,
+  lastDigits:
+    'Every number agrees with that result to within its last digits, as numbers computed on different kinds of computer can.',
   engineDiffers: "It ran on a different version of Gaply's engine.",
   saved: 'The new run is saved in this project.',
   notSaved: 'The new run was not saved.',
@@ -313,6 +325,10 @@ export function rerunLines(run: StoredRunView, repeated: StoredRunView | null): 
   if (run.comparison === 'identical') lines.push(RERUN_WORDS.identical);
   else if (run.comparison === 'different') lines.push(RERUN_WORDS.different);
   else lines.push(RERUN_WORDS.notCompared);
+  if (run.platformDiffers === true && run.repeatedPlatform && run.platform) {
+    lines.push(RERUN_WORDS.platformDiffers(run.repeatedPlatform, run.platform));
+    if (run.numbersAgreeToLastDigits === true) lines.push(RERUN_WORDS.lastDigits);
+  }
   if (run.engineVersionDiffers === true) lines.push(RERUN_WORDS.engineDiffers);
   return lines;
 }

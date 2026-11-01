@@ -78,12 +78,13 @@ use gaply_core::contracts::workspace::check_spec;
 use gaply_core::contracts::WorkspaceId;
 
 use gaply_core::research_project::DataFormat;
+use gaply_core::sav_findings::SavFinding;
 
 use crate::memory_tier::{self, MemoryReading, MethodLimits};
 use crate::runs::{
     DatasetSlots, NotStarted, OpenProgress, ProgressEntry, RunSnapshot, Runs, SourceFile,
 };
-use crate::stats_l1_ingest::load_dataset_keeping_bytes_with_progress;
+use crate::stats_l1_ingest::load_dataset_keeping_bytes_and_findings_with_progress;
 use crate::supplementary::IngestLimits;
 use crate::workspace::{refuse as refuse_workspace, refuse_inactive};
 
@@ -101,6 +102,12 @@ pub struct DatasetView {
     pub display_name: String,
     pub profile: DatasetProfile,
     pub input_ref: InputRef,
+    /// What the SPSS reader noted about the file, as closed codes with
+    /// numbers (Research OS, Phase 8I, decision 365); the screen shows each
+    /// code's sentence under the profile. Absent when there is none, so a
+    /// view without one is the same bytes as before.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub file_findings: Vec<SavFinding>,
 }
 
 #[derive(Serialize)]
@@ -241,8 +248,9 @@ pub fn open_with(
     progress: Option<&AtomicU64>,
     limits: IngestLimits,
 ) -> Result<DatasetView, GaplyError> {
-    let (dataset, bytes, ext) = load_dataset_keeping_bytes_with_progress(path, progress, limits)
-        .map_err(|r| refuse_ingest(l1_ingest_refusal(r)))?;
+    let (dataset, bytes, ext, file_findings) =
+        load_dataset_keeping_bytes_and_findings_with_progress(path, progress, limits)
+            .map_err(|r| refuse_ingest(l1_ingest_refusal(r)))?;
     let display_name = display_name(path);
     let profile = stats_desc::profile(&dataset);
     let input_ref = stats_desc::input_ref(&dataset);
@@ -258,6 +266,7 @@ pub fn open_with(
         display_name,
         profile,
         input_ref,
+        file_findings,
     })
 }
 

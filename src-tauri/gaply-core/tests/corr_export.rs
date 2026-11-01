@@ -13,12 +13,14 @@
 //! * The bytes are pinned on macOS aarch64 (captured 1 Nov 2026): a golden
 //!   CSV and the manifest's JSON for one listwise case with all three
 //!   coefficients and a ticked missing code, a perfect pair, pairs not
-//!   computable and Kendall's intervals of too few rows. Every other platform,
-//!   Linux x86_64 included, checks that pin's layout (decision 346's check,
-//!   `pin_support`) until a later step pins Linux's bytes from a Linux run:
+//!   computable and Kendall's intervals of too few rows. Linux x86_64 checks
+//!   the same bytes exactly: measured outside this Mac at 6c5ff6d, its bytes
+//!   are macOS aarch64's in both files (Phase 8I, decision 364). Every other
+//!   platform checks that pin's layout (decision 346's check, `pin_support`):
 //!   the numbers pass through `atanh`, `tanh` and statrs, the platform's maths
-//!   library. It never passes by skipping, and the layout check has a test of
-//!   its own on this pin, run on every platform.
+//!   library. It never passes by skipping, the choice is `pin_check` with a
+//!   test of its own, and the layout check has a test of its own on this pin,
+//!   both run on every platform.
 //! * Ten runs give byte-identical CSV and manifest bytes.
 
 use gaply_core::contracts::codes::Closed;
@@ -445,15 +447,49 @@ fn pinned(name: &str, got: &[u8]) -> Option<String> {
     })
 }
 
-/// The macOS aarch64 pin: its own platform's, and the layout every other
-/// platform is checked against (decision 354).
+/// The macOS aarch64 pin: its own platform's and Linux x86_64's (decision
+/// 364), and the layout every other platform is checked against (decision
+/// 354).
 const MAC_CSV: &str = "export_golden.csv";
 const MAC_JSON: &str = "export_golden_manifest.json";
+
+/// How a platform checks the pin: its exact bytes, or the layout check of
+/// `pin_support` (decision 364).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PinCheck {
+    Exact,
+    Layout,
+}
+
+/// The check for a platform, by `std::env::consts::OS` and `ARCH`, which
+/// name the `target_os` and `target_arch` this test was built for.
+fn pin_check(os: &str, arch: &str) -> PinCheck {
+    match (os, arch) {
+        ("macos", "aarch64") | ("linux", "x86_64") => PinCheck::Exact,
+        _ => PinCheck::Layout,
+    }
+}
+
+/// Decision 364, run on every platform: exact bytes on macOS aarch64 and on
+/// Linux x86_64 (measured outside this Mac at 6c5ff6d: the same bytes), the
+/// layout check everywhere else, never a skip.
+#[test]
+fn the_pin_is_checked_exactly_on_macos_aarch64_and_linux_x86_64() {
+    for (os, arch, want) in [
+        ("macos", "aarch64", PinCheck::Exact),
+        ("linux", "x86_64", PinCheck::Exact),
+        ("windows", "x86_64", PinCheck::Layout),
+        ("macos", "x86_64", PinCheck::Layout),
+        ("linux", "aarch64", PinCheck::Layout),
+    ] {
+        assert_eq!(pin_check(os, arch), want, "{os}, {arch}");
+    }
+}
 
 #[test]
 fn the_export_bytes_are_pinned() {
     let (csv, json) = golden_case();
-    if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+    if pin_check(std::env::consts::OS, std::env::consts::ARCH) == PinCheck::Exact {
         let differ: Vec<String> = [pinned(MAC_CSV, &csv), pinned(MAC_JSON, &json)]
             .into_iter()
             .flatten()

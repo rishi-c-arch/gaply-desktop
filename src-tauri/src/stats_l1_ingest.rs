@@ -75,6 +75,7 @@ use gaply_core::stats_l1::token::ConfirmationToken;
 
 use gaply_core::contracts::codes::Closed;
 use gaply_core::research_project::DataFormat;
+use gaply_core::sav_findings::SavFinding;
 
 use crate::supplementary::{self, IngestLimits, SupplementaryKind, PARSER_VERSION};
 // The tests below read the constants by name; the code reads its limits.
@@ -153,9 +154,26 @@ pub fn load_dataset_keeping_bytes_with_progress(
     progress: Option<&AtomicU64>,
     limits: IngestLimits,
 ) -> Result<(Dataset, Vec<u8>, String), L1IngestRefusal> {
+    load_dataset_keeping_bytes_and_findings_with_progress(path, progress, limits)
+        .map(|(dataset, bytes, ext, _)| (dataset, bytes, ext))
+}
+
+/// [`load_dataset_keeping_bytes_with_progress`] with what the SPSS reader
+/// noted about the file, as closed codes (Research OS, Phase 8I, decision
+/// 365): the methods' open shows them under the profile. They travel beside
+/// the dataset, which does not change; empty for every format but `.sav`.
+/// The same checks, the same one read and the same parse.
+#[doc(hidden)]
+#[tracing::instrument(skip_all)]
+pub fn load_dataset_keeping_bytes_and_findings_with_progress(
+    path: &Path,
+    progress: Option<&AtomicU64>,
+    limits: IngestLimits,
+) -> Result<(Dataset, Vec<u8>, String, Vec<SavFinding>), L1IngestRefusal> {
     let checked = check_file_with(path, limits)?;
-    let dataset = dataset_from_parts(&checked.bytes, &checked.ext, progress, limits)?;
-    Ok((dataset, checked.bytes, checked.ext))
+    let (dataset, findings) =
+        dataset_and_findings_from_parts(&checked.bytes, &checked.ext, progress, limits)?;
+    Ok((dataset, checked.bytes, checked.ext, findings))
 }
 
 /// The checks and the parse of [`load_dataset_keeping_bytes`] on bytes
@@ -355,6 +373,17 @@ fn dataset_from_parts(
     progress: Option<&AtomicU64>,
     limits: IngestLimits,
 ) -> Result<Dataset, L1IngestRefusal> {
+    dataset_and_findings_from_parts(before, ext, progress, limits).map(|(dataset, _)| dataset)
+}
+
+/// [`dataset_from_parts`] with the parse's `.sav` findings beside the
+/// dataset (Research OS, Phase 8I, decision 365).
+fn dataset_and_findings_from_parts(
+    before: &[u8],
+    ext: &str,
+    progress: Option<&AtomicU64>,
+    limits: IngestLimits,
+) -> Result<(Dataset, Vec<SavFinding>), L1IngestRefusal> {
     // A failed parse is classified by a typed check of its own
     // (`exceeds_row_cap`), never by reading the parser's message, which the
     // existing Stats Verifier shows unchanged.
@@ -409,6 +438,7 @@ fn dataset_from_parts(
         SupplementaryKind::Text => return Err(L1IngestRefusal::NoTable),
     };
     let fingerprint = DataFingerprint::of_bytes(&before, PARSER_VERSION, table_ref);
+    let findings = evidence.sav_findings;
 
     // 4. The table, with whatever metadata the format carried.
     let table = evidence.tables.into_iter().next().ok_or(L1IngestRefusal::NoTable)?;
@@ -441,7 +471,7 @@ fn dataset_from_parts(
     };
     let dataset = build_dataset(raw, fingerprint).map_err(L1IngestRefusal::Dataset)?;
     tracing::debug!(rows = dataset.rows(), columns = dataset.schema.columns.len(), "stats_l1: dataset loaded");
-    Ok(dataset)
+    Ok((dataset, findings))
 }
 
 /// The path opened as a regular file, and its length, as a refusal code.
@@ -1181,7 +1211,7 @@ mod tests {
         let ev = supplementary::parse_supplementary(&fixture("l1_weighted.sav")).unwrap();
         assert!(ev.weight_variable.is_some() && !ev.variables[1].user_missing_rules.is_empty(), "the fields must be populated for the check to mean anything");
         let json = serde_json::to_string(&ev).unwrap();
-        for key in ["weight_variable", "rows_truncated", "sheet_name", "user_missing_rules", "value_label_codes"] {
+        for key in ["weight_variable", "rows_truncated", "sheet_name", "user_missing_rules", "value_label_codes", "sav_findings"] {
             assert!(!json.contains(key), "{key} reached the PublishReady payload: {json}");
         }
         assert!(json.contains("user_missing"), "the pre-existing field is still there");

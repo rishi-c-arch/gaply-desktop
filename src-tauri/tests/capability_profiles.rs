@@ -56,7 +56,8 @@ fn every_profile_literal_is_the_app_constant_it_copies() {
             | Kind::AnalyzeOneSampleT
             | Kind::AnalyzePairedT
             | Kind::AnalyzeOneWayAnova
-            | Kind::AnalyzeCorrelations => {
+            | Kind::AnalyzeCorrelations
+            | Kind::AnalyzeCronbachAlpha => {
                 for tier in [MemoryTier::Gb8, MemoryTier::Gb16, MemoryTier::Gb32] {
                     let l = IngestLimits::for_tier(tier);
                     assert_eq!(p.max_rows, Some(l.max_rows as u64), "{id} {tier:?}");
@@ -73,7 +74,8 @@ fn every_profile_literal_is_the_app_constant_it_copies() {
             | Kind::AnalyzeOneSampleT
             | Kind::AnalyzePairedT
             | Kind::AnalyzeOneWayAnova
-            | Kind::AnalyzeCorrelations => {
+            | Kind::AnalyzeCorrelations
+            | Kind::AnalyzeCronbachAlpha => {
                 tables += 1;
                 let mut formats: Vec<String> = e
                     .descriptor
@@ -108,7 +110,8 @@ fn every_profile_literal_is_the_app_constant_it_copies() {
             | Kind::AnalyzeOneSampleT
             | Kind::AnalyzePairedT
             | Kind::AnalyzeOneWayAnova
-            | Kind::AnalyzeCorrelations => {
+            | Kind::AnalyzeCorrelations
+            | Kind::AnalyzeCronbachAlpha => {
                 assert_eq!(p.ceiling_ms, Some(runs::RUN_CEILING_MS));
                 assert_eq!(
                     p.cancel,
@@ -125,7 +128,7 @@ fn every_profile_literal_is_the_app_constant_it_copies() {
         assert!(!p.uses_gpu && !p.temp_disk, "{}", e.descriptor.id.as_str());
     }
     assert_eq!(
-        tables, 13,
-        "seven Level 1 capabilities, the descriptive summary, the three t-tests (Phase 8D-1), the one-way ANOVA (Phase 8G) and the correlations (Phase 8H)"
+        tables, 14,
+        "seven Level 1 capabilities, the descriptive summary, the three t-tests (Phase 8D-1), the one-way ANOVA (Phase 8G), the correlations (Phase 8H) and Cronbach's alpha (Phase 8I)"
     );
 }

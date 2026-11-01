@@ -303,6 +303,59 @@ pub fn t_quantile(p: f64, df: f64) -> Option<f64> {
     (t.is_finite() && t > 0.0).then_some(t)
 }
 
+/// The largest df1 [`f_quantile_upper`] answers for: the largest its grid
+/// measures (`tests/alpha_r_golden.rs`, Research OS, Phase 8I, decision
+/// 368), and the largest a dataset reaches under the methods' 100,000 rows
+/// (df1 = n − 1).
+pub const F_QUANTILE_MAX_DF1: f64 = 99_999.0;
+
+/// The F whose upper-tail p, [`f_upper`]`(f, df1, df2)`, is `p_upper`
+/// (Research OS, Phase 8I, decision 368; Feldt's interval for Cronbach's
+/// alpha): by bisection on [`f_upper`], as [`t_quantile`] is on
+/// [`t_two_tailed`], the upper end doubled from 1 until its p is below
+/// `p_upper`, then halved to adjacent doubles, and the end whose p is nearer
+/// `p_upper` taken. Defined by the upper-tail p, so the 0.975 quantile is
+/// `p_upper` 0.025 exactly. It checks df1 itself, which [`f_upper`] does
+/// not: finite, above 0 and at most [`F_QUANTILE_MAX_DF1`]; df2 as
+/// [`f_upper`] does, to [`MEASURED_MAX_DF`]. Gated on its relative error in
+/// F against an R `uniroot` oracle, never on [`f_upper`]'s p: at large df1
+/// statrs's incomplete beta carries up to 1.2e-9 of p, which moves F by
+/// about 1e-12. `None` for a p outside (0, 1), a df out of range, or a root
+/// beyond 1e300.
+pub fn f_quantile_upper(p_upper: f64, df1: f64, df2: f64) -> Option<f64> {
+    let df1 = measured(df1).filter(|d| *d <= F_QUANTILE_MAX_DF1)?;
+    let df2 = measured(df2)?;
+    if !(p_upper > 0.0 && p_upper < 1.0) {
+        return None;
+    }
+    let fp = |f: f64| f_upper(f, df1, df2);
+    let (mut lo, mut hi) = (0.0, 1.0);
+    while fp(hi)? > p_upper {
+        lo = hi;
+        hi *= 2.0;
+        if hi > 1e300 {
+            return None;
+        }
+    }
+    for _ in 0..QUANTILE_MAX_HALVINGS * 6 {
+        let mid = lo + (hi - lo) / 2.0;
+        if mid == lo || mid == hi {
+            break;
+        }
+        if fp(mid)? > p_upper {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    let f = if (fp(hi)? - p_upper).abs() < (fp(lo)? - p_upper).abs() {
+        hi
+    } else {
+        lo
+    };
+    (f.is_finite() && f > 0.0).then_some(f)
+}
+
 /// Upper-tail p of an F statistic with `df1`, `df2` degrees of freedom. With
 /// df1 = 1 and df2 above [`LARGE_DF`], Hill's formula on f/df2 (F(1, d) is
 /// the square of t with d df); every other case with df2 at most

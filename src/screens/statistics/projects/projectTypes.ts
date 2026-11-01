@@ -6,7 +6,7 @@
 //
 // A project's name arrives only in ProjectListEntryView and ProjectOpenView.
 // Everything else is an id, a hash, a closed word or a number.
-import type { RunState } from '../describeTypes';
+import type { Platform, RunState } from '../describeTypes';
 import type { MethodKind } from '../methods';
 
 /** Every project.* code, in Rust's order (ProjectCode::ALL; pinned to
@@ -185,6 +185,14 @@ export interface StoredRunView {
   /** 5C-1a: for a rerun that Succeeded, whether it ran on another engine
    *  version; null when that is not known. */
   engineVersionDiffers: boolean | null;
+  /** 8I (decision 366), each absent when not known: for a rerun that
+   *  Succeeded, the platform its manifest names and that of the run it
+   *  repeats, whether they differ, and, for a different result on a
+   *  different platform, whether every number agrees to its last digits. */
+  platform?: Platform;
+  repeatedPlatform?: Platform;
+  platformDiffers?: boolean;
+  numbersAgreeToLastDigits?: boolean;
 }
 
 export interface StoredArtifactView {

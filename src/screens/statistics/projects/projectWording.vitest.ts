@@ -285,6 +285,41 @@ describe('the rerun words', () => {
     expect(rerunLines(repeated, null)).toEqual([]);
   });
 
+  // Phase 8I (decision 366): a rerun on another kind of computer, facts with
+  // no verdict, after the comparison's line and before the engine's.
+  it('say when a rerun ran on another kind of computer, and when its numbers agree to their last digits', () => {
+    expect(RERUN_WORDS.platformDiffers({ os: 'linux', arch: 'x86_64' }, { os: 'macos', arch: 'aarch64' })).toBe(
+      'It ran on a different kind of computer: the saved result on Linux, x86_64, this run on macOS, aarch64.'
+    );
+    expect(RERUN_WORDS.platformDiffers({ os: 'windows', arch: 'other' }, { os: 'other', arch: 'aarch64' })).toBe(
+      'It ran on a different kind of computer: the saved result on Windows, another processor, this run on another system, aarch64.'
+    );
+    expect(RERUN_WORDS.lastDigits).toBe(
+      'Every number agrees with that result to within its last digits, as numbers computed on different kinds of computer can.'
+    );
+    const first = RERUN_WORDS.repeatsOn(repeated.savedAt);
+    const elsewhere = {
+      comparison: 'different' as const,
+      platform: { os: 'macos' as const, arch: 'aarch64' as const },
+      repeatedPlatform: { os: 'linux' as const, arch: 'x86_64' as const },
+      platformDiffers: true,
+    };
+    const differs = RERUN_WORDS.platformDiffers(elsewhere.repeatedPlatform, elsewhere.platform);
+    expect(rerunLines(run({ ...elsewhere, numbersAgreeToLastDigits: true, engineVersionDiffers: true }), repeated)).toEqual([
+      first,
+      RERUN_WORDS.different,
+      differs,
+      RERUN_WORDS.lastDigits,
+      RERUN_WORDS.engineDiffers,
+    ]);
+    expect(rerunLines(run({ ...elsewhere, numbersAgreeToLastDigits: false }), repeated)).toEqual([first, RERUN_WORDS.different, differs]);
+    // Identical bytes on another computer: said, with no last-digits line.
+    expect(rerunLines(run({ ...elsewhere, comparison: 'identical' }), repeated)).toEqual([first, RERUN_WORDS.identical, differs]);
+    // The same computer, or a platform not known: no new line.
+    expect(rerunLines(run({ comparison: 'different', platformDiffers: false }), repeated)).toEqual([first, RERUN_WORDS.different]);
+    expect(rerunLines(run({ comparison: 'different' }), repeated)).toEqual([first, RERUN_WORDS.different]);
+  });
+
   it('no sentence in projectWording.ts holds a verdict word', () => {
     const src = fs.readFileSync(path.join(__dirname, 'projectWording.ts'), 'utf8');
     const found = literals(src);

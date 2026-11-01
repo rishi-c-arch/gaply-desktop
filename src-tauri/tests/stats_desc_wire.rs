@@ -112,6 +112,8 @@ fn each_view_serialises_to_exactly_its_fixtures_bytes() {
                 columns: 2,
                 semantic_role: SemanticRole::Table,
             },
+            // Phase 8I (decision 365): none, so the fixture's bytes stand.
+            file_findings: Vec::new(),
         },
     );
     assert_bytes(

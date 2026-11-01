@@ -196,6 +196,25 @@ describe('StatisticsHome', () => {
   // its screen, the one-way ANOVA has its own card, its limitations from the
   // descriptor, and a link to its route, where "no screen of its own here
   // yet" stood while it had none.
+  // Research OS, Phase 8I (decision 372): Cronbach's alpha is Planned, so the
+  // home names it on the roadmap and offers no way to open or run it; the
+  // correlations' card is unchanged beside it.
+  it("lists the Planned Cronbach's alpha on the roadmap only, with no card and no open", async () => {
+    renderHome([
+      cap('stats.describe', 'beta', true, 'stats.capability.describe.title'),
+      cap('stats.analyze.correlations', 'beta', true, 'stats.capability.analyze.correlations.title'),
+      cap('stats.analyze.cronbach_alpha', 'planned', false, 'stats.capability.analyze.cronbach_alpha.title'),
+    ]);
+    const roadmap = await screen.findByTestId('stats-roadmap');
+    expect(within(roadmap).getByTestId('stats-roadmap-stats.analyze.cronbach_alpha').textContent).toBe("Cronbach's alpha on your data");
+    expect(within(roadmap).queryAllByRole('link')).toHaveLength(0);
+    expect(within(roadmap).queryAllByRole('button')).toHaveLength(0);
+    expect(screen.queryByTestId('stats-card-stats.analyze.cronbach_alpha')).toBeNull();
+    expect(screen.queryByTestId('stats-open-stats.analyze.cronbach_alpha')).toBeNull();
+    expect(screen.queryByTestId('stats-no-route-stats.analyze.cronbach_alpha')).toBeNull();
+    expect(screen.getByTestId('stats-card-stats.analyze.correlations')).toBeTruthy();
+  });
+
   it('gives the Beta one-way ANOVA its card, its limitations and its route', async () => {
     renderHome([
       {

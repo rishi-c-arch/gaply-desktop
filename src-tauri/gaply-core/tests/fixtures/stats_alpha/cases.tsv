@@ -1,0 +1,20 @@
+# written by: /usr/local/bin/Rscript make_alpha_fixtures.R
+# R version 4.6.1 (2026-06-24)
+case	file	items	reversed	scale	missing_codes
+k2_n10	data_n10.csv	i01 i02	-	-	-
+k3_n3	data_n3.csv	i01 i02 i03	-	-	-
+k5_n30	data_n30.csv	i01 i02 i03 i04 i05	-	-	-
+k10_n200	data_basic.csv	i01 i02 i03 i04 i05 i06 i07 i08 i09 i10	-	-	-
+k20_n200	data_basic.csv	i01 i02 i03 i04 i05 i06 i07 i08 i09 i10 i11 i12 i13 i14 i15 i16 i17 i18 i19 i20	-	-	-
+likert_reversed	data_likert.csv	q1 q2 q3 q4 q5 q6	q2 q5	1 5	-
+likert_unreversed	data_likert.csv	q1 q2 q3 q4 q5 q6	-	-	-
+negative	data_negative.csv	a b c	-	-	-
+mirror	data_mirror.csv	x y	-	-	-
+constant_item	data_constant.csv	i01 i02 i03 i04	-	-	-
+others_constant	data_others.csv	a b c	-	-	-
+totals_constant	data_totals.csv	a b c	-	-	-
+missing	data_missing.csv	i01 i02 i03 i04 i05	-	-	-99
+outside_scale	data_outside.csv	q1 q2 q3	q2	1 5	-
+offset	data_offset.csv	i01 i02 i03 i04	-	-	-
+too_few_rows	data_few.csv	i01 i02 i03	-	-	-
+big	-	b1 b2 b3 b4 b5	-	-	-

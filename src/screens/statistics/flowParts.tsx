@@ -24,6 +24,7 @@ import {
 import type { DatasetView, ExportFormat, MethodLimitsView, Platform, Reproducibility, RunState } from './describeTypes';
 import { megabytes } from '../statsverifier/l1/l1Wording';
 import { savableOnScreen, SaveToProject } from './projects/SaveToProject';
+import { savFindingSentence } from './savFindingWording';
 
 const TIERS = ['8gb', '16gb', '32gb'];
 const LIMIT_NUMBERS = ['maxRows', 'maxColumns', 'maxCells', 'maxFileBytes', 'maxTextBytes', 'maxWorkbookBytes'] as const;
@@ -113,36 +114,52 @@ export const FileSummary: React.FC<{ prefix: string; view: DatasetView }> = ({ p
   </p>
 );
 
-/** The file's profile: each column's alias and header, kind, counts and up to
- *  twelve levels. Test id `${prefix}-profile`. */
-export const ProfileTable: React.FC<{ prefix: string; view: DatasetView }> = ({ prefix, view }) => (
-  <table data-testid={`${prefix}-profile`} style={{ borderCollapse: 'collapse' }}>
-    <thead>
-      <tr>
-        {['Column', 'Kind', 'n', 'Missing', 'Levels'].map((h) => (
-          <th key={h} scope="col" style={{ textAlign: 'left', ...CELL_PADDING }}>
-            {h}
-          </th>
-        ))}
-      </tr>
-    </thead>
-    <tbody>
-      {view.profile.columns.map((c) => (
-        <tr key={c.alias}>
-          <td style={CELL_PADDING}>
-            <span className="gds-mono">{c.alias}</span> {c.header}
-          </td>
-          <td style={CELL_PADDING}>{c.kind === 'numeric' ? 'Numeric' : c.kind === 'categorical' ? 'Categorical' : 'Empty'}</td>
-          <td className="gds-mono" style={CELL_PADDING}>{c.n}</td>
-          <td className="gds-mono" style={CELL_PADDING}>{c.missing}</td>
-          <td style={CELL_PADDING}>
-            {(c.levels ?? []).slice(0, 12).map((l) => `${l.label} (${l.count})`).join(', ')}
-            {(c.levels?.length ?? 0) > 12 ? `, and ${(c.levels?.length ?? 0) - 12} more` : ''}
-          </td>
-        </tr>
+/** What the SPSS reader noted about the file, each code's sentence, under the
+ *  profile (Research OS, Phase 8I, decision 365); nothing when it noted
+ *  nothing. Test id `${prefix}-file-findings`. */
+export const FileFindings: React.FC<{ prefix: string; view: DatasetView }> = ({ prefix, view }) =>
+  view.fileFindings && view.fileFindings.length > 0 ? (
+    <ul data-testid={`${prefix}-file-findings`} style={{ margin: 0 }}>
+      {view.fileFindings.map((f, i) => (
+        <li key={i}>{savFindingSentence(f)}</li>
       ))}
-    </tbody>
-  </table>
+    </ul>
+  ) : null;
+
+/** The file's profile: each column's alias and header, kind, counts and up to
+ *  twelve levels, then what the SPSS reader noted ([`FileFindings`]). Test id
+ *  `${prefix}-profile`. */
+export const ProfileTable: React.FC<{ prefix: string; view: DatasetView }> = ({ prefix, view }) => (
+  <>
+    <table data-testid={`${prefix}-profile`} style={{ borderCollapse: 'collapse' }}>
+      <thead>
+        <tr>
+          {['Column', 'Kind', 'n', 'Missing', 'Levels'].map((h) => (
+            <th key={h} scope="col" style={{ textAlign: 'left', ...CELL_PADDING }}>
+              {h}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {view.profile.columns.map((c) => (
+          <tr key={c.alias}>
+            <td style={CELL_PADDING}>
+              <span className="gds-mono">{c.alias}</span> {c.header}
+            </td>
+            <td style={CELL_PADDING}>{c.kind === 'numeric' ? 'Numeric' : c.kind === 'categorical' ? 'Categorical' : 'Empty'}</td>
+            <td className="gds-mono" style={CELL_PADDING}>{c.n}</td>
+            <td className="gds-mono" style={CELL_PADDING}>{c.missing}</td>
+            <td style={CELL_PADDING}>
+              {(c.levels ?? []).slice(0, 12).map((l) => `${l.label} (${l.count})`).join(', ')}
+              {(c.levels?.length ?? 0) > 12 ? `, and ${(c.levels?.length ?? 0) - 12} more` : ''}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+    <FileFindings prefix={prefix} view={view} />
+  </>
 );
 
 /** The settings' two buttons. Check the settings waits for the method's own

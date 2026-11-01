@@ -22,7 +22,7 @@ import { pickManuscriptPath } from '../common/pickFile';
 import { saveTextFile } from '../../utils/saveTextFile';
 import { describeBridge, type DescribeBridge } from './describeBridge';
 import { savableOnScreen, SaveToProject } from './projects/SaveToProject';
-import { LimitsLine, OpenProgressLine } from './flowParts';
+import { FileFindings, LimitsLine, OpenProgressLine } from './flowParts';
 import { useMethodLimits, useOpenProgress } from './flowHooks';
 import { readMethodLimits } from './statsInvoke';
 import type {
@@ -508,6 +508,7 @@ const DescribeFlow: React.FC<DescribeFlowProps> = ({
             </thead>
             <tbody>{view.profile.columns.map(profileRow)}</tbody>
           </table>
+          <FileFindings prefix="desc" view={view} />
           <Button onClick={() => setStage('settings')} data-testid="desc-to-settings">
             Continue to settings
           </Button>

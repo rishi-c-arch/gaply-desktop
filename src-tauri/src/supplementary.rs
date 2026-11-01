@@ -253,6 +253,7 @@ fn over_the_cells(file_name: String, kind: SupplementaryKind) -> SupplementaryEv
         variables_held: None,
         sheet_name: None,
         cells_over: true,
+        sav_findings: Vec::new(),
     }
 }
 
@@ -372,12 +373,18 @@ pub struct SupplementaryEvidence {
     /// files never set it. Not serialised, like `rows_truncated`.
     #[serde(skip)]
     pub cells_over: bool,
+    /// What the SPSS reader noted about a `.sav` (Research OS, Phase 8I,
+    /// decision 365), as closed codes with numbers, never ambers' text:
+    /// [`sav_findings_of`]. Empty for every other format. Not serialised, so
+    /// it never reaches the PublishReady reviewer's payload.
+    #[serde(skip)]
+    pub sav_findings: Vec<gaply_core::sav_findings::SavFinding>,
 }
 
 /// Counts only, never the text (part C follow-up, item 7).
 impl std::fmt::Debug for SupplementaryEvidence {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SupplementaryEvidence").field("kind", &self.kind).field("tables", &self.tables).field("text_chars", &self.text_summary.chars().count()).field("notes", &self.notes.len()).field("variables", &self.variables.len()).field("weight_variable", &self.weight_variable.is_some()).field("rows_truncated", &self.rows_truncated).field("variables_held", &self.variables_held).field("cells_over", &self.cells_over).finish_non_exhaustive()
+        f.debug_struct("SupplementaryEvidence").field("kind", &self.kind).field("tables", &self.tables).field("text_chars", &self.text_summary.chars().count()).field("notes", &self.notes.len()).field("variables", &self.variables.len()).field("weight_variable", &self.weight_variable.is_some()).field("rows_truncated", &self.rows_truncated).field("variables_held", &self.variables_held).field("cells_over", &self.cells_over).field("sav_findings", &self.sav_findings.len()).finish_non_exhaustive()
     }
 }
 
@@ -925,6 +932,7 @@ fn spreadsheet_evidence<RS: Read + std::io::Seek>(
         variables_held: None,
         sheet_name: Some(sheet),
         cells_over: false,
+        sav_findings: Vec::new(),
     })
 }
 
@@ -1061,6 +1069,7 @@ fn mat_evidence(
         variables_held: (mat.arrays().len() > limits.max_cols).then_some(mat.arrays().len()),
         sheet_name: None,
         cells_over,
+        sav_findings: Vec::new(),
     })
 }
 
@@ -1428,7 +1437,198 @@ fn read_sav_rows_with<R: Read + std::io::Seek>(
     let kept = meta.variable_names.len().min(limits.max_cols);
     scanner.limit(rows_the_cells_allow(kept, limits) + 1);
     let batch = scanner.collect_single()?;
+    // Research OS, Phase 8I (decision 365): ambers notes the dates it nulls
+    // while reading the rows, so the findings are taken after the read; the
+    // header's are in the same list.
+    let meta = ambers::SpssMetadata {
+        warnings: scanner.metadata().warnings.clone(),
+        ..meta
+    };
     Ok((batch, meta))
+}
+
+/// ambers' findings as closed codes with numbers (Research OS, Phase 8I,
+/// decision 365), never its text: each of `warnings` matched against the
+/// sentences ambers 0.4.6 writes (its `warnings_and_errors.md` catalogue,
+/// and the `format!` calls in its scanner.rs, dictionary.rs and
+/// variable.rs), and `header_rows`, the header's case count and the rows
+/// read when they differ and the read did not stop at the row limit. With
+/// `header_rows` given, ambers' own rows sentence is not used: it exists
+/// only for a read with no limit, which Gaply never makes. The very-long-
+/// string findings are counted under one code, and every sentence no
+/// pattern matches under `unrecognised_finding`. Sorted by code, stably.
+pub fn sav_findings_of(
+    warnings: &[String],
+    header_rows: Option<(i64, usize)>,
+) -> Vec<gaply_core::sav_findings::SavFinding> {
+    use gaply_core::sav_findings::{SavFinding, SavFindingCode as C, SavParam as P};
+    let mut out = Vec::new();
+    if let Some((declared, read)) = header_rows {
+        out.push(SavFinding::new(
+            C::HeaderRowsMismatch,
+            &[(P::Declared, declared as f64), (P::Read, read as f64)],
+        ));
+    }
+    let (mut long_strings, mut unrecognised) = (0u32, 0u32);
+    for text in warnings {
+        match sav_finding_of(text) {
+            Some(Matched::Finding(f))
+                if f.code == C::HeaderRowsMismatch && header_rows.is_some() => {}
+            Some(Matched::Finding(f)) => out.push(f),
+            Some(Matched::LongString) => long_strings += 1,
+            None => unrecognised += 1,
+        }
+    }
+    if long_strings > 0 {
+        out.push(SavFinding::new(
+            C::VeryLongStringIgnored,
+            &[(P::Count, long_strings.into())],
+        ));
+    }
+    if unrecognised > 0 {
+        out.push(SavFinding::new(
+            C::UnrecognisedFinding,
+            &[(P::Count, unrecognised.into())],
+        ));
+    }
+    out.sort_by_key(|f| f.code);
+    out
+}
+
+/// What one of ambers' sentences is.
+enum Matched {
+    Finding(gaply_core::sav_findings::SavFinding),
+    /// One of the two very-long-string sentences, counted together.
+    LongString,
+}
+
+/// One of ambers 0.4.6's sentences as its code and numbers, or `None` when
+/// it is none of them. A name ambers quotes is matched as a hole and never
+/// kept.
+fn sav_finding_of(text: &str) -> Option<Matched> {
+    use gaply_core::sav_findings::{SavFinding, SavFindingCode as C, SavParam as P};
+    let int = |s: &str| s.parse::<i64>().ok().map(|n| n as f64);
+    let num = |s: &str| s.parse::<f64>().ok().filter(|v| v.is_finite());
+    let quoted = |s: &str| s.len() >= 2 && s.starts_with('"') && s.ends_with('"');
+    let found = |code, params: &[(P, f64)]| Some(Matched::Finding(SavFinding::new(code, params)));
+    if let Some(h) = holes(text, &["header declares ", " rows but ", " rows were read"]) {
+        return found(
+            C::HeaderRowsMismatch,
+            &[(P::Declared, int(h[0])?), (P::Read, int(h[1])?)],
+        );
+    }
+    if let Some(h) = holes(
+        text,
+        &[
+            "header declares ",
+            " values per row but the variable list defines ",
+            "; used ",
+            "",
+        ],
+    ) {
+        let used = int(h[1])?;
+        (int(h[2])? == used).then_some(())?;
+        return found(
+            C::CaseSizeMismatch,
+            &[(P::Declared, int(h[0])?), (P::Used, used)],
+        );
+    }
+    if let Some(h) = holes(
+        text,
+        &[
+            "header does not declare the number of values per row (case size ",
+            "); used the ",
+            " defined by the variable list",
+        ],
+    ) {
+        int(h[0])?;
+        return found(C::CaseSizeMissing, &[(P::Used, int(h[1])?)]);
+    }
+    if let Some(h) = holes(
+        text,
+        &[
+            "",
+            " date/time values were outside the representable range (years 1-9999) and were set to null",
+        ],
+    ) {
+        return found(C::DatesOutOfRange, &[(P::Count, int(h[0])?)]);
+    }
+    if let Some(h) = holes(
+        text,
+        &[
+            "variable record ",
+            " (",
+            ") declares type ",
+            "; treated as a continuation slot",
+        ],
+    ) {
+        quoted(h[1]).then_some(())?;
+        (int(h[2])? < -1.0).then_some(())?;
+        return found(C::TypeContinuation, &[(P::Record, int(h[0])? + 1.0)]);
+    }
+    if let Some(h) = holes(
+        text,
+        &[
+            "compression bias in the header is ",
+            " instead of the standard 100; compressed integer values may be shifted by ",
+            " (SPSS reads such a file assuming 100)",
+        ],
+    ) {
+        num(h[1])?;
+        return found(C::CompressionBias, &[(P::Bias, num(h[0])?)]);
+    }
+    if let Some(h) = holes(
+        text,
+        &[
+            "zsav trailer declares a compression bias of ",
+            " instead of the standard 100",
+        ],
+    ) {
+        return found(C::CompressionBias, &[(P::Bias, int(h[0])?)]);
+    }
+    if let Some(h) = holes(
+        text,
+        &[
+            "very long string record declares width ",
+            " for ",
+            "; ignored (valid range 256-32767)",
+        ],
+    ) {
+        (int(h[0]).is_some() && quoted(h[1])).then_some(Matched::LongString)
+    } else if let Some(h) = holes(
+        text,
+        &[
+            "very long string record declares width ",
+            " for ",
+            " needing ",
+            " segments but only ",
+            " variables remain; ignored",
+        ],
+    ) {
+        (int(h[0]).is_some() && quoted(h[1]) && int(h[2]).is_some() && int(h[3]).is_some())
+            .then_some(Matched::LongString)
+    } else {
+        None
+    }
+}
+
+/// The text between `parts`, or `None` when `text` is not those parts in
+/// order: it starts with the first, each later one is found from the left
+/// after the one before, and the last ends it.
+fn holes<'a>(text: &'a str, parts: &[&str]) -> Option<Vec<&'a str>> {
+    let (first, later) = parts.split_first()?;
+    let mut rest = text.strip_prefix(first)?;
+    let mut out = Vec::with_capacity(later.len());
+    for (i, part) in later.iter().enumerate() {
+        let at = if i + 1 == later.len() {
+            rest.strip_suffix(part)?.len()
+        } else {
+            rest.find(part)?
+        };
+        out.push(&rest[..at]);
+        rest = &rest[at + part.len()..];
+    }
+    Some(out)
 }
 
 /// The `.sav` parser after `ambers` has read the file, from a path or from
@@ -1512,6 +1712,20 @@ fn sav_evidence(
     // the count is the rows read; the scan stops one row past what the limits
     // allow (read_sav_rows_with), and a read that stopped there is "more
     // than" that many, never a count (Research OS, Phase 8H, decision 337c).
+    // Research OS, Phase 8I (decision 365): the header's case count beside
+    // the rows read, when the read did not stop at the limit. ambers drops
+    // its own finding for this whenever a limit is set, and one always is.
+    let header_rows = {
+        let kept = meta.variable_names.len().min(limits.max_cols);
+        let stopped = batch.num_rows() > rows_the_cells_allow(kept, limits);
+        match meta.number_rows {
+            Some(n) if !stopped && usize::try_from(n).ok() != Some(batch.num_rows()) => {
+                Some((n, batch.num_rows()))
+            }
+            _ => None,
+        }
+    };
+    let sav_findings = sav_findings_of(&meta.warnings, header_rows);
     let cases = match meta.number_rows {
         Some(n) if n > 0 => n.to_string(),
         _ => {
@@ -1540,6 +1754,7 @@ fn sav_evidence(
             .then_some(meta.variable_names.len()),
         sheet_name: None,
         cells_over,
+        sav_findings,
     })
 }
 
@@ -1703,6 +1918,7 @@ fn csv_evidence(
         variables_held: None,
         sheet_name: None,
         cells_over: false,
+        sav_findings: Vec::new(),
     })
 }
 
@@ -1752,6 +1968,7 @@ fn text_evidence(
         variables_held: None,
         sheet_name: None,
         cells_over: false,
+        sav_findings: Vec::new(),
     })
 }
 

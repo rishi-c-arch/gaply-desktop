@@ -104,6 +104,9 @@ const CALLEES: &[&str] = &[
     "load_dataset_with",
     "load_dataset_keeping_bytes",
     "load_dataset_keeping_bytes_with_progress",
+    // Phase 8I (decision 365): the progress sibling with the `.sav`
+    // findings beside the dataset, which `open_with` calls.
+    "load_dataset_keeping_bytes_and_findings_with_progress",
     "load_dataset_from_bytes_with",
     "parse_supplementary_with",
     "open_with",

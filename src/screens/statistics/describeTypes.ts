@@ -110,12 +110,31 @@ export interface InputRef {
   semanticRole: 'table';
 }
 
+/** What the SPSS reader noted about a .sav file, as a closed code and its
+ *  numbers, never the reader's text (Research OS, Phase 8I, decision 365). */
+export type SavFindingCode =
+  | 'sav.header_rows_mismatch'
+  | 'sav.case_size_mismatch'
+  | 'sav.case_size_missing'
+  | 'sav.dates_out_of_range'
+  | 'sav.type_continuation'
+  | 'sav.compression_bias'
+  | 'sav.very_long_string_ignored'
+  | 'sav.unrecognised_finding';
+
+export interface SavFinding {
+  code: SavFindingCode;
+  params: Partial<Record<'declared' | 'read' | 'used' | 'count' | 'record' | 'bias', number>>;
+}
+
 export interface DatasetView {
   slot: number;
   /** The file's base name, never a path. */
   displayName: string;
   profile: DatasetProfile;
   inputRef: InputRef;
+  /** 8I (decision 365): absent when the reader noted nothing. */
+  fileFindings?: SavFinding[];
 }
 
 export interface ResourceEstimate {

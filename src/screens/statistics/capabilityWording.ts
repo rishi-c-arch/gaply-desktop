@@ -69,6 +69,12 @@ export const CAPABILITY_WORDS: Record<string, string> = {
   'stats.capability.limit.analyze.pearson_normality_not_checked':
     "Pearson's p and interval assume the two columns are roughly normal together; Gaply does not check.",
   'stats.capability.limit.analyze.two_tailed_no_partial': 'p values are two-tailed only, and there are no partial correlations.',
+  // Phase 8I (decisions 367 and 372): Cronbach's alpha, Planned.
+  'stats.capability.analyze.cronbach_alpha.title': "Cronbach's alpha on your data",
+  'stats.capability.analyze.cronbach_alpha.description':
+    "Cronbach's alpha for a scale of two or more numeric items in your own data file, with standardized alpha, a 95% interval, and each item's statistics if it were left out, with the items you choose reverse-scored.",
+  'stats.capability.limit.analyze.alpha_one_dimension': 'Alpha assumes the items measure one thing; Gaply does not check that.',
+  'stats.capability.limit.analyze.no_omega_or_smc': "McDonald's omega and squared multiple correlations are not shown yet.",
 };
 
 /** The words for a code; a code with no entry is shown as itself, never

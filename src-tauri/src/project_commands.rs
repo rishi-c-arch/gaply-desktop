@@ -85,7 +85,7 @@ use gaply_core::contracts::capability::{Build, ConfirmationId};
 use gaply_core::contracts::codes::Closed;
 use gaply_core::contracts::workspace::{check_spec, WorkspaceState};
 use gaply_core::contracts::{
-    ContentHash, Diagnostic, InputRef, OperationSpec, RunId, RunManifest, RunState,
+    ContentHash, Diagnostic, InputRef, OperationSpec, Platform, RunId, RunManifest, RunState,
     ValidationStatus, WorkspaceId,
 };
 use gaply_core::research_project::{
@@ -95,7 +95,9 @@ use gaply_core::research_project::{
     ProjectRefusal, ProjectTitle, ProvEdge, ProvGraph, RerunComparison, StoredRun, StoredRunId,
     TestVariant, UsedRole, PROV_FILE_NAME, REPORT_FILE_NAME,
 };
-use gaply_core::research_project::{render_prov_json, render_report_markdown};
+use gaply_core::research_project::{
+    numbers_agree_to_last_digits, platforms_differ, render_prov_json, render_report_markdown,
+};
 use gaply_core::stats_adapters;
 use gaply_core::stats_anova::{self, AnovaCode, AnovaParams, PostHoc};
 use gaply_core::stats_corr::{self, Coefficient, CorrCode, CorrParams, MissingHandling};
@@ -702,6 +704,22 @@ pub struct StoredRunView {
     /// For a rerun that Succeeded, whether it ran on another engine version
     /// than the run it repeats; `null` when that is not known.
     pub engine_version_differs: Option<bool>,
+    /// For a rerun that Succeeded, the platform its manifest names, and that
+    /// of the run it repeats (Research OS, Phase 8I, decision 366). Each of
+    /// these four is absent when not known, so a view without them is the
+    /// same bytes as before.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub platform: Option<Platform>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub repeated_platform: Option<Platform>,
+    /// Whether the two platforms differ, known when both manifests name one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub platform_differs: Option<bool>,
+    /// For a rerun whose output hash differs and whose platform differs,
+    /// whether every number agrees with the repeated result to within its
+    /// last digits (`research_project::numbers_agree_to_last_digits`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub numbers_agree_to_last_digits: Option<bool>,
 }
 
 /// An artifact by its row: hash, kind, format and size.
@@ -1524,18 +1542,29 @@ pub fn runs(_root: &Path, ws: &WorkspaceSession, project_id: &str) -> Res<Vec<St
     let loaded = load(h).map_err(refuse)?;
     let mut out = Vec::new();
     for r in &loaded.runs {
-        let (comparison, engine_version_differs) = match r.rerun_of {
-            Some(of) if r.state == RunState::Succeeded => {
-                let again = manifest_facts(h, &loaded, r.run_id);
-                let before = manifest_facts(h, &loaded, of);
-                let (c, e) = compare_rerun(
-                    again.as_ref().map(|(o, e)| (o, *e)),
-                    before.as_ref().map(|(o, e)| (o, *e)),
-                );
-                (Some(c), e)
+        let (mut comparison, mut engine_version_differs) = (None, None);
+        let (mut platform, mut repeated_platform) = (None, None);
+        let (mut platform_differs, mut numbers_agree) = (None, None);
+        if let (Some(of), RunState::Succeeded) = (r.rerun_of, r.state) {
+            let again = manifest_facts(h, &loaded, r.run_id);
+            let before = manifest_facts(h, &loaded, of);
+            let (c, e) = compare_rerun(
+                again.as_ref().map(|(o, e, _)| (o, *e)),
+                before.as_ref().map(|(o, e, _)| (o, *e)),
+            );
+            (comparison, engine_version_differs) = (Some(c), e);
+            // Decision 366: the platforms, and for a different result on a
+            // different platform, its numbers beside the repeated one's.
+            platform = again.and_then(|(_, _, p)| p);
+            repeated_platform = before.and_then(|(_, _, p)| p);
+            platform_differs = platforms_differ(platform, repeated_platform);
+            if c == RerunComparison::Different && platform_differs == Some(true) {
+                let a = result_bundle(h, &loaded, r.run_id);
+                let b = result_bundle(h, &loaded, of);
+                numbers_agree =
+                    numbers_agree_to_last_digits(c, platform_differs, a.as_ref(), b.as_ref());
             }
-            _ => (None, None),
-        };
+        }
         out.push(StoredRunView {
             stored_run_id: r.run_id.0,
             capability_id: r.capability_id.as_str().to_string(),
@@ -1549,6 +1578,10 @@ pub fn runs(_root: &Path, ws: &WorkspaceSession, project_id: &str) -> Res<Vec<St
             rerun_of: r.rerun_of.map(|s| s.0),
             comparison,
             engine_version_differs,
+            platform,
+            repeated_platform,
+            platform_differs,
+            numbers_agree_to_last_digits: numbers_agree,
         });
     }
     Ok(out)
@@ -1574,12 +1607,14 @@ fn load(h: &ProjectHandle) -> Result<Loaded, ProjectRefusal> {
 }
 
 /// A run's manifest's output hash and engine version, if its manifest reads
-/// back whole: the two fields decision 189 compares.
+/// back whole: the two fields decision 189 compares; with them its platform,
+/// `None` for a manifest that names none or one this build cannot read
+/// (decision 366).
 fn manifest_facts(
     h: &mut ProjectHandle,
     loaded: &Loaded,
     run: StoredRunId,
-) -> Option<(ContentHash, u32)> {
+) -> Option<(ContentHash, u32, Option<Platform>)> {
     let (_, arts) = artifacts_of(loaded, run).ok()?;
     let manifest = arts
         .generated
@@ -1588,7 +1623,26 @@ fn manifest_facts(
     let v = read_json(h, manifest).ok()?;
     let output = ContentHash::from_hex(v.get("outputHash")?.as_str()?)?;
     let engine = u32::try_from(v.get("engineVersion")?.as_u64()?).ok()?;
-    Some((output, engine))
+    let platform = v
+        .get("platform")
+        .and_then(|p| serde_json::from_value::<Platform>(p.clone()).ok());
+    Some((output, engine, platform))
+}
+
+/// A run's result bundle as JSON, read and verified as a run's result is,
+/// within [`RESULT_READ_LIMIT_BYTES`]; `None` when it has none, is larger,
+/// or cannot be read (decision 366). A read that fails marks it damaged, as
+/// any read does.
+fn result_bundle(h: &mut ProjectHandle, loaded: &Loaded, run: StoredRunId) -> Option<Value> {
+    let (_, arts) = artifacts_of(loaded, run).ok()?;
+    let bundle = arts
+        .generated
+        .iter()
+        .find(|a| a.kind == ArtifactKind::ResultBundle)?;
+    if bundle.bytes > RESULT_READ_LIMIT_BYTES {
+        return None;
+    }
+    read_json(h, bundle).ok()
 }
 
 /// A run's artifacts by what they were to it: the data file, the spec, and

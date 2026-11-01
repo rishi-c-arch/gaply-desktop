@@ -123,8 +123,9 @@ fn no_header_label_cell_manuscript_text_file_name_or_path_reaches_a_new_surface(
     // Phase 8D-1: the registry's twelve ids, the one-sample and paired
     // t-tests the eleventh and twelfth; Phase 8G: thirteen, the one-way
     // ANOVA, Planned, the thirteenth (decision 321); Phase 8H: fourteen, the
-    // correlations, Planned, the fourteenth (decision 344).
-    assert_eq!(list[0]["capabilityIds"].as_array().unwrap().len(), 14);
+    // correlations, Planned, the fourteenth (decision 344); Phase 8I:
+    // fifteen, Cronbach's alpha, Planned, the fifteenth (decision 372).
+    assert_eq!(list[0]["capabilityIds"].as_array().unwrap().len(), 15);
 
     // 4. Active: the operation commands read the sentinel files.
     call(&w.w, "workspace_activate", json!({ "id": "statistics" })).expect("Statistics activates");
