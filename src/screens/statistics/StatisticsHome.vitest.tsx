@@ -67,6 +67,7 @@ function renderHome(list: CapabilityView[] = TABLE, forceEntitlement: Entitlemen
         <Routes>
           <Route path="/app/statistics" element={<StatisticsHome bridge={bridge} forceEntitlement={forceEntitlement} />} />
           <Route path="/app/statistics/ttest" element={<div data-testid="ttest-here" />} />
+          <Route path="/app/statistics/anova" element={<div data-testid="anova-here" />} />
           <Route path="/app/statistics/describe" element={<div data-testid="describe-here" />} />
           <Route path="/app/statsverifier" element={<div data-testid="verifier-here" />} />
           <Route path="/app/check/stats" element={<div data-testid="check-here" />} />
@@ -172,6 +173,32 @@ describe('StatisticsHome', () => {
     expect(screen.queryByTestId('stats-card-stats.analyze.one_way_anova')).toBeNull();
     expect(screen.queryByTestId('stats-open-stats.analyze.one_way_anova')).toBeNull();
     expect(screen.queryByTestId('stats-no-route-stats.analyze.one_way_anova')).toBeNull();
+  });
+
+  // Research OS, Phase 8G-2 (decisions 331 and 333): Beta and runnable, with
+  // its screen, the one-way ANOVA has its own card, its limitations from the
+  // descriptor, and a link to its route, where "no screen of its own here
+  // yet" stood while it had none.
+  it('gives the Beta one-way ANOVA its card, its limitations and its route', async () => {
+    renderHome([
+      {
+        ...cap('stats.analyze.one_way_anova', 'beta', true, 'stats.capability.analyze.one_way_anova.title'),
+        descriptionCode: 'stats.capability.analyze.one_way_anova.description',
+        knownLimitations: [
+          'stats.capability.limit.analyze.effect_sizes_have_no_interval',
+          'stats.capability.limit.analyze.no_robust_means_trends_or_contrasts',
+        ],
+      },
+    ]);
+    const card = await screen.findByTestId('stats-card-stats.analyze.one_way_anova');
+    expect(within(card).getByRole('heading').textContent).toBe('One-way ANOVA on your data');
+    expect(within(card).getAllByRole('listitem')).toHaveLength(2);
+    expect(screen.queryByTestId('stats-no-route-stats.analyze.one_way_anova')).toBeNull();
+    const open = screen.getByTestId('stats-open-stats.analyze.one_way_anova');
+    expect(open.getAttribute('href')).toBe('/app/statistics/anova');
+    expect(screen.queryByTestId('stats-roadmap-stats.analyze.one_way_anova')).toBeNull();
+    fireEvent.click(open);
+    expect(await screen.findByTestId('anova-here')).toBeTruthy();
   });
 
   it('shows the runnable verifier methods as one Stats Verifier card with its entitlement', async () => {

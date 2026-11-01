@@ -1,0 +1,168 @@
+{
+  "runId": 5,
+  "status": "succeeded",
+  "result": {
+    "groups": [
+      {
+        "level": 0,
+        "label": "a",
+        "n": 3,
+        "mean": 1.0,
+        "sd": 1.25,
+        "se": 0.5,
+        "ciLower": 0.0,
+        "ciUpper": 2.0,
+        "min": -1.0,
+        "max": 3.0
+      },
+      {
+        "level": 1,
+        "label": "b",
+        "n": 3,
+        "mean": 2.0,
+        "sd": 1.25,
+        "se": 0.5,
+        "ciLower": 1.0,
+        "ciUpper": 3.0,
+        "min": 0.0,
+        "max": 4.0
+      }
+    ],
+    "table": {
+      "not_computable": "stats.anova.outcome_constant"
+    },
+    "welch": {
+      "computed": {
+        "f": 3.5,
+        "df1": 1.0,
+        "df2": 3.75,
+        "p": 0.14
+      }
+    },
+    "leveneMean": {
+      "not_computable": "stats.anova.outcome_constant"
+    },
+    "leveneMedian": {
+      "computed": {
+        "f": 0.5,
+        "df1": 1.0,
+        "df2": 4.0,
+        "p": 0.52
+      }
+    },
+    "etaSquared": {
+      "not_computable": "stats.anova.outcome_constant"
+    },
+    "omegaSquared": {
+      "value": -0.05
+    },
+    "postHoc": [
+      {
+        "test": "tukey",
+        "pairs": {
+          "not_computable": "stats.anova.outcome_constant"
+        }
+      },
+      {
+        "test": "games_howell",
+        "pairs": {
+          "computed": [
+            {
+              "first": 0,
+              "second": 1,
+              "outcome": {
+                "computed": {
+                  "difference": -1.0,
+                  "se": 0.75,
+                  "statistic": 4.5,
+                  "df": 9.5,
+                  "p": {
+                    "value": 0.21
+                  },
+                  "ciLower": -2.5,
+                  "ciUpper": 0.5
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "test": "bonferroni",
+        "pairs": {
+          "computed": [
+            {
+              "first": 0,
+              "second": 1,
+              "outcome": {
+                "computed": {
+                  "difference": -1.0,
+                  "se": 0.75,
+                  "statistic": 4.5,
+                  "df": 9.5,
+                  "p": {
+                    "below": 1e-10
+                  },
+                  "ciLower": -2.5,
+                  "ciUpper": 0.5
+                }
+              }
+            },
+            {
+              "first": 0,
+              "second": 1,
+              "outcome": {
+                "not_computable": "stats.anova.overflow"
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "exclusions": [],
+    "notes": [],
+    "limitations": [
+      "stats.anova.normality_not_assessed"
+    ]
+  },
+  "diagnostics": [
+    {
+      "code": "stats.anova.suspect_missing_code",
+      "params": {
+        "column": 1,
+        "count": 2,
+        "value": 99
+      },
+      "severity": "warning"
+    }
+  ],
+  "manifest": {
+    "schemaVersion": 1,
+    "capabilityId": "stats.analyze.one_way_anova",
+    "capabilityVersion": 1,
+    "engineVersion": 1,
+    "inputs": [
+      "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    ],
+    "parametersHash": "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+    "seed": 7,
+    "rowsRead": 17,
+    "rowsUsed": 13,
+    "exclusions": [
+      {
+        "code": "stats.anova.other_level",
+        "count": 4,
+        "params": {
+          "column": 2
+        }
+      }
+    ],
+    "platform": {
+      "os": "macos",
+      "arch": "aarch64"
+    },
+    "elapsedMs": 3,
+    "outputHash": "5fd0af5daee4d8dfcb466411096e7f26e513bf2cadfb0e1605ff085026fe5b4a",
+    "reproducibility": "bitwise"
+  }
+}

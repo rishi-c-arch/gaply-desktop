@@ -58,6 +58,7 @@ import { RUN_STATE_NAMES } from '../describeWording';
 import { methodFor } from '../methods';
 import { ttestBridge, type TTestBridge } from '../ttestBridge';
 import { oneSampleBridge, pairedBridge, type OneSampleBridge, type PairedBridge } from '../onesampleBridge';
+import { anovaBridge, type AnovaBridge } from '../anovaBridge';
 import { projectBridge, type ProjectBridge } from './projectBridge';
 import { EXPORTS, prepareExport, type ExportKind, type SaveFile } from './projectExport';
 import { projectsShown } from './projectGate';
@@ -105,6 +106,7 @@ export interface ProjectPageProps {
   ttest?: TTestBridge;
   oneSample?: OneSampleBridge;
   paired?: PairedBridge;
+  anova?: AnovaBridge;
   /** How often project_current is read while a rerun is going. */
   pollMs?: number;
 }
@@ -167,6 +169,7 @@ const ProjectPageShown: React.FC<ProjectPageProps> = ({
   ttest: givenTtest,
   oneSample: givenOneSample,
   paired: givenPaired,
+  anova: givenAnova,
   pollMs = 250,
 }) => {
   const bridge = useMemo(() => given ?? projectBridge(), [given]);
@@ -175,6 +178,7 @@ const ProjectPageShown: React.FC<ProjectPageProps> = ({
   const ttest = useMemo(() => givenTtest ?? ttestBridge(), [givenTtest]);
   const oneSample = useMemo(() => givenOneSample ?? oneSampleBridge(), [givenOneSample]);
   const paired = useMemo(() => givenPaired ?? pairedBridge(), [givenPaired]);
+  const anova = useMemo(() => givenAnova ?? anovaBridge(), [givenAnova]);
   // Each kind's cancel, from the bridges given (Phase 8C).
   const cancels = useMemo<Record<RerunKind, (runId: number) => Promise<unknown>>>(
     () => ({
@@ -182,8 +186,9 @@ const ProjectPageShown: React.FC<ProjectPageProps> = ({
       ttest: (runId) => ttest.cancel(runId),
       one_sample: (runId) => oneSample.cancel(runId),
       paired: (runId) => paired.cancel(runId),
+      anova: (runId) => anova.cancel(runId),
     }),
-    [describe, ttest, oneSample, paired]
+    [describe, ttest, oneSample, paired, anova]
   );
   const gen = useGeneration();
   const [view, setView] = useState<View>({ kind: 'loading' });

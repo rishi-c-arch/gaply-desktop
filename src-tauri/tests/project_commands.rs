@@ -1310,6 +1310,47 @@ fn the_project_code_list_is_pinned() {
     assert_fixture("projectCodes.json", &codes);
 }
 
+/// The one-way ANOVA's saved results (Research OS, Phase 8G-2, decision
+/// 330): one with a level left out and all three post hoc tests, and one
+/// with every level and none, laid out as their fixtures, for the webview's
+/// shape check, as the other kinds' are.
+#[test]
+fn stored_anova_results_have_the_layout_of_their_fixtures() {
+    use gaply_core::stats_anova::PostHoc;
+    let w = World::new("stored-anova");
+    let slot = w.open(
+        "anova.csv",
+        b"y,g\n1.5,a\n2.25,a\n3.75,a\n4.5,b\n6.125,b\n7,b\n9.5,c\n12.75,c\n8,c\n3,d\n3.5,d\n4.25,d\n",
+    );
+    let all = w.anova(
+        slot,
+        1,
+        2,
+        Some(vec![0, 2, 3]),
+        vec![PostHoc::Tukey, PostHoc::GamesHowell, PostHoc::Bonferroni],
+    );
+    let id = pc::save_run(&w.root(), &w.ws, all, new_project("Stored ANOVA"))
+        .unwrap()
+        .project_id;
+    let none = w.anova(slot, 1, 2, None, vec![]);
+    pc::save_run(&w.root(), &w.ws, none, into_open(&id)).unwrap();
+    for (n, name, tests) in [(1, "anova_post_hoc.json", 3), (2, "anova.json", 0)] {
+        let back = pc::run_result(&w.root(), &w.ws, &id, n).expect("read back");
+        assert_eq!(back.state, RunState::Succeeded, "{name}");
+        assert_eq!(back.capability_id, "stats.analyze.one_way_anova", "{name}");
+        let bundle: Value = serde_json::from_str(back.bundle_json.as_deref().unwrap()).unwrap();
+        assert_eq!(
+            bundle["primaryOutputs"]["postHoc"]
+                .as_array()
+                .unwrap()
+                .len(),
+            tests,
+            "{name}"
+        );
+        assert_stored_fixture(name, &back);
+    }
+}
+
 #[test]
 fn a_save_target_reads_from_the_webview_shape_and_nothing_else() {
     let t: SaveTarget =

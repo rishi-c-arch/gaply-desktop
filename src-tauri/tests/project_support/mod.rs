@@ -230,6 +230,36 @@ impl World {
     }
 
     /// Waits until a one-sample or paired run has ended; its state.
+    /// A one-way ANOVA of column `outcome` by column `group` (Research OS,
+    /// Phase 8G-2, decision 330), run to its end.
+    pub fn anova(
+        &self,
+        slot: u64,
+        outcome: u32,
+        group: u32,
+        levels: Option<Vec<u32>>,
+        post_hoc: Vec<gaply_core::stats_anova::PostHoc>,
+    ) -> u64 {
+        let e = self.engine();
+        let held = e.datasets.get(slot).expect("the slot");
+        let spec = gaply_core::stats_anova::spec(
+            OperationId(8),
+            held.dataset(),
+            gaply_core::stats_anova::AnovaParams {
+                outcome: Alias(ColumnAlias(outcome)),
+                group: Alias(ColumnAlias(group)),
+                levels,
+                post_hoc,
+                missing_codes: Vec::new(),
+            },
+        );
+        let id = app_lib::stats_anova_commands::run(&e.runs, &e.datasets, slot, spec)
+            .expect("the run starts")
+            .run_id;
+        self.wait_new_kind(id);
+        id
+    }
+
     pub fn wait_new_kind(&self, run: u64) -> RunState {
         let e = self.engine();
         let start = Instant::now();
@@ -239,6 +269,7 @@ impl World {
                 .one_sample_snapshot(RunId(run))
                 .map(|s| s.record.state)
                 .or_else(|_| e.runs.paired_snapshot(RunId(run)).map(|s| s.record.state))
+                .or_else(|_| e.runs.anova_snapshot(RunId(run)).map(|s| s.record.state))
                 .expect("the run is held");
             if state.is_terminal() {
                 return state;

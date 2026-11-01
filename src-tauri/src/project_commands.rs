@@ -90,13 +90,14 @@ use gaply_core::contracts::{
 };
 use gaply_core::research_project::{
     compare_rerun, ArtifactHash, ArtifactKind, ArtifactRef, Caps, ColumnRole, DataFormat,
-    ExportCode, ExportCount, ExportManifest, ExportParameter, ExportRun, ProjectCode,
+    ExportCode, ExportCount, ExportManifest, ExportParameter, ExportRun, PostHocTest, ProjectCode,
     ProjectExportInput, ProjectId, ProjectRefusal, ProjectTitle, ProvEdge, ProvGraph,
     RerunComparison, StoredRun, StoredRunId, TestVariant, UsedRole, PROV_FILE_NAME,
     REPORT_FILE_NAME,
 };
 use gaply_core::research_project::{render_prov_json, render_report_markdown};
 use gaply_core::stats_adapters;
+use gaply_core::stats_anova::{self, AnovaCode, AnovaParams, PostHoc};
 use gaply_core::stats_desc::{self, DescCode, DescribeParams, TreatAs};
 use gaply_core::stats_l1::dataset::Dataset;
 use gaply_core::stats_onesample::{self, OneSampleCode, OneSampleParams, PairedParams};
@@ -996,6 +997,13 @@ const METHODS: &[MethodRow] = &[
         read_back: read_back::<OperationSpec<PairedParams>>,
         export: export_with::<OperationSpec<PairedParams>>,
     },
+    // Research OS, Phase 8G-2 (decision 330).
+    MethodRow {
+        capability: stats_anova::CAPABILITY_ID,
+        kind: RunKind::Anova,
+        read_back: read_back::<OperationSpec<AnovaParams>>,
+        export: export_with::<OperationSpec<AnovaParams>>,
+    },
 ];
 
 /// The row of a capability, if a method has one.
@@ -1153,6 +1161,35 @@ impl SavedSpec for OperationSpec<PairedParams> {
 
     fn parameters(&self) -> Vec<ExportParameter> {
         paired_parameters(self)
+    }
+}
+
+impl Rerun for OperationSpec<AnovaParams> {
+    fn valid_on(&self, build: Build, dataset: &Dataset) -> bool {
+        check_spec(
+            WorkspaceId::Statistics,
+            self.workspace_id,
+            &self.capability_id,
+        )
+        .is_ok()
+            && passes(stats_adapters::anova_validate(self, build, dataset).status)
+    }
+
+    fn launch(
+        self: Box<Self>,
+        runs: &Arc<Runs>,
+        slot: Arc<Slot>,
+        end: EndHook,
+    ) -> Result<RunId, NotStarted> {
+        runs.start_anova_then(slot, *self, end)
+    }
+}
+
+impl SavedSpec for OperationSpec<AnovaParams> {
+    type Code = AnovaCode;
+
+    fn parameters(&self) -> Vec<ExportParameter> {
+        anova_parameters(self)
     }
 }
 
@@ -1786,8 +1823,10 @@ pub enum SpecFieldShown {
     Excluded(&'static str),
 }
 
-/// Every field of a saved describe, t-test, one-sample or paired spec, by
-/// JSON path (`[]` for each element of an array).
+/// Every field of a saved describe, t-test, one-sample, paired or one-way
+/// ANOVA spec, by JSON path (`[]` for each element of an array). The ANOVA
+/// shares `outcome`, `group`, `levels[]` and `missingCodes[]` with the
+/// t-test's rows, and adds `postHoc[]` (decision 330).
 pub const SPEC_FIELDS: &[(&str, SpecFieldShown)] = &[
     (
         "schemaVersion",
@@ -1827,6 +1866,9 @@ pub const SPEC_FIELDS: &[(&str, SpecFieldShown)] = &[
     ("parameters.testValue", SpecFieldShown::Reported),
     ("parameters.first", SpecFieldShown::Reported),
     ("parameters.second", SpecFieldShown::Reported),
+    // Research OS, Phase 8G-2 (decision 330): the one-way ANOVA's post hoc
+    // tests, closed words the user chose.
+    ("parameters.postHoc[]", SpecFieldShown::Reported),
 ];
 
 fn shape(spec_inputs: &[InputRef]) -> Vec<ExportParameter> {
@@ -1914,6 +1956,38 @@ fn paired_parameters(spec: &OperationSpec<PairedParams>) -> Vec<ExportParameter>
         position: p.second.0 .0,
         role: ColumnRole::Second,
     });
+    out.push(ExportParameter::MissingCodes {
+        count: p.missing_codes.len() as u64,
+    });
+    out.push(ExportParameter::Seed(spec.random_seed));
+    out
+}
+
+/// A one-way ANOVA spec's settings, by the allow-list (decision 330): its
+/// two columns, the included levels as indexes or every level, and the post
+/// hoc tests as chosen.
+fn anova_parameters(spec: &OperationSpec<AnovaParams>) -> Vec<ExportParameter> {
+    let p = &spec.parameters;
+    let mut out = shape(&spec.inputs);
+    out.push(ExportParameter::Column {
+        position: p.outcome.0 .0,
+        role: ColumnRole::Outcome,
+    });
+    out.push(ExportParameter::Column {
+        position: p.group.0 .0,
+        role: ColumnRole::Group,
+    });
+    out.push(ExportParameter::IncludedLevels(p.levels.clone()));
+    out.push(ExportParameter::PostHocTests(
+        p.post_hoc
+            .iter()
+            .map(|t| match t {
+                PostHoc::Tukey => PostHocTest::Tukey,
+                PostHoc::GamesHowell => PostHocTest::GamesHowell,
+                PostHoc::Bonferroni => PostHocTest::Bonferroni,
+            })
+            .collect(),
+    ));
     out.push(ExportParameter::MissingCodes {
         count: p.missing_codes.len() as u64,
     });
@@ -2344,6 +2418,64 @@ mod tests {
         (one, paired)
     }
 
+    /// A one-way ANOVA spec with a level left out, all three tests and a
+    /// missing code (Research OS, Phase 8G-2, decision 330).
+    fn anova_spec() -> OperationSpec<AnovaParams> {
+        OperationSpec {
+            schema_version: SchemaVersion,
+            operation_id: OperationId(7),
+            workspace_id: WorkspaceId::Statistics,
+            capability_id: stats_anova::capability_id(),
+            capability_version: 1,
+            inputs: vec![input()],
+            parameters: AnovaParams {
+                outcome: Alias(ColumnAlias(2)),
+                group: Alias(ColumnAlias(3)),
+                levels: Some(vec![0, 2, 3]),
+                post_hoc: vec![PostHoc::Tukey, PostHoc::GamesHowell, PostHoc::Bonferroni],
+                missing_codes: vec![-9.0],
+            },
+            random_seed: None,
+            confirmation_refs: vec![ConfirmationId::parse(&"c".repeat(64)).unwrap()],
+        }
+    }
+
+    #[test]
+    fn the_anova_settings_are_positions_roles_indexes_words_and_counts() {
+        let a = anova_spec();
+        assert_eq!(
+            anova_parameters(&a),
+            [
+                ExportParameter::InputShape {
+                    rows: 12,
+                    columns: 3
+                },
+                ExportParameter::Column {
+                    position: 2,
+                    role: ColumnRole::Outcome
+                },
+                ExportParameter::Column {
+                    position: 3,
+                    role: ColumnRole::Group
+                },
+                ExportParameter::IncludedLevels(Some(vec![0, 2, 3])),
+                ExportParameter::PostHocTests(vec![
+                    PostHocTest::Tukey,
+                    PostHocTest::GamesHowell,
+                    PostHocTest::Bonferroni
+                ]),
+                ExportParameter::MissingCodes { count: 1 },
+                ExportParameter::Seed(None),
+            ]
+        );
+        let mut none = a;
+        none.parameters.levels = None;
+        none.parameters.post_hoc = vec![];
+        let p = anova_parameters(&none);
+        assert_eq!(p[3], ExportParameter::IncludedLevels(None));
+        assert_eq!(p[4], ExportParameter::PostHocTests(vec![]));
+    }
+
     /// Every leaf of a JSON value, by path, `[]` for an array's elements.
     fn paths(v: &Value, at: &str, out: &mut BTreeSet<String>) {
         match v {
@@ -2377,6 +2509,7 @@ mod tests {
         let (one, paired) = onesample_specs();
         paths(&serde_json::to_value(&one).unwrap(), "", &mut seen);
         paths(&serde_json::to_value(&paired).unwrap(), "", &mut seen);
+        paths(&serde_json::to_value(anova_spec()).unwrap(), "", &mut seen);
         let listed: BTreeSet<String> = SPEC_FIELDS.iter().map(|(p, _)| p.to_string()).collect();
         let unlisted: Vec<&String> = seen.difference(&listed).collect();
         assert!(

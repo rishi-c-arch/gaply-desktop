@@ -42,3 +42,9 @@
 # meaning, not source to be tidied.
 src/screens/citations/fixtures/edge-crlf.bib -text
 src/screens/citations/fixtures/endnote.ris   -text
+
+# Research OS, Phase 8G-2 (D306): the one-way ANOVA's export golden. The export
+# writes RFC 4180 with CRLF line ends and `anova_export.rs` pins its bytes, so
+# normalising it to LF would fail that pin on every fresh clone (CI) while it
+# passed in the working copy, D113's shape.
+src-tauri/gaply-core/tests/fixtures/stats_anova/export_golden.csv -text

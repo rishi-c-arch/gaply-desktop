@@ -27,6 +27,9 @@ import { DescribeResult } from '../DescribeFlow';
 import { ResultCard } from '../TTestFlow';
 import { OneSampleResultCard } from '../OneSampleFlow';
 import { PairedResultCard } from '../PairedFlow';
+import { AnovaResultCard } from '../AnovaFlow';
+import { anovaSentence, type AnovaNames } from '../anovaWording';
+import type { AnovaDiagnostic, AnovaResultView } from '../anovaTypes';
 import { diagnosticSentence } from '../describeWording';
 import { ttestSentence, type TTestNames } from '../ttestWording';
 import { oneSampleSentence } from '../onesampleWording';
@@ -37,6 +40,7 @@ import type { ProjectBridge } from './projectBridge';
 import type { StoredRunView } from './projectTypes';
 import { capabilityName, PROJECT_TEXT, projectSentence, rerunLines, SAVED_TEXT, savedResultLine } from './projectWording';
 import {
+  ANOVA_CAPABILITY,
   capabilityOfCase,
   checkStored,
   ONE_SAMPLE_CAPABILITY,
@@ -55,6 +59,15 @@ const BY_POSITION = (alias: number) => `C${alias}`;
 /** The t-test's names: columns by position, levels by the result's own two
  *  groups, as the live screen names them from the same labels. */
 function ttestNames(result: TTestResultView): TTestNames {
+  return {
+    column: BY_POSITION,
+    level: (index: number) => result.result.groups.find((g) => g.level === index)?.label ?? `level ${index + 1}`,
+  };
+}
+
+/** The one-way ANOVA's names: columns by position, levels by the result's
+ *  own groups, as the live screen names them from the same labels. */
+function anovaNames(result: AnovaResultView): AnovaNames {
   return {
     column: BY_POSITION,
     level: (index: number) => result.result.groups.find((g) => g.level === index)?.label ?? `level ${index + 1}`,
@@ -115,6 +128,13 @@ export const SAVED_RENDERERS: Record<string, SavedRenderer> = {
   [PAIRED_CAPABILITY]: {
     failedSentence: (failure) => oneSampleSentence(failure as OneSampleDiagnostic, { column: BY_POSITION }),
     result: (checked) => (checked.kind === 'paired' ? <PairedResultCard result={checked.result} names={{ column: BY_POSITION }} /> : null),
+    hidden: () => false,
+  },
+  // Phase 8G-2 (decision 330): through the live screen's own card, its
+  // levels named by the result's labels; not behind a flag.
+  [ANOVA_CAPABILITY]: {
+    failedSentence: (failure) => anovaSentence(failure as AnovaDiagnostic, { column: BY_POSITION, level: (i) => `level ${i + 1}` }),
+    result: (checked) => (checked.kind === 'anova' ? <AnovaResultCard result={checked.result} names={anovaNames(checked.result)} /> : null),
     hidden: () => false,
   },
 };

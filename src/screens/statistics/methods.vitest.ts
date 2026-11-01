@@ -27,34 +27,45 @@ describe('the methods table', () => {
       manifestId('ttestResultView.json'),
       manifestId('onesampleResultView.json'),
       manifestId('pairedResultView.json'),
+      manifestId('anovaResultView.json'),
     ]);
-    expect(fromViews).toEqual(['stats.analyze.independent_t', 'stats.analyze.one_sample_t', 'stats.analyze.paired_t', 'stats.describe']);
+    expect(fromViews).toEqual([
+      'stats.analyze.independent_t',
+      'stats.analyze.one_sample_t',
+      'stats.analyze.one_way_anova',
+      'stats.analyze.paired_t',
+      'stats.describe',
+    ]);
     expect(sorted(METHODS.map((m) => m.capabilityId))).toEqual(fromViews);
     expect(sorted(Object.keys(STORED_CHECKERS))).toEqual(fromViews);
     expect(sorted(Object.keys(SAVED_RENDERERS))).toEqual(fromViews);
   });
 
-  it('keeps the four kinds, their words, names and job names', () => {
-    expect(METHODS.map((m) => m.kind)).toEqual(['describe', 'ttest', 'one_sample', 'paired']);
+  it('keeps the five kinds, their words, names and job names', () => {
+    expect(METHODS.map((m) => m.kind)).toEqual(['describe', 'ttest', 'one_sample', 'paired', 'anova']);
     expect(byKind((m) => m.jobName)).toEqual({
       describe: null,
       ttest: 'independent-samples t-test',
       one_sample: 'one-sample t-test',
       paired: 'paired-samples t-test',
+      anova: 'one-way ANOVA',
     });
     expect(capabilityOfKind('describe')).toBe(manifestId('resultBundleView.json'));
     expect(capabilityOfKind('ttest')).toBe(manifestId('ttestResultView.json'));
     expect(capabilityOfKind('one_sample')).toBe(manifestId('onesampleResultView.json'));
     expect(capabilityOfKind('paired')).toBe(manifestId('pairedResultView.json'));
+    expect(capabilityOfKind('anova')).toBe(manifestId('anovaResultView.json'));
     expect(capabilityName(manifestId('resultBundleView.json'))).toBe('Descriptive summary');
     expect(capabilityName(manifestId('ttestResultView.json'))).toBe('Independent-samples t-test');
     expect(capabilityName(manifestId('onesampleResultView.json'))).toBe('One-sample t-test');
     expect(capabilityName(manifestId('pairedResultView.json'))).toBe('Paired-samples t-test');
+    expect(capabilityName(manifestId('anovaResultView.json'))).toBe('One-way ANOVA');
     expect(METHODS.map((m) => m.path)).toEqual([
       '/app/statistics/describe',
       '/app/statistics/ttest',
       '/app/statistics/one-sample',
       '/app/statistics/paired',
+      '/app/statistics/anova',
     ]);
   });
 

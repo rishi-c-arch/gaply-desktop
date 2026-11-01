@@ -24,6 +24,8 @@ import { STATISTICS_HOME_PATH, statisticsTools as selectorTools } from '../stati
 import { FOCUS_PROJECTS } from '../statistics/StatisticsHome';
 import { ttestBridge, type TTestBridge } from '../statistics/ttestBridge';
 import { oneSampleBridge, pairedBridge, type OneSampleBridge, type PairedBridge } from '../statistics/onesampleBridge';
+import { anovaBridge, type AnovaBridge } from '../statistics/anovaBridge';
+import { stepsSentence } from '../statistics/anovaWording';
 import { byKind } from '../statistics/methods';
 import { projectsShown } from '../statistics/projects/projectGate';
 import { noteWorkspaceState, openProjectStore } from '../statistics/projects/projectSession';
@@ -43,6 +45,8 @@ export interface WorkspaceShellProps {
   oneSampleRuns?: OneSampleBridge;
   /** Reads and cancels a paired t-test's run (Phase 8D-2c, the same bridge). */
   pairedRuns?: PairedBridge;
+  /** Reads and cancels a one-way ANOVA's run (Phase 8G-2's bridge). */
+  anovaRuns?: AnovaBridge;
   /** How often the state and the newest run are read. */
   pollMs?: number;
 }
@@ -71,7 +75,8 @@ interface JobView {
   runId: number;
   state: RunState;
   terminal: boolean;
-  /** The descriptive summary's column progress; a t-test has none. */
+  /** The descriptive summary's column progress, or the one-way ANOVA's
+   *  steps (decision 328); a t-test has none. */
   progress: string | null;
   kind: RunEntry['kind'];
 }
@@ -118,6 +123,7 @@ export const WorkspaceShell: React.FC<WorkspaceShellProps> = ({
   ttestRuns: givenTTest,
   oneSampleRuns: givenOneSample,
   pairedRuns: givenPaired,
+  anovaRuns: givenAnova,
   pollMs = 1000,
 }) => {
   const navigate = useNavigate();
@@ -126,6 +132,7 @@ export const WorkspaceShell: React.FC<WorkspaceShellProps> = ({
   const ttest = useMemo(() => givenTTest ?? ttestBridge(), [givenTTest]);
   const oneSample = useMemo(() => givenOneSample ?? oneSampleBridge(), [givenOneSample]);
   const paired = useMemo(() => givenPaired ?? pairedBridge(), [givenPaired]);
+  const anova = useMemo(() => givenAnova ?? anovaBridge(), [givenAnova]);
   const [view, setView] = useState<WorkspaceStateView | null>(null);
   const [run, setRun] = useState<JobView | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -181,8 +188,23 @@ export const WorkspaceShell: React.FC<WorkspaceShellProps> = ({
         },
         cancel: (runId) => paired.cancel(runId).catch(() => null),
       },
+      anova: {
+        status: async (runId) => {
+          const r = await anova.status(runId).catch(() => null);
+          return (
+            r && {
+              runId: r.runId,
+              state: r.state,
+              terminal: r.terminal,
+              progress: `${stepsSentence(r.stepsDone, r.stepsTotal)}.`,
+              kind: 'anova',
+            }
+          );
+        },
+        cancel: (runId) => anova.cancel(runId).catch(() => null),
+      },
     }),
-    [runs, ttest, oneSample, paired]
+    [runs, ttest, oneSample, paired, anova]
   );
 
   /** A run's state, through its kind's status command (decision 80). */

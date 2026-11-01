@@ -187,7 +187,10 @@ export const RunCard: React.FC<{
   onCancel: () => void;
   onSeeResults: () => void;
   onBack: () => void;
-}> = ({ prefix, title, runView, endedSentence, diagnostics, busy, onCancel, onSeeResults, onBack }) => (
+  /** A method's own progress line, in what it counts (Research OS, Phase
+   *  8G-2, decision 328); none by default. */
+  progress?: React.ReactNode;
+}> = ({ prefix, title, runView, endedSentence, diagnostics, busy, onCancel, onSeeResults, onBack, progress }) => (
   <Card>
     {title}
     <div role="status" aria-live="polite" data-testid={`${prefix}-run-status`}>
@@ -197,6 +200,7 @@ export const RunCard: React.FC<{
       <p style={{ margin: 0 }} data-testid={`${prefix}-elapsed`}>
         {elapsedSentence(runView.elapsedMs)}
       </p>
+      {progress}
     </div>
     {runView.terminal && runView.state !== 'succeeded' && (
       <>

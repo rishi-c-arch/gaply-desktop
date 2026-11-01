@@ -12,6 +12,7 @@ import { makeMockWorkspaceBridge } from './workspaceBridge';
 import { makeMockDescribeBridge } from '../statistics/describeBridge';
 import { makeMockTTestBridge } from '../statistics/ttestBridge';
 import { makeMockOneSampleBridge, makeMockPairedBridge } from '../statistics/onesampleBridge';
+import { makeMockAnovaBridge } from '../statistics/anovaBridge';
 import type { TTestRunStateView } from '../statistics/ttestTypes';
 import type { RunKind, WorkspaceStateView } from './workspaceTypes';
 import type { RunStateView } from '../statistics/describeTypes';
@@ -358,5 +359,70 @@ describe('a paired t-test run in the shell', () => {
     expect(desc.calls).toEqual([]);
     expect(ttest.calls).toEqual([]);
     expect(oneSample.calls).toEqual([]);
+  });
+});
+
+// Research OS, Phase 8G-2 (decisions 318 and 328): a one-way ANOVA's run,
+// read and cancelled through the ANOVA's bridge, named by the methods
+// table's job name, its progress in steps.
+describe('a one-way ANOVA run in the shell', () => {
+  it('shows it with its steps, reads it through its own status, and Cancel cancels it through its own command', async () => {
+    let ended = false;
+    const ws = makeMockWorkspaceBridge({
+      workspace_state: () => ACTIVE(ended ? null : 9, 'anova'),
+      workspace_deactivate: () => {
+        if (!ended) {
+          throw Object.assign(
+            new Error(JSON.stringify({ code: 'workspace.run_active', params: { workspace: 'statistics', run: 9 }, severity: 'error' })),
+            { code: 'validation' }
+          );
+        }
+        return NONE;
+      },
+    });
+    const desc = makeMockDescribeBridge({});
+    const ttest = makeMockTTestBridge({});
+    const oneSample = makeMockOneSampleBridge({});
+    const paired = makeMockPairedBridge({});
+    const view = (state: 'running' | 'cancelled', terminal: boolean) => ({
+      runId: 9,
+      state,
+      terminal,
+      elapsedMs: 80,
+      cancelRequested: false,
+      stepsDone: 20,
+      stepsTotal: 46,
+      diagnostics: [],
+    });
+    const anova = makeMockAnovaBridge({
+      stats_anova_status: () => (ended ? view('cancelled', true) : view('running', false)),
+      stats_anova_cancel: () => {
+        ended = true;
+        return view('running', false);
+      },
+    });
+    render(
+      <MemoryRouter initialEntries={['/app/workspaces/statistics']}>
+        <Routes>
+          <Route
+            path="/app/workspaces/statistics"
+            element={
+              <WorkspaceShell bridge={ws} runs={desc} ttestRuns={ttest} oneSampleRuns={oneSample} pairedRuns={paired} anovaRuns={anova} pollMs={20} />
+            }
+          />
+          <Route path="/app/workspaces" element={<div data-testid="chooser-here" />} />
+        </Routes>
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(screen.getByTestId('ws-job').textContent).toBe('Run 9 (one-way ANOVA): Running. 20 of 46 steps.'));
+    fireEvent.click(screen.getByTestId('ws-switch'));
+    await screen.findByTestId('ws-switch-dialog');
+    fireEvent.click(screen.getByTestId('ws-switch-cancel'));
+    await screen.findByTestId('chooser-here');
+    expect(anova.calls.filter(([c]) => c === 'stats_anova_cancel')).toEqual([['stats_anova_cancel', { runId: 9 }]]);
+    expect(desc.calls).toEqual([]);
+    expect(ttest.calls).toEqual([]);
+    expect(oneSample.calls).toEqual([]);
+    expect(paired.calls).toEqual([]);
   });
 });

@@ -5,7 +5,8 @@
 // props the live screens give them.
 //
 // * The capability must be one this app knows (the summary, the t-test, or
-//   since Phase 8D-2b the one-sample t-test, and since 8D-2c the paired),
+//   since Phase 8D-2b the one-sample t-test, since 8D-2c the paired, and
+//   since 8G-2 the one-way ANOVA),
 //   and every schema version the one this app reads: 1, the literal type of
 //   `schemaVersion` in describeTypes.ts and ttestTypes.ts and Rust's
 //   `SchemaVersion::NUMBER` (gaply-core/src/contracts/mod.rs).
@@ -19,9 +20,11 @@
 import type { ColumnResult, Diagnostic, ResultBundleView, RunManifest } from '../describeTypes';
 import type { TTestDiagnostic, TTestResultView } from '../ttestTypes';
 import type { OneSampleDiagnostic, OneSampleResultView, PairedResultView } from '../onesampleTypes';
+import type { AnovaDiagnostic, AnovaResultView } from '../anovaTypes';
 import DESCRIBE_CODES from '../describeCodes.json';
 import TTEST_CODES from '../ttestCodes.json';
 import ONESAMPLE_CODES from '../onesampleCodes.json';
+import ANOVA_CODES from '../anovaCodes.json';
 import { capabilityOfKind } from '../methods';
 
 /** The schema version this app reads, for every stored part. */
@@ -32,15 +35,16 @@ export const SUMMARY_CAPABILITY = capabilityOfKind('describe');
 export const TTEST_CAPABILITY = capabilityOfKind('ttest');
 export const ONE_SAMPLE_CAPABILITY = capabilityOfKind('one_sample');
 export const PAIRED_CAPABILITY = capabilityOfKind('paired');
+export const ANOVA_CAPABILITY = capabilityOfKind('anova');
 
 /** A data file's formats: the ingest's (DataFormat in Rust, without json). */
 const DATA_FORMATS = ['csv', 'tsv', 'xlsx', 'xlsm', 'xlsb', 'xls', 'ods', 'sav', 'mat'];
 
 /** The case a method's checked results are shown as. */
-export type CaseKind = 'summary' | 'ttest' | 'one_sample' | 'paired';
+export type CaseKind = 'summary' | 'ttest' | 'one_sample' | 'paired' | 'anova';
 
 /** A failed run's stored diagnostic, in its method's codes. */
-export type StoredFailure = Diagnostic | TTestDiagnostic | OneSampleDiagnostic;
+export type StoredFailure = Diagnostic | TTestDiagnostic | OneSampleDiagnostic | AnovaDiagnostic;
 
 /** What a saved result is, once checked: what to show, or why not. */
 export type Checked =
@@ -48,6 +52,7 @@ export type Checked =
   | { kind: 'ttest'; result: TTestResultView; dataFile: DataFileFacts }
   | { kind: 'one_sample'; result: OneSampleResultView; dataFile: DataFileFacts }
   | { kind: 'paired'; result: PairedResultView; dataFile: DataFileFacts }
+  | { kind: 'anova'; result: AnovaResultView; dataFile: DataFileFacts }
   | { kind: 'failed'; capability: CaseKind; failure: StoredFailure; dataFile: DataFileFacts }
   | { kind: 'unknownCapability' }
   | { kind: 'unknownSchema' }
@@ -74,10 +79,12 @@ const arrayOf = (v: unknown, each: (x: unknown) => boolean): boolean => Array.is
 const DESC_CODES = (DESCRIBE_CODES as string[]).filter((c) => c.indexOf('stats.desc.') === 0);
 const T_CODES = (TTEST_CODES as string[]).filter((c) => c.indexOf('stats.ttest.') === 0);
 const OS_CODES = (ONESAMPLE_CODES as string[]).filter((c) => c.indexOf('stats.onesample.') === 0);
+const AN_CODES = (ANOVA_CODES as string[]).filter((c) => c.indexOf('stats.anova.') === 0);
 const SEVERITIES = ['error', 'warning', 'note'];
 const DESC_PARAM_KEYS = ['column', 'count', 'index', 'value', 'limit', 'expected', 'found', 'from', 'event'];
 const T_PARAM_KEYS = ['column', 'count', 'index', 'value', 'limit', 'expected', 'found'];
 const OS_PARAM_KEYS = ['column', 'count', 'index', 'value', 'limit', 'expected', 'found'];
+const AN_PARAM_KEYS = ['column', 'count', 'index', 'value', 'limit', 'expected', 'found'];
 const RUN_STATES = [
   'draft',
   'validating',
@@ -283,6 +290,76 @@ function pairedBundle(v: O): PairedResultView | null {
   };
 }
 
+/* ---- the one-way ANOVA (Phase 8G-2, decision 330) ----------------------------- */
+
+/** One key of `keys` holding what `check` accepts, and nothing else. */
+const oneKey = (v: unknown, cases: Record<string, (x: unknown) => boolean>) =>
+  isObject(v) && Object.keys(v).length === 1 && Object.keys(cases).some((k) => k in v && cases[k](v[k]));
+
+const anCode = (x: unknown) => oneOf(x, AN_CODES);
+const aStat = (v: unknown) => oneKey(v, { value: isNum, not_computable: anCode });
+const fTest = (v: unknown) => isObject(v) && [v.f, v.df1, v.df2, v.p].every(isNum);
+const fOutcome = (v: unknown) => oneKey(v, { computed: fTest, not_computable: anCode });
+const postHocP = (v: unknown) => oneKey(v, { value: isNum, below: isNum });
+const pairStats = (v: unknown) =>
+  isObject(v) && [v.difference, v.se, v.statistic, v.df, v.ciLower, v.ciUpper].every(isNum) && postHocP(v.p);
+const pair = (v: unknown) =>
+  isObject(v) && isCount(v.first) && isCount(v.second) && oneKey(v.outcome, { computed: pairStats, not_computable: anCode });
+const postHocTable = (v: unknown) =>
+  isObject(v) &&
+  oneOf(v.test, ['tukey', 'games_howell', 'bonferroni']) &&
+  oneKey(v.pairs, { computed: (x) => arrayOf(x, pair), not_computable: anCode });
+const anovaTable = (v: unknown) =>
+  isObject(v) &&
+  [v.ssBetween, v.ssWithin, v.ssTotal, v.dfBetween, v.dfWithin, v.msBetween, v.msWithin].every(isNum) &&
+  aStat(v.f) &&
+  aStat(v.p);
+const groupRow = (v: unknown) =>
+  isObject(v) &&
+  isCount(v.level) &&
+  isStr(v.label) &&
+  isCount(v.n) &&
+  [v.mean, v.sd, v.se, v.ciLower, v.ciUpper, v.min, v.max].every(isNum);
+
+/** An ANOVA exclusion: as every method's, and it names its column, which
+ *  `stats_anova` always sets, so a stored one without it is not one Rust
+ *  wrote. */
+const anExclusion = (e: unknown) =>
+  exclusion(AN_CODES, AN_PARAM_KEYS, false)(e) && isObject(e) && isObject(e.params) && isCount(e.params.column);
+
+function anovaBundle(v: O): AnovaResultView | null {
+  const d = diagnostic(AN_CODES, AN_PARAM_KEYS, false);
+  const r = v.primaryOutputs;
+  const ok =
+    isCount(v.runId) &&
+    v.status === 'succeeded' &&
+    isObject(r) &&
+    arrayOf(r.groups, groupRow) &&
+    oneKey(r.table, { computed: anovaTable, not_computable: anCode }) &&
+    fOutcome(r.welch) &&
+    fOutcome(r.leveneMean) &&
+    fOutcome(r.leveneMedian) &&
+    aStat(r.etaSquared) &&
+    aStat(r.omegaSquared) &&
+    arrayOf(r.postHoc, postHocTable) &&
+    arrayOf(r.exclusions, anExclusion) &&
+    arrayOf(r.notes, anCode) &&
+    arrayOf(r.limitations, anCode) &&
+    arrayOf(v.diagnostics, d) &&
+    arrayOf(v.limitations, d) &&
+    manifest(v.manifest, ANOVA_CAPABILITY, AN_CODES, AN_PARAM_KEYS, false) &&
+    arrayOf((v.manifest as O).exclusions, anExclusion);
+  if (!ok) return null;
+  // As Rust's stats_anova_commands::result makes the live view.
+  return {
+    runId: v.runId as number,
+    status: 'succeeded',
+    result: r as unknown as AnovaResultView['result'],
+    diagnostics: v.diagnostics as AnovaDiagnostic[],
+    manifest: v.manifest as AnovaResultView['manifest'],
+  };
+}
+
 /* ---- the checkers, one per method (Phase 8C; decision 249) ------------------- */
 
 /** How one method's saved result is checked: the case it is shown as, its
@@ -336,6 +413,16 @@ export const STORED_CHECKERS: Record<string, StoredChecker> = {
     bundle: (v, dataFile) => {
       const result = pairedBundle(v);
       return result ? { kind: 'paired', result, dataFile } : null;
+    },
+  },
+  [ANOVA_CAPABILITY]: {
+    which: 'anova',
+    codes: AN_CODES,
+    keys: AN_PARAM_KEYS,
+    strings: false,
+    bundle: (v, dataFile) => {
+      const result = anovaBundle(v);
+      return result ? { kind: 'anova', result, dataFile } : null;
     },
   },
 };

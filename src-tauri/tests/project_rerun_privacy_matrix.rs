@@ -7,13 +7,18 @@
 //! * the file name `FILE_SENTINEL_d17.csv`, in the folder `PATH_SENTINEL_w93`;
 //! * `7123.4567`, in a numeric column the user does not select;
 //! * `61.8129`, in the selected numeric column (no statistic can be it: the
-//!   describe matrix's own data, checked there against R);
+//!   describe matrix's own data, checked there against R). Since Phase 8G-2
+//!   one row (95.5) is in the label's group, so under the one-way ANOVA too,
+//!   which reports each group's min and max, it is neither: its group is
+//!   10.5, 95.5, 61.8129, 50 and 31;
 //! * `TXT_SENTINEL_m02`, a text cell in a column the user does not select;
 //! * the project's name, `TITLESENTp22`.
 //!
 //! The flow, through the commands' plain functions: open the file, run a
 //! summary, save it into a new project, run it again, let the save at the
-//! end land, read the project back (`project_current`, `project_runs`, each
+//! end land; since Phase 8G-2 (decision 330) the same for a one-way ANOVA of
+//! the selected column by the label's column, all three post hoc tests,
+//! saved into the open project and run again; read the project back (`project_current`, `project_runs`, each
 //! run's result) and render both exports, then delete the project.
 //!
 //! * In the app's data folder, the sentinels of the data appear only inside
@@ -42,6 +47,7 @@ use app_lib::project_commands::{self as pc, RerunProgress, SaveTarget};
 use app_lib::stats_desc_commands as desc;
 use desc_support::{delimited, C};
 use gaply_core::contracts::OperationId;
+use gaply_core::stats_anova::{self, AnovaParams, PostHoc};
 use gaply_core::stats_desc::{self, Alias, ColumnRequest, DescribeParams, TreatAs};
 use gaply_core::stats_l1::dataset::ColumnAlias;
 use gaply_core::Database;
@@ -63,7 +69,7 @@ fn table() -> Vec<u8> {
     let score = [
         "44.1257", "10.5", "95.5", SEL_NUM, "23.25", "50", "82", "31", "70.75",
     ];
-    let group = ["a", LVL, "a", LVL, "a", LVL, "a", LVL, "a"];
+    let group = ["a", LVL, LVL, LVL, "a", LVL, "a", LVL, "a"];
     let note = ["n1", "n2", TXT, "n4", "n5", "n6", "n7", "n8", "n9"];
     let aux = ["1", "2", "3", "4", UNSEL_NUM, "6", "7", "8", "9"];
     let rows: Vec<Vec<C>> = (0..9)
@@ -197,12 +203,68 @@ fn a_rerun_puts_no_sentinel_anywhere_but_the_projects_artifacts_and_its_title() 
     };
     assert_eq!(current.rerun.as_ref().unwrap().status, RerunProgress::Saved);
     responses.push(("current".into(), serde_json::to_string(&current).unwrap()));
+
+    // Phase 8G-2 (decision 330): a one-way ANOVA, saved into the open
+    // project and run again, the same way.
+    let held = e.datasets.get(opened.slot).unwrap();
+    let anova_spec = stats_anova::spec(
+        OperationId(2),
+        held.dataset(),
+        AnovaParams {
+            outcome: Alias(ColumnAlias(1)),
+            group: Alias(ColumnAlias(2)),
+            levels: None,
+            post_hoc: vec![PostHoc::Tukey, PostHoc::GamesHowell, PostHoc::Bonferroni],
+            missing_codes: vec![],
+        },
+    );
+    drop(held);
+    let anova_run =
+        app_lib::stats_anova_commands::run(&e.runs, &e.datasets, opened.slot, anova_spec)
+            .unwrap()
+            .run_id;
+    w.wait_new_kind(anova_run);
+    let saved_anova = pc::save_run(
+        &app,
+        &w.ws,
+        anova_run,
+        SaveTarget::OpenProject {
+            project_id: id.clone(),
+        },
+    )
+    .expect("the ANOVA saved");
+    responses.push((
+        "save (ANOVA)".into(),
+        serde_json::to_string(&saved_anova).unwrap(),
+    ));
+    let started = pc::rerun(&app, &w.ws, 3).expect("the ANOVA's rerun starts");
+    responses.push((
+        "rerun (ANOVA)".into(),
+        serde_json::to_string(&started).unwrap(),
+    ));
+    let start = std::time::Instant::now();
+    let current = loop {
+        let c = pc::current(&w.ws).unwrap();
+        if c.rerun
+            .as_ref()
+            .is_some_and(|r| r.status != RerunProgress::Going && r.stored_run_id == Some(4))
+        {
+            break c;
+        }
+        assert!(start.elapsed() < std::time::Duration::from_secs(20));
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    };
+    assert_eq!(current.rerun.as_ref().unwrap().status, RerunProgress::Saved);
+    responses.push((
+        "current (ANOVA)".into(),
+        serde_json::to_string(&current).unwrap(),
+    ));
     responses.push((
         "runs".into(),
         serde_json::to_string(&pc::runs(&app, &w.ws, &id).unwrap()).unwrap(),
     ));
     let mut results = String::new();
-    for n in [1, 2] {
+    for n in [1, 2, 3, 4] {
         results.push_str(
             &serde_json::to_string(&pc::run_result(&app, &w.ws, &id, n).unwrap()).unwrap(),
         );
@@ -214,6 +276,10 @@ fn a_rerun_puts_no_sentinel_anywhere_but_the_projects_artifacts_and_its_title() 
     assert!(
         report.contains("Repeats run 1."),
         "the rerun is in the report"
+    );
+    assert!(
+        report.contains("Repeats run 3.") && report.contains("- Post hoc tests: tukey"),
+        "the ANOVA and its rerun are in the report"
     );
     assert!(prov.contains("wasInformedBy"), "and in the provenance");
 

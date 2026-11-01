@@ -64,6 +64,15 @@
 //! [`Runs::start`] and [`Runs::start_ttest`] have no hook and behave as
 //! before. This module still writes nothing: the hook is its caller's.
 //!
+//! Research OS, Phase 8G-2 (decisions 317 and 328): a record may hold a
+//! one-way ANOVA, started with [`Runs::start_anova`]. Its check points are
+//! `stats_anova::run`'s, one before the arithmetic and one before each post
+//! hoc pair, and the record's `columns_total` is `stats_anova::check_points`
+//! for the levels the run includes, so its progress counts check points. A
+//! method's `columns_total` reads the slot's dataset as well as the spec,
+//! since with no levels named the ANOVA includes every level the dataset's
+//! group holds; the other four ignore it.
+//!
 //! Phase 3: the run manager and the slots belong to the Statistics workspace
 //! (`crate::workspace`), built when it is activated and dropped when it is
 //! left. [`Runs::seal`] is how it is left: under the records' lock it either
@@ -85,6 +94,7 @@ use gaply_core::contracts::{
 };
 use gaply_core::research_project::DataFormat;
 use gaply_core::stats_adapters;
+use gaply_core::stats_anova::{self, AnovaCode, AnovaOutcome, AnovaParams};
 use gaply_core::stats_desc::{self, DescCode, DescribeParams, DescribeResult, Halt};
 use gaply_core::stats_l1::dataset::Dataset;
 use gaply_core::stats_onesample::{
@@ -458,6 +468,9 @@ pub enum RunKind {
     OneSample,
     /// `stats.analyze.paired_t`, through the `stats_paired_*` commands.
     Paired,
+    /// `stats.analyze.one_way_anova`, through the `stats_anova_*` commands
+    /// (Research OS, Phase 8G-2, decision 318).
+    Anova,
 }
 
 /// The data a run read: its slot, and the SHA-256 of the original bytes the
@@ -573,6 +586,7 @@ enum Held {
     Ttest(Outputs<TTestResult, TTestCode>),
     OneSample(Outputs<OneSampleResult, OneSampleCode>),
     Paired(Outputs<PairedResult, OneSampleCode>),
+    Anova(Outputs<AnovaOutcome, AnovaCode>),
 }
 
 impl Held {
@@ -585,8 +599,8 @@ struct Entry {
     record: RunRecord,
     /// Every state the record has been in, in order.
     path: Vec<RunState>,
-    /// Describe's columns; a t-test has none, and its view does not carry
-    /// them.
+    /// Describe's columns, or the ANOVA's check points; a t-test has none,
+    /// and its view does not carry them.
     columns_total: usize,
     columns_done: usize,
     cancel_requested: bool,
@@ -632,6 +646,7 @@ enum Job {
     Ttest(OperationSpec<TTestParams>),
     OneSample(OperationSpec<OneSampleParams>),
     Paired(OperationSpec<PairedParams>),
+    Anova(OperationSpec<AnovaParams>),
 }
 
 impl Job {
@@ -656,6 +671,7 @@ enum Report {
     Ttest(ValidationReport<TTestCode>),
     OneSample(ValidationReport<OneSampleCode>),
     Paired(ValidationReport<OneSampleCode>),
+    Anova(ValidationReport<AnovaCode>),
 }
 
 impl Report {
@@ -671,6 +687,7 @@ enum Done {
     Ttest(Finished<IndependentT>),
     OneSample(Finished<OneSampleT>),
     Paired(Finished<PairedT>),
+    Anova(Finished<OneWayAnova>),
 }
 
 /* ------------------------------------------------------------------------ *
@@ -700,6 +717,10 @@ macro_rules! by_method {
             }
             $enum::Paired($x) => {
                 type $m = PairedT;
+                $body
+            }
+            $enum::Anova($x) => {
+                type $m = OneWayAnova;
                 $body
             }
         }
@@ -738,8 +759,9 @@ trait Method: Sized {
     /// What its work answers when it gives no result.
     type Halt;
 
-    /// What the record's `columns_total` is.
-    fn columns_total(spec: &OperationSpec<Self::Params>) -> usize;
+    /// What the record's `columns_total` is, for `spec` on the slot's
+    /// `dataset` (decision 328).
+    fn columns_total(spec: &OperationSpec<Self::Params>, dataset: &Dataset) -> usize;
     /// The check before a run, through the method's façade.
     fn validate(
         spec: &OperationSpec<Self::Params>,
@@ -790,7 +812,7 @@ impl Method for Summary {
     type Code = DescCode;
     type Halt = Halt<Stop>;
 
-    fn columns_total(spec: &OperationSpec<DescribeParams>) -> usize {
+    fn columns_total(spec: &OperationSpec<DescribeParams>, _: &Dataset) -> usize {
         spec.parameters.columns.len()
     }
 
@@ -890,7 +912,7 @@ impl Method for IndependentT {
     type Halt = stats_ttest::Halt<Stop>;
 
     /// None: a t-test's state view carries no columns.
-    fn columns_total(_: &OperationSpec<TTestParams>) -> usize {
+    fn columns_total(_: &OperationSpec<TTestParams>, _: &Dataset) -> usize {
         0
     }
 
@@ -992,7 +1014,7 @@ impl Method for OneSampleT {
     type Halt = stats_onesample::Halt<Stop>;
 
     /// None: its state view carries no columns.
-    fn columns_total(_: &OperationSpec<OneSampleParams>) -> usize {
+    fn columns_total(_: &OperationSpec<OneSampleParams>, _: &Dataset) -> usize {
         0
     }
 
@@ -1094,7 +1116,7 @@ impl Method for PairedT {
     type Halt = stats_onesample::Halt<Stop>;
 
     /// None: its state view carries no columns.
-    fn columns_total(_: &OperationSpec<PairedParams>) -> usize {
+    fn columns_total(_: &OperationSpec<PairedParams>, _: &Dataset) -> usize {
         0
     }
 
@@ -1181,6 +1203,121 @@ impl Method for PairedT {
 
     fn done(finished: Finished<Self>) -> Done {
         Done::Paired(finished)
+    }
+}
+
+/// `stats.analyze.one_way_anova`, through the `stats_anova_*` commands
+/// (Research OS, Phase 8G-2, decisions 317 and 328).
+struct OneWayAnova;
+
+impl Method for OneWayAnova {
+    const KIND: RunKind = RunKind::Anova;
+    type Params = AnovaParams;
+    type Result = AnovaOutcome;
+    type Code = AnovaCode;
+    type Halt = stats_anova::Halt<Stop>;
+
+    /// `stats_anova::check_points` for the levels the run includes: those
+    /// the spec names, or with none named every level of the dataset's group
+    /// (`stats_ttest::group_levels`, the ANOVA's own level function). A group
+    /// the dataset does not have counts no level; validation refuses it.
+    fn columns_total(spec: &OperationSpec<AnovaParams>, dataset: &Dataset) -> usize {
+        let p = &spec.parameters;
+        let levels = match &p.levels {
+            Some(named) => named.len(),
+            None => gaply_core::stats_ttest::group_levels(dataset, p.group).map_or(0, |l| l.len()),
+        };
+        stats_anova::check_points(p, levels)
+    }
+
+    fn validate(
+        spec: &OperationSpec<AnovaParams>,
+        dataset: &Dataset,
+    ) -> ValidationReport<AnovaCode> {
+        // Through `stats.analyze.one_way_anova`'s façade: the registry
+        // first, then `stats_anova::validate`, unchanged.
+        stats_adapters::anova_validate(spec, crate::workspace::build(), dataset)
+    }
+
+    fn compute(
+        spec: &OperationSpec<AnovaParams>,
+        build: Build,
+        dataset: &Dataset,
+        checkpoint: impl FnMut(usize) -> ControlFlow<Stop>,
+    ) -> Result<AnovaOutcome, stats_anova::Halt<Stop>> {
+        // A check point before the arithmetic and before each post hoc pair.
+        stats_adapters::anova_run(spec, build, dataset, checkpoint)
+    }
+
+    fn manifest(
+        spec: &OperationSpec<AnovaParams>,
+        dataset: &Dataset,
+        result: &AnovaOutcome,
+        elapsed: u64,
+    ) -> RunManifest<AnovaCode> {
+        stats_anova::manifest(spec, dataset, result, elapsed, Platform::current())
+    }
+
+    /// The result's own limitations, as notes.
+    fn limitations(result: &AnovaOutcome) -> Vec<Diagnostic<AnovaCode>> {
+        result
+            .limitations
+            .iter()
+            .map(|c| Diagnostic::note(*c))
+            .collect()
+    }
+
+    /// Every check point on a result, though a run whose post hoc tests are
+    /// not computable calls fewer; a stop leaves the count the check points
+    /// set.
+    fn columns_done(total: usize, outcome: &Outcome<Self>) -> Option<usize> {
+        match outcome {
+            Ok(Ok(_)) => Some(total),
+            Ok(Err(_)) | Err(_) => None,
+        }
+    }
+
+    fn halted(halt: stats_anova::Halt<Stop>) -> Halted<AnovaCode> {
+        match halt {
+            stats_anova::Halt::Stopped { reason } => Halted::Stopped(reason),
+            stats_anova::Halt::Refused(d) => Halted::Refused(d),
+        }
+    }
+
+    fn panicked() {
+        tracing::warn!("stats_desc: the one-way ANOVA panicked");
+    }
+
+    fn outputs(held: &Held) -> Option<&Outputs<AnovaOutcome, AnovaCode>> {
+        if let Held::Anova(o) = held {
+            Some(o)
+        } else {
+            None
+        }
+    }
+
+    fn outputs_mut(held: &mut Held) -> Option<&mut Outputs<AnovaOutcome, AnovaCode>> {
+        if let Held::Anova(o) = held {
+            Some(o)
+        } else {
+            None
+        }
+    }
+
+    fn held(outputs: Outputs<AnovaOutcome, AnovaCode>) -> Held {
+        Held::Anova(outputs)
+    }
+
+    fn job(spec: OperationSpec<AnovaParams>) -> Job {
+        Job::Anova(spec)
+    }
+
+    fn report(report: ValidationReport<AnovaCode>) -> Report {
+        Report::Anova(report)
+    }
+
+    fn done(finished: Finished<Self>) -> Done {
+        Done::Anova(finished)
     }
 }
 
@@ -1400,6 +1537,26 @@ impl Runs {
         self.begin::<PairedT>(slot, spec, Some(end))
     }
 
+    /// [`Runs::start`] for a one-way ANOVA (Research OS, Phase 8G-2,
+    /// decision 318).
+    pub fn start_anova(
+        self: &Arc<Self>,
+        slot: Arc<Slot>,
+        spec: OperationSpec<AnovaParams>,
+    ) -> Result<RunId, NotStarted> {
+        self.begin::<OneWayAnova>(slot, spec, None)
+    }
+
+    /// [`Runs::start_anova`], with an end hook: a rerun.
+    pub fn start_anova_then(
+        self: &Arc<Self>,
+        slot: Arc<Slot>,
+        spec: OperationSpec<AnovaParams>,
+        end: EndHook,
+    ) -> Result<RunId, NotStarted> {
+        self.begin::<OneWayAnova>(slot, spec, Some(end))
+    }
+
     /// Every start, of any method (Research OS, Phase 8C): the record, then
     /// the method's check through its façade, then the queue.
     fn begin<M: Method>(
@@ -1410,7 +1567,7 @@ impl Runs {
     ) -> Result<RunId, NotStarted> {
         let run = self.open_record(
             spec.operation_id,
-            M::columns_total(&spec),
+            M::columns_total(&spec, slot.dataset()),
             M::held(Outputs::default()),
             end,
         )?;
@@ -1760,6 +1917,11 @@ impl Runs {
         self.snapshot_as::<PairedT>(run)
     }
 
+    /// A one-way ANOVA's run; `run.wrong_kind` for another kind's.
+    pub fn anova_snapshot(&self, run: RunId) -> Result<RunSnapshot<AnovaCode>, RunCode> {
+        self.snapshot_as::<OneWayAnova>(run)
+    }
+
     /// Asks the run to stop. Queued: cancelled now. Running: the flag is set,
     /// and the next check point, or the worker's last step if no check point
     /// is left, ends it `Cancelled`. Finished: unchanged.
@@ -1811,6 +1973,11 @@ impl Runs {
         self.cancel_as::<PairedT>(run)
     }
 
+    /// Cancels a one-way ANOVA's run; `run.wrong_kind` for another kind's.
+    pub fn anova_cancel(&self, run: RunId) -> Result<RunSnapshot<AnovaCode>, RunCode> {
+        self.cancel_as::<OneWayAnova>(run)
+    }
+
     /// The result of a run of `M`'s kind that succeeded. Otherwise the closed
     /// reason: `not_finished`, `cancelled`, `timed_out`, `no_result`, or
     /// `wrong_kind` for another kind's run.
@@ -1855,6 +2022,15 @@ impl Runs {
         run: RunId,
     ) -> Result<ResultBundle<PairedResult, OneSampleCode>, RunCode> {
         self.result_as::<PairedT>(run)
+    }
+
+    /// [`Runs::result`] for a one-way ANOVA; `wrong_kind` for another kind's
+    /// run.
+    pub fn anova_result(
+        &self,
+        run: RunId,
+    ) -> Result<ResultBundle<AnovaOutcome, AnovaCode>, RunCode> {
+        self.result_as::<OneWayAnova>(run)
     }
 
     /// A copy of `run` for a project Save (Phase 5B-2), of either kind:

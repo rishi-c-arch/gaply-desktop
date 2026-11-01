@@ -10,6 +10,9 @@
 //!   (Phase 8D-2a, decision 263): `stats_desc: the one-sample t-test
 //!   panicked` or `stats_desc: the paired t-test panicked`, and the run ends
 //!   `Failed`.
+//! * A one-way ANOVA whose work panics, with no cancel (Phase 8G-2, decision
+//!   318): `stats_desc: the one-way ANOVA panicked`, and the run ends
+//!   `Failed`.
 //! * Any kind whose work panics after a cancel was accepted: the shared
 //!   `stats_desc: the run's work panicked`, and the run ends `Cancelled`.
 //! * Every run that ends: the shared `stats_desc: run ended`.
@@ -29,6 +32,7 @@ use app_lib::runs::{CheckpointHook, Clock, DatasetSlots, Point, Runs, RUN_CEILIN
 use app_lib::stats_l1_ingest::load_dataset_from_bytes;
 use gaply_core::contracts::{OperationId, RunId, RunState};
 use gaply_core::research_project::DataFormat;
+use gaply_core::stats_anova::{self, AnovaParams, PostHoc};
 use gaply_core::stats_desc::{self, Alias, DescribeParams};
 use gaply_core::stats_l1::dataset::ColumnAlias;
 use gaply_core::stats_onesample::{self, OneSampleParams, PairedParams};
@@ -68,6 +72,7 @@ enum Kind {
     Ttest,
     OneSample,
     Paired,
+    Anova,
 }
 
 /// A manager whose hook panics at `Column(0)`, after cancelling the run
@@ -86,6 +91,7 @@ fn panicking(what: AtColumn0, kind: Kind) -> Arc<Runs> {
                 Kind::Ttest => drop(runs.ttest_cancel(run).expect("cancelled")),
                 Kind::OneSample => drop(runs.one_sample_cancel(run).expect("cancelled")),
                 Kind::Paired => drop(runs.paired_cancel(run).expect("cancelled")),
+                Kind::Anova => drop(runs.anova_cancel(run).expect("cancelled")),
             }
         }
         panic!("the test's hook panics at column 0");
@@ -136,6 +142,17 @@ fn each_kind_says_its_own_panic_and_both_say_the_shared_lines() {
             group: Alias(ColumnAlias(2)),
             levels: Some([0, 1]),
             variant: Some(Variant::Welch),
+            missing_codes: vec![],
+        },
+    );
+    let anova = stats_anova::spec(
+        OperationId(5),
+        &dataset,
+        AnovaParams {
+            outcome: Alias(ColumnAlias(1)),
+            group: Alias(ColumnAlias(2)),
+            levels: None,
+            post_hoc: vec![PostHoc::Tukey],
             missing_codes: vec![],
         },
     );
@@ -206,6 +223,13 @@ fn each_kind_says_its_own_panic_and_both_say_the_shared_lines() {
                 .is_terminal()
         });
         ends.push(runs.paired_snapshot(run).unwrap().record.state);
+
+        let runs = panicking(what, Kind::Anova);
+        let run = runs.start_anova(Arc::clone(&slot), anova.clone()).unwrap();
+        wait_for("the one-way ANOVA ended", || {
+            runs.anova_snapshot(run).unwrap().record.state.is_terminal()
+        });
+        ends.push(runs.anova_snapshot(run).unwrap().record.state);
     }
     let _ = std::panic::take_hook();
 
@@ -216,6 +240,8 @@ fn each_kind_says_its_own_panic_and_both_say_the_shared_lines() {
             RunState::Failed,
             RunState::Failed,
             RunState::Failed,
+            RunState::Failed,
+            RunState::Cancelled,
             RunState::Cancelled,
             RunState::Cancelled,
             RunState::Cancelled,
@@ -229,7 +255,8 @@ fn each_kind_says_its_own_panic_and_both_say_the_shared_lines() {
         1
     );
     assert_eq!(events(&lines, "stats_desc: the paired t-test panicked"), 1);
-    assert_eq!(events(&lines, "stats_desc: the run's work panicked"), 4);
-    assert_eq!(events(&lines, "stats_desc: run ended"), 8);
+    assert_eq!(events(&lines, "stats_desc: the one-way ANOVA panicked"), 1);
+    assert_eq!(events(&lines, "stats_desc: the run's work panicked"), 5);
+    assert_eq!(events(&lines, "stats_desc: run ended"), 10);
     assert_eq!(events(&lines, "stats_desc: a run event had no edge"), 0);
 }

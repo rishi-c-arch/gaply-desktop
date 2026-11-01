@@ -134,6 +134,17 @@ fn each_operation_path_calls_its_facade() {
             "validate",
             "stats_adapters::describe_validate(",
         ),
+        // Research OS, Phase 8G-2 (decision 318).
+        (
+            "src/stats_anova_commands.rs",
+            "validate",
+            "stats_adapters::anova_validate(",
+        ),
+        (
+            "src/stats_anova_commands.rs",
+            "admit",
+            "stats_adapters::anova_admit(",
+        ),
     ];
     for (file, f, facade) in checks {
         let src = without_test_modules(&code(file));
@@ -171,6 +182,12 @@ fn each_operation_path_calls_its_facade() {
             "stats_adapters::paired_validate(",
             "stats_adapters::paired_run(",
         ),
+        // Phase 8G-2 (decision 318).
+        (
+            "OneWayAnova",
+            "stats_adapters::anova_validate(",
+            "stats_adapters::anova_run(",
+        ),
     ] {
         let block = impl_block(&runs_src, &format!("impl Method for {method} {{"));
         for (f, facade) in [("validate", validate), ("compute", compute)] {
@@ -191,6 +208,8 @@ fn each_operation_path_calls_its_facade() {
         ("start_one_sample_then", "self.begin::<OneSampleT>("),
         ("start_paired", "self.begin::<PairedT>("),
         ("start_paired_then", "self.begin::<PairedT>("),
+        ("start_anova", "self.begin::<OneWayAnova>("),
+        ("start_anova_then", "self.begin::<OneWayAnova>("),
     ] {
         assert!(
             squash(fn_body(&runs_src, f)).contains(through),
@@ -208,6 +227,9 @@ fn each_operation_path_calls_its_facade() {
         "stats_onesample::one_sample_run(",
         "stats_onesample::paired_validate(",
         "stats_onesample::paired_run(",
+        "stats_anova::validate(",
+        "stats_anova::run(",
+        "stats_anova::compute(",
     ] {
         assert!(
             !runs.contains(direct),

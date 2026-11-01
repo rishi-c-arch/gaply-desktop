@@ -32,6 +32,12 @@
 //!   the same way, a registry refusal worded `stats.onesample.unknown_capability`
 //!   or `stats.onesample.capability_version_mismatch`. Planned in 8D-1, both
 //!   are Beta since 8D-2a (decision 265), so the real registry admits them.
+//! * [`anova_admit`], [`anova_validate`] and [`anova_run`]
+//!   (`stats.analyze.one_way_anova`, Phase 8G-2, decision 318):
+//!   `stats_anova::validate` and `stats_anova::run`, the same way, a registry
+//!   refusal worded `stats.anova.unknown_capability` or
+//!   `stats.anova.capability_version_mismatch`. Planned in 8G, Beta since
+//!   8G-2's Part 3 (decision 333), so the real registry admits it.
 //!
 //! The Level 0 and Level 1 specs carry no parameters (`()`) and no
 //! `InputRef`: their inputs are the manuscript's extraction and Level 1's
@@ -46,6 +52,7 @@ use crate::contracts::{
     SchemaVersion, ValidationReport, WorkspaceId,
 };
 use crate::extract::ExtractionResult;
+use crate::stats_anova::{self, AnovaCode, AnovaOutcome, AnovaParams};
 use crate::stats_desc::{self, DescCode, DescribeParams, DescribeResult, Halt};
 use crate::stats_l0::outcome::{check_reading, StatsConsistencyOutcome};
 use crate::stats_l0::result::{read_results, ResultReading, TableStructure};
@@ -610,6 +617,106 @@ pub(crate) fn paired_run_in<B>(
 }
 
 /* ------------------------------------------------------------------------ *
+ *  stats.analyze.one_way_anova (Phase 8G-2)
+ * ------------------------------------------------------------------------ */
+
+/// A registry refusal in the ANOVA's own codes, as [`ttest_refusal`] does.
+fn anova_refusal(r: &Refusal) -> Diagnostic<AnovaCode> {
+    match r.code {
+        CapabilityCode::VersionMismatch => {
+            let int = |k| match r.params.get(&k) {
+                Some(ParamValue::Int(n)) => *n,
+                _ => 0,
+            };
+            Diagnostic::error(AnovaCode::CapabilityVersionMismatch)
+                .int(ParamKey::Expected, int(ParamKey::Expected))
+                .int(ParamKey::Found, int(ParamKey::Found))
+        }
+        _ => Diagnostic::error(AnovaCode::UnknownCapability),
+    }
+}
+
+/// The registry's check for an ANOVA spec, as [`ttest_entry`] does: a
+/// registered, runnable entry of the ANOVA's kind, and no confirmation.
+fn anova_entry(
+    registry: &Registry,
+    spec: &OperationSpec<AnovaParams>,
+    build: Build,
+) -> Result<(), Refusal> {
+    let entry = runnable(registry, spec, build)?;
+    if entry.kind != Kind::AnalyzeOneWayAnova {
+        return Err(refused(CapabilityCode::UnknownCapability));
+    }
+    no_confirmation(spec)
+}
+
+/// The registry's answer for an ANOVA spec, as it gives it, for the app's
+/// `stats_anova_*` commands, as [`ttest_admit`] is for the t-test.
+pub fn anova_admit(spec: &OperationSpec<AnovaParams>, build: Build) -> Result<(), Refusal> {
+    anova_entry(&Registry::statistics(), spec, build)
+}
+
+/// `stats.analyze.one_way_anova`'s validation: the registry first, so a spec
+/// the registry refuses is `Unsupported` before anything reads the dataset;
+/// then `stats_anova::validate`, unchanged.
+pub fn anova_validate(
+    spec: &OperationSpec<AnovaParams>,
+    build: Build,
+    dataset: &Dataset,
+) -> ValidationReport<AnovaCode> {
+    anova_validate_in(&Registry::statistics(), spec, build, dataset)
+}
+
+pub(crate) fn anova_validate_in(
+    registry: &Registry,
+    spec: &OperationSpec<AnovaParams>,
+    build: Build,
+    dataset: &Dataset,
+) -> ValidationReport<AnovaCode> {
+    match anova_entry(registry, spec, build) {
+        Ok(()) => stats_anova::validate(dataset, spec),
+        Err(r) => {
+            let rows = dataset.rows() as u64;
+            let estimate = ResourceEstimate {
+                rows,
+                columns: 2,
+                cells: rows.saturating_mul(2),
+            };
+            ValidationReport::new(
+                vec![anova_refusal(&r)],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                estimate,
+            )
+        }
+    }
+}
+
+/// `stats.analyze.one_way_anova`'s run: the registry again, then
+/// `stats_anova::run`, unchanged, with its check points.
+pub fn anova_run<B>(
+    spec: &OperationSpec<AnovaParams>,
+    build: Build,
+    dataset: &Dataset,
+    checkpoint: impl FnMut(usize) -> ControlFlow<B>,
+) -> Result<AnovaOutcome, stats_anova::Halt<B>> {
+    anova_run_in(&Registry::statistics(), spec, build, dataset, checkpoint)
+}
+
+pub(crate) fn anova_run_in<B>(
+    registry: &Registry,
+    spec: &OperationSpec<AnovaParams>,
+    build: Build,
+    dataset: &Dataset,
+    checkpoint: impl FnMut(usize) -> ControlFlow<B>,
+) -> Result<AnovaOutcome, stats_anova::Halt<B>> {
+    anova_entry(registry, spec, build)
+        .map_err(|r| stats_anova::Halt::Refused(anova_refusal(&r)))?;
+    stats_anova::run(dataset, &spec.parameters, checkpoint)
+}
+
+/* ------------------------------------------------------------------------ *
  *  AI: a method a model's answer names
  * ------------------------------------------------------------------------ */
 
@@ -954,5 +1061,159 @@ mod onesample_facade_tests {
             assert!(one_sample_validate_in(&beta(), &good_one, build, &d).may_run());
             assert!(paired_validate_in(&beta(), &good_paired, build, &d).may_run());
         }
+    }
+}
+
+/// The one-way ANOVA's façade (Research OS, Phase 8G-2, decisions 318 and
+/// 333): the real registry admits it in both builds, since it is Beta; it
+/// refuses an id of another façade, a wrong version, a Planned table and a
+/// confirmation, each in its own codes, and runs the real spec exactly as
+/// `stats_anova` does.
+#[cfg(test)]
+mod anova_facade_tests {
+    use super::*;
+    use crate::contracts::capability::Lifecycle;
+    use crate::stats_anova::{AnovaParams, Halt, PostHoc};
+    use crate::stats_desc::Alias;
+    use crate::stats_l1::dataset::{
+        build_dataset, ColumnAlias, DataFingerprint, RawTable, TableRef,
+    };
+
+    fn data() -> Dataset {
+        let rows: Vec<Vec<String>> = [
+            ("1.5", "a"),
+            ("2.5", "a"),
+            ("4", "a"),
+            ("3", "b"),
+            ("6.5", "b"),
+            ("7", "b"),
+            ("8", "c"),
+            ("9.25", "c"),
+            ("12", "c"),
+        ]
+        .iter()
+        .map(|(y, g)| vec![y.to_string(), g.to_string()])
+        .collect();
+        build_dataset(
+            RawTable::from_rows(vec!["y".into(), "g".into()], rows),
+            DataFingerprint::of_bytes(b"anova facade", "test", TableRef::FirstTable),
+        )
+        .expect("dataset")
+    }
+
+    fn forged(d: &Dataset, id: &str, version: u32) -> OperationSpec<AnovaParams> {
+        let mut s = stats_anova::spec(
+            OperationId(6),
+            d,
+            AnovaParams {
+                outcome: Alias(ColumnAlias(1)),
+                group: Alias(ColumnAlias(2)),
+                levels: None,
+                post_hoc: vec![PostHoc::Tukey, PostHoc::GamesHowell],
+                missing_codes: Vec::new(),
+            },
+        );
+        s.capability_id = CapabilityId::parse(id).unwrap();
+        s.capability_version = version;
+        s
+    }
+
+    fn go(_: usize) -> ControlFlow<()> {
+        ControlFlow::Continue(())
+    }
+
+    fn codes(r: &ValidationReport<AnovaCode>) -> Vec<AnovaCode> {
+        r.errors.iter().map(|e| e.code).collect()
+    }
+
+    fn unknown() -> Halt<()> {
+        Halt::Refused(Diagnostic::error(AnovaCode::UnknownCapability))
+    }
+
+    #[test]
+    fn the_real_registry_admits_the_anova_in_both_builds_because_it_is_beta() {
+        let d = data();
+        let s = forged(&d, stats_anova::CAPABILITY_ID, 1);
+        for build in [Build::Standard, Build::Devtools] {
+            anova_admit(&s, build)
+                .unwrap_or_else(|r| panic!("Beta is admitted in {build:?}: {r:?}"));
+            assert!(anova_validate(&s, build, &d).may_run(), "{build:?}");
+            assert_eq!(
+                anova_run(&s, build, &d, go).ok(),
+                stats_anova::compute(&d, &s.parameters).ok(),
+                "{build:?}: the module's own result"
+            );
+            assert!(anova_run(&s, build, &d, go).is_ok(), "{build:?}");
+        }
+    }
+
+    #[test]
+    fn the_anova_facade_refuses_forged_specs_and_runs_the_real_one_as_the_module_does() {
+        let d = data();
+        let b = Build::Devtools;
+        let real = Registry::statistics();
+        // Not in the table at all, and registered ids of other façades.
+        for id in [
+            "stats.analyze.two_way_anova",
+            "stats.describe",
+            "stats.analyze.independent_t",
+            "stats.verify.one_way_anova",
+        ] {
+            let s = forged(&d, id, 1);
+            assert_eq!(
+                codes(&anova_validate_in(&real, &s, b, &d)),
+                [AnovaCode::UnknownCapability],
+                "{id}"
+            );
+            assert!(!anova_validate_in(&real, &s, b, &d).may_run(), "{id}");
+            assert_eq!(
+                anova_run_in(&real, &s, b, &d, go).unwrap_err(),
+                unknown(),
+                "{id}"
+            );
+            assert!(anova_admit(&s, b).is_err(), "{id}");
+        }
+        // A wrong version, in the ANOVA's own codes with its numbers.
+        let v = anova_validate_in(&real, &forged(&d, stats_anova::CAPABILITY_ID, 2), b, &d);
+        assert_eq!(codes(&v), [AnovaCode::CapabilityVersionMismatch]);
+        assert_eq!(
+            v.errors[0].params.get(&ParamKey::Expected),
+            Some(&ParamValue::Int(1))
+        );
+        assert_eq!(
+            v.errors[0].params.get(&ParamKey::Found),
+            Some(&ParamValue::Int(2))
+        );
+        // A Planned table: the real one, set back to Planned, as 8G had it.
+        let good = forged(&d, stats_anova::CAPABILITY_ID, 1);
+        let planned =
+            Registry::statistics().with_lifecycle(stats_anova::CAPABILITY_ID, Lifecycle::Planned);
+        for build in [Build::Standard, Build::Devtools] {
+            assert_eq!(
+                codes(&anova_validate_in(&planned, &good, build, &d)),
+                [AnovaCode::UnknownCapability]
+            );
+            assert_eq!(
+                anova_run_in(&planned, &good, build, &d, go).unwrap_err(),
+                unknown()
+            );
+        }
+        // A confirmation on a capability that takes none.
+        let mut c = good.clone();
+        c.confirmation_refs = vec![ConfirmationId::parse(&"ef".repeat(32)).unwrap()];
+        assert_eq!(
+            codes(&anova_validate_in(&real, &c, b, &d)),
+            [AnovaCode::UnknownCapability]
+        );
+
+        // The real spec: exactly the direct calls.
+        assert_eq!(
+            anova_validate_in(&real, &good, b, &d),
+            stats_anova::validate(&d, &good)
+        );
+        assert_eq!(
+            anova_run_in(&real, &good, b, &d, go).unwrap(),
+            stats_anova::compute(&d, &good.parameters).unwrap()
+        );
     }
 }

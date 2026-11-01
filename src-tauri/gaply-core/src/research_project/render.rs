@@ -74,6 +74,16 @@ closed! {
 }
 
 closed! {
+    /// A post hoc test the user chose for a one-way ANOVA (Research OS,
+    /// Phase 8G-2, decision 330), in the order the method runs them.
+    pub enum PostHocTest in "" {
+        Tukey => "tukey",
+        GamesHowell => "games_howell",
+        Bonferroni => "bonferroni",
+    }
+}
+
+closed! {
     /// Which t-test the user chose.
     pub enum TestVariant in "" {
         Student => "student",
@@ -103,6 +113,11 @@ pub enum ExportParameter {
     /// setting the user chose, not their data (decision 264). Bits, so the
     /// type keeps `Eq`.
     TestValue { bits: u64 },
+    /// The one-way ANOVA's included levels, by their index in code-point
+    /// order, ascending. `None`: every level of the group (decision 330).
+    IncludedLevels(Option<Vec<u32>>),
+    /// The one-way ANOVA's post hoc tests, as chosen; empty when none was.
+    PostHocTests(Vec<PostHocTest>),
 }
 
 /// A closed code with its integer parameters. A closed-word parameter is
@@ -430,6 +445,21 @@ fn parameter_line(p: &ExportParameter) -> String {
         // to the same double, so 1e-7 is 0.0000001 in both.
         ExportParameter::TestValue { bits } => {
             format!("Test value: {}", f64::from_bits(*bits))
+        }
+        ExportParameter::IncludedLevels(None) => {
+            "Levels included: every level of the group, in code-point order".into()
+        }
+        ExportParameter::IncludedLevels(Some(levels)) => {
+            let list: Vec<String> = levels.iter().map(u32::to_string).collect();
+            format!(
+                "Levels included: indexes {}, in code-point order",
+                list.join(", ")
+            )
+        }
+        ExportParameter::PostHocTests(tests) if tests.is_empty() => "Post hoc tests: none".into(),
+        ExportParameter::PostHocTests(tests) => {
+            let words: Vec<&str> = tests.iter().map(|t| t.wire()).collect();
+            format!("Post hoc tests: {}", words.join(", "))
         }
     }
 }
@@ -855,6 +885,35 @@ mod tests {
         assert_eq!(variants, ["student", "welch"]);
         assert_eq!(REPORT_FILE_NAME, "gaply_project_report.md");
         assert_eq!(PROV_FILE_NAME, "gaply_project_provenance.json");
+    }
+
+    /// Phase 8G-2 (decision 330): the one-way ANOVA's included levels, as a
+    /// list of indexes or every level, and its post hoc tests, none
+    /// included, each with a line of its own, and the tests' words pinned.
+    #[test]
+    fn the_anova_parameters_have_lines_of_their_own() {
+        assert_eq!(
+            parameter_line(&ExportParameter::IncludedLevels(None)),
+            "Levels included: every level of the group, in code-point order"
+        );
+        assert_eq!(
+            parameter_line(&ExportParameter::IncludedLevels(Some(vec![0, 2, 5]))),
+            "Levels included: indexes 0, 2, 5, in code-point order"
+        );
+        assert_eq!(
+            parameter_line(&ExportParameter::PostHocTests(vec![])),
+            "Post hoc tests: none"
+        );
+        assert_eq!(
+            parameter_line(&ExportParameter::PostHocTests(vec![
+                PostHocTest::Tukey,
+                PostHocTest::GamesHowell,
+                PostHocTest::Bonferroni,
+            ])),
+            "Post hoc tests: tukey, games_howell, bonferroni"
+        );
+        let words: Vec<&str> = PostHocTest::ALL.iter().map(|c| c.wire()).collect();
+        assert_eq!(words, ["tukey", "games_howell", "bonferroni"]);
     }
 
     #[test]

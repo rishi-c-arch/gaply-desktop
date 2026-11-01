@@ -53,7 +53,8 @@ export const CAPABILITY_WORDS: Record<string, string> = {
     'Normality is not assessed: the t-test assumes the values come from a roughly normal distribution, or that there are many of them, and Gaply does not check either.',
   'stats.capability.limit.analyze.differences_normality_not_assessed':
     'Normality is not assessed: the paired t-test assumes the differences come from a roughly normal distribution, or that there are many pairs, and Gaply does not check either.',
-  // Phase 8G (decisions 312, 319 and 321): the one-way ANOVA, Planned.
+  // Phase 8G (decisions 312, 319 and 321): the one-way ANOVA, Planned in 8G
+  // and Beta since 8G-2 (decision 333).
   'stats.capability.analyze.one_way_anova.title': 'One-way ANOVA on your data',
   'stats.capability.analyze.one_way_anova.description':
     "Compares the means of a numeric outcome across two or more groups in your own data file, with the ANOVA table, Welch's ANOVA, Levene's test and the post hoc tests you choose.",

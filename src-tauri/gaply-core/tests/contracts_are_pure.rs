@@ -84,6 +84,18 @@
 //! QUANTILE_MAX_DF`, `t_two_tailed`), and `stats_onesample` takes
 //! `two_sided_p` from `stats_ttest` and names no `stats_l0` item.
 //!
+//! Phase 8G-2 adds `src/stats_anova/`, the one-way ANOVA (decisions 312
+//! and 326), to every check, with its own lists: inside the crate
+//! `crate::contracts`, `crate::stats_desc::{input_ref, Alias}`,
+//! `crate::stats_desc::export::text` (its export's one formula-injection
+//! rule), `crate::stats_dist`'s six items, `crate::stats_l1::binding::
+//! suspect_codes_in`, `crate::stats_l1::dataset`, `crate::stats_ttest`'s five
+//! and exactly `crate::stats_verify::{mean, one_way_anova, sample_variance,
+//! RangeFault}`; exactly the types listed below derive `Serialize`, of which
+//! `GroupRow` and `AnovaOutcome` hold level labels; `Split` (the values) and
+//! `Ready` (the checked columns and levels) derive nothing; `contracts` never
+//! names it; and `stats_adapters` may name `crate::stats_anova`.
+//!
 //! What it cannot see: a route through a helper in an allowed module (a
 //! function of `stats_l1::dataset` that read a file would not be caught
 //! here; `stats_l1_is_llm_free_and_offline.rs` guards that directory), and
@@ -98,6 +110,7 @@ const STATS_ADAPTERS: &str = "src/stats_adapters";
 const STATS_TTEST: &str = "src/stats_ttest";
 const STATS_ONESAMPLE: &str = "src/stats_onesample";
 const STATS_DIST: &str = "src/stats_dist";
+const STATS_ANOVA: &str = "src/stats_anova";
 const RESEARCH_PROJECT: &str = "src/research_project";
 
 const FORBIDDEN: &[(&str, &str)] = &[
@@ -204,6 +217,7 @@ const STATS_ADAPTERS_CRATE_PATHS: &[&str] = &[
     "crate::stats_desc",
     "crate::stats_ttest",
     "crate::stats_onesample",
+    "crate::stats_anova",
     "crate::extract",
 ];
 /// The one module outside decision 46's list `stats_adapters` reads, by
@@ -222,6 +236,7 @@ const STATS_ADAPTERS_INLINE_PATHS: &[&str] = &[
     "crate::stats_desc",
     "crate::stats_ttest",
     "crate::stats_onesample",
+    "crate::stats_anova",
     "crate::extract::ExtractionResult",
     "crate::extract::SectionKind",
     "crate::extract::extract_from_text",
@@ -312,6 +327,52 @@ const ONESAMPLE_ITEMS: &[(&str, &[&str])] = &[
     ("crate::stats_desc", &["input_ref", "Alias"]),
 ];
 
+/// What `stats_anova` may name inside the crate (Phase 8G-2, decision 326).
+/// The export's path comes before the descriptive summary's, so it is
+/// matched first.
+const STATS_ANOVA_CRATE_PATHS: &[&str] = &[
+    "crate::contracts",
+    "crate::stats_desc::export",
+    "crate::stats_desc",
+    "crate::stats_dist",
+    "crate::stats_l1::binding",
+    "crate::stats_l1::dataset",
+    "crate::stats_ttest",
+    "crate::stats_verify",
+];
+/// The items `stats_anova` may import, by exact name (decisions 313 and
+/// 326): only what it imports.
+const ANOVA_ITEMS: &[(&str, &[&str])] = &[
+    (
+        "crate::stats_verify",
+        &["mean", "one_way_anova", "sample_variance", "RangeFault"],
+    ),
+    (
+        "crate::stats_dist",
+        &[
+            "f_upper",
+            "studentized_range_quantile",
+            "studentized_range_upper",
+            "t_quantile",
+            "t_two_tailed",
+            "SRANGE_P_FLOOR",
+        ],
+    ),
+    (
+        "crate::stats_ttest",
+        &[
+            "column",
+            "group_levels",
+            "interval_95",
+            "non_finite_cells",
+            "MAX_GROUP_LEVELS",
+        ],
+    ),
+    ("crate::stats_l1::binding", &["suspect_codes_in"]),
+    ("crate::stats_desc::export", &["text"]),
+    ("crate::stats_desc", &["input_ref", "Alias"]),
+];
+
 /// What `stats_dist` may name inside the crate (Phase 8E, decision 275):
 /// Level 0's two tail functions only.
 const STATS_DIST_CRATE_PATHS: &[&str] = &["crate::stats_l0::pvalue"];
@@ -342,6 +403,7 @@ const DOMAIN_MODULES: &[&str] = &[
     "stats_ttest",
     "stats_onesample",
     "stats_dist",
+    "stats_anova",
     "research_project",
 ];
 /// Where their types are declared, read to build the type list.
@@ -356,6 +418,7 @@ const DOMAIN_SOURCES: &[&str] = &[
     "src/stats_ttest",
     "src/stats_onesample",
     "src/stats_dist",
+    "src/stats_anova",
     "src/research_project",
 ];
 
@@ -393,6 +456,34 @@ const ONESAMPLE_SERIALISED: &[&str] = &[
     "OneSampleResult",
     "ColumnStats",
     "PairedResult",
+];
+
+/// Variants of contracts' own enums whose names a domain module also gives
+/// a type (Phase 8G-2): `SemanticRole::Table` and `stats_anova::Table`. Each
+/// is exempt only on the line that declares it, the trimmed line `Table,`;
+/// any other use of the word in contracts is still a finding, and the
+/// exemption must be used exactly once, so it cannot outlive the variant.
+const CONTRACTS_VARIANTS_NAMED_LIKE_DOMAIN_TYPES: &[&str] = &["Table"];
+
+/// `stats_anova` types that hold a level label (Phase 8G-2, decision 326):
+/// a group's row, and the result that holds the rows. They may derive
+/// `Serialize` because they ARE the user's result.
+const ANOVA_HOLDS_LABELS: &[&str] = &["GroupRow", "AnovaOutcome"];
+/// `stats_anova` types that derive `Serialize` and hold no text at all.
+const ANOVA_HOLDS_NO_TEXT: &[&str] = &[
+    "PostHoc",
+    "AnovaParams",
+    "Stat",
+    "PostHocP",
+    "AnovaTable",
+    "Table",
+    "FTest",
+    "FOutcome",
+    "PairStats",
+    "Pair",
+    "PairOutcome",
+    "PostHocTable",
+    "PostHocPairs",
 ];
 
 /// What a serialisable type must never hold.
@@ -676,13 +767,14 @@ fn contracts_and_stats_desc_reach_no_file_network_process_clock_model_or_log() {
         .chain(sources(STATS_TTEST, 2).iter())
         .chain(sources(STATS_ONESAMPLE, 2).iter())
         .chain(sources(STATS_DIST, 1).iter())
+        .chain(sources(STATS_ANOVA, 2).iter())
         .chain(sources(RESEARCH_PROJECT, 2).iter())
     {
         found.extend(forbidden_in(path, code));
     }
     assert!(
         found.is_empty(),
-        "contracts, stats_desc, stats_registry, stats_adapters, stats_ttest, stats_onesample, stats_dist and research_project are pure. Found:\n{}",
+        "contracts, stats_desc, stats_registry, stats_adapters, stats_ttest, stats_onesample, stats_dist, stats_anova and research_project are pure. Found:\n{}",
         found.join("\n")
     );
 }
@@ -740,6 +832,13 @@ fn imports_are_std_serde_serde_json_sha2_and_the_named_crate_paths_only() {
             DIST_ITEMS,
             STATS_DIST_CRATE_PATHS,
             DIST_EXTERNAL_ROOTS,
+        ),
+        (
+            STATS_ANOVA,
+            STATS_ANOVA_CRATE_PATHS,
+            ANOVA_ITEMS,
+            STATS_ANOVA_CRATE_PATHS,
+            EXTERNAL_ROOTS,
         ),
         (
             RESEARCH_PROJECT,
@@ -864,6 +963,27 @@ fn imports_are_std_serde_serde_json_sha2_and_the_named_crate_paths_only() {
             );
         }
     }
+    // And stats_anova each item on its list (decision 326).
+    let anova: String = sources(STATS_ANOVA, 2)
+        .into_iter()
+        .map(|(_, c)| c)
+        .collect();
+    for (prefix, names) in ANOVA_ITEMS {
+        let imported: Vec<String> = use_statements(&anova)
+            .iter()
+            .filter(|s| {
+                s.starts_with(prefix)
+                    && STATS_ANOVA_CRATE_PATHS.iter().find(|p| s.starts_with(*p)) == Some(prefix)
+            })
+            .flat_map(|s| imported_names(s, prefix))
+            .collect();
+        for name in *names {
+            assert!(
+                imported.iter().any(|i| i == name),
+                "stats_anova no longer imports {prefix}::{name}; update the list"
+            );
+        }
+    }
 }
 
 #[test]
@@ -915,16 +1035,30 @@ fn contracts_name_no_verifier_or_capability_module_or_type() {
     );
 
     let mut found = Vec::new();
+    let mut variant_declarations = 0;
     for (path, code) in &contracts {
-        for word in identifiers(code) {
-            if DOMAIN_MODULES.contains(&word) {
-                found.push(format!("{path}: names the module `{word}`"));
-            }
-            if domain_types.iter().any(|t| t == word) && !own.iter().any(|o| o == word) {
-                found.push(format!("{path}: names the domain type `{word}`"));
+        for line in code.lines() {
+            for word in identifiers(line) {
+                if DOMAIN_MODULES.contains(&word) {
+                    found.push(format!("{path}: names the module `{word}`"));
+                }
+                if domain_types.iter().any(|t| t == word) && !own.iter().any(|o| o == word) {
+                    if CONTRACTS_VARIANTS_NAMED_LIKE_DOMAIN_TYPES.contains(&word)
+                        && line.trim() == format!("{word},")
+                    {
+                        variant_declarations += 1;
+                        continue;
+                    }
+                    found.push(format!("{path}: names the domain type `{word}`"));
+                }
             }
         }
     }
+    assert_eq!(
+        variant_declarations,
+        CONTRACTS_VARIANTS_NAMED_LIKE_DOMAIN_TYPES.len(),
+        "each exempt variant is declared exactly once in contracts; update the list"
+    );
     let shared: Vec<&String> = domain_types.iter().filter(|t| own.contains(t)).collect();
     println!("names declared both in contracts and in a domain module (contracts' own, so exempt): {shared:?}");
     assert!(
@@ -1143,6 +1277,108 @@ fn a_stats_ttest_type_holding_text_prints_counts_through_its_own_debug() {
     }
 }
 
+/// Phase 8G-2 (decision 326): in `stats_anova`, exactly the listed types
+/// derive `Serialize`, none names a cell, the dataset or the split, a type
+/// listed as holding no text holds none, and `Split` and `Ready` derive
+/// nothing.
+#[test]
+fn only_the_listed_stats_anova_types_derive_serialize_and_none_holds_a_cell() {
+    let items: Vec<Item> = sources(STATS_ANOVA, 2)
+        .iter()
+        .flat_map(|(_, c)| items(c))
+        .collect();
+    let mut serialised: Vec<&str> = items
+        .iter()
+        .filter(|i| derives(i, "Serialize"))
+        .map(|i| i.name.as_str())
+        .collect();
+    serialised.sort_unstable();
+    let mut listed: Vec<&str> = ANOVA_HOLDS_LABELS
+        .iter()
+        .chain(ANOVA_HOLDS_NO_TEXT)
+        .copied()
+        .collect();
+    listed.sort_unstable();
+    assert_eq!(
+        serialised, listed,
+        "the types deriving Serialize in {STATS_ANOVA} are not the listed ones"
+    );
+    for item in items.iter().filter(|i| derives(i, "Serialize")) {
+        for cell in CELL_TYPES {
+            assert!(
+                !identifiers(&item.body).contains(cell),
+                "{} derives Serialize and names `{cell}`",
+                item.name
+            );
+        }
+        if ANOVA_HOLDS_NO_TEXT.contains(&item.name.as_str()) {
+            assert!(
+                !holds_string(&item.body),
+                "{} is listed as holding no text but has a String field",
+                item.name
+            );
+            for text in ANOVA_HOLDS_LABELS {
+                assert!(
+                    !identifiers(&item.body).contains(text),
+                    "{} is listed as holding no text but holds a {text}",
+                    item.name
+                );
+            }
+        }
+    }
+    for reading in ["Split", "Ready"] {
+        let item = items
+            .iter()
+            .find(|i| i.name == reading)
+            .unwrap_or_else(|| panic!("{reading} exists"));
+        assert!(
+            !item.attrs.contains("#[derive("),
+            "{reading} holds the values or the labels and derives nothing"
+        );
+    }
+}
+
+/// Phase 8G-2 (decision 326): a `stats_anova` type with a `String` field
+/// does not derive `Debug`; one that is serialised or printed is listed and
+/// prints counts through its own `Debug`; any other derives nothing.
+#[test]
+fn a_stats_anova_type_holding_text_prints_counts_through_its_own_debug() {
+    let files = sources(STATS_ANOVA, 2);
+    let all: String = files.iter().map(|(_, c)| c.as_str()).collect();
+    let texty: Vec<Item> = files
+        .iter()
+        .flat_map(|(_, c)| items(c))
+        .filter(|i| holds_string(&i.body))
+        .collect();
+    assert!(
+        texty.len() >= 2,
+        "{} text-holding types found in {STATS_ANOVA} — the scan is inert",
+        texty.len()
+    );
+    for item in &texty {
+        assert!(
+            !derives(item, "Debug"),
+            "{} holds a label and derives Debug",
+            item.name
+        );
+        let printable = all.contains(&format!("impl std::fmt::Debug for {}", item.name));
+        if derives(item, "Serialize") || printable {
+            assert!(
+                ANOVA_HOLDS_LABELS.contains(&item.name.as_str()),
+                "{} holds a String and is not listed",
+                item.name
+            );
+            assert!(printable, "{} has no counts-only Debug", item.name);
+        } else {
+            assert!(
+                !item.attrs.contains("#[derive("),
+                "{} holds a String and derives something",
+                item.name
+            );
+        }
+    }
+}
+
 /// Phase 8D-1: in `stats_onesample`, exactly the listed types derive
 /// `Serialize`, none names a cell, the dataset or a reading, and `Values` and
 /// `Pairs`, which hold the values, derive nothing.
@@ -1217,6 +1453,7 @@ fn every_deserialised_struct_refuses_unknown_fields_and_wire_structs_are_camel_c
         STATS_ADAPTERS,
         STATS_TTEST,
         STATS_ONESAMPLE,
+        STATS_ANOVA,
         RESEARCH_PROJECT,
     ] {
         for (path, code) in sources(dir, 1) {

@@ -1,0 +1,38 @@
+{
+  "status": "invalid",
+  "errors": [
+    {
+      "code": "stats.anova.group_too_small",
+      "params": {
+        "count": 1,
+        "index": 1
+      },
+      "severity": "error"
+    }
+  ],
+  "warnings": [
+    {
+      "code": "stats.anova.suspect_missing_code",
+      "params": {
+        "column": 1,
+        "count": 2,
+        "value": 99
+      },
+      "severity": "warning"
+    }
+  ],
+  "missingInformation": [
+    {
+      "code": "stats.anova.too_few_levels",
+      "params": {
+        "count": 1
+      },
+      "severity": "note"
+    }
+  ],
+  "estimatedResources": {
+    "rows": 17,
+    "columns": 2,
+    "cells": 34
+  }
+}

@@ -39,6 +39,7 @@ pub mod reviewer_synthesis;
 pub mod runs;
 pub mod state;
 pub mod stats_ai;
+pub mod stats_anova_commands;
 pub mod stats_consistency;
 pub mod stats_desc_commands;
 pub mod stats_l1_commands;
@@ -392,6 +393,15 @@ pub fn run() {
             stats_onesample_commands::stats_paired_result,
             stats_onesample_commands::stats_paired_cancel,
             stats_onesample_commands::stats_paired_export,
+            // Research OS, Phase 8G-2 (decision 318): the one-way ANOVA,
+            // behind the workspace check, with its own levels command.
+            stats_anova_commands::stats_anova_validate,
+            stats_anova_commands::stats_anova_run,
+            stats_anova_commands::stats_anova_status,
+            stats_anova_commands::stats_anova_result,
+            stats_anova_commands::stats_anova_cancel,
+            stats_anova_commands::stats_anova_export,
+            stats_anova_commands::stats_anova_group_levels,
             // Research OS, Phase 3: the window's one active workspace. Only
             // `workspace_activate` activates one.
             workspace::workspace_list,

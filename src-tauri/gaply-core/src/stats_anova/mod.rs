@@ -91,6 +91,8 @@ use crate::stats_l1::dataset::{Cell, Dataset};
 use crate::stats_ttest::{column, group_levels, interval_95, non_finite_cells, MAX_GROUP_LEVELS};
 use crate::stats_verify::{mean, one_way_anova, sample_variance, RangeFault};
 
+pub mod export;
+
 /// The capability's id in the registry.
 pub const CAPABILITY_ID: &str = "stats.analyze.one_way_anova";
 /// Raised when what a spec means changes.

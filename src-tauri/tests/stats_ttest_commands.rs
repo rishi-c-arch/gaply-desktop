@@ -961,6 +961,7 @@ fn run_ids_and_slot_numbers_stay_unique_across_both_kinds() {
             RunKind::Describe => "stats_desc_status",
             RunKind::OneSample => "stats_onesample_status",
             RunKind::Paired => "stats_paired_status",
+            RunKind::Anova => "stats_anova_status",
         };
         assert_eq!(
             code_of(&call(&w.w, cmd, json!({ "runId": run })).unwrap_err()),

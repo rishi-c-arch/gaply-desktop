@@ -17,7 +17,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { ONE_SAMPLE_PATH, PAIRED_PATH, STATISTICS_HOME_PATH, statisticsRoutes, statisticsTiles, TTEST_PATH } from './statisticsRoute';
+import { ANOVA_PATH, ONE_SAMPLE_PATH, PAIRED_PATH, STATISTICS_HOME_PATH, statisticsRoutes, statisticsTiles, TTEST_PATH } from './statisticsRoute';
 import { DESCRIBE_PATH, describeRoute } from './describeRoute';
 import AppHomeHero from '../home/AppHomeHero';
 import { ThemeProvider } from '../../contexts/ThemeContext';
@@ -47,7 +47,8 @@ function routeTo(p: string) {
           <div data-testid="home-here" />,
           <div data-testid="ttest-here" />,
           <div data-testid="one-sample-here" />,
-          <div data-testid="paired-here" />
+          <div data-testid="paired-here" />,
+          <div data-testid="anova-here" />
         )}
         {describeRoute(<div data-testid="describe-here" />)}
         <Route path="*" element={<div data-testid="no-route" />} />
@@ -147,6 +148,31 @@ describe('the one-sample and paired t-tests\' routes', () => {
     flags.describe = false;
     routeTo('/app/statistics/paired');
     expect(screen.getByTestId('no-route')).toBeTruthy();
+  });
+});
+
+// Research OS, Phase 8G-2 (decision 331): the one-way ANOVA's path reaches
+// its own element, none while the flag is off, and its page needs the
+// Statistics workspace, as the t-tests' do.
+describe("the one-way ANOVA's route", () => {
+  it('with the flag on, ANOVA_PATH reaches its own element, and nothing with it off', () => {
+    flags.describe = true;
+    flags.workspaces = true;
+    expect(ANOVA_PATH).toBe('/app/statistics/anova');
+    routeTo(ANOVA_PATH);
+    expect(screen.getByTestId('anova-here')).toBeTruthy();
+    cleanup();
+    flags.describe = false;
+    routeTo(ANOVA_PATH);
+    expect(screen.getByTestId('no-route')).toBeTruthy();
+  });
+
+  it('is wrapped in RequireWorkspace id="statistics"', () => {
+    const src = fs.readFileSync(path.join(__dirname, '../GaplyScreens.tsx'), 'utf8');
+    const at = src.indexOf('export const AnovaRoute');
+    expect(at).toBeGreaterThan(0);
+    const body = src.slice(at, src.indexOf(');', at));
+    expect(body).toMatch(/<RequireWorkspace id="statistics"[^>]*>\s*<AnovaPage \/>\s*<\/RequireWorkspace>/);
   });
 });
 

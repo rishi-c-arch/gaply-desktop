@@ -23,6 +23,9 @@
 //!    the workspace first, in the same form, and `capability_list`, which
 //!    reads only the static registry, does not check it at all.
 //!
+//!    Phase 8D-2a and 8G-2 add the one-sample, paired and one-way ANOVA
+//!    commands, each family listed, each checking the workspace first.
+//!
 //! 6. Phase 5B-2 (decision 120): every `project_commands` command is in
 //!    exactly one of two lists. A gated one checks the workspace first, in
 //!    the same form, and so does the plain function it runs under
@@ -485,6 +488,66 @@ fn every_onesample_and_paired_command_checks_the_workspace_first() {
     assert!(
         failures.is_empty(),
         "decision 263:\n{}",
+        failures.join("\n")
+    );
+}
+
+/// Phase 8G-2 (decisions 312 and 318): the one-way ANOVA's commands, its
+/// levels command included, each checking the workspace first, in the same
+/// form; none is exempt. (registered path)
+const ANOVA_OPERATIONS: &[&str] = &[
+    "stats_anova_commands::stats_anova_validate",
+    "stats_anova_commands::stats_anova_run",
+    "stats_anova_commands::stats_anova_status",
+    "stats_anova_commands::stats_anova_result",
+    "stats_anova_commands::stats_anova_cancel",
+    "stats_anova_commands::stats_anova_export",
+    "stats_anova_commands::stats_anova_group_levels",
+];
+
+#[test]
+fn every_anova_command_checks_the_workspace_first() {
+    let all = registered();
+    assert!(all.len() > 100, "the handler parse is inert");
+    let mut family: Vec<&str> = all
+        .iter()
+        .map(|p| p.as_str())
+        .filter(|p| p.starts_with("stats_anova_commands::"))
+        .collect();
+    family.sort_unstable();
+    let mut listed: Vec<&str> = ANOVA_OPERATIONS.to_vec();
+    listed.sort_unstable();
+    assert_eq!(
+        family, listed,
+        "every registered stats_anova_commands command is listed, and every listed one is registered"
+    );
+    // Nothing registers a stats_anova_* command from another module.
+    for p in &all {
+        if p.rsplit("::")
+            .next()
+            .is_some_and(|n| n.starts_with("stats_anova_"))
+        {
+            assert!(p.starts_with("stats_anova_commands::"), "{p}");
+        }
+    }
+
+    let src = without_line_comments(&read(&root().join("src/stats_anova_commands.rs")));
+    let mut failures = Vec::new();
+    for path in ANOVA_OPERATIONS {
+        let name = path.rsplit("::").next().unwrap();
+        match fn_body(&src, name) {
+            Some(body) if checks_first(body) => {}
+            Some(body) => failures.push(format!(
+                "{path}: first statement is `{}`",
+                body.split(';').next().unwrap_or("").trim()
+            )),
+            None => failures.push(format!("{path}: no body found")),
+        }
+    }
+    println!("gated {} one-way ANOVA commands", ANOVA_OPERATIONS.len());
+    assert!(
+        failures.is_empty(),
+        "decision 318:\n{}",
         failures.join("\n")
     );
 }

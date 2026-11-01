@@ -3,9 +3,10 @@
 **Status:** shipped in Research OS Phase 8E (decision 275, D301), 30 Oct 2026,
 in `gaply_core::stats_dist` (`src-tauri/gaply-core/src/stats_dist/mod.rs`).
 The three t-tests on the user's data ([independent_t.md](independent_t.md),
-[one_sample_t.md](one_sample_t.md), [paired_t.md](paired_t.md)) take every p
-and quantile from it; the one-way ANOVA, the correlations and the regression
-will (decision 275). Level 0 and Level 1 keep `stats_l0::pvalue` as it is.
+[one_sample_t.md](one_sample_t.md), [paired_t.md](paired_t.md)) and, since
+Phase 8G, the one-way ANOVA ([one_way_anova.md](one_way_anova.md)) take every
+p and quantile from it; the correlations and the regression will (decision
+275). Level 0 and Level 1 keep `stats_l0::pvalue` as it is.
 
 ## 1. Why
 
@@ -106,7 +107,11 @@ correlations use it.
   names, and returns their values bit for bit wherever 8A measured them within
   their gate: every t p and quantile at df ≤ 1e4, F with df1 = 1 at df2 ≤ 1e4,
   and F with df1 ≥ 2 at every df2 to 1e7 (8A measured df1 2, 9, 10 and 50
-  within 1e-9 to df2 1e6; 8G measures the range its ANOVA reaches).
+  within 1e-9 to df2 1e6). 8G measured the range its ANOVA reaches against
+  R's `pf`: df1 2 to 49, df2 up to 1e5 and fractional (Welch's) df2, 240 rows
+  within 1.086e-10 relative (gate 2e-9, `tests/studentized_range_reference.rs`;
+  [one_way_anova.md](one_way_anova.md) §6), and added the studentized range
+  and `t_quantile` (decision 314).
 * Level 0's Could not check above df 1e5 (decision 90) stays. Level 0 could
   take Hill's p above 1e5 in a verifier step of its own; 8E does not.
 * **The range.** Above `MEASURED_MAX_DF` (1e7) every function returns `None`,

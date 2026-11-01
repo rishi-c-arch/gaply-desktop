@@ -25,9 +25,8 @@
 //!   screens are 8D-2b's.
 //! * `stats.analyze.one_way_anova`: the one-way ANOVA on the user's own data
 //!   (Phase 8G, decision 312), with `stats_anova`'s id and version. Planned
-//!   (decisions 321 and 324): it has no command, run or screen yet, so every
-//!   façade refuses it in every build and the Statistics home lists it only
-//!   as planned.
+//!   in 8G (decisions 321 and 324); Beta since 8G-2's Part 3 (decision 333),
+//!   so its commands, runs and projects run through the façades.
 //!
 //! `run_stats_preview` and `run_stats_verify` are the legacy lane, not
 //! capabilities: they are not here.
@@ -166,8 +165,9 @@ const LIFECYCLES: &[(&str, Lifecycle)] = &[
     // Beta since 8D-2a (decision 265).
     (ONE_SAMPLE_ID, Lifecycle::Beta),
     (PAIRED_ID, Lifecycle::Beta),
-    // Planned until its commands, runs and screen exist (decision 321).
-    (ANOVA_ID, Lifecycle::Planned),
+    // Planned in 8G (decision 321); Beta at the start of 8G-2's Part 3
+    // (decision 333), so its commands, runs and projects can run.
+    (ANOVA_ID, Lifecycle::Beta),
 ];
 /// A Level 1 method `L1Registry` implements.
 const VERIFY_IMPLEMENTED: Lifecycle = Lifecycle::Beta;
@@ -840,16 +840,17 @@ mod tests {
     }
 
     /// Phase 8G (decisions 321 and 324): the one-way ANOVA is listed last,
-    /// Planned, refused as not runnable in both builds, with its own title,
-    /// description and limitations, and its validation suite and page named.
+    /// with its own title, description and limitations, and its validation
+    /// suite and page named. Planned in 8G and refused in both builds; Beta
+    /// since 8G-2's Part 3 (decisions 325 and 333), so runnable in both.
     #[test]
-    fn the_one_way_anova_is_listed_as_planned_and_never_runs() {
+    fn the_one_way_anova_is_listed_last_as_beta_and_runs_in_both_builds() {
         let t = Registry::statistics();
         let id = CapabilityId::parse(ANOVA_ID).unwrap();
         let e = t.lookup(&id).expect("listed");
         let d = &e.descriptor;
         assert_eq!(e.kind, Kind::AnalyzeOneWayAnova);
-        assert_eq!((d.version, d.lifecycle), (1, Lifecycle::Planned));
+        assert_eq!((d.version, d.lifecycle), (1, Lifecycle::Beta));
         assert_eq!(
             (d.title_code, d.description_code),
             (
@@ -873,10 +874,8 @@ mod tests {
             (SuiteId("anova_r_golden"), DocId("methods/one_way_anova"))
         );
         for build in [Build::Standard, Build::Devtools] {
-            let r = t
-                .require_runnable(&id, 1, build)
-                .expect_err("Planned never runs");
-            assert_eq!(r.code, CapabilityCode::NotRunnable, "{build:?}");
+            t.require_runnable(&id, 1, build)
+                .unwrap_or_else(|r| panic!("Beta runs in {build:?}: {r:?}"));
         }
         let ids: Vec<String> = t.ids().iter().map(|i| i.as_str().to_string()).collect();
         assert_eq!(

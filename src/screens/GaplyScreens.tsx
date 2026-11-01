@@ -37,6 +37,7 @@ import { StatisticsHomePage } from './statistics/StatisticsHome';
 import { TTestPage } from './statistics/TTestFlow';
 import { OneSamplePage } from './statistics/OneSampleFlow';
 import { PairedPage } from './statistics/PairedFlow';
+import { AnovaPage } from './statistics/AnovaFlow';
 import { ProjectPageScreen } from './statistics/ProjectPageScreen';
 import { WorkspaceChooser } from './workspace/WorkspaceChooser';
 import { WorkspaceShell } from './workspace/WorkspaceShell';
@@ -277,6 +278,19 @@ export const PairedRoute: React.FC = () => (
     <RequireAuth>
       <RequireWorkspace id="statistics" body="Open the Statistics workspace to use the paired-samples t-test.">
         <PairedPage />
+      </RequireWorkspace>
+    </RequireAuth>
+  </GaplySessionProvider>
+);
+
+/** /app/statistics/anova — the one-way ANOVA (Research OS, Phase 8G-2,
+ *  decision 331), shown only while the Statistics workspace is active, as
+ *  the t-tests' are. */
+export const AnovaRoute: React.FC = () => (
+  <GaplySessionProvider>
+    <RequireAuth>
+      <RequireWorkspace id="statistics" body="Open the Statistics workspace to use the one-way ANOVA.">
+        <AnovaPage />
       </RequireWorkspace>
     </RequireAuth>
   </GaplySessionProvider>
