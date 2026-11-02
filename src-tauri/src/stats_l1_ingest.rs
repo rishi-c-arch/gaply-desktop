@@ -787,7 +787,16 @@ mod tests {
     fn a_fifo_a_device_or_a_directory_is_refused_at_once_as_not_a_regular_file() {
         let fifo = dir().join("PATH_SECRET_fifo.csv");
         let _ = std::fs::remove_file(&fifo);
-        assert!(std::process::Command::new("mkfifo").arg(&fifo).status().unwrap().success());
+        // The system call, never the `mkfifo` tool (decision 401): a child
+        // process holds a copy of this test binary's descriptors until its
+        // exec closes them, which made project_store's released locks look
+        // held to the test beside it (60 of 400 runs).
+        let c = {
+            use std::os::unix::ffi::OsStrExt;
+            std::ffi::CString::new(fifo.as_os_str().as_bytes()).unwrap()
+        };
+        // SAFETY: `c` is a NUL-terminated path that outlives the call.
+        assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0, "{}", std::io::Error::last_os_error());
         let (tx, rx) = std::sync::mpsc::channel();
         let f = fifo.clone();
         std::thread::spawn(move || {

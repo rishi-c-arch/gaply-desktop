@@ -3446,21 +3446,28 @@ mod tests {
         h.close();
         let dir = t.root().join(PROJECTS_DIR).join(&id);
         let art = dir.join(ARTIFACTS_DIR);
+        // The system call, never the `chflags` tool (decision 401). A child
+        // process holds a copy of every descriptor this test binary has open
+        // until its exec closes them, and a `flock` lasts while any copy does,
+        // so a spawn here made another test's released project lock look held:
+        // `a_folder_the_app_cannot_change_refuses_the_delete_and_keeps_everything`
+        // failed with `OpenElsewhere` (131 of 400 runs of the two together).
+        fn set_flags(p: &Path, flags: libc::c_uint) -> io::Result<()> {
+            use std::os::unix::ffi::OsStrExt;
+            let c = std::ffi::CString::new(p.as_os_str().as_bytes())?;
+            // SAFETY: `c` is a NUL-terminated path that outlives the call.
+            match unsafe { libc::chflags(c.as_ptr(), flags) } {
+                0 => Ok(()),
+                _ => Err(io::Error::last_os_error()),
+            }
+        }
         struct Unflag(PathBuf);
         impl Drop for Unflag {
             fn drop(&mut self) {
-                let _ = std::process::Command::new("chflags")
-                    .arg("nouchg")
-                    .arg(&self.0)
-                    .status();
+                let _ = set_flags(&self.0, 0);
             }
         }
-        assert!(std::process::Command::new("chflags")
-            .arg("uchg")
-            .arg(&art)
-            .status()
-            .unwrap()
-            .success());
+        set_flags(&art, libc::UF_IMMUTABLE).unwrap();
         let _guard = Unflag(art.clone());
         assert_eq!(
             store.delete(&id).err().map(|e| e.code),

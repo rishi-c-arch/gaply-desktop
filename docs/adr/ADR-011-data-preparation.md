@@ -1,6 +1,7 @@
 # ADR-011: Data preparation, scale scores first
 
-**Status: Proposed.** Not accepted until Rishi approves it.
+**Status: Accepted, 2 Nov 2026 (decision 397), for Parts 1 to 9 and 11 to 14 and the disk list. Not yet: Part 10 and question 12, which wait
+for ADR-012, the Statistics layout (decision 398).** Each part below is marked **[Accepted, decision 397]** or **[Not yet, decision 397]**.
 Written 2 Nov 2026, Research OS Phase 8J (decisions 391 to 395), from the code
 at d5fd559. Nothing in it is built. No code, test or fixture changed in writing
 it.
@@ -125,7 +126,7 @@ part it affects.
 
 ## Decision
 
-### 1. The score (decision 392a)
+### 1. The score (decision 392a) [Accepted, decision 397]
 
 **What SPSS computes** (IBM SPSS Statistics 25 Command Syntax Reference, Chapter
 2, Universals; read 2 Nov 2026; URLs under Evidence):
@@ -181,7 +182,7 @@ does not have this problem in the same way.
 - A score's items are the file's columns. A score of scores is not in the first
   version: it would make the recipe a graph.
 
-### 2. One formula, one place (decision 392b)
+### 2. One formula, one place (decision 392b) [Accepted, decision 397]
 
 **Reversal.** `reverse` is a private function (`core/stats_alpha/mod.rs:407-412`),
 called at `core/stats_alpha/mod.rs:364` and in its test at
@@ -222,7 +223,7 @@ against R is measured (Part 13), and exact only where IEEE arithmetic makes it s
 The first building step counts how many fixture rows differ from total ÷ count, and
 reports them. Question 3 asks you to confirm.
 
-### 3. Missing codes (decision 392c)
+### 3. Missing codes (decision 392c) [Accepted, decision 397]
 
 The methods take one ascending list for all their columns
 (`core/stats_desc/mod.rs:180-189`, `core/stats_corr/mod.rs:262-274`,
@@ -257,7 +258,7 @@ Its codes were dealt with when it was made, so a score's `suspectMissingCodes` i
 empty. Otherwise the rule, whose job is to flag a stray code in raw data, could
 flag a genuine score.
 
-### 4. The new column's identity (decision 392d)
+### 4. The new column's identity (decision 392d) [Accepted, decision 397]
 
 **Today.** An alias is a position (`core/stats_l1/dataset.rs:213-227`,
 `core/stats_l1/dataset.rs:498-500`). The wire form is `C` and digits
@@ -324,7 +325,7 @@ integer sum Integer, and a score missing in every row Empty.
 - **A score no row can have is refused when it is made**, with its counts. An `Empty`
   column would otherwise appear, and every method would then refuse it one by one.
 
-### 5. How a method sees it (decision 392e)
+### 5. How a method sees it (decision 392e) [Accepted, decision 397]
 
 **Which input does the spec name?** `compare_rerun` checks only the method's engine
 version (`core/research_project/mod.rs:543-558`), and the manifest has one
@@ -415,7 +416,7 @@ engine version.
 
 None of them is designed further here.
 
-### 6. The recipe's place in a project (decision 392f)
+### 6. The recipe's place in a project (decision 392f) [Accepted, decision 397]
 
 | option | for | against | verdict |
 |---|---|---|---|
@@ -459,7 +460,7 @@ None of them is designed further here.
 (ADR-009 §5). The project page lists a project's recipes from the `used` edges. Using a saved
 recipe on a new run, rather than a rerun, is a later step (Question 11).
 
-### 7. A rerun (decision 392g)
+### 7. A rerun (decision 392g) [Accepted, decision 397]
 
 Between the reload (`app/project_commands.rs:1897-1899`) and `valid_on`
 (`app/project_commands.rs:1902`):
@@ -489,7 +490,7 @@ of computer apply unchanged.
 whether the engines differ, then covers both, and the sentence says which. Old manifests
 have no field and read as before.
 
-### 8. The export of the prepared data (decision 392h)
+### 8. The export of the prepared data (decision 392h) [Accepted, decision 397]
 
 **A Dataset is not the file.** Its cells are typed
 (`core/stats_l1/dataset.rs:549-553`), missing tokens and SPSS user-missing values are
@@ -533,7 +534,7 @@ dialog writes nothing. At 100,000 × 51 it is a roughly 10 MB string through IPC
 8I's 100,000 × 50 CSV is 10,000,200 bytes)*. The largest file a tier admits is the first
 step's to measure, with a refusal if it fails.
 
-### 9. Limits (decision 392i)
+### 9. Limits (decision 392i) [Accepted, decision 397]
 
 | limit | value and place | checked on added columns today? | recommended |
 |---|---|---|---|
@@ -567,7 +568,7 @@ manager with a progress line (revision trigger). `stats_desc::profile` recompute
 (`core/stats_desc/mod.rs:489-528`), so the view adds a profile for the new columns only, and
 tests that it equals a full profile.
 
-### 10. The screen (decision 392j)
+### 10. The screen (decision 392j) [Not yet, decision 397]
 
 | where | for | against | verdict |
 |---|---|---|---|
@@ -605,7 +606,7 @@ position alone (`screens/projects/SavedResult.tsx:65`). `storedShape.ts` learns 
 (`screens/StatisticsHome.tsx:38-42`), read from `METHODS`. This capability has no run kind
 (`app/project_commands.rs:3352`), so it takes one entry beside the table, not a row in it.
 
-### 11. Privacy (decision 392k)
+### 11. Privacy (decision 392k) [Accepted, decision 397]
 
 - **Names and values never leave the device.** `stats_prep` is pure and has no route out, under
   `contracts_are_pure.rs`. `stats_prep_commands.rs` joins `stats_desc_writes_nothing.rs`'s list. The
@@ -634,7 +635,7 @@ position alone (`screens/projects/SavedResult.tsx:65`). `storedShape.ts` learns 
   score constant at the sentinel, which the mean in the summary's result must show: the search can find
   what it seeks.
 
-### 12. The registry (decision 392l)
+### 12. The registry (decision 392l) [Accepted, decision 397]
 
 | | a capability of its own | no capability, a helper of the slots |
 |---|---|---|
@@ -650,7 +651,7 @@ first, as the methods did (decision 377). Its resource profile says 100,000 rows
 and no cancel until measured otherwise. Rust's rule that each `METHODS` row has a run kind stands, because
 it has no row (`app/project_commands.rs:3332-3354`).
 
-### 13. Validation (decision 392m)
+### 13. Validation (decision 392m) [Accepted, decision 397]
 
 **The oracle.** Base R through `/usr/local/bin/Rscript`, in the fixtures' step, with no package, under
 ADR-008. R computes on what it read: each file is written, read back with `read.csv`, and `cells_bits.csv`
@@ -696,7 +697,7 @@ scores.
 **The R gate and the guards are in the first step**, so nothing a user sees is built before the arithmetic is known
 right.
 
-### 14. The implementation plan (decision 392n)
+### 14. The implementation plan (decision 392n) [Accepted, decision 397]
 
 Each step is its own commit, with `cargo test --workspace`, and the frontend's commands where it touches them.
 Letters are Rishi's to give.
@@ -744,7 +745,7 @@ page, `large_samples.md`'s lines, a D-entry.
   each with a value the checklist gives from R, use a score in alpha, correlations and a t-test, save, reopen, rerun,
   export, reopen the CSV, delete the project, and the limits at 100,000 × 50.
 
-## The disk list (decision 393)
+## The disk list (decision 393) [Accepted, decision 397]
 
 **Every operation the design adds. All are blocked until this ADR is approved.** Nothing in the list exists now.
 
@@ -835,7 +836,7 @@ separately read.
     Asked again after the real-app check.
 11. **Reusing a saved recipe on a new run?** Recommended: not in the first version. A recipe is saved with a run and used by its rerun.
     The next data-preparation step can offer "apply this recipe" on a new file, whose columns then have to be matched by the user.
-12. **Where the page sits?** Recommended: its own page, Prepare data, with one prepared file open at a time for the session.
+12. **[Not yet, decision 397]** **Where the page sits?** Recommended: its own page, Prepare data, with one prepared file open at a time for the session.
 13. **Should a score's items be limited to the file's columns?** Recommended: yes. A score of scores makes the recipe a graph.
 
 ## Revision trigger
