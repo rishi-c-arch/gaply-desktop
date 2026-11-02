@@ -81,12 +81,14 @@ use crate::contracts::{
     ParamValue, Platform, Reproducibility, ResourceEstimate, RunManifest, SchemaVersion,
     ValidationReport, WorkspaceId,
 };
-use crate::stats_desc::{input_ref, Alias};
+use crate::stats_desc::{
+    input_ref, is_prepared_column, preparation_holds, score_code_count, suspect_codes_unless_score,
+    Alias,
+};
 use crate::stats_dist::{
     f_upper, studentized_range_quantile, studentized_range_upper, t_quantile, t_two_tailed,
     SRANGE_P_FLOOR,
 };
-use crate::stats_l1::binding::suspect_codes_in;
 use crate::stats_l1::dataset::{Cell, Dataset};
 use crate::stats_ttest::{column, group_levels, interval_95, non_finite_cells, MAX_GROUP_LEVELS};
 use crate::stats_verify::{mean, one_way_anova, sample_variance, RangeFault};
@@ -199,6 +201,13 @@ closed! {
         /// Limitation: no Brown–Forsythe test of means, no trend tests, no
         /// planned contrasts.
         NoContrasts => "no_contrasts",
+        /// The spec's preparation does not describe this table (decision 417).
+        PreparationMismatch => "preparation_mismatch",
+        /// A score is never a group (decision 418). Param `column`.
+        ScoreAsGroup => "score_as_group",
+        /// A ticked missing code equals a value in the chosen score (decision
+        /// 418, ADR-011 question 5). Params `column`, `count`.
+        CodeEqualsScore => "code_equals_score",
     }
 }
 
@@ -479,6 +488,7 @@ pub fn spec(
         parameters,
         random_seed: None,
         confirmation_refs: Vec::new(),
+        preparation: None,
     }
 }
 
@@ -532,6 +542,23 @@ fn check<'d>(dataset: &'d Dataset, params: &AnovaParams) -> Checked<'d> {
                     .with(ParamKey::Column, column_param(alias)),
             );
         }
+    }
+    let group = if is_prepared_column(dataset, params.group) {
+        errors.push(
+            Diagnostic::error(AnovaCode::ScoreAsGroup)
+                .with(ParamKey::Column, column_param(params.group)),
+        );
+        None
+    } else {
+        group
+    };
+    let collisions = score_code_count(dataset, params.outcome, &params.missing_codes);
+    if collisions > 0 {
+        errors.push(
+            Diagnostic::error(AnovaCode::CodeEqualsScore)
+                .with(ParamKey::Column, column_param(params.outcome))
+                .int(ParamKey::Count, collisions as i64),
+        );
     }
     let mut ready = None;
     if let (Some((o_summary, o_cells)), Some((_, g_cells))) = (outcome, group) {
@@ -674,11 +701,14 @@ pub fn validate(
             Diagnostic::error(AnovaCode::InputCount).int(ParamKey::Count, inputs.len() as i64),
         ),
     }
+    if !preparation_holds(dataset, spec.preparation.as_ref()) {
+        errors.push(Diagnostic::error(AnovaCode::PreparationMismatch));
+    }
     let params = &spec.parameters;
     errors.extend(check(dataset, params).errors);
     let mut warnings = Vec::new();
     if let Some((_, cells)) = column(dataset, params.outcome) {
-        for s in suspect_codes_in(params.outcome.0, cells) {
+        for s in suspect_codes_unless_score(dataset, params.outcome, cells) {
             if !params.missing_codes.contains(&f64::from(s.code)) {
                 warnings.push(
                     Diagnostic::warning(AnovaCode::SuspectMissingCode)
@@ -1243,5 +1273,6 @@ pub fn manifest(
         elapsed_ms,
         output_hash: ContentHash::of_bytes(&result.canonical_bytes()),
         reproducibility: Reproducibility::Bitwise,
+        preparation: spec.preparation.clone(),
     }
 }

@@ -128,6 +128,9 @@ export const ALPHA_WORDS: Record<string, Words> = {
     `These settings were made for version ${num(d, 'found') ?? '?'} of Cronbach's alpha, and this is version ${num(d, 'expected') ?? '?'}.`,
   'stats.alpha.input_count': (d) => `These settings name ${num(d, 'count') ?? '?'} files, and Cronbach's alpha reads exactly one.`,
   'stats.alpha.input_mismatch': () => 'These settings were made for a different file from the one open. Open the file again.',
+  'stats.alpha.preparation_mismatch': () => 'These settings do not match how the open data was prepared. Choose the settings again.',
+  'stats.alpha.code_equals_score': (d, n) =>
+    `Column ${column(d, n)} is a score, and it holds a missing code you ticked in ${cells(num(d, 'count'))}. Untick the code, or leave this score out.`,
   'stats.alpha.unknown_column': (d, n) => `Column ${column(d, n)} is not in this file.`,
   'stats.alpha.too_few_items': (d) =>
     `${num(d, 'count') === 1 ? '1 item is' : `${num(d, 'count') ?? '?'} items are`} ticked, and Cronbach's alpha needs at least two.`,

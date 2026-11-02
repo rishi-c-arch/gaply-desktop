@@ -121,6 +121,13 @@
 //! export's with them, which may name exactly `crate::stats_desc::export::
 //! text`; and `stats_adapters` may name it, for its façade.
 //!
+//! Phase 8M-2 (decisions 417 and 418): `stats_desc` names `stats_prep`'s hash-level
+//! function and versions, and holds the shared checks every method names by
+//! exact name: `preparation_holds`, `score_code_count`,
+//! `suspect_codes_unless_score` and, in the t-test and the ANOVA,
+//! `is_prepared_column`. So the five other method modules no longer name
+//! `crate::stats_l1::binding`.
+//!
 //! Phase 8M adds `src/stats_prep/`, scale scores (decision 408), with the
 //! module, not after it: inside the crate `crate::contracts`, exactly
 //! `crate::research_project::is_invisible_format`, exactly
@@ -203,6 +210,7 @@ const STATS_DESC_CRATE_PATHS: &[&str] = &[
     "crate::stats_l1::dataset",
     "crate::stats_verify",
     "crate::stats_l1::binding",
+    "crate::stats_prep",
 ];
 
 const STATS_REGISTRY_CRATE_PATHS: &[&str] = &[
@@ -321,7 +329,19 @@ const VERIFIER_ITEMS: &[(&str, &[&str])] = &[
         "crate::stats_verify",
         &["mean", "sample_variance", "RangeFault"],
     ),
-    ("crate::stats_l1::binding", &["suspect_codes_in"]),
+    (
+        "crate::stats_l1::binding",
+        &["suspect_codes_in", "SuspectMissingCode"],
+    ),
+    // Phase 8M-2 (decision 417): the preparation check's hash and versions.
+    (
+        "crate::stats_prep",
+        &[
+            "prepared_input_hash",
+            "CAPABILITY_VERSION as PREP_VERSION",
+            "ENGINE_VERSION as PREP_ENGINE_VERSION",
+        ],
+    ),
 ];
 
 /// What `stats_ttest` may name inside the crate. The export's path comes
@@ -331,7 +351,6 @@ const STATS_TTEST_CRATE_PATHS: &[&str] = &[
     "crate::stats_desc::export",
     "crate::stats_desc",
     "crate::stats_dist",
-    "crate::stats_l1::binding",
     "crate::stats_l1::dataset",
     "crate::stats_verify",
 ];
@@ -355,9 +374,18 @@ const TTEST_ITEMS: &[(&str, &[&str])] = &[
             "t_two_tailed",
         ],
     ),
-    ("crate::stats_l1::binding", &["suspect_codes_in"]),
     ("crate::stats_desc::export", &["text"]),
-    ("crate::stats_desc", &["input_ref", "Alias"]),
+    (
+        "crate::stats_desc",
+        &[
+            "input_ref",
+            "is_prepared_column",
+            "preparation_holds",
+            "score_code_count",
+            "suspect_codes_unless_score",
+            "Alias",
+        ],
+    ),
 ];
 
 /// What `stats_onesample` may name inside the crate (Phase 8D-1). The
@@ -367,7 +395,6 @@ const STATS_ONESAMPLE_CRATE_PATHS: &[&str] = &[
     "crate::contracts",
     "crate::stats_desc::export",
     "crate::stats_desc",
-    "crate::stats_l1::binding",
     "crate::stats_l1::dataset",
     "crate::stats_verify",
     "crate::stats_ttest",
@@ -395,9 +422,17 @@ const ONESAMPLE_ITEMS: &[(&str, &[&str])] = &[
             "two_sided_p",
         ],
     ),
-    ("crate::stats_l1::binding", &["suspect_codes_in"]),
     ("crate::stats_desc::export", &["text"]),
-    ("crate::stats_desc", &["input_ref", "Alias"]),
+    (
+        "crate::stats_desc",
+        &[
+            "input_ref",
+            "preparation_holds",
+            "score_code_count",
+            "suspect_codes_unless_score",
+            "Alias",
+        ],
+    ),
 ];
 
 /// What `stats_anova` may name inside the crate (Phase 8G-2, decision 326).
@@ -408,7 +443,6 @@ const STATS_ANOVA_CRATE_PATHS: &[&str] = &[
     "crate::stats_desc::export",
     "crate::stats_desc",
     "crate::stats_dist",
-    "crate::stats_l1::binding",
     "crate::stats_l1::dataset",
     "crate::stats_ttest",
     "crate::stats_verify",
@@ -441,9 +475,18 @@ const ANOVA_ITEMS: &[(&str, &[&str])] = &[
             "MAX_GROUP_LEVELS",
         ],
     ),
-    ("crate::stats_l1::binding", &["suspect_codes_in"]),
     ("crate::stats_desc::export", &["text"]),
-    ("crate::stats_desc", &["input_ref", "Alias"]),
+    (
+        "crate::stats_desc",
+        &[
+            "input_ref",
+            "is_prepared_column",
+            "preparation_holds",
+            "score_code_count",
+            "suspect_codes_unless_score",
+            "Alias",
+        ],
+    ),
 ];
 
 /// What `stats_corr` may name inside the crate (Phase 8H, decision 343).
@@ -455,7 +498,6 @@ const STATS_CORR_CRATE_PATHS: &[&str] = &[
     "crate::stats_desc::export",
     "crate::stats_desc",
     "crate::stats_dist",
-    "crate::stats_l1::binding",
     "crate::stats_l1::compute",
     "crate::stats_l1::dataset",
     "crate::stats_ttest",
@@ -480,10 +522,18 @@ const CORR_ITEMS: &[(&str, &[&str])] = &[
         &["normal_quantile_975", "normal_two_tailed", "t_two_tailed"],
     ),
     ("crate::stats_ttest", &["column", "non_finite_cells"]),
-    ("crate::stats_l1::binding", &["suspect_codes_in"]),
     ("crate::stats_l1::compute", &["RHO_ONE_ULPS"]),
     ("crate::stats_desc::export", &["text"]),
-    ("crate::stats_desc", &["input_ref", "Alias"]),
+    (
+        "crate::stats_desc",
+        &[
+            "input_ref",
+            "preparation_holds",
+            "score_code_count",
+            "suspect_codes_unless_score",
+            "Alias",
+        ],
+    ),
 ];
 
 /// What `stats_alpha` may name inside the crate (Phase 8I, decision 372);
@@ -495,7 +545,6 @@ const STATS_ALPHA_CRATE_PATHS: &[&str] = &[
     "crate::stats_desc::export",
     "crate::stats_desc",
     "crate::stats_dist",
-    "crate::stats_l1::binding",
     "crate::stats_l1::compute",
     "crate::stats_l1::dataset",
     "crate::stats_ttest",
@@ -510,10 +559,18 @@ const ALPHA_ITEMS: &[(&str, &[&str])] = &[
     ),
     ("crate::stats_dist", &["f_quantile_upper"]),
     ("crate::stats_ttest", &["column", "non_finite_cells"]),
-    ("crate::stats_l1::binding", &["suspect_codes_in"]),
     ("crate::stats_l1::compute", &["RHO_ONE_ULPS"]),
     ("crate::stats_desc::export", &["text"]),
-    ("crate::stats_desc", &["input_ref", "Alias"]),
+    (
+        "crate::stats_desc",
+        &[
+            "input_ref",
+            "preparation_holds",
+            "score_code_count",
+            "suspect_codes_unless_score",
+            "Alias",
+        ],
+    ),
 ];
 
 /// What `stats_prep` may name inside the crate (Phase 8M, decision 408).

@@ -79,8 +79,9 @@ use crate::contracts::{
     ParamValue, Platform, Reproducibility, ResourceEstimate, RunManifest, SchemaVersion,
     ValidationReport, WorkspaceId,
 };
-use crate::stats_desc::{input_ref, Alias};
-use crate::stats_l1::binding::suspect_codes_in;
+use crate::stats_desc::{
+    input_ref, preparation_holds, score_code_count, suspect_codes_unless_score, Alias,
+};
 use crate::stats_l1::dataset::{Cell, Dataset};
 use crate::stats_ttest::{
     column, essentially_constant, interval_95, non_finite_cells, two_sided_p,
@@ -173,6 +174,11 @@ closed! {
         /// the mean of |second|, so the differences' spread is lost in
         /// rounding; R uses only the first of the three (decision 259).
         DifferencesEssentiallyConstant => "differences_essentially_constant",
+        /// The spec's preparation does not describe this table (decision 417).
+        PreparationMismatch => "preparation_mismatch",
+        /// A ticked missing code equals a value in a chosen score (decision
+        /// 418, ADR-011 question 5). Params `column`, `count`.
+        CodeEqualsScore => "code_equals_score",
     }
 }
 
@@ -406,6 +412,7 @@ fn spec_of<P>(
         parameters,
         random_seed: None,
         confirmation_refs: Vec::new(),
+        preparation: None,
     }
 }
 
@@ -466,14 +473,18 @@ fn unsupported_of<P>(
 
 /// The spec's one input, against this dataset.
 fn input_errors<P>(spec: &OperationSpec<P>, dataset: &Dataset) -> Vec<Diagnostic<OneSampleCode>> {
-    match spec.inputs.as_slice() {
+    let mut errors = match spec.inputs.as_slice() {
         [only] if *only == input_ref(dataset) => Vec::new(),
         [_] => vec![Diagnostic::error(OneSampleCode::InputMismatch)],
         inputs => {
             vec![Diagnostic::error(OneSampleCode::InputCount)
                 .int(ParamKey::Count, inputs.len() as i64)]
         }
+    };
+    if !preparation_holds(dataset, spec.preparation.as_ref()) {
+        errors.push(Diagnostic::error(OneSampleCode::PreparationMismatch));
     }
+    errors
 }
 
 fn missing_code_errors(codes: &[f64]) -> Vec<Diagnostic<OneSampleCode>> {
@@ -519,6 +530,23 @@ fn numeric_column<'d>(
     Some(cells)
 }
 
+/// `code_equals_score`, when a ticked code equals a value in a chosen score.
+fn score_code_errors(
+    dataset: &Dataset,
+    alias: Alias,
+    codes: &[f64],
+    errors: &mut Vec<Diagnostic<OneSampleCode>>,
+) {
+    let collisions = score_code_count(dataset, alias, codes);
+    if collisions > 0 {
+        errors.push(
+            Diagnostic::error(OneSampleCode::CodeEqualsScore)
+                .with(ParamKey::Column, column_param(alias))
+                .int(ParamKey::Count, collisions as i64),
+        );
+    }
+}
+
 /// The candidate missing codes in a chosen column that the user did not list.
 fn suspect_warnings(
     dataset: &Dataset,
@@ -528,7 +556,7 @@ fn suspect_warnings(
     let Some((_, cells)) = column(dataset, alias) else {
         return Vec::new();
     };
-    suspect_codes_in(alias.0, cells)
+    suspect_codes_unless_score(dataset, alias, cells)
         .into_iter()
         .filter(|s| !codes.contains(&f64::from(s.code)))
         .map(|s| {
@@ -562,6 +590,7 @@ fn check_one_sample(dataset: &Dataset, params: &OneSampleParams) -> Checked<Valu
         Some(_) => {}
     }
     let cells = numeric_column(dataset, params.outcome, &mut errors);
+    score_code_errors(dataset, params.outcome, &params.missing_codes, &mut errors);
     let mut ready = None;
     if errors.is_empty() {
         if let Some(cells) = cells {
@@ -589,6 +618,10 @@ fn check_paired(dataset: &Dataset, params: &PairedParams) -> Checked<Pairs> {
     let mut errors = missing_code_errors(&params.missing_codes);
     let first = numeric_column(dataset, params.first, &mut errors);
     let second = numeric_column(dataset, params.second, &mut errors);
+    score_code_errors(dataset, params.first, &params.missing_codes, &mut errors);
+    if params.second != params.first {
+        score_code_errors(dataset, params.second, &params.missing_codes, &mut errors);
+    }
     if first.is_some() && second.is_some() && params.first == params.second {
         errors.push(Diagnostic::error(OneSampleCode::SameColumn));
     }
@@ -1002,6 +1035,7 @@ fn manifest_of<P: Serialize>(
         elapsed_ms,
         output_hash: ContentHash::of_bytes(&output),
         reproducibility: Reproducibility::Bitwise,
+        preparation: spec.preparation.clone(),
     }
 }
 

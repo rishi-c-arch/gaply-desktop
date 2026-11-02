@@ -280,6 +280,7 @@ fn manifest() -> RunManifest<CorrCode> {
         elapsed_ms: 3,
         output_hash: hash(OUTPUT),
         reproducibility: Reproducibility::Bitwise,
+        preparation: None,
     }
 }
 
@@ -498,7 +499,7 @@ fn sorted(mut v: Vec<String>) -> Vec<String> {
 fn the_corr_code_list_is_exactly_the_closed_sets() {
     let path = screens().join("corrCodes.json");
     let mut rust: Vec<String> = CorrCode::ALL.iter().map(|c| c.wire().to_string()).collect();
-    assert_eq!(rust.len(), 35, "the correlations' 35 codes");
+    assert_eq!(rust.len(), 37, "the correlations' 37 codes");
     rust.extend(RunCode::ALL.iter().map(|c| c.wire().to_string()));
     rust.extend(WorkspaceCode::ALL.iter().map(|c| c.wire().to_string()));
     rust.extend(CapabilityCode::ALL.iter().map(|c| c.wire().to_string()));

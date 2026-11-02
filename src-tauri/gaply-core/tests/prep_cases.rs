@@ -934,3 +934,51 @@ fn the_source_table_is_unchanged() {
     let _ = prepared(&d, &recipe(4, vec![base()]));
     assert_eq!(d, before);
 }
+
+/// Decision 416 (8M's question 4): -0.0 and 0.0 are one number with two
+/// spellings, so they would hash as two recipes. Refused as a scale end and as
+/// a missing code, by a code of its own; a screen sends "-0" as 0.
+#[test]
+fn negative_zero_is_refused_as_a_scale_end_and_as_a_missing_code() {
+    let wires = |s: ScaleScoreStep| -> Vec<String> {
+        errors(s)
+            .iter()
+            .map(|d| d.code.wire().to_string())
+            .collect()
+    };
+    let negative_zero = "stats.prep.negative_zero";
+    let mut min = base();
+    min.reversed = vec![a(2)];
+    min.scale = Some(ScaleEnds {
+        min: -0.0,
+        max: 100.0,
+    });
+    assert_eq!(wires(min), [negative_zero], "the lower end");
+
+    let mut max = base();
+    max.reversed = vec![a(2)];
+    max.scale = Some(ScaleEnds {
+        min: -100.0,
+        max: -0.0,
+    });
+    let got = wires(max);
+    assert!(
+        got.iter().any(|c| c == negative_zero),
+        "the upper end: {got:?}"
+    );
+
+    let mut code = base();
+    code.missing_codes = vec![-0.0, 99.0];
+    assert_eq!(wires(code), [negative_zero], "a missing code");
+
+    // Plain zero is a number like any other, as an end and as a code.
+    let mut zero = base();
+    zero.reversed = vec![a(2)];
+    zero.scale = Some(ScaleEnds {
+        min: 0.0,
+        max: 100.0,
+    });
+    zero.missing_codes = vec![0.0, 99.0];
+    let report = validate(&table(), &recipe(4, vec![zero]), CAP);
+    assert_eq!(report.status, ValidationStatus::Valid, "{report:?}");
+}

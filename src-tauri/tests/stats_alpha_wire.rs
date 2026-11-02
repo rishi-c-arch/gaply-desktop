@@ -196,6 +196,7 @@ fn manifest() -> RunManifest<AlphaCode> {
         elapsed_ms: 3,
         output_hash: hash(OUTPUT),
         reproducibility: Reproducibility::Bitwise,
+        preparation: None,
     }
 }
 
@@ -421,7 +422,7 @@ fn the_alpha_code_list_is_exactly_the_closed_sets() {
         .iter()
         .map(|c| c.wire().to_string())
         .collect();
-    assert_eq!(rust.len(), 37, "alpha's 37 codes");
+    assert_eq!(rust.len(), 39, "alpha's 39 codes");
     rust.extend(RunCode::ALL.iter().map(|c| c.wire().to_string()));
     rust.extend(WorkspaceCode::ALL.iter().map(|c| c.wire().to_string()));
     rust.extend(CapabilityCode::ALL.iter().map(|c| c.wire().to_string()));

@@ -2530,7 +2530,8 @@ mod tests {
         }
     }
 
-    /// A spec of each kind with every optional field filled.
+    /// A spec of each kind with every optional field filled but `preparation`,
+    /// whose rows 8M-4 adds (decision 417).
     fn specs() -> (OperationSpec<DescribeParams>, OperationSpec<TTestParams>) {
         let confirmation = ConfirmationId::parse(&"c".repeat(64)).unwrap();
         let describe = OperationSpec {
@@ -2555,6 +2556,7 @@ mod tests {
             },
             random_seed: Some(7),
             confirmation_refs: vec![confirmation.clone()],
+            preparation: None,
         };
         let ttest = OperationSpec {
             schema_version: SchemaVersion,
@@ -2572,6 +2574,7 @@ mod tests {
             },
             random_seed: Some(9),
             confirmation_refs: vec![confirmation],
+            preparation: None,
         };
         (describe, ttest)
     }
@@ -2594,6 +2597,7 @@ mod tests {
             },
             random_seed: Some(11),
             confirmation_refs: vec![confirmation.clone()],
+            preparation: None,
         };
         let paired = OperationSpec {
             schema_version: SchemaVersion,
@@ -2609,6 +2613,7 @@ mod tests {
             },
             random_seed: Some(13),
             confirmation_refs: vec![confirmation],
+            preparation: None,
         };
         (one, paired)
     }
@@ -2632,6 +2637,7 @@ mod tests {
             },
             random_seed: None,
             confirmation_refs: vec![ConfirmationId::parse(&"c".repeat(64)).unwrap()],
+            preparation: None,
         }
     }
 
@@ -2693,6 +2699,7 @@ mod tests {
             },
             random_seed: None,
             confirmation_refs: vec![ConfirmationId::parse(&"d".repeat(64)).unwrap()],
+            preparation: None,
         }
     }
 
@@ -2711,6 +2718,7 @@ mod tests {
             parameters,
             random_seed: None,
             confirmation_refs: Vec::new(),
+            preparation: None,
         };
         (
             spec(AlphaParams {

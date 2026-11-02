@@ -35,8 +35,8 @@ describe('describeWording', () => {
   });
 
   it('has a sentence for every code, and no code it does not know', () => {
-    // 18 DescCode + 11 RunCode (run.wrong_kind joined in Phase 4B-2).
-    expect(CODES.length).toBe(29);
+    // 21 DescCode (three since 8M-2, decisions 417 and 418) + 11 RunCode (run.wrong_kind joined in Phase 4B-2).
+    expect(CODES.length).toBe(32);
     for (const code of CODES) {
       const d = { code, params: { column: 2, count: 3, value: -99, index: 0, expected: 1, found: 2 }, severity: 'error' } as Diagnostic;
       const s = diagnosticSentence(d, (a) => `"col${a}"`);
@@ -96,5 +96,29 @@ describe('describeWording', () => {
     expect(shown(52.104288888888888)).toBe('52.1043');
     expect(shown(10.5)).toBe('10.5');
     expect(shortHash('5fd0af5daee4d8dfcb466411096e7f26e513bf2cadfb0e1605ff085026fe5b4a')).toBe('5fd0af5daee4…');
+  });
+});
+
+// Research OS, Phase 8M-2 (decisions 417 and 418): a score's refusals, shown by
+// no screen yet, name the column and the count, singular at 1.
+describe('the words for a prepared table', () => {
+  const say = (code: string, params: Record<string, number>) =>
+    diagnosticSentence({ code, params, severity: 'error' } as Diagnostic, (a) => `"col${a}"`);
+
+  it('says a ticked code equals a score, with the column and the count', () => {
+    expect(say('stats.desc.code_equals_score', { column: 8, count: 1 })).toBe(
+      'Column "col8" is a score, and it holds a missing code you ticked in 1 cell. Untick the code, or leave this score out.'
+    );
+    expect(say('stats.desc.code_equals_score', { column: 8, count: 3 })).toBe(
+      'Column "col8" is a score, and it holds a missing code you ticked in 3 cells. Untick the code, or leave this score out.'
+    );
+  });
+
+  it('says a score can only be summarised as numeric', () => {
+    expect(say('stats.desc.score_as_categorical', { column: 8 })).toBe('Column "col8" is a score, so it can only be summarised as numeric.');
+  });
+
+  it("says a preparation does not match, in one sentence that names nothing of the user's", () => {
+    expect(say('stats.desc.preparation_mismatch', {})).toBe('These settings do not match how the open data was prepared. Choose the settings again.');
   });
 });

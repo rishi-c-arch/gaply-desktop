@@ -76,7 +76,8 @@ export const CAPABILITY_WORDS: Record<string, string> = {
     "Cronbach's alpha for a scale of two or more numeric items in your own data file, with standardized alpha, a 95% interval, and each item's statistics if it were left out, with the items you choose reverse-scored.",
   'stats.capability.limit.analyze.alpha_one_dimension': 'Alpha assumes the items measure one thing; Gaply does not check that.',
   'stats.capability.limit.analyze.no_omega_or_smc': "McDonald's omega and squared multiple correlations are not shown yet.",
-  // Phase 8M (decision 411): scale scores, Planned.
+  // Phase 8M (decision 411): scale scores, Planned in 8M and Beta since 8M-2's
+  // Part 2 (decision 416), with no route yet.
   'stats.capability.prepare.scale_score.title': 'Scale scores',
   'stats.capability.prepare.scale_score.description':
     "A new numeric column that is the sum or the mean of items you choose, any of them reverse-scored on the scale's ends you type, kept as a recipe. Your file is never changed.",
@@ -109,6 +110,6 @@ export const HOME_TEXT = {
   retiredIntro: 'These no longer run in this version.',
   limitations: 'What it does not do',
   verifierMethods: 'Methods it can reproduce:',
-  noRoute: 'This method runs in Gaply, but has no screen of its own here yet.',
+  noRoute: 'This runs in Gaply, but has no screen of its own here yet.',
   unread: 'The list of methods could not be read.',
 };

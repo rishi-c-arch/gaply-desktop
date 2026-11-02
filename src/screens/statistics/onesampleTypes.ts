@@ -31,6 +31,8 @@ export type OneSampleCode =
   | 'stats.onesample.capability_version_mismatch'
   | 'stats.onesample.input_count'
   | 'stats.onesample.input_mismatch'
+  | 'stats.onesample.preparation_mismatch'
+  | 'stats.onesample.code_equals_score'
   | 'stats.onesample.unknown_column'
   | 'stats.onesample.same_column'
   | 'stats.onesample.column_holds_text'

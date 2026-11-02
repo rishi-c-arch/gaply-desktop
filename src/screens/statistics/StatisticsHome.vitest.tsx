@@ -200,20 +200,35 @@ describe('StatisticsHome', () => {
   // Research OS, Phase 8I (decision 372): Cronbach's alpha is Planned, so the
   // home names it on the roadmap and offers no way to open or run it; the
   // correlations' card is unchanged beside it.
-  // Research OS, Phase 8M (decision 411): scale scores are Planned, so the home
-  // names them on the roadmap and offers no way to open or run them.
-  it('lists the Planned scale scores on the roadmap only, with no card and no open', async () => {
+  // Research OS, Phase 8M-2 (decision 416): scale scores are Beta and have no
+  // route until the layout's dialog, so the home gives them a card with their
+  // limitations and the no-route sentence, and no way to open them.
+  it('gives the Beta scale scores a card with the no-route sentence, and no way to open them', async () => {
     renderHome([
       cap('stats.describe', 'beta', true, 'stats.capability.describe.title'),
-      cap('stats.prepare.scale_score', 'planned', false, 'stats.capability.prepare.scale_score.title'),
+      {
+        ...cap('stats.prepare.scale_score', 'beta', true, 'stats.capability.prepare.scale_score.title'),
+        descriptionCode: 'stats.capability.prepare.scale_score.description',
+        knownLimitations: [
+          'stats.capability.limit.prepare.items_are_file_columns',
+          'stats.capability.limit.prepare.no_recoding_formula_or_selection',
+        ],
+      },
     ]);
-    const roadmap = await screen.findByTestId('stats-roadmap');
-    expect(within(roadmap).getByTestId('stats-roadmap-stats.prepare.scale_score').textContent).toBe('Scale scores');
-    expect(within(roadmap).queryAllByRole('link')).toHaveLength(0);
-    expect(within(roadmap).queryAllByRole('button')).toHaveLength(0);
-    expect(screen.queryByTestId('stats-card-stats.prepare.scale_score')).toBeNull();
+    const card = await screen.findByTestId('stats-card-stats.prepare.scale_score');
+    expect(within(card).getByRole('heading').textContent).toBe('Scale scores');
+    expect(screen.getByTestId('stats-lifecycle-stats.prepare.scale_score').textContent).toBe('Beta');
+    expect(within(card).getAllByRole('listitem').map((li) => li.textContent)).toEqual([
+      "A score's items are the file's columns; a score of other scores is not offered.",
+      'Recoding values, computing from a formula and selecting cases are not offered yet.',
+    ]);
+    expect(screen.getByTestId('stats-no-route-stats.prepare.scale_score').textContent).toBe(
+      'This runs in Gaply, but has no screen of its own here yet.'
+    );
+    expect(within(card).queryAllByRole('link')).toHaveLength(0);
+    expect(within(card).queryAllByRole('button')).toHaveLength(0);
     expect(screen.queryByTestId('stats-open-stats.prepare.scale_score')).toBeNull();
-    expect(screen.queryByTestId('stats-no-route-stats.prepare.scale_score')).toBeNull();
+    expect(screen.queryByTestId('stats-roadmap-stats.prepare.scale_score')).toBeNull();
   });
 
   it("lists the Planned Cronbach's alpha on the roadmap only, with no card and no open", async () => {

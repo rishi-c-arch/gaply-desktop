@@ -231,12 +231,9 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn a_forced_open_gate_cannot_panic_the_caller() {
-        // The probe is EXPECTED to panic here; keep the scary backtrace out of
-        // the test log, then put the real hook back.
-        let previous = std::panic::take_hook();
-        std::panic::set_hook(Box::new(|_| {}));
+        // The probe may panic here. libtest captures the message of a test
+        // that passes; no test swaps the process-wide hook (decision 415).
         let selected = select_with(|| Ok(()), default_probe);
-        std::panic::set_hook(previous);
 
         if residency_class_present() {
             assert_eq!(selected.kind, DeviceKind::Metal, "Metal is available and should be used");
@@ -267,10 +264,7 @@ mod tests {
     /// Injecting the panic removes the dependency on the host OS being old.
     #[test]
     fn a_panicking_probe_yields_cpu_rather_than_unwinding() {
-        let previous = std::panic::take_hook();
-        std::panic::set_hook(Box::new(|_| {}));
         let s = select_with(|| Ok(()), || panic!("simulating D35's MTLResidencySetDescriptor panic"));
-        std::panic::set_hook(previous);
 
         assert_eq!(s.kind, DeviceKind::Cpu, "a panicking probe must yield CPU, not an unwind");
         assert!(matches!(s.device, Device::Cpu));

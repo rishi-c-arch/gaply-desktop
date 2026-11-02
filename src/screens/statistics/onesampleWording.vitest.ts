@@ -38,7 +38,7 @@ function everySentence(): string[] {
 
 describe('the one-sample and paired screens word every code they can show', () => {
   it('has a sentence for each code in onesampleCodes.json, and none for any other', () => {
-    expect(onesampleCodes).toHaveLength(51);
+    expect(onesampleCodes).toHaveLength(53);
     expect(Object.keys(words.ONE_SAMPLE_WORDS)).toHaveLength(onesampleCodes.length);
     expect(Object.keys(words.ONE_SAMPLE_WORDS).sort()).toEqual([...onesampleCodes].sort());
     for (const code of onesampleCodes) {
@@ -93,5 +93,21 @@ describe('neutral wording (decision 66)', () => {
         /\breject|\bconfirm(s|ed)? that|\bproves?\b|null hypothesis|\b(t-)?test (passed|failed)\b|\bfail(s|ed)? the test\b/i.test(s)
     );
     expect(bad).toEqual([]);
+  });
+});
+
+// Research OS, Phase 8M-2 (decisions 417 and 418): a score's refusals, shown by
+// no screen yet, name the column and the count, singular at 1.
+describe('the words for a prepared table', () => {
+  it('says a ticked code equals a score, with the column and the count', () => {
+    const say = (count: number) => words.oneSampleSentence({ code: 'stats.onesample.code_equals_score', params: { column: 8, count }, count }, NAMES);
+    expect(say(1)).toBe('Column "col8" is a score, and it holds a missing code you ticked in 1 cell. Untick the code, or leave this score out.');
+    expect(say(3)).toBe('Column "col8" is a score, and it holds a missing code you ticked in 3 cells. Untick the code, or leave this score out.');
+  });
+
+  it("says a preparation does not match, in one sentence that names nothing of the user's", () => {
+    expect(words.oneSampleSentence({ code: 'stats.onesample.preparation_mismatch', params: {}, count: 0 }, NAMES)).toBe(
+      'These settings do not match how the open data was prepared. Choose the settings again.'
+    );
   });
 });

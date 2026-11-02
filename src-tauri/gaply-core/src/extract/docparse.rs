@@ -1781,10 +1781,9 @@ mod tests {
         // Deterministic proof of the boundary itself: a closure that PANICS is
         // caught and mapped to Validation — the unwind does NOT propagate past
         // catch_pdf_panic (if it did, this test process would abort).
-        let prev = std::panic::take_hook();
-        std::panic::set_hook(Box::new(|_| {})); // silence the expected panic on stderr
+        // libtest captures the expected panic's message; no test swaps the
+        // process-wide hook (decision 415).
         let result = catch_pdf_panic(|| -> String { panic!("simulated pdf-extract panic") });
-        std::panic::set_hook(prev);
         match result {
             Err(GaplyError::Validation(m)) => {
                 assert!(m.contains("could not be parsed"), "honest message expected, got: {m}");

@@ -79,6 +79,7 @@ fn manifest(
         elapsed_ms: 3,
         output_hash: hash(OUTPUT),
         reproducibility: Reproducibility::Bitwise,
+        preparation: None,
     }
 }
 
@@ -199,8 +200,8 @@ fn the_onesample_code_list_is_exactly_the_closed_sets() {
         .collect();
     assert_eq!(
         rust.len(),
-        29,
-        "the two tests' 29 codes (the two essentially-constant codes, decision 259)"
+        31,
+        "the two tests' 31 codes (the two of a prepared table, decisions 417 and 418)"
     );
     rust.extend(RunCode::ALL.iter().map(|c| c.wire().to_string()));
     rust.extend(WorkspaceCode::ALL.iter().map(|c| c.wire().to_string()));

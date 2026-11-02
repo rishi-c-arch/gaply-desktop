@@ -149,6 +149,7 @@ fn each_view_serialises_to_exactly_its_fixtures_bytes() {
                 elapsed_ms: 3,
                 output_hash: hash(OUTPUT),
                 reproducibility: Reproducibility::Bitwise,
+                preparation: None,
             },
         },
     );
@@ -210,8 +211,8 @@ fn the_ttest_screens_code_list_is_exactly_the_closed_sets() {
         .collect();
     assert_eq!(
         rust.len(),
-        30,
-        "the t-test's 30 codes (groups_essentially_constant, decision 259)"
+        33,
+        "the t-test's 33 codes (the three of a prepared table, decisions 417 and 418)"
     );
     rust.extend(RunCode::ALL.iter().map(|c| c.wire().to_string()));
     rust.extend(WorkspaceCode::ALL.iter().map(|c| c.wire().to_string()));

@@ -38,8 +38,9 @@
 //!   commands, runs and projects run through the façades.
 //! * `stats.prepare.scale_score`: scale scores, a new numeric column on the
 //!   user's data (Phase 8M, decision 408; ADR-011), with `stats_prep`'s id and
-//!   version. Planned (decision 411): no command or screen yet, so every façade
-//!   refuses it in every build. It has no run kind and no ceiling.
+//!   version. Planned in 8M (decision 411); Beta since 8M-2's Part 2 (decision
+//!   416), so 8M-3's commands can run in both builds. It has no run kind, no
+//!   ceiling and no route.
 //!
 //! `run_stats_preview` and `run_stats_verify` are the legacy lane, not
 //! capabilities: they are not here.
@@ -219,8 +220,9 @@ const LIFECYCLES: &[(&str, Lifecycle)] = &[
     // Planned in 8I (decision 372); Beta at the start of 8I-2's Part 2
     // (decision 377), so its commands, runs and projects can run.
     (ALPHA_ID, Lifecycle::Beta),
-    // Planned in 8M (decision 411): no command or screen yet.
-    (PREP_ID, Lifecycle::Planned),
+    // Planned in 8M (decision 411); Beta at the start of 8M-2's Part 2
+    // (decision 416), so 8M-3's commands can run in both builds.
+    (PREP_ID, Lifecycle::Beta),
 ];
 /// A Level 1 method `L1Registry` implements.
 const VERIFY_IMPLEMENTED: Lifecycle = Lifecycle::Beta;
@@ -1167,18 +1169,19 @@ mod tests {
         );
     }
 
-    /// Phase 8M (decision 411): scale scores are listed last, Planned, with
-    /// their own title, description and limitations, the methods' rows and
-    /// columns with no ceiling and no cancel, and their validation suite and
-    /// page named; refused in both builds, so no screen can reach them.
+    /// Phase 8M (decision 411): scale scores are listed last, with their own
+    /// title, description and limitations, the methods' rows and columns with
+    /// no ceiling and no cancel, and their validation suite and page named.
+    /// Planned in 8M and refused in both builds; Beta since 8M-2's Part 2
+    /// (decision 416), so they run in both.
     #[test]
-    fn scale_scores_are_listed_last_as_planned_and_never_run() {
+    fn scale_scores_are_listed_last_as_beta_and_run_in_both_builds() {
         let t = Registry::statistics();
         let id = CapabilityId::parse(PREP_ID).unwrap();
         let e = t.lookup(&id).expect("listed");
         let d = &e.descriptor;
         assert_eq!(e.kind, Kind::PrepareScaleScore);
-        assert_eq!((d.version, d.lifecycle), (1, Lifecycle::Planned));
+        assert_eq!((d.version, d.lifecycle), (1, Lifecycle::Beta));
         assert_eq!(
             (d.title_code, d.description_code),
             (
@@ -1206,8 +1209,10 @@ mod tests {
         );
         assert_eq!((p.ceiling_ms, p.cancel), (None, Cancel::None));
         for build in [Build::Standard, Build::Devtools] {
-            let r = t.require_runnable(&id, 1, build).unwrap_err();
-            assert_eq!(r.code, CapabilityCode::NotRunnable, "Planned in {build:?}");
+            assert!(
+                t.require_runnable(&id, 1, build).is_ok(),
+                "Beta in {build:?}"
+            );
         }
         let ids: Vec<String> = t.ids().iter().map(|i| i.as_str().to_string()).collect();
         assert_eq!(

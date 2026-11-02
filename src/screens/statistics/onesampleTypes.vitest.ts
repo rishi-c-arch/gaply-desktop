@@ -130,6 +130,8 @@ const EVERY_CODE: Record<OneSampleCode, true> = {
   'stats.onesample.capability_version_mismatch': true,
   'stats.onesample.input_count': true,
   'stats.onesample.input_mismatch': true,
+  'stats.onesample.preparation_mismatch': true,
+  'stats.onesample.code_equals_score': true,
   'stats.onesample.unknown_column': true,
   'stats.onesample.same_column': true,
   'stats.onesample.column_holds_text': true,
@@ -188,9 +190,9 @@ describe('the one-sample and paired view fixtures', () => {
 
   it('the code union is exactly the stats.onesample words of onesampleCodes.json', () => {
     const listed = (onesampleCodes as string[]).filter((c) => c.startsWith('stats.onesample.'));
-    expect(listed).toHaveLength(29);
+    expect(listed).toHaveLength(31);
     expect(Object.keys(EVERY_CODE).sort()).toEqual([...listed].sort());
-    expect(onesampleCodes).toHaveLength(51);
+    expect(onesampleCodes).toHaveLength(53);
   });
 
   it('no manifest key can hold a path, a name, a header or a label', () => {

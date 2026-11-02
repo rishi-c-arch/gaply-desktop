@@ -30,6 +30,10 @@
 //! was asked for, so a last-digit difference between platforms does not look
 //! like different data, and two recipes are two inputs.
 //!
+//! **One number, one spelling (decision 416).** -0 as a scale end or a missing
+//! code is refused: it equals 0 and has other bytes, so it would make one
+//! recipe two hashes.
+//!
 //! **Limits.** The columns against `MAX_COLUMNS`, which counts the scores, so
 //! a 128-column file takes no score; the cells against a cap the caller
 //! passes, so this module holds no tier (ADR-011 Part 9). Both refuse, with no
@@ -162,6 +166,10 @@ closed! {
         /// Needs input: the rule for missing answers has not been chosen.
         /// Param `index`.
         RuleNotChosen => "rule_not_chosen",
+        /// A scale end or a missing code is -0, which would make one number
+        /// two spellings and so two recipes (decision 416). A screen sends
+        /// "-0" as 0. Param `index` (the step's).
+        NegativeZero => "negative_zero",
         /// Refused when made: no row has this score. Param `column`, with the
         /// four counts beside it.
         NoRowScored => "no_row_scored",
@@ -298,18 +306,25 @@ pub fn recipe_hash(recipe: &Recipe) -> String {
     sha256_hex(&recipe_bytes(recipe))
 }
 
-/// A prepared table's fingerprint (ADR-011 Part 5): SHA-256 of
+/// What a prepared input's hash is taken over (ADR-011 Part 5):
 /// `gaply.prepared.v1\n`, the original bytes' SHA-256, `\n` and the recipe's
-/// SHA-256, each lowercase hex, with no trailing newline; the source's parser
-/// version and table reference.
+/// SHA-256, each lowercase hex, with no trailing newline. The formula's one
+/// place: [`prepared_input_hash`] and [`prepared_fingerprint`] both read it.
+fn prepared_input_bytes(source_sha256_hex: &str, recipe_sha256_hex: &str) -> String {
+    format!("gaply.prepared.v1\n{source_sha256_hex}\n{recipe_sha256_hex}")
+}
+
+/// A prepared input's SHA-256, lowercase hex, from the two hashes alone, so a
+/// method can check a spec's preparation with no recipe in hand (decision 417).
+pub fn prepared_input_hash(source_sha256_hex: &str, recipe_sha256_hex: &str) -> String {
+    sha256_hex(prepared_input_bytes(source_sha256_hex, recipe_sha256_hex).as_bytes())
+}
+
+/// A prepared table's fingerprint: [`prepared_input_hash`]'s hash, with the
+/// source's parser version and table reference.
 pub fn prepared_fingerprint(source: &DataFingerprint, recipe: &Recipe) -> DataFingerprint {
-    let bytes = format!(
-        "gaply.prepared.v1\n{}\n{}",
-        source.sha256_hex(),
-        recipe_hash(recipe)
-    );
     DataFingerprint::of_bytes(
-        bytes.as_bytes(),
+        prepared_input_bytes(source.sha256_hex(), &recipe_hash(recipe)).as_bytes(),
         source.parser_version(),
         source.table().clone(),
     )
@@ -411,6 +426,11 @@ fn name_errors(
     }
 }
 
+/// -0.0, which equals 0.0 and has other bytes.
+fn is_negative_zero(v: f64) -> bool {
+    v == 0.0 && v.is_sign_negative()
+}
+
 /// The items, the reversed items, the scale, the rule and the codes of step
 /// `index`, in that order, one choice one form (decision 338's rule).
 fn step_errors(
@@ -426,6 +446,16 @@ fn step_errors(
                 Diagnostic::error(PrepCode::MissingCodeNotFinite).int(ParamKey::Index, i as i64),
             );
         }
+    }
+    let scale_ends = step.scale.iter().flat_map(|s| [s.min, s.max]);
+    if step
+        .missing_codes
+        .iter()
+        .copied()
+        .chain(scale_ends)
+        .any(is_negative_zero)
+    {
+        errors.push(at(PrepCode::NegativeZero, index));
     }
     for (i, w) in step.missing_codes.windows(2).enumerate() {
         if w[0] == w[1] {

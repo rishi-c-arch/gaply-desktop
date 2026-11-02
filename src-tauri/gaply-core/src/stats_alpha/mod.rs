@@ -91,9 +91,10 @@ use crate::contracts::{
     ParamValue, Platform, Reproducibility, ResourceEstimate, RunManifest, SchemaVersion,
     ValidationReport, WorkspaceId,
 };
-use crate::stats_desc::{input_ref, Alias};
+use crate::stats_desc::{
+    input_ref, preparation_holds, score_code_count, suspect_codes_unless_score, Alias,
+};
 use crate::stats_dist::f_quantile_upper;
-use crate::stats_l1::binding::suspect_codes_in;
 use crate::stats_l1::compute::RHO_ONE_ULPS;
 use crate::stats_l1::dataset::{Cell, Dataset};
 use crate::stats_ttest::{column, non_finite_cells};
@@ -209,6 +210,11 @@ closed! {
         /// Limitation: McDonald's omega and squared multiple correlations are
         /// not shown.
         NoOmega => "no_omega",
+        /// The spec's preparation does not describe this table (decision 417).
+        PreparationMismatch => "preparation_mismatch",
+        /// A ticked missing code equals a value in a chosen score (decision
+        /// 418, ADR-011 question 5). Params `column`, `count`.
+        CodeEqualsScore => "code_equals_score",
     }
 }
 
@@ -455,6 +461,7 @@ pub fn spec(
         parameters,
         random_seed: None,
         confirmation_refs: Vec::new(),
+        preparation: None,
     }
 }
 
@@ -568,6 +575,14 @@ fn check<'d>(
                             .int(ParamKey::Count, texts),
                     );
                 }
+                let collisions = score_code_count(dataset, *alias, &params.missing_codes);
+                if collisions > 0 {
+                    errors.push(
+                        Diagnostic::error(AlphaCode::CodeEqualsScore)
+                            .with(ParamKey::Column, column_param(*alias))
+                            .int(ParamKey::Count, collisions as i64),
+                    );
+                }
                 cells.push(c);
             }
         }
@@ -639,12 +654,15 @@ pub fn validate(
             Diagnostic::error(AlphaCode::InputCount).int(ParamKey::Count, inputs.len() as i64),
         ),
     }
+    if !preparation_holds(dataset, spec.preparation.as_ref()) {
+        errors.push(Diagnostic::error(AlphaCode::PreparationMismatch));
+    }
     let params = &spec.parameters;
     errors.extend(check(dataset, params).0);
     let mut warnings = Vec::new();
     for alias in &params.items {
         if let Some((_, cells)) = column(dataset, *alias) {
-            for s in suspect_codes_in(alias.0, cells) {
+            for s in suspect_codes_unless_score(dataset, *alias, cells) {
                 if !params.missing_codes.contains(&f64::from(s.code)) {
                     warnings.push(
                         Diagnostic::warning(AlphaCode::SuspectMissingCode)
@@ -1042,6 +1060,7 @@ pub fn manifest(
         elapsed_ms,
         output_hash: ContentHash::of_bytes(&result.canonical_bytes()),
         reproducibility: Reproducibility::Bitwise,
+        preparation: spec.preparation.clone(),
     }
 }
 

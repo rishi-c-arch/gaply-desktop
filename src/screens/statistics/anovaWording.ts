@@ -144,6 +144,10 @@ export const ANOVA_WORDS: Record<string, Words> = {
     `These settings were made for version ${num(d, 'found') ?? '?'} of the one-way ANOVA, and this is version ${num(d, 'expected') ?? '?'}.`,
   'stats.anova.input_count': (d) => `These settings name ${num(d, 'count') ?? '?'} files, and the one-way ANOVA reads exactly one.`,
   'stats.anova.input_mismatch': () => 'These settings were made for a different file from the one open. Open the file again.',
+  'stats.anova.preparation_mismatch': () => 'These settings do not match how the open data was prepared. Choose the settings again.',
+  'stats.anova.code_equals_score': (d, n) =>
+    `Column ${n.column(num(d, 'column') ?? 0)} is a score, and it holds a missing code you ticked in ${cells(num(d, 'count'))}. Untick the code, or leave this score out.`,
+  'stats.anova.score_as_group': (d, n) => `Column ${n.column(num(d, 'column') ?? 0)} is a score, so it cannot be the group. Choose a column from your file.`,
   'stats.anova.unknown_column': (d, n) => `Column ${n.column(num(d, 'column') ?? 0)} is not in this file.`,
   'stats.anova.same_column': () => 'The outcome and the group are the same column. Choose two different columns.',
   'stats.anova.outcome_holds_text': (d, n) =>

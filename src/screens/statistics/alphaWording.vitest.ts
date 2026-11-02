@@ -48,7 +48,7 @@ function everySentence(): string[] {
 
 describe("Cronbach's alpha's screen words every code it can show", () => {
   it('has a sentence for each code in alphaCodes.json, and none for any other', () => {
-    expect(alphaCodes).toHaveLength(37 + 11 + 5 + 6);
+    expect(alphaCodes).toHaveLength(39 + 11 + 5 + 6);
     expect(Object.keys(words.ALPHA_WORDS).sort()).toEqual([...alphaCodes].sort());
     for (const code of alphaCodes) {
       const s = words.alphaSentence({ code, params: paramsFor(code), count: 2 }, NAMES);
@@ -129,5 +129,21 @@ describe("Cronbach's alpha's screen words every code it can show", () => {
     );
     expect(words.alphaRefusalSentence(refusal('run.wrong_kind'))).toMatch(/not a Cronbach's alpha run/);
     expect(words.alphaRefusalSentence(refusal('capability.version_mismatch', { expected: 1, found: 2 }))).toMatch(/version 2/);
+  });
+});
+
+// Research OS, Phase 8M-2 (decisions 417 and 418): a score's refusals, shown by
+// no screen yet, name the column and the count, singular at 1.
+describe('the words for a prepared table', () => {
+  it('says a ticked code equals a score, with the column and the count', () => {
+    const say = (count: number) => words.alphaSentence({ code: 'stats.alpha.code_equals_score', params: { column: 8, count }, count }, NAMES);
+    expect(say(1)).toBe('Column "col8" is a score, and it holds a missing code you ticked in 1 cell. Untick the code, or leave this score out.');
+    expect(say(3)).toBe('Column "col8" is a score, and it holds a missing code you ticked in 3 cells. Untick the code, or leave this score out.');
+  });
+
+  it("says a preparation does not match, in one sentence that names nothing of the user's", () => {
+    expect(words.alphaSentence({ code: 'stats.alpha.preparation_mismatch', params: {}, count: 0 }, NAMES)).toBe(
+      'These settings do not match how the open data was prepared. Choose the settings again.'
+    );
   });
 });

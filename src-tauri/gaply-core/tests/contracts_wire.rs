@@ -16,9 +16,9 @@ use gaply_core::contracts::codes::{Closed, RunCode};
 use gaply_core::contracts::workspace::{WorkspaceCode, WorkspaceEventKind, WorkspacePhase};
 use gaply_core::contracts::{
     transition, Arch, CapabilityId, ContentHash, Diagnostic, Exclusion, InputRef, OperationId,
-    OperationSpec, Os, ParamKey, ParamValue, Platform, Reproducibility, ResourceEstimate,
-    ResultBundle, RunEvent, RunId, RunManifest, RunRecord, RunState, SchemaVersion, SemanticRole,
-    Severity, ValidationReport, ValidationStatus, WorkspaceId,
+    OperationSpec, Os, ParamKey, ParamValue, Platform, Preparation, Reproducibility,
+    ResourceEstimate, ResultBundle, RunEvent, RunId, RunManifest, RunRecord, RunState,
+    SchemaVersion, SemanticRole, Severity, ValidationReport, ValidationStatus, WorkspaceId,
 };
 use gaply_core::stats_desc::{Alias, ColumnRequest, DescCode, DescribeParams, TreatAs};
 use gaply_core::stats_l1::dataset::ColumnAlias;
@@ -93,6 +93,7 @@ fn spec() -> OperationSpec<DescribeParams> {
         parameters: params(),
         random_seed: Some(20261017),
         confirmation_refs: vec![ConfirmationId::parse(&"c".repeat(64)).expect("id")],
+        preparation: None,
     }
 }
 
@@ -128,6 +129,7 @@ fn manifest() -> RunManifest<DescCode> {
         elapsed_ms: 3,
         output_hash: hash(3),
         reproducibility: Reproducibility::WithinTolerance { relative: 1e-12 },
+        preparation: None,
     }
 }
 
@@ -338,7 +340,59 @@ fn manifest_with_codes() -> RunManifest<RunCode> {
         elapsed_ms: m.elapsed_ms,
         output_hash: m.output_hash,
         reproducibility: m.reproducibility,
+        preparation: None,
     }
+}
+
+/// Decision 417: a preparation is written only when present, in camelCase, and
+/// refuses a field it does not know. Absent, a spec and a manifest read and
+/// write exactly as they did before the field existed, which is what keeps
+/// every stored one's bytes.
+#[test]
+fn a_preparation_is_written_only_when_present_and_refuses_an_unknown_field() {
+    let preparation = Preparation {
+        source_hash: hash(4),
+        recipe_hash: hash(5),
+        source_columns: 50,
+        capability_version: 1,
+        engine_version: 1,
+    };
+    assert_eq!(
+        keys(&round_trip(&preparation)),
+        [
+            "capabilityVersion",
+            "engineVersion",
+            "recipeHash",
+            "sourceColumns",
+            "sourceHash"
+        ]
+    );
+    refuses_extra_field(&preparation);
+
+    let absent = serde_json::to_value(spec()).expect("json");
+    assert!(absent.get("preparation").is_none(), "{absent}");
+    let absent = serde_json::to_value(manifest()).expect("json");
+    assert!(absent.get("preparation").is_none(), "{absent}");
+
+    let mut s = spec();
+    s.preparation = Some(preparation.clone());
+    assert_eq!(
+        round_trip(&s)["preparation"]["sourceColumns"],
+        Value::from(50)
+    );
+    let mut m = manifest();
+    m.preparation = Some(preparation);
+    assert_eq!(
+        round_trip(&m)["preparation"]["sourceColumns"],
+        Value::from(50)
+    );
+
+    let mut extra = serde_json::to_value(&s).expect("json");
+    extra["preparation"]["name"] = Value::from("a typed name");
+    assert!(
+        serde_json::from_value::<OperationSpec<DescribeParams>>(extra).is_err(),
+        "a name inside a preparation was accepted"
+    );
 }
 
 #[test]
@@ -649,6 +703,9 @@ fn the_code_and_word_lists_are_pinned() {
             "stats.desc.arithmetic_refused",
             "stats.desc.missing_cell",
             "stats.desc.missing_code",
+            "stats.desc.preparation_mismatch",
+            "stats.desc.score_as_categorical",
+            "stats.desc.code_equals_score",
         ]
     );
     assert_eq!(
@@ -743,6 +800,9 @@ fn the_code_and_word_lists_are_pinned() {
             "stats.ttest.cohens_d_has_no_interval",
             "stats.ttest.too_many_levels",
             "stats.ttest.groups_essentially_constant",
+            "stats.ttest.preparation_mismatch",
+            "stats.ttest.score_as_group",
+            "stats.ttest.code_equals_score",
         ]
     );
     // Phase 8D-1: the one-sample and paired t-tests' codes, in decision
@@ -782,6 +842,8 @@ fn the_code_and_word_lists_are_pinned() {
             "stats.onesample.cohens_d_has_no_interval",
             "stats.onesample.values_essentially_constant",
             "stats.onesample.differences_essentially_constant",
+            "stats.onesample.preparation_mismatch",
+            "stats.onesample.code_equals_score",
         ]
     );
     assert_eq!(OneSampleCode::NAMESPACE, "stats.onesample.");

@@ -103,6 +103,10 @@ export const WORDS: Record<string, Words> = {
     `These settings were made for version ${num(d, 'found') ?? '?'} of the summary, and this is version ${num(d, 'expected') ?? '?'}.`,
   'stats.desc.input_count': (d) => `These settings name ${num(d, 'count') ?? '?'} files, and the summary reads exactly one.`,
   'stats.desc.input_mismatch': () => 'These settings were made for a different file from the one open. Open the file again.',
+  'stats.desc.preparation_mismatch': () => 'These settings do not match how the open data was prepared. Choose the settings again.',
+  'stats.desc.score_as_categorical': (d, col) => `Column ${col(num(d, 'column') ?? 0)} is a score, so it can only be summarised as numeric.`,
+  'stats.desc.code_equals_score': (d, col) =>
+    `Column ${col(num(d, 'column') ?? 0)} is a score, and it holds a missing code you ticked in ${cells(num(d, 'count'))}. Untick the code, or leave this score out.`,
   'stats.desc.no_columns_selected': () => 'No column is chosen. Choose at least one column to summarise.',
   'stats.desc.unknown_column': (d, col) => `Column ${col(num(d, 'column') ?? 0)} is not in this file.`,
   'stats.desc.duplicate_column': (d, col) => `Column ${col(num(d, 'column') ?? 0)} is chosen twice.`,

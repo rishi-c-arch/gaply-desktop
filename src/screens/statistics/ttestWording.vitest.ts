@@ -45,7 +45,7 @@ function everySentence(): string[] {
 
 describe('the t-test screen words every code it can show', () => {
   it('has a sentence for each code in ttestCodes.json, and none for any other', () => {
-    expect(ttestCodes).toHaveLength(52);
+    expect(ttestCodes).toHaveLength(55);
     const missing = ttestCodes.filter((c) => !(c in words.TTEST_WORDS));
     expect(missing).toEqual([]);
     expect(Object.keys(words.TTEST_WORDS).sort()).toEqual([...ttestCodes].sort());
@@ -121,5 +121,27 @@ describe('the sentences say what the code does (evaluation F6)', () => {
     expect(LIMITS.maxRuns).toBe(8);
     expect(words.ttestSentence({ code: 'run.unknown_run' })).toContain(`the last ${LIMITS.maxRuns} runs`);
     expect(describeRefusalSentence(JSON.stringify({ code: 'run.unknown_run' }))).toContain(`the last ${LIMITS.maxRuns} runs`);
+  });
+});
+
+// Research OS, Phase 8M-2 (decisions 417 and 418): a score's refusals, shown by
+// no screen yet, name the column and the count, singular at 1.
+describe('the words for a prepared table', () => {
+  it('says a ticked code equals a score, with the column and the count', () => {
+    const say = (count: number) => words.ttestSentence({ code: 'stats.ttest.code_equals_score', params: { column: 8, count }, count }, NAMES);
+    expect(say(1)).toBe('Column "col8" is a score, and it holds a missing code you ticked in 1 cell. Untick the code, or leave this score out.');
+    expect(say(3)).toBe('Column "col8" is a score, and it holds a missing code you ticked in 3 cells. Untick the code, or leave this score out.');
+  });
+
+  it("says a preparation does not match, in one sentence that names nothing of the user's", () => {
+    expect(words.ttestSentence({ code: 'stats.ttest.preparation_mismatch', params: {}, count: 0 }, NAMES)).toBe(
+      'These settings do not match how the open data was prepared. Choose the settings again.'
+    );
+  });
+
+  it('says a score cannot be the group', () => {
+    expect(words.ttestSentence({ code: 'stats.ttest.score_as_group', params: { column: 8 }, count: 0 }, NAMES)).toBe(
+      'Column "col8" is a score, so it cannot be the group. Choose a column from your file.'
+    );
   });
 });

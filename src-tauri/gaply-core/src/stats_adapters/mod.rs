@@ -124,6 +124,7 @@ fn app_spec(id: &str, version: u32, confirmation_refs: Vec<ConfirmationId>) -> O
         parameters: (),
         random_seed: None,
         confirmation_refs,
+        preparation: None,
     }
 }
 

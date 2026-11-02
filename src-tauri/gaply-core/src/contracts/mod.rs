@@ -251,6 +251,29 @@ pub struct OperationSpec<P> {
     /// may leave it out, and one that needs one is refused without it.
     #[serde(default)]
     pub confirmation_refs: Vec<ConfirmationId>,
+    /// How a prepared input was made, when the input is one (ADR-011 Part 5,
+    /// decision 417). Skipped when absent, so a spec on a file's own table
+    /// keeps its bytes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preparation: Option<Preparation>,
+}
+
+/// What made a prepared input: hashes and numbers, never a name (ADR-011
+/// Parts 4 and 5, decision 417). A run's spec and manifest carry it, and the
+/// recipe it hashes stays with the user. `InputRef`'s hash is SHA-256 over
+/// `source_hash` and `recipe_hash` (`stats_prep::prepared_input_hash`), so a
+/// preparation that names other hashes does not describe that input.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Preparation {
+    /// The original bytes' hash.
+    pub source_hash: ContentHash,
+    /// The recipe's hash.
+    pub recipe_hash: ContentHash,
+    /// How many of the input's columns came from the file.
+    pub source_columns: u32,
+    pub capability_version: u32,
+    pub engine_version: u32,
 }
 
 /* ------------------------------------------------------------------------ *
@@ -652,4 +675,8 @@ pub struct RunManifest<C> {
     pub elapsed_ms: u64,
     pub output_hash: ContentHash,
     pub reproducibility: Reproducibility,
+    /// How a prepared input was made, as the spec said (decision 417). Skipped
+    /// when absent, so a stored manifest keeps its bytes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preparation: Option<Preparation>,
 }

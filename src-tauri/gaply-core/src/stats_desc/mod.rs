@@ -60,12 +60,15 @@ use serde::{Deserialize, Serialize};
 use crate::contracts::codes::closed;
 use crate::contracts::{
     CapabilityId, ContentHash, Diagnostic, Exclusion, InputRef, OperationId, OperationSpec,
-    ParamKey, ParamValue, Platform, Reproducibility, ResourceEstimate, RunManifest, SchemaVersion,
-    SemanticRole, ValidationReport, WorkspaceId,
+    ParamKey, ParamValue, Platform, Preparation, Reproducibility, ResourceEstimate, RunManifest,
+    SchemaVersion, SemanticRole, ValidationReport, WorkspaceId,
 };
-use crate::stats_l1::binding::suspect_codes_in;
+use crate::stats_l1::binding::{suspect_codes_in, SuspectMissingCode};
 use crate::stats_l1::dataset::{
     Cell, ColumnAlias, ColumnIssue, ColumnSummary, ColumnType, Dataset,
+};
+use crate::stats_prep::{
+    prepared_input_hash, CAPABILITY_VERSION as PREP_VERSION, ENGINE_VERSION as PREP_ENGINE_VERSION,
 };
 use crate::stats_verify::{mean, sample_variance, RangeFault};
 
@@ -115,6 +118,16 @@ closed! {
         MissingCell => "missing_cell",
         /// Excluded: a value the user listed in `missing_codes`.
         MissingCode => "missing_code",
+        /// The spec's preparation does not describe this table: absent on a
+        /// prepared one, present on a file's own, or naming another width,
+        /// version or hash (decision 417).
+        PreparationMismatch => "preparation_mismatch",
+        /// A score is never a group (decision 418): it cannot be summarised
+        /// as categorical. Param `column`.
+        ScoreAsCategorical => "score_as_categorical",
+        /// A ticked missing code equals a value in a chosen score (decision
+        /// 418, ADR-011 question 5). Params `column`, `count`.
+        CodeEqualsScore => "code_equals_score",
     }
 }
 
@@ -515,7 +528,7 @@ pub fn profile(dataset: &Dataset) -> DatasetProfile {
                 missing: t.missing(),
                 distinct,
                 levels: (kind == ColumnKind::Categorical).then(|| level_counts(&t)),
-                suspect_missing_codes: suspect_codes_in(summary.alias, cells)
+                suspect_missing_codes: suspect_codes_unless_score(dataset, alias, cells)
                     .into_iter()
                     .map(|s| SuspectCode {
                         code: s.code,
@@ -552,6 +565,66 @@ pub fn input_ref(dataset: &Dataset) -> InputRef {
     }
 }
 
+/// Whether a spec's preparation describes this dataset (decision 417), the
+/// one check every method's `validate` makes. A prepared dataset (it holds
+/// columns the file did not) needs a preparation with its width, versions this
+/// build runs, and two hashes that give the dataset's own fingerprint, so two
+/// recipes of one width are two inputs. A file's own table needs none.
+pub(crate) fn preparation_holds(dataset: &Dataset, preparation: Option<&Preparation>) -> bool {
+    let file_columns = dataset.file_columns();
+    if dataset.schema.columns.len() == file_columns {
+        return preparation.is_none();
+    }
+    preparation.is_some_and(|p| {
+        p.source_columns as usize == file_columns
+            && p.capability_version == PREP_VERSION
+            && p.engine_version == PREP_ENGINE_VERSION
+            && prepared_input_hash(p.source_hash.as_hex(), p.recipe_hash.as_hex())
+                == dataset.schema.fingerprint.sha256_hex()
+    })
+}
+
+/// Whether a column was appended by a recipe rather than read from the file
+/// (decision 418). False for a column the dataset does not have, which is
+/// `unknown_column`'s to say.
+pub(crate) fn is_prepared_column(dataset: &Dataset, alias: Alias) -> bool {
+    alias.0.index() >= dataset.file_columns() && dataset.schema.column(alias.0).is_some()
+}
+
+/// How many cells of a chosen score equal a ticked missing code, 0 for a
+/// file's column (decision 418, ADR-011 question 5). A method applies its codes
+/// by value, so a score of exactly 99 under a ticked 99 would silently become
+/// missing: a real person dropped with no message. So a method refuses the spec
+/// and names the column and this count.
+pub(crate) fn score_code_count(dataset: &Dataset, alias: Alias, codes: &[f64]) -> u64 {
+    if !is_prepared_column(dataset, alias) {
+        return 0;
+    }
+    let Some(cells) = dataset.column_cells(alias.0) else {
+        return 0;
+    };
+    cells
+        .iter()
+        .filter_map(Cell::number)
+        .filter(|v| codes.contains(v))
+        .count() as u64
+}
+
+/// The suspect-code rule, which flags a stray code in raw data, on a file's
+/// column. A score has none: its codes were dealt with when it was made, and
+/// the rule could flag a genuine score (decision 418, ADR-011 Part 3).
+pub(crate) fn suspect_codes_unless_score(
+    dataset: &Dataset,
+    alias: Alias,
+    cells: &[Cell],
+) -> Vec<SuspectMissingCode> {
+    if is_prepared_column(dataset, alias) {
+        Vec::new()
+    } else {
+        suspect_codes_in(alias.0, cells)
+    }
+}
+
 /// A spec for this capability on this dataset.
 pub fn spec(
     operation_id: OperationId,
@@ -568,6 +641,7 @@ pub fn spec(
         parameters,
         random_seed: None,
         confirmation_refs: Vec::new(),
+        preparation: None,
     }
 }
 
@@ -602,6 +676,12 @@ fn parameter_errors(dataset: &Dataset, params: &DescribeParams) -> Vec<Diagnosti
             continue;
         }
         seen.push(alias);
+        if request.treat_as == TreatAs::Categorical && is_prepared_column(dataset, alias) {
+            errors.push(
+                Diagnostic::error(DescCode::ScoreAsCategorical)
+                    .with(ParamKey::Column, column_param(alias)),
+            );
+        }
         if request.treat_as == TreatAs::Numeric {
             let t = tally(cells, &params.missing_codes);
             let non_finite = non_finite_cells(summary);
@@ -616,6 +696,14 @@ fn parameter_errors(dataset: &Dataset, params: &DescribeParams) -> Vec<Diagnosti
                     Diagnostic::error(DescCode::NumericOnText)
                         .with(ParamKey::Column, column_param(alias))
                         .int(ParamKey::Count, t.texts as i64),
+                );
+            }
+            let collisions = score_code_count(dataset, alias, &params.missing_codes);
+            if collisions > 0 {
+                errors.push(
+                    Diagnostic::error(DescCode::CodeEqualsScore)
+                        .with(ParamKey::Column, column_param(alias))
+                        .int(ParamKey::Count, collisions as i64),
                 );
             }
         }
@@ -657,6 +745,9 @@ pub fn validate(
             Diagnostic::error(DescCode::InputCount).int(ParamKey::Count, inputs.len() as i64),
         ),
     }
+    if !preparation_holds(dataset, spec.preparation.as_ref()) {
+        errors.push(Diagnostic::error(DescCode::PreparationMismatch));
+    }
     let params = &spec.parameters;
     errors.extend(parameter_errors(dataset, params));
 
@@ -674,7 +765,7 @@ pub fn validate(
         let Some((_, cells)) = column(dataset, request.alias) else {
             continue;
         };
-        for s in suspect_codes_in(request.alias.0, cells) {
+        for s in suspect_codes_unless_score(dataset, request.alias, cells) {
             if !params.missing_codes.contains(&f64::from(s.code)) {
                 warnings.push(
                     Diagnostic::warning(DescCode::SuspectMissingCode)
@@ -901,5 +992,6 @@ pub fn manifest(
         elapsed_ms,
         output_hash: ContentHash::of_bytes(&result.canonical_bytes()),
         reproducibility: Reproducibility::Bitwise,
+        preparation: spec.preparation.clone(),
     }
 }

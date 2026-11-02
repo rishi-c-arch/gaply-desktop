@@ -90,11 +90,13 @@ use crate::contracts::{
     ParamValue, Platform, Reproducibility, ResourceEstimate, RunManifest, SchemaVersion,
     ValidationReport, WorkspaceId,
 };
-use crate::stats_desc::{input_ref, Alias};
+use crate::stats_desc::{
+    input_ref, is_prepared_column, preparation_holds, score_code_count, suspect_codes_unless_score,
+    Alias,
+};
 pub use crate::stats_dist::t_quantile_975;
 use crate::stats_dist::t_two_tailed;
 pub use crate::stats_dist::MEASURED_MAX_DF as QUANTILE_MAX_DF;
-use crate::stats_l1::binding::suspect_codes_in;
 use crate::stats_l1::dataset::{Cell, ColumnIssue, ColumnSummary, Dataset};
 use crate::stats_verify::{mean, sample_variance, t_test_student, t_test_welch, RangeFault};
 
@@ -192,6 +194,13 @@ closed! {
         /// max(|mean 1|, |mean 2|), so the groups' spread is lost in rounding
         /// and t means nothing; R stops on the same rule (decision 259).
         GroupsEssentiallyConstant => "groups_essentially_constant",
+        /// The spec's preparation does not describe this table (decision 417).
+        PreparationMismatch => "preparation_mismatch",
+        /// A score is never a group (decision 418). Param `column`.
+        ScoreAsGroup => "score_as_group",
+        /// A ticked missing code equals a value in the chosen score (decision
+        /// 418, ADR-011 question 5). Params `column`, `count`.
+        CodeEqualsScore => "code_equals_score",
     }
 }
 
@@ -411,6 +420,7 @@ pub fn spec(
         parameters,
         random_seed: None,
         confirmation_refs: Vec::new(),
+        preparation: None,
     }
 }
 
@@ -487,6 +497,23 @@ fn check<'d>(dataset: &'d Dataset, params: &TTestParams) -> Checked<'d> {
                     .with(ParamKey::Column, column_param(alias)),
             );
         }
+    }
+    let group = if is_prepared_column(dataset, params.group) {
+        errors.push(
+            Diagnostic::error(TTestCode::ScoreAsGroup)
+                .with(ParamKey::Column, column_param(params.group)),
+        );
+        None
+    } else {
+        group
+    };
+    let collisions = score_code_count(dataset, params.outcome, &params.missing_codes);
+    if collisions > 0 {
+        errors.push(
+            Diagnostic::error(TTestCode::CodeEqualsScore)
+                .with(ParamKey::Column, column_param(params.outcome))
+                .int(ParamKey::Count, collisions as i64),
+        );
     }
     let mut ready = None;
     if let (Some((o_summary, o_cells)), Some((_, g_cells))) = (outcome, group) {
@@ -628,13 +655,16 @@ pub fn validate(
             Diagnostic::error(TTestCode::InputCount).int(ParamKey::Count, inputs.len() as i64),
         ),
     }
+    if !preparation_holds(dataset, spec.preparation.as_ref()) {
+        errors.push(Diagnostic::error(TTestCode::PreparationMismatch));
+    }
     let params = &spec.parameters;
     let checked = check(dataset, params);
     errors.extend(checked.errors);
 
     let mut warnings = Vec::new();
     if let Some((_, cells)) = column(dataset, params.outcome) {
-        for s in suspect_codes_in(params.outcome.0, cells) {
+        for s in suspect_codes_unless_score(dataset, params.outcome, cells) {
             if !params.missing_codes.contains(&f64::from(s.code)) {
                 warnings.push(
                     Diagnostic::warning(TTestCode::SuspectMissingCode)
@@ -950,6 +980,7 @@ pub fn manifest(
         elapsed_ms,
         output_hash: ContentHash::of_bytes(&result.canonical_bytes()),
         reproducibility: Reproducibility::Bitwise,
+        preparation: spec.preparation.clone(),
     }
 }
 

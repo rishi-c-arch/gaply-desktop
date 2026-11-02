@@ -123,6 +123,10 @@ export const TTEST_WORDS: Record<string, Words> = {
     `These settings were made for version ${num(d, 'found') ?? '?'} of the t-test, and this is version ${num(d, 'expected') ?? '?'}.`,
   'stats.ttest.input_count': (d) => `These settings name ${num(d, 'count') ?? '?'} files, and the t-test reads exactly one.`,
   'stats.ttest.input_mismatch': () => 'These settings were made for a different file from the one open. Open the file again.',
+  'stats.ttest.preparation_mismatch': () => 'These settings do not match how the open data was prepared. Choose the settings again.',
+  'stats.ttest.code_equals_score': (d, n) =>
+    `Column ${n.column(num(d, 'column') ?? 0)} is a score, and it holds a missing code you ticked in ${cells(num(d, 'count'))}. Untick the code, or leave this score out.`,
+  'stats.ttest.score_as_group': (d, n) => `Column ${n.column(num(d, 'column') ?? 0)} is a score, so it cannot be the group. Choose a column from your file.`,
   'stats.ttest.unknown_column': (d, n) => `Column ${n.column(num(d, 'column') ?? 0)} is not in this file.`,
   'stats.ttest.same_column': () => 'The outcome and the group are the same column. Choose two different columns.',
   'stats.ttest.outcome_holds_text': (d, n) =>

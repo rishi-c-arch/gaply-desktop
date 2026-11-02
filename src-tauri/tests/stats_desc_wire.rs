@@ -194,6 +194,7 @@ fn each_view_serialises_to_exactly_its_fixtures_bytes() {
                 elapsed_ms: 3,
                 output_hash: hash(OUTPUT),
                 reproducibility: Reproducibility::Bitwise,
+                preparation: None,
             },
         },
     );
