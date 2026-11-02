@@ -1,0 +1,42 @@
+# written by: /usr/local/bin/Rscript make_prep_fixtures.R
+# R version 4.6.1 (2026-06-24), aarch64, sizeof.longdouble 8
+case	file	items	reversed	scale	statistic	rule	missing_codes
+likert_sum_every	data_likert.csv	q1 q2 q3 q4 q5 q6	-	-	sum	every_item	-
+likert_mean_every	data_likert.csv	q1 q2 q3 q4 q5 q6	-	-	mean	every_item	-
+likert_sum_at_1	data_likert.csv	q1 q2 q3 q4 q5 q6	-	-	sum	at_least 1	-
+likert_mean_at_1	data_likert.csv	q1 q2 q3 q4 q5 q6	-	-	mean	at_least 1	-
+likert_sum_at_top	data_likert.csv	q1 q2 q3 q4 q5 q6	-	-	sum	at_least 5	-
+likert_mean_at_top	data_likert.csv	q1 q2 q3 q4 q5 q6	-	-	mean	at_least 5	-
+likert_mean_at_3	data_likert.csv	q1 q2 q3 q4 q5 q6	-	-	mean	at_least 3	-
+rev_1to5_sum	data_likert.csv	q1 q2 q3 q4 q5 q6	q2 q5	1 5	sum	every_item	-
+rev_1to5_mean_at_4	data_likert.csv	q1 q2 q3 q4 q5 q6	q2 q5	1 5	mean	at_least 4	-
+rev_0to10_sum	data_zero_ten.csv	a b c	a c	0 10	sum	every_item	-
+rev_0to10_mean	data_zero_ten.csv	a b c	b	0 10	mean	every_item	-
+frac_sum_every	data_frac.csv	f1 f2 f3 f4	-	-	sum	every_item	-
+frac_mean_at_2	data_frac.csv	f1 f2 f3 f4	-	-	mean	at_least 2	-
+rev_frac_negative_sum	data_frac.csv	f1 f2 f3 f4	f1 f4	-2.5 3.75	sum	at_least 3	-
+rev_frac_negative_mean	data_frac.csv	f1 f2 f3 f4	f2	-2.5 3.75	mean	at_least 1	-
+codes_ticked_sum	data_codes.csv	c1 c2 c3	-	-	sum	every_item	-9 99
+codes_ticked_mean_at_2	data_codes.csv	c1 c2 c3	-	-	mean	at_least 2	-9 99
+codes_unticked_sum	data_codes.csv	c1 c2 c3	-	-	sum	every_item	-
+codes_one_ticked_mean_at_1	data_codes.csv	c1 c2 c3	-	-	mean	at_least 1	99
+codes_outside_ends_reversed	data_codes.csv	c1 c2 c3	c1 c3	1 5	mean	at_least 2	-9 99
+reversed_outside_refused	data_codes.csv	c1 c2 c3	c2	1 5	sum	every_item	-
+counted_every	data_counted.csv	v1 v2 v3 v4	-	-	sum	every_item	-
+counted_at_1	data_counted.csv	v1 v2 v3 v4	-	-	sum	at_least 1	-
+counted_at_2	data_counted.csv	v1 v2 v3 v4	-	-	mean	at_least 2	-
+counted_at_3	data_counted.csv	v1 v2 v3 v4	-	-	sum	at_least 3	-
+two_sum_every	data_two.csv	x y	-	-	sum	every_item	-
+two_mean_at_1	data_two.csv	x y	-	-	mean	at_least 1	-
+offset_mean	data_offset.csv	p1 p2 p3	-	-	mean	every_item	-
+offset_sum	data_offset.csv	p1 p2 p3	-	-	sum	every_item	-
+cancel_sum	data_cancel.csv	m1 m2 m3	-	-	sum	every_item	-
+cancel_mean	data_cancel.csv	m1 m2 m3	-	-	mean	every_item	-
+overflow_sum	-	o1 o2 o3	-	-	sum	at_least 2	-
+overflow_mean	-	o1 o2 o3	-	-	mean	at_least 2	-
+no_row_refused	data_no_row.csv	a b	-	-	sum	every_item	-
+k127_sum	data_k127.csv	w001 w002 w003 w004 w005 w006 w007 w008 w009 w010 w011 w012 w013 w014 w015 w016 w017 w018 w019 w020 w021 w022 w023 w024 w025 w026 w027 w028 w029 w030 w031 w032 w033 w034 w035 w036 w037 w038 w039 w040 w041 w042 w043 w044 w045 w046 w047 w048 w049 w050 w051 w052 w053 w054 w055 w056 w057 w058 w059 w060 w061 w062 w063 w064 w065 w066 w067 w068 w069 w070 w071 w072 w073 w074 w075 w076 w077 w078 w079 w080 w081 w082 w083 w084 w085 w086 w087 w088 w089 w090 w091 w092 w093 w094 w095 w096 w097 w098 w099 w100 w101 w102 w103 w104 w105 w106 w107 w108 w109 w110 w111 w112 w113 w114 w115 w116 w117 w118 w119 w120 w121 w122 w123 w124 w125 w126 w127	-	-	sum	at_least 100	-
+k127_mean_at_top	data_k127.csv	w001 w002 w003 w004 w005 w006 w007 w008 w009 w010 w011 w012 w013 w014 w015 w016 w017 w018 w019 w020 w021 w022 w023 w024 w025 w026 w027 w028 w029 w030 w031 w032 w033 w034 w035 w036 w037 w038 w039 w040 w041 w042 w043 w044 w045 w046 w047 w048 w049 w050 w051 w052 w053 w054 w055 w056 w057 w058 w059 w060 w061 w062 w063 w064 w065 w066 w067 w068 w069 w070 w071 w072 w073 w074 w075 w076 w077 w078 w079 w080 w081 w082 w083 w084 w085 w086 w087 w088 w089 w090 w091 w092 w093 w094 w095 w096 w097 w098 w099 w100 w101 w102 w103 w104 w105 w106 w107 w108 w109 w110 w111 w112 w113 w114 w115 w116 w117 w118 w119 w120 w121 w122 w123 w124 w125 w126 w127	-	-	mean	at_least 126	-
+k128_too_wide	data_k128.csv	w001 w002 w003 w004 w005 w006 w007 w008 w009 w010 w011 w012 w013 w014 w015 w016 w017 w018 w019 w020 w021 w022 w023 w024 w025 w026 w027 w028 w029 w030 w031 w032 w033 w034 w035 w036 w037 w038 w039 w040 w041 w042 w043 w044 w045 w046 w047 w048 w049 w050 w051 w052 w053 w054 w055 w056 w057 w058 w059 w060 w061 w062 w063 w064 w065 w066 w067 w068 w069 w070 w071 w072 w073 w074 w075 w076 w077 w078 w079 w080 w081 w082 w083 w084 w085 w086 w087 w088 w089 w090 w091 w092 w093 w094 w095 w096 w097 w098 w099 w100 w101 w102 w103 w104 w105 w106 w107 w108 w109 w110 w111 w112 w113 w114 w115 w116 w117 w118 w119 w120 w121 w122 w123 w124 w125 w126 w127 w128	-	-	sum	every_item	-
+big_sum	-	b1 b2 b3 b4 b5	-	-	sum	at_least 3	-
+big_mean_reversed	-	b1 b2 b3 b4 b5	b2 b4	0 130	mean	at_least 4	-

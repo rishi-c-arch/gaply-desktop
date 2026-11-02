@@ -1,0 +1,6 @@
+# written by: /usr/local/bin/Rscript make_prep_fixtures.R
+# R version 4.6.1 (2026-06-24), aarch64, sizeof.longdouble 8
+case	code	rows_r_scores
+reversed_outside_refused	reversed_outside_scale	30
+no_row_refused	no_row_scored	0
+k128_too_wide	too_wide	6

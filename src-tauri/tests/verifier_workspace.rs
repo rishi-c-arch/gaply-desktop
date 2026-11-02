@@ -179,8 +179,9 @@ fn workspace_list_carries_the_registrys_capability_ids() {
     // thirteen, with `stats.analyze.one_way_anova` last (decision 321); Phase
     // 8H: fourteen, with `stats.analyze.correlations` last (decision 344);
     // Phase 8I: fifteen, with `stats.analyze.cronbach_alpha` last (decision
-    // 372).
-    assert_eq!(ids.len(), 15);
+    // 372); Phase 8M: sixteen, with `stats.prepare.scale_score` last (decision
+    // 411).
+    assert_eq!(ids.len(), 16);
 }
 
 #[test]

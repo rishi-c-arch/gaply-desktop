@@ -1,0 +1,3 @@
+# written by: /usr/local/bin/Rscript make_prep_fixtures.R
+# R version 4.6.1 (2026-06-24), aarch64, sizeof.longdouble 8
+rowMeans against rowSums / count, over every mean row scored: 0 differ (R's own mean is total over count here)

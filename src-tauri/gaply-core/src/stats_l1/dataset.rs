@@ -589,9 +589,97 @@ impl Cell {
 pub struct Dataset {
     pub schema: SchemaSummary,
     columns: Vec<Vec<Cell>>,
+    /// How many of `columns` came from the file; the rest were appended by
+    /// [`Dataset::with_appended_columns`] (ADR-011 Part 4, decision 407).
+    file_columns: usize,
+}
+
+/// One cell of an appended column: a finite number or empty, so a text or
+/// non-finite cell cannot reach [`Dataset::with_appended_columns`] (decision
+/// 407).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct AppendedCell(Option<f64>);
+
+impl AppendedCell {
+    pub(crate) const EMPTY: AppendedCell = AppendedCell(None);
+
+    /// The cell for `v`, or `None` when `v` is NaN or an infinity.
+    pub(crate) fn number(v: f64) -> Option<AppendedCell> {
+        v.is_finite().then_some(AppendedCell(Some(v)))
+    }
+}
+
+/// Why no column was appended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AppendRefusal {
+    /// Past [`MAX_COLUMNS`], the refusal `build_dataset` gives.
+    Table(DatasetRefusal),
+    /// An appended column does not have one cell per row.
+    WrongLength {
+        column: usize,
+        cells: usize,
+        rows: usize,
+    },
 }
 
 impl Dataset {
+    /// How many columns came from the file; the rest were appended.
+    pub(crate) fn file_columns(&self) -> usize {
+        self.file_columns
+    }
+
+    /// A new dataset: this one's columns, then one column per entry of
+    /// `appended`, under `fingerprint`. Each new column's summary is set
+    /// here and nowhere else: the next alias, the alias word as its header,
+    /// always `Numeric`, never levels or a group, `has_missing` when a cell
+    /// is empty, no issues. A caller passes no header and no summary, so
+    /// nothing a user typed can reach the schema (ADR-011 Parts 4 and 5).
+    pub(crate) fn with_appended_columns(
+        &self,
+        appended: &[Vec<AppendedCell>],
+        fingerprint: DataFingerprint,
+    ) -> Result<Dataset, AppendRefusal> {
+        let width = self.columns.len() + appended.len();
+        if width > MAX_COLUMNS {
+            return Err(AppendRefusal::Table(DatasetRefusal::TooWide {
+                columns: width,
+                limit: MAX_COLUMNS,
+            }));
+        }
+        let rows = self.schema.rows;
+        for (column, cells) in appended.iter().enumerate() {
+            if cells.len() != rows {
+                return Err(AppendRefusal::WrongLength {
+                    column,
+                    cells: cells.len(),
+                    rows,
+                });
+            }
+        }
+        let mut next = self.clone();
+        next.schema.fingerprint = fingerprint;
+        for cells in appended {
+            let alias = ColumnAlias::from_index(next.columns.len());
+            next.schema.columns.push(ColumnSummary {
+                alias,
+                header: alias.name(),
+                column_type: ColumnType::Numeric,
+                has_missing: cells.iter().any(|c| c.0.is_none()),
+                distinct: None,
+                level_bucket: None,
+                levels: None,
+                issues: Vec::new(),
+            });
+            next.columns.push(
+                cells
+                    .iter()
+                    .map(|c| c.0.map_or(Cell::Missing, Cell::Number))
+                    .collect(),
+            );
+        }
+        Ok(next)
+    }
+
     pub fn column_cells(&self, alias: ColumnAlias) -> Option<&[Cell]> {
         self.schema.column(alias).map(|_| self.columns[alias.index()].as_slice())
     }
@@ -877,6 +965,7 @@ pub fn build_dataset(raw: RawTable, fingerprint: DataFingerprint) -> Result<Data
     Ok(Dataset {
         schema: SchemaSummary { fingerprint, columns, rows, weight_variable, source_metadata: raw.metadata, issues },
         columns: cells,
+        file_columns: width,
     })
 }
 
@@ -1079,5 +1168,139 @@ mod tests {
         let d = build_dataset(table(&["g"], &[&["1"], &["1.0"], &["2"], &["2.00"]]), fp()).unwrap();
         let lv = col(&d, 1).levels.as_ref().unwrap();
         assert_eq!(lv.levels.iter().map(|l| (l.code.as_str(), l.count)).collect::<Vec<_>>(), vec![("1", 2), ("2", 2)]);
+    }
+
+    /* ---- the narrow constructor (decision 407) ------------------------- */
+
+    fn numbers(values: &[f64]) -> Vec<AppendedCell> {
+        values
+            .iter()
+            .map(|v| AppendedCell::number(*v).unwrap())
+            .collect()
+    }
+
+    /// Whole numbers with few distinct values would type Integer, with
+    /// levels, through `type_column`. An appended column never does: its
+    /// summary is set by the constructor alone.
+    #[test]
+    fn an_appended_columns_summary_is_numeric_with_no_levels_whatever_its_values() {
+        let d = build_dataset(
+            table(&["a", "b"], &[&["1", "x"], &["2", "y"], &["3", "z"]]),
+            fp(),
+        )
+        .unwrap();
+        let other = DataFingerprint::of_bytes(b"prepared", "test parser", TableRef::FirstTable);
+        let next = d
+            .with_appended_columns(
+                &[
+                    numbers(&[1.0, 2.0, 2.0]),
+                    vec![
+                        AppendedCell::EMPTY,
+                        AppendedCell::number(0.5).unwrap(),
+                        AppendedCell::EMPTY,
+                    ],
+                ],
+                other.clone(),
+            )
+            .unwrap();
+        for (i, want_missing) in [(3, false), (4, true)] {
+            let c = col(&next, i);
+            assert_eq!(c.alias, ColumnAlias(i));
+            assert_eq!(c.column_type, ColumnType::Numeric, "never Integer");
+            assert_eq!(c.has_missing, want_missing);
+            assert_eq!((c.distinct, c.level_bucket), (None, None));
+            assert!(c.levels.is_none() && c.issues.is_empty());
+            assert!(c.is_numeric() && !c.is_group());
+        }
+        assert_eq!(
+            next.column_cells(ColumnAlias(3)).unwrap(),
+            [Cell::Number(1.0), Cell::Number(2.0), Cell::Number(2.0)]
+        );
+        assert_eq!(
+            next.column_cells(ColumnAlias(4)).unwrap(),
+            [Cell::Missing, Cell::Number(0.5), Cell::Missing]
+        );
+        assert_eq!(next.schema.fingerprint, other);
+        assert_eq!(next.rows(), 3);
+        // The file's columns are exactly as they were.
+        assert_eq!(next.schema.columns[..2], d.schema.columns[..]);
+        assert_eq!(
+            next.column_cells(ColumnAlias(2)),
+            d.column_cells(ColumnAlias(2))
+        );
+    }
+
+    #[test]
+    fn the_file_columns_field_counts_only_what_the_file_held() {
+        let d = build_dataset(table(&["a", "b"], &[&["1", "2"]]), fp()).unwrap();
+        assert_eq!(d.file_columns(), 2);
+        let next = d.with_appended_columns(&[numbers(&[3.0])], fp()).unwrap();
+        assert_eq!((next.file_columns(), next.schema.columns.len()), (2, 3));
+        let again = next
+            .with_appended_columns(&[numbers(&[4.0])], fp())
+            .unwrap();
+        assert_eq!((again.file_columns(), again.schema.columns.len()), (2, 4));
+    }
+
+    /// The caller holds a name and has nowhere to pass it: the header is the
+    /// alias word, even over a file that has a header spelled like it.
+    #[test]
+    fn an_appended_columns_header_is_the_alias_word() {
+        let d = build_dataset(table(&["C3", "typed name"], &[&["1", "2"]]), fp()).unwrap();
+        let next = d.with_appended_columns(&[numbers(&[3.0])], fp()).unwrap();
+        assert_eq!(col(&next, 3).header, "C3");
+        assert_eq!(col(&next, 1).header, "C3", "the file's own header is kept");
+        assert_eq!(col(&next, 2).header, "typed name");
+    }
+
+    #[test]
+    fn past_the_column_cap_it_refuses_as_build_dataset_does() {
+        let headers: Vec<String> = (0..MAX_COLUMNS - 1).map(|i| format!("h{i}")).collect();
+        let row: Vec<String> = headers.iter().map(|_| "1".to_string()).collect();
+        let d = build_dataset(RawTable::from_rows(headers, vec![row]), fp()).unwrap();
+        let one = numbers(&[1.0]);
+        let at_cap = d.with_appended_columns(&[one.clone()], fp()).unwrap();
+        assert_eq!(at_cap.schema.columns.len(), MAX_COLUMNS);
+        assert_eq!(
+            d.with_appended_columns(&[one.clone(), one.clone()], fp())
+                .unwrap_err(),
+            AppendRefusal::Table(DatasetRefusal::TooWide {
+                columns: MAX_COLUMNS + 1,
+                limit: MAX_COLUMNS
+            })
+        );
+        assert_eq!(
+            at_cap.with_appended_columns(&[one], fp()).unwrap_err(),
+            AppendRefusal::Table(DatasetRefusal::TooWide {
+                columns: MAX_COLUMNS + 1,
+                limit: MAX_COLUMNS
+            })
+        );
+    }
+
+    #[test]
+    fn an_appended_column_must_have_one_cell_per_row() {
+        let d = build_dataset(table(&["a"], &[&["1"], &["2"]]), fp()).unwrap();
+        assert_eq!(
+            d.with_appended_columns(&[numbers(&[1.0, 2.0]), numbers(&[1.0])], fp())
+                .unwrap_err(),
+            AppendRefusal::WrongLength {
+                column: 1,
+                cells: 1,
+                rows: 2
+            }
+        );
+    }
+
+    /// A non-finite value has no cell: the type is what keeps it out.
+    #[test]
+    fn a_non_finite_value_has_no_appended_cell() {
+        for v in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            assert_eq!(AppendedCell::number(v), None);
+        }
+        assert_eq!(
+            AppendedCell::number(f64::MAX),
+            Some(AppendedCell(Some(f64::MAX)))
+        );
     }
 }

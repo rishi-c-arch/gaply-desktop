@@ -200,6 +200,22 @@ describe('StatisticsHome', () => {
   // Research OS, Phase 8I (decision 372): Cronbach's alpha is Planned, so the
   // home names it on the roadmap and offers no way to open or run it; the
   // correlations' card is unchanged beside it.
+  // Research OS, Phase 8M (decision 411): scale scores are Planned, so the home
+  // names them on the roadmap and offers no way to open or run them.
+  it('lists the Planned scale scores on the roadmap only, with no card and no open', async () => {
+    renderHome([
+      cap('stats.describe', 'beta', true, 'stats.capability.describe.title'),
+      cap('stats.prepare.scale_score', 'planned', false, 'stats.capability.prepare.scale_score.title'),
+    ]);
+    const roadmap = await screen.findByTestId('stats-roadmap');
+    expect(within(roadmap).getByTestId('stats-roadmap-stats.prepare.scale_score').textContent).toBe('Scale scores');
+    expect(within(roadmap).queryAllByRole('link')).toHaveLength(0);
+    expect(within(roadmap).queryAllByRole('button')).toHaveLength(0);
+    expect(screen.queryByTestId('stats-card-stats.prepare.scale_score')).toBeNull();
+    expect(screen.queryByTestId('stats-open-stats.prepare.scale_score')).toBeNull();
+    expect(screen.queryByTestId('stats-no-route-stats.prepare.scale_score')).toBeNull();
+  });
+
   it("lists the Planned Cronbach's alpha on the roadmap only, with no card and no open", async () => {
     renderHome([
       cap('stats.describe', 'beta', true, 'stats.capability.describe.title'),

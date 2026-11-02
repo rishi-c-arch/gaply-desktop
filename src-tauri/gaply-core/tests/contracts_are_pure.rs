@@ -121,6 +121,20 @@
 //! export's with them, which may name exactly `crate::stats_desc::export::
 //! text`; and `stats_adapters` may name it, for its façade.
 //!
+//! Phase 8M adds `src/stats_prep/`, scale scores (decision 408), with the
+//! module, not after it: inside the crate `crate::contracts`, exactly
+//! `crate::research_project::is_invisible_format`, exactly
+//! `crate::stats_alpha::{reverse, outside_scale_count, row_total, ScaleEnds}`,
+//! `crate::stats_desc::{Alias}`, `crate::stats_desc::export::text`,
+//! `crate::stats_l1::dataset`, `crate::stats_ttest::{column,
+//! non_finite_cells}` and exactly `crate::stats_verify::mean`. Exactly the
+//! types listed below derive `Serialize`; one of them, `ScaleScoreStep`, holds
+//! text, the name the user typed (ADR-011 Part 4), so it prints counts through
+//! its own `Debug`, as `stats_desc`'s text-holding types do; no other type of
+//! the module holds a `String`, and none names a cell or the dataset but
+//! `Prepared`, which derives nothing. `contracts` never names it, and
+//! `stats_registry` may name its id and version.
+//!
 //! What it cannot see: a route through a helper in an allowed module (a
 //! function of `stats_l1::dataset` that read a file would not be caught
 //! here; `stats_l1_is_llm_free_and_offline.rs` guards that directory), and
@@ -138,6 +152,7 @@ const STATS_DIST: &str = "src/stats_dist";
 const STATS_ANOVA: &str = "src/stats_anova";
 const STATS_CORR: &str = "src/stats_corr";
 const STATS_ALPHA: &str = "src/stats_alpha";
+const STATS_PREP: &str = "src/stats_prep";
 const RESEARCH_PROJECT: &str = "src/research_project";
 
 const FORBIDDEN: &[(&str, &str)] = &[
@@ -200,6 +215,7 @@ const STATS_REGISTRY_CRATE_PATHS: &[&str] = &[
     "crate::stats_anova",
     "crate::stats_corr",
     "crate::stats_alpha",
+    "crate::stats_prep",
 ];
 /// What `stats_registry` may import from the catalogue, Level 1's registry
 /// and the descriptive summary, by exact name. The one-way ANOVA's id and
@@ -251,6 +267,14 @@ const REGISTRY_ITEMS: &[(&str, &[&str])] = &[
         &[
             "CAPABILITY_ID as ALPHA_ID",
             "CAPABILITY_VERSION as ALPHA_VERSION",
+        ],
+    ),
+    // Phase 8M (decisions 408 and 411): scale scores' id and version.
+    (
+        "crate::stats_prep",
+        &[
+            "CAPABILITY_ID as PREP_ID",
+            "CAPABILITY_VERSION as PREP_VERSION",
         ],
     ),
 ];
@@ -492,6 +516,31 @@ const ALPHA_ITEMS: &[(&str, &[&str])] = &[
     ("crate::stats_desc", &["input_ref", "Alias"]),
 ];
 
+/// What `stats_prep` may name inside the crate (Phase 8M, decision 408).
+const STATS_PREP_CRATE_PATHS: &[&str] = &[
+    "crate::contracts",
+    "crate::research_project",
+    "crate::stats_alpha",
+    "crate::stats_desc::export",
+    "crate::stats_desc",
+    "crate::stats_l1::dataset",
+    "crate::stats_ttest",
+    "crate::stats_verify",
+];
+/// The items `stats_prep` may import, by exact name (decision 408): only
+/// what it imports.
+const PREP_ITEMS: &[(&str, &[&str])] = &[
+    ("crate::research_project", &["is_invisible_format"]),
+    (
+        "crate::stats_alpha",
+        &["reverse", "outside_scale_count", "row_total", "ScaleEnds"],
+    ),
+    ("crate::stats_desc::export", &["text"]),
+    ("crate::stats_desc", &["Alias"]),
+    ("crate::stats_ttest", &["column", "non_finite_cells"]),
+    ("crate::stats_verify", &["mean"]),
+];
+
 /// What `stats_dist` may name inside the crate (Phase 8E, decision 275):
 /// Level 0's two tail functions only.
 const STATS_DIST_CRATE_PATHS: &[&str] = &["crate::stats_l0::pvalue"];
@@ -525,6 +574,7 @@ const DOMAIN_MODULES: &[&str] = &[
     "stats_anova",
     "stats_corr",
     "stats_alpha",
+    "stats_prep",
     "research_project",
 ];
 /// Where their types are declared, read to build the type list.
@@ -542,6 +592,7 @@ const DOMAIN_SOURCES: &[&str] = &[
     "src/stats_anova",
     "src/stats_corr",
     "src/stats_alpha",
+    "src/stats_prep",
     "src/research_project",
 ];
 
@@ -638,6 +689,18 @@ const ALPHA_SERIALISED: &[&str] = &[
     "InterItem",
     "ItemStats",
     "AlphaOutcome",
+];
+
+/// `stats_prep`'s one type that holds text: the name the user typed (ADR-011
+/// Part 4, decision 408), which `Serialize`s only into the recipe.
+const PREP_HOLDS_TEXT: &[&str] = &["ScaleScoreStep"];
+/// `stats_prep` types that derive `Serialize` and hold no text at all.
+const PREP_HOLDS_NO_TEXT: &[&str] = &[
+    "Statistic",
+    "MissingRule",
+    "RecipeStep",
+    "Recipe",
+    "ScoreCounts",
 ];
 
 /// What a serialisable type must never hold.
@@ -926,13 +989,14 @@ fn contracts_and_stats_desc_reach_no_file_network_process_clock_model_or_log() {
         .chain(sources(STATS_ANOVA, 2).iter())
         .chain(sources(STATS_CORR, 2).iter())
         .chain(sources(STATS_ALPHA, 2).iter())
+        .chain(sources(STATS_PREP, 2).iter())
         .chain(sources(RESEARCH_PROJECT, 2).iter())
     {
         found.extend(forbidden_in(path, code));
     }
     assert!(
         found.is_empty(),
-        "contracts, stats_desc, stats_registry, stats_adapters, stats_ttest, stats_onesample, stats_dist, stats_anova, stats_corr, stats_alpha and research_project are pure. Found:\n{}",
+        "contracts, stats_desc, stats_registry, stats_adapters, stats_ttest, stats_onesample, stats_dist, stats_anova, stats_corr, stats_alpha, stats_prep and research_project are pure. Found:\n{}",
         found.join("\n")
     );
 }
@@ -1010,6 +1074,13 @@ fn imports_are_std_serde_serde_json_sha2_and_the_named_crate_paths_only() {
             STATS_ALPHA_CRATE_PATHS,
             ALPHA_ITEMS,
             STATS_ALPHA_CRATE_PATHS,
+            EXTERNAL_ROOTS,
+        ),
+        (
+            STATS_PREP,
+            STATS_PREP_CRATE_PATHS,
+            PREP_ITEMS,
+            STATS_PREP_CRATE_PATHS,
             EXTERNAL_ROOTS,
         ),
         (
@@ -1192,6 +1263,24 @@ fn imports_are_std_serde_serde_json_sha2_and_the_named_crate_paths_only() {
             assert!(
                 imported.iter().any(|i| i == name),
                 "stats_alpha no longer imports {prefix}::{name}; update the list"
+            );
+        }
+    }
+    // And stats_prep each item on its list (decision 408).
+    let prep: String = sources(STATS_PREP, 2).into_iter().map(|(_, c)| c).collect();
+    for (prefix, names) in PREP_ITEMS {
+        let imported: Vec<String> = use_statements(&prep)
+            .iter()
+            .filter(|s| {
+                s.starts_with(prefix)
+                    && STATS_PREP_CRATE_PATHS.iter().find(|p| s.starts_with(*p)) == Some(prefix)
+            })
+            .flat_map(|s| imported_names(s, prefix))
+            .collect();
+        for name in *names {
+            assert!(
+                imported.iter().any(|i| i == name),
+                "stats_prep no longer imports {prefix}::{name}; update the list"
             );
         }
     }
@@ -1772,6 +1861,79 @@ fn only_the_listed_stats_alpha_types_derive_serialize_and_none_holds_a_cell_or_t
     assert!(texty.is_empty(), "these hold a String: {texty:?}");
 }
 
+/// Phase 8M (decision 408): in `stats_prep`, exactly the listed types derive
+/// `Serialize`, none names a cell or the dataset, and only `ScaleScoreStep`
+/// holds a `String`, as `stats_desc`'s text-holding types do: it does not
+/// derive `Debug` and prints counts through its own. `Prepared`, which holds
+/// the dataset, derives nothing, and prints counts through its own too.
+#[test]
+fn only_the_listed_stats_prep_types_derive_serialize_and_only_the_step_holds_text() {
+    let items: Vec<Item> = sources(STATS_PREP, 2)
+        .iter()
+        .flat_map(|(_, c)| items(c))
+        .collect();
+    assert!(
+        items.len() >= 8,
+        "{} items found in {STATS_PREP} — the scan is inert",
+        items.len()
+    );
+    let mut serialised: Vec<&str> = items
+        .iter()
+        .filter(|i| derives(i, "Serialize"))
+        .map(|i| i.name.as_str())
+        .collect();
+    serialised.sort_unstable();
+    let mut listed: Vec<&str> = PREP_HOLDS_TEXT
+        .iter()
+        .chain(PREP_HOLDS_NO_TEXT)
+        .copied()
+        .collect();
+    listed.sort_unstable();
+    assert_eq!(
+        serialised, listed,
+        "the types deriving Serialize in {STATS_PREP} are not the listed ones"
+    );
+    for item in items.iter().filter(|i| derives(i, "Serialize")) {
+        for cell in CELL_TYPES {
+            assert!(
+                !identifiers(&item.body).contains(cell),
+                "{} derives Serialize and names `{cell}`",
+                item.name
+            );
+        }
+    }
+    let texty: Vec<&str> = items
+        .iter()
+        .filter(|i| holds_string(&i.body))
+        .map(|i| i.name.as_str())
+        .collect();
+    assert_eq!(texty, PREP_HOLDS_TEXT, "these hold a String");
+
+    let all: String = sources(STATS_PREP, 2).into_iter().map(|(_, c)| c).collect();
+    for name in ["ScaleScoreStep", "Recipe", "Prepared"] {
+        let item = items
+            .iter()
+            .find(|i| i.name == name)
+            .unwrap_or_else(|| panic!("{name} exists"));
+        assert!(
+            !derives(item, "Debug"),
+            "{name} would print its text or values through a derived Debug"
+        );
+        assert!(
+            all.contains(&format!("impl std::fmt::Debug for {name}")),
+            "{name} has no counts-only Debug"
+        );
+    }
+    let prepared = items
+        .iter()
+        .find(|i| i.name == "Prepared")
+        .expect("Prepared exists");
+    assert!(
+        !prepared.attrs.contains("#[derive("),
+        "Prepared holds the dataset and derives nothing"
+    );
+}
+
 #[test]
 fn every_deserialised_struct_refuses_unknown_fields_and_wire_structs_are_camel_case() {
     let mut checked = 0;
@@ -1785,6 +1947,7 @@ fn every_deserialised_struct_refuses_unknown_fields_and_wire_structs_are_camel_c
         STATS_ANOVA,
         STATS_CORR,
         STATS_ALPHA,
+        STATS_PREP,
         RESEARCH_PROJECT,
     ] {
         for (path, code) in sources(dir, 1) {

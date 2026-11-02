@@ -36,6 +36,10 @@
 //!   (Phase 8I, decision 367), with `stats_alpha`'s id and version. Planned
 //!   in 8I (decision 372); Beta since 8I-2's Part 2 (decision 377), so its
 //!   commands, runs and projects run through the façades.
+//! * `stats.prepare.scale_score`: scale scores, a new numeric column on the
+//!   user's data (Phase 8M, decision 408; ADR-011), with `stats_prep`'s id and
+//!   version. Planned (decision 411): no command or screen yet, so every façade
+//!   refuses it in every build. It has no run kind and no ceiling.
 //!
 //! `run_stats_preview` and `run_stats_verify` are the legacy lane, not
 //! capabilities: they are not here.
@@ -66,6 +70,7 @@ use crate::stats_desc::{CAPABILITY_ID, CAPABILITY_VERSION};
 use crate::stats_l1::catalogue::{L1MethodId, MethodCatalogue};
 use crate::stats_l1::compute::L1Registry;
 use crate::stats_onesample::{ONE_SAMPLE_ID, ONE_SAMPLE_VERSION, PAIRED_ID, PAIRED_VERSION};
+use crate::stats_prep::{CAPABILITY_ID as PREP_ID, CAPABILITY_VERSION as PREP_VERSION};
 use crate::stats_ttest::{CAPABILITY_ID as TTEST_ID, CAPABILITY_VERSION as TTEST_VERSION};
 
 /// The free Stats Check's id.
@@ -155,6 +160,13 @@ closed! {
         /// McDonald's omega and squared multiple correlations are not shown
         /// (decision 372).
         LimitAnalyzeNoOmegaOrSmc => "limit.analyze.no_omega_or_smc",
+        PrepareScaleScoreTitle => "prepare.scale_score.title",
+        PrepareScaleScoreDescription => "prepare.scale_score.description",
+        /// A score's items are the file's columns (ADR-011 question 13).
+        LimitPrepareItemsAreFileColumns => "limit.prepare.items_are_file_columns",
+        /// Recoding, formulas and selecting cases are not offered yet (decision
+        /// 391).
+        LimitPrepareNoRecodingFormulaOrSelection => "limit.prepare.no_recoding_formula_or_selection",
     }
 }
 
@@ -179,6 +191,8 @@ pub enum Kind {
     AnalyzeCorrelations,
     /// `stats.analyze.cronbach_alpha` (Phase 8I).
     AnalyzeCronbachAlpha,
+    /// `stats.prepare.scale_score` (Phase 8M). Not a method: no run kind.
+    PrepareScaleScore,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -205,6 +219,8 @@ const LIFECYCLES: &[(&str, Lifecycle)] = &[
     // Planned in 8I (decision 372); Beta at the start of 8I-2's Part 2
     // (decision 377), so its commands, runs and projects can run.
     (ALPHA_ID, Lifecycle::Beta),
+    // Planned in 8M (decision 411): no command or screen yet.
+    (PREP_ID, Lifecycle::Planned),
 ];
 /// A Level 1 method `L1Registry` implements.
 const VERIFY_IMPLEMENTED: Lifecycle = Lifecycle::Beta;
@@ -656,6 +672,50 @@ fn analyze_cronbach_alpha() -> Entry {
     }
 }
 
+/// Scale scores (Phase 8M, decisions 408 and 411): the methods' rows, columns,
+/// formats and table limitations, with no ceiling and no cancel (ADR-011 Part
+/// 12): one fast call, measured at 0.18 s at 100,000 × 128 (decision 410), never
+/// a run. No licence note: it uses no statrs code.
+fn prepare_scale_score() -> Entry {
+    Entry {
+        kind: Kind::PrepareScaleScore,
+        descriptor: StatsDescriptor {
+            id: id(PREP_ID),
+            version: PREP_VERSION,
+            workspace_id: WorkspaceId::Statistics,
+            title_code: StatsWording::PrepareScaleScoreTitle,
+            description_code: StatsWording::PrepareScaleScoreDescription,
+            lifecycle: lifecycle_of(PREP_ID),
+            input_schema_version: 1,
+            output_schema_version: 1,
+            method_schema_version: 1,
+            supported_formats: TABLE_FORMATS.to_vec(),
+            dependency_ids: Vec::new(),
+            license_notes: Vec::new(),
+            resource_profile: ResourceProfile {
+                ram_class: RamClass::Gb8,
+                max_rows: Some(METHOD_MAX_ROWS),
+                max_columns: Some(METHOD_MAX_COLUMNS),
+                max_input_bytes: None,
+                ceiling_ms: None,
+                cancel: Cancel::None,
+                uses_gpu: false,
+                temp_disk: false,
+            },
+            offline_behavior: OfflineBehavior::RunsOffline,
+            validation_suite_id: SuiteId("prep_r_golden"),
+            known_limitation_codes: vec![
+                StatsWording::LimitTableTextFilesUtf8Only,
+                StatsWording::LimitTableLimitsByMemory,
+                StatsWording::LimitPrepareItemsAreFileColumns,
+                StatsWording::LimitPrepareNoRecodingFormulaOrSelection,
+            ],
+            export_kinds: vec![ExportKind::Csv],
+            documentation_id: DocId("methods/scale_scores"),
+        },
+    }
+}
+
 /// A capability table. The Statistics one is [`Registry::statistics`]; a
 /// different table exists only inside this crate's own unit tests.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -668,7 +728,8 @@ impl Registry {
     /// per catalogue entry in its order, `stats.describe`, then
     /// `stats.analyze.independent_t`, `stats.analyze.one_sample_t`,
     /// `stats.analyze.paired_t`, `stats.analyze.one_way_anova`,
-    /// `stats.analyze.correlations` and `stats.analyze.cronbach_alpha`.
+    /// `stats.analyze.correlations`, `stats.analyze.cronbach_alpha` and
+    /// `stats.prepare.scale_score`.
     pub fn statistics() -> Registry {
         let mut entries = vec![check()];
         entries.extend(MethodCatalogue::ENTRIES.iter().map(|e| verify(e.id)));
@@ -679,6 +740,7 @@ impl Registry {
         entries.push(analyze_one_way_anova());
         entries.push(analyze_correlations());
         entries.push(analyze_cronbach_alpha());
+        entries.push(prepare_scale_score());
         Registry { entries }
     }
 
@@ -849,7 +911,7 @@ mod tests {
                 checked += 1;
             }
         }
-        assert_eq!(checked, 2 * 15, "fifteen capabilities, two builds");
+        assert_eq!(checked, 2 * 16, "sixteen capabilities, two builds");
     }
 
     /// Phase 8D-1 (decision 253), made Beta in 8D-2a (decision 265): the
@@ -902,7 +964,7 @@ mod tests {
         }
         let ids: Vec<String> = t.ids().iter().map(|i| i.as_str().to_string()).collect();
         assert_eq!(
-            &ids[ids.len() - 6..ids.len() - 3],
+            &ids[ids.len() - 7..ids.len() - 4],
             [TTEST_ID, ONE_SAMPLE_ID, PAIRED_ID],
             "appended after the independent t-test, one-sample first"
         );
@@ -926,7 +988,8 @@ mod tests {
                 | Kind::AnalyzePairedT
                 | Kind::AnalyzeOneWayAnova
                 | Kind::AnalyzeCorrelations
-                | Kind::AnalyzeCronbachAlpha => {
+                | Kind::AnalyzeCronbachAlpha
+                | Kind::PrepareScaleScore => {
                     methods += 1;
                     assert!(
                         codes.contains(&StatsWording::LimitTableLimitsByMemory),
@@ -963,7 +1026,7 @@ mod tests {
                 }
             }
         }
-        assert_eq!((methods, verify), (7, 7));
+        assert_eq!((methods, verify), (8, 7));
         assert_eq!((METHOD_MAX_ROWS, METHOD_MAX_COLUMNS), (100_000, 128));
     }
 
@@ -1008,7 +1071,7 @@ mod tests {
         }
         let ids: Vec<String> = t.ids().iter().map(|i| i.as_str().to_string()).collect();
         assert_eq!(
-            &ids[ids.len() - 3..ids.len() - 1],
+            &ids[ids.len() - 4..ids.len() - 2],
             [ANOVA_ID, CORR_ID],
             "appended after the paired t-test, the correlations after it"
         );
@@ -1053,18 +1116,19 @@ mod tests {
         }
         let ids: Vec<String> = t.ids().iter().map(|i| i.as_str().to_string()).collect();
         assert_eq!(
-            &ids[ids.len() - 2..],
+            &ids[ids.len() - 3..ids.len() - 1],
             [CORR_ID, ALPHA_ID],
             "appended after the one-way ANOVA, Cronbach's alpha after it"
         );
     }
 
-    /// Phase 8I (decision 372): Cronbach's alpha is listed last, with its own
-    /// title, description and limitations, and its validation suite and page
-    /// named. Planned in 8I and refused in both builds; Beta since 8I-2's
-    /// Part 2 (decision 377), so runnable in both.
+    /// Phase 8I (decision 372): Cronbach's alpha is listed, with its own title,
+    /// description and limitations, and its validation suite and page named.
+    /// Planned in 8I and refused in both builds; Beta since 8I-2's Part 2
+    /// (decision 377), so runnable in both. Last until 8M, now just before
+    /// scale scores (decision 411).
     #[test]
-    fn cronbach_alpha_is_listed_last_as_beta_and_runs_in_both_builds() {
+    fn cronbach_alpha_is_listed_as_beta_and_runs_in_both_builds() {
         let t = Registry::statistics();
         let id = CapabilityId::parse(ALPHA_ID).unwrap();
         let e = t.lookup(&id).expect("listed");
@@ -1097,8 +1161,58 @@ mod tests {
         }
         let ids: Vec<String> = t.ids().iter().map(|i| i.as_str().to_string()).collect();
         assert_eq!(
+            &ids[ids.len() - 2..],
+            [ALPHA_ID, PREP_ID],
+            "appended after the correlations, scale scores after it"
+        );
+    }
+
+    /// Phase 8M (decision 411): scale scores are listed last, Planned, with
+    /// their own title, description and limitations, the methods' rows and
+    /// columns with no ceiling and no cancel, and their validation suite and
+    /// page named; refused in both builds, so no screen can reach them.
+    #[test]
+    fn scale_scores_are_listed_last_as_planned_and_never_run() {
+        let t = Registry::statistics();
+        let id = CapabilityId::parse(PREP_ID).unwrap();
+        let e = t.lookup(&id).expect("listed");
+        let d = &e.descriptor;
+        assert_eq!(e.kind, Kind::PrepareScaleScore);
+        assert_eq!((d.version, d.lifecycle), (1, Lifecycle::Planned));
+        assert_eq!(
+            (d.title_code, d.description_code),
+            (
+                StatsWording::PrepareScaleScoreTitle,
+                StatsWording::PrepareScaleScoreDescription
+            )
+        );
+        assert_eq!(
+            d.known_limitation_codes,
+            [
+                StatsWording::LimitTableTextFilesUtf8Only,
+                StatsWording::LimitTableLimitsByMemory,
+                StatsWording::LimitPrepareItemsAreFileColumns,
+                StatsWording::LimitPrepareNoRecodingFormulaOrSelection,
+            ]
+        );
+        assert_eq!(
+            (d.validation_suite_id, d.documentation_id),
+            (SuiteId("prep_r_golden"), DocId("methods/scale_scores"))
+        );
+        let p = d.resource_profile;
+        assert_eq!(
+            (p.max_rows, p.max_columns, p.max_input_bytes),
+            (Some(100_000), Some(128), None)
+        );
+        assert_eq!((p.ceiling_ms, p.cancel), (None, Cancel::None));
+        for build in [Build::Standard, Build::Devtools] {
+            let r = t.require_runnable(&id, 1, build).unwrap_err();
+            assert_eq!(r.code, CapabilityCode::NotRunnable, "Planned in {build:?}");
+        }
+        let ids: Vec<String> = t.ids().iter().map(|i| i.as_str().to_string()).collect();
+        assert_eq!(
             ids.last().map(String::as_str),
-            Some(ALPHA_ID),
+            Some(PREP_ID),
             "appended last"
         );
     }

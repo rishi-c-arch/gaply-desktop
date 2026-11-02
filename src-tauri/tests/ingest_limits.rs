@@ -171,7 +171,8 @@ fn each_named_value_is_todays_constants_and_its_capabilities_profiles() {
             | Kind::AnalyzePairedT
             | Kind::AnalyzeOneWayAnova
             | Kind::AnalyzeCorrelations
-            | Kind::AnalyzeCronbachAlpha => {
+            | Kind::AnalyzeCronbachAlpha
+            | Kind::PrepareScaleScore => {
                 methods += 1;
                 for tier in [MemoryTier::Gb8, MemoryTier::Gb16, MemoryTier::Gb32] {
                     let l = IngestLimits::for_tier(tier);
@@ -185,8 +186,8 @@ fn each_named_value_is_todays_constants_and_its_capabilities_profiles() {
     }
     assert_eq!(
         (verify, methods),
-        (7, 7),
-        "seven Level 1 capabilities; the summary, the three t-tests, the one-way ANOVA, the correlations and Cronbach's alpha"
+        (7, 8),
+        "seven Level 1 capabilities; the summary, the three t-tests, the one-way ANOVA, the correlations, Cronbach's alpha and scale scores, which read the same table limits and have no run"
     );
 }
 

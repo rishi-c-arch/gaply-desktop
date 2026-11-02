@@ -76,6 +76,12 @@ export const CAPABILITY_WORDS: Record<string, string> = {
     "Cronbach's alpha for a scale of two or more numeric items in your own data file, with standardized alpha, a 95% interval, and each item's statistics if it were left out, with the items you choose reverse-scored.",
   'stats.capability.limit.analyze.alpha_one_dimension': 'Alpha assumes the items measure one thing; Gaply does not check that.',
   'stats.capability.limit.analyze.no_omega_or_smc': "McDonald's omega and squared multiple correlations are not shown yet.",
+  // Phase 8M (decision 411): scale scores, Planned.
+  'stats.capability.prepare.scale_score.title': 'Scale scores',
+  'stats.capability.prepare.scale_score.description':
+    "A new numeric column that is the sum or the mean of items you choose, any of them reverse-scored on the scale's ends you type, kept as a recipe. Your file is never changed.",
+  'stats.capability.limit.prepare.items_are_file_columns': "A score's items are the file's columns; a score of other scores is not offered.",
+  'stats.capability.limit.prepare.no_recoding_formula_or_selection': 'Recoding values, computing from a formula and selecting cases are not offered yet.',
 };
 
 /** The words for a code; a code with no entry is shown as itself, never

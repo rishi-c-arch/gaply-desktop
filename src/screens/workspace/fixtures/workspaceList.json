@@ -20,7 +20,8 @@
       "stats.analyze.paired_t",
       "stats.analyze.one_way_anova",
       "stats.analyze.correlations",
-      "stats.analyze.cronbach_alpha"
+      "stats.analyze.cronbach_alpha",
+      "stats.prepare.scale_score"
     ],
     "supportsOffline": true,
     "supportedPlatforms": [

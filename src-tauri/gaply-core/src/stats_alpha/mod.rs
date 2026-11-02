@@ -403,12 +403,31 @@ impl Rows {
 }
 
 /// A value reverse-scored on the scale's ends: min + max − x. The one
-/// place the reversal is written.
-fn reverse(x: f64, ends: Option<ScaleEnds>) -> f64 {
+/// place the reversal is written; `stats_prep` calls it too (decision 406).
+pub(crate) fn reverse(x: f64, ends: Option<ScaleEnds>) -> f64 {
     match ends {
         Some(e) => e.min + e.max - x,
         None => x,
     }
+}
+
+/// How many of a column's numbers lie outside the scale's ends, its ticked
+/// codes removed. The one place the count is written; `stats_prep` calls it
+/// too (decision 406).
+pub(crate) fn outside_scale_count(cells: &[Cell], ends: ScaleEnds, codes: &[f64]) -> usize {
+    cells
+        .iter()
+        .filter(|x| match x {
+            Cell::Number(v) => !codes.contains(v) && (*v < ends.min || *v > ends.max),
+            _ => false,
+        })
+        .count()
+}
+
+/// A row's total, its values added in column order from 0.0. The one place
+/// the total is written; `stats_prep` calls it too (decision 406).
+pub(crate) fn row_total(values: impl Iterator<Item = f64>) -> f64 {
+    values.fold(0.0, |sum, v| sum + v)
 }
 
 /* ------------------------------------------------------------------------ *
@@ -563,15 +582,7 @@ fn check<'d>(
             if !reversed.contains(alias) {
                 continue;
             }
-            let outside = c
-                .iter()
-                .filter(|x| match x {
-                    Cell::Number(v) => {
-                        !params.missing_codes.contains(v) && (*v < ends.min || *v > ends.max)
-                    }
-                    _ => false,
-                })
-                .count();
+            let outside = outside_scale_count(c, ends, &params.missing_codes);
             if outside > 0 {
                 errors.push(
                     Diagnostic::error(AlphaCode::ReversedOutsideScale)
@@ -761,7 +772,7 @@ fn arithmetic<B>(
     let kf = k as f64;
     // The rows' totals, the items added in column order.
     let totals: Vec<f64> = (0..n)
-        .map(|r| values.iter().fold(0.0, |sum, v| sum + v[r]))
+        .map(|r| row_total(values.iter().map(|v| v[r])))
         .collect();
     // Each row's sum of its values' magnitudes: the scale of the rounding in
     // its total.
@@ -1062,5 +1073,33 @@ mod tests {
         let e = Some(ScaleEnds { min: 1.0, max: 5.0 });
         assert_eq!([1.0, 2.0, 5.0].map(|x| reverse(x, e)), [5.0, 4.0, 1.0]);
         assert_eq!(reverse(2.5, None), 2.5);
+    }
+
+    /// Decision 406: the count `stats_prep` shares: outside on either side,
+    /// at an end is inside, a ticked code is not counted, and a missing or
+    /// text cell is no number.
+    #[test]
+    fn the_outside_count_takes_both_sides_and_removes_the_ticked_codes() {
+        let ends = ScaleEnds { min: 1.0, max: 5.0 };
+        let cells = [
+            Cell::Number(1.0),
+            Cell::Number(5.0),
+            Cell::Number(0.5),
+            Cell::Number(5.5),
+            Cell::Number(99.0),
+            Cell::Missing,
+            Cell::Text("x".to_string()),
+        ];
+        assert_eq!(outside_scale_count(&cells, ends, &[]), 3);
+        assert_eq!(outside_scale_count(&cells, ends, &[99.0]), 2);
+    }
+
+    /// Decision 406: the total folds from 0.0 in the order it is given, so
+    /// 1e16 + 1 + 1 keeps neither 1, and 1 + 1 + 1e16 keeps both.
+    #[test]
+    fn the_row_total_adds_in_the_order_given() {
+        assert_eq!(row_total([1e16, 1.0, 1.0].into_iter()), 1e16);
+        assert_eq!(row_total([1.0, 1.0, 1e16].into_iter()), 1e16 + 2.0);
+        assert_eq!(row_total(std::iter::empty()), 0.0);
     }
 }
