@@ -25,7 +25,8 @@
 //!
 //!    Phase 8D-2a and 8G-2 add the one-sample, paired and one-way ANOVA
 //!    commands, each family listed, each checking the workspace first, and
-//!    8H-2 the correlations' commands, the same way.
+//!    8H-2 the correlations' commands, the same way, and 8I-2 Cronbach's
+//!    alpha's.
 //!
 //! 6. Phase 5B-2 (decision 120): every `project_commands` command is in
 //!    exactly one of two lists. A gated one checks the workspace first, in
@@ -1039,6 +1040,64 @@ fn the_lock_codes_come_only_from_the_commands_that_take_a_lock() {
     assert!(
         failures.is_empty(),
         "decision 132:\n{}",
+        failures.join("\n")
+    );
+}
+
+/// Phase 8I-2 (decision 381): Cronbach's alpha's commands, each checking the
+/// workspace first, in the same form; none is exempt. (registered path)
+const ALPHA_OPERATIONS: &[&str] = &[
+    "stats_alpha_commands::stats_alpha_validate",
+    "stats_alpha_commands::stats_alpha_run",
+    "stats_alpha_commands::stats_alpha_status",
+    "stats_alpha_commands::stats_alpha_result",
+    "stats_alpha_commands::stats_alpha_cancel",
+    "stats_alpha_commands::stats_alpha_export",
+];
+
+#[test]
+fn every_alpha_command_checks_the_workspace_first() {
+    let all = registered();
+    assert!(all.len() > 100, "the handler parse is inert");
+    let mut family: Vec<&str> = all
+        .iter()
+        .map(|p| p.as_str())
+        .filter(|p| p.starts_with("stats_alpha_commands::"))
+        .collect();
+    family.sort_unstable();
+    let mut listed: Vec<&str> = ALPHA_OPERATIONS.to_vec();
+    listed.sort_unstable();
+    assert_eq!(
+        family, listed,
+        "every registered stats_alpha_commands command is listed, and every listed one is registered"
+    );
+    // Nothing registers a stats_alpha_* command from another module.
+    for p in &all {
+        if p.rsplit("::")
+            .next()
+            .is_some_and(|n| n.starts_with("stats_alpha_"))
+        {
+            assert!(p.starts_with("stats_alpha_commands::"), "{p}");
+        }
+    }
+
+    let src = without_line_comments(&read(&root().join("src/stats_alpha_commands.rs")));
+    let mut failures = Vec::new();
+    for path in ALPHA_OPERATIONS {
+        let name = path.rsplit("::").next().unwrap();
+        match fn_body(&src, name) {
+            Some(body) if checks_first(body) => {}
+            Some(body) => failures.push(format!(
+                "{path}: first statement is `{}`",
+                body.split(';').next().unwrap_or("").trim()
+            )),
+            None => failures.push(format!("{path}: no body found")),
+        }
+    }
+    println!("gated {} Cronbach's alpha commands", ALPHA_OPERATIONS.len());
+    assert!(
+        failures.is_empty(),
+        "decision 381:\n{}",
         failures.join("\n")
     );
 }

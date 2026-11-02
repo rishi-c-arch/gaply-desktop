@@ -69,6 +69,7 @@ function renderHome(list: CapabilityView[] = TABLE, forceEntitlement: Entitlemen
           <Route path="/app/statistics/ttest" element={<div data-testid="ttest-here" />} />
           <Route path="/app/statistics/anova" element={<div data-testid="anova-here" />} />
           <Route path="/app/statistics/correlations" element={<div data-testid="correlations-here" />} />
+          <Route path="/app/statistics/alpha" element={<div data-testid="alpha-here" />} />
           <Route path="/app/statistics/describe" element={<div data-testid="describe-here" />} />
           <Route path="/app/statsverifier" element={<div data-testid="verifier-here" />} />
           <Route path="/app/check/stats" element={<div data-testid="check-here" />} />
@@ -213,6 +214,36 @@ describe('StatisticsHome', () => {
     expect(screen.queryByTestId('stats-open-stats.analyze.cronbach_alpha')).toBeNull();
     expect(screen.queryByTestId('stats-no-route-stats.analyze.cronbach_alpha')).toBeNull();
     expect(screen.getByTestId('stats-card-stats.analyze.correlations')).toBeTruthy();
+  });
+
+  // Research OS, Phase 8I-2 (decisions 377 and 384): Beta and runnable, with
+  // its screen, Cronbach's alpha has its own card, its limitations from the
+  // descriptor, and a link to its route, where "no screen of its own here
+  // yet" stood in Part 2, before its screen existed.
+  it("gives the Beta Cronbach's alpha its card, its limitations and its route", async () => {
+    renderHome([
+      {
+        ...cap('stats.analyze.cronbach_alpha', 'beta', true, 'stats.capability.analyze.cronbach_alpha.title'),
+        descriptionCode: 'stats.capability.analyze.cronbach_alpha.description',
+        knownLimitations: [
+          'stats.capability.limit.analyze.alpha_one_dimension',
+          'stats.capability.limit.analyze.no_omega_or_smc',
+        ],
+      },
+    ]);
+    const card = await screen.findByTestId('stats-card-stats.analyze.cronbach_alpha');
+    expect(within(card).getByRole('heading').textContent).toBe("Cronbach's alpha on your data");
+    const items = within(card).getAllByRole('listitem').map((li) => li.textContent);
+    expect(items).toEqual([
+      'Alpha assumes the items measure one thing; Gaply does not check that.',
+      "McDonald's omega and squared multiple correlations are not shown yet.",
+    ]);
+    expect(screen.queryByTestId('stats-no-route-stats.analyze.cronbach_alpha')).toBeNull();
+    const open = screen.getByTestId('stats-open-stats.analyze.cronbach_alpha');
+    expect(open.getAttribute('href')).toBe('/app/statistics/alpha');
+    expect(screen.queryByTestId('stats-roadmap-stats.analyze.cronbach_alpha')).toBeNull();
+    fireEvent.click(open);
+    expect(await screen.findByTestId('alpha-here')).toBeTruthy();
   });
 
   it('gives the Beta one-way ANOVA its card, its limitations and its route', async () => {

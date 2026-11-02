@@ -38,6 +38,7 @@ import { TTestPage } from './statistics/TTestFlow';
 import { OneSamplePage } from './statistics/OneSampleFlow';
 import { PairedPage } from './statistics/PairedFlow';
 import { AnovaPage } from './statistics/AnovaFlow';
+import { AlphaPage } from './statistics/AlphaFlow';
 import { CorrPage } from './statistics/CorrFlow';
 import { ProjectPageScreen } from './statistics/ProjectPageScreen';
 import { WorkspaceChooser } from './workspace/WorkspaceChooser';
@@ -305,6 +306,19 @@ export const CorrRoute: React.FC = () => (
     <RequireAuth>
       <RequireWorkspace id="statistics" body="Open the Statistics workspace to use the correlations.">
         <CorrPage />
+      </RequireWorkspace>
+    </RequireAuth>
+  </GaplySessionProvider>
+);
+
+/** /app/statistics/alpha — Cronbach's alpha (Research OS, Phase 8I-2,
+ *  decision 384), shown only while the Statistics workspace is active, as
+ *  the correlations' is. */
+export const AlphaRoute: React.FC = () => (
+  <GaplySessionProvider>
+    <RequireAuth>
+      <RequireWorkspace id="statistics" body="Open the Statistics workspace to use Cronbach's alpha.">
+        <AlphaPage />
       </RequireWorkspace>
     </RequireAuth>
   </GaplySessionProvider>

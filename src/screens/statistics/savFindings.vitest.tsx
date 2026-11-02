@@ -54,7 +54,11 @@ describe('the SPSS reader findings', () => {
       ],
       [
         finding('sav.compression_bias', { bias: 99.5 }),
-        'The file stores its compressed whole numbers with an unusual offset (99.5). Gaply reads them with that offset, as SPSS would.',
+        "The file's header gives an offset of 99.5 for its compressed whole numbers, not the usual 100. Gaply reads them with that offset; SPSS reads such a file assuming 100, so these numbers may differ from SPSS's.",
+      ],
+      [
+        finding('sav.zsav_trailer_bias', { bias: 7 }),
+        "The file's compressed-data trailer gives an offset of 7, not the usual 100. Gaply reads the numbers with the header's offset, so this changes nothing Gaply reads.",
       ],
       [
         finding('sav.very_long_string_ignored', { count: 2 }),
@@ -66,6 +70,62 @@ describe('the SPSS reader findings', () => {
       ],
     ];
     for (const [f, want] of cases) expect(savFindingSentence(f)).toBe(want);
+  });
+
+  // Decision 376: a count of exactly 1 takes the singular; every other
+  // number, 0 included, keeps the plural.
+  it('says a count of 1 in the singular and 0 or 2 in the plural', () => {
+    const cases: [SavFinding, string][] = [
+      [
+        finding('sav.header_rows_mismatch', { declared: 1, read: 2 }),
+        "The file's header says it holds 1 case, but 2 were read. Gaply uses the 2 it read.",
+      ],
+      [
+        finding('sav.header_rows_mismatch', { declared: 0, read: 1 }),
+        "The file's header says it holds 0 cases, but 1 was read. Gaply uses the 1 it read.",
+      ],
+      [
+        finding('sav.header_rows_mismatch', { declared: 2, read: 1 }),
+        "The file's header says it holds 2 cases, but 1 was read. Gaply uses the 1 it read.",
+      ],
+      [
+        finding('sav.case_size_mismatch', { declared: 1, used: 2 }),
+        "The file's header gives 1 value per case, but its variables define 2. Gaply reads 2.",
+      ],
+      [
+        finding('sav.case_size_mismatch', { declared: 2, used: 3 }),
+        "The file's header gives 2 values per case, but its variables define 3. Gaply reads 3.",
+      ],
+      [
+        finding('sav.dates_out_of_range', { count: 1 }),
+        '1 date or time value was outside the years 1 to 9999, and was read as missing.',
+      ],
+      [
+        finding('sav.dates_out_of_range', { count: 0 }),
+        '0 date or time values were outside the years 1 to 9999, and were read as missing.',
+      ],
+      [
+        finding('sav.very_long_string_ignored', { count: 1 }),
+        '1 long text variable declares a length the file cannot hold. Gaply reads it at the length of its own record, at most 255 bytes, so longer text in it may be cut.',
+      ],
+      [
+        finding('sav.very_long_string_ignored', { count: 2 }),
+        '2 long text variables declare a length the file cannot hold. Gaply reads each at the length of its own record, at most 255 bytes, so longer text in them may be cut.',
+      ],
+      [
+        finding('sav.unrecognised_finding', { count: 1 }),
+        'The SPSS reader noted 1 other thing about this file that Gaply cannot describe yet.',
+      ],
+      [
+        finding('sav.unrecognised_finding', { count: 2 }),
+        'The SPSS reader noted 2 other things about this file that Gaply cannot describe yet.',
+      ],
+    ];
+    for (const [f, want] of cases) expect(savFindingSentence(f)).toBe(want);
+    // A code this screen does not know is said as the one thing noted.
+    expect(savFindingSentence(finding('sav.a_later_code', {}))).toBe(
+      'The SPSS reader noted 1 other thing about this file that Gaply cannot describe yet.',
+    );
   });
 
   it('shows the sentences under the profile of a method, and nothing when there are none', () => {
@@ -95,7 +155,7 @@ describe('the SPSS reader findings', () => {
     const items = Array.from(screen.getByTestId('desc-file-findings').querySelectorAll('li')).map((li) => li.textContent);
     expect(items).toEqual([
       "The file's header does not give its values per case. Gaply reads the 2 its variables define.",
-      '1 date or time values were outside the years 1 to 9999, and were read as missing.',
+      '1 date or time value was outside the years 1 to 9999, and was read as missing.',
     ]);
   });
 });

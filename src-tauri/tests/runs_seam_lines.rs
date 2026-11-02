@@ -16,6 +16,9 @@
 //! * Correlations whose work panics, with no cancel (Phase 8H-2, decision
 //!   355): `stats_desc: the correlations panicked`, and the run ends
 //!   `Failed`.
+//! * Cronbach's alpha whose work panics, with no cancel (Phase 8I-2,
+//!   decision 380): `stats_desc: Cronbach's alpha panicked`, and the run
+//!   ends `Failed`.
 //! * Any kind whose work panics after a cancel was accepted: the shared
 //!   `stats_desc: the run's work panicked`, and the run ends `Cancelled`.
 //! * Every run that ends: the shared `stats_desc: run ended`.
@@ -35,6 +38,7 @@ use app_lib::runs::{CheckpointHook, Clock, DatasetSlots, Point, Runs, RUN_CEILIN
 use app_lib::stats_l1_ingest::load_dataset_from_bytes;
 use gaply_core::contracts::{OperationId, RunId, RunState};
 use gaply_core::research_project::DataFormat;
+use gaply_core::stats_alpha::{self, AlphaParams};
 use gaply_core::stats_anova::{self, AnovaParams, PostHoc};
 use gaply_core::stats_corr::{self, Coefficient, CorrParams, MissingHandling};
 use gaply_core::stats_desc::{self, Alias, DescribeParams};
@@ -78,6 +82,7 @@ enum Kind {
     Paired,
     Anova,
     Correlations,
+    CronbachAlpha,
 }
 
 /// A manager whose hook panics at `Column(0)`, after cancelling the run
@@ -98,6 +103,7 @@ fn panicking(what: AtColumn0, kind: Kind) -> Arc<Runs> {
                 Kind::Paired => drop(runs.paired_cancel(run).expect("cancelled")),
                 Kind::Anova => drop(runs.anova_cancel(run).expect("cancelled")),
                 Kind::Correlations => drop(runs.corr_cancel(run).expect("cancelled")),
+                Kind::CronbachAlpha => drop(runs.alpha_cancel(run).expect("cancelled")),
             }
         }
         panic!("the test's hook panics at column 0");
@@ -194,6 +200,16 @@ fn each_kind_says_its_own_panic_and_both_say_the_shared_lines() {
             missing_codes: vec![],
         },
     );
+    let alpha = stats_alpha::spec(
+        OperationId(7),
+        &pairs,
+        AlphaParams {
+            items: vec![Alias(ColumnAlias(1)), Alias(ColumnAlias(2))],
+            reversed: vec![],
+            scale: None,
+            missing_codes: vec![],
+        },
+    );
     let pair_slot = slots
         .get(slots.insert("synthetic pairs".into(), pairs))
         .unwrap();
@@ -255,6 +271,15 @@ fn each_kind_says_its_own_panic_and_both_say_the_shared_lines() {
             runs.corr_snapshot(run).unwrap().record.state.is_terminal()
         });
         ends.push(runs.corr_snapshot(run).unwrap().record.state);
+
+        let runs = panicking(what, Kind::CronbachAlpha);
+        let run = runs
+            .start_alpha(Arc::clone(&pair_slot), alpha.clone())
+            .unwrap();
+        wait_for("Cronbach's alpha ended", || {
+            runs.alpha_snapshot(run).unwrap().record.state.is_terminal()
+        });
+        ends.push(runs.alpha_snapshot(run).unwrap().record.state);
     }
     let _ = std::panic::take_hook();
 
@@ -267,6 +292,8 @@ fn each_kind_says_its_own_panic_and_both_say_the_shared_lines() {
             RunState::Failed,
             RunState::Failed,
             RunState::Failed,
+            RunState::Failed,
+            RunState::Cancelled,
             RunState::Cancelled,
             RunState::Cancelled,
             RunState::Cancelled,
@@ -284,7 +311,8 @@ fn each_kind_says_its_own_panic_and_both_say_the_shared_lines() {
     assert_eq!(events(&lines, "stats_desc: the paired t-test panicked"), 1);
     assert_eq!(events(&lines, "stats_desc: the one-way ANOVA panicked"), 1);
     assert_eq!(events(&lines, "stats_desc: the correlations panicked"), 1);
-    assert_eq!(events(&lines, "stats_desc: the run's work panicked"), 6);
-    assert_eq!(events(&lines, "stats_desc: run ended"), 12);
+    assert_eq!(events(&lines, "stats_desc: Cronbach's alpha panicked"), 1);
+    assert_eq!(events(&lines, "stats_desc: the run's work panicked"), 7);
+    assert_eq!(events(&lines, "stats_desc: run ended"), 14);
     assert_eq!(events(&lines, "stats_desc: a run event had no edge"), 0);
 }

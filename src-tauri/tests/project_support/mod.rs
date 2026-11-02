@@ -258,6 +258,36 @@ impl World {
         id
     }
 
+    /// Cronbach's alpha over `items`, `reversed` reverse-scored on `scale`
+    /// (Research OS, Phase 8I-2, decision 382), run to its end.
+    pub fn alpha(
+        &self,
+        slot: u64,
+        items: &[u32],
+        reversed: &[u32],
+        scale: Option<(f64, f64)>,
+        missing_codes: Vec<f64>,
+    ) -> u64 {
+        let e = self.engine();
+        let held = e.datasets.get(slot).expect("the slot");
+        let aliases = |v: &[u32]| v.iter().map(|n| Alias(ColumnAlias(*n))).collect();
+        let spec = gaply_core::stats_alpha::spec(
+            OperationId(10),
+            held.dataset(),
+            gaply_core::stats_alpha::AlphaParams {
+                items: aliases(items),
+                reversed: aliases(reversed),
+                scale: scale.map(|(min, max)| gaply_core::stats_alpha::ScaleEnds { min, max }),
+                missing_codes,
+            },
+        );
+        let id = app_lib::stats_alpha_commands::run(&e.runs, &e.datasets, slot, spec)
+            .expect("the run starts")
+            .run_id;
+        self.wait_new_kind(id);
+        id
+    }
+
     /// Waits until a one-sample or paired run has ended; its state.
     /// A one-way ANOVA of column `outcome` by column `group` (Research OS,
     /// Phase 8G-2, decision 330), run to its end.
@@ -300,6 +330,7 @@ impl World {
                 .or_else(|_| e.runs.paired_snapshot(RunId(run)).map(|s| s.record.state))
                 .or_else(|_| e.runs.anova_snapshot(RunId(run)).map(|s| s.record.state))
                 .or_else(|_| e.runs.corr_snapshot(RunId(run)).map(|s| s.record.state))
+                .or_else(|_| e.runs.alpha_snapshot(RunId(run)).map(|s| s.record.state))
                 .expect("the run is held");
             if state.is_terminal() {
                 return state;

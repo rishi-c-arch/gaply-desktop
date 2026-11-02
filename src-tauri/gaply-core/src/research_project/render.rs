@@ -144,6 +144,17 @@ pub enum ExportParameter {
     Coefficients(Vec<CorrelationCoefficient>),
     /// The correlations' missing handling, as chosen.
     MissingRows(MissingRows),
+    /// Cronbach's alpha's items, by their 1-based positions, in the
+    /// dataset's column order; two or more (Research OS, Phase 8I-2,
+    /// decision 382).
+    Items(Vec<u32>),
+    /// Alpha's reverse-scored items, by their 1-based positions, in the
+    /// dataset's column order; empty when none was.
+    ReverseScored(Vec<u32>),
+    /// Alpha's scale ends as the bits of their doubles, the lowest first, as
+    /// `TestValue` keeps its value: settings the user typed, not their data.
+    /// `None` when nothing is reverse-scored.
+    ScaleEnds(Option<[u64; 2]>),
 }
 
 /// A closed code with its integer parameters. A closed-word parameter is
@@ -501,6 +512,31 @@ fn parameter_line(p: &ExportParameter) -> String {
         ExportParameter::MissingRows(MissingRows::Listwise) => {
             "Missing values: listwise, every pair uses the rows where every variable has a value"
                 .into()
+        }
+        ExportParameter::Items(positions) => {
+            let list: Vec<String> = positions.iter().map(u32::to_string).collect();
+            format!("Items: columns {}, by position", list.join(", "))
+        }
+        ExportParameter::ReverseScored(positions) if positions.is_empty() => {
+            "Reverse-scored: none".into()
+        }
+        ExportParameter::ReverseScored(positions) => {
+            let list: Vec<String> = positions.iter().map(u32::to_string).collect();
+            let columns = if positions.len() == 1 {
+                "column"
+            } else {
+                "columns"
+            };
+            format!("Reverse-scored: {columns} {}, by position", list.join(", "))
+        }
+        // Each end as `TestValue` prints its value.
+        ExportParameter::ScaleEnds(Some([min, max])) => format!(
+            "Scale ends: {} to {}",
+            f64::from_bits(*min),
+            f64::from_bits(*max)
+        ),
+        ExportParameter::ScaleEnds(None) => {
+            "Scale ends: not given, as nothing is reverse-scored".into()
         }
     }
 }
@@ -988,6 +1024,42 @@ mod tests {
         assert_eq!(words, ["pearson", "spearman", "kendall"]);
         let words: Vec<&str> = MissingRows::ALL.iter().map(|c| c.wire()).collect();
         assert_eq!(words, ["pairwise", "listwise"]);
+    }
+
+    /// Phase 8I-2 (decision 382): alpha's items and reverse-scored items as
+    /// columns by position, singular for one, and the scale's ends as
+    /// `TestValue` prints a number, each with a line of its own.
+    #[test]
+    fn cronbach_alphas_parameters_have_lines_of_their_own() {
+        assert_eq!(
+            parameter_line(&ExportParameter::Items(vec![2, 3, 5])),
+            "Items: columns 2, 3, 5, by position"
+        );
+        assert_eq!(
+            parameter_line(&ExportParameter::ReverseScored(vec![3, 7])),
+            "Reverse-scored: columns 3, 7, by position"
+        );
+        assert_eq!(
+            parameter_line(&ExportParameter::ReverseScored(vec![3])),
+            "Reverse-scored: column 3, by position"
+        );
+        assert_eq!(
+            parameter_line(&ExportParameter::ReverseScored(Vec::new())),
+            "Reverse-scored: none"
+        );
+        let bits = |v: f64| v.to_bits();
+        assert_eq!(
+            parameter_line(&ExportParameter::ScaleEnds(Some([bits(1.0), bits(5.0)]))),
+            "Scale ends: 1 to 5"
+        );
+        assert_eq!(
+            parameter_line(&ExportParameter::ScaleEnds(Some([bits(-0.5), bits(1e-7)]))),
+            "Scale ends: -0.5 to 0.0000001"
+        );
+        assert_eq!(
+            parameter_line(&ExportParameter::ScaleEnds(None)),
+            "Scale ends: not given, as nothing is reverse-scored"
+        );
     }
 
     #[test]

@@ -156,6 +156,17 @@ fn each_operation_path_calls_its_facade() {
             "admit",
             "stats_adapters::corr_admit(",
         ),
+        // Research OS, Phase 8I-2 (decision 381).
+        (
+            "src/stats_alpha_commands.rs",
+            "validate",
+            "stats_adapters::alpha_validate(",
+        ),
+        (
+            "src/stats_alpha_commands.rs",
+            "admit",
+            "stats_adapters::alpha_admit(",
+        ),
     ];
     for (file, f, facade) in checks {
         let src = without_test_modules(&code(file));
@@ -205,6 +216,12 @@ fn each_operation_path_calls_its_facade() {
             "stats_adapters::corr_validate(",
             "stats_adapters::corr_run(",
         ),
+        // Phase 8I-2 (decision 381).
+        (
+            "CronbachAlpha",
+            "stats_adapters::alpha_validate(",
+            "stats_adapters::alpha_run(",
+        ),
     ] {
         let block = impl_block(&runs_src, &format!("impl Method for {method} {{"));
         for (f, facade) in [("validate", validate), ("compute", compute)] {
@@ -229,6 +246,8 @@ fn each_operation_path_calls_its_facade() {
         ("start_anova_then", "self.begin::<OneWayAnova>("),
         ("start_corr", "self.begin::<Correlations>("),
         ("start_corr_then", "self.begin::<Correlations>("),
+        ("start_alpha", "self.begin::<CronbachAlpha>("),
+        ("start_alpha_then", "self.begin::<CronbachAlpha>("),
     ] {
         assert!(
             squash(fn_body(&runs_src, f)).contains(through),
@@ -252,6 +271,9 @@ fn each_operation_path_calls_its_facade() {
         "stats_corr::validate(",
         "stats_corr::run(",
         "stats_corr::compute(",
+        "stats_alpha::validate(",
+        "stats_alpha::run(",
+        "stats_alpha::compute(",
     ] {
         assert!(
             !runs.contains(direct),

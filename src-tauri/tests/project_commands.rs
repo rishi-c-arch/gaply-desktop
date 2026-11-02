@@ -1430,6 +1430,50 @@ fn stored_corr_results_have_the_layout_of_their_fixtures() {
     }
 }
 
+/// Cronbach's alpha's saved results (Research OS, Phase 8I-2, decision 382):
+/// one with two items reversed, the scale's ends and a ticked missing code,
+/// and one with nothing reversed, laid out as their fixtures, for the
+/// webview's shape check, as the other kinds' are.
+#[test]
+fn stored_alpha_results_have_the_layout_of_their_fixtures() {
+    let w = World::new("stored-alpha");
+    let slot = w.open(
+        "alpha.csv",
+        b"a,b,c,d\n1,5,2,1\n2,4,,3\n3,3,4,2\n4,-9,4,5\n5,1,5,4\n2,4,3,2\n3,3,3,3\n4,2,5,4\n5,2,4,5\n1,5,1,2\n",
+    );
+    let reversed = w.alpha(slot, &[1, 2, 3, 4], &[2, 4], Some((1.0, 5.0)), vec![-9.0]);
+    let id = pc::save_run(&w.root(), &w.ws, reversed, new_project("Stored alpha"))
+        .unwrap()
+        .project_id;
+    let plain = w.alpha(slot, &[1, 3], &[], None, vec![]);
+    pc::save_run(&w.root(), &w.ws, plain, into_open(&id)).unwrap();
+    for (n, name, k, scale) in [
+        (
+            1,
+            "alpha_reversed.json",
+            4,
+            json!({ "min": 1.0, "max": 5.0 }),
+        ),
+        (2, "alpha.json", 2, Value::Null),
+    ] {
+        let back = pc::run_result(&w.root(), &w.ws, &id, n).expect("read back");
+        assert_eq!(back.state, RunState::Succeeded, "{name}");
+        assert_eq!(back.capability_id, "stats.analyze.cronbach_alpha", "{name}");
+        let bundle: Value = serde_json::from_str(back.bundle_json.as_deref().unwrap()).unwrap();
+        assert_eq!(bundle["primaryOutputs"]["k"], k, "{name}");
+        let spec: Value = serde_json::from_str(&back.spec_json).unwrap();
+        assert_eq!(spec["parameters"]["scale"], scale, "{name}");
+        assert!(
+            !bundle["primaryOutputs"]["exclusions"]
+                .as_array()
+                .unwrap()
+                .is_empty(),
+            "{name}: a row is left out"
+        );
+        assert_stored_fixture(name, &back);
+    }
+}
+
 #[test]
 fn a_save_target_reads_from_the_webview_shape_and_nothing_else() {
     let t: SaveTarget =

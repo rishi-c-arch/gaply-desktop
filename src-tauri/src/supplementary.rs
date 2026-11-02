@@ -1584,7 +1584,9 @@ fn sav_finding_of(text: &str) -> Option<Matched> {
             " instead of the standard 100",
         ],
     ) {
-        return found(C::CompressionBias, &[(P::Bias, int(h[0])?)]);
+        // Its own code: ambers decodes with the header's bias, so the
+        // trailer's changes nothing read (8I-2, decision 376).
+        return found(C::ZsavTrailerBias, &[(P::Bias, int(h[0])?)]);
     }
     if let Some(h) = holes(
         text,

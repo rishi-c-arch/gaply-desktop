@@ -39,6 +39,7 @@ pub mod reviewer_synthesis;
 pub mod runs;
 pub mod state;
 pub mod stats_ai;
+pub mod stats_alpha_commands;
 pub mod stats_anova_commands;
 pub mod stats_consistency;
 pub mod stats_corr_commands;
@@ -411,6 +412,14 @@ pub fn run() {
             stats_corr_commands::stats_corr_result,
             stats_corr_commands::stats_corr_cancel,
             stats_corr_commands::stats_corr_export,
+            // Research OS, Phase 8I-2 (decision 381): Cronbach's alpha,
+            // behind the workspace check.
+            stats_alpha_commands::stats_alpha_validate,
+            stats_alpha_commands::stats_alpha_run,
+            stats_alpha_commands::stats_alpha_status,
+            stats_alpha_commands::stats_alpha_result,
+            stats_alpha_commands::stats_alpha_cancel,
+            stats_alpha_commands::stats_alpha_export,
             // Research OS, Phase 3: the window's one active workspace. Only
             // `workspace_activate` activates one.
             workspace::workspace_list,

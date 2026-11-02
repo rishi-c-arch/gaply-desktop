@@ -117,7 +117,9 @@
 //! RangeFault}`; exactly the types listed below derive `Serialize`, and no
 //! type of the module holds a `String`; `Rows` and `Entry` (the values)
 //! derive nothing; `contracts` never names it; and `stats_registry` may name
-//! its id and version.
+//! its id and version. Phase 8I-2 (decision 378) reads its two files, the
+//! export's with them, which may name exactly `crate::stats_desc::export::
+//! text`; and `stats_adapters` may name it, for its façade.
 //!
 //! What it cannot see: a route through a helper in an allowed module (a
 //! function of `stats_l1::dataset` that read a file would not be caught
@@ -262,6 +264,7 @@ const STATS_ADAPTERS_CRATE_PATHS: &[&str] = &[
     "crate::stats_onesample",
     "crate::stats_anova",
     "crate::stats_corr",
+    "crate::stats_alpha",
     "crate::extract",
 ];
 /// The one module outside decision 46's list `stats_adapters` reads, by
@@ -282,6 +285,7 @@ const STATS_ADAPTERS_INLINE_PATHS: &[&str] = &[
     "crate::stats_onesample",
     "crate::stats_anova",
     "crate::stats_corr",
+    "crate::stats_alpha",
     "crate::extract::ExtractionResult",
     "crate::extract::SectionKind",
     "crate::extract::extract_from_text",
@@ -459,9 +463,12 @@ const CORR_ITEMS: &[(&str, &[&str])] = &[
 ];
 
 /// What `stats_alpha` may name inside the crate (Phase 8I, decision 372);
-/// Level 1's compute only for its one constant (decision 352's test).
+/// Level 1's compute only for its one constant (decision 352's test). The
+/// export's path comes before the descriptive summary's, so it is matched
+/// first (8I-2, decision 378).
 const STATS_ALPHA_CRATE_PATHS: &[&str] = &[
     "crate::contracts",
+    "crate::stats_desc::export",
     "crate::stats_desc",
     "crate::stats_dist",
     "crate::stats_l1::binding",
@@ -481,6 +488,7 @@ const ALPHA_ITEMS: &[(&str, &[&str])] = &[
     ("crate::stats_ttest", &["column", "non_finite_cells"]),
     ("crate::stats_l1::binding", &["suspect_codes_in"]),
     ("crate::stats_l1::compute", &["RHO_ONE_ULPS"]),
+    ("crate::stats_desc::export", &["text"]),
     ("crate::stats_desc", &["input_ref", "Alias"]),
 ];
 
@@ -917,7 +925,7 @@ fn contracts_and_stats_desc_reach_no_file_network_process_clock_model_or_log() {
         .chain(sources(STATS_DIST, 1).iter())
         .chain(sources(STATS_ANOVA, 2).iter())
         .chain(sources(STATS_CORR, 2).iter())
-        .chain(sources(STATS_ALPHA, 1).iter())
+        .chain(sources(STATS_ALPHA, 2).iter())
         .chain(sources(RESEARCH_PROJECT, 2).iter())
     {
         found.extend(forbidden_in(path, code));
@@ -1167,7 +1175,7 @@ fn imports_are_std_serde_serde_json_sha2_and_the_named_crate_paths_only() {
         }
     }
     // And stats_alpha each item on its list (decision 372).
-    let alpha: String = sources(STATS_ALPHA, 1)
+    let alpha: String = sources(STATS_ALPHA, 2)
         .into_iter()
         .map(|(_, c)| c)
         .collect();
@@ -1716,7 +1724,7 @@ fn no_stats_corr_type_holds_text() {
 /// `String`.
 #[test]
 fn only_the_listed_stats_alpha_types_derive_serialize_and_none_holds_a_cell_or_text() {
-    let items: Vec<Item> = sources(STATS_ALPHA, 1)
+    let items: Vec<Item> = sources(STATS_ALPHA, 2)
         .iter()
         .flat_map(|(_, c)| items(c))
         .collect();

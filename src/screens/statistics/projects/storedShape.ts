@@ -6,7 +6,8 @@
 //
 // * The capability must be one this app knows (the summary, the t-test, or
 //   since Phase 8D-2b the one-sample t-test, since 8D-2c the paired, since
-//   8G-2 the one-way ANOVA, and since 8H-2 the correlations),
+//   8G-2 the one-way ANOVA, since 8H-2 the correlations, and since 8I-2
+//   Cronbach's alpha),
 //   and every schema version the one this app reads: 1, the literal type of
 //   `schemaVersion` in describeTypes.ts and ttestTypes.ts and Rust's
 //   `SchemaVersion::NUMBER` (gaply-core/src/contracts/mod.rs).
@@ -22,11 +23,13 @@ import type { TTestDiagnostic, TTestResultView } from '../ttestTypes';
 import type { OneSampleDiagnostic, OneSampleResultView, PairedResultView } from '../onesampleTypes';
 import type { AnovaDiagnostic, AnovaResultView } from '../anovaTypes';
 import type { CorrDiagnostic, CorrResultView } from '../corrTypes';
+import type { AlphaDiagnostic, AlphaResultView } from '../alphaTypes';
 import DESCRIBE_CODES from '../describeCodes.json';
 import TTEST_CODES from '../ttestCodes.json';
 import ONESAMPLE_CODES from '../onesampleCodes.json';
 import ANOVA_CODES from '../anovaCodes.json';
 import CORR_CODES from '../corrCodes.json';
+import ALPHA_CODES from '../alphaCodes.json';
 import { capabilityOfKind } from '../methods';
 
 /** The schema version this app reads, for every stored part. */
@@ -39,15 +42,16 @@ export const ONE_SAMPLE_CAPABILITY = capabilityOfKind('one_sample');
 export const PAIRED_CAPABILITY = capabilityOfKind('paired');
 export const ANOVA_CAPABILITY = capabilityOfKind('anova');
 export const CORR_CAPABILITY = capabilityOfKind('correlations');
+export const ALPHA_CAPABILITY = capabilityOfKind('cronbach_alpha');
 
 /** A data file's formats: the ingest's (DataFormat in Rust, without json). */
 const DATA_FORMATS = ['csv', 'tsv', 'xlsx', 'xlsm', 'xlsb', 'xls', 'ods', 'sav', 'mat'];
 
 /** The case a method's checked results are shown as. */
-export type CaseKind = 'summary' | 'ttest' | 'one_sample' | 'paired' | 'anova' | 'correlations';
+export type CaseKind = 'summary' | 'ttest' | 'one_sample' | 'paired' | 'anova' | 'correlations' | 'cronbach_alpha';
 
 /** A failed run's stored diagnostic, in its method's codes. */
-export type StoredFailure = Diagnostic | TTestDiagnostic | OneSampleDiagnostic | AnovaDiagnostic | CorrDiagnostic;
+export type StoredFailure = Diagnostic | TTestDiagnostic | OneSampleDiagnostic | AnovaDiagnostic | CorrDiagnostic | AlphaDiagnostic;
 
 /** What a saved result is, once checked: what to show, or why not. */
 export type Checked =
@@ -57,6 +61,7 @@ export type Checked =
   | { kind: 'paired'; result: PairedResultView; dataFile: DataFileFacts }
   | { kind: 'anova'; result: AnovaResultView; dataFile: DataFileFacts }
   | { kind: 'correlations'; result: CorrResultView; dataFile: DataFileFacts }
+  | { kind: 'cronbach_alpha'; result: AlphaResultView; dataFile: DataFileFacts }
   | { kind: 'failed'; capability: CaseKind; failure: StoredFailure; dataFile: DataFileFacts }
   | { kind: 'unknownCapability' }
   | { kind: 'unknownSchema' }
@@ -85,12 +90,14 @@ const T_CODES = (TTEST_CODES as string[]).filter((c) => c.indexOf('stats.ttest.'
 const OS_CODES = (ONESAMPLE_CODES as string[]).filter((c) => c.indexOf('stats.onesample.') === 0);
 const AN_CODES = (ANOVA_CODES as string[]).filter((c) => c.indexOf('stats.anova.') === 0);
 const CR_CODES = (CORR_CODES as string[]).filter((c) => c.indexOf('stats.corr.') === 0);
+const AL_CODES = (ALPHA_CODES as string[]).filter((c) => c.indexOf('stats.alpha.') === 0);
 const SEVERITIES = ['error', 'warning', 'note'];
 const DESC_PARAM_KEYS = ['column', 'count', 'index', 'value', 'limit', 'expected', 'found', 'from', 'event'];
 const T_PARAM_KEYS = ['column', 'count', 'index', 'value', 'limit', 'expected', 'found'];
 const OS_PARAM_KEYS = ['column', 'count', 'index', 'value', 'limit', 'expected', 'found'];
 const AN_PARAM_KEYS = ['column', 'count', 'index', 'value', 'limit', 'expected', 'found'];
 const CR_PARAM_KEYS = ['column', 'count', 'index', 'value', 'limit', 'expected', 'found'];
+const AL_PARAM_KEYS = ['column', 'count', 'index', 'value', 'expected', 'found'];
 const RUN_STATES = [
   'draft',
   'validating',
@@ -449,6 +456,89 @@ function corrBundle(v: O): CorrResultView | null {
   };
 }
 
+/* ---- Cronbach's alpha (Phase 8I-2, decision 383) ------------------------------ */
+
+/** The codes stats_alpha writes where a number would be, field by field,
+ *  read from its code (decision 337b's rule): a refused sum, square or root
+ *  is overflow, underflow or arithmetic_refused; `finite` turns a value it
+ *  cannot hold into overflow. */
+const RANGE = ['overflow', 'underflow', 'arithmetic_refused'];
+const al = (codes: string[]) => codes.map((c) => `stats.alpha.${c}`);
+const AL_NC = {
+  alpha: al(['total_constant', ...RANGE]),
+  interval: al(['total_constant', 'distribution_out_of_range', ...RANGE]),
+  standardized: al(['item_constant', 'standardized_not_defined', ...RANGE]),
+  interItem: al(['item_constant', ...RANGE]),
+  mean: al(['overflow']),
+  sd: al(RANGE),
+  scaleMeanIfDeleted: al(['overflow']),
+  scaleVarianceIfDeleted: al(RANGE),
+  correctedItemTotal: al(['item_constant', 'others_constant', ...RANGE]),
+  alphaIfDeleted: al(['two_items', 'others_constant', ...RANGE]),
+};
+const alStat = (codes: readonly string[]) => (v: unknown) => oneKey(v, { value: isNum, not_computable: (x) => oneOf(x, codes) });
+const alInterval = (v: unknown) =>
+  oneKey(v, {
+    computed: (x) => isObject(x) && Object.keys(x).length === 2 && isNum(x.lower) && isNum(x.upper),
+    not_computable: (x) => oneOf(x, AL_NC.interval),
+  });
+const interItem = (v: unknown) =>
+  isObject(v) && Object.keys(v).length === 3 && [v.mean, v.min, v.max].every(alStat(AL_NC.interItem));
+const ITEM_STATS = ['mean', 'sd', 'scaleMeanIfDeleted', 'scaleVarianceIfDeleted', 'correctedItemTotal', 'alphaIfDeleted'] as const;
+const itemStats = (v: unknown) =>
+  isObject(v) &&
+  Object.keys(v).length === 2 + ITEM_STATS.length &&
+  isAlias(v.item) &&
+  typeof v.reversed === 'boolean' &&
+  ITEM_STATS.every((k) => alStat(AL_NC[k])(v[k]));
+const ALPHA_LIMITATIONS = ['stats.alpha.assumes_one_dimension', 'stats.alpha.no_omega'];
+
+/** An alpha exclusion, exactly as stats_alpha writes it (decision 383, 337b's
+ *  rule): missing_value or missing_code, each naming its column and nothing
+ *  else. */
+const alExclusion = (e: unknown) =>
+  isObject(e) &&
+  oneOf(e.code, ['stats.alpha.missing_value', 'stats.alpha.missing_code']) &&
+  isCount(e.count) &&
+  isObject(e.params) &&
+  Object.keys(e.params).length === 1 &&
+  isCount(e.params.column);
+
+function alphaBundle(v: O): AlphaResultView | null {
+  const d = diagnostic(AL_CODES, AL_PARAM_KEYS, false);
+  const r = v.primaryOutputs;
+  const ok =
+    isCount(v.runId) &&
+    v.status === 'succeeded' &&
+    isObject(r) &&
+    isCount(r.k) &&
+    r.k >= 2 &&
+    isCount(r.rowsUsed) &&
+    alStat(AL_NC.alpha)(r.alpha) &&
+    alInterval(r.interval) &&
+    alStat(AL_NC.standardized)(r.standardized) &&
+    interItem(r.interItem) &&
+    arrayOf(r.items, itemStats) &&
+    (r.items as unknown[]).length === r.k &&
+    arrayOf(r.exclusions, alExclusion) &&
+    Array.isArray(r.notes) &&
+    (r.notes.length === 0 || (r.notes.length === 1 && r.notes[0] === 'stats.alpha.negative_alpha')) &&
+    Array.isArray(r.limitations) &&
+    JSON.stringify(r.limitations) === JSON.stringify(ALPHA_LIMITATIONS) &&
+    arrayOf(v.diagnostics, d) &&
+    arrayOf(v.limitations, d) &&
+    manifest(v.manifest, ALPHA_CAPABILITY, alExclusion);
+  if (!ok) return null;
+  // As Rust's stats_alpha_commands::result makes the live view.
+  return {
+    runId: v.runId as number,
+    status: 'succeeded',
+    result: r as unknown as AlphaResultView['result'],
+    diagnostics: v.diagnostics as AlphaDiagnostic[],
+    manifest: v.manifest as AlphaResultView['manifest'],
+  };
+}
+
 /* ---- the checkers, one per method (Phase 8C; decision 249) ------------------- */
 
 /** How one method's saved result is checked: the case it is shown as, its
@@ -522,6 +612,16 @@ export const STORED_CHECKERS: Record<string, StoredChecker> = {
     bundle: (v, dataFile) => {
       const result = corrBundle(v);
       return result ? { kind: 'correlations', result, dataFile } : null;
+    },
+  },
+  [ALPHA_CAPABILITY]: {
+    which: 'cronbach_alpha',
+    codes: AL_CODES,
+    keys: AL_PARAM_KEYS,
+    strings: false,
+    bundle: (v, dataFile) => {
+      const result = alphaBundle(v);
+      return result ? { kind: 'cronbach_alpha', result, dataFile } : null;
     },
   },
 };

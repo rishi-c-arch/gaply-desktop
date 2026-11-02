@@ -5,7 +5,8 @@ in `gaply_core::stats_dist` (`src-tauri/gaply-core/src/stats_dist/mod.rs`).
 The three t-tests on the user's data ([independent_t.md](independent_t.md),
 [one_sample_t.md](one_sample_t.md), [paired_t.md](paired_t.md)) and, since
 Phase 8G, the one-way ANOVA ([one_way_anova.md](one_way_anova.md)) and, since
-8H, the correlations ([correlations.md](correlations.md)) take every p and
+8H, the correlations ([correlations.md](correlations.md)) and, since 8I,
+Cronbach's alpha ([cronbach_alpha.md](cronbach_alpha.md)) take every p and
 quantile from it; the regression will (decision 275). Level 0 and Level 1 keep
 `stats_l0::pvalue` as it is.
 
@@ -102,6 +103,27 @@ correlations use it for every interval (Fisher's z), and take Kendall's p from
 `normal_two_tailed(z)` = erfc(|z|/√2), added in 8H and measured against R's
 `2 * pnorm(-abs(z))` within 9.958e-11 down to p 9.2e-308 (gate 1e-9,
 [correlations.md](correlations.md) §5).
+
+**The F quantile, `f_quantile_upper(p_upper, df1, df2)`**, added in 8I
+(decision 368) for Cronbach's alpha's Feldt interval: the F whose upper-tail
+p is `p_upper`, found by doubling and then bisection on `f_upper`, for df1 up
+to `F_QUANTILE_MAX_DF1` = 99,999 and df2 up to `MEASURED_MAX_DF` = 1e7, and
+`None` beyond either. Measured against an R `uniroot` oracle (tol 1e-15) over
+213 rows: within 1.107e-10 (relative, in F) where Feldt's interval reaches
+(df2 ≤ 127 · df1; gate 2e-9) and 1.887e-8 elsewhere (df1 2, df2 1e7; gate
+2e-7). R's `qf` is not the oracle above df2 4e5: there it is off by up to
+4.76e-4 ([cronbach_alpha.md](cronbach_alpha.md) §5).
+
+- **No file Gaply opens passes df1's range:** every tier keeps 100,000 data
+  rows (§8), so df1 = n − 1 ≤ 99,999.
+- **df2 = (n − 1)(k − 1) passes 1e7** at 100,000 rows from 102 items, which
+  only the 16 and 32 GB tiers open (128 columns at 100,000 rows; the 8 GB
+  tier's 5,000,000 cells stop at 50 items). There alpha's interval is not
+  computable, `stats.alpha.distribution_out_of_range`, and alpha itself is
+  still computed.
+- **Speed:** alpha at 128 items and 100,000 rows took 4.74 to 4.80 s in a
+  release build on this Mac (three runs, 1 Nov 2026), under the run
+  manager's 30 s ceiling, so alpha has no budget (decision 371).
 
 ## 3. What stays with `stats_l0`, and why
 
@@ -327,7 +349,9 @@ rows, 128 columns, 10 MiB, 2 MiB of cell text).
     and sizes declared far beyond the file are refused as `malformed` (0.4.4
     read the first two, and could ask for gigabytes on the third).
   The reader's own findings on such files (for example "header declares 0
-  rows but 5 rows were read") are not shown or logged.
+  rows but 5 rows were read") are never shown or logged as its text; since
+  8I (decision 365) each is shown under the file's profile as a closed code
+  with its numbers, in Gaply's own sentence.
 - **The open datasets' budget counts cells only.** It does not count the
   file's bytes that each open dataset keeps for a project Save, nor the copy a
   rerun reads. An open drops the oldest open datasets until the cells held fit;

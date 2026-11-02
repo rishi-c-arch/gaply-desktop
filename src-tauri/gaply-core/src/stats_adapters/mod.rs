@@ -44,6 +44,12 @@
 //!   refusal worded `stats.corr.unknown_capability` or
 //!   `stats.corr.capability_version_mismatch`. Planned in 8H, Beta since
 //!   8H-2's Part 1 (decision 351), so the real registry admits it.
+//! * [`alpha_admit`], [`alpha_validate`] and [`alpha_run`]
+//!   (`stats.analyze.cronbach_alpha`, Phase 8I-2, decision 381):
+//!   `stats_alpha::validate` and `stats_alpha::run`, the same way, a registry
+//!   refusal worded `stats.alpha.unknown_capability` or
+//!   `stats.alpha.capability_version_mismatch`. Planned in 8I, Beta since
+//!   8I-2's Part 2 (decision 377), so the real registry admits it.
 //!
 //! The Level 0 and Level 1 specs carry no parameters (`()`) and no
 //! `InputRef`: their inputs are the manuscript's extraction and Level 1's
@@ -58,6 +64,7 @@ use crate::contracts::{
     SchemaVersion, ValidationReport, WorkspaceId,
 };
 use crate::extract::ExtractionResult;
+use crate::stats_alpha::{self, AlphaCode, AlphaOutcome, AlphaParams};
 use crate::stats_anova::{self, AnovaCode, AnovaOutcome, AnovaParams};
 use crate::stats_corr::{self, CorrCode, CorrOutcome, CorrParams};
 use crate::stats_desc::{self, DescCode, DescribeParams, DescribeResult, Halt};
@@ -827,6 +834,109 @@ pub(crate) fn corr_run_in<B>(
 }
 
 /* ------------------------------------------------------------------------ *
+ *  stats.analyze.cronbach_alpha (Phase 8I-2)
+ * ------------------------------------------------------------------------ */
+
+/// A registry refusal in alpha's own codes, as [`corr_refusal`] does.
+fn alpha_refusal(r: &Refusal) -> Diagnostic<AlphaCode> {
+    match r.code {
+        CapabilityCode::VersionMismatch => {
+            let int = |k| match r.params.get(&k) {
+                Some(ParamValue::Int(n)) => *n,
+                _ => 0,
+            };
+            Diagnostic::error(AlphaCode::CapabilityVersionMismatch)
+                .int(ParamKey::Expected, int(ParamKey::Expected))
+                .int(ParamKey::Found, int(ParamKey::Found))
+        }
+        _ => Diagnostic::error(AlphaCode::UnknownCapability),
+    }
+}
+
+/// The registry's check for an alpha spec, as [`corr_entry`] does: a
+/// registered, runnable entry of alpha's kind, and no confirmation.
+fn alpha_entry(
+    registry: &Registry,
+    spec: &OperationSpec<AlphaParams>,
+    build: Build,
+) -> Result<(), Refusal> {
+    let entry = runnable(registry, spec, build)?;
+    if entry.kind != Kind::AnalyzeCronbachAlpha {
+        return Err(refused(CapabilityCode::UnknownCapability));
+    }
+    no_confirmation(spec)
+}
+
+/// The registry's answer for an alpha spec, as it gives it, for the app's
+/// `stats_alpha_*` commands, as [`corr_admit`] is for the correlations.
+pub fn alpha_admit(spec: &OperationSpec<AlphaParams>, build: Build) -> Result<(), Refusal> {
+    alpha_entry(&Registry::statistics(), spec, build)
+}
+
+/// `stats.analyze.cronbach_alpha`'s validation: the registry first, so a
+/// spec the registry refuses is `Unsupported` before anything reads the
+/// dataset; then `stats_alpha::validate`, unchanged, which refuses a
+/// reversed value outside the scale and too few complete rows (decision
+/// 380).
+pub fn alpha_validate(
+    spec: &OperationSpec<AlphaParams>,
+    build: Build,
+    dataset: &Dataset,
+) -> ValidationReport<AlphaCode> {
+    alpha_validate_in(&Registry::statistics(), spec, build, dataset)
+}
+
+pub(crate) fn alpha_validate_in(
+    registry: &Registry,
+    spec: &OperationSpec<AlphaParams>,
+    build: Build,
+    dataset: &Dataset,
+) -> ValidationReport<AlphaCode> {
+    match alpha_entry(registry, spec, build) {
+        Ok(()) => stats_alpha::validate(dataset, spec),
+        Err(r) => {
+            let rows = dataset.rows() as u64;
+            let columns = spec.parameters.items.len() as u64;
+            let estimate = ResourceEstimate {
+                rows,
+                columns,
+                cells: rows.saturating_mul(columns),
+            };
+            ValidationReport::new(
+                vec![alpha_refusal(&r)],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                estimate,
+            )
+        }
+    }
+}
+
+/// `stats.analyze.cronbach_alpha`'s run: the registry again, then
+/// `stats_alpha::run`, unchanged, with its check points.
+pub fn alpha_run<B>(
+    spec: &OperationSpec<AlphaParams>,
+    build: Build,
+    dataset: &Dataset,
+    checkpoint: impl FnMut(usize) -> ControlFlow<B>,
+) -> Result<AlphaOutcome, stats_alpha::Halt<B>> {
+    alpha_run_in(&Registry::statistics(), spec, build, dataset, checkpoint)
+}
+
+pub(crate) fn alpha_run_in<B>(
+    registry: &Registry,
+    spec: &OperationSpec<AlphaParams>,
+    build: Build,
+    dataset: &Dataset,
+    checkpoint: impl FnMut(usize) -> ControlFlow<B>,
+) -> Result<AlphaOutcome, stats_alpha::Halt<B>> {
+    alpha_entry(registry, spec, build)
+        .map_err(|r| stats_alpha::Halt::Refused(alpha_refusal(&r)))?;
+    stats_alpha::run(dataset, &spec.parameters, checkpoint)
+}
+
+/* ------------------------------------------------------------------------ *
  *  AI: a method a model's answer names
  * ------------------------------------------------------------------------ */
 
@@ -1479,6 +1589,157 @@ mod corr_facade_tests {
         assert_eq!(
             corr_run_in(&real, &good, b, &d, go).unwrap(),
             stats_corr::compute(&d, &good.parameters).unwrap()
+        );
+    }
+}
+
+/// Cronbach's alpha's façade (Research OS, Phase 8I-2, decisions 377 and
+/// 381): the real registry admits it in both builds, since it is Beta; it
+/// refuses an id of another façade, a wrong version, a Planned table and a
+/// confirmation, each in its own codes, and runs the real spec exactly as
+/// `stats_alpha` does.
+#[cfg(test)]
+mod alpha_facade_tests {
+    use super::*;
+    use crate::contracts::capability::Lifecycle;
+    use crate::stats_alpha::{AlphaParams, Halt, ScaleEnds};
+    use crate::stats_desc::Alias;
+    use crate::stats_l1::dataset::{
+        build_dataset, ColumnAlias, DataFingerprint, RawTable, TableRef,
+    };
+
+    fn data() -> Dataset {
+        let rows: Vec<Vec<String>> = [
+            ("1", "5", "2"),
+            ("2", "4", "2"),
+            ("3", "3", "4"),
+            ("4", "2", "3"),
+            ("5", "1", "5"),
+            ("2", "5", "1"),
+        ]
+        .iter()
+        .map(|(a, b, c)| vec![a.to_string(), b.to_string(), c.to_string()])
+        .collect();
+        build_dataset(
+            RawTable::from_rows(vec!["a".into(), "b".into(), "c".into()], rows),
+            DataFingerprint::of_bytes(b"alpha facade", "test", TableRef::FirstTable),
+        )
+        .expect("dataset")
+    }
+
+    fn forged(d: &Dataset, id: &str, version: u32) -> OperationSpec<AlphaParams> {
+        let mut s = stats_alpha::spec(
+            OperationId(8),
+            d,
+            AlphaParams {
+                items: (1..=3).map(|n| Alias(ColumnAlias(n))).collect(),
+                reversed: vec![Alias(ColumnAlias(2))],
+                scale: Some(ScaleEnds { min: 1.0, max: 5.0 }),
+                missing_codes: Vec::new(),
+            },
+        );
+        s.capability_id = CapabilityId::parse(id).unwrap();
+        s.capability_version = version;
+        s
+    }
+
+    fn go(_: usize) -> ControlFlow<()> {
+        ControlFlow::Continue(())
+    }
+
+    fn codes(r: &ValidationReport<AlphaCode>) -> Vec<AlphaCode> {
+        r.errors.iter().map(|e| e.code).collect()
+    }
+
+    fn unknown() -> Halt<()> {
+        Halt::Refused(Diagnostic::error(AlphaCode::UnknownCapability))
+    }
+
+    #[test]
+    fn the_real_registry_admits_cronbach_alpha_in_both_builds_because_it_is_beta() {
+        let d = data();
+        let s = forged(&d, stats_alpha::CAPABILITY_ID, 1);
+        for build in [Build::Standard, Build::Devtools] {
+            alpha_admit(&s, build)
+                .unwrap_or_else(|r| panic!("Beta is admitted in {build:?}: {r:?}"));
+            assert!(alpha_validate(&s, build, &d).may_run(), "{build:?}");
+            assert_eq!(
+                alpha_run(&s, build, &d, go).ok(),
+                stats_alpha::compute(&d, &s.parameters).ok(),
+                "{build:?}: the module's own result"
+            );
+            assert!(alpha_run(&s, build, &d, go).is_ok(), "{build:?}");
+        }
+    }
+
+    #[test]
+    fn the_alpha_facade_refuses_forged_specs_and_runs_the_real_one_as_the_module_does() {
+        let d = data();
+        let b = Build::Devtools;
+        let real = Registry::statistics();
+        // Not in the table at all, and registered ids of other façades.
+        for id in [
+            "stats.analyze.mcdonald_omega",
+            "stats.describe",
+            "stats.analyze.correlations",
+            "stats.analyze.one_way_anova",
+            "stats.verify.pearson",
+        ] {
+            let s = forged(&d, id, 1);
+            assert_eq!(
+                codes(&alpha_validate_in(&real, &s, b, &d)),
+                [AlphaCode::UnknownCapability],
+                "{id}"
+            );
+            assert!(!alpha_validate_in(&real, &s, b, &d).may_run(), "{id}");
+            assert_eq!(
+                alpha_run_in(&real, &s, b, &d, go).unwrap_err(),
+                unknown(),
+                "{id}"
+            );
+            assert!(alpha_admit(&s, b).is_err(), "{id}");
+        }
+        // A wrong version, in alpha's own codes with its numbers.
+        let v = alpha_validate_in(&real, &forged(&d, stats_alpha::CAPABILITY_ID, 2), b, &d);
+        assert_eq!(codes(&v), [AlphaCode::CapabilityVersionMismatch]);
+        assert_eq!(
+            v.errors[0].params.get(&ParamKey::Expected),
+            Some(&ParamValue::Int(1))
+        );
+        assert_eq!(
+            v.errors[0].params.get(&ParamKey::Found),
+            Some(&ParamValue::Int(2))
+        );
+        // A Planned table: the real one, set back to Planned, as 8I had it.
+        let good = forged(&d, stats_alpha::CAPABILITY_ID, 1);
+        let planned =
+            Registry::statistics().with_lifecycle(stats_alpha::CAPABILITY_ID, Lifecycle::Planned);
+        for build in [Build::Standard, Build::Devtools] {
+            assert_eq!(
+                codes(&alpha_validate_in(&planned, &good, build, &d)),
+                [AlphaCode::UnknownCapability]
+            );
+            assert_eq!(
+                alpha_run_in(&planned, &good, build, &d, go).unwrap_err(),
+                unknown()
+            );
+        }
+        // A confirmation on a capability that takes none.
+        let mut c = good.clone();
+        c.confirmation_refs = vec![ConfirmationId::parse(&"ef".repeat(32)).unwrap()];
+        assert_eq!(
+            codes(&alpha_validate_in(&real, &c, b, &d)),
+            [AlphaCode::UnknownCapability]
+        );
+
+        // The real spec: exactly the direct calls.
+        assert_eq!(
+            alpha_validate_in(&real, &good, b, &d),
+            stats_alpha::validate(&d, &good)
+        );
+        assert_eq!(
+            alpha_run_in(&real, &good, b, &d, go).unwrap(),
+            stats_alpha::compute(&d, &good.parameters).unwrap()
         );
     }
 }

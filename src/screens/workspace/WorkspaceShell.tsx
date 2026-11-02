@@ -27,6 +27,7 @@ import { oneSampleBridge, pairedBridge, type OneSampleBridge, type PairedBridge 
 import { anovaBridge, type AnovaBridge } from '../statistics/anovaBridge';
 import { stepsSentence } from '../statistics/anovaWording';
 import { corrBridge, type CorrBridge } from '../statistics/corrBridge';
+import { alphaBridge, type AlphaBridge } from '../statistics/alphaBridge';
 import { byKind } from '../statistics/methods';
 import { projectsShown } from '../statistics/projects/projectGate';
 import { noteWorkspaceState, openProjectStore } from '../statistics/projects/projectSession';
@@ -50,6 +51,8 @@ export interface WorkspaceShellProps {
   anovaRuns?: AnovaBridge;
   /** Reads and cancels correlations' runs (Phase 8H-2's bridge). */
   corrRuns?: CorrBridge;
+  /** Reads and cancels Cronbach's alpha's runs (Phase 8I-2's bridge). */
+  alphaRuns?: AlphaBridge;
   /** How often the state and the newest run are read. */
   pollMs?: number;
 }
@@ -79,7 +82,8 @@ interface JobView {
   state: RunState;
   terminal: boolean;
   /** The descriptive summary's column progress, or the one-way ANOVA's or
-   *  the correlations' steps (decisions 328 and 355); a t-test has none. */
+   *  the correlations' or Cronbach's alpha's steps (decisions 328, 355 and
+   *  380); a t-test has none. */
   progress: string | null;
   kind: RunEntry['kind'];
 }
@@ -128,6 +132,7 @@ export const WorkspaceShell: React.FC<WorkspaceShellProps> = ({
   pairedRuns: givenPaired,
   anovaRuns: givenAnova,
   corrRuns: givenCorr,
+  alphaRuns: givenAlpha,
   pollMs = 1000,
 }) => {
   const navigate = useNavigate();
@@ -138,6 +143,7 @@ export const WorkspaceShell: React.FC<WorkspaceShellProps> = ({
   const paired = useMemo(() => givenPaired ?? pairedBridge(), [givenPaired]);
   const anova = useMemo(() => givenAnova ?? anovaBridge(), [givenAnova]);
   const corr = useMemo(() => givenCorr ?? corrBridge(), [givenCorr]);
+  const alpha = useMemo(() => givenAlpha ?? alphaBridge(), [givenAlpha]);
   const [view, setView] = useState<WorkspaceStateView | null>(null);
   const [run, setRun] = useState<JobView | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -223,8 +229,23 @@ export const WorkspaceShell: React.FC<WorkspaceShellProps> = ({
         },
         cancel: (runId) => corr.cancel(runId).catch(() => null),
       },
+      cronbach_alpha: {
+        status: async (runId) => {
+          const r = await alpha.status(runId).catch(() => null);
+          return (
+            r && {
+              runId: r.runId,
+              state: r.state,
+              terminal: r.terminal,
+              progress: `${stepsSentence(r.stepsDone, r.stepsTotal)}.`,
+              kind: 'cronbach_alpha',
+            }
+          );
+        },
+        cancel: (runId) => alpha.cancel(runId).catch(() => null),
+      },
     }),
-    [runs, ttest, oneSample, paired, anova, corr]
+    [runs, ttest, oneSample, paired, anova, corr, alpha]
   );
 
   /** A run's state, through its kind's status command (decision 80). */

@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "capabilityId": "stats.analyze.cronbach_alpha",
+  "capabilityVersion": 1,
+  "engineVersion": 1,
+  "inputs": [
+    "f744584402996a0c5093ebda0c05d579de6b1e82832b3c4a46c0d93710fa7a2a"
+  ],
+  "parametersHash": "be34efd298505c20568a559d6456ac5e35d8a8421a73caa127f31ed5df5fd959",
+  "seed": null,
+  "rowsRead": 12,
+  "rowsUsed": 10,
+  "exclusions": [
+    {
+      "code": "stats.alpha.missing_code",
+      "count": 1,
+      "params": {
+        "column": 1
+      }
+    },
+    {
+      "code": "stats.alpha.missing_value",
+      "count": 1,
+      "params": {
+        "column": 2
+      }
+    }
+  ],
+  "platform": {
+    "os": "macos",
+    "arch": "aarch64"
+  },
+  "elapsedMs": 0,
+  "outputHash": "752f757dfd0db546ea8e6afb9cdc6d68edee786935dc58a02f6abeed9dd36bd7",
+  "reproducibility": "bitwise"
+}

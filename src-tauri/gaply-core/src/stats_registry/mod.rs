@@ -34,8 +34,8 @@
 //!   through the façades.
 //! * `stats.analyze.cronbach_alpha`: Cronbach's alpha on the user's own data
 //!   (Phase 8I, decision 367), with `stats_alpha`'s id and version. Planned
-//!   (decision 372): no command, run or screen yet, so every façade refuses
-//!   it in every build.
+//!   in 8I (decision 372); Beta since 8I-2's Part 2 (decision 377), so its
+//!   commands, runs and projects run through the façades.
 //!
 //! `run_stats_preview` and `run_stats_verify` are the legacy lane, not
 //! capabilities: they are not here.
@@ -202,8 +202,9 @@ const LIFECYCLES: &[(&str, Lifecycle)] = &[
     // Planned in 8H (decision 344); Beta at the start of 8H-2's Part 1
     // (decision 351), so its commands, runs and projects can run.
     (CORR_ID, Lifecycle::Beta),
-    // Planned in 8I (decision 372): no runnable method without its screen.
-    (ALPHA_ID, Lifecycle::Planned),
+    // Planned in 8I (decision 372); Beta at the start of 8I-2's Part 2
+    // (decision 377), so its commands, runs and projects can run.
+    (ALPHA_ID, Lifecycle::Beta),
 ];
 /// A Level 1 method `L1Registry` implements.
 const VERIFY_IMPLEMENTED: Lifecycle = Lifecycle::Beta;
@@ -1058,18 +1059,18 @@ mod tests {
         );
     }
 
-    /// Phase 8I (decision 372): Cronbach's alpha is listed last, Planned,
-    /// with its own title, description and limitations, and its validation
-    /// suite and page named; refused in both builds, so no screen can run it
-    /// (decision 325's lesson: red first by the lifecycle).
+    /// Phase 8I (decision 372): Cronbach's alpha is listed last, with its own
+    /// title, description and limitations, and its validation suite and page
+    /// named. Planned in 8I and refused in both builds; Beta since 8I-2's
+    /// Part 2 (decision 377), so runnable in both.
     #[test]
-    fn cronbach_alpha_is_listed_last_as_planned_and_never_runs() {
+    fn cronbach_alpha_is_listed_last_as_beta_and_runs_in_both_builds() {
         let t = Registry::statistics();
         let id = CapabilityId::parse(ALPHA_ID).unwrap();
         let e = t.lookup(&id).expect("listed");
         let d = &e.descriptor;
         assert_eq!(e.kind, Kind::AnalyzeCronbachAlpha);
-        assert_eq!((d.version, d.lifecycle), (1, Lifecycle::Planned));
+        assert_eq!((d.version, d.lifecycle), (1, Lifecycle::Beta));
         assert_eq!(
             (d.title_code, d.description_code),
             (
@@ -1091,8 +1092,8 @@ mod tests {
             (SuiteId("alpha_r_golden"), DocId("methods/cronbach_alpha"))
         );
         for build in [Build::Standard, Build::Devtools] {
-            let r = t.require_runnable(&id, 1, build).unwrap_err();
-            assert_eq!(r.code, CapabilityCode::NotRunnable, "Planned in {build:?}");
+            t.require_runnable(&id, 1, build)
+                .unwrap_or_else(|r| panic!("Beta runs in {build:?}: {r:?}"));
         }
         let ids: Vec<String> = t.ids().iter().map(|i| i.as_str().to_string()).collect();
         assert_eq!(

@@ -109,8 +109,10 @@ function withStored(name: string, field: 'bundleJson' | 'failureJson' | 'specJso
 /* ---- the shape check ----------------------------------------------------------- */
 
 describe('the shape check', () => {
-  it('has the eleven snapshots Rust wrote, and accepts every one', () => {
+  it('has the thirteen snapshots Rust wrote, and accepts every one', () => {
     expect(SNAPSHOTS).toEqual([
+      'alpha.json',
+      'alpha_reversed.json',
       'anova.json',
       'anova_post_hoc.json',
       'corr_listwise.json',
@@ -142,6 +144,8 @@ describe('the shape check', () => {
     ['anova_post_hoc.json', 'bundleJson'],
     ['corr_listwise.json', 'bundleJson'],
     ['corr_pairwise.json', 'bundleJson'],
+    ['alpha.json', 'bundleJson'],
+    ['alpha_reversed.json', 'bundleJson'],
   ] as const)('%s: rejects it with any one field of its %s removed', (name, field) => {
     const all = paths(JSON.parse(stored(name)[field] as string)).filter((p) => typeof p[p.length - 1] === 'string');
     expect(all.length).toBeGreaterThan(5);

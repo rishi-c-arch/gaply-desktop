@@ -81,6 +81,14 @@
 //! check points too. A spec over the budget is refused by validation, so it
 //! never starts.
 //!
+//! Research OS, Phase 8I-2 (decision 380): a record may hold Cronbach's
+//! alpha, started with [`Runs::start_alpha`]. Its check points are
+//! `stats_alpha::run`'s, one before the arithmetic, one before each item's
+//! row and one before each inter-item correlation, and the record's
+//! `columns_total` is `stats_alpha::check_points`, from the spec alone. It has
+//! no budget (decision 371); the ceiling applies, as to every kind. A spec
+//! validation refuses never starts.
+//!
 //! Phase 3: the run manager and the slots belong to the Statistics workspace
 //! (`crate::workspace`), built when it is activated and dropped when it is
 //! left. [`Runs::seal`] is how it is left: under the records' lock it either
@@ -102,6 +110,7 @@ use gaply_core::contracts::{
 };
 use gaply_core::research_project::DataFormat;
 use gaply_core::stats_adapters;
+use gaply_core::stats_alpha::{self, AlphaCode, AlphaOutcome, AlphaParams};
 use gaply_core::stats_anova::{self, AnovaCode, AnovaOutcome, AnovaParams};
 use gaply_core::stats_corr::{self, CorrCode, CorrOutcome, CorrParams};
 use gaply_core::stats_desc::{self, DescCode, DescribeParams, DescribeResult, Halt};
@@ -483,6 +492,9 @@ pub enum RunKind {
     /// `stats.analyze.correlations`, through the `stats_corr_*` commands
     /// (Research OS, Phase 8H-2, decision 355).
     Correlations,
+    /// `stats.analyze.cronbach_alpha`, through the `stats_alpha_*` commands
+    /// (Research OS, Phase 8I-2, decision 380).
+    CronbachAlpha,
 }
 
 /// The data a run read: its slot, and the SHA-256 of the original bytes the
@@ -600,6 +612,7 @@ enum Held {
     Paired(Outputs<PairedResult, OneSampleCode>),
     Anova(Outputs<AnovaOutcome, AnovaCode>),
     Correlations(Outputs<CorrOutcome, CorrCode>),
+    CronbachAlpha(Outputs<AlphaOutcome, AlphaCode>),
 }
 
 impl Held {
@@ -612,8 +625,8 @@ struct Entry {
     record: RunRecord,
     /// Every state the record has been in, in order.
     path: Vec<RunState>,
-    /// Describe's columns, or the ANOVA's or the correlations' check points;
-    /// a t-test has none, and its view does not carry them.
+    /// Describe's columns, or the ANOVA's, the correlations' or alpha's check
+    /// points; a t-test has none, and its view does not carry them.
     columns_total: usize,
     columns_done: usize,
     cancel_requested: bool,
@@ -661,6 +674,7 @@ enum Job {
     Paired(OperationSpec<PairedParams>),
     Anova(OperationSpec<AnovaParams>),
     Correlations(OperationSpec<CorrParams>),
+    CronbachAlpha(OperationSpec<AlphaParams>),
 }
 
 impl Job {
@@ -687,6 +701,7 @@ enum Report {
     Paired(ValidationReport<OneSampleCode>),
     Anova(ValidationReport<AnovaCode>),
     Correlations(ValidationReport<CorrCode>),
+    CronbachAlpha(ValidationReport<AlphaCode>),
 }
 
 impl Report {
@@ -704,6 +719,7 @@ enum Done {
     Paired(Finished<PairedT>),
     Anova(Finished<OneWayAnova>),
     Correlations(Finished<Correlations>),
+    CronbachAlpha(Finished<CronbachAlpha>),
 }
 
 /* ------------------------------------------------------------------------ *
@@ -741,6 +757,10 @@ macro_rules! by_method {
             }
             $enum::Correlations($x) => {
                 type $m = Correlations;
+                $body
+            }
+            $enum::CronbachAlpha($x) => {
+                type $m = CronbachAlpha;
                 $body
             }
         }
@@ -1446,6 +1466,116 @@ impl Method for Correlations {
     }
 }
 
+/// `stats.analyze.cronbach_alpha`, through the `stats_alpha_*` commands
+/// (Research OS, Phase 8I-2, decision 380).
+struct CronbachAlpha;
+
+impl Method for CronbachAlpha {
+    const KIND: RunKind = RunKind::CronbachAlpha;
+    type Params = AlphaParams;
+    type Result = AlphaOutcome;
+    type Code = AlphaCode;
+    type Halt = stats_alpha::Halt<Stop>;
+
+    /// `stats_alpha::check_points`: one before the arithmetic, one before
+    /// each item's row and one before each inter-item correlation, from the
+    /// spec alone.
+    fn columns_total(spec: &OperationSpec<AlphaParams>, _: &Dataset) -> usize {
+        stats_alpha::check_points(&spec.parameters)
+    }
+
+    fn validate(
+        spec: &OperationSpec<AlphaParams>,
+        dataset: &Dataset,
+    ) -> ValidationReport<AlphaCode> {
+        // Through `stats.analyze.cronbach_alpha`'s façade: the registry
+        // first, then `stats_alpha::validate`, unchanged, which refuses a
+        // reversed value outside the scale and too few complete rows.
+        stats_adapters::alpha_validate(spec, crate::workspace::build(), dataset)
+    }
+
+    fn compute(
+        spec: &OperationSpec<AlphaParams>,
+        build: Build,
+        dataset: &Dataset,
+        checkpoint: impl FnMut(usize) -> ControlFlow<Stop>,
+    ) -> Result<AlphaOutcome, stats_alpha::Halt<Stop>> {
+        // A check point before the arithmetic, each item's row and each
+        // inter-item correlation.
+        stats_adapters::alpha_run(spec, build, dataset, checkpoint)
+    }
+
+    fn manifest(
+        spec: &OperationSpec<AlphaParams>,
+        dataset: &Dataset,
+        result: &AlphaOutcome,
+        elapsed: u64,
+    ) -> RunManifest<AlphaCode> {
+        stats_alpha::manifest(spec, dataset, result, elapsed, Platform::current())
+    }
+
+    /// The result's own limitations, as notes.
+    fn limitations(result: &AlphaOutcome) -> Vec<Diagnostic<AlphaCode>> {
+        result
+            .limitations
+            .iter()
+            .map(|c| Diagnostic::note(*c))
+            .collect()
+    }
+
+    /// Every check point on a result; a stop leaves the count the check
+    /// points set.
+    fn columns_done(total: usize, outcome: &Outcome<Self>) -> Option<usize> {
+        match outcome {
+            Ok(Ok(_)) => Some(total),
+            Ok(Err(_)) | Err(_) => None,
+        }
+    }
+
+    fn halted(halt: stats_alpha::Halt<Stop>) -> Halted<AlphaCode> {
+        match halt {
+            stats_alpha::Halt::Stopped { reason } => Halted::Stopped(reason),
+            stats_alpha::Halt::Refused(d) => Halted::Refused(d),
+        }
+    }
+
+    fn panicked() {
+        tracing::warn!("stats_desc: Cronbach's alpha panicked");
+    }
+
+    fn outputs(held: &Held) -> Option<&Outputs<AlphaOutcome, AlphaCode>> {
+        if let Held::CronbachAlpha(o) = held {
+            Some(o)
+        } else {
+            None
+        }
+    }
+
+    fn outputs_mut(held: &mut Held) -> Option<&mut Outputs<AlphaOutcome, AlphaCode>> {
+        if let Held::CronbachAlpha(o) = held {
+            Some(o)
+        } else {
+            None
+        }
+    }
+
+    fn held(outputs: Outputs<AlphaOutcome, AlphaCode>) -> Held {
+        Held::CronbachAlpha(outputs)
+    }
+
+    fn job(spec: OperationSpec<AlphaParams>) -> Job {
+        Job::CronbachAlpha(spec)
+    }
+
+    fn report(report: ValidationReport<AlphaCode>) -> Report {
+        Report::CronbachAlpha(report)
+    }
+
+    fn done(finished: Finished<Self>) -> Done {
+        Done::CronbachAlpha(finished)
+    }
+}
+
 /// An end hook that is due, with what it is called with: called only once
 /// the records' lock is released (Phase 5C-1a).
 struct Due {
@@ -1700,6 +1830,26 @@ impl Runs {
         end: EndHook,
     ) -> Result<RunId, NotStarted> {
         self.begin::<Correlations>(slot, spec, Some(end))
+    }
+
+    /// [`Runs::start`] for Cronbach's alpha (Research OS, Phase 8I-2,
+    /// decision 380).
+    pub fn start_alpha(
+        self: &Arc<Self>,
+        slot: Arc<Slot>,
+        spec: OperationSpec<AlphaParams>,
+    ) -> Result<RunId, NotStarted> {
+        self.begin::<CronbachAlpha>(slot, spec, None)
+    }
+
+    /// [`Runs::start_alpha`], with an end hook: a rerun.
+    pub fn start_alpha_then(
+        self: &Arc<Self>,
+        slot: Arc<Slot>,
+        spec: OperationSpec<AlphaParams>,
+        end: EndHook,
+    ) -> Result<RunId, NotStarted> {
+        self.begin::<CronbachAlpha>(slot, spec, Some(end))
     }
 
     /// Every start, of any method (Research OS, Phase 8C): the record, then
@@ -2072,6 +2222,11 @@ impl Runs {
         self.snapshot_as::<Correlations>(run)
     }
 
+    /// Cronbach's alpha's run; `run.wrong_kind` for another kind's.
+    pub fn alpha_snapshot(&self, run: RunId) -> Result<RunSnapshot<AlphaCode>, RunCode> {
+        self.snapshot_as::<CronbachAlpha>(run)
+    }
+
     /// Asks the run to stop. Queued: cancelled now. Running: the flag is set,
     /// and the next check point, or the worker's last step if no check point
     /// is left, ends it `Cancelled`. Finished: unchanged.
@@ -2133,6 +2288,11 @@ impl Runs {
         self.cancel_as::<Correlations>(run)
     }
 
+    /// Cancels Cronbach's alpha's run; `run.wrong_kind` for another kind's.
+    pub fn alpha_cancel(&self, run: RunId) -> Result<RunSnapshot<AlphaCode>, RunCode> {
+        self.cancel_as::<CronbachAlpha>(run)
+    }
+
     /// The result of a run of `M`'s kind that succeeded. Otherwise the closed
     /// reason: `not_finished`, `cancelled`, `timed_out`, `no_result`, or
     /// `wrong_kind` for another kind's run.
@@ -2192,6 +2352,15 @@ impl Runs {
     /// run.
     pub fn corr_result(&self, run: RunId) -> Result<ResultBundle<CorrOutcome, CorrCode>, RunCode> {
         self.result_as::<Correlations>(run)
+    }
+
+    /// [`Runs::result`] for Cronbach's alpha; `wrong_kind` for another
+    /// kind's run.
+    pub fn alpha_result(
+        &self,
+        run: RunId,
+    ) -> Result<ResultBundle<AlphaOutcome, AlphaCode>, RunCode> {
+        self.result_as::<CronbachAlpha>(run)
     }
 
     /// A copy of `run` for a project Save (Phase 5B-2), of either kind:

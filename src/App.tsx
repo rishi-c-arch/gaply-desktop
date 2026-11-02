@@ -74,6 +74,7 @@ const GaplyOneSampleRoute = React.lazy(() => import('./screens/GaplyScreens').th
 const GaplyPairedRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.PairedRoute })));
 const GaplyAnovaRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.AnovaRoute })));
 const GaplyCorrRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.CorrRoute })));
+const GaplyAlphaRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.AlphaRoute })));
 const GaplyProjectPageRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.ProjectPageRoute })));
 const GaplyWorkspaceChooserRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.WorkspaceChooserRoute })));
 const GaplyWorkspaceShellRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.WorkspaceShellRoute })));
@@ -685,7 +686,8 @@ const AppContent: React.FC = () => {
             <Suspense fallback={null}><GaplyOneSampleRoute /></Suspense>,
             <Suspense fallback={null}><GaplyPairedRoute /></Suspense>,
             <Suspense fallback={null}><GaplyAnovaRoute /></Suspense>,
-            <Suspense fallback={null}><GaplyCorrRoute /></Suspense>
+            <Suspense fallback={null}><GaplyCorrRoute /></Suspense>,
+            <Suspense fallback={null}><GaplyAlphaRoute /></Suspense>
           )}
           {/* An open project's page: only while the project screens show (Phase 5B-3b). */}
           {projectRoutes(<Suspense fallback={null}><GaplyProjectPageRoute /></Suspense>)}

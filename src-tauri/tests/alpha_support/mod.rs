@@ -1,0 +1,154 @@
+//! Shared by Cronbach's alpha's command tests (Research OS, Phase 8I-2,
+//! decision 381): an app over Tauri's mock runtime with the `stats_desc_*`
+//! commands (alpha opens and closes its dataset with them, and the summary
+//! is another kind a wrong-kind test needs), the t-test's, the ANOVA's and
+//! the correlations' run and status (three more kinds), the six
+//! `stats_alpha_*` commands, and the `workspace_*` commands, so a test calls
+//! them through IPC with the webview's argument names and reads the JSON the
+//! webview reads. Folders, tables and the IPC call itself are
+//! `desc_support`'s, unchanged.
+#![allow(dead_code)]
+
+use std::path::Path;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
+
+use serde_json::{json, Value};
+use tauri::test::{mock_builder, mock_context, noop_assets, MockRuntime};
+use tauri::{WebviewWindow, WebviewWindowBuilder};
+
+use app_lib::runs::Runs;
+use app_lib::state::AppState;
+use app_lib::stats_alpha_commands as alpha;
+use app_lib::stats_anova_commands as anova;
+use app_lib::stats_corr_commands as corr;
+use app_lib::stats_desc_commands as desc;
+use app_lib::stats_ttest_commands as ttest;
+use app_lib::workspace::{self as ws, HealthCheck, RunsFactory, WorkspaceSession};
+use gaply_core::{AppConfig, Database};
+
+use crate::desc_support::call;
+
+static WINDOWS: AtomicUsize = AtomicUsize::new(0);
+
+/// An app over the mock runtime, its state built by `AppState::new` on
+/// `app_data` and `db`, with `runs` as the Statistics run manager when given,
+/// and the Statistics workspace activated through `workspace_activate`.
+pub fn app(
+    app_data: &Path,
+    db: Arc<Database>,
+    runs: Option<Arc<Runs>>,
+) -> (tauri::App<MockRuntime>, WebviewWindow<MockRuntime>) {
+    let factory: RunsFactory =
+        Arc::new(move || runs.clone().unwrap_or_else(|| Arc::new(Runs::default())));
+    let (app, webview) = app_with(app_data, db, factory, Arc::new(ws::readiness));
+    call(
+        &webview,
+        "workspace_activate",
+        json!({ "id": "statistics" }),
+    )
+    .expect("Statistics activates");
+    (app, webview)
+}
+
+/// [`app`] with no workspace active.
+pub fn app_with(
+    app_data: &Path,
+    db: Arc<Database>,
+    runs: RunsFactory,
+    health: HealthCheck,
+) -> (tauri::App<MockRuntime>, WebviewWindow<MockRuntime>) {
+    let mut state = AppState::new(
+        AppConfig::new(app_data.join("gaply.db").to_string_lossy().as_ref()),
+        db.clone(),
+        db,
+        Arc::new(gaply_core::embed::HashEmbedder),
+        app_data.to_path_buf(),
+    );
+    state.workspace = Arc::new(WorkspaceSession::with_hooks(health, runs));
+    let app = mock_builder()
+        .manage(state)
+        .invoke_handler(tauri::generate_handler![
+            desc::stats_desc_open,
+            desc::stats_desc_run,
+            desc::stats_desc_status,
+            desc::stats_desc_result,
+            desc::stats_desc_cancel,
+            desc::stats_desc_export,
+            desc::stats_desc_close,
+            ttest::stats_ttest_run,
+            ttest::stats_ttest_status,
+            ttest::stats_ttest_result,
+            ttest::stats_ttest_cancel,
+            ttest::stats_ttest_export,
+            anova::stats_anova_run,
+            anova::stats_anova_status,
+            anova::stats_anova_result,
+            anova::stats_anova_cancel,
+            anova::stats_anova_export,
+            corr::stats_corr_run,
+            corr::stats_corr_status,
+            corr::stats_corr_result,
+            corr::stats_corr_cancel,
+            corr::stats_corr_export,
+            alpha::stats_alpha_validate,
+            alpha::stats_alpha_run,
+            alpha::stats_alpha_status,
+            alpha::stats_alpha_result,
+            alpha::stats_alpha_cancel,
+            alpha::stats_alpha_export,
+            ws::workspace_state,
+            ws::workspace_activate,
+            ws::workspace_deactivate,
+        ])
+        .build(mock_context(noop_assets()))
+        .expect("mock app");
+    let n = WINDOWS.fetch_add(1, Ordering::SeqCst);
+    let webview = WebviewWindowBuilder::new(&app, format!("a{n}"), Default::default())
+        .build()
+        .expect("webview");
+    (app, webview)
+}
+
+/// A spec for `stats.analyze.cronbach_alpha` on the opened dataset, its
+/// parameters as the screen sends them: items and reversed items in column
+/// order, the scale only when an item is reversed, codes ascending
+/// (decision 338).
+pub fn aspec(
+    open: &Value,
+    operation: u64,
+    items: &[&str],
+    reversed: &[&str],
+    scale: Option<(f64, f64)>,
+    missing_codes: &[f64],
+) -> Value {
+    json!({
+        "schemaVersion": 1,
+        "operationId": operation,
+        "workspaceId": "statistics",
+        "capabilityId": "stats.analyze.cronbach_alpha",
+        "capabilityVersion": 1,
+        "inputs": [open["inputRef"]],
+        "parameters": {
+            "items": items,
+            "reversed": reversed,
+            "scale": scale.map(|(min, max)| json!({ "min": min, "max": max })),
+            "missingCodes": missing_codes,
+        },
+        "randomSeed": null,
+        "confirmationRefs": [],
+    })
+}
+
+/// Polls `stats_alpha_status` until the run is terminal, for at most 30 s.
+pub fn until_terminal_alpha(webview: &WebviewWindow<MockRuntime>, run_id: u64) -> Value {
+    for _ in 0..3000 {
+        let s = call(webview, "stats_alpha_status", json!({ "runId": run_id })).expect("status");
+        if s["terminal"] == true {
+            return s;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    panic!("run {run_id} did not end within 30 s");
+}

@@ -42,9 +42,13 @@ closed! {
         /// A variable record with a negative type other than -1, read as
         /// part of the variable before it (`record`, its position from 1).
         TypeContinuation => "type_continuation",
-        /// A compression bias other than 100, in the header or a `.zsav`'s
-        /// trailer (`bias`).
+        /// The header's compression bias, other than 100 (`bias`). ambers
+        /// decodes compressed whole numbers with it, where SPSS assumes 100.
         CompressionBias => "compression_bias",
+        /// A `.zsav` trailer's compression bias, other than 100 (`bias`).
+        /// Decoding uses the header's, so it changes nothing read
+        /// (8I-2, decision 376).
+        ZsavTrailerBias => "zsav_trailer_bias",
         /// Very-long-string declarations ambers ignored, each variable then
         /// read at the width of its own record, at most 255 bytes (`count`).
         VeryLongStringIgnored => "very_long_string_ignored",
@@ -99,6 +103,7 @@ mod tests {
                 "sav.dates_out_of_range",
                 "sav.type_continuation",
                 "sav.compression_bias",
+                "sav.zsav_trailer_bias",
                 "sav.very_long_string_ignored",
                 "sav.unrecognised_finding",
             ]

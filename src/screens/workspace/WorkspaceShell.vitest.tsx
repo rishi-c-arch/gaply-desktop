@@ -14,6 +14,7 @@ import { makeMockTTestBridge } from '../statistics/ttestBridge';
 import { makeMockOneSampleBridge, makeMockPairedBridge } from '../statistics/onesampleBridge';
 import { makeMockAnovaBridge } from '../statistics/anovaBridge';
 import { makeMockCorrBridge } from '../statistics/corrBridge';
+import { makeMockAlphaBridge } from '../statistics/alphaBridge';
 import type { TTestRunStateView } from '../statistics/ttestTypes';
 import type { RunKind, WorkspaceStateView } from './workspaceTypes';
 import type { RunStateView } from '../statistics/describeTypes';
@@ -501,5 +502,84 @@ describe('a correlations run in the shell', () => {
     expect(oneSample.calls).toEqual([]);
     expect(paired.calls).toEqual([]);
     expect(anova.calls).toEqual([]);
+  });
+});
+
+// Research OS, Phase 8I-2 (decisions 380 and 384): Cronbach's alpha's run,
+// read and cancelled through its own bridge, named by the methods table's job
+// name, its progress in steps.
+describe("a Cronbach's alpha run in the shell", () => {
+  it('shows it with its steps, reads it through its own status, and Cancel cancels it through its own command', async () => {
+    let ended = false;
+    const ws = makeMockWorkspaceBridge({
+      workspace_state: () => ACTIVE(ended ? null : 12, 'cronbach_alpha'),
+      workspace_deactivate: () => {
+        if (!ended) {
+          throw Object.assign(
+            new Error(JSON.stringify({ code: 'workspace.run_active', params: { workspace: 'statistics', run: 12 }, severity: 'error' })),
+            { code: 'validation' }
+          );
+        }
+        return NONE;
+      },
+    });
+    const desc = makeMockDescribeBridge({});
+    const ttest = makeMockTTestBridge({});
+    const oneSample = makeMockOneSampleBridge({});
+    const paired = makeMockPairedBridge({});
+    const anova = makeMockAnovaBridge({});
+    const corr = makeMockCorrBridge({});
+    const view = (state: 'running' | 'cancelled', terminal: boolean) => ({
+      runId: 12,
+      state,
+      terminal,
+      elapsedMs: 80,
+      cancelRequested: false,
+      stepsDone: 300,
+      stepsTotal: 1276,
+      diagnostics: [],
+    });
+    const alpha = makeMockAlphaBridge({
+      stats_alpha_status: () => (ended ? view('cancelled', true) : view('running', false)),
+      stats_alpha_cancel: () => {
+        ended = true;
+        return view('running', false);
+      },
+    });
+    render(
+      <MemoryRouter initialEntries={['/app/workspaces/statistics']}>
+        <Routes>
+          <Route
+            path="/app/workspaces/statistics"
+            element={
+              <WorkspaceShell
+                bridge={ws}
+                runs={desc}
+                ttestRuns={ttest}
+                oneSampleRuns={oneSample}
+                pairedRuns={paired}
+                anovaRuns={anova}
+                corrRuns={corr}
+                alphaRuns={alpha}
+                pollMs={20}
+              />
+            }
+          />
+          <Route path="/app/workspaces" element={<div data-testid="chooser-here" />} />
+        </Routes>
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(screen.getByTestId('ws-job').textContent).toBe("Run 12 (Cronbach's alpha): Running. 300 of 1276 steps."));
+    fireEvent.click(screen.getByTestId('ws-switch'));
+    await screen.findByTestId('ws-switch-dialog');
+    fireEvent.click(screen.getByTestId('ws-switch-cancel'));
+    await screen.findByTestId('chooser-here');
+    expect(alpha.calls.filter(([c]) => c === 'stats_alpha_cancel')).toEqual([['stats_alpha_cancel', { runId: 12 }]]);
+    expect(desc.calls).toEqual([]);
+    expect(ttest.calls).toEqual([]);
+    expect(oneSample.calls).toEqual([]);
+    expect(paired.calls).toEqual([]);
+    expect(anova.calls).toEqual([]);
+    expect(corr.calls).toEqual([]);
   });
 });

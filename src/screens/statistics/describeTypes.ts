@@ -119,6 +119,7 @@ export type SavFindingCode =
   | 'sav.dates_out_of_range'
   | 'sav.type_continuation'
   | 'sav.compression_bias'
+  | 'sav.zsav_trailer_bias'
   | 'sav.very_long_string_ignored'
   | 'sav.unrecognised_finding';
 

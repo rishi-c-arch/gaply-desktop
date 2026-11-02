@@ -29,9 +29,11 @@ describe('the methods table', () => {
       manifestId('pairedResultView.json'),
       manifestId('anovaResultView.json'),
       manifestId('corrResultView.json'),
+      manifestId('alphaResultView.json'),
     ]);
     expect(fromViews).toEqual([
       'stats.analyze.correlations',
+      'stats.analyze.cronbach_alpha',
       'stats.analyze.independent_t',
       'stats.analyze.one_sample_t',
       'stats.analyze.one_way_anova',
@@ -43,8 +45,8 @@ describe('the methods table', () => {
     expect(sorted(Object.keys(SAVED_RENDERERS))).toEqual(fromViews);
   });
 
-  it('keeps the six kinds, their words, names and job names', () => {
-    expect(METHODS.map((m) => m.kind)).toEqual(['describe', 'ttest', 'one_sample', 'paired', 'anova', 'correlations']);
+  it('keeps the seven kinds, their words, names and job names', () => {
+    expect(METHODS.map((m) => m.kind)).toEqual(['describe', 'ttest', 'one_sample', 'paired', 'anova', 'correlations', 'cronbach_alpha']);
     expect(byKind((m) => m.jobName)).toEqual({
       describe: null,
       ttest: 'independent-samples t-test',
@@ -52,6 +54,7 @@ describe('the methods table', () => {
       paired: 'paired-samples t-test',
       anova: 'one-way ANOVA',
       correlations: 'correlations',
+      cronbach_alpha: "Cronbach's alpha",
     });
     expect(capabilityOfKind('describe')).toBe(manifestId('resultBundleView.json'));
     expect(capabilityOfKind('ttest')).toBe(manifestId('ttestResultView.json'));
@@ -59,12 +62,14 @@ describe('the methods table', () => {
     expect(capabilityOfKind('paired')).toBe(manifestId('pairedResultView.json'));
     expect(capabilityOfKind('anova')).toBe(manifestId('anovaResultView.json'));
     expect(capabilityOfKind('correlations')).toBe(manifestId('corrResultView.json'));
+    expect(capabilityOfKind('cronbach_alpha')).toBe(manifestId('alphaResultView.json'));
     expect(capabilityName(manifestId('resultBundleView.json'))).toBe('Descriptive summary');
     expect(capabilityName(manifestId('ttestResultView.json'))).toBe('Independent-samples t-test');
     expect(capabilityName(manifestId('onesampleResultView.json'))).toBe('One-sample t-test');
     expect(capabilityName(manifestId('pairedResultView.json'))).toBe('Paired-samples t-test');
     expect(capabilityName(manifestId('anovaResultView.json'))).toBe('One-way ANOVA');
     expect(capabilityName(manifestId('corrResultView.json'))).toBe('Correlations');
+    expect(capabilityName(manifestId('alphaResultView.json'))).toBe("Cronbach's alpha");
     expect(METHODS.map((m) => m.path)).toEqual([
       '/app/statistics/describe',
       '/app/statistics/ttest',
@@ -72,6 +77,7 @@ describe('the methods table', () => {
       '/app/statistics/paired',
       '/app/statistics/anova',
       '/app/statistics/correlations',
+      '/app/statistics/alpha',
     ]);
   });
 

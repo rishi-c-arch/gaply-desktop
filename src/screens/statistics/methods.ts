@@ -9,7 +9,7 @@
 // checker and saved-result renderer stay with the code that uses them,
 // keyed by the same kind or capability id. A new method adds one row.
 import { DESCRIBE_PATH } from './describeRoute';
-import { ANOVA_PATH, CORR_PATH, ONE_SAMPLE_PATH, PAIRED_PATH, TTEST_PATH } from './statisticsRoute';
+import { ALPHA_PATH, ANOVA_PATH, CORR_PATH, ONE_SAMPLE_PATH, PAIRED_PATH, TTEST_PATH } from './statisticsRoute';
 
 export const METHODS = [
   {
@@ -57,6 +57,14 @@ export const METHODS = [
     name: 'Correlations',
     jobName: 'correlations',
     path: CORR_PATH,
+  },
+  // Research OS, Phase 8I-2 (decision 384). The kind is Rust's RunKind word.
+  {
+    kind: 'cronbach_alpha',
+    capabilityId: 'stats.analyze.cronbach_alpha',
+    name: "Cronbach's alpha",
+    jobName: "Cronbach's alpha",
+    path: ALPHA_PATH,
   },
 ] as const;
 

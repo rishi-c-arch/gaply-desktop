@@ -129,7 +129,7 @@ fn the_sentences_no_file_reaches_map_to_their_codes() {
         vec![
             f(C::TypeContinuation, &[(P::Record, 1.0)]),
             f(C::CompressionBias, &[(P::Bias, 99.5)]),
-            f(C::CompressionBias, &[(P::Bias, 7.0)]),
+            f(C::ZsavTrailerBias, &[(P::Bias, 7.0)]),
             f(C::VeryLongStringIgnored, &[(P::Count, 2.0)]),
         ]
     );

@@ -99,6 +99,7 @@ use gaply_core::research_project::{
     numbers_agree_to_last_digits, platforms_differ, render_prov_json, render_report_markdown,
 };
 use gaply_core::stats_adapters;
+use gaply_core::stats_alpha::{self, AlphaCode, AlphaParams};
 use gaply_core::stats_anova::{self, AnovaCode, AnovaParams, PostHoc};
 use gaply_core::stats_corr::{self, Coefficient, CorrCode, CorrParams, MissingHandling};
 use gaply_core::stats_desc::{self, DescCode, DescribeParams, TreatAs};
@@ -1030,6 +1031,13 @@ const METHODS: &[MethodRow] = &[
         read_back: read_back::<OperationSpec<CorrParams>>,
         export: export_with::<OperationSpec<CorrParams>>,
     },
+    // Research OS, Phase 8I-2 (decision 382).
+    MethodRow {
+        capability: stats_alpha::CAPABILITY_ID,
+        kind: RunKind::CronbachAlpha,
+        read_back: read_back::<OperationSpec<AlphaParams>>,
+        export: export_with::<OperationSpec<AlphaParams>>,
+    },
 ];
 
 /// The row of a capability, if a method has one.
@@ -1245,6 +1253,35 @@ impl SavedSpec for OperationSpec<CorrParams> {
 
     fn parameters(&self) -> Vec<ExportParameter> {
         corr_parameters(self)
+    }
+}
+
+impl Rerun for OperationSpec<AlphaParams> {
+    fn valid_on(&self, build: Build, dataset: &Dataset) -> bool {
+        check_spec(
+            WorkspaceId::Statistics,
+            self.workspace_id,
+            &self.capability_id,
+        )
+        .is_ok()
+            && passes(stats_adapters::alpha_validate(self, build, dataset).status)
+    }
+
+    fn launch(
+        self: Box<Self>,
+        runs: &Arc<Runs>,
+        slot: Arc<Slot>,
+        end: EndHook,
+    ) -> Result<RunId, NotStarted> {
+        runs.start_alpha_then(slot, *self, end)
+    }
+}
+
+impl SavedSpec for OperationSpec<AlphaParams> {
+    type Code = AlphaCode;
+
+    fn parameters(&self) -> Vec<ExportParameter> {
+        alpha_parameters(self)
     }
 }
 
@@ -1915,11 +1952,13 @@ pub enum SpecFieldShown {
 }
 
 /// Every field of a saved describe, t-test, one-sample, paired, one-way
-/// ANOVA or correlations spec, by JSON path (`[]` for each element of an
+/// ANOVA, correlations or Cronbach's alpha spec, by JSON path (`[]` for each element of an
 /// array). The ANOVA shares `outcome`, `group`, `levels[]` and
 /// `missingCodes[]` with the t-test's rows, and adds `postHoc[]` (decision
 /// 330); the correlations share `missingCodes[]` and add `variables[]`,
-/// `coefficients[]` and `missing` (decision 357).
+/// `coefficients[]` and `missing` (decision 357); Cronbach's alpha shares
+/// `missingCodes[]` and adds `items[]`, `reversed[]` and `scale`, null or its
+/// `min` and `max` (decision 382).
 pub const SPEC_FIELDS: &[(&str, SpecFieldShown)] = &[
     (
         "schemaVersion",
@@ -1968,6 +2007,14 @@ pub const SPEC_FIELDS: &[(&str, SpecFieldShown)] = &[
     ("parameters.variables[]", SpecFieldShown::Reported),
     ("parameters.coefficients[]", SpecFieldShown::Reported),
     ("parameters.missing", SpecFieldShown::Reported),
+    // Research OS, Phase 8I-2 (decision 382): Cronbach's alpha's items and
+    // reverse-scored items by position, and the scale's ends the user typed
+    // (null when nothing is reversed).
+    ("parameters.items[]", SpecFieldShown::Reported),
+    ("parameters.reversed[]", SpecFieldShown::Reported),
+    ("parameters.scale", SpecFieldShown::Reported),
+    ("parameters.scale.min", SpecFieldShown::Reported),
+    ("parameters.scale.max", SpecFieldShown::Reported),
 ];
 
 fn shape(spec_inputs: &[InputRef]) -> Vec<ExportParameter> {
@@ -2117,6 +2164,25 @@ fn corr_parameters(spec: &OperationSpec<CorrParams>) -> Vec<ExportParameter> {
         MissingHandling::Pairwise => MissingRows::Pairwise,
         MissingHandling::Listwise => MissingRows::Listwise,
     }));
+    out.push(ExportParameter::MissingCodes {
+        count: p.missing_codes.len() as u64,
+    });
+    out.push(ExportParameter::Seed(spec.random_seed));
+    out
+}
+
+/// A Cronbach's alpha spec's settings, by the allow-list (decision 382): its
+/// items and reverse-scored items by position, the scale's ends the user
+/// typed, as bits, and how many missing codes.
+fn alpha_parameters(spec: &OperationSpec<AlphaParams>) -> Vec<ExportParameter> {
+    let p = &spec.parameters;
+    let positions = |v: &[stats_desc::Alias]| v.iter().map(|a| a.0 .0).collect();
+    let mut out = shape(&spec.inputs);
+    out.push(ExportParameter::Items(positions(&p.items)));
+    out.push(ExportParameter::ReverseScored(positions(&p.reversed)));
+    out.push(ExportParameter::ScaleEnds(
+        p.scale.map(|s| [s.min.to_bits(), s.max.to_bits()]),
+    ));
     out.push(ExportParameter::MissingCodes {
         count: p.missing_codes.len() as u64,
     });
@@ -2630,6 +2696,65 @@ mod tests {
         }
     }
 
+    /// Two Cronbach's alpha specs (Research OS, Phase 8I-2, decision 382):
+    /// one with two items reversed, the scale's ends and a missing code; one
+    /// with nothing reversed and so no scale.
+    fn alpha_specs() -> (OperationSpec<AlphaParams>, OperationSpec<AlphaParams>) {
+        let a = |n: u32| Alias(ColumnAlias(n));
+        let spec = |parameters| OperationSpec {
+            schema_version: SchemaVersion,
+            operation_id: OperationId(10),
+            workspace_id: WorkspaceId::Statistics,
+            capability_id: stats_alpha::capability_id(),
+            capability_version: 1,
+            inputs: vec![input()],
+            parameters,
+            random_seed: None,
+            confirmation_refs: Vec::new(),
+        };
+        (
+            spec(AlphaParams {
+                items: vec![a(1), a(2), a(3)],
+                reversed: vec![a(1), a(3)],
+                scale: Some(stats_alpha::ScaleEnds { min: 1.0, max: 5.0 }),
+                missing_codes: vec![99.0],
+            }),
+            spec(AlphaParams {
+                items: vec![a(2), a(3)],
+                reversed: Vec::new(),
+                scale: None,
+                missing_codes: Vec::new(),
+            }),
+        )
+    }
+
+    #[test]
+    fn the_alpha_settings_are_positions_bits_and_counts() {
+        let (reversed, plain) = alpha_specs();
+        assert_eq!(
+            alpha_parameters(&reversed),
+            [
+                ExportParameter::InputShape {
+                    rows: 12,
+                    columns: 3
+                },
+                ExportParameter::Items(vec![1, 2, 3]),
+                ExportParameter::ReverseScored(vec![1, 3]),
+                ExportParameter::ScaleEnds(Some([1f64.to_bits(), 5f64.to_bits()])),
+                ExportParameter::MissingCodes { count: 1 },
+                ExportParameter::Seed(None),
+            ]
+        );
+        assert_eq!(
+            alpha_parameters(&plain)[1..4],
+            [
+                ExportParameter::Items(vec![2, 3]),
+                ExportParameter::ReverseScored(Vec::new()),
+                ExportParameter::ScaleEnds(None),
+            ]
+        );
+    }
+
     #[test]
     fn the_corr_settings_are_positions_words_and_counts() {
         let c = corr_spec();
@@ -2697,6 +2822,10 @@ mod tests {
         paths(&serde_json::to_value(&paired).unwrap(), "", &mut seen);
         paths(&serde_json::to_value(anova_spec()).unwrap(), "", &mut seen);
         paths(&serde_json::to_value(corr_spec()).unwrap(), "", &mut seen);
+        // Alpha with the scale and without it (decision 382).
+        let (reversed, plain) = alpha_specs();
+        paths(&serde_json::to_value(&reversed).unwrap(), "", &mut seen);
+        paths(&serde_json::to_value(&plain).unwrap(), "", &mut seen);
         let listed: BTreeSet<String> = SPEC_FIELDS.iter().map(|(p, _)| p.to_string()).collect();
         let unlisted: Vec<&String> = seen.difference(&listed).collect();
         assert!(

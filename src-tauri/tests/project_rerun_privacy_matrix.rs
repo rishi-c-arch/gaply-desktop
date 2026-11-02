@@ -6,9 +6,11 @@
 //! * a level label, `LVL_SENTINEL_k44`, of the selected categorical column;
 //! * the file name `FILE_SENTINEL_d17.csv`, in the folder `PATH_SENTINEL_w93`;
 //! * `7123.4567`, in a numeric column the user does not select (the
-//!   correlations, since Phase 8H-2, select it as their second variable:
-//!   their result holds aliases, codes and numbers, and its column's mean
-//!   and SD are neither 7123.4567 nor 61.8129);
+//!   correlations, since Phase 8H-2, select it as their second variable,
+//!   and Cronbach's alpha, since 8I-2, as its second item: their results
+//!   hold aliases, codes and numbers, and its column's mean and SD, and the
+//!   scale's mean and variance without either item, are neither 7123.4567
+//!   nor 61.8129);
 //! * `61.8129`, in the selected numeric column (no statistic can be it: the
 //!   describe matrix's own data, checked there against R). Since Phase 8G-2
 //!   one row (95.5) is in the label's group, so under the one-way ANOVA too,
@@ -23,7 +25,8 @@
 //! the selected column by the label's column, all three post hoc tests,
 //! saved into the open project and run again; since Phase 8H-2 (decision
 //! 357) the same for correlations of the selected column and `aux`, all
-//! three coefficients, pairwise; read the project back (`project_current`, `project_runs`, each
+//! three coefficients, pairwise; since Phase 8I-2 (decision 382) the same for
+//! Cronbach's alpha of the selected column and `aux`, nothing reversed; read the project back (`project_current`, `project_runs`, each
 //! run's result) and render both exports, then delete the project.
 //!
 //! * In the app's data folder, the sentinels of the data appear only inside
@@ -52,6 +55,7 @@ use app_lib::project_commands::{self as pc, RerunProgress, SaveTarget};
 use app_lib::stats_desc_commands as desc;
 use desc_support::{delimited, C};
 use gaply_core::contracts::OperationId;
+use gaply_core::stats_alpha::{self, AlphaParams};
 use gaply_core::stats_anova::{self, AnovaParams, PostHoc};
 use gaply_core::stats_corr::{self, Coefficient, CorrParams, MissingHandling};
 use gaply_core::stats_desc::{self, Alias, ColumnRequest, DescribeParams, TreatAs};
@@ -323,12 +327,67 @@ fn a_rerun_puts_no_sentinel_anywhere_but_the_projects_artifacts_and_its_title() 
         "current (correlations)".into(),
         serde_json::to_string(&current).unwrap(),
     ));
+
+    // Phase 8I-2 (decision 382): Cronbach's alpha of the selected column and
+    // `aux`, saved into the open project and run again, the same way.
+    let held = e.datasets.get(opened.slot).unwrap();
+    let alpha_spec = stats_alpha::spec(
+        OperationId(4),
+        held.dataset(),
+        AlphaParams {
+            items: vec![Alias(ColumnAlias(1)), Alias(ColumnAlias(4))],
+            reversed: vec![],
+            scale: None,
+            missing_codes: vec![],
+        },
+    );
+    drop(held);
+    let alpha_run =
+        app_lib::stats_alpha_commands::run(&e.runs, &e.datasets, opened.slot, alpha_spec)
+            .unwrap()
+            .run_id;
+    w.wait_new_kind(alpha_run);
+    let saved_alpha = pc::save_run(
+        &app,
+        &w.ws,
+        alpha_run,
+        SaveTarget::OpenProject {
+            project_id: id.clone(),
+        },
+    )
+    .expect("alpha saved");
+    responses.push((
+        "save (alpha)".into(),
+        serde_json::to_string(&saved_alpha).unwrap(),
+    ));
+    let started = pc::rerun(&app, &w.ws, 7).expect("alpha's rerun starts");
+    responses.push((
+        "rerun (alpha)".into(),
+        serde_json::to_string(&started).unwrap(),
+    ));
+    let start = std::time::Instant::now();
+    let current = loop {
+        let c = pc::current(&w.ws).unwrap();
+        if c.rerun
+            .as_ref()
+            .is_some_and(|r| r.status != RerunProgress::Going && r.stored_run_id == Some(8))
+        {
+            break c;
+        }
+        assert!(start.elapsed() < std::time::Duration::from_secs(20));
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    };
+    assert_eq!(current.rerun.as_ref().unwrap().status, RerunProgress::Saved);
+    responses.push((
+        "current (alpha)".into(),
+        serde_json::to_string(&current).unwrap(),
+    ));
     responses.push((
         "runs".into(),
         serde_json::to_string(&pc::runs(&app, &w.ws, &id).unwrap()).unwrap(),
     ));
     let mut results = String::new();
-    for n in [1, 2, 3, 4, 5, 6] {
+    for n in [1, 2, 3, 4, 5, 6, 7, 8] {
         results.push_str(
             &serde_json::to_string(&pc::run_result(&app, &w.ws, &id, n).unwrap()).unwrap(),
         );
@@ -349,6 +408,10 @@ fn a_rerun_puts_no_sentinel_anywhere_but_the_projects_artifacts_and_its_title() 
         report.contains("Repeats run 5.")
             && report.contains("- Coefficients: pearson, spearman, kendall"),
         "the correlations and their rerun are in the report"
+    );
+    assert!(
+        report.contains("Repeats run 7.") && report.contains("- Items: columns 1, 4, by position"),
+        "alpha and its rerun are in the report"
     );
     assert!(prov.contains("wasInformedBy"), "and in the provenance");
 

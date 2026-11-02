@@ -33,6 +33,9 @@ import type { AnovaDiagnostic, AnovaResultView } from '../anovaTypes';
 import { CorrResultCard } from '../CorrFlow';
 import { corrSentence } from '../corrWording';
 import type { CorrDiagnostic } from '../corrTypes';
+import { AlphaResultCard } from '../AlphaFlow';
+import { alphaSentence } from '../alphaWording';
+import type { AlphaDiagnostic } from '../alphaTypes';
 import { diagnosticSentence } from '../describeWording';
 import { ttestSentence, type TTestNames } from '../ttestWording';
 import { oneSampleSentence } from '../onesampleWording';
@@ -46,6 +49,7 @@ import {
   ANOVA_CAPABILITY,
   capabilityOfCase,
   CORR_CAPABILITY,
+  ALPHA_CAPABILITY,
   checkStored,
   ONE_SAMPLE_CAPABILITY,
   PAIRED_CAPABILITY,
@@ -147,6 +151,15 @@ export const SAVED_RENDERERS: Record<string, SavedRenderer> = {
   [CORR_CAPABILITY]: {
     failedSentence: (failure) => corrSentence(failure as CorrDiagnostic, { column: BY_POSITION }),
     result: (checked) => (checked.kind === 'correlations' ? <CorrResultCard result={checked.result} names={{ column: BY_POSITION }} /> : null),
+    hidden: () => false,
+  },
+  // Phase 8I-2 (decision 384): through the live screen's own card, items by
+  // position (C1, C2, …), as the result itself names them; not behind a
+  // flag.
+  [ALPHA_CAPABILITY]: {
+    failedSentence: (failure) => alphaSentence(failure as AlphaDiagnostic, { column: BY_POSITION }),
+    result: (checked) =>
+      checked.kind === 'cronbach_alpha' ? <AlphaResultCard result={checked.result} names={{ column: BY_POSITION }} /> : null,
     hidden: () => false,
   },
 };

@@ -1,0 +1,35 @@
+{
+  "status": "invalid",
+  "errors": [
+    {
+      "code": "stats.alpha.reversed_outside_scale",
+      "params": {
+        "column": 2,
+        "count": 3
+      },
+      "severity": "error"
+    },
+    {
+      "code": "stats.alpha.scale_missing",
+      "params": {},
+      "severity": "error"
+    }
+  ],
+  "warnings": [
+    {
+      "code": "stats.alpha.suspect_missing_code",
+      "params": {
+        "column": 3,
+        "count": 2,
+        "value": 99
+      },
+      "severity": "warning"
+    }
+  ],
+  "missingInformation": [],
+  "estimatedResources": {
+    "rows": 12,
+    "columns": 3,
+    "cells": 36
+  }
+}

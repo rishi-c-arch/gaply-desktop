@@ -54,3 +54,6 @@ src-tauri/gaply-core/tests/fixtures/stats_anova/export_golden.linux-x86_64.csv -
 # Research OS, Phase 8H-2 (decision 354): the correlations' export golden,
 # CRLF for the same reason, pinned by `corr_export.rs`.
 src-tauri/gaply-core/tests/fixtures/stats_corr/export_golden.csv -text
+# Research OS, Phase 8I-2 (decision 379): Cronbach's alpha's export golden,
+# CRLF for the same reason, pinned by `alpha_export.rs`.
+src-tauri/gaply-core/tests/fixtures/stats_alpha/export_golden.csv -text

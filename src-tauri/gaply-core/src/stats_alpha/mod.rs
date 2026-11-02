@@ -75,6 +75,9 @@
 //!
 //! **Privacy.** [`AlphaOutcome`] holds numbers, aliases and closed codes,
 //! and no header, label or cell.
+//!
+//! **Exports (8I-2, decision 379).** [`export`] writes the result as one
+//! long CSV and the manifest as JSON, bytes only, columns by alias.
 
 use std::collections::BTreeMap;
 use std::convert::Infallible;
@@ -95,6 +98,8 @@ use crate::stats_l1::compute::RHO_ONE_ULPS;
 use crate::stats_l1::dataset::{Cell, Dataset};
 use crate::stats_ttest::{column, non_finite_cells};
 use crate::stats_verify::{mean, pearson_clamped, sample_variance, RangeFault};
+
+pub mod export;
 
 /// The capability's id in the registry.
 pub const CAPABILITY_ID: &str = "stats.analyze.cronbach_alpha";
