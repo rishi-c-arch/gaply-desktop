@@ -50,6 +50,13 @@
 //!   refusal worded `stats.alpha.unknown_capability` or
 //!   `stats.alpha.capability_version_mismatch`. Planned in 8I, Beta since
 //!   8I-2's Part 2 (decision 377), so the real registry admits it.
+//! * [`prep_runnable`], [`prep_admit`], [`prep_validate`], [`prep_build`],
+//!   [`prep_original`] and [`prep_csv`] (`stats.prepare.scale_score`, Phase
+//!   8M-3, decision 425): `stats_prep::validate`, `build`, `original` and
+//!   `export::prepared_csv`, the same way, for a recipe rather than a spec. A
+//!   registry refusal is worded `stats.prep.unknown_capability` or
+//!   `stats.prep.capability_version_mismatch`. Beta since 8M-2 (decision 416),
+//!   so the real registry admits it.
 //!
 //! The Level 0 and Level 1 specs carry no parameters (`()`) and no
 //! `InputRef`: their inputs are the manuscript's extraction and Level 1's
@@ -72,13 +79,14 @@ use crate::stats_l0::outcome::{check_reading, StatsConsistencyOutcome};
 use crate::stats_l0::result::{read_results, ResultReading, TableStructure};
 use crate::stats_l1::catalogue::L1MethodId;
 use crate::stats_l1::claim::RevisionHash;
-use crate::stats_l1::dataset::{Dataset, L1IngestRefusal};
+use crate::stats_l1::dataset::{DataFingerprint, Dataset, L1IngestRefusal};
 use crate::stats_l1::reproduce::{reproduce, ReproductionOutcome};
 use crate::stats_l1::run_state::L1RunState;
 use crate::stats_l1::token::ConfirmationToken;
 use crate::stats_onesample::{
     self, OneSampleCode, OneSampleParams, OneSampleResult, PairedParams, PairedResult,
 };
+use crate::stats_prep::{self, PrepCode, PrepRefusal, Prepared, Recipe};
 use crate::stats_registry::{Entry, Kind, Registry, CHECK_ID, VERIFY_PREFIX};
 use crate::stats_ttest::{self, TTestCode, TTestParams, TTestResult};
 
@@ -938,6 +946,158 @@ pub(crate) fn alpha_run_in<B>(
 }
 
 /* ------------------------------------------------------------------------ *
+ *  stats.prepare.scale_score (Phase 8M-3)
+ * ------------------------------------------------------------------------ */
+
+/// A registry refusal in scale scores' own codes, as [`alpha_refusal`] does.
+fn prep_refusal(r: &Refusal) -> Diagnostic<PrepCode> {
+    match r.code {
+        CapabilityCode::VersionMismatch => {
+            let int = |k| match r.params.get(&k) {
+                Some(ParamValue::Int(n)) => *n,
+                _ => 0,
+            };
+            Diagnostic::error(PrepCode::CapabilityVersionMismatch)
+                .int(ParamKey::Expected, int(ParamKey::Expected))
+                .int(ParamKey::Found, int(ParamKey::Found))
+        }
+        _ => Diagnostic::error(PrepCode::UnknownCapability),
+    }
+}
+
+/// The registry's check for this capability's id and version: a registered,
+/// runnable entry of this kind. A recipe is no spec: no workspace field and no
+/// confirmation to check.
+fn prep_entry(
+    registry: &Registry,
+    id: &CapabilityId,
+    version: u32,
+    build: Build,
+) -> Result<(), Refusal> {
+    let entry = registry.require_runnable(id, version, build)?;
+    if entry.kind != Kind::PrepareScaleScore {
+        return Err(refused(CapabilityCode::UnknownCapability));
+    }
+    Ok(())
+}
+
+/// The registry's answer for a recipe, as it gives it, for the app's
+/// `stats_prep_*` commands, as [`alpha_admit`] is for alpha.
+pub fn prep_admit(recipe: &Recipe, build: Build) -> Result<(), Refusal> {
+    prep_entry(
+        &Registry::statistics(),
+        &recipe.capability_id,
+        recipe.capability_version,
+        build,
+    )
+}
+
+/// The registry's answer for a command that takes no recipe: this build's
+/// capability, at this build's version.
+pub fn prep_runnable(build: Build) -> Result<(), Refusal> {
+    prep_runnable_in(&Registry::statistics(), build)
+}
+
+pub(crate) fn prep_runnable_in(registry: &Registry, build: Build) -> Result<(), Refusal> {
+    let id = CapabilityId::parse(stats_prep::CAPABILITY_ID)
+        .expect("a well-formed Statistics capability id");
+    prep_entry(registry, &id, stats_prep::CAPABILITY_VERSION, build)
+}
+
+/// `stats.prepare.scale_score`'s validation: the registry first, so a recipe
+/// the registry refuses is `Unsupported` before anything reads the dataset;
+/// then `stats_prep::validate`, unchanged. `cells_cap` is the caller's.
+pub fn prep_validate(
+    recipe: &Recipe,
+    build: Build,
+    dataset: &Dataset,
+    cells_cap: u64,
+) -> ValidationReport<PrepCode> {
+    prep_validate_in(&Registry::statistics(), recipe, build, dataset, cells_cap)
+}
+
+/// The report for a recipe the registry refused.
+fn prep_refused_report(
+    r: &Refusal,
+    recipe: &Recipe,
+    dataset: &Dataset,
+) -> ValidationReport<PrepCode> {
+    let rows = dataset.rows() as u64;
+    let columns = dataset.schema.columns.len() as u64 + recipe.steps.len() as u64;
+    let estimate = ResourceEstimate {
+        rows,
+        columns,
+        cells: rows.saturating_mul(columns),
+    };
+    ValidationReport::new(
+        vec![prep_refusal(r)],
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        estimate,
+    )
+}
+
+pub(crate) fn prep_validate_in(
+    registry: &Registry,
+    recipe: &Recipe,
+    build: Build,
+    dataset: &Dataset,
+    cells_cap: u64,
+) -> ValidationReport<PrepCode> {
+    match prep_entry(
+        registry,
+        &recipe.capability_id,
+        recipe.capability_version,
+        build,
+    ) {
+        Ok(()) => stats_prep::validate(dataset, recipe, cells_cap),
+        Err(r) => prep_refused_report(&r, recipe, dataset),
+    }
+}
+
+/// `stats.prepare.scale_score`'s build: the registry again, then
+/// `stats_prep::build`, unchanged.
+pub fn prep_build(
+    recipe: &Recipe,
+    build: Build,
+    dataset: &Dataset,
+    cells_cap: u64,
+) -> Result<Prepared, PrepRefusal> {
+    prep_build_in(&Registry::statistics(), recipe, build, dataset, cells_cap)
+}
+
+pub(crate) fn prep_build_in(
+    registry: &Registry,
+    recipe: &Recipe,
+    build: Build,
+    dataset: &Dataset,
+    cells_cap: u64,
+) -> Result<Prepared, PrepRefusal> {
+    prep_entry(
+        registry,
+        &recipe.capability_id,
+        recipe.capability_version,
+        build,
+    )
+    .map_err(|r| PrepRefusal::Report(prep_refused_report(&r, recipe, dataset)))?;
+    stats_prep::build(dataset, recipe, cells_cap)
+}
+
+/// The file's table again, from a prepared one, unchanged from
+/// `stats_prep::original`. It reads what is already held and reaches no
+/// registry: only a recipe that was admitted can have made a prepared table.
+pub fn prep_original(dataset: &Dataset, fingerprint: DataFingerprint) -> Dataset {
+    stats_prep::original(dataset, fingerprint)
+}
+
+/// The prepared data's CSV bytes, unchanged from
+/// `stats_prep::export::prepared_csv`.
+pub fn prep_csv(prepared: &Prepared) -> Vec<u8> {
+    stats_prep::export::prepared_csv(prepared)
+}
+
+/* ------------------------------------------------------------------------ *
  *  AI: a method a model's answer names
  * ------------------------------------------------------------------------ */
 
@@ -1282,6 +1442,127 @@ mod onesample_facade_tests {
             assert!(one_sample_validate_in(&beta(), &good_one, build, &d).may_run());
             assert!(paired_validate_in(&beta(), &good_paired, build, &d).may_run());
         }
+    }
+}
+
+/// Scale scores' façade (Research OS, Phase 8M-3, decision 425): the real
+/// registry admits a recipe in both builds, since it is Beta; it refuses an id
+/// of another façade, a wrong version and a Planned table, each in its own
+/// codes, and gives the module's own answers for a real recipe.
+#[cfg(test)]
+mod prep_facade_tests {
+    use super::*;
+    use crate::contracts::capability::Lifecycle;
+    use crate::stats_desc::Alias;
+    use crate::stats_l1::dataset::{
+        build_dataset, ColumnAlias, DataFingerprint, RawTable, TableRef,
+    };
+    use crate::stats_prep::{MissingRule, RecipeStep, ScaleScoreStep, Statistic};
+
+    fn data() -> Dataset {
+        let rows: Vec<Vec<String>> = [("1", "2"), ("2", "4"), ("3", "5")]
+            .iter()
+            .map(|(a, b)| vec![a.to_string(), b.to_string()])
+            .collect();
+        build_dataset(
+            RawTable::from_rows(vec!["a".into(), "b".into()], rows),
+            DataFingerprint::of_bytes(b"prep facade", "test", TableRef::FirstTable),
+        )
+        .expect("dataset")
+    }
+
+    fn recipe() -> Recipe {
+        Recipe {
+            schema_version: stats_prep::RECIPE_SCHEMA_VERSION,
+            capability_id: CapabilityId::parse(stats_prep::CAPABILITY_ID).unwrap(),
+            capability_version: stats_prep::CAPABILITY_VERSION,
+            engine_version: stats_prep::ENGINE_VERSION,
+            source_columns: 2,
+            steps: vec![RecipeStep::ScaleScore(ScaleScoreStep {
+                alias: Alias(ColumnAlias(3)),
+                name: "total".into(),
+                items: vec![Alias(ColumnAlias(1)), Alias(ColumnAlias(2))],
+                reversed: Vec::new(),
+                scale: None,
+                statistic: Some(Statistic::Sum),
+                rule: Some(MissingRule::EveryItem),
+                missing_codes: Vec::new(),
+            })],
+        }
+    }
+
+    const CAP: u64 = 1_000;
+
+    fn codes(r: &ValidationReport<PrepCode>) -> Vec<PrepCode> {
+        r.errors.iter().map(|e| e.code).collect()
+    }
+
+    #[test]
+    fn the_real_registry_admits_a_recipe_in_both_builds_because_it_is_beta() {
+        let (d, r) = (data(), recipe());
+        for build in [Build::Standard, Build::Devtools] {
+            prep_runnable(build).unwrap_or_else(|e| panic!("{build:?}: {e:?}"));
+            prep_admit(&r, build).unwrap_or_else(|e| panic!("{build:?}: {e:?}"));
+            assert!(prep_validate(&r, build, &d, CAP).may_run(), "{build:?}");
+            let built = prep_build(&r, build, &d, CAP).expect("it builds");
+            assert_eq!(
+                built.dataset,
+                stats_prep::build(&d, &r, CAP).unwrap().dataset,
+                "{build:?}: the module's own table"
+            );
+        }
+    }
+
+    #[test]
+    fn the_facade_refuses_another_id_a_wrong_version_and_a_planned_table() {
+        let (d, b) = (data(), Build::Devtools);
+        let real = Registry::statistics();
+        let mut other = recipe();
+        other.capability_id = CapabilityId::parse("stats.describe").unwrap();
+        assert_eq!(
+            codes(&prep_validate_in(&real, &other, b, &d, CAP)),
+            [PrepCode::UnknownCapability]
+        );
+        assert!(prep_build_in(&real, &other, b, &d, CAP).is_err());
+        assert_eq!(
+            prep_admit(&other, b).unwrap_err().code,
+            CapabilityCode::UnknownCapability
+        );
+
+        let mut stale = recipe();
+        stale.capability_version = 9;
+        let v = prep_validate_in(&real, &stale, b, &d, CAP);
+        assert_eq!(codes(&v), [PrepCode::CapabilityVersionMismatch]);
+        assert_eq!(
+            v.errors[0].params.get(&ParamKey::Found),
+            Some(&ParamValue::Int(9))
+        );
+        assert!(prep_build_in(&real, &stale, b, &d, CAP).is_err());
+
+        let planned =
+            Registry::statistics().with_lifecycle(stats_prep::CAPABILITY_ID, Lifecycle::Planned);
+        for build in [Build::Standard, Build::Devtools] {
+            assert_eq!(
+                codes(&prep_validate_in(&planned, &recipe(), build, &d, CAP)),
+                [PrepCode::UnknownCapability],
+                "{build:?}"
+            );
+            assert!(prep_build_in(&planned, &recipe(), build, &d, CAP).is_err());
+            assert!(prep_runnable_in(&planned, build).is_err(), "{build:?}");
+        }
+    }
+
+    #[test]
+    fn the_real_recipe_gets_exactly_the_modules_answers() {
+        let (d, r, b) = (data(), recipe(), Build::Devtools);
+        assert_eq!(
+            prep_validate_in(&Registry::statistics(), &r, b, &d, CAP),
+            stats_prep::validate(&d, &r, CAP)
+        );
+        let built = prep_build(&r, b, &d, CAP).unwrap();
+        assert_eq!(prep_csv(&built), stats_prep::export::prepared_csv(&built));
+        let fingerprint = d.schema.fingerprint.clone();
+        assert_eq!(prep_original(&built.dataset, fingerprint), d);
     }
 }
 

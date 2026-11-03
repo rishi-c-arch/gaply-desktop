@@ -27,7 +27,10 @@ export type DescCode =
   | 'stats.desc.underflow'
   | 'stats.desc.arithmetic_refused'
   | 'stats.desc.missing_cell'
-  | 'stats.desc.missing_code';
+  | 'stats.desc.missing_code'
+  | 'stats.desc.preparation_mismatch'
+  | 'stats.desc.score_as_categorical'
+  | 'stats.desc.code_equals_score';
 
 /** Why the run manager refused, or how a run ended without a result. */
 export type RunCode =
@@ -96,6 +99,10 @@ export interface ColumnProfile {
   levels: LevelCount[] | null;
   suspectMissingCodes: SuspectCode[];
   nonFinite: number;
+  /** 8M-3 (decision 424): true for a score, absent for a file's column. */
+  prepared?: true;
+  /** 8M-3 (decision 424): the name the user typed, absent for a file's column. */
+  scoreName?: string;
 }
 
 export interface DatasetProfile {
@@ -136,6 +143,28 @@ export interface DatasetView {
   inputRef: InputRef;
   /** 8I (decision 365): absent when the reader noted nothing. */
   fileFindings?: SavFinding[];
+  /** 8M-3 (decision 424): what a spec on a prepared slot copies. Absent on a file's own table. */
+  preparation?: Preparation;
+  /** 8M-3 (decision 424): what happened to the rows of each score. Absent on a file's own table. */
+  scoreCounts?: ScoreCounts[];
+}
+
+/** What made a prepared input: hashes and numbers, never a name. */
+export interface Preparation {
+  sourceHash: string;
+  recipeHash: string;
+  sourceColumns: number;
+  capabilityVersion: number;
+  engineVersion: number;
+}
+
+/** What happened to the rows of one score. Counts only. */
+export interface ScoreCounts {
+  column: string;
+  scoredFromEveryItem: number;
+  scoredFromFewer: number;
+  notScoredTooFew: number;
+  notScoredOverflow: number;
 }
 
 export interface ResourceEstimate {

@@ -50,7 +50,7 @@ use gaply_core::stats_adapters;
 use gaply_core::stats_desc::Alias;
 use gaply_core::stats_registry::{self, StatsWording};
 use gaply_core::stats_ttest::export::{manifest_json, result_csv};
-use gaply_core::stats_ttest::{self, TTestCode, TTestParams, TTestResult};
+use gaply_core::stats_ttest::{self, GroupLevelsRefusal, TTestCode, TTestParams, TTestResult};
 use gaply_core::GaplyError;
 
 use crate::runs::{DatasetSlots, NotStarted, RunSnapshot, Runs};
@@ -243,11 +243,13 @@ pub fn group_levels(
     column: Alias,
 ) -> Result<GroupLevelsView, GaplyError> {
     let held = slots.get(slot).map_err(refuse_run)?;
-    let levels = stats_ttest::group_levels(held.dataset(), column).ok_or_else(|| {
-        refuse_ttest(
-            Diagnostic::error(TTestCode::UnknownColumn)
-                .int(ParamKey::Column, i64::from(column.0 .0)),
-        )
+    // A score is never a group, so its values are never listed (decision 425).
+    let levels = stats_ttest::levels_for_group(held.dataset(), column).map_err(|r| {
+        let code = match r {
+            GroupLevelsRefusal::NoSuchColumn => TTestCode::UnknownColumn,
+            GroupLevelsRefusal::Score => TTestCode::ScoreAsGroup,
+        };
+        refuse_ttest(Diagnostic::error(code).int(ParamKey::Column, i64::from(column.0 .0)))
     })?;
     // Decision 87: a column with more levels than a group may is refused
     // before its values are listed, so a measurement never reaches the

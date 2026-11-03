@@ -8,6 +8,9 @@
 // order, so one choice always gives one spec (decision 329).
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import anovaCodes from './anovaCodes.json';
+import type { AnovaCode } from './anovaTypes';
+
 import validationJson from './fixtures/anovaValidationView.json';
 import stateJson from './fixtures/anovaRunStateView.json';
 import resultJson from './fixtures/anovaResultView.json';
@@ -106,5 +109,56 @@ describe('the bridge', () => {
       ['stats_anova_export', ['format', 'runId']],
       ['stats_desc_close', ['slot']],
     ]);
+  });
+});
+
+/** Every code of the union, once: a missing one or an extra one fails tsc
+ * (Research OS, Phase 8M-3, decision 428, as onesampleTypes.vitest.ts pins its own). */
+const EVERY_CODE: Record<AnovaCode, true> = {
+  'stats.anova.unknown_capability': true,
+  'stats.anova.capability_version_mismatch': true,
+  'stats.anova.input_count': true,
+  'stats.anova.input_mismatch': true,
+  'stats.anova.unknown_column': true,
+  'stats.anova.same_column': true,
+  'stats.anova.outcome_holds_text': true,
+  'stats.anova.outcome_non_finite': true,
+  'stats.anova.group_one_level': true,
+  'stats.anova.too_many_levels': true,
+  'stats.anova.level_out_of_range': true,
+  'stats.anova.level_repeated': true,
+  'stats.anova.too_few_levels': true,
+  'stats.anova.missing_code_not_finite': true,
+  'stats.anova.suspect_missing_code': true,
+  'stats.anova.group_too_small': true,
+  'stats.anova.post_hoc_too_many_levels': true,
+  'stats.anova.outcome_constant': true,
+  'stats.anova.within_variance_zero': true,
+  'stats.anova.welch_variance_zero': true,
+  'stats.anova.levene_deviations_equal': true,
+  'stats.anova.pair_both_constant': true,
+  'stats.anova.distribution_out_of_range': true,
+  'stats.anova.overflow': true,
+  'stats.anova.underflow': true,
+  'stats.anova.arithmetic_refused': true,
+  'stats.anova.p_below_floor': true,
+  'stats.anova.omega_squared_negative': true,
+  'stats.anova.missing_group': true,
+  'stats.anova.other_level': true,
+  'stats.anova.missing_outcome': true,
+  'stats.anova.missing_code': true,
+  'stats.anova.normality_not_assessed': true,
+  'stats.anova.effect_sizes_have_no_interval': true,
+  'stats.anova.no_contrasts': true,
+  'stats.anova.preparation_mismatch': true,
+  'stats.anova.score_as_group': true,
+  'stats.anova.code_equals_score': true,
+};
+
+describe('the AnovaCode union', () => {
+  it('is exactly the stats.anova words of anovaCodes.json', () => {
+    const listed = (anovaCodes as string[]).filter((c) => c.startsWith('stats.anova.'));
+    expect(listed).toHaveLength(38);
+    expect(Object.keys(EVERY_CODE).sort()).toEqual([...listed].sort());
   });
 });

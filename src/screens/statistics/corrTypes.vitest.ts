@@ -8,6 +8,9 @@
 // always gives one spec (decision 338).
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import corrCodes from './corrCodes.json';
+import type { CorrCode } from './corrTypes';
+
 import validationJson from './fixtures/corrValidationView.json';
 import stateJson from './fixtures/corrRunStateView.json';
 import resultJson from './fixtures/corrResultView.json';
@@ -124,5 +127,55 @@ describe('the bridge', () => {
       ['stats_corr_export', ['format', 'runId']],
       ['stats_desc_close', ['slot']],
     ]);
+  });
+});
+
+/** Every code of the union, once: a missing one or an extra one fails tsc
+ * (Research OS, Phase 8M-3, decision 428, as onesampleTypes.vitest.ts pins its own). */
+const EVERY_CODE: Record<CorrCode, true> = {
+  'stats.corr.unknown_capability': true,
+  'stats.corr.capability_version_mismatch': true,
+  'stats.corr.input_count': true,
+  'stats.corr.input_mismatch': true,
+  'stats.corr.unknown_column': true,
+  'stats.corr.too_few_variables': true,
+  'stats.corr.variable_repeated': true,
+  'stats.corr.variables_out_of_order': true,
+  'stats.corr.no_coefficient': true,
+  'stats.corr.coefficient_repeated': true,
+  'stats.corr.coefficients_out_of_order': true,
+  'stats.corr.missing_code_not_finite': true,
+  'stats.corr.missing_code_repeated': true,
+  'stats.corr.missing_codes_out_of_order': true,
+  'stats.corr.variable_holds_text': true,
+  'stats.corr.variable_non_finite': true,
+  'stats.corr.suspect_missing_code': true,
+  'stats.corr.too_few_complete_rows': true,
+  'stats.corr.no_pair_of_three': true,
+  'stats.corr.over_budget': true,
+  'stats.corr.pair_too_few_rows': true,
+  'stats.corr.variable_constant': true,
+  'stats.corr.distribution_out_of_range': true,
+  'stats.corr.overflow': true,
+  'stats.corr.underflow': true,
+  'stats.corr.arithmetic_refused': true,
+  'stats.corr.interval_too_few_rows': true,
+  'stats.corr.no_values': true,
+  'stats.corr.too_few_values': true,
+  'stats.corr.perfect_coefficient': true,
+  'stats.corr.missing_value': true,
+  'stats.corr.missing_code': true,
+  'stats.corr.fewer_than_two_values': true,
+  'stats.corr.pearson_assumes_normality': true,
+  'stats.corr.two_tailed_no_partial': true,
+  'stats.corr.preparation_mismatch': true,
+  'stats.corr.code_equals_score': true,
+};
+
+describe('the CorrCode union', () => {
+  it('is exactly the stats.corr words of corrCodes.json', () => {
+    const listed = (corrCodes as string[]).filter((c) => c.startsWith('stats.corr.'));
+    expect(listed).toHaveLength(37);
+    expect(Object.keys(EVERY_CODE).sort()).toEqual([...listed].sort());
   });
 });

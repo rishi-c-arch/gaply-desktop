@@ -680,6 +680,25 @@ impl Dataset {
         Ok(next)
     }
 
+    /// A copy of the file's columns alone, under `fingerprint`, with no parse
+    /// (ADR-011 Part 9, decision 424): what this table was before any column
+    /// was appended, for a prepared table holding the only copy.
+    pub(crate) fn file_table(&self, fingerprint: DataFingerprint) -> Dataset {
+        let k = self.file_columns;
+        Dataset {
+            schema: SchemaSummary {
+                fingerprint,
+                columns: self.schema.columns[..k].to_vec(),
+                rows: self.schema.rows,
+                weight_variable: self.schema.weight_variable,
+                source_metadata: self.schema.source_metadata.clone(),
+                issues: self.schema.issues.clone(),
+            },
+            columns: self.columns[..k].to_vec(),
+            file_columns: k,
+        }
+    }
+
     pub fn column_cells(&self, alias: ColumnAlias) -> Option<&[Cell]> {
         self.schema.column(alias).map(|_| self.columns[alias.index()].as_slice())
     }

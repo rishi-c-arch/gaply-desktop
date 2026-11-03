@@ -297,6 +297,7 @@ const STATS_ADAPTERS_CRATE_PATHS: &[&str] = &[
     "crate::stats_anova",
     "crate::stats_corr",
     "crate::stats_alpha",
+    "crate::stats_prep",
     "crate::extract",
 ];
 /// The one module outside decision 46's list `stats_adapters` reads, by
@@ -318,6 +319,7 @@ const STATS_ADAPTERS_INLINE_PATHS: &[&str] = &[
     "crate::stats_anova",
     "crate::stats_corr",
     "crate::stats_alpha",
+    "crate::stats_prep",
     "crate::extract::ExtractionResult",
     "crate::extract::SectionKind",
     "crate::extract::extract_from_text",

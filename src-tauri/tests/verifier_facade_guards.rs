@@ -167,6 +167,38 @@ fn each_operation_path_calls_its_facade() {
             "admit",
             "stats_adapters::alpha_admit(",
         ),
+        // Research OS, Phase 8M-3 (decision 425): no Method impl and no start,
+        // so these and the direct-call scan below are what apply.
+        (
+            "src/stats_prep_commands.rs",
+            "admit",
+            "stats_adapters::prep_admit(",
+        ),
+        (
+            "src/stats_prep_commands.rs",
+            "runnable",
+            "stats_adapters::prep_runnable(",
+        ),
+        (
+            "src/stats_prep_commands.rs",
+            "make",
+            "stats_adapters::prep_validate(",
+        ),
+        (
+            "src/stats_prep_commands.rs",
+            "make",
+            "stats_adapters::prep_build(",
+        ),
+        (
+            "src/stats_prep_commands.rs",
+            "original_of",
+            "stats_adapters::prep_original(",
+        ),
+        (
+            "src/stats_prep_commands.rs",
+            "csv",
+            "stats_adapters::prep_csv(",
+        ),
     ];
     for (file, f, facade) in checks {
         let src = without_test_modules(&code(file));
@@ -254,9 +286,21 @@ fn each_operation_path_calls_its_facade() {
             "src/runs.rs: `{f}` does not call `{through}`"
         );
     }
-    // And the run manager never calls a method's functions itself.
-    let runs = squash(&runs_src);
+    // And the run manager never calls a method's functions itself, nor do
+    // scale scores' commands call stats_prep around its façade (Phase 8M-3,
+    // decision 425): the scan reads both files.
+    let prep_src = without_test_modules(&code("src/stats_prep_commands.rs"));
+    let runs = format!("{}\n{}", squash(&runs_src), squash(&prep_src));
+    assert!(
+        runs.contains("stats_adapters::prep_build(") && runs.contains("self.begin::<Summary>("),
+        "the direct-call scan reads both files"
+    );
     for direct in [
+        "stats_prep::build(",
+        "stats_prep::validate(",
+        "stats_prep::original(",
+        "stats_prep::export::prepared_csv(",
+        "prepared_csv(",
         "stats_desc::validate(",
         "stats_desc::describe_until(",
         "stats_ttest::validate(",
@@ -277,7 +321,7 @@ fn each_operation_path_calls_its_facade() {
     ] {
         assert!(
             !runs.contains(direct),
-            "src/runs.rs calls `{direct}` around its façade"
+            "src/runs.rs or src/stats_prep_commands.rs calls `{direct}` around its façade"
         );
     }
 }

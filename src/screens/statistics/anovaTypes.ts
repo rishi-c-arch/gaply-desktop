@@ -58,7 +58,10 @@ export type AnovaCode =
   | 'stats.anova.missing_code'
   | 'stats.anova.normality_not_assessed'
   | 'stats.anova.effect_sizes_have_no_interval'
-  | 'stats.anova.no_contrasts';
+  | 'stats.anova.no_contrasts'
+  | 'stats.anova.preparation_mismatch'
+  | 'stats.anova.score_as_group'
+  | 'stats.anova.code_equals_score';
 
 export type AnovaParamKey = 'column' | 'count' | 'index' | 'value' | 'limit' | 'expected' | 'found';
 

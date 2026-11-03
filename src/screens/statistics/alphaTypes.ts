@@ -62,7 +62,9 @@ export type AlphaCode =
   | 'stats.alpha.missing_code'
   | 'stats.alpha.negative_alpha'
   | 'stats.alpha.assumes_one_dimension'
-  | 'stats.alpha.no_omega';
+  | 'stats.alpha.no_omega'
+  | 'stats.alpha.preparation_mismatch'
+  | 'stats.alpha.code_equals_score';
 
 export type AlphaParamKey = 'column' | 'count' | 'index' | 'value' | 'expected' | 'found';
 

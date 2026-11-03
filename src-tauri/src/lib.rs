@@ -48,6 +48,7 @@ pub mod stats_l1_commands;
 pub mod stats_l1_ingest;
 pub mod stats_legacy;
 pub mod stats_onesample_commands;
+pub mod stats_prep_commands;
 pub mod stats_reproduction;
 pub mod stats_ttest_commands;
 // Research OS Phase 5D-1a: the Stored data section's command; read only.
@@ -420,6 +421,12 @@ pub fn run() {
             stats_alpha_commands::stats_alpha_result,
             stats_alpha_commands::stats_alpha_cancel,
             stats_alpha_commands::stats_alpha_export,
+            // Research OS, Phase 8M-3 (decision 425): scale scores, behind the
+            // workspace check. In memory only; the screen comes with the layout.
+            stats_prep_commands::stats_prep_make,
+            stats_prep_commands::stats_prep_clear,
+            stats_prep_commands::stats_prep_recipe,
+            stats_prep_commands::stats_prep_csv,
             // Research OS, Phase 3: the window's one active workspace. Only
             // `workspace_activate` activates one.
             workspace::workspace_list,

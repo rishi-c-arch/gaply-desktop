@@ -7,6 +7,9 @@
 // and the keys of the spec it sends.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import ttestCodes from './ttestCodes.json';
+import type { TTestCode } from './ttestTypes';
+
 import validationJson from './fixtures/ttestValidationReportView.json';
 import stateJson from './fixtures/ttestRunStateView.json';
 import resultJson from './fixtures/ttestResultView.json';
@@ -237,5 +240,51 @@ describe('makeMockTTestBridge', () => {
     expect(JSON.stringify(m.calls)).not.toContain('PATH_SENTINEL');
     expect(m.calls[0]).toEqual(['stats_desc_open', { path: '<path>' }]);
     await expect(m.status(3)).rejects.toThrow('no mock response');
+  });
+});
+
+/** Every code of the union, once: a missing one or an extra one fails tsc
+ * (Research OS, Phase 8M-3, decision 428, as onesampleTypes.vitest.ts pins its own). */
+const EVERY_CODE: Record<TTestCode, true> = {
+  'stats.ttest.unknown_capability': true,
+  'stats.ttest.capability_version_mismatch': true,
+  'stats.ttest.input_count': true,
+  'stats.ttest.input_mismatch': true,
+  'stats.ttest.unknown_column': true,
+  'stats.ttest.same_column': true,
+  'stats.ttest.outcome_holds_text': true,
+  'stats.ttest.outcome_non_finite': true,
+  'stats.ttest.group_one_level': true,
+  'stats.ttest.level_out_of_range': true,
+  'stats.ttest.levels_equal': true,
+  'stats.ttest.missing_code_not_finite': true,
+  'stats.ttest.variant_not_chosen': true,
+  'stats.ttest.levels_not_chosen': true,
+  'stats.ttest.suspect_missing_code': true,
+  'stats.ttest.group_too_small': true,
+  'stats.ttest.both_groups_constant': true,
+  'stats.ttest.overflow': true,
+  'stats.ttest.underflow': true,
+  'stats.ttest.arithmetic_refused': true,
+  'stats.ttest.quantile_out_of_range': true,
+  'stats.ttest.sd_ratio_undefined': true,
+  'stats.ttest.missing_group': true,
+  'stats.ttest.other_level': true,
+  'stats.ttest.missing_outcome': true,
+  'stats.ttest.missing_code': true,
+  'stats.ttest.normality_not_assessed': true,
+  'stats.ttest.cohens_d_has_no_interval': true,
+  'stats.ttest.too_many_levels': true,
+  'stats.ttest.groups_essentially_constant': true,
+  'stats.ttest.preparation_mismatch': true,
+  'stats.ttest.score_as_group': true,
+  'stats.ttest.code_equals_score': true,
+};
+
+describe('the TTestCode union', () => {
+  it('is exactly the stats.ttest words of ttestCodes.json', () => {
+    const listed = (ttestCodes as string[]).filter((c) => c.startsWith('stats.ttest.'));
+    expect(listed).toHaveLength(33);
+    expect(Object.keys(EVERY_CODE).sort()).toEqual([...listed].sort());
   });
 });

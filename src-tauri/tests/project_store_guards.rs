@@ -450,6 +450,41 @@ fn every_path_the_store_joins_is_a_parsed_id_a_hash_or_a_fixed_name() {
     }
 }
 
+/// Phase 8M-3 (decision 427, ADR-011 Part 11): a recipe holds the names a user
+/// typed, so it reaches no outbound struct or transport, now and without
+/// condition: no AI task proposes a score's items, reversal, rule or name.
+#[test]
+fn no_recipe_type_reaches_an_outbound_struct_or_a_transport() {
+    let forbidden: Vec<String> = ["stats_prep", "Recipe", "RecipeStep", "ScaleScoreStep"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let root = Path::new(ROOT);
+    let mut files = Vec::new();
+    for o in OUTBOUND {
+        rust_files(&root.join(o), &mut files);
+    }
+    assert!(
+        files.len() >= 15,
+        "{} outbound files — the scan would pass vacuously",
+        files.len()
+    );
+    let mut found = Vec::new();
+    for f in &files {
+        let rel = f
+            .strip_prefix(root)
+            .unwrap()
+            .to_string_lossy()
+            .replace('\\', "/");
+        found.extend(mentions(
+            &rel,
+            &std::fs::read_to_string(f).unwrap(),
+            &forbidden,
+        ));
+    }
+    assert!(found.is_empty(), "ADR-011 Part 11:\n{}", found.join("\n"));
+}
+
 #[test]
 fn no_project_type_reaches_an_outbound_struct_a_transport_or_supabase() {
     let mut types = model_items();

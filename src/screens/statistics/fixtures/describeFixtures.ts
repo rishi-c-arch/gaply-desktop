@@ -134,3 +134,55 @@ export const exportView = {
   bytes: [34, 97, 34, 13, 10],
   sha256: '8914567fcbb12f42f9bb0ba7d69cc1957f97c8410310bdf025351a3ebdf16d0c',
 } satisfies ExportView;
+
+/** A prepared slot's view (Research OS, Phase 8M-3, decision 424). */
+export const datasetViewPrepared = {
+  slot: 3,
+  displayName: 'survey.csv',
+  profile: {
+    rows: 9,
+    columns: [
+      {
+        alias: 'C1',
+        header: 'item',
+        kind: 'numeric',
+        n: 8,
+        missing: 1,
+        distinct: 3,
+        levels: null,
+        suspectMissingCodes: [],
+        nonFinite: 0,
+      },
+      {
+        alias: 'C2',
+        header: 'C2',
+        kind: 'numeric',
+        n: 8,
+        missing: 1,
+        distinct: 4,
+        levels: null,
+        suspectMissingCodes: [],
+        nonFinite: 0,
+        prepared: true,
+        scoreName: 'wellbeing',
+      },
+    ],
+  },
+  inputRef: { contentHash: INPUT, rows: 9, columns: 2, semanticRole: 'table' },
+  preparation: {
+    sourceHash: 'fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210',
+    recipeHash: '5fd0af5daee4d8dfcb466411096e7f26e513bf2cadfb0e1605ff085026fe5b4a',
+    sourceColumns: 1,
+    capabilityVersion: 1,
+    engineVersion: 1,
+  },
+  scoreCounts: [
+    {
+      column: 'C2',
+      scoredFromEveryItem: 6,
+      scoredFromFewer: 2,
+      notScoredTooFew: 1,
+      notScoredOverflow: 0,
+    },
+  ],
+} satisfies DatasetView;

@@ -56,6 +56,15 @@ const SCANNED: &[&str] = &[
     // operations.
     "src/stats_onesample_commands.rs",
     "gaply-core/src/stats_onesample",
+    // Phase 8M-3 (decision 427, ADR-011 Part 11): scale scores' commands, and
+    // the three methods' commands and operations this list had not gained.
+    "src/stats_prep_commands.rs",
+    "src/stats_anova_commands.rs",
+    "gaply-core/src/stats_anova",
+    "src/stats_corr_commands.rs",
+    "gaply-core/src/stats_corr",
+    "src/stats_alpha_commands.rs",
+    "gaply-core/src/stats_alpha",
 ];
 
 /// The one Research OS module allowed to write (Phase 5B-1, ADR-009): the

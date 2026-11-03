@@ -1101,3 +1101,59 @@ fn every_alpha_command_checks_the_workspace_first() {
         failures.join("\n")
     );
 }
+
+/// Phase 8M-3 (decision 425): scale scores' commands, each checking the
+/// workspace first, in the same form; none is exempt. (registered path)
+const PREP_OPERATIONS: &[&str] = &[
+    "stats_prep_commands::stats_prep_make",
+    "stats_prep_commands::stats_prep_clear",
+    "stats_prep_commands::stats_prep_recipe",
+    "stats_prep_commands::stats_prep_csv",
+];
+
+#[test]
+fn every_prep_command_checks_the_workspace_first() {
+    let all = registered();
+    assert!(all.len() > 100, "the handler parse is inert");
+    let mut family: Vec<&str> = all
+        .iter()
+        .map(|p| p.as_str())
+        .filter(|p| p.starts_with("stats_prep_commands::"))
+        .collect();
+    family.sort_unstable();
+    let mut listed: Vec<&str> = PREP_OPERATIONS.to_vec();
+    listed.sort_unstable();
+    assert_eq!(
+        family, listed,
+        "every registered stats_prep_commands command is listed, and every listed one is registered"
+    );
+    // Nothing registers a stats_prep_* command from another module.
+    for p in &all {
+        if p.rsplit("::")
+            .next()
+            .is_some_and(|n| n.starts_with("stats_prep_"))
+        {
+            assert!(p.starts_with("stats_prep_commands::"), "{p}");
+        }
+    }
+
+    let src = without_line_comments(&read(&root().join("src/stats_prep_commands.rs")));
+    let mut failures = Vec::new();
+    for path in PREP_OPERATIONS {
+        let name = path.rsplit("::").next().unwrap();
+        match fn_body(&src, name) {
+            Some(body) if checks_first(body) => {}
+            Some(body) => failures.push(format!(
+                "{path}: first statement is `{}`",
+                body.split(';').next().unwrap_or("").trim()
+            )),
+            None => failures.push(format!("{path}: no body found")),
+        }
+    }
+    println!("gated {} scale score commands", PREP_OPERATIONS.len());
+    assert!(
+        failures.is_empty(),
+        "decision 425:\n{}",
+        failures.join("\n")
+    );
+}

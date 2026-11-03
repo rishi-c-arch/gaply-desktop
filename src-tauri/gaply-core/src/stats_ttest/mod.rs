@@ -351,6 +351,28 @@ pub fn group_levels(dataset: &Dataset, group: Alias) -> Option<Vec<(String, u64)
     Some(level_counts(cells).into_iter().collect())
 }
 
+/// Why a column's levels are not listed for a group.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GroupLevelsRefusal {
+    /// No column has that alias.
+    NoSuchColumn,
+    /// The column is a score, and a score is never a group (decisions 418 and
+    /// 425), so its values are never listed as levels.
+    Score,
+}
+
+/// [`group_levels`] for a column offered as a group: a score is refused before
+/// its values are read. What the levels commands call (decision 425).
+pub fn levels_for_group(
+    dataset: &Dataset,
+    group: Alias,
+) -> Result<Vec<(String, u64)>, GroupLevelsRefusal> {
+    if is_prepared_column(dataset, group) {
+        return Err(GroupLevelsRefusal::Score);
+    }
+    group_levels(dataset, group).ok_or(GroupLevelsRefusal::NoSuchColumn)
+}
+
 /// The outcome's values in the two groups, each in ascending order, and the
 /// rows left out. Never leaves this module, and derives nothing that could
 /// print or serialise it.

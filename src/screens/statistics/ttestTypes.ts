@@ -53,7 +53,10 @@ export type TTestCode =
   | 'stats.ttest.normality_not_assessed'
   | 'stats.ttest.cohens_d_has_no_interval'
   | 'stats.ttest.too_many_levels'
-  | 'stats.ttest.groups_essentially_constant';
+  | 'stats.ttest.groups_essentially_constant'
+  | 'stats.ttest.preparation_mismatch'
+  | 'stats.ttest.score_as_group'
+  | 'stats.ttest.code_equals_score';
 
 export type TTestParamKey = 'column' | 'count' | 'index' | 'value' | 'limit' | 'expected' | 'found';
 

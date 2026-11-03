@@ -105,7 +105,8 @@ fn each_view_serialises_to_exactly_its_fixtures_bytes() {
                         non_finite: 1,
                     },
                 ],
-            },
+            }
+            .into(),
             input_ref: InputRef {
                 content_hash: hash(INPUT),
                 rows: 9,
@@ -114,6 +115,10 @@ fn each_view_serialises_to_exactly_its_fixtures_bytes() {
             },
             // Phase 8I (decision 365): none, so the fixture's bytes stand.
             file_findings: Vec::new(),
+            // Phase 8M-3 (decision 424): a file's own table, so neither is
+            // written and the fixture's bytes stand.
+            preparation: None,
+            score_counts: Vec::new(),
         },
     );
     assert_bytes(

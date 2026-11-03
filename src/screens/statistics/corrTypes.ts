@@ -59,7 +59,9 @@ export type CorrCode =
   | 'stats.corr.missing_code'
   | 'stats.corr.fewer_than_two_values'
   | 'stats.corr.pearson_assumes_normality'
-  | 'stats.corr.two_tailed_no_partial';
+  | 'stats.corr.two_tailed_no_partial'
+  | 'stats.corr.preparation_mismatch'
+  | 'stats.corr.code_equals_score';
 
 export type CorrParamKey = 'column' | 'count' | 'index' | 'value' | 'limit' | 'expected' | 'found';
 

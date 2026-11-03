@@ -93,6 +93,15 @@
 //! (`crate::workspace`), built when it is activated and dropped when it is
 //! left. [`Runs::seal`] is how it is left: under the records' lock it either
 //! names the unfinished run, or closes the manager so no run can start after.
+//!
+//! **A prepared slot (Research OS, Phase 8M-3, decision 424).** A slot holds the
+//! file's table or a recipe's prepared table, never both, under one number.
+//! [`DatasetSlots::hold_prepared`] and [`DatasetSlots::hold_original`] replace
+//! its table only after the new one exists, moving it to the back and running
+//! the eviction, so a make can drop an older slot and never its own. A slot's
+//! bytes are shared between its versions by their `Arc`, and a run or a Save
+//! holding the old version keeps it whole. [`Slot::preparation`] is the one
+//! place a spec's preparation is built. Nothing here writes a file.
 
 use std::collections::{BTreeMap, VecDeque};
 use std::ops::ControlFlow;
@@ -105,19 +114,21 @@ use gaply_core::contracts::capability::Build;
 use gaply_core::contracts::codes::{Closed, RunCode};
 use gaply_core::contracts::{
     transition, CapabilityId, ContentHash, Diagnostic, OperationId, OperationSpec, Platform,
-    ResultBundle, RunEvent, RunId, RunManifest, RunRecord, RunState, SchemaVersion,
+    Preparation, ResultBundle, RunEvent, RunId, RunManifest, RunRecord, RunState, SchemaVersion,
     ValidationReport, ValidationStatus,
 };
 use gaply_core::research_project::DataFormat;
+use gaply_core::sav_findings::SavFinding;
 use gaply_core::stats_adapters;
 use gaply_core::stats_alpha::{self, AlphaCode, AlphaOutcome, AlphaParams};
 use gaply_core::stats_anova::{self, AnovaCode, AnovaOutcome, AnovaParams};
 use gaply_core::stats_corr::{self, CorrCode, CorrOutcome, CorrParams};
 use gaply_core::stats_desc::{self, DescCode, DescribeParams, DescribeResult, Halt};
-use gaply_core::stats_l1::dataset::Dataset;
+use gaply_core::stats_l1::dataset::{DataFingerprint, Dataset};
 use gaply_core::stats_onesample::{
     self, OneSampleCode, OneSampleParams, OneSampleResult, PairedParams, PairedResult,
 };
+use gaply_core::stats_prep::{self, Prepared};
 use gaply_core::stats_ttest::{self, TTestCode, TTestParams, TTestResult};
 use serde::Serialize;
 
@@ -217,14 +228,33 @@ impl SourceFile {
     }
 }
 
+/// What a slot holds: the file's table, or the prepared table in its place
+/// (Research OS, Phase 8M-3, decision 424). There is never both, so a prepared
+/// slot is one copy; the original comes back from it with no parse.
+enum Table {
+    File(Dataset),
+    Prepared {
+        /// The Dataset, the recipe and the counts.
+        prepared: Prepared,
+        /// The original's fingerprint, which the prepared table's own, over
+        /// the recipe, does not give back.
+        original: DataFingerprint,
+    },
+}
+
 /// One opened dataset, its slot number, its file's display name and, when
-/// the ingest kept them, the original bytes. Never `Debug`, never
-/// `Serialize`: it holds the user's rows.
+/// the ingest kept them, the original bytes and what the reader noted about
+/// the file. Never `Debug`, never `Serialize`: it holds the user's rows.
+///
+/// A recipe gives a new `Slot` under the same number, which shares the bytes
+/// through their `Arc`: a Save may hold this one (decision 424), so it cannot
+/// be taken apart.
 pub struct Slot {
     id: u64,
     display_name: String,
-    dataset: Dataset,
-    source: Option<SourceFile>,
+    table: Table,
+    source: Option<Arc<SourceFile>>,
+    file_findings: Vec<SavFinding>,
 }
 
 impl Slot {
@@ -237,8 +267,9 @@ impl Slot {
         Slot {
             id: ONE_RUN_SLOT,
             display_name: String::new(),
-            dataset,
-            source: Some(source),
+            table: Table::File(dataset),
+            source: Some(Arc::new(source)),
+            file_findings: Vec::new(),
         }
     }
 
@@ -248,11 +279,51 @@ impl Slot {
     pub fn display_name(&self) -> &str {
         &self.display_name
     }
+    /// The table every method reads: the prepared one when a recipe is held.
     pub fn dataset(&self) -> &Dataset {
-        &self.dataset
+        match &self.table {
+            Table::File(dataset) => dataset,
+            Table::Prepared { prepared, .. } => &prepared.dataset,
+        }
     }
     pub fn source(&self) -> Option<&SourceFile> {
-        self.source.as_ref()
+        self.source.as_deref()
+    }
+    /// What the SPSS reader noted when the file was opened (decision 365).
+    pub fn file_findings(&self) -> &[SavFinding] {
+        &self.file_findings
+    }
+    /// The prepared table, its recipe and its counts, when a recipe is held.
+    pub fn prepared(&self) -> Option<&Prepared> {
+        match &self.table {
+            Table::File(_) => None,
+            Table::Prepared { prepared, .. } => Some(prepared),
+        }
+    }
+    /// The file's fingerprint, whether or not a recipe is held.
+    pub fn original_fingerprint(&self) -> &DataFingerprint {
+        match &self.table {
+            Table::File(dataset) => &dataset.schema.fingerprint,
+            Table::Prepared { original, .. } => original,
+        }
+    }
+    /// **What every method's spec on this slot copies (decision 424, 8M-2's
+    /// question 4): the one place a [`Preparation`] is built.** `None` on a
+    /// file's own table. The source's hash is the original's fingerprint, never
+    /// the `SourceFile`'s, which a slot may lack.
+    pub fn preparation(&self) -> Option<Preparation> {
+        let Table::Prepared { prepared, original } = &self.table else {
+            return None;
+        };
+        Some(Preparation {
+            source_hash: ContentHash::from_hex(original.sha256_hex())
+                .expect("a fingerprint is SHA-256 hex"),
+            recipe_hash: ContentHash::from_hex(&stats_prep::recipe_hash(&prepared.recipe))
+                .expect("a recipe's hash is SHA-256 hex"),
+            source_columns: prepared.recipe.source_columns,
+            capability_version: stats_prep::CAPABILITY_VERSION,
+            engine_version: stats_prep::ENGINE_VERSION,
+        })
     }
 }
 
@@ -333,6 +404,18 @@ impl DatasetSlots {
         dataset: Dataset,
         source: Option<SourceFile>,
     ) -> u64 {
+        self.insert_opened(display_name, dataset, source, Vec::new())
+    }
+
+    /// [`DatasetSlots::insert_with_source`], with what the reader noted about
+    /// the file, which a recipe's view shows as the open's does (decision 424).
+    pub fn insert_opened(
+        &self,
+        display_name: String,
+        dataset: Dataset,
+        source: Option<SourceFile>,
+        file_findings: Vec<SavFinding>,
+    ) -> u64 {
         let id = self.next.fetch_add(1, Ordering::SeqCst) + 1;
         let mut slots = lock(&self.slots);
         slots.push_back((
@@ -340,12 +423,18 @@ impl DatasetSlots {
             Arc::new(Slot {
                 id,
                 display_name,
-                dataset,
-                source,
+                table: Table::File(dataset),
+                source: source.map(Arc::new),
+                file_findings,
             }),
         ));
-        // The count first, then the budget in cells (decision 282); the
-        // dataset just opened, at the back, is never dropped.
+        self.evict(&mut slots);
+        id
+    }
+
+    /// The count first, then the budget in cells (decision 282); the slot at
+    /// the back, the one just opened or just changed, is never dropped.
+    fn evict(&self, slots: &mut VecDeque<(u64, Arc<Slot>)>) {
         while slots.len() > MAX_SLOTS {
             slots.pop_front();
         }
@@ -355,7 +444,52 @@ impl DatasetSlots {
                 held -= cells_of(oldest.dataset());
             }
         }
-        id
+    }
+
+    /// **`held`'s slot, its table replaced (decision 424): the same number,
+    /// moved to the back so it is never the one dropped, sharing the bytes and
+    /// keeping the file's findings.** Then the eviction runs, since a table
+    /// with one more column may take the cells held past the budget.
+    ///
+    /// Only the slot `held` is may be replaced, so a make cannot overwrite what
+    /// another make just held: another slot under that number is `RunBusy`,
+    /// and no slot `UnknownInput`, each leaving everything as it was. A run
+    /// holding `held` keeps it until it ends.
+    fn replace(&self, held: &Arc<Slot>, table: Table) -> Result<Arc<Slot>, RunCode> {
+        let mut slots = lock(&self.slots);
+        let at = slots
+            .iter()
+            .position(|(s, _)| *s == held.id)
+            .ok_or(RunCode::UnknownInput)?;
+        if !Arc::ptr_eq(&slots[at].1, held) {
+            return Err(RunCode::RunBusy);
+        }
+        let next = Arc::new(Slot {
+            id: held.id,
+            display_name: held.display_name.clone(),
+            table,
+            source: held.source.clone(),
+            file_findings: held.file_findings.clone(),
+        });
+        slots.remove(at);
+        slots.push_back((held.id, next.clone()));
+        self.evict(&mut slots);
+        Ok(next)
+    }
+
+    /// `held`'s slot now holds `prepared` in place of its table (decision 424).
+    pub fn hold_prepared(
+        &self,
+        held: &Arc<Slot>,
+        prepared: Prepared,
+    ) -> Result<Arc<Slot>, RunCode> {
+        let original = held.original_fingerprint().clone();
+        self.replace(held, Table::Prepared { prepared, original })
+    }
+
+    /// `held`'s slot back on the file's table, rebuilt from it (decision 424).
+    pub fn hold_original(&self, held: &Arc<Slot>, original: Dataset) -> Result<Arc<Slot>, RunCode> {
+        self.replace(held, Table::File(original))
     }
 
     pub fn get(&self, slot: u64) -> Result<Arc<Slot>, RunCode> {
@@ -376,6 +510,11 @@ impl DatasetSlots {
 
     pub fn held(&self) -> usize {
         lock(&self.slots).len()
+    }
+
+    /// The slots' numbers, oldest first: the order the eviction drops them in.
+    pub fn order(&self) -> Vec<u64> {
+        lock(&self.slots).iter().map(|(id, _)| *id).collect()
     }
 
     /// The last slot number handed out.
@@ -2629,8 +2768,9 @@ mod tests {
         let slot = Arc::new(Slot {
             id: 1,
             display_name: "synthetic".into(),
-            dataset,
+            table: Table::File(dataset),
             source: None,
+            file_findings: Vec::new(),
         });
         assert_eq!(runs.start(slot, spec), Err(NotStarted::Sealed));
         assert_eq!(runs.held(), 1, "no record was made");
@@ -2679,8 +2819,9 @@ mod tests {
         let slot = Arc::new(Slot {
             id: 1,
             display_name: "synthetic".into(),
-            dataset,
+            table: Table::File(dataset),
             source: None,
+            file_findings: Vec::new(),
         });
         (slot, spec)
     }
@@ -2911,8 +3052,9 @@ mod tests {
         Arc::new(Slot {
             id: 1,
             display_name: "synthetic".into(),
-            dataset,
+            table: Table::File(dataset),
             source: None,
+            file_findings: Vec::new(),
         })
     }
 
@@ -3081,8 +3223,9 @@ mod tests {
         Arc::new(Slot {
             id: 2,
             display_name: "synthetic pairs".into(),
-            dataset,
+            table: Table::File(dataset),
             source: None,
+            file_findings: Vec::new(),
         })
     }
 

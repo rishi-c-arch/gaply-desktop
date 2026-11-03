@@ -56,6 +56,12 @@
 //! (`tests/ingest_limits_guard.rs`). Each method's screen reads
 //! `stats_desc_limits` once for its limits line, and polls
 //! `stats_desc_open_progress` during an open for its progress line.
+//!
+//! **Phase 8M-3 (decision 424).** A slot may hold a prepared table: its view,
+//! [`view_of`], is the open's, with each score marked and named for the user's
+//! own screen, what a spec on it copies, and each score's counts. Each is absent
+//! on a file's own table, so that view keeps its bytes. The name never enters
+//! the core's profile, a schema, a result, a manifest or a log.
 
 use std::path::Path;
 use std::sync::atomic::AtomicU64;
@@ -65,13 +71,16 @@ use serde::{Deserialize, Serialize};
 
 use gaply_core::contracts::codes::{Closed, RunCode};
 use gaply_core::contracts::{
-    ContentHash, Diagnostic, InputRef, OperationSpec, ResourceEstimate, RunId, RunManifest,
-    RunState, ValidationStatus,
+    ContentHash, Diagnostic, InputRef, OperationSpec, Preparation, ResourceEstimate, RunId,
+    RunManifest, RunState, ValidationStatus,
 };
 use gaply_core::stats_adapters;
 use gaply_core::stats_desc::export::{manifest_json, result_csv};
-use gaply_core::stats_desc::{self, ColumnResult, DatasetProfile, DescCode, DescribeParams};
+use gaply_core::stats_desc::{
+    self, ColumnProfile, ColumnResult, DatasetProfile, DescCode, DescribeParams,
+};
 use gaply_core::stats_l1::codes::{l1_ingest_refusal, WireCode};
+use gaply_core::stats_prep::{RecipeStep, ScoreCounts};
 use gaply_core::GaplyError;
 
 use gaply_core::contracts::workspace::check_spec;
@@ -82,7 +91,7 @@ use gaply_core::sav_findings::SavFinding;
 
 use crate::memory_tier::{self, MemoryReading, MethodLimits};
 use crate::runs::{
-    DatasetSlots, NotStarted, OpenProgress, ProgressEntry, RunSnapshot, Runs, SourceFile,
+    DatasetSlots, NotStarted, OpenProgress, ProgressEntry, RunSnapshot, Runs, Slot, SourceFile,
 };
 use crate::stats_l1_ingest::load_dataset_keeping_bytes_and_findings_with_progress;
 use crate::supplementary::IngestLimits;
@@ -100,7 +109,7 @@ use crate::workspace::{refuse as refuse_workspace, refuse_inactive};
 pub struct DatasetView {
     pub slot: u64,
     pub display_name: String,
-    pub profile: DatasetProfile,
+    pub profile: ProfileView,
     pub input_ref: InputRef,
     /// What the SPSS reader noted about the file, as closed codes with
     /// numbers (Research OS, Phase 8I, decision 365); the screen shows each
@@ -108,6 +117,59 @@ pub struct DatasetView {
     /// view without one is the same bytes as before.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub file_findings: Vec<SavFinding>,
+    /// What a method's spec on this slot copies, as it copies `input_ref`
+    /// (Phase 8M-3, decision 424). Hashes and numbers. Absent on a file's own
+    /// table, so its view is the same bytes as before.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preparation: Option<Preparation>,
+    /// What happened to the rows of each score (decision 424). Counts only.
+    /// Absent on a file's own table.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub score_counts: Vec<ScoreCounts>,
+}
+
+/// The profile, for the user's own screen, each column with what the core's
+/// profile does not know: whether it is a score, and the name the user typed
+/// for it (decision 424). `gaply_core` never sees the name there, so it cannot
+/// reach a schema, a result, a manifest or a log (ADR-011 Part 4).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProfileView {
+    pub rows: u64,
+    pub columns: Vec<ColumnView>,
+}
+
+/// One column of [`ProfileView`]: the core's [`ColumnProfile`], flattened, so
+/// a file's column is the same bytes as before.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ColumnView {
+    #[serde(flatten)]
+    pub profile: ColumnProfile,
+    /// True for a score, and absent for a file's column.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub prepared: bool,
+    /// The name the user typed. Absent for a file's column.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub score_name: Option<String>,
+}
+
+/// A file's own table, with no scores.
+impl From<DatasetProfile> for ProfileView {
+    fn from(profile: DatasetProfile) -> ProfileView {
+        ProfileView {
+            rows: profile.rows,
+            columns: profile
+                .columns
+                .into_iter()
+                .map(|profile| ColumnView {
+                    profile,
+                    prepared: false,
+                    score_name: None,
+                })
+                .collect(),
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -260,14 +322,48 @@ pub fn open_with(
     // the ingest's extensions are the store's data formats, word for word.
     let source = DataFormat::from_wire(&ext)
         .map(|format| SourceFile::new(bytes, input_ref.content_hash.clone(), format));
-    let slot = slots.insert_with_source(display_name.clone(), dataset, source);
+    let slot = slots.insert_opened(display_name.clone(), dataset, source, file_findings.clone());
     Ok(DatasetView {
         slot,
         display_name,
-        profile,
+        profile: profile.into(),
         input_ref,
         file_findings,
+        preparation: None,
+        score_counts: Vec::new(),
     })
+}
+
+/// A held slot's view, as the open's, of whichever table it holds (decision
+/// 424): the profile of the whole table, each score with its typed name, the
+/// file's findings, and what a spec on it copies. What a make and a clear
+/// return.
+pub fn view_of(slot: &Slot) -> DatasetView {
+    let dataset = slot.dataset();
+    let mut profile = ProfileView::from(stats_desc::profile(dataset));
+    let mut score_counts = Vec::new();
+    if let Some(prepared) = slot.prepared() {
+        for RecipeStep::ScaleScore(step) in &prepared.recipe.steps {
+            if let Some(column) = profile
+                .columns
+                .iter_mut()
+                .find(|c| c.profile.alias == step.alias)
+            {
+                column.prepared = true;
+                column.score_name = Some(step.name.clone());
+            }
+        }
+        score_counts.clone_from(&prepared.counts);
+    }
+    DatasetView {
+        slot: slot.id(),
+        display_name: slot.display_name().to_string(),
+        profile,
+        input_ref: stats_desc::input_ref(dataset),
+        file_findings: slot.file_findings().to_vec(),
+        preparation: slot.preparation(),
+        score_counts,
+    }
 }
 
 pub fn validate(

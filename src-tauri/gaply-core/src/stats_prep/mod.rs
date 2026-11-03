@@ -782,6 +782,14 @@ fn score_column(
     (cells, counts)
 }
 
+/// The file's table again, from a prepared one: a copy of the file's columns
+/// under `fingerprint`, the original's, with no parse (ADR-011 Part 9, decision
+/// 424). What a changed recipe is built from, and what a cleared one leaves. A
+/// file's own table comes back as a copy of itself.
+pub fn original(dataset: &Dataset, fingerprint: DataFingerprint) -> Dataset {
+    dataset.file_table(fingerprint)
+}
+
 /// The prepared table: the file's columns unchanged, then each score, under
 /// [`prepared_fingerprint`]. Writes nothing and leaves `dataset` as it was.
 pub fn build(dataset: &Dataset, recipe: &Recipe, cells_cap: u64) -> Result<Prepared, PrepRefusal> {

@@ -6,7 +6,11 @@
 // that differs.
 import { describe, expect, it } from 'vitest';
 
+import describeCodes from './describeCodes.json';
+import type { DescCode } from './describeTypes';
+
 import datasetJson from './fixtures/datasetView.json';
+import datasetPreparedJson from './fixtures/datasetViewPrepared.json';
 import validationJson from './fixtures/validationReportView.json';
 import startedJson from './fixtures/runStartedView.json';
 import stateJson from './fixtures/runStateView.json';
@@ -96,5 +100,66 @@ describe('the view fixtures', () => {
   it('no manifest key can hold a path, a name, a header or a label', () => {
     const manifestKeys = Object.keys(resultJson.manifest);
     for (const k of manifestKeys) expect(k).not.toMatch(/path|file|name|header|label|dir|url/i);
+  });
+});
+
+/** Every code of the union, once: a missing one or an extra one fails tsc
+ * (Research OS, Phase 8M-3, decision 428, as onesampleTypes.vitest.ts pins its own). */
+const EVERY_CODE: Record<DescCode, true> = {
+  'stats.desc.unknown_capability': true,
+  'stats.desc.capability_version_mismatch': true,
+  'stats.desc.input_count': true,
+  'stats.desc.input_mismatch': true,
+  'stats.desc.no_columns_selected': true,
+  'stats.desc.unknown_column': true,
+  'stats.desc.duplicate_column': true,
+  'stats.desc.numeric_on_text': true,
+  'stats.desc.non_finite_cell': true,
+  'stats.desc.missing_code_not_finite': true,
+  'stats.desc.suspect_missing_code': true,
+  'stats.desc.no_values': true,
+  'stats.desc.single_value': true,
+  'stats.desc.overflow': true,
+  'stats.desc.underflow': true,
+  'stats.desc.arithmetic_refused': true,
+  'stats.desc.missing_cell': true,
+  'stats.desc.missing_code': true,
+  'stats.desc.preparation_mismatch': true,
+  'stats.desc.score_as_categorical': true,
+  'stats.desc.code_equals_score': true,
+};
+
+describe('the DescCode union', () => {
+  it('is exactly the stats.desc words of describeCodes.json', () => {
+    const listed = (describeCodes as string[]).filter((c) => c.startsWith('stats.desc.'));
+    expect(listed).toHaveLength(21);
+    expect(Object.keys(EVERY_CODE).sort()).toEqual([...listed].sort());
+  });
+});
+
+// Research OS, Phase 8M-3, decision 424. Outside PAIRS: a score's `levels` is
+// null and its suspect codes empty because that is what a score has, and the
+// rule above is for fixtures that may fill every field.
+describe('a prepared slot\'s view', () => {
+  it('the typed copy equals the JSON Rust serialises', () => {
+    expect(typed.datasetViewPrepared).toEqual(datasetPreparedJson);
+  });
+
+  it('a score is marked and named, and a file\'s column has neither key', () => {
+    const [file, score] = datasetPreparedJson.profile.columns;
+    expect(file).not.toHaveProperty('prepared');
+    expect(file).not.toHaveProperty('scoreName');
+    expect(score).toMatchObject({ prepared: true, scoreName: 'wellbeing', header: 'C2' });
+  });
+
+  it('a file\'s own view has none of the new keys', () => {
+    expect(datasetJson).not.toHaveProperty('preparation');
+    expect(datasetJson).not.toHaveProperty('scoreCounts');
+  });
+
+  it('a preparation holds only hashes and numbers', () => {
+    expect(Object.keys(datasetPreparedJson.preparation).sort()).toEqual([
+      'capabilityVersion', 'engineVersion', 'recipeHash', 'sourceColumns', 'sourceHash',
+    ]);
   });
 });

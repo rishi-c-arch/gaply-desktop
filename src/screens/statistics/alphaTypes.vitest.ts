@@ -9,6 +9,9 @@
 // gives one spec (decision 338).
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import alphaCodes from './alphaCodes.json';
+import type { AlphaCode } from './alphaTypes';
+
 import validationJson from './fixtures/alphaValidationView.json';
 import stateJson from './fixtures/alphaRunStateView.json';
 import resultJson from './fixtures/alphaResultView.json';
@@ -127,5 +130,57 @@ describe('the bridge', () => {
       ['stats_alpha_export', ['format', 'runId']],
       ['stats_desc_close', ['slot']],
     ]);
+  });
+});
+
+/** Every code of the union, once: a missing one or an extra one fails tsc
+ * (Research OS, Phase 8M-3, decision 428, as onesampleTypes.vitest.ts pins its own). */
+const EVERY_CODE: Record<AlphaCode, true> = {
+  'stats.alpha.unknown_capability': true,
+  'stats.alpha.capability_version_mismatch': true,
+  'stats.alpha.input_count': true,
+  'stats.alpha.input_mismatch': true,
+  'stats.alpha.unknown_column': true,
+  'stats.alpha.too_few_items': true,
+  'stats.alpha.item_repeated': true,
+  'stats.alpha.items_out_of_order': true,
+  'stats.alpha.reversed_repeated': true,
+  'stats.alpha.reversed_out_of_order': true,
+  'stats.alpha.reversed_not_an_item': true,
+  'stats.alpha.scale_without_reversed': true,
+  'stats.alpha.scale_missing': true,
+  'stats.alpha.scale_not_finite': true,
+  'stats.alpha.scale_ends_out_of_order': true,
+  'stats.alpha.missing_code_not_finite': true,
+  'stats.alpha.missing_code_repeated': true,
+  'stats.alpha.missing_codes_out_of_order': true,
+  'stats.alpha.item_holds_text': true,
+  'stats.alpha.item_non_finite': true,
+  'stats.alpha.suspect_missing_code': true,
+  'stats.alpha.reversed_outside_scale': true,
+  'stats.alpha.too_few_complete_rows': true,
+  'stats.alpha.total_constant': true,
+  'stats.alpha.item_constant': true,
+  'stats.alpha.standardized_not_defined': true,
+  'stats.alpha.others_constant': true,
+  'stats.alpha.two_items': true,
+  'stats.alpha.distribution_out_of_range': true,
+  'stats.alpha.overflow': true,
+  'stats.alpha.underflow': true,
+  'stats.alpha.arithmetic_refused': true,
+  'stats.alpha.missing_value': true,
+  'stats.alpha.missing_code': true,
+  'stats.alpha.negative_alpha': true,
+  'stats.alpha.assumes_one_dimension': true,
+  'stats.alpha.no_omega': true,
+  'stats.alpha.preparation_mismatch': true,
+  'stats.alpha.code_equals_score': true,
+};
+
+describe('the AlphaCode union', () => {
+  it('is exactly the stats.alpha words of alphaCodes.json', () => {
+    const listed = (alphaCodes as string[]).filter((c) => c.startsWith('stats.alpha.'));
+    expect(listed).toHaveLength(39);
+    expect(Object.keys(EVERY_CODE).sort()).toEqual([...listed].sort());
   });
 });
