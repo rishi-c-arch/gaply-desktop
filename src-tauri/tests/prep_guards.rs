@@ -186,3 +186,27 @@ fn the_make_command_passes_this_computers_cells_cap_inline() {
         "{squashed}"
     );
 }
+
+/// A rerun's rebuild of a stored recipe passes this computer's cap, typed inline
+/// (decision 434), as the make does: `prepared_again` takes any cap, so nothing
+/// else would notice another value here.
+#[test]
+fn the_rerun_passes_this_computers_cells_cap_inline() {
+    let src = code_only(
+        &std::fs::read_to_string(root().join("src/project_commands.rs")).expect("the commands"),
+    );
+    let at = src.find("fn rerun_open(").expect("rerun_open");
+    let squashed: String = src[at..]
+        .split("The exports' input")
+        .next()
+        .unwrap()
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect();
+    assert!(
+        squashed.contains(
+            "prepared_again(h,recipe,build,&dataset,IngestLimits::this_computer().max_cellsasu64,)"
+        ),
+        "{squashed}"
+    );
+}

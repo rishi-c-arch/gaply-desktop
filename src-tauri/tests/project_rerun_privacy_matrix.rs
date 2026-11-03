@@ -40,6 +40,16 @@
 //!   label, as 5B allows) and the report's title (the name).
 //! * After the project is deleted, no file in the folder holds any.
 //!
+//! **A run on prepared data (Research OS, Phase 8M-4, decision 437), with 8M-3's
+//! three sentinels.** A summary and Cronbach's alpha of a score, saved and run
+//! again, then a Save refused and a rerun refused. The typed name is only in the
+//! recipe artifact and the `DatasetView`; an item's value only in the data file's
+//! artifact and the `DatasetView`; the score's value only in the `DatasetView`.
+//! All three are absent from `project.db`'s bytes, every spec, manifest, bundle,
+//! the report, the PROV JSON, every refusal and every log line. The negative
+//! control is a score constant at the sentinel, saved, whose mean the summary's
+//! result shows.
+//!
 //! Alone in its binary on purpose: its tracing subscriber is the global
 //! default for the whole process.
 
@@ -53,13 +63,15 @@ use std::sync::{Arc, Mutex};
 
 use app_lib::project_commands::{self as pc, RerunProgress, SaveTarget};
 use app_lib::stats_desc_commands as desc;
+use app_lib::stats_prep_commands as prep;
 use desc_support::{delimited, C};
-use gaply_core::contracts::OperationId;
+use gaply_core::contracts::{CapabilityId, OperationId};
 use gaply_core::stats_alpha::{self, AlphaParams};
 use gaply_core::stats_anova::{self, AnovaParams, PostHoc};
 use gaply_core::stats_corr::{self, Coefficient, CorrParams, MissingHandling};
 use gaply_core::stats_desc::{self, Alias, ColumnRequest, DescribeParams, TreatAs};
 use gaply_core::stats_l1::dataset::ColumnAlias;
+use gaply_core::stats_prep::{self, MissingRule, Recipe, RecipeStep, ScaleScoreStep, Statistic};
 use gaply_core::Database;
 use project_support::World;
 
@@ -74,6 +86,12 @@ const TITLE: &str = "TITLESENTp22";
 
 const SENTINELS: [&str; 7] = [HDR, LVL, FILE, PATH, UNSEL_NUM, SEL_NUM, TXT];
 
+// 8M-3's (stats_prep_privacy_matrix.rs), on a binary grid: 61.8125 is an item's
+// value in one row, and the score there, the mean of it and 85.25, is 73.53125.
+const NAME: &str = "NAME_SENTINEL_f19";
+const ITEM_VALUE: &str = "61.8125";
+const SCORE_VALUE: &str = "73.53125";
+
 fn table() -> Vec<u8> {
     let headers = [HDR, "group", "note", "aux"];
     let score = [
@@ -86,6 +104,145 @@ fn table() -> Vec<u8> {
         .map(|i| vec![C::N(score[i]), C::T(group[i]), C::T(note[i]), C::N(aux[i])])
         .collect();
     delimited(&headers, &rows, ",", "\n")
+}
+
+/// The table of 8M-3's matrix, with plain headers: the name is the one sentinel
+/// a person typed.
+fn prepared_table() -> Vec<u8> {
+    let headers = ["q1", "q2", "q3", "q4", "arm", "site", "age"];
+    let q1 = [
+        "44.5", "10.5", "23.25", ITEM_VALUE, "50", "95.5", "27.75", "31", "70.75", "12", "66",
+        "18.5",
+    ];
+    let q2 = [
+        "3.5", "11.25", "2", "85.25", "16", "99", "8.5", "4", "99", "1.5", "6", "2.25",
+    ];
+    let q3 = ["1", "2", "3", "4", "5", "1", "2", "3", "4", "5", "1", "2"];
+    let q4 = ["2", "1", "4", "3", "5", "2", "2", "5", "1", "4", "3", "1"];
+    let arm = ["a", "a", "a", "a", "a", "a", "b", "b", "b", "b", "b", "b"];
+    let site = ["x", "x", "y", "y", "z", "z", "x", "x", "y", "y", "z", "z"];
+    let age = [
+        "31", "44", "29", "52", "37", "41", "63", "35", "48", "27", "58", "33",
+    ];
+    let rows: Vec<Vec<C>> = (0..12)
+        .map(|i| {
+            vec![
+                C::N(q1[i]),
+                C::N(q2[i]),
+                C::N(q3[i]),
+                C::N(q4[i]),
+                C::T(arm[i]),
+                C::T(site[i]),
+                C::N(age[i]),
+            ]
+        })
+        .collect();
+    delimited(&headers, &rows, ",", "\n")
+}
+
+fn prepared_recipe(columns: u32, name: &str) -> Recipe {
+    let alias = |n: u32| Alias(ColumnAlias(n));
+    Recipe {
+        schema_version: stats_prep::RECIPE_SCHEMA_VERSION,
+        capability_id: CapabilityId::parse(stats_prep::CAPABILITY_ID).unwrap(),
+        capability_version: stats_prep::CAPABILITY_VERSION,
+        engine_version: stats_prep::ENGINE_VERSION,
+        source_columns: columns,
+        steps: vec![RecipeStep::ScaleScore(ScaleScoreStep {
+            alias: alias(columns + 1),
+            name: name.to_string(),
+            items: vec![alias(1), alias(2)],
+            reversed: Vec::new(),
+            scale: None,
+            statistic: Some(Statistic::Mean),
+            rule: Some(MissingRule::EveryItem),
+            missing_codes: Vec::new(),
+        })],
+    }
+}
+
+/// A summary of column `score` on the prepared `slot`, run to its end.
+fn summary_of(w: &World, slot: u64, score: u32) -> u64 {
+    let e = w.engine();
+    let held = e.datasets.get(slot).unwrap();
+    let mut spec = stats_desc::spec(
+        OperationId(5),
+        held.dataset(),
+        DescribeParams {
+            columns: vec![ColumnRequest {
+                alias: Alias(ColumnAlias(score)),
+                treat_as: TreatAs::Numeric,
+            }],
+            missing_codes: vec![],
+        },
+    );
+    spec.preparation = held.preparation();
+    drop(held);
+    let run = desc::run(&e.runs, &e.datasets, slot, spec).unwrap().run_id;
+    w.wait(run);
+    run
+}
+
+/// Cronbach's alpha of two items and the score, on the prepared `slot`.
+fn alpha_of(w: &World, slot: u64) -> u64 {
+    let e = w.engine();
+    let held = e.datasets.get(slot).unwrap();
+    let alias = |n: u32| Alias(ColumnAlias(n));
+    let mut spec = stats_alpha::spec(
+        OperationId(6),
+        held.dataset(),
+        AlphaParams {
+            items: vec![alias(4), alias(7), alias(8)],
+            reversed: vec![],
+            scale: None,
+            missing_codes: vec![],
+        },
+    );
+    spec.preparation = held.preparation();
+    drop(held);
+    let run = app_lib::stats_alpha_commands::run(&e.runs, &e.datasets, slot, spec)
+        .unwrap()
+        .run_id;
+    w.wait_new_kind(run);
+    run
+}
+
+/// A rerun of stored run `of`, saved as run `of + 1`.
+fn rerun_saved(w: &World, app: &Path, of: u64) -> String {
+    let started = pc::rerun(app, &w.ws, of).expect("the rerun starts");
+    let start = std::time::Instant::now();
+    let current = loop {
+        let c = pc::current(&w.ws).unwrap();
+        if c.rerun
+            .as_ref()
+            .is_some_and(|r| r.status != RerunProgress::Going && r.stored_run_id == Some(of + 1))
+        {
+            break c;
+        }
+        assert!(start.elapsed() < std::time::Duration::from_secs(20));
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    };
+    assert_eq!(current.rerun.as_ref().unwrap().status, RerunProgress::Saved);
+    format!(
+        "{}{}",
+        serde_json::to_string(&started).unwrap(),
+        serde_json::to_string(&current).unwrap()
+    )
+}
+
+/// Each of the prepared run's sentinels `bytes` holds, as text, and each number
+/// also as the 8-byte big-endian double SQLite stores.
+fn prepared_found(bytes: &[u8]) -> Vec<&'static str> {
+    let mut out: Vec<&'static str> = [NAME, ITEM_VALUE, SCORE_VALUE]
+        .into_iter()
+        .filter(|s| contains(bytes, s.as_bytes()))
+        .collect();
+    for (name, n) in [(ITEM_VALUE, 61.8125f64), (SCORE_VALUE, 73.53125f64)] {
+        if contains(bytes, &n.to_be_bytes()) && !out.contains(&name) {
+            out.push(name);
+        }
+    }
+    out
 }
 
 fn files_under(dir: &Path, out: &mut Vec<PathBuf>) {
@@ -382,6 +539,68 @@ fn a_rerun_puts_no_sentinel_anywhere_but_the_projects_artifacts_and_its_title() 
         "current (alpha)".into(),
         serde_json::to_string(&current).unwrap(),
     ));
+
+    // Phase 8M-4 (decision 437): a summary and Cronbach's alpha of a score, on a
+    // table of their own, saved into the open project and run again.
+    let prepared_data = folder.join(format!("{FILE}_prepared.csv"));
+    std::fs::write(&prepared_data, prepared_table()).unwrap();
+    let prepared_open = desc::open(&e.datasets, &prepared_data).expect("open");
+    let recipe = prepared_recipe(7, NAME);
+    let made = prep::make(&e.runs, &e.datasets, prepared_open.slot, &recipe, 1_000_000)
+        .map_err(|_| "the make")
+        .unwrap();
+    let view = serde_json::to_string(&made.dataset.as_ref().expect("the view")).unwrap();
+    assert_eq!(prepared_found(view.as_bytes())[0], NAME, "the screen's own");
+    let mut prepared_surfaces: Vec<(String, String)> = Vec::new();
+    let mut prepared_results = String::new();
+    for (stored, run) in [
+        (9, summary_of(&w, prepared_open.slot, 8)),
+        (11, alpha_of(&w, prepared_open.slot)),
+    ] {
+        let saved = pc::save_run(
+            &app,
+            &w.ws,
+            run,
+            SaveTarget::OpenProject {
+                project_id: id.clone(),
+            },
+        )
+        .expect("the prepared run saved");
+        assert_eq!(saved.stored_run_id, stored);
+        prepared_surfaces.push((
+            format!("save {stored}"),
+            serde_json::to_string(&saved).unwrap(),
+        ));
+        prepared_surfaces.push((format!("rerun {stored}"), rerun_saved(&w, &app, stored)));
+        for n in [stored, stored + 1] {
+            let back = pc::run_result(&app, &w.ws, &id, n).unwrap();
+            prepared_results.push_str(&serde_json::to_string(&back).unwrap());
+        }
+    }
+    // A Save refused: the recipe replaced since the run.
+    let unsaved = summary_of(&w, prepared_open.slot, 8);
+    prep::make(
+        &e.runs,
+        &e.datasets,
+        prepared_open.slot,
+        &prepared_recipe(7, "another"),
+        1_000_000,
+    )
+    .map_err(|_| "the second make")
+    .unwrap();
+    let refused = pc::save_run(
+        &app,
+        &w.ws,
+        unsaved,
+        SaveTarget::OpenProject {
+            project_id: id.clone(),
+        },
+    )
+    .map(|_| ())
+    .unwrap_err();
+    prepared_surfaces.push(("a refused Save".into(), refused.to_string()));
+    assert!(refused.to_string().contains("project.data_mismatch"));
+
     responses.push((
         "runs".into(),
         serde_json::to_string(&pc::runs(&app, &w.ws, &id).unwrap()).unwrap(),
@@ -415,6 +634,35 @@ fn a_rerun_puts_no_sentinel_anywhere_but_the_projects_artifacts_and_its_title() 
     );
     assert!(prov.contains("wasInformedBy"), "and in the provenance");
 
+    // Phase 8M-4 (decision 437): the prepared run is in both exports, by
+    // position, and none of its three sentinels is in anything but its two files.
+    assert!(
+        report.contains("- Prepared column 8: mean of columns 1 and 2;"),
+        "the prepared run is in the report"
+    );
+    assert!(prov.contains("gaply:recipe"), "and in the provenance");
+    prepared_surfaces.push(("the report".into(), report.clone()));
+    prepared_surfaces.push(("the provenance".into(), prov.clone()));
+    prepared_surfaces.push(("results read back".into(), prepared_results.clone()));
+    // A rerun refused: its recipe damaged on disk, the name still in the file.
+    let recipe_hash = stats_prep::recipe_hash(&recipe);
+    let recipe_path = project.join("artifacts").join(&recipe_hash);
+    let mut damaged = std::fs::read(&recipe_path).unwrap();
+    damaged[0] ^= 1;
+    let beside = recipe_path.with_extension("damaged");
+    std::fs::write(&beside, &damaged).unwrap();
+    std::fs::rename(&beside, &recipe_path).unwrap();
+    let refused = pc::rerun(&app, &w.ws, 9).map(|_| ()).unwrap_err();
+    assert!(refused.to_string().contains("project.artifact_wrong_hash"));
+    prepared_surfaces.push(("a refused rerun".into(), refused.to_string()));
+    for (name, text) in &prepared_surfaces {
+        assert_eq!(
+            prepared_found(text.as_bytes()),
+            Vec::<&str>::new(),
+            "{name}"
+        );
+    }
+
     // Responses: none, but a result read back (the header and the label) and
     // the report's title (the name).
     for (name, text) in &responses {
@@ -436,6 +684,32 @@ fn a_rerun_puts_no_sentinel_anywhere_but_the_projects_artifacts_and_its_title() 
     let mut files = Vec::new();
     files_under(&app, &mut files);
     let (mut in_artifacts, mut in_db) = (Vec::new(), Vec::new());
+    // Phase 8M-4 (decision 437): the name only in the recipe's file, an item's
+    // value only in the data file's, and the score's value in no file at all,
+    // project.db's bytes and its -wal included.
+    let prepared_file = artifacts.join(
+        gaply_core::contracts::ContentHash::of_bytes(&prepared_table())
+            .as_hex()
+            .to_string(),
+    );
+    let mut prepared_files_seen = 0;
+    for f in &files {
+        let hits = prepared_found(&std::fs::read(f).unwrap());
+        if *f == recipe_path {
+            assert_eq!(hits, [NAME], "the recipe's file");
+            prepared_files_seen += 1;
+        } else if *f == prepared_file {
+            assert_eq!(hits, [ITEM_VALUE], "the data file's copy");
+            prepared_files_seen += 1;
+        } else {
+            assert_eq!(hits, Vec::<&str>::new(), "{}", f.display());
+        }
+    }
+    assert_eq!(prepared_files_seen, 2, "each file was swept");
+    assert!(
+        files.iter().any(|f| f.ends_with("project.db")),
+        "project.db was swept"
+    );
     for f in &files {
         let hits = found(&std::fs::read(f).unwrap());
         if f.starts_with(&artifacts) {
@@ -479,6 +753,11 @@ fn a_rerun_puts_no_sentinel_anywhere_but_the_projects_artifacts_and_its_title() 
     );
     for l in &traced {
         assert_eq!(found(l.as_bytes()), Vec::<&str>::new(), "a log line: {l}");
+        assert_eq!(
+            prepared_found(l.as_bytes()),
+            Vec::<&str>::new(),
+            "a log line: {l}"
+        );
     }
 
     // Deleted: no file in the folder holds any.
@@ -488,8 +767,10 @@ fn a_rerun_puts_no_sentinel_anywhere_but_the_projects_artifacts_and_its_title() 
     let mut left = Vec::new();
     files_under(&app, &mut left);
     for f in &left {
+        let bytes = std::fs::read(f).unwrap();
+        assert!(found(&bytes).is_empty(), "{} after the delete", f.display());
         assert!(
-            found(&std::fs::read(f).unwrap()).is_empty(),
+            prepared_found(&bytes).is_empty(),
             "{} after the delete",
             f.display()
         );
@@ -500,6 +781,78 @@ fn a_rerun_puts_no_sentinel_anywhere_but_the_projects_artifacts_and_its_title() 
         files.len(),
         left.len()
     );
+}
+
+/// The prepared run's negative control (decision 437), 8M-3's in a project: a
+/// score constant at the sentinel, whose mean the summary's result shows, so
+/// here its value IS in the bundle and the result read back, and the search can
+/// find what it seeks. Still not in `project.db`, and the name in neither.
+///
+/// It works in a project of its own with its own session; its tracing lines
+/// reach the subscriber the test above owns, and hold no sentinel of either.
+#[test]
+fn a_saved_summary_holds_the_value_when_a_score_is_constant_at_it() {
+    let w = World::new("rerun-matrix-control");
+    let app = w.root();
+    let rows: Vec<Vec<C>> = (0..6)
+        .map(|_| vec![C::N(ITEM_VALUE), C::N("85.25")])
+        .collect();
+    let path = w
+        .dir
+        .write("control.csv", &delimited(&["q1", "q2"], &rows, ",", "\n"));
+    let e = w.engine();
+    let opened = desc::open(&e.datasets, &path).expect("open");
+    prep::make(
+        &e.runs,
+        &e.datasets,
+        opened.slot,
+        &prepared_recipe(2, NAME),
+        1_000,
+    )
+    .map_err(|_| "the make")
+    .unwrap();
+    let run = summary_of(&w, opened.slot, 3);
+    let saved = pc::save_run(
+        &app,
+        &w.ws,
+        run,
+        SaveTarget::NewProject {
+            name: "Control".to_string(),
+        },
+    )
+    .expect("saved");
+    let back = pc::run_result(&app, &w.ws, &saved.project_id, 1).unwrap();
+    let read_back = serde_json::to_string(&back).unwrap();
+    assert!(
+        contains(read_back.as_bytes(), SCORE_VALUE.as_bytes()),
+        "73.53125 is every row's score, so the result read back must show it"
+    );
+    assert!(!contains(read_back.as_bytes(), NAME.as_bytes()));
+    pc::close(&app, &w.ws).unwrap();
+
+    let project = app.join("projects").join(&saved.project_id);
+    let mut files = Vec::new();
+    files_under(&project, &mut files);
+    let mut bundles = 0;
+    for f in &files {
+        let bytes = std::fs::read(f).unwrap();
+        if contains(&bytes, b"primaryOutputs") {
+            bundles += 1;
+            assert!(
+                contains(&bytes, SCORE_VALUE.as_bytes()),
+                "the saved bundle holds it"
+            );
+            assert!(!contains(&bytes, NAME.as_bytes()), "and no name");
+        }
+        if f.file_name()
+            .unwrap()
+            .to_string_lossy()
+            .starts_with("project.db")
+        {
+            assert_eq!(prepared_found(&bytes), Vec::<&str>::new());
+        }
+    }
+    assert_eq!(bundles, 1);
 }
 
 /// The matrix's negative control (Research OS, Phase 8H, decision 337d): on

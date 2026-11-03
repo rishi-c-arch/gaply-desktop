@@ -181,6 +181,38 @@ function manifest(v: unknown, capability: string, excluded: (e: unknown) => bool
   );
 }
 
+/* ---- a run on prepared data (Research OS, Phase 8M-4, decision 436) -------- */
+
+/** A stored preparation, with exactly its five fields: hashes and numbers. */
+function preparationShape(v: unknown): v is O {
+  return (
+    isObject(v) &&
+    Object.keys(v).length === 5 &&
+    isHex64(v.sourceHash) &&
+    isHex64(v.recipeHash) &&
+    isCount(v.sourceColumns) &&
+    isCount(v.capabilityVersion) &&
+    isCount(v.engineVersion)
+  );
+}
+
+/** A manifest's preparation is present exactly when its spec's is, and equal to
+ *  it: Rust copies the one into the other, and writes neither when absent. */
+function preparationsAgree(spec: O, manifest: unknown): boolean {
+  if (!isObject(manifest)) return false;
+  if (!('preparation' in spec) && !('preparation' in manifest)) return true;
+  const [a, b] = [spec.preparation, manifest.preparation];
+  return (
+    preparationShape(a) &&
+    preparationShape(b) &&
+    a.sourceHash === b.sourceHash &&
+    a.recipeHash === b.recipeHash &&
+    a.sourceColumns === b.sourceColumns &&
+    a.capabilityVersion === b.capabilityVersion &&
+    a.engineVersion === b.engineVersion
+  );
+}
+
 /* ---- the summary ----------------------------------------------------------- */
 
 const stat = (v: unknown) =>
@@ -696,6 +728,7 @@ function check(view: unknown): Checked {
   if (versions.indexOf('other') >= 0) return { kind: 'unknownSchema' };
   if (versions.indexOf('none') >= 0) return { kind: 'badShape' };
   if (!isObject(spec) || spec.capabilityId !== capability) return { kind: 'badShape' };
+  if ('preparation' in spec && !preparationShape(spec.preparation)) return { kind: 'badShape' };
 
   if (view.state === 'failed') {
     if (!isObject(record) || record.status !== 'failed') return { kind: 'badShape' };
@@ -704,5 +737,6 @@ function check(view: unknown): Checked {
     return { kind: 'failed', capability: which, failure: record.failure as StoredFailure, dataFile };
   }
   if (!isObject(bundle)) return { kind: 'badShape' };
+  if (!preparationsAgree(spec, bundle.manifest)) return { kind: 'badShape' };
   return checker.bundle(bundle, dataFile) ?? { kind: 'badShape' };
 }

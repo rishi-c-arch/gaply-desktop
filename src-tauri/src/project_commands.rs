@@ -85,15 +85,15 @@ use gaply_core::contracts::capability::{Build, ConfirmationId};
 use gaply_core::contracts::codes::Closed;
 use gaply_core::contracts::workspace::{check_spec, WorkspaceState};
 use gaply_core::contracts::{
-    ContentHash, Diagnostic, InputRef, OperationSpec, Platform, RunId, RunManifest, RunState,
-    ValidationStatus, WorkspaceId,
+    ContentHash, Diagnostic, InputRef, OperationSpec, Platform, Preparation, RunId, RunManifest,
+    RunState, ValidationReport, ValidationStatus, WorkspaceId,
 };
 use gaply_core::research_project::{
     compare_rerun, ArtifactHash, ArtifactKind, ArtifactRef, Caps, ColumnRole,
     CorrelationCoefficient, DataFormat, ExportCode, ExportCount, ExportManifest, ExportParameter,
     ExportRun, MissingRows, PostHocTest, ProjectCode, ProjectExportInput, ProjectId,
-    ProjectRefusal, ProjectTitle, ProvEdge, ProvGraph, RerunComparison, StoredRun, StoredRunId,
-    TestVariant, UsedRole, PROV_FILE_NAME, REPORT_FILE_NAME,
+    ProjectRefusal, ProjectTitle, ProvEdge, ProvGraph, RerunComparison, ScoreRule, ScoreStatistic,
+    StoredRun, StoredRunId, TestVariant, UsedRole, PROV_FILE_NAME, REPORT_FILE_NAME,
 };
 use gaply_core::research_project::{
     numbers_agree_to_last_digits, platforms_differ, render_prov_json, render_report_markdown,
@@ -105,6 +105,9 @@ use gaply_core::stats_corr::{self, Coefficient, CorrCode, CorrParams, MissingHan
 use gaply_core::stats_desc::{self, DescCode, DescribeParams, TreatAs};
 use gaply_core::stats_l1::dataset::Dataset;
 use gaply_core::stats_onesample::{self, OneSampleCode, OneSampleParams, PairedParams};
+use gaply_core::stats_prep::{
+    MissingRule, PrepCode, PrepRefusal, Prepared, Recipe, RecipeStep, ScaleScoreStep, Statistic,
+};
 use gaply_core::stats_registry;
 use gaply_core::stats_ttest::{self, TTestCode, TTestParams, Variant};
 use gaply_core::GaplyError;
@@ -926,30 +929,146 @@ fn request_for(
     })
 }
 
+/// The spec's preparation, if it has one (decision 433). One that does not read
+/// back as a preparation is no spec this build wrote.
+fn spec_preparation(spec_json: &[u8]) -> Result<Option<Preparation>, ProjectCode> {
+    let Ok(v) = serde_json::from_slice::<Value>(spec_json) else {
+        return Ok(None);
+    };
+    match v.get("preparation") {
+        None | Some(Value::Null) => Ok(None),
+        Some(p) => serde_json::from_value(p.clone())
+            .map(Some)
+            .map_err(|_| ProjectCode::DataMismatch),
+    }
+}
+
+/// A run on prepared data, against the slot a Save would keep it from (decision
+/// 433). A finished run keeps no handle to its recipe, so the slot is the only
+/// place the recipe can come from, and these prove it is the same one: a recipe
+/// replaced or cleared since the run is refused. Each comparison is its own, so
+/// none can stand in for another.
+fn check_prepared(
+    copy: &RunCopy,
+    input: &RunInput,
+    slot: &Slot,
+    source: &SourceFile,
+    preparation: &Preparation,
+) -> Result<(), ProjectCode> {
+    let held = slot.preparation().ok_or(ProjectCode::DataMismatch)?;
+    if held.recipe_hash != preparation.recipe_hash {
+        return Err(ProjectCode::DataMismatch);
+    }
+    // The run's input is always the source's (runs.rs's `queue`).
+    if source.sha256() != &input.sha256 {
+        return Err(ProjectCode::DataMismatch);
+    }
+    if source.sha256() != &preparation.source_hash {
+        return Err(ProjectCode::DataMismatch);
+    }
+    let prepared_input = ContentHash::from_hex(&stats_adapters::prep_input_hash(
+        source.sha256().as_hex(),
+        preparation.recipe_hash.as_hex(),
+    ))
+    .ok_or(ProjectCode::DataMismatch)?;
+    if copy.spec_json.as_deref().and_then(spec_input).as_ref() != Some(&prepared_input) {
+        return Err(ProjectCode::DataMismatch);
+    }
+    if copy.state == RunState::Succeeded
+        && copy.manifest_inputs.as_slice() != std::slice::from_ref(&prepared_input)
+    {
+        return Err(ProjectCode::DataMismatch);
+    }
+    Ok(())
+}
+
 /// The data file a Save keeps: `slot`'s copy of the original bytes, only
 /// when it is byte for byte the file the run read (decision 123): it hashes
 /// to what the run recorded when it started, which is also the spec's input
-/// hash and, for a run that Succeeded, the manifest's. A Save and a rerun's
-/// save at the end check their slot here, the same way.
+/// hash and, for a run that Succeeded, the manifest's. A run on prepared data
+/// names the prepared input instead, so [`check_prepared`] compares it (decision
+/// 433). A Save and a rerun's save at the end check their slot here, the same
+/// way.
 fn data_of(
     copy: &RunCopy,
     input: &RunInput,
     slot: &Slot,
 ) -> Result<(Vec<u8>, DataFormat, ArtifactHash), ProjectCode> {
     let source = slot.source().ok_or(ProjectCode::DataUnavailable)?;
-    let manifest_agrees = copy.state != RunState::Succeeded
-        || copy.manifest_inputs.as_slice() == std::slice::from_ref(&input.sha256);
-    if source.sha256() != &input.sha256
-        || copy.spec_json.as_deref().and_then(spec_input).as_ref() != Some(&input.sha256)
-        || !manifest_agrees
-    {
-        return Err(ProjectCode::DataMismatch);
+    let preparation = copy
+        .spec_json
+        .as_deref()
+        .map(spec_preparation)
+        .transpose()?;
+    if let Some(preparation) = preparation.flatten() {
+        check_prepared(copy, input, slot, source, &preparation)?;
+    } else {
+        let manifest_agrees = copy.state != RunState::Succeeded
+            || copy.manifest_inputs.as_slice() == std::slice::from_ref(&input.sha256);
+        if source.sha256() != &input.sha256
+            || copy.spec_json.as_deref().and_then(spec_input).as_ref() != Some(&input.sha256)
+            || !manifest_agrees
+        {
+            return Err(ProjectCode::DataMismatch);
+        }
     }
     Ok((
         source.bytes().to_vec(),
         source.format(),
         ArtifactHash::parse(input.sha256.as_hex())?,
     ))
+}
+
+/// What a Save keeps of a run's recipe, for a run whose spec names one: its
+/// canonical bytes, from the slot [`data_of`] has checked, and the hash the spec
+/// recorded.
+fn recipe_of(copy: &RunCopy, slot: &Slot) -> Result<Option<(Vec<u8>, ArtifactHash)>, ProjectCode> {
+    let preparation = copy
+        .spec_json
+        .as_deref()
+        .map(spec_preparation)
+        .transpose()?;
+    let Some(preparation) = preparation.flatten() else {
+        return Ok(None);
+    };
+    let prepared = slot.prepared().ok_or(ProjectCode::DataMismatch)?;
+    Ok(Some((
+        stats_adapters::prep_recipe_bytes(&prepared.recipe),
+        ArtifactHash::parse(preparation.recipe_hash.as_hex())?,
+    )))
+}
+
+/// `req` with the run's recipe, if it has one: an artifact of kind `recipe` and
+/// a `used` edge with its role. It is expected to hash to what the run's spec
+/// recorded, not to whatever the bytes in hand hash to, so the store's
+/// `project.hash_mismatch` stays the last check, as for the data file (decision
+/// 433).
+fn with_recipe(mut req: SaveRequest, recipe: Option<(Vec<u8>, ArtifactHash)>) -> SaveRequest {
+    if let Some((bytes, expected)) = recipe {
+        req.run.used.push((expected.clone(), UsedRole::Recipe));
+        req.artifacts.push(ArtifactInput {
+            kind: ArtifactKind::Recipe,
+            format: DataFormat::Json,
+            schema_version: 1,
+            expected,
+            bytes,
+        });
+    }
+    req
+}
+
+/// What a Save and a rerun's save at the end both write, checked as each checks
+/// its slot: the data file, the recipe of a run on prepared data, the spec and
+/// the outputs.
+fn request_from_slot(
+    copy: &RunCopy,
+    input: &RunInput,
+    slot: &Slot,
+    now: i64,
+) -> Result<SaveRequest, ProjectCode> {
+    let data = data_of(copy, input, slot)?;
+    let recipe = recipe_of(copy, slot)?;
+    Ok(with_recipe(request_for(copy, data, now)?, recipe))
 }
 
 /// A rerun, saved (decision 186): the same request a Save builds, its data
@@ -962,8 +1081,7 @@ fn save_rerun_into(
     of: StoredRunId,
 ) -> Result<StoredRunId, ProjectRefusal> {
     let input = copy.input.as_ref().ok_or(ProjectCode::DataUnavailable)?;
-    let data = data_of(copy, input, slot)?;
-    let req = request_for(copy, data, gaply_core::now_epoch())?;
+    let req = request_from_slot(copy, input, slot, gaply_core::now_epoch())?;
     h.save_rerun(req, of)
 }
 
@@ -1492,8 +1610,7 @@ pub fn save_run(
         .datasets
         .get(input.slot)
         .map_err(|_| refuse(ProjectCode::DataUnavailable))?;
-    let data = data_of(&copy, input, &slot).map_err(refuse)?;
-    let req = request_for(&copy, data, gaply_core::now_epoch()).map_err(refuse)?;
+    let req = request_from_slot(&copy, input, &slot, gaply_core::now_epoch()).map_err(refuse)?;
 
     let (id, stored, created) = match title {
         Some(title) => {
@@ -1682,11 +1799,12 @@ fn result_bundle(h: &mut ProjectHandle, loaded: &Loaded, run: StoredRunId) -> Op
     read_json(h, bundle).ok()
 }
 
-/// A run's artifacts by what they were to it: the data file, the spec, and
-/// what it generated, each with its row.
+/// A run's artifacts by what they were to it: the data file, the spec, the
+/// recipe of a run on prepared data, and what it generated, each with its row.
 struct RunArtifacts {
     data: ArtifactRef,
     spec: ArtifactRef,
+    recipe: Option<ArtifactRef>,
     generated: Vec<ArtifactRef>,
 }
 
@@ -1710,7 +1828,7 @@ fn artifacts_of(
             .cloned()
             .ok_or_else(|| ProjectCode::UnknownArtifact.into())
     };
-    let (mut data, mut spec, mut generated) = (None, None, Vec::new());
+    let (mut data, mut spec, mut recipe, mut generated) = (None, None, None, Vec::new());
     for e in loaded.graph.edges() {
         match e {
             ProvEdge::Used {
@@ -1720,6 +1838,12 @@ fn artifacts_of(
             } if *r == run => match role {
                 UsedRole::Data => data = Some(row(artifact)?),
                 UsedRole::Spec => spec = Some(row(artifact)?),
+                // A run has one recipe at most (decision 432): a second edge is
+                // not what a Save writes, so which one it read cannot be known.
+                UsedRole::Recipe if recipe.is_some() => {
+                    return Err(ProjectCode::UnknownArtifact.into())
+                }
+                UsedRole::Recipe => recipe = Some(row(artifact)?),
             },
             ProvEdge::WasGeneratedBy { artifact, run: r } if *r == run => {
                 generated.push(row(artifact)?)
@@ -1734,6 +1858,7 @@ fn artifacts_of(
             RunArtifacts {
                 data,
                 spec,
+                recipe,
                 generated,
             },
         )),
@@ -1776,8 +1901,12 @@ pub fn run_result(
             RESULT_READ_LIMIT_BYTES,
         )));
     }
-    // Verified, and dropped: the data file's bytes never leave the store.
+    // Verified, and dropped: the data file's bytes never leave the store, nor
+    // do the recipe's (decision 433).
     h.read_artifact(arts.data.hash.as_hex()).map_err(refuse)?;
+    if let Some(recipe) = &arts.recipe {
+        h.read_artifact(recipe.hash.as_hex()).map_err(refuse)?;
+    }
     let spec = read_text(h, &arts.spec).map_err(refuse)?;
     let (mut bundle, mut manifest, mut failure) = (None, None, None);
     for a in &arts.generated {
@@ -1786,7 +1915,7 @@ pub fn run_result(
             ArtifactKind::ResultBundle => bundle = Some(v),
             ArtifactKind::RunManifest => manifest = Some(v),
             ArtifactKind::RunFailure => failure = Some(v),
-            ArtifactKind::DataFile | ArtifactKind::OperationSpec => {
+            ArtifactKind::DataFile | ArtifactKind::OperationSpec | ArtifactKind::Recipe => {
                 return Err(refuse(ProjectCode::DbUnreadable))
             }
         }
@@ -1851,6 +1980,113 @@ pub fn rerun_ingest_code(refusal: L1IngestRefusal) -> ProjectCode {
     }
 }
 
+/// The code a rerun gives when a stored recipe is refused (Research OS, Phase
+/// 8M-4, decision 434). `cells_over_cap` depends on this computer's tier, so it
+/// is `rerun_over_limits`, as the ingest's cells are ([`rerun_ingest_code`]):
+/// the run can be repeated on a computer with more memory. Every other refusal
+/// is `recipe_unusable`. Exhaustive, so a new code must be placed here before it
+/// builds.
+pub fn rerun_recipe_code(code: PrepCode) -> ProjectCode {
+    use PrepCode as P;
+    match code {
+        P::CellsOverCap => ProjectCode::RerunOverLimits,
+        P::RecipeUnreadable
+        | P::UnknownCapability
+        | P::CapabilityVersionMismatch
+        | P::EngineVersionMismatch
+        | P::SchemaVersionMismatch
+        | P::SourceAlreadyPrepared
+        | P::SourceColumnsMismatch
+        | P::NoSteps
+        | P::AliasNotNext
+        | P::TooWide
+        | P::NameNotTrimmed
+        | P::NameLength
+        | P::NameHasInvisibleCharacter
+        | P::NameEqualsFileHeader
+        | P::NameEqualsOtherScore
+        | P::NameIsAnAliasWord
+        | P::TooFewItems
+        | P::ItemRepeated
+        | P::ItemsOutOfOrder
+        | P::ItemNotAFileColumn
+        | P::ItemNotNumeric
+        | P::ItemHoldsText
+        | P::ItemNonFinite
+        | P::ReversedRepeated
+        | P::ReversedOutOfOrder
+        | P::ReversedNotAnItem
+        | P::ScaleMissing
+        | P::ScaleWithoutReversed
+        | P::ScaleNotFinite
+        | P::ScaleEndsOutOfOrder
+        | P::ReversedOutsideScale
+        | P::AtLeastOutOfRange
+        | P::MissingCodeNotFinite
+        | P::MissingCodeRepeated
+        | P::MissingCodesOutOfOrder
+        | P::StatisticNotChosen
+        | P::RuleNotChosen
+        | P::NegativeZero
+        | P::NoRowScored
+        | P::TableRefusedColumn
+        | P::SumOverFewerItems
+        | P::ScoredFromEveryItem
+        | P::ScoredFromFewer
+        | P::NotScoredTooFew
+        | P::NotScoredOverflow => ProjectCode::RecipeUnusable,
+    }
+}
+
+/// The code of a report that refused a recipe. A refusal no computer could get
+/// past outranks one this computer's tier causes: a recipe that is both too wide
+/// and over the cap is not helped by more memory.
+fn refused_recipe_code(report: &ValidationReport<PrepCode>) -> ProjectCode {
+    let codes = report
+        .errors
+        .iter()
+        .chain(&report.missing_information)
+        .map(|d| rerun_recipe_code(d.code));
+    let mut over_limits = false;
+    for code in codes {
+        if code != ProjectCode::RerunOverLimits {
+            return code;
+        }
+        over_limits = true;
+    }
+    if over_limits {
+        ProjectCode::RerunOverLimits
+    } else {
+        ProjectCode::RecipeUnusable
+    }
+}
+
+/// The prepared table a stored recipe makes from `dataset`, the project's copy
+/// of the file as read again, through the façade calls a live make uses
+/// (`stats_prep_commands::make`). The artifact's hash is verified as it is read;
+/// nothing is written but the damage mark that reading a damaged one makes.
+fn prepared_again(
+    h: &mut ProjectHandle,
+    recipe: &ArtifactRef,
+    build: Build,
+    dataset: &Dataset,
+    cells_cap: u64,
+) -> Result<Prepared, ProjectRefusal> {
+    let bytes = h.read_artifact(recipe.hash.as_hex())?;
+    let recipe = stats_adapters::prep_recipe_from_bytes(&bytes).map_err(rerun_recipe_code)?;
+    let report = stats_adapters::prep_validate(&recipe, build, dataset, cells_cap);
+    if !report.may_run() {
+        return Err(refused_recipe_code(&report).into());
+    }
+    stats_adapters::prep_build(&recipe, build, dataset, cells_cap).map_err(|r| {
+        ProjectRefusal::from(match r {
+            PrepRefusal::Report(report) => refused_recipe_code(&report),
+            PrepRefusal::NoRowScored { .. } => rerun_recipe_code(PrepCode::NoRowScored),
+            PrepRefusal::Table(d) => rerun_recipe_code(d.code),
+        })
+    })
+}
+
 /// [`rerun`] after its workspace check: checks 2 to 9, in order, under the
 /// open project's lock; then the rerun is going, and the lock is released
 /// before the run starts, because a run that ends at once (a refusal in the
@@ -1897,19 +2133,45 @@ fn rerun_open(
     let dataset =
         load_dataset_from_bytes_with(&data, arts.data.format, IngestLimits::this_computer())
             .map_err(|r| refuse(rerun_ingest_code(r)))?;
-    // 9. The spec passes validation, as an ordinary run's must.
     let build = crate::workspace::build();
-    if !job.valid_on(build, &dataset) {
-        return Err(refuse(ProjectCode::RerunRefused));
-    }
-
-    // Going from here until its save at the end has returned (decision 190).
+    // A run on prepared data: its stored recipe, applied again to the project's
+    // copy of the file, as a live make applies one (decision 434).
+    let prepared = match &arts.recipe {
+        Some(recipe) => Some(
+            prepared_again(
+                h,
+                recipe,
+                build,
+                &dataset,
+                IngestLimits::this_computer().max_cells as u64,
+            )
+            .map_err(refuse)?,
+        ),
+        None => None,
+    };
     let source = SourceFile::new(
         data,
         arts.data.hash.content_hash().clone(),
         arts.data.format,
     );
-    let slot = Arc::new(Slot::for_one_run(dataset, source));
+    // The one-run slot holds one table: the file's is dropped here once the
+    // prepared one is built.
+    let slot = match prepared {
+        Some(prepared) => {
+            let original = dataset.schema.fingerprint.clone();
+            drop(dataset);
+            Slot::for_one_run_prepared(prepared, original, source)
+        }
+        None => Slot::for_one_run(dataset, source),
+    };
+    // 9. The spec passes validation, as an ordinary run's must. A changed recipe
+    // or data file cannot pass: the spec names the input they made.
+    if !job.valid_on(build, slot.dataset()) {
+        return Err(refuse(ProjectCode::RerunRefused));
+    }
+
+    // Going from here until its save at the end has returned (decision 190).
+    let slot = Arc::new(slot);
     let (ticket, before) = projects.begin_rerun(&project, of);
     drop(open);
     let end = ProjectSession::end_hook(projects, ticket, project.clone(), of, Arc::clone(&slot));
@@ -2015,6 +2277,15 @@ pub const SPEC_FIELDS: &[(&str, SpecFieldShown)] = &[
     ("parameters.scale", SpecFieldShown::Reported),
     ("parameters.scale.min", SpecFieldShown::Reported),
     ("parameters.scale.max", SpecFieldShown::Reported),
+    // Research OS, Phase 8M-4 (decision 435): what made a prepared input,
+    // hashes and numbers. Its two hashes are the data file's and the recipe's
+    // rows in the report's inputs table; its columns and versions are the lines
+    // of `with_preparation`. Leaves only: the field is skipped when absent.
+    ("preparation.sourceHash", SpecFieldShown::Reported),
+    ("preparation.recipeHash", SpecFieldShown::Reported),
+    ("preparation.sourceColumns", SpecFieldShown::Reported),
+    ("preparation.capabilityVersion", SpecFieldShown::Reported),
+    ("preparation.engineVersion", SpecFieldShown::Reported),
 ];
 
 fn shape(spec_inputs: &[InputRef]) -> Vec<ExportParameter> {
@@ -2025,6 +2296,84 @@ fn shape(spec_inputs: &[InputRef]) -> Vec<ExportParameter> {
             columns: i.columns,
         })
         .collect()
+}
+
+/// One score's line, by position and never by name (decision 435). `None` for a
+/// score whose statistic or rule is open, which no build could have made.
+fn score_parameter(step: &ScaleScoreStep) -> Option<ExportParameter> {
+    let positions = |v: &[stats_desc::Alias]| v.iter().map(|a| a.0 .0).collect();
+    Some(ExportParameter::PreparedColumn {
+        position: step.alias.0 .0,
+        statistic: match step.statistic? {
+            Statistic::Sum => ScoreStatistic::Sum,
+            Statistic::Mean => ScoreStatistic::Mean,
+        },
+        items: positions(&step.items),
+        reversed: positions(&step.reversed),
+        scale_ends: step.scale.map(|s| [s.min.to_bits(), s.max.to_bits()]),
+        rule: match step.rule? {
+            MissingRule::EveryItem => ScoreRule::EveryItem,
+            MissingRule::AtLeast(n) => ScoreRule::AtLeast(n),
+        },
+        missing_codes: step.missing_codes.len() as u64,
+    })
+}
+
+/// A run's settings on prepared data (decision 435): the input's shape told
+/// apart into the file's columns and the scores, the versions that prepared it,
+/// and how each score was made, in place of the plain shape's line.
+fn with_preparation(
+    parameters: Vec<ExportParameter>,
+    preparation: &Preparation,
+    recipe: &Recipe,
+) -> Result<Vec<ExportParameter>, ProjectRefusal> {
+    let mut out = Vec::with_capacity(parameters.len() + recipe.steps.len() + 1);
+    for p in parameters {
+        let ExportParameter::InputShape { rows, columns } = p else {
+            out.push(p);
+            continue;
+        };
+        let source_columns = u64::from(preparation.source_columns);
+        out.push(ExportParameter::PreparedShape {
+            rows,
+            source_columns,
+            prepared_columns: columns.saturating_sub(source_columns),
+        });
+        out.push(ExportParameter::PreparedBy {
+            capability_version: preparation.capability_version,
+            engine_version: preparation.engine_version,
+        });
+        for step in &recipe.steps {
+            let RecipeStep::ScaleScore(step) = step;
+            out.push(score_parameter(step).ok_or(ProjectCode::DbUnreadable)?);
+        }
+    }
+    Ok(out)
+}
+
+/// What a saved spec and its recipe edge say of a run's preparation, read back
+/// and verified (decision 435): both or neither, the recipe the one the spec
+/// names. Anything else is no run this build saved, so it is `db_unreadable`, as
+/// a spec that will not parse is.
+fn preparation_of(
+    h: &mut ProjectHandle,
+    spec: &Value,
+    arts: &RunArtifacts,
+) -> Result<Option<(Preparation, Recipe)>, ProjectRefusal> {
+    let preparation = match spec.get("preparation") {
+        None | Some(Value::Null) => None,
+        Some(p) => Some(parse::<Preparation>(p.clone())?),
+    };
+    match (preparation, &arts.recipe) {
+        (None, None) => Ok(None),
+        (Some(preparation), Some(a)) if a.hash.as_hex() == preparation.recipe_hash.as_hex() => {
+            let bytes = h.read_artifact(a.hash.as_hex())?;
+            let recipe = stats_adapters::prep_recipe_from_bytes(&bytes)
+                .map_err(|_| ProjectCode::DbUnreadable)?;
+            Ok(Some((preparation, recipe)))
+        }
+        _ => Err(ProjectCode::DbUnreadable.into()),
+    }
 }
 
 /// A describe spec's settings, by the allow-list.
@@ -2232,7 +2581,7 @@ fn outputs<C: Closed + DeserializeOwned>(
                 let d: Diagnostic<C> = parse(v.get("failure").cloned().unwrap_or(Value::Null))?;
                 run.failure = Some(ExportCode::of(&d));
             }
-            ArtifactKind::DataFile | ArtifactKind::OperationSpec => {
+            ArtifactKind::DataFile | ArtifactKind::OperationSpec | ArtifactKind::Recipe => {
                 return Err(ProjectCode::DbUnreadable.into())
             }
         }
@@ -2265,7 +2614,11 @@ fn export_input(h: &mut ProjectHandle) -> Result<ProjectExportInput, ProjectRefu
         // damage: a damaged spec says so, whatever its capability.
         let method = method_for(stored.capability_id.as_str())
             .ok_or_else(|| ProjectRefusal::from(ProjectCode::DbUnreadable))?;
+        let preparation = preparation_of(h, &spec, &arts)?;
         (method.export)(h, spec, &arts.generated, &mut run)?;
+        if let Some((preparation, recipe)) = &preparation {
+            run.parameters = with_preparation(run.parameters, preparation, recipe)?;
+        }
         runs.push(run);
     }
     let edges = loaded.graph.edges().to_vec();
@@ -2795,6 +3148,102 @@ mod tests {
         assert_eq!(p[3], ExportParameter::MissingRows(MissingRows::Listwise));
     }
 
+    /// A summary's spec on prepared data (decision 435), kept apart from
+    /// [`specs`], whose parameters a test pins.
+    fn prepared_spec() -> OperationSpec<DescribeParams> {
+        let (mut d, _) = specs();
+        d.preparation = Some(Preparation {
+            source_hash: ContentHash::of_bytes(b"source"),
+            recipe_hash: ContentHash::of_bytes(b"recipe"),
+            source_columns: 3,
+            capability_version: 1,
+            engine_version: 1,
+        });
+        d.inputs[0].columns = 5;
+        d
+    }
+
+    #[test]
+    fn a_prepared_runs_settings_tell_the_files_columns_from_the_scores() {
+        use gaply_core::stats_prep;
+        let spec = prepared_spec();
+        let a = |n: u32| stats_desc::Alias(ColumnAlias(n));
+        let step = |position, statistic, rule| {
+            RecipeStep::ScaleScore(ScaleScoreStep {
+                alias: a(position),
+                name: "NAME_SENTINEL_a1".into(),
+                items: vec![a(1), a(3)],
+                reversed: vec![a(3)],
+                scale: Some(stats_alpha::ScaleEnds { min: 1.0, max: 5.0 }),
+                statistic,
+                rule,
+                missing_codes: vec![9.0, 99.0],
+            })
+        };
+        let mut recipe = Recipe {
+            schema_version: stats_prep::RECIPE_SCHEMA_VERSION,
+            capability_id: gaply_core::contracts::CapabilityId::parse(stats_prep::CAPABILITY_ID)
+                .unwrap(),
+            capability_version: 1,
+            engine_version: 1,
+            source_columns: 3,
+            steps: vec![
+                step(4, Some(Statistic::Mean), Some(MissingRule::AtLeast(1))),
+                step(5, Some(Statistic::Sum), Some(MissingRule::EveryItem)),
+            ],
+        };
+        let got = with_preparation(
+            describe_parameters(&spec),
+            spec.preparation.as_ref().unwrap(),
+            &recipe,
+        )
+        .unwrap();
+        let score = |position, statistic, rule| ExportParameter::PreparedColumn {
+            position,
+            statistic,
+            items: vec![1, 3],
+            reversed: vec![3],
+            scale_ends: Some([1f64.to_bits(), 5f64.to_bits()]),
+            rule,
+            missing_codes: 2,
+        };
+        assert_eq!(
+            got[..4],
+            [
+                ExportParameter::PreparedShape {
+                    rows: 12,
+                    source_columns: 3,
+                    prepared_columns: 2
+                },
+                ExportParameter::PreparedBy {
+                    capability_version: 1,
+                    engine_version: 1
+                },
+                score(4, ScoreStatistic::Mean, ScoreRule::AtLeast(1)),
+                score(5, ScoreStatistic::Sum, ScoreRule::EveryItem),
+            ]
+        );
+        assert_eq!(
+            got[4..],
+            describe_parameters(&spec)[1..],
+            "every other line as it was"
+        );
+        assert!(!format!("{got:?}").contains("NAME_SENTINEL"));
+
+        // A step left open cannot be described, and no build could have made it.
+        recipe.steps[1] = step(5, None, Some(MissingRule::EveryItem));
+        assert_eq!(
+            with_preparation(
+                describe_parameters(&spec),
+                spec.preparation.as_ref().unwrap(),
+                &recipe
+            )
+            .unwrap_err()
+            .code,
+            ProjectCode::DbUnreadable
+        );
+    }
+
     /// Every leaf of a JSON value, by path, `[]` for an array's elements.
     fn paths(v: &Value, at: &str, out: &mut BTreeSet<String>) {
         match v {
@@ -2834,6 +3283,12 @@ mod tests {
         let (reversed, plain) = alpha_specs();
         paths(&serde_json::to_value(&reversed).unwrap(), "", &mut seen);
         paths(&serde_json::to_value(&plain).unwrap(), "", &mut seen);
+        // A run on prepared data (decision 435).
+        paths(
+            &serde_json::to_value(prepared_spec()).unwrap(),
+            "",
+            &mut seen,
+        );
         let listed: BTreeSet<String> = SPEC_FIELDS.iter().map(|(p, _)| p.to_string()).collect();
         let unlisted: Vec<&String> = seen.difference(&listed).collect();
         assert!(
@@ -3047,6 +3502,301 @@ mod tests {
         assert_eq!(
             req.run.started_at, 1_000,
             "times on the wall clock, to the second"
+        );
+    }
+
+    /* ---- a Save of a run on prepared data (decision 433) --------------------- */
+
+    const PREPARED_CSV: &[u8] = b"q1,q2\n1,2\n3,4\n";
+
+    fn two_item_recipe() -> gaply_core::stats_prep::Recipe {
+        use gaply_core::stats_prep;
+        let a = |n: u32| Alias(ColumnAlias(n));
+        Recipe {
+            schema_version: stats_prep::RECIPE_SCHEMA_VERSION,
+            capability_id: gaply_core::contracts::CapabilityId::parse(stats_prep::CAPABILITY_ID)
+                .unwrap(),
+            capability_version: stats_prep::CAPABILITY_VERSION,
+            engine_version: stats_prep::ENGINE_VERSION,
+            source_columns: 2,
+            steps: vec![RecipeStep::ScaleScore(ScaleScoreStep {
+                alias: a(3),
+                name: "a score".into(),
+                items: vec![a(1), a(2)],
+                reversed: Vec::new(),
+                scale: None,
+                statistic: Some(stats_prep::Statistic::Sum),
+                rule: Some(MissingRule::EveryItem),
+                missing_codes: Vec::new(),
+            })],
+        }
+    }
+
+    /// A slot holding [`PREPARED_CSV`]'s prepared table, with or without its
+    /// source's bytes.
+    fn a_prepared_slot(with_source: bool) -> Arc<Slot> {
+        let slots = crate::runs::DatasetSlots::default();
+        let dataset = load_dataset_from_bytes(PREPARED_CSV, DataFormat::Csv).unwrap();
+        let source = with_source.then(|| {
+            SourceFile::new(
+                PREPARED_CSV.to_vec(),
+                ContentHash::of_bytes(PREPARED_CSV),
+                DataFormat::Csv,
+            )
+        });
+        let n = slots.insert_with_source(String::new(), dataset, source);
+        let held = slots.get(n).unwrap();
+        let prepared = stats_adapters::prep_build(
+            &two_item_recipe(),
+            crate::workspace::build(),
+            held.dataset(),
+            1_000,
+        )
+        .unwrap();
+        slots.hold_prepared(&held, prepared).unwrap()
+    }
+
+    /// The hashes a run's copy names. [`Forged::honest`] is what a live run on
+    /// [`a_prepared_slot`] records; each test forges one of them.
+    struct Forged {
+        input: ContentHash,
+        spec_input: ContentHash,
+        source: ContentHash,
+        recipe: ContentHash,
+        manifest: Vec<ContentHash>,
+        state: RunState,
+    }
+
+    impl Forged {
+        fn honest() -> Forged {
+            let source = ContentHash::of_bytes(PREPARED_CSV);
+            let recipe =
+                ContentHash::of_bytes(&stats_adapters::prep_recipe_bytes(&two_item_recipe()));
+            let prepared = ContentHash::from_hex(&stats_adapters::prep_input_hash(
+                source.as_hex(),
+                recipe.as_hex(),
+            ))
+            .unwrap();
+            Forged {
+                input: source.clone(),
+                spec_input: prepared.clone(),
+                source,
+                recipe,
+                manifest: vec![prepared],
+                state: RunState::Succeeded,
+            }
+        }
+
+        fn copy(&self) -> RunCopy {
+            let spec = serde_json::json!({
+                "inputs": [{ "contentHash": self.spec_input.as_hex() }],
+                "preparation": {
+                    "sourceHash": self.source.as_hex(),
+                    "recipeHash": self.recipe.as_hex(),
+                    "sourceColumns": 2,
+                    "capabilityVersion": 1,
+                    "engineVersion": 1,
+                },
+            });
+            RunCopy {
+                state: self.state,
+                spec_json: Some(serde_json::to_vec(&spec).unwrap()),
+                manifest_inputs: self.manifest.clone(),
+                ..failed_copy(&self.input)
+            }
+        }
+
+        fn checked(&self, slot: &Slot) -> Result<(), ProjectCode> {
+            let copy = self.copy();
+            data_of(&copy, copy.input.as_ref().unwrap(), slot).map(|_| ())
+        }
+    }
+
+    fn another_hash() -> ContentHash {
+        ContentHash::of_bytes(b"another")
+    }
+
+    /* ---- a rerun's refusals of a recipe (decision 434) ------------------------- */
+
+    #[test]
+    fn every_recipe_refusal_has_its_rerun_code_and_only_the_cells_cap_is_over_limits() {
+        assert!(PrepCode::ALL.len() >= 45, "{}", PrepCode::ALL.len());
+        for code in PrepCode::ALL.iter().copied() {
+            let want = if code == PrepCode::CellsOverCap {
+                ProjectCode::RerunOverLimits
+            } else {
+                ProjectCode::RecipeUnusable
+            };
+            assert_eq!(rerun_recipe_code(code), want, "{}", code.wire());
+        }
+    }
+
+    #[test]
+    fn a_report_over_the_cells_cap_alone_is_over_limits_and_with_anything_else_is_not() {
+        use gaply_core::contracts::{Diagnostic, ResourceEstimate, ValidationReport};
+        let report = |errors: &[PrepCode], open: &[PrepCode]| {
+            let list = |codes: &[PrepCode]| codes.iter().map(|c| Diagnostic::error(*c)).collect();
+            ValidationReport::new(
+                Vec::new(),
+                list(errors),
+                list(open),
+                Vec::new(),
+                ResourceEstimate {
+                    rows: 1,
+                    columns: 1,
+                    cells: 1,
+                },
+            )
+        };
+        assert_eq!(
+            refused_recipe_code(&report(&[PrepCode::CellsOverCap], &[])),
+            ProjectCode::RerunOverLimits
+        );
+        assert_eq!(
+            refused_recipe_code(&report(&[PrepCode::CellsOverCap, PrepCode::TooWide], &[])),
+            ProjectCode::RecipeUnusable
+        );
+        assert_eq!(
+            refused_recipe_code(&report(&[PrepCode::TooWide, PrepCode::CellsOverCap], &[])),
+            ProjectCode::RecipeUnusable
+        );
+        assert_eq!(
+            refused_recipe_code(&report(&[], &[PrepCode::RuleNotChosen])),
+            ProjectCode::RecipeUnusable
+        );
+        assert_eq!(
+            refused_recipe_code(&report(&[], &[])),
+            ProjectCode::RecipeUnusable,
+            "a report with no code is no reason to call it this computer's limit"
+        );
+    }
+
+    #[test]
+    fn what_a_live_run_on_a_prepared_slot_records_passes_each_comparison() {
+        let slot = a_prepared_slot(true);
+        assert_eq!(Forged::honest().checked(&slot), Ok(()));
+        let copy = Forged::honest().copy();
+        let (bytes, format, hash) = data_of(&copy, copy.input.as_ref().unwrap(), &slot).unwrap();
+        assert_eq!(bytes, PREPARED_CSV, "the file, not the prepared table");
+        assert_eq!(format, DataFormat::Csv);
+        assert_eq!(hash.as_hex(), ContentHash::of_bytes(PREPARED_CSV).as_hex());
+    }
+
+    #[test]
+    fn a_preparation_naming_another_recipe_than_the_slots_is_a_mismatch() {
+        let slot = a_prepared_slot(true);
+        let mut forged = Forged::honest();
+        forged.recipe = another_hash();
+        // The prepared input hash agrees with the forged recipe, so only the
+        // slot's recipe can catch it.
+        forged.spec_input = ContentHash::from_hex(&stats_adapters::prep_input_hash(
+            forged.source.as_hex(),
+            forged.recipe.as_hex(),
+        ))
+        .unwrap();
+        forged.manifest = vec![forged.spec_input.clone()];
+        assert_eq!(forged.checked(&slot), Err(ProjectCode::DataMismatch));
+    }
+
+    #[test]
+    fn a_runs_input_other_than_the_slots_source_is_a_mismatch() {
+        let slot = a_prepared_slot(true);
+        let mut forged = Forged::honest();
+        forged.input = another_hash();
+        assert_eq!(forged.checked(&slot), Err(ProjectCode::DataMismatch));
+    }
+
+    #[test]
+    fn a_preparation_naming_another_source_than_the_slots_is_a_mismatch() {
+        let slot = a_prepared_slot(true);
+        let mut forged = Forged::honest();
+        forged.source = another_hash();
+        assert_eq!(forged.checked(&slot), Err(ProjectCode::DataMismatch));
+    }
+
+    #[test]
+    fn a_spec_input_other_than_the_prepared_input_is_a_mismatch() {
+        let slot = a_prepared_slot(true);
+        let mut forged = Forged::honest();
+        forged.spec_input = another_hash();
+        assert_eq!(forged.checked(&slot), Err(ProjectCode::DataMismatch));
+        forged.spec_input = forged.source.clone();
+        assert_eq!(
+            forged.checked(&slot),
+            Err(ProjectCode::DataMismatch),
+            "the source's own hash is not the prepared input"
+        );
+    }
+
+    #[test]
+    fn a_manifest_input_other_than_the_prepared_input_is_a_mismatch_for_a_success_only() {
+        let slot = a_prepared_slot(true);
+        for wrong in [vec![another_hash()], Vec::new()] {
+            let mut forged = Forged::honest();
+            forged.manifest = wrong;
+            assert_eq!(forged.checked(&slot), Err(ProjectCode::DataMismatch));
+            forged.state = RunState::Failed;
+            assert_eq!(forged.checked(&slot), Ok(()), "a failure has no manifest");
+        }
+    }
+
+    #[test]
+    fn a_prepared_run_with_no_source_held_is_data_unavailable() {
+        let slot = a_prepared_slot(false);
+        assert_eq!(
+            Forged::honest().checked(&slot),
+            Err(ProjectCode::DataUnavailable)
+        );
+    }
+
+    #[test]
+    fn a_preparation_that_does_not_read_back_is_a_mismatch() {
+        let slot = a_prepared_slot(true);
+        let mut copy = Forged::honest().copy();
+        let mut spec: Value = serde_json::from_slice(copy.spec_json.as_ref().unwrap()).unwrap();
+        spec["preparation"]["sourceColumns"] = Value::from("two");
+        copy.spec_json = Some(serde_json::to_vec(&spec).unwrap());
+        assert_eq!(
+            data_of(&copy, copy.input.as_ref().unwrap(), &slot).map(|_| ()),
+            Err(ProjectCode::DataMismatch)
+        );
+    }
+
+    #[test]
+    fn the_recipe_is_expected_to_hash_to_what_the_spec_recorded() {
+        let recorded = ArtifactHash::parse(another_hash().as_hex()).unwrap();
+        let copy = failed_copy(&ContentHash::of_bytes(b"data"));
+        let data = (
+            b"data".to_vec(),
+            DataFormat::Csv,
+            ArtifactHash::parse(ContentHash::of_bytes(b"data").as_hex()).unwrap(),
+        );
+        let req = with_recipe(
+            request_for(&copy, data, 1_000).unwrap(),
+            Some((b"other bytes".to_vec(), recorded.clone())),
+        );
+        let recipe = req
+            .artifacts
+            .iter()
+            .find(|a| a.kind == ArtifactKind::Recipe)
+            .expect("a recipe artifact");
+        assert_eq!(
+            recipe.expected, recorded,
+            "the recorded hash, not the bytes' own"
+        );
+        assert_ne!(
+            sha256(&recipe.bytes),
+            recorded,
+            "so the store refuses these"
+        );
+        assert_eq!(recipe.format, DataFormat::Json);
+        assert!(
+            req.run.used.contains(&(recorded, UsedRole::Recipe)),
+            "and `used` names it"
+        );
+        assert!(
+            req.run.generated.iter().all(|h| h != &recipe.expected),
+            "a recipe is used, never generated"
         );
     }
 

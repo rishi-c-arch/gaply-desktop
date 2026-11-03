@@ -1194,6 +1194,73 @@ fn assert_stored_fixture(name: &str, view: &RunResultView) {
     );
 }
 
+/// A stored result on prepared data (Research OS, Phase 8M-4, decision 436): a
+/// real Save of the descriptive summary of a score, in a fixture and a test of
+/// its own, so writing it touches no other fixture.
+#[test]
+fn a_prepared_stored_result_has_the_layout_of_its_fixture() {
+    use gaply_core::contracts::{CapabilityId, OperationId};
+    use gaply_core::stats_desc::{self, Alias, ColumnRequest, DescribeParams, TreatAs};
+    use gaply_core::stats_l1::dataset::ColumnAlias;
+    use gaply_core::stats_prep::{
+        self, MissingRule, Recipe, RecipeStep, ScaleScoreStep, Statistic,
+    };
+
+    let a = |n: u32| Alias(ColumnAlias(n));
+    let w = World::new("stored-prepared");
+    let slot = w.open("items.csv", b"q1,q2\n1,2\n2,4\n3,5\n4,4\n");
+    let recipe = Recipe {
+        schema_version: stats_prep::RECIPE_SCHEMA_VERSION,
+        capability_id: CapabilityId::parse(stats_prep::CAPABILITY_ID).unwrap(),
+        capability_version: stats_prep::CAPABILITY_VERSION,
+        engine_version: stats_prep::ENGINE_VERSION,
+        source_columns: 2,
+        steps: vec![RecipeStep::ScaleScore(ScaleScoreStep {
+            alias: a(3),
+            name: "a score".into(),
+            items: vec![a(1), a(2)],
+            reversed: Vec::new(),
+            scale: None,
+            statistic: Some(Statistic::Mean),
+            rule: Some(MissingRule::EveryItem),
+            missing_codes: Vec::new(),
+        })],
+    };
+    let e = w.engine();
+    let made = app_lib::stats_prep_commands::make(&e.runs, &e.datasets, slot, &recipe, 1_000)
+        .map_err(|_| "the make")
+        .unwrap();
+    assert!(made.dataset.is_some());
+    let held = e.datasets.get(slot).unwrap();
+    let mut spec = stats_desc::spec(
+        OperationId(1),
+        held.dataset(),
+        DescribeParams {
+            columns: vec![ColumnRequest {
+                alias: a(3),
+                treat_as: TreatAs::Numeric,
+            }],
+            missing_codes: Vec::new(),
+        },
+    );
+    spec.preparation = held.preparation();
+    drop(held);
+    let run = app_lib::stats_desc_commands::run(&e.runs, &e.datasets, slot, spec)
+        .expect("the run starts")
+        .run_id;
+    assert_eq!(w.wait(run), RunState::Succeeded);
+    let id = pc::save_run(&w.root(), &w.ws, run, new_project("Stored prepared"))
+        .unwrap()
+        .project_id;
+    let view = pc::run_result(&w.root(), &w.ws, &id, 1).unwrap();
+    assert_eq!(view.capability_id, "stats.describe");
+    let spec: Value = serde_json::from_str(&view.spec_json).unwrap();
+    let bundle: Value = serde_json::from_str(view.bundle_json.as_ref().unwrap()).unwrap();
+    assert!(spec["preparation"].is_object(), "{spec}");
+    assert_eq!(bundle["manifest"]["preparation"], spec["preparation"]);
+    assert_stored_fixture("summary_prepared.json", &view);
+}
+
 #[test]
 fn stored_results_have_the_layout_of_their_fixtures() {
     let w = World::new("stored");

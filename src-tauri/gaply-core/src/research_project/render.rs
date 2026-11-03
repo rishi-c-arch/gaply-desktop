@@ -110,6 +110,24 @@ closed! {
     }
 }
 
+closed! {
+    /// What a scale score is, as the user chose (Research OS, Phase 8M-4,
+    /// decision 435).
+    pub enum ScoreStatistic in "" {
+        Sum => "sum",
+        Mean => "mean",
+    }
+}
+
+/// When a row has a scale score, as the user chose (decision 435).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScoreRule {
+    /// Every item has a value.
+    EveryItem,
+    /// At least this many items do.
+    AtLeast(u32),
+}
+
 /// One setting of a run, as the report shows it: positions, indexes, closed
 /// words and counts only.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -155,6 +173,30 @@ pub enum ExportParameter {
     /// `TestValue` keeps its value: settings the user typed, not their data.
     /// `None` when nothing is reverse-scored.
     ScaleEnds(Option<[u64; 2]>),
+    /// [`ExportParameter::InputShape`] for a run on prepared data (Research OS,
+    /// Phase 8M-4, decision 435): the file's columns and the scores told apart.
+    PreparedShape {
+        rows: u64,
+        source_columns: u64,
+        prepared_columns: u64,
+    },
+    /// What prepared the data: the versions a run's preparation records.
+    PreparedBy {
+        capability_version: u32,
+        engine_version: u32,
+    },
+    /// One score, never by its name: its 1-based position, the statistic, its
+    /// items and reversed items by position, the ends they were reversed on as
+    /// the bits of their doubles, the rule, and how many missing codes.
+    PreparedColumn {
+        position: u32,
+        statistic: ScoreStatistic,
+        items: Vec<u32>,
+        reversed: Vec<u32>,
+        scale_ends: Option<[u64; 2]>,
+        rule: ScoreRule,
+        missing_codes: u64,
+    },
 }
 
 /// A closed code with its integer parameters. A closed-word parameter is
@@ -537,6 +579,71 @@ fn parameter_line(p: &ExportParameter) -> String {
         ),
         ExportParameter::ScaleEnds(None) => {
             "Scale ends: not given, as nothing is reverse-scored".into()
+        }
+        ExportParameter::PreparedShape {
+            rows,
+            source_columns,
+            prepared_columns,
+        } => format!(
+            "Data file as read: {rows} rows, {source_columns} columns; {}",
+            counted(*prepared_columns, "prepared column", "prepared columns")
+        ),
+        ExportParameter::PreparedBy {
+            capability_version,
+            engine_version,
+        } => format!(
+            "Prepared by stats.prepare.scale_score version {capability_version}, engine version {engine_version}"
+        ),
+        ExportParameter::PreparedColumn {
+            position,
+            statistic,
+            items,
+            reversed,
+            scale_ends,
+            rule,
+            missing_codes,
+        } => {
+            let mut parts = vec![format!(
+                "{} of {}",
+                statistic.wire(),
+                columns_and(items)
+            )];
+            if let Some([min, max]) = scale_ends {
+                parts.push(format!(
+                    "{} reversed on {} to {}",
+                    columns_and(reversed),
+                    f64::from_bits(*min),
+                    f64::from_bits(*max)
+                ));
+            }
+            parts.push(match rule {
+                ScoreRule::EveryItem => "every item".into(),
+                ScoreRule::AtLeast(n) => {
+                    format!("at least {}", counted(u64::from(*n), "item", "items"))
+                }
+            });
+            parts.push(if *missing_codes == 0 {
+                "no missing codes".into()
+            } else {
+                counted(*missing_codes, "missing code", "missing codes")
+            });
+            format!("Prepared column {position}: {}", parts.join("; "))
+        }
+    }
+}
+
+fn counted(n: u64, one: &str, many: &str) -> String {
+    format!("{n} {}", if n == 1 { one } else { many })
+}
+
+/// `column 4`, `columns 3 and 4`, `columns 3, 4 and 7`.
+fn columns_and(positions: &[u32]) -> String {
+    match positions {
+        [] => "no columns".into(),
+        [one] => format!("column {one}"),
+        [head @ .., last] => {
+            let list: Vec<String> = head.iter().map(u32::to_string).collect();
+            format!("columns {} and {last}", list.join(", "))
         }
     }
 }

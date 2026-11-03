@@ -1,0 +1,15 @@
+{
+  "bundleJson": "{\"schemaVersion\":1,\"runId\":1,\"status\":\"succeeded\",\"primaryOutputs\":{\"columns\":[{\"numeric\":{\"alias\":\"C3\",\"header\":\"C3\",\"n\":4,\"missing\":0,\"mean\":{\"value\":3.125},\"sd\":{\"value\":1.181453906563152},\"min\":{\"value\":1.5},\"q1\":{\"value\":2.625},\"median\":{\"value\":3.5},\"q3\":{\"value\":4.0},\"max\":{\"value\":4.0}}}]},\"diagnostics\":[],\"limitations\":[],\"manifest\":{\"schemaVersion\":1,\"capabilityId\":\"stats.describe\",\"capabilityVersion\":1,\"engineVersion\":1,\"inputs\":[\"34fdbbf04f40be004597ba0160aed470b330ced9239b4bfac3f5d9e26bfa4b23\"],\"parametersHash\":\"e4702defd112e961757cf37ecd058c943ceeb05b7e0eda8a04a507904164ed85\",\"seed\":null,\"rowsRead\":4,\"rowsUsed\":4,\"exclusions\":[],\"platform\":{\"os\":\"macos\",\"arch\":\"aarch64\"},\"elapsedMs\":0,\"outputHash\":\"b02b8a68d900563ba8138eb6fc4696a6db9ddc6a67d1d8649b06959756ad3f42\",\"reproducibility\":\"bitwise\",\"preparation\":{\"sourceHash\":\"ca0bb7f1af9a3ff0f1a1f064ae1a20d35116c2867acafdd3c06718ad44c4bca9\",\"recipeHash\":\"bac33da7ed5789d3df1432b08a139042983b2e74cd7b8cbfcca11895cb1780fb\",\"sourceColumns\":2,\"capabilityVersion\":1,\"engineVersion\":1}}}",
+  "capabilityId": "stats.describe",
+  "dataFile": {
+    "bytes": 22,
+    "format": "csv",
+    "kind": "data_file",
+    "sha256": "ca0bb7f1af9a3ff0f1a1f064ae1a20d35116c2867acafdd3c06718ad44c4bca9"
+  },
+  "failureJson": null,
+  "manifestJson": "{\"schemaVersion\":1,\"capabilityId\":\"stats.describe\",\"capabilityVersion\":1,\"engineVersion\":1,\"inputs\":[\"34fdbbf04f40be004597ba0160aed470b330ced9239b4bfac3f5d9e26bfa4b23\"],\"parametersHash\":\"e4702defd112e961757cf37ecd058c943ceeb05b7e0eda8a04a507904164ed85\",\"seed\":null,\"rowsRead\":4,\"rowsUsed\":4,\"exclusions\":[],\"platform\":{\"os\":\"macos\",\"arch\":\"aarch64\"},\"elapsedMs\":0,\"outputHash\":\"b02b8a68d900563ba8138eb6fc4696a6db9ddc6a67d1d8649b06959756ad3f42\",\"reproducibility\":\"bitwise\",\"preparation\":{\"sourceHash\":\"ca0bb7f1af9a3ff0f1a1f064ae1a20d35116c2867acafdd3c06718ad44c4bca9\",\"recipeHash\":\"bac33da7ed5789d3df1432b08a139042983b2e74cd7b8cbfcca11895cb1780fb\",\"sourceColumns\":2,\"capabilityVersion\":1,\"engineVersion\":1}}",
+  "specJson": "{\"schemaVersion\":1,\"operationId\":1,\"workspaceId\":\"statistics\",\"capabilityId\":\"stats.describe\",\"capabilityVersion\":1,\"inputs\":[{\"contentHash\":\"34fdbbf04f40be004597ba0160aed470b330ced9239b4bfac3f5d9e26bfa4b23\",\"rows\":4,\"columns\":3,\"semanticRole\":\"table\"}],\"parameters\":{\"columns\":[{\"alias\":\"C3\",\"treatAs\":\"numeric\"}],\"missingCodes\":[]},\"randomSeed\":null,\"confirmationRefs\":[],\"preparation\":{\"sourceHash\":\"ca0bb7f1af9a3ff0f1a1f064ae1a20d35116c2867acafdd3c06718ad44c4bca9\",\"recipeHash\":\"bac33da7ed5789d3df1432b08a139042983b2e74cd7b8cbfcca11895cb1780fb\",\"sourceColumns\":2,\"capabilityVersion\":1,\"engineVersion\":1}}",
+  "state": "succeeded",
+  "storedRunId": 1
+}

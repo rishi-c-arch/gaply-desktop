@@ -109,7 +109,7 @@ function withStored(name: string, field: 'bundleJson' | 'failureJson' | 'specJso
 /* ---- the shape check ----------------------------------------------------------- */
 
 describe('the shape check', () => {
-  it('has the thirteen snapshots Rust wrote, and accepts every one', () => {
+  it('has the fourteen snapshots Rust wrote, and accepts every one', () => {
     expect(SNAPSHOTS).toEqual([
       'alpha.json',
       'alpha_reversed.json',
@@ -122,6 +122,7 @@ describe('the shape check', () => {
       'paired.json',
       'paired_failed.json',
       'summary.json',
+      'summary_prepared.json',
       'ttest.json',
       'ttest_failed.json',
     ]);
@@ -145,6 +146,7 @@ describe('the shape check', () => {
     ['corr_listwise.json', 'bundleJson'],
     ['corr_pairwise.json', 'bundleJson'],
     ['alpha.json', 'bundleJson'],
+    ['summary_prepared.json', 'bundleJson'],
     ['alpha_reversed.json', 'bundleJson'],
   ] as const)('%s: rejects it with any one field of its %s removed', (name, field) => {
     const all = paths(JSON.parse(stored(name)[field] as string)).filter((p) => typeof p[p.length - 1] === 'string');
@@ -203,6 +205,73 @@ describe('the shape check', () => {
     expect(checkStored(withStored('summary.json', 'bundleJson', (v) => ((v as { schemaVersion: number }).schemaVersion = 2))).kind).toBe('unknownSchema');
     expect(checkStored(withStored('ttest.json', 'specJson', (v) => ((v as { schemaVersion: number }).schemaVersion = 2))).kind).toBe('unknownSchema');
     expect(checkStored(withStored('ttest_failed.json', 'failureJson', (v) => ((v as { schemaVersion: number }).schemaVersion = 3))).kind).toBe('unknownSchema');
+  });
+
+  describe('a run on prepared data (decision 436)', () => {
+    const NAME = 'summary_prepared.json';
+    const FIELDS = ['sourceHash', 'recipeHash', 'sourceColumns', 'capabilityVersion', 'engineVersion'];
+    type Holds = { preparation?: Record<string, unknown>; manifest: { preparation?: Record<string, unknown> } };
+
+    it('passes with the same preparation in its spec and its manifest, and the snapshots without one have neither', () => {
+      expect(checkStored(stored(NAME)).kind).toBe('summary');
+      const spec = JSON.parse(stored(NAME).specJson as string);
+      const bundle = JSON.parse(stored(NAME).bundleJson as string);
+      expect(Object.keys(spec.preparation).sort()).toEqual([...FIELDS].sort());
+      expect(bundle.manifest.preparation).toEqual(spec.preparation);
+      for (const other of SNAPSHOTS.filter((s) => s !== NAME)) {
+        expect(JSON.parse(stored(other).specJson as string).preparation, other).toBeUndefined();
+      }
+    });
+
+    it('fails when either side has none', () => {
+      const noSpec = withStored(NAME, 'specJson', (v) => delete (v as Holds).preparation);
+      const noManifest = withStored(NAME, 'bundleJson', (v) => delete (v as Holds).manifest.preparation);
+      expect(checkStored(noSpec).kind).toBe('badShape');
+      expect(checkStored(noManifest).kind).toBe('badShape');
+    });
+
+    it('fails when a stored summary with none gains one on one side', () => {
+      const prep = JSON.parse(stored(NAME).specJson as string).preparation;
+      const onManifest = withStored('summary.json', 'bundleJson', (v) => ((v as Holds).manifest.preparation = prep));
+      const onSpec = withStored('summary.json', 'specJson', (v) => ((v as Holds).preparation = prep));
+      expect(checkStored(onManifest).kind).toBe('badShape');
+      expect(checkStored(onSpec).kind).toBe('badShape');
+    });
+
+    it.each(FIELDS)('fails with %s removed or mistyped, on either side, and when the two differ', (field) => {
+      const onSpec = (change: (p: Record<string, unknown>) => void) =>
+        withStored(NAME, 'specJson', (v) => change((v as Holds).preparation as Record<string, unknown>));
+      const onManifest = (change: (p: Record<string, unknown>) => void) =>
+        withStored(NAME, 'bundleJson', (v) => change((v as Holds).manifest.preparation as Record<string, unknown>));
+      const bad = [
+        onSpec((p) => delete p[field]),
+        onManifest((p) => delete p[field]),
+        onSpec((p) => (p[field] = 'HTSENTINEL')),
+        onManifest((p) => (p[field] = 'HTSENTINEL')),
+        onSpec((p) => (p[field] = null)),
+        onManifest((p) => (p[field] = null)),
+        // Well-formed, and not the other side's.
+        onManifest((p) => (p[field] = typeof p[field] === 'string' ? 'f'.repeat(64) : (p[field] as number) + 1)),
+      ];
+      for (const s of bad) expect(checkStored(s).kind).toBe('badShape');
+    });
+
+    it('fails with a sixth field on either side', () => {
+      const onSpec = withStored(NAME, 'specJson', (v) => (((v as Holds).preparation as Record<string, unknown>).extra = 1));
+      const onManifest = withStored(NAME, 'bundleJson', (v) => (((v as Holds).manifest.preparation as Record<string, unknown>).extra = 1));
+      expect(checkStored(onSpec).kind).toBe('badShape');
+      expect(checkStored(onManifest).kind).toBe('badShape');
+    });
+
+    it('a failed run has no manifest, and its spec is still checked', () => {
+      const failed = stored('ttest_failed.json');
+      const prep = JSON.parse(stored(NAME).specJson as string).preparation;
+      const good = withStored('ttest_failed.json', 'specJson', (v) => ((v as Holds).preparation = prep));
+      expect(checkStored(failed).kind).toBe('failed');
+      expect(checkStored(good).kind).toBe('failed');
+      const bad = withStored('ttest_failed.json', 'specJson', (v) => ((v as Holds).preparation = { ...prep, sourceColumns: 'x' }));
+      expect(checkStored(bad).kind).toBe('badShape');
+    });
   });
 
   it('never throws, whatever it is given', () => {

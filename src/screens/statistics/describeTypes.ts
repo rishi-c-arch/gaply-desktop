@@ -252,6 +252,8 @@ export interface RunManifest {
   elapsedMs: number;
   outputHash: string;
   reproducibility: Reproducibility;
+  /** 8M-2 (decision 417): what made a prepared input. Absent on a file's own table. */
+  preparation?: Preparation;
 }
 
 export interface ResultBundleView {
@@ -295,6 +297,8 @@ export interface OperationSpec {
   /** The confirmations a run needs (Research OS, Phase 4A, decision 50).
    *  The descriptive summary needs none, so it is always empty. */
   confirmationRefs: [];
+  /** 8M-2 (decision 417): what made a prepared input. Absent on a file's own table. */
+  preparation?: Preparation;
 }
 
 /** A command's refusal, parsed from its message: a closed code and its

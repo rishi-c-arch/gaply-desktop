@@ -70,6 +70,8 @@ export const PROJECT_CODES = [
   'project.folder_unchangeable',
   // 8F-1 (decision 283): a rerun over this computer's limits.
   'project.rerun_over_limits',
+  // 8M-4 (decision 434): a stored recipe that could not be used.
+  'project.recipe_unusable',
 ] as const;
 
 export type ProjectCode = (typeof PROJECT_CODES)[number];
@@ -197,7 +199,7 @@ export interface StoredRunView {
 
 export interface StoredArtifactView {
   sha256: string;
-  kind: 'data_file' | 'operation_spec' | 'result_bundle' | 'run_manifest' | 'run_failure';
+  kind: 'data_file' | 'operation_spec' | 'result_bundle' | 'run_manifest' | 'run_failure' | 'recipe';
   format: string;
   bytes: number;
 }

@@ -31,8 +31,8 @@ pub use self::graph::{ProvEdge, ProvGraph, ProvNode};
 pub use self::render::{
     escape_markdown, iso_utc, render_prov_json, render_report_markdown, rerun_sentence, ColumnRole,
     CorrelationCoefficient, ExportCode, ExportCount, ExportManifest, ExportParameter, ExportRun,
-    MissingRows, PostHocTest, ProjectExportInput, TestVariant, PROV_FILE_NAME, PROV_NAMESPACE,
-    REPORT_FILE_NAME, REPORT_PREAMBLE,
+    MissingRows, PostHocTest, ProjectExportInput, ScoreRule, ScoreStatistic, TestVariant,
+    PROV_FILE_NAME, PROV_NAMESPACE, REPORT_FILE_NAME, REPORT_PREAMBLE,
 };
 
 use crate::contracts::codes::{closed, Closed};
@@ -205,6 +205,11 @@ closed! {
         /// here; it can be run on a computer with more memory. Nothing was
         /// run.
         RerunOverLimits => "rerun_over_limits",
+        /// Research OS, Phase 8M-4 (decision 434): the stored recipe of a run
+        /// on prepared data did not parse, or this build refused it, or it
+        /// made no table from the project's copy of the data file. Nothing was
+        /// run.
+        RecipeUnusable => "recipe_unusable",
     }
 }
 
@@ -427,6 +432,10 @@ closed! {
         /// A failed run's failure record: its closed code and parameters, as
         /// JSON (Phase 5B-2, decision 123).
         RunFailure => "run_failure",
+        /// The steps that made a prepared table, as `stats_prep`'s canonical
+        /// JSON: the one artifact that holds the names a user typed (Research
+        /// OS, Phase 8M-4, decision 432; ADR-011 Part 6).
+        Recipe => "recipe",
     }
 }
 
@@ -456,7 +465,8 @@ impl ArtifactKind {
             ArtifactKind::OperationSpec
             | ArtifactKind::ResultBundle
             | ArtifactKind::RunManifest
-            | ArtifactKind::RunFailure => format == DataFormat::Json,
+            | ArtifactKind::RunFailure
+            | ArtifactKind::Recipe => format == DataFormat::Json,
         }
     }
 }
@@ -466,6 +476,8 @@ closed! {
     pub enum UsedRole in "" {
         Data => "data",
         Spec => "spec",
+        /// The recipe that made the prepared table the run read (decision 432).
+        Recipe => "recipe",
     }
 }
 
@@ -808,6 +820,7 @@ mod tests {
                 "project.rerun_data_unreadable",
                 "project.folder_unchangeable",
                 "project.rerun_over_limits",
+                "project.recipe_unusable",
             ]
         );
         let kinds: Vec<&str> = ArtifactKind::ALL.iter().map(|c| c.wire()).collect();
@@ -818,7 +831,8 @@ mod tests {
                 "operation_spec",
                 "result_bundle",
                 "run_manifest",
-                "run_failure"
+                "run_failure",
+                "recipe"
             ]
         );
         let formats: Vec<&str> = DataFormat::ALL.iter().map(|c| c.wire()).collect();
@@ -827,7 +841,7 @@ mod tests {
             ["csv", "tsv", "xlsx", "xlsm", "xlsb", "xls", "ods", "sav", "mat", "json"]
         );
         let roles: Vec<&str> = UsedRole::ALL.iter().map(|c| c.wire()).collect();
-        assert_eq!(roles, ["data", "spec"]);
+        assert_eq!(roles, ["data", "spec", "recipe"]);
     }
 
     #[test]
@@ -1095,6 +1109,14 @@ mod tests {
         assert!(!ArtifactKind::DataFile.admits(DataFormat::Json));
         assert!(ArtifactKind::ResultBundle.admits(DataFormat::Json));
         assert!(!ArtifactKind::OperationSpec.admits(DataFormat::Sav));
+        assert!(ArtifactKind::Recipe.admits(DataFormat::Json));
+        for f in DataFormat::ALL
+            .iter()
+            .copied()
+            .filter(|f| *f != DataFormat::Json)
+        {
+            assert!(!ArtifactKind::Recipe.admits(f), "{}", f.wire());
+        }
         for w in WorkspaceId::ALL.iter().copied() {
             assert_eq!(workspace_from_word(workspace_word(w)), Some(w));
         }

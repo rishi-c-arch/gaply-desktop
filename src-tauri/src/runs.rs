@@ -273,6 +273,24 @@ impl Slot {
         }
     }
 
+    /// [`Slot::for_one_run`] for a rerun on prepared data (Research OS, Phase
+    /// 8M-4, decision 434): the table a stored recipe made, in place of the file's,
+    /// and the file's fingerprint, so its [`Slot::preparation`] is the one the live
+    /// slot gave. One table, as a live slot holds.
+    pub fn for_one_run_prepared(
+        prepared: Prepared,
+        original: DataFingerprint,
+        source: SourceFile,
+    ) -> Slot {
+        Slot {
+            id: ONE_RUN_SLOT,
+            display_name: String::new(),
+            table: Table::Prepared { prepared, original },
+            source: Some(Arc::new(source)),
+            file_findings: Vec::new(),
+        }
+    }
+
     pub fn id(&self) -> u64 {
         self.id
     }

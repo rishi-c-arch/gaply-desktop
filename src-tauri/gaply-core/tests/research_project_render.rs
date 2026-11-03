@@ -20,8 +20,8 @@ use gaply_core::contracts::{
 use gaply_core::research_project::{
     render_prov_json, render_report_markdown, AgentVersion, ArtifactHash, ArtifactKind,
     ArtifactRef, ColumnRole, DataFormat, ExportCode, ExportCount, ExportManifest, ExportParameter,
-    ExportRun, ProjectCode, ProjectExportInput, ProjectId, ProjectTitle, ProvEdge, StoredRun,
-    StoredRunId, TestVariant, UsedRole,
+    ExportRun, ProjectCode, ProjectExportInput, ProjectId, ProjectTitle, ProvEdge, ScoreRule,
+    ScoreStatistic, StoredRun, StoredRunId, TestVariant, UsedRole,
 };
 use gaply_core::stats_desc::DescCode;
 use gaply_core::stats_ttest::TTestCode;
@@ -321,8 +321,153 @@ fn every_kind_and_code_in_the_project_is_a_closed_word() {
     assert!(report.contains("damaged: project.artifact_wrong_hash"));
 }
 
-/// The child half of the fresh-process check: prints the two renders'
-/// hashes when the parent asks, and does nothing otherwise.
+/* ---- a run on prepared data (Research OS, Phase 8M-4, decision 435) ---------- */
+
+/// A project of one summary of a score and one failed t-test on the same recipe:
+/// the data file, each spec, the recipe, and what each run generated.
+fn prepared_project() -> ProjectExportInput {
+    let t0 = 1_792_396_351;
+    let shape = ExportParameter::PreparedShape {
+        rows: 12,
+        source_columns: 7,
+        prepared_columns: 1,
+    };
+    let by = ExportParameter::PreparedBy {
+        capability_version: 1,
+        engine_version: 1,
+    };
+    let score = ExportParameter::PreparedColumn {
+        position: 8,
+        statistic: ScoreStatistic::Mean,
+        items: vec![3, 4, 7],
+        reversed: vec![4],
+        scale_ends: Some([1f64.to_bits(), 5f64.to_bits()]),
+        rule: ScoreRule::AtLeast(2),
+        missing_codes: 1,
+    };
+    ProjectExportInput {
+        title: ProjectTitle::from_typed(TITLE).unwrap(),
+        project: ProjectId::parse("0123456789abcdef0123456789abcdef").unwrap(),
+        created_at: t0 - 3600,
+        created_by: AgentVersion::parse("0.1.0").unwrap(),
+        artifacts: vec![
+            art('1', ArtifactKind::DataFile, DataFormat::Csv, 812),
+            art('2', ArtifactKind::OperationSpec, DataFormat::Json, 301),
+            art('3', ArtifactKind::Recipe, DataFormat::Json, 266),
+            art('4', ArtifactKind::ResultBundle, DataFormat::Json, 2048),
+            art('5', ArtifactKind::RunManifest, DataFormat::Json, 640),
+            art('6', ArtifactKind::OperationSpec, DataFormat::Json, 290),
+            art('7', ArtifactKind::RunFailure, DataFormat::Json, 120),
+        ],
+        runs: vec![
+            ExportRun {
+                run: run(1, "stats.describe", RunState::Succeeded, t0),
+                parameters: vec![
+                    shape.clone(),
+                    by.clone(),
+                    score.clone(),
+                    ExportParameter::Column {
+                        position: 8,
+                        role: ColumnRole::SummarisedNumeric,
+                    },
+                    ExportParameter::MissingCodes { count: 0 },
+                    ExportParameter::Seed(None),
+                ],
+                manifest: Some(manifest('8', 'b', 'c', 12, 12)),
+                exclusions: vec![],
+                limitations: vec![],
+                notes: vec![],
+                failure: None,
+            },
+            ExportRun {
+                run: run(2, "stats.analyze.independent_t", RunState::Failed, t0 + 20),
+                parameters: vec![
+                    shape,
+                    by,
+                    score,
+                    ExportParameter::Column {
+                        position: 8,
+                        role: ColumnRole::Outcome,
+                    },
+                    ExportParameter::Column {
+                        position: 5,
+                        role: ColumnRole::Group,
+                    },
+                    ExportParameter::Levels(None),
+                    ExportParameter::Variant(Some(TestVariant::Welch)),
+                    ExportParameter::MissingCodes { count: 0 },
+                    ExportParameter::Seed(None),
+                ],
+                manifest: None,
+                exclusions: vec![],
+                limitations: vec![],
+                notes: vec![],
+                failure: Some(ExportCode::of(&Diagnostic::error(
+                    TTestCode::BothGroupsConstant,
+                ))),
+            },
+        ],
+        edges: vec![
+            used(1, '1', UsedRole::Data),
+            used(1, '2', UsedRole::Spec),
+            used(1, '3', UsedRole::Recipe),
+            generated(1, '4'),
+            generated(1, '5'),
+            associated(1),
+            used(2, '1', UsedRole::Data),
+            used(2, '6', UsedRole::Spec),
+            used(2, '3', UsedRole::Recipe),
+            generated(2, '7'),
+            associated(2),
+        ],
+    }
+}
+
+#[test]
+fn the_report_and_the_prov_json_of_a_prepared_run_match_their_golden_files() {
+    let p = prepared_project();
+    golden("report_prepared.md", render_report_markdown(&p).as_bytes());
+    golden("provenance_prepared.json", &render_prov_json(&p).unwrap());
+}
+
+#[test]
+fn a_prepared_runs_report_tells_how_its_score_was_made_by_position() {
+    let report = render_report_markdown(&prepared_project());
+    for want in [
+        "- Data file as read: 12 rows, 7 columns; 1 prepared column\n",
+        "- Prepared by stats.prepare.scale_score version 1, engine version 1\n",
+        "- Prepared column 8: mean of columns 3, 4 and 7; column 4 reversed on 1 to 5; at least 2 items; 1 missing code\n",
+        "| used, recipe | recipe | json | 266 |",
+    ] {
+        assert!(report.contains(want), "missing `{want}` in:\n{report}");
+    }
+}
+
+#[test]
+fn a_prepared_runs_prov_json_has_the_recipe_as_an_entity_a_use_and_a_source() {
+    let v: serde_json::Value =
+        serde_json::from_slice(&render_prov_json(&prepared_project()).unwrap()).unwrap();
+    let hash = h('3');
+    let entity = format!("gaply:artifact-{}", hash.as_hex());
+    assert_eq!(v["entity"][&entity]["prov:type"], "gaply:recipe");
+    for run in [1, 2] {
+        let edge = &v["used"][format!("_:used-{run}-{}-recipe", hash.as_hex())];
+        assert_eq!(edge["prov:role"], "gaply:recipe");
+        assert_eq!(edge["prov:entity"], entity.as_str());
+    }
+    let derived = v["wasDerivedFrom"].as_object().unwrap();
+    assert_eq!(
+        derived
+            .values()
+            .filter(|d| d["prov:usedEntity"] == entity.as_str())
+            .count(),
+        3,
+        "the bundle, the manifest and the failure, from the recipe"
+    );
+}
+
+/// The child half of the fresh-process check: prints the renders' hashes when
+/// the parent asks, and does nothing otherwise.
 #[test]
 fn render_child_prints_hashes() {
     if std::env::var_os("GAPLY_RENDER_CHILD").is_none() {
@@ -331,6 +476,12 @@ fn render_child_prints_hashes() {
     let p = project();
     println!(
         "RENDER_HASHES report={} prov={}",
+        sha(render_report_markdown(&p).as_bytes()),
+        sha(&render_prov_json(&p).unwrap())
+    );
+    let p = prepared_project();
+    println!(
+        "RENDER_PREPARED_HASHES report={} prov={}",
         sha(render_report_markdown(&p).as_bytes()),
         sha(&render_prov_json(&p).unwrap())
     );
@@ -343,8 +494,14 @@ fn ten_fresh_processes_render_the_same_bytes_as_the_golden_files() {
         sha(&std::fs::read(fixture("report.md")).unwrap()),
         sha(&std::fs::read(fixture("provenance.json")).unwrap())
     );
+    let want_prepared = format!(
+        "RENDER_PREPARED_HASHES report={} prov={}",
+        sha(&std::fs::read(fixture("report_prepared.md")).unwrap()),
+        sha(&std::fs::read(fixture("provenance_prepared.json")).unwrap())
+    );
     let exe = std::env::current_exe().unwrap();
     let mut seen = Vec::new();
+    let mut seen_prepared = Vec::new();
     for _ in 0..10 {
         let out = Command::new(&exe)
             .args([
@@ -371,9 +528,24 @@ fn ten_fresh_processes_render_the_same_bytes_as_the_golden_files() {
             })
             .unwrap_or_else(|| panic!("the child printed no hashes:\n{text}"));
         seen.push(line);
+        let prepared = text
+            .lines()
+            .find_map(|l| {
+                l.find("RENDER_PREPARED_HASHES ")
+                    .map(|i| l[i..].trim_end().to_string())
+            })
+            .unwrap_or_else(|| panic!("the child printed no prepared hashes:\n{text}"));
+        seen_prepared.push(prepared);
     }
     assert_eq!(seen.len(), 10);
     for line in &seen {
         assert_eq!(line, &want, "a fresh process rendered other bytes");
+    }
+    assert_eq!(seen_prepared.len(), 10);
+    for line in &seen_prepared {
+        assert_eq!(
+            line, &want_prepared,
+            "a fresh process rendered a prepared run's other bytes"
+        );
     }
 }

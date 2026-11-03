@@ -126,6 +126,9 @@ export const PROJECT_WORDS: Record<ProjectCode, Say> = {
   // 8F-1 (decision 283): the data file is over one of this computer's size limits.
   'project.rerun_over_limits': () =>
     "This result's data file is larger than this computer's limits allow, so it cannot be run again here. It can be run again on a computer with more memory.",
+  // 8M-4 (decision 434): the steps kept with a result on prepared data could not be used.
+  'project.recipe_unusable': () =>
+    "The steps kept with this result, which made its prepared data, could not be used this time, so nothing was run.",
 };
 
 /** For a refusal this table does not know. */

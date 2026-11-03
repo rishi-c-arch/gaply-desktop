@@ -57,6 +57,9 @@
 //!   registry refusal is worded `stats.prep.unknown_capability` or
 //!   `stats.prep.capability_version_mismatch`. Beta since 8M-2 (decision 416),
 //!   so the real registry admits it.
+//!   Since 8M-4 (decisions 433 and 434), [`prep_recipe_bytes`],
+//!   [`prep_recipe_from_bytes`] and [`prep_input_hash`], for a project's Save
+//!   and rerun: `stats_prep`'s, unchanged.
 //!
 //! The Level 0 and Level 1 specs carry no parameters (`()`) and no
 //! `InputRef`: their inputs are the manuscript's extraction and Level 1's
@@ -1097,6 +1100,25 @@ pub fn prep_csv(prepared: &Prepared) -> Vec<u8> {
     stats_prep::export::prepared_csv(prepared)
 }
 
+/// A recipe's canonical bytes, unchanged from `stats_prep::recipe_bytes`: what
+/// a project keeps of it, and what its hash is taken over (decision 433).
+pub fn prep_recipe_bytes(recipe: &Recipe) -> Vec<u8> {
+    stats_prep::recipe_bytes(recipe)
+}
+
+/// A recipe from its canonical bytes, unchanged from
+/// `Recipe::from_canonical_bytes`: a project's stored recipe, read back
+/// (decision 434). It reaches no registry: [`prep_validate`] does, next.
+pub fn prep_recipe_from_bytes(bytes: &[u8]) -> Result<Recipe, PrepCode> {
+    Recipe::from_canonical_bytes(bytes)
+}
+
+/// A prepared input's SHA-256, unchanged from `stats_prep::prepared_input_hash`:
+/// what a Save compares a run's spec with (decision 433).
+pub fn prep_input_hash(source_sha256_hex: &str, recipe_sha256_hex: &str) -> String {
+    stats_prep::prepared_input_hash(source_sha256_hex, recipe_sha256_hex)
+}
+
 /* ------------------------------------------------------------------------ *
  *  AI: a method a model's answer names
  * ------------------------------------------------------------------------ */
@@ -1511,6 +1533,24 @@ mod prep_facade_tests {
                 "{build:?}: the module's own table"
             );
         }
+    }
+
+    #[test]
+    fn the_recipes_bytes_its_parse_and_the_input_hash_are_the_modules_own() {
+        let r = recipe();
+        let bytes = prep_recipe_bytes(&r);
+        assert_eq!(bytes, stats_prep::recipe_bytes(&r));
+        assert_eq!(prep_recipe_from_bytes(&bytes).unwrap(), r);
+        let mut spaced = b" ".to_vec();
+        spaced.extend_from_slice(&bytes);
+        assert_eq!(
+            prep_recipe_from_bytes(&spaced),
+            Err(PrepCode::RecipeUnreadable)
+        );
+        assert_eq!(
+            prep_input_hash(&"a".repeat(64), &"b".repeat(64)),
+            stats_prep::prepared_input_hash(&"a".repeat(64), &"b".repeat(64))
+        );
     }
 
     #[test]

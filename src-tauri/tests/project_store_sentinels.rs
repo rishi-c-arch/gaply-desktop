@@ -35,6 +35,9 @@ const HEADER: &str = "HEADER_SENTINEL_h63";
 const TITLE: &str = "TITLE_SENTINEL_t74";
 const FILE_NAME: &str = "FILENAME_SENTINEL_f85.csv";
 const ROOT_MARK: &str = "ROOTPATH_SENTINEL_r96";
+/// A name a person typed for a score: a recipe artifact holds it (Research OS,
+/// Phase 8M-4, decision 437), and project.db never does.
+const SCORE_NAME: &str = "SCORENAME_SENTINEL_n07";
 
 #[derive(Clone, Default)]
 struct Capture(Arc<Mutex<Vec<u8>>>);
@@ -132,7 +135,13 @@ fn user_text_stays_in_artifacts_and_the_title_in_its_own_column() {
     let data = format!("{HEADER},group\n1.5,{LEVEL}\n{CELL},{LEVEL}\n").into_bytes();
     let spec = br#"{"schemaVersion":1,"inputs":[0],"columns":[0,1]}"#.to_vec();
     let bundle = format!(r#"{{"header":"{HEADER}","levels":["{LEVEL}"],"n":2}}"#).into_bytes();
-    let (d, s, b) = (hash_of(&data), hash_of(&spec), hash_of(&bundle));
+    let recipe = format!(r#"{{"steps":[{{"name":"{SCORE_NAME}"}}]}}"#).into_bytes();
+    let (d, s, b, r) = (
+        hash_of(&data),
+        hash_of(&spec),
+        hash_of(&bundle),
+        hash_of(&recipe),
+    );
     let request = |data: Vec<u8>| SaveRequest {
         run: RunToSave {
             capability_id: CapabilityId::parse("stats.describe").unwrap(),
@@ -140,7 +149,11 @@ fn user_text_stays_in_artifacts_and_the_title_in_its_own_column() {
             state: RunState::Succeeded,
             started_at: 10,
             ended_at: 11,
-            used: vec![(d.clone(), UsedRole::Data), (s.clone(), UsedRole::Spec)],
+            used: vec![
+                (d.clone(), UsedRole::Data),
+                (s.clone(), UsedRole::Spec),
+                (r.clone(), UsedRole::Recipe),
+            ],
             generated: vec![b.clone()],
             derived: vec![(b.clone(), d.clone())],
         },
@@ -165,6 +178,13 @@ fn user_text_stays_in_artifacts_and_the_title_in_its_own_column() {
                 schema_version: 1,
                 expected: b.clone(),
                 bytes: bundle.clone(),
+            },
+            ArtifactInput {
+                kind: ArtifactKind::Recipe,
+                format: DataFormat::Json,
+                schema_version: 1,
+                expected: r.clone(),
+                bytes: recipe.clone(),
             },
         ],
     };
@@ -251,7 +271,7 @@ fn user_text_stays_in_artifacts_and_the_title_in_its_own_column() {
             db_bytes.push((label, bytes));
         }
     }
-    assert_eq!(artifact_bytes.len(), 3);
+    assert_eq!(artifact_bytes.len(), 4);
     assert!(
         db_bytes.len() >= 3,
         "project.db open with -wal and -shm, then closed"
@@ -292,6 +312,26 @@ fn user_text_stays_in_artifacts_and_the_title_in_its_own_column() {
     }
     assert!(!errors.contains(TITLE), "the title in an error");
     assert!(!logs.contains(TITLE), "the title in a log line");
+
+    // The name: in the recipe's file alone, in no row, error or log line.
+    let holding_name: Vec<&str> = artifact_bytes
+        .iter()
+        .filter(|(_, b)| contains(b, SCORE_NAME))
+        .map(|(label, _)| label.as_str())
+        .collect();
+    assert_eq!(holding_name.len(), 1, "{holding_name:?}");
+    assert!(holding_name[0].ends_with(r.as_hex()), "{holding_name:?}");
+    for (label, b) in &db_bytes {
+        assert!(!contains(b, SCORE_NAME), "the name in {label}");
+    }
+    assert!(
+        every_text_cell(db)
+            .iter()
+            .all(|(_, v)| !v.contains(SCORE_NAME)),
+        "the name in a cell"
+    );
+    assert!(!errors.contains(SCORE_NAME), "the name in an error");
+    assert!(!logs.contains(SCORE_NAME), "the name in a log line");
 
     for nowhere in [
         FILE_NAME,

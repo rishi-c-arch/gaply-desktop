@@ -288,14 +288,26 @@ fn each_operation_path_calls_its_facade() {
     }
     // And the run manager never calls a method's functions itself, nor do
     // scale scores' commands call stats_prep around its façade (Phase 8M-3,
-    // decision 425): the scan reads both files.
+    // decision 425), nor a project's Save and rerun (Phase 8M-4, decision 433):
+    // the scan reads the three files.
     let prep_src = without_test_modules(&code("src/stats_prep_commands.rs"));
-    let runs = format!("{}\n{}", squash(&runs_src), squash(&prep_src));
+    let project_src = without_test_modules(&code("src/project_commands.rs"));
+    let runs = format!(
+        "{}\n{}\n{}",
+        squash(&runs_src),
+        squash(&prep_src),
+        squash(&project_src)
+    );
     assert!(
-        runs.contains("stats_adapters::prep_build(") && runs.contains("self.begin::<Summary>("),
-        "the direct-call scan reads both files"
+        runs.contains("stats_adapters::prep_build(")
+            && runs.contains("self.begin::<Summary>(")
+            && runs.contains("stats_adapters::prep_recipe_from_bytes("),
+        "the direct-call scan reads the three files"
     );
     for direct in [
+        "stats_prep::recipe_bytes(",
+        "stats_prep::prepared_input_hash(",
+        "Recipe::from_canonical_bytes(",
         "stats_prep::build(",
         "stats_prep::validate(",
         "stats_prep::original(",
@@ -321,7 +333,7 @@ fn each_operation_path_calls_its_facade() {
     ] {
         assert!(
             !runs.contains(direct),
-            "src/runs.rs or src/stats_prep_commands.rs calls `{direct}` around its façade"
+            "src/runs.rs, src/stats_prep_commands.rs or src/project_commands.rs calls `{direct}` around its façade"
         );
     }
 }
