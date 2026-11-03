@@ -70,7 +70,7 @@ export function place(list: CapabilityView[], statsCheckOn: boolean): Placement 
   };
 }
 
-const Limitations: React.FC<{ c: CapabilityView }> = ({ c }) =>
+export const Limitations: React.FC<{ c: CapabilityView }> = ({ c }) =>
   c.knownLimitations.length === 0 ? null : (
     <>
       <p style={{ margin: '8px 0 2px' }}>
@@ -158,6 +158,39 @@ const VerifierCard: React.FC<{
   );
 };
 
+/** The roadmap's aside: what Rust lists as Planned, and nothing when none is. */
+export const RoadmapList: React.FC<{ items: CapabilityView[] }> = ({ items }) =>
+  items.length === 0 ? null : (
+    <aside aria-labelledby="stats-roadmap-heading" data-testid="stats-roadmap">
+      <h3 id="stats-roadmap-heading">{HOME_TEXT.roadmap}</h3>
+      <p>{HOME_TEXT.roadmapIntro}</p>
+      <ul>
+        {items.map((c) => (
+          <li key={c.id} data-testid={`stats-roadmap-${c.id}`}>
+            {capabilitySentence(c.titleCode)}
+          </li>
+        ))}
+      </ul>
+    </aside>
+  );
+
+/** The retired list's aside: what Rust lists as Deprecated, and nothing when
+ *  none is. */
+export const RetiredList: React.FC<{ items: CapabilityView[] }> = ({ items }) =>
+  items.length === 0 ? null : (
+    <aside aria-labelledby="stats-retired-heading" data-testid="stats-retired">
+      <h3 id="stats-retired-heading">{HOME_TEXT.retired}</h3>
+      <p>{HOME_TEXT.retiredIntro}</p>
+      <ul>
+        {items.map((c) => (
+          <li key={c.id} data-testid={`stats-retired-${c.id}`}>
+            {capabilitySentence(c.titleCode)}
+          </li>
+        ))}
+      </ul>
+    </aside>
+  );
+
 /** The router state the Statistics workspace page's "Projects" line sends
  *  (decision 172): a fixed word, never a project's id or name. */
 export const FOCUS_PROJECTS = { focus: 'projects' } as const;
@@ -235,32 +268,8 @@ export const StatisticsHome: React.FC<StatisticsHomeProps> = ({ bridge: given, f
               <VerifierCard methods={placed.verifier} open={navigate} forceEntitlement={forceEntitlement} />
             )}
           </div>
-          {placed.roadmap.length > 0 && (
-            <aside aria-labelledby="stats-roadmap-heading" data-testid="stats-roadmap">
-              <h3 id="stats-roadmap-heading">{HOME_TEXT.roadmap}</h3>
-              <p>{HOME_TEXT.roadmapIntro}</p>
-              <ul>
-                {placed.roadmap.map((c) => (
-                  <li key={c.id} data-testid={`stats-roadmap-${c.id}`}>
-                    {capabilitySentence(c.titleCode)}
-                  </li>
-                ))}
-              </ul>
-            </aside>
-          )}
-          {placed.retired.length > 0 && (
-            <aside aria-labelledby="stats-retired-heading" data-testid="stats-retired">
-              <h3 id="stats-retired-heading">{HOME_TEXT.retired}</h3>
-              <p>{HOME_TEXT.retiredIntro}</p>
-              <ul>
-                {placed.retired.map((c) => (
-                  <li key={c.id} data-testid={`stats-retired-${c.id}`}>
-                    {capabilitySentence(c.titleCode)}
-                  </li>
-                ))}
-              </ul>
-            </aside>
-          )}
+          <RoadmapList items={placed.roadmap} />
+          <RetiredList items={placed.retired} />
         </>
       )}
       {/* Shown only when projectsShown() says so (decision 136); it does not

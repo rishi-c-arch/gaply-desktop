@@ -1,7 +1,7 @@
 # ADR-011: Data preparation, scale scores first
 
-**Status: Accepted, 2 Nov 2026 (decision 397), for Parts 1 to 9 and 11 to 14 and the disk list. Not yet: Part 10 and question 12, which wait
-for ADR-012, the Statistics layout (decision 398).** Each part below is marked **[Accepted, decision 397]** or **[Not yet, decision 397]**.
+**Status: Accepted, 2 Nov 2026 (decision 397), for Parts 1 to 9 and 11 to 14 and the disk list. Part 10 and question 12 are replaced by
+ADR-012, the Statistics layout (decision 447).** Each part below is marked **[Accepted, decision 397]** or **[Replaced by ADR-012, decision 447]**.
 Written 2 Nov 2026, Research OS Phase 8J (decisions 391 to 395), from the code
 at d5fd559. Nothing in it is built. No code, test or fixture changed in writing
 it.
@@ -46,7 +46,7 @@ end say the same in more detail.
 | Can a score be a grouping column | No. It is offered and accepted only as a numeric column. |
 | A score that no row can have | Refuse when you make it. |
 | At the column or cell limit | Refuse, and say why. No extra allowance. |
-| Where you make a score | A page of its own in Statistics. Each method then offers "use the prepared data". |
+| Where you make a score | From the Transform menu of the Statistics window, over the open file (ADR-012) |
 | What the CSV holds | The data as Gaply read it, plus your scores. It is not your original file with columns added, and the save step says so. |
 | Is this a capability of its own | Yes, with its own name, version and lifecycle. |
 
@@ -568,7 +568,7 @@ manager with a progress line (revision trigger). `stats_desc::profile` recompute
 (`core/stats_desc/mod.rs:489-528`), so the view adds a profile for the new columns only, and
 tests that it equals a full profile.
 
-### 10. The screen (decision 392j) [Not yet, decision 397]
+### 10. The screen (decision 392j) [Replaced by ADR-012, decision 447]
 
 | where | for | against | verdict |
 |---|---|---|---|
@@ -836,7 +836,7 @@ separately read.
     Asked again after the real-app check.
 11. **Reusing a saved recipe on a new run?** Recommended: not in the first version. A recipe is saved with a run and used by its rerun.
     The next data-preparation step can offer "apply this recipe" on a new file, whose columns then have to be matched by the user.
-12. **[Not yet, decision 397]** **Where the page sits?** Recommended: its own page, Prepare data, with one prepared file open at a time for the session.
+12. **[Replaced by ADR-012, decision 447]** **Where the page sits?** Recommended: its own page, Prepare data, with one prepared file open at a time for the session.
 13. **Should a score's items be limited to the file's columns?** Recommended: yes. A score of scores makes the recipe a graph.
 
 ## Revision trigger

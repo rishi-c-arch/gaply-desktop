@@ -6,6 +6,8 @@ export { Button, Card, Badge, ScoreRing, Panel, Tabs, UsageMeter } from './primi
 export type { ButtonProps, CardProps, BadgeProps, BadgeStatus, ScoreRingProps, PanelProps, TabsProps, TabItem, UsageMeterProps } from './primitives';
 export { Modal } from './Modal';
 export type { ModalProps } from './Modal';
+export { Menu } from './Menu';
+export type { MenuProps, MenuDefinition, MenuGroup, MenuItem } from './Menu';
 export { ToastProvider, useToast } from './Toast';
 export { NavRail, HeaderBar, ThreePanelWorkspace, AppShell } from './shell';
 export type { NavRailProps, NavRailItem, HeaderBarProps, ThreePanelWorkspaceProps, AppShellProps } from './shell';

@@ -1,0 +1,96 @@
+/* Gaply DS — Menu. Its own file: primitives.css is pinned by dialogTheme.vitest.tsx. */
+
+.gds-root .gds-menubar {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 2px;
+  white-space: nowrap;
+}
+.gds-root .gds-menu {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.gds-root .gds-menu__trigger {
+  background: none;
+  border: none;
+  border-radius: var(--g-radius-button);
+  color: var(--g-text);
+  font: 500 var(--g-text-size-sm) / 1 var(--g-font-ui);
+  padding: 8px 10px;
+  cursor: pointer;
+}
+.gds-root .gds-menu__trigger:hover,
+.gds-root .gds-menu__trigger[aria-expanded='true'] {
+  background: var(--g-bg-layer2);
+}
+.gds-root .gds-menu__trigger:focus-visible,
+.gds-root .gds-menu__item:focus {
+  outline: 2px solid var(--g-accent);
+  outline-offset: -2px;
+}
+.gds-root .gds-menu__after {
+  padding: 0 var(--g-space-2) 0 var(--g-space-1);
+  margin-right: var(--g-space-1);
+  border-right: 1px solid var(--g-border);
+  color: var(--g-text-2);
+  font-size: var(--g-text-size-sm);
+}
+.gds-root .gds-menu__popup {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 100;
+  min-width: 260px;
+  max-height: calc(100vh - 56px);
+  overflow: auto;
+  padding: 4px;
+  background: var(--g-bg-layer2);
+  border: 1px solid var(--g-border-strong);
+  border-radius: var(--g-radius-button);
+  box-shadow: var(--g-shadow-2);
+}
+.gds-root .gds-menu__heading {
+  padding: 8px 8px 2px;
+  color: var(--g-text-3);
+  font-size: var(--g-text-size-xs);
+}
+.gds-root .gds-menu__item {
+  display: block;
+  width: 100%;
+  background: none;
+  border: none;
+  border-radius: var(--g-radius-button);
+  color: var(--g-text);
+  font: 400 var(--g-text-size-sm) / 1.4 var(--g-font-ui);
+  padding: 4px 8px;
+  text-align: left;
+  cursor: pointer;
+}
+.gds-root .gds-menu__item:hover {
+  background: var(--g-bg-layer1);
+}
+.gds-root .gds-menu__item[aria-disabled='true'] {
+  color: var(--g-text-3);
+  cursor: default;
+}
+/* The description a screen reader reads; the foot shows it to the eye. */
+.gds-root .gds-menu__description {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.gds-root .gds-menu__foot {
+  min-height: 20px;
+  margin-top: 4px;
+  padding: 2px 8px;
+  border-top: 1px solid var(--g-border);
+  color: var(--g-text-3);
+  font-size: var(--g-text-size-xs);
+  white-space: normal;
+}

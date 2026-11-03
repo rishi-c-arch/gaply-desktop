@@ -1,6 +1,6 @@
 # ADR-012: The Statistics layout
 
-**Status: Proposed.** Not accepted until Rishi approves it.
+**Status: Accepted, 3 Nov 2026 (decision 447).**
 Written 3 Nov 2026, Research OS Phase 8N (decisions 439 to 445), from the code at
 6a4a3a41. Nothing in it is built. No code, test or fixture changed in writing it.
 Once accepted, it replaces ADR-011's Part 10 and question 12. ADR-011 itself is not
@@ -219,7 +219,7 @@ as a wizard's pages. §3.4 asks that a switch restore the last view; this design
 
 ## Decision
 
-### 1. The shell (decision 442a)
+### 1. The shell (decision 442a) [Accepted, decision 447]
 
 | where the window sits | for | against | verdict |
 |---|---|---|---|
@@ -263,7 +263,7 @@ an Output entry shows its own run, and a project's rerun has its own line (Part 
 The window sets `min-height: 0` on its grid area, as the design system's shell does
 (`src/design-system/shell.css:11`), and only the grid, the Variable View table and the Output's two panes scroll.
 
-### 2. One open data file for the session (decision 442b)
+### 2. One open data file for the session (decision 442b) [Accepted, decision 447]
 
 ADR-011 Part 10's idea carries over, as decision 397 says.
 
@@ -304,7 +304,7 @@ in place, and the eviction never drops that one (`app/runs.rs:455-468`). While o
 evict the window's, so a slot the window finds gone (`run.unknown_input`) says "This file is no longer held in memory. Open it again."
 and clears the file. The flag keeps both from being in ordinary use at once.
 
-### 3. The Data View (decision 442c)
+### 3. The Data View (decision 442c) [Accepted, decision 447]
 
 **What a cell shows.** The Dataset's cell (`core/stats_l1/dataset.rs:549-553`), as the prepared CSV writes it
 (`core/stats_prep/export.rs:43-45`):
@@ -398,7 +398,7 @@ These figures are proposals, none measured.
 
 **If the scroll's stop fires,** the library above is proposed by name before anything else changes.
 
-### 4. The Variable View (decision 442d)
+### 4. The Variable View (decision 442d) [Accepted, decision 447]
 
 A plain table of at most 128 rows, one for each column of `profile.columns`.
 
@@ -426,7 +426,7 @@ count has no column either, and is one line under the table when it is above 0, 
 | Measure | a level of measurement would suggest which method fits, and Gaply gives no advice (decision 66). Methods decide from the data's kind and the user's choice |
 | Type, Width, Decimals, Name, Columns, Align, Role | Gaply never changes the file's reading. Display preferences are a later, small step if asked for |
 
-### 5. The menus (decision 442e)
+### 5. The menus (decision 442e) [Accepted, decision 447]
 
 **In the window, not the operating system's menu bar.** Decision 441 places them in the top bar. The app registers no native menu in `app/lib.rs` (a search for `Menu` finds none).
 
@@ -485,7 +485,7 @@ does today, its label stays in "Coming later", and at Beta its label leaves and 
 **The keyboard.** `role="menubar"` and `role="menu"`. Tab reaches the bar. Left and Right change menu, Up and Down the item, Enter opens it, and Escape closes it and returns the focus. A letter jumps to an item. There are no global shortcuts in the first version, so none can be pressed by accident and none clashes with a
 webview's. `Cmd+O` is a later small step. The design system has no menu to reuse (a search of `src/design-system` for `aria-haspopup` and `role="menu"` finds nothing), so a `Menu` joins it.
 
-### 6. The dialogs (decision 442f)
+### 6. The dialogs (decision 442f) [Accepted, decision 447]
 
 **A dialog's frame.** One component, `MethodDialog`, on `ProjectDialog` (`screens/projects/ProjectDialog.tsx:36`), which keeps the focus inside, closes on Escape and returns the focus. `ProjectDialog` moves out of `projects/` so both can use it, unchanged. The data stays visible behind.
 
@@ -523,7 +523,7 @@ not matter: `buildAlphaSpec` writes column order whatever they do (`screens/Alph
 
 **The mockup and decision 384 differ on "Tick every numeric column" and "Untick all".** Without them, a 128-item scale takes 128 clicks. Each is an action the user takes, never a default. Recommended: keep them, reworded "Add every numeric column" and "Remove all", in the same place. Question 6.
 
-### 7. The Output (decision 442g)
+### 7. The Output (decision 442g) [Accepted, decision 447]
 
 **An entry** holds: its number, the method's kind, the `view` at its run, the settings line, the run's id, and its state, then its result.
 
@@ -567,7 +567,7 @@ An empty Output shows decision 441's sentence. The tab's count is the entries. S
 
 An entry whose Save cannot succeed shows the button disabled, with `project.data_unavailable`'s sentence (`screens/projects/projectWording.ts:99`). Rust's refusal stays the boundary, whatever the screen shows.
 
-### 8. The scale score's dialog (decision 442h)
+### 8. The scale score's dialog (decision 442h) [Accepted, decision 447]
 
 **This replaces ADR-011 Part 10 and question 12.** No page of its own, and no "use the prepared data" in each method: the file is shared, so every method sees a score the moment it exists, through `view.profile.columns`.
 
@@ -612,7 +612,7 @@ The file's bytes still come from the slot, so Close's sentence stands.
 | decision 439, answer 4 | `rerun_over_limits` end to end, on the 8 GB tier's largest table: saved through the make's body at a larger cap, then rerun on this computer's | the score's step |
 | decision 430's answer 4 | `run.run_busy` for a make overtaken: its sentence | the score's step |
 
-### 9. Projects in the shell (decision 442i)
+### 9. Projects in the shell (decision 442i) [Accepted, decision 447]
 
 **The line.** "Project: none open", or "Project: " and the name, inside `<bdi>`, from `useOpenProject` (`screens/projects/projectSession.ts:90-92`), and clicking it opens the project's page. It is a read of Rust's answer, as every project screen's is, and asks `project_current` when the window appears (decision 148).
 
@@ -650,7 +650,7 @@ The page's Close and Back go to `STATISTICS_HOME_PATH` (`screens/ProjectPageScre
 
 **A thesis's chain.** Seen on the project page: the runs in order, each with its recipe named, after this ADR's projects step. Rerun together from the menu. Exported as one report, with its "Prepared column 51: …" lines (decision 435).
 
-### 10. Privacy (decision 442j)
+### 10. Privacy (decision 442j) [Accepted, decision 447]
 
 **The Data View is the first screen to show a table's rows.** They reach the webview for the user's own screen. Never a log, an outbound struct, a manifest, a project row, a refusal or an AI task. No AI task reads a cell, and none may be added without its own ADR.
 
@@ -674,13 +674,13 @@ The page's Close and Back go to `STATISTICS_HOME_PATH` (`screens/ProjectPageScre
 
 **The clipboard.** Part 3 leaves copying out, so no new route exists. The one value the user selects from the active cell's line is their own act.
 
-### 11. The workspace rule (decision 442k)
+### 11. The workspace rule (decision 442k) [Accepted, decision 447]
 
 The window exists only inside Statistics. `RequireWorkspace id="statistics"` gates it, and every command it calls checks in Rust whatever the screen shows (ADR-001 decisions 3 and 4). Compute and Design have no field and no route here. The `statsLayout` flag, under `statsDescribe`, hides it while it is unfinished, and is never a boundary, which a test of the screen's refusal pins: with the flag on and the workspace inactive, the gate shows and no command runs. When the old pages go, the flag goes.
 
 No other workspace's menu or word appears. The Stats Check and the Verifier keep their routes and their own entry (ADR-001's addendum), and only Part 1's menu links them.
 
-### 12. What the existing tests become (decision 442l)
+### 12. What the existing tests become (decision 442l) [Accepted, decision 447]
 
 | test | what happens |
 |---|---|
@@ -700,7 +700,7 @@ No other workspace's menu or word appears. The Stats Check and the Verifier keep
 
 **Real-app checklists from then on.** One per step, `~/gaply-corpus/os/phase8/realapp_<step>.md`, with its data written by a script of its own with no `#` line (decision 385). The first run of each is the release build, with `scripts/dev-detached.sh`. Each step quotes its timing counter's figures there. When a dialog replaces a page, the checklist repeats the earlier checks' numbers on the same files as `realapp_8i2.md`'s and those before it, so a number that moved is seen.
 
-### 13. The implementation plan (decision 442m)
+### 13. The implementation plan (decision 442m) [Accepted, decision 447]
 
 Each is its own commit, with `cargo test --workspace` and the frontend's commands. Letters are Rishi's to give. **Every step leaves a working app:** until the last, the flag is off by default and every old page is untouched.
 
@@ -739,7 +739,7 @@ Each is its own commit, with `cargo test --workspace` and the frontend's command
 - *Mutations:* a route left out; the home's `place` removed.
 - *Real-app check:* the whole chain, from the hub tile, in a clean app. The release note of decision 439's answer 3.
 
-## The disk list (decision 443)
+## The disk list (decision 443) [Accepted, decision 447]
 
 **The layout's aim is to add no write. Operations it adds that write anything: one, and it writes only what a rerun already does.** It is blocked until this ADR is approved.
 

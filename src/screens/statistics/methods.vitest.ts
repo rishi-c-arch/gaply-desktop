@@ -81,6 +81,25 @@ describe('the methods table', () => {
     ]);
   });
 
+  // Research OS, Phase 8P (decision 451): every row has its place in the
+  // Statistics window's Analyze menu, in decision 441's words.
+  it('gives every row a menu group and a label, and a new method adds one row', () => {
+    expect(METHODS.map((m) => [m.menuGroup, m.menuLabel])).toEqual([
+      ['Descriptive statistics', 'Summary…'],
+      ['Compare means', 'Independent-samples t-test…'],
+      ['Compare means', 'One-sample t-test…'],
+      ['Compare means', 'Paired t-test…'],
+      ['Compare means', 'One-way ANOVA…'],
+      ['Correlate', 'Correlations…'],
+      ['Scale', "Reliability (Cronbach's alpha)…"],
+    ]);
+    for (const m of METHODS) {
+      expect(m.menuGroup, m.kind).toBeTruthy();
+      expect(m.menuLabel, m.kind).toMatch(/…$/);
+    }
+    expect(new Set(METHODS.map((m) => m.menuLabel)).size).toBe(METHODS.length);
+  });
+
   it('finds no row for a capability no method has, nor for a word from Object.prototype', () => {
     expect(methodFor('stats.check')).toBeUndefined();
     expect(methodFor('toString')).toBeUndefined();

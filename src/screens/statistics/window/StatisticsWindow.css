@@ -1,0 +1,154 @@
+/* Gaply — the Statistics window's regions (Research OS, Phase 8P, ADR-012
+   Part 1), at 1024 x 700 at least: the top bar 40 px, the tabs 32 px, the line
+   above the grid 44 px, the footer 24 px, and what is left, 560 px at the
+   minimum, for the tab's body, which alone scrolls. */
+
+.gds-root.sw-window {
+  height: 100vh;
+  display: grid;
+  grid-template-rows: 40px minmax(0, 1fr) minmax(24px, auto);
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* The top bar: the menus never wrap, and the project's name is clipped first. */
+.gds-root .sw-top {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: var(--g-space-2);
+  padding: 0 var(--g-space-1);
+  background: var(--g-bg-layer1);
+  border-bottom: 1px solid var(--g-border);
+  white-space: nowrap;
+  min-width: 0;
+}
+.gds-root .sw-project {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  font-size: var(--g-text-size-sm);
+  color: var(--g-text-2);
+}
+
+.gds-root .sw-main {
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* The tabs: the design system's, sized for this window. */
+.gds-root .sw-main .gds-tabs {
+  height: 100%;
+  display: grid;
+  grid-template-rows: 32px minmax(0, 1fr);
+  min-height: 0;
+}
+.gds-root .sw-main .gds-tabs__list {
+  padding: 0 var(--g-space-1);
+  background: var(--g-bg-layer1);
+}
+.gds-root .sw-main .gds-tabs__tab {
+  padding: 8px 12px;
+}
+.gds-root .sw-main .gds-tabs__panel {
+  display: grid;
+  grid-template-rows: 44px minmax(0, 1fr);
+  min-height: 0;
+  padding: 0;
+}
+
+/* The line above the grid: the file's name is clipped first, whole in its
+   tooltip. */
+.gds-root .sw-line {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+  padding: 0 var(--g-space-2);
+  overflow: hidden;
+  border-bottom: 1px solid var(--g-border);
+  font-size: var(--g-text-size-sm);
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.gds-root .sw-line__file > p {
+  display: inline;
+}
+.gds-root .sw-line__file .gds-mono {
+  display: inline-block;
+  max-width: 480px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+}
+.gds-root .sw-line__read {
+  margin: 0;
+  color: var(--g-text-3);
+}
+
+/* The tab's body: the only thing that scrolls. */
+.gds-root .sw-body {
+  min-height: 0;
+  overflow: auto;
+  padding: var(--g-space-2);
+}
+.gds-root .sw-message {
+  margin: 0 0 var(--g-space-1);
+}
+
+/* The footer: three phrases on one line at 12 px, wrapping to two only if the
+   fonts are larger. */
+.gds-root .sw-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 var(--g-space-3);
+  padding: 2px var(--g-space-2);
+  background: var(--g-bg-layer1);
+  border-top: 1px solid var(--g-border);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--g-text-3);
+}
+
+/* The Variable View's table. */
+.gds-root .sw-vars {
+  border-collapse: collapse;
+  font-size: var(--g-text-size-sm);
+}
+.gds-root .sw-vars th {
+  text-align: left;
+}
+.gds-root .sw-notes {
+  margin: var(--g-space-2) 0 0;
+  font-size: var(--g-text-size-sm);
+}
+
+/* The Help dialogs' long content scrolls inside the dialog; Close stays. */
+.gds-root .sw-help {
+  max-height: 60vh;
+  overflow: auto;
+  display: grid;
+  gap: var(--g-space-1);
+}
+.gds-root .sw-help-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--g-space-2);
+}
+
+/* Read by a screen reader, not drawn. */
+.gds-root .sw-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}

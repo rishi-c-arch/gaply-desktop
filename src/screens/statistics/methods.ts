@@ -2,7 +2,8 @@
 // OS, Phase 8C; decision 249). Pure data, one row per method: the run
 // manager's word for its runs (Rust's RunKind), its capability id, its name,
 // the shell's job name (none for the summary, whose sentence has no
-// parenthesis) and its screen's route.
+// parenthesis), its screen's route, and its place in the Statistics window's
+// Analyze menu (Research OS, Phase 8P, decision 451).
 //
 // RunKind, the capability names, the shell's job names and the Statistics
 // home's routes are read from here. Each method's bridge, stored-result
@@ -18,6 +19,8 @@ export const METHODS = [
     name: 'Descriptive summary',
     jobName: null,
     path: DESCRIBE_PATH,
+    menuGroup: 'Descriptive statistics',
+    menuLabel: 'Summary…',
   },
   {
     kind: 'ttest',
@@ -25,6 +28,8 @@ export const METHODS = [
     name: 'Independent-samples t-test',
     jobName: 'independent-samples t-test',
     path: TTEST_PATH,
+    menuGroup: 'Compare means',
+    menuLabel: 'Independent-samples t-test…',
   },
   // Research OS, Phase 8D-2b (decision 268).
   {
@@ -33,6 +38,8 @@ export const METHODS = [
     name: 'One-sample t-test',
     jobName: 'one-sample t-test',
     path: ONE_SAMPLE_PATH,
+    menuGroup: 'Compare means',
+    menuLabel: 'One-sample t-test…',
   },
   // Research OS, Phase 8D-2c (decision 271).
   {
@@ -41,6 +48,8 @@ export const METHODS = [
     name: 'Paired-samples t-test',
     jobName: 'paired-samples t-test',
     path: PAIRED_PATH,
+    menuGroup: 'Compare means',
+    menuLabel: 'Paired t-test…',
   },
   // Research OS, Phase 8G-2 (decision 331).
   {
@@ -49,6 +58,8 @@ export const METHODS = [
     name: 'One-way ANOVA',
     jobName: 'one-way ANOVA',
     path: ANOVA_PATH,
+    menuGroup: 'Compare means',
+    menuLabel: 'One-way ANOVA…',
   },
   // Research OS, Phase 8H-2 (decision 359). The kind is Rust's RunKind word.
   {
@@ -57,6 +68,8 @@ export const METHODS = [
     name: 'Correlations',
     jobName: 'correlations',
     path: CORR_PATH,
+    menuGroup: 'Correlate',
+    menuLabel: 'Correlations…',
   },
   // Research OS, Phase 8I-2 (decision 384). The kind is Rust's RunKind word.
   {
@@ -65,6 +78,8 @@ export const METHODS = [
     name: "Cronbach's alpha",
     jobName: "Cronbach's alpha",
     path: ALPHA_PATH,
+    menuGroup: 'Scale',
+    menuLabel: "Reliability (Cronbach's alpha)…",
   },
 ] as const;
 

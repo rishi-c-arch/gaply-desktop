@@ -15,27 +15,24 @@
 // an authorization boundary.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AppShell, Button, Card, GaplyGlobe, HeaderBar, Modal, NavRail } from '../../design-system';
+import { AppShell, Button, Card, GaplyGlobe, HeaderBar, NavRail } from '../../design-system';
 import { isFeatureEnabled } from '../../config/featureFlags';
 import { describeBridge, type DescribeBridge } from '../statistics/describeBridge';
-import { progressSentence, RUN_STATE_NAMES } from '../statistics/describeWording';
-import type { RunState } from '../statistics/describeTypes';
 import { STATISTICS_HOME_PATH, statisticsTools as selectorTools } from '../statistics/statisticsRoute';
 import { FOCUS_PROJECTS } from '../statistics/StatisticsHome';
 import { ttestBridge, type TTestBridge } from '../statistics/ttestBridge';
 import { oneSampleBridge, pairedBridge, type OneSampleBridge, type PairedBridge } from '../statistics/onesampleBridge';
 import { anovaBridge, type AnovaBridge } from '../statistics/anovaBridge';
-import { stepsSentence } from '../statistics/anovaWording';
 import { corrBridge, type CorrBridge } from '../statistics/corrBridge';
 import { alphaBridge, type AlphaBridge } from '../statistics/alphaBridge';
-import { byKind } from '../statistics/methods';
 import { projectsShown } from '../statistics/projects/projectGate';
-import { noteWorkspaceState, openProjectStore } from '../statistics/projects/projectSession';
+import { noteWorkspaceState } from '../statistics/projects/projectSession';
 import { PROJECT_TEXT } from '../statistics/projects/projectWording';
 import { workspaceBridge, type WorkspaceBridge } from './workspaceBridge';
-import { isActive, workspaceRefusal, type RunEntry, type WorkspaceStateView } from './workspaceTypes';
-import { SHELL_TEXT, SWITCH_DIALOG, workspaceSentence } from './workspaceWording';
+import { isActive, type WorkspaceStateView } from './workspaceTypes';
+import { SHELL_TEXT } from './workspaceWording';
 import { CHOOSER_PATH } from './workspaceRoute';
+import { jobSentence, useWorkspaceSwitch, type JobView } from './useWorkspaceSwitch';
 
 export interface WorkspaceShellProps {
   bridge?: WorkspaceBridge;
@@ -76,41 +73,6 @@ function statisticsTools(): Array<{ key: string; label: string; href: string; st
   ];
 }
 
-/** A run of either kind, as the shell shows it. */
-interface JobView {
-  runId: number;
-  state: RunState;
-  terminal: boolean;
-  /** The descriptive summary's column progress, or the one-way ANOVA's or
-   *  the correlations' or Cronbach's alpha's steps (decisions 328, 355 and
-   *  380); a t-test has none. */
-  progress: string | null;
-  kind: RunEntry['kind'];
-}
-
-/** Each kind's job name, from the methods table (Phase 8C): none for the
- *  summary, whose sentence has no parenthesis. */
-const KIND_NAMES: Record<RunEntry['kind'], string | null> = byKind((m) => m.jobName);
-
-/** What the shell does with a run of one kind, through that kind's own
- *  commands (decision 80). */
-interface KindCommands {
-  status: (runId: number) => Promise<JobView | null>;
-  cancel: (runId: number) => Promise<unknown>;
-}
-
-/** A kind's commands; a kind this screen does not know reads and cancels as
- *  the summary, as it did before Phase 8C. An own key only, so a word such
- *  as 'toString' is not taken from Object.prototype. */
-function commandsFor(kinds: Record<RunEntry['kind'], KindCommands>, kind: string): KindCommands {
-  return Object.prototype.hasOwnProperty.call(kinds, kind) ? kinds[kind as RunEntry['kind']] : kinds.describe;
-}
-
-export function jobSentence(run: JobView): string {
-  const kind = KIND_NAMES[run.kind];
-  return `Run ${run.runId}${kind ? ` (${kind})` : ''}: ${RUN_STATE_NAMES[run.state]}.${run.progress ? ` ${run.progress}` : ''}`;
-}
-
 const JobArea: React.FC<{ run: JobView | null }> = ({ run }) => (
   <section aria-labelledby="ws-jobs-heading" data-testid="ws-jobs">
     <h2 id="ws-jobs-heading">{SHELL_TEXT.jobs}</h2>
@@ -147,10 +109,6 @@ export const WorkspaceShell: React.FC<WorkspaceShellProps> = ({
   const [view, setView] = useState<WorkspaceStateView | null>(null);
   const [run, setRun] = useState<JobView | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  /** The run that blocked a switch: the dialog is open while this is set. */
-  const [blocking, setBlocking] = useState<RunEntry | null>(null);
-  const [blockingRun, setBlockingRun] = useState<JobView | null>(null);
-  const [waiting, setWaiting] = useState(false);
   const alive = useRef(true);
 
   useEffect(() => {
@@ -160,96 +118,9 @@ export const WorkspaceShell: React.FC<WorkspaceShellProps> = ({
     };
   }, []);
 
-  /** Each kind's status and cancel, from the bridges given (Phase 8C). */
-  const kinds = useMemo<Record<RunEntry['kind'], KindCommands>>(
-    () => ({
-      describe: {
-        status: async (runId) => {
-          const r = await runs.status(runId).catch(() => null);
-          return (
-            r && {
-              runId: r.runId,
-              state: r.state,
-              terminal: r.terminal,
-              progress: progressSentence(r.columnsDone, r.columnsTotal),
-              kind: 'describe',
-            }
-          );
-        },
-        cancel: (runId) => runs.cancel(runId).catch(() => null),
-      },
-      ttest: {
-        status: async (runId) => {
-          const r = await ttest.status(runId).catch(() => null);
-          return r && { runId: r.runId, state: r.state, terminal: r.terminal, progress: null, kind: 'ttest' };
-        },
-        cancel: (runId) => ttest.cancel(runId).catch(() => null),
-      },
-      one_sample: {
-        status: async (runId) => {
-          const r = await oneSample.status(runId).catch(() => null);
-          return r && { runId: r.runId, state: r.state, terminal: r.terminal, progress: null, kind: 'one_sample' };
-        },
-        cancel: (runId) => oneSample.cancel(runId).catch(() => null),
-      },
-      paired: {
-        status: async (runId) => {
-          const r = await paired.status(runId).catch(() => null);
-          return r && { runId: r.runId, state: r.state, terminal: r.terminal, progress: null, kind: 'paired' };
-        },
-        cancel: (runId) => paired.cancel(runId).catch(() => null),
-      },
-      anova: {
-        status: async (runId) => {
-          const r = await anova.status(runId).catch(() => null);
-          return (
-            r && {
-              runId: r.runId,
-              state: r.state,
-              terminal: r.terminal,
-              progress: `${stepsSentence(r.stepsDone, r.stepsTotal)}.`,
-              kind: 'anova',
-            }
-          );
-        },
-        cancel: (runId) => anova.cancel(runId).catch(() => null),
-      },
-      correlations: {
-        status: async (runId) => {
-          const r = await corr.status(runId).catch(() => null);
-          return (
-            r && {
-              runId: r.runId,
-              state: r.state,
-              terminal: r.terminal,
-              progress: `${stepsSentence(r.stepsDone, r.stepsTotal)}.`,
-              kind: 'correlations',
-            }
-          );
-        },
-        cancel: (runId) => corr.cancel(runId).catch(() => null),
-      },
-      cronbach_alpha: {
-        status: async (runId) => {
-          const r = await alpha.status(runId).catch(() => null);
-          return (
-            r && {
-              runId: r.runId,
-              state: r.state,
-              terminal: r.terminal,
-              progress: `${stepsSentence(r.stepsDone, r.stepsTotal)}.`,
-              kind: 'cronbach_alpha',
-            }
-          );
-        },
-        cancel: (runId) => alpha.cancel(runId).catch(() => null),
-      },
-    }),
-    [runs, ttest, oneSample, paired, anova, corr, alpha]
-  );
-
-  /** A run's state, through its kind's status command (decision 80). */
-  const statusOf = useCallback((e: RunEntry): Promise<JobView | null> => commandsFor(kinds, e.kind).status(e.runId), [kinds]);
+  const runBridges = useMemo(() => ({ describe: runs, ttest, oneSample, paired, anova, corr, alpha }), [runs, ttest, oneSample, paired, anova, corr, alpha]);
+  // The switch, and each kind's commands, are one hook's (decision 449).
+  const { leave, statusOf, dialog: switchDialog } = useWorkspaceSwitch({ bridge, runs: runBridges, pollMs, setMessage });
 
   const read = useCallback(async () => {
     try {
@@ -274,64 +145,6 @@ export const WorkspaceShell: React.FC<WorkspaceShellProps> = ({
     const t = setInterval(read, pollMs);
     return () => clearInterval(t);
   }, [read, pollMs]);
-
-  const leave = useCallback(async () => {
-    setMessage(null);
-    try {
-      await bridge.deactivate();
-      // Leaving Statistics closed the open project in Rust (decision 135).
-      openProjectStore.clear();
-      setBlocking(null);
-      navigate(CHOOSER_PATH);
-    } catch (e) {
-      const r = workspaceRefusal(e);
-      if (r?.code === 'workspace.run_active' && typeof r.params.run === 'number') {
-        // The refusal names the run; the state names its kind.
-        const id = r.params.run;
-        const s = await bridge.state().catch(() => null);
-        const kind = s?.activeRun?.runId === id ? s.activeRun.kind : 'describe';
-        setBlocking({ runId: id, kind });
-      } else {
-        setMessage(r ? workspaceSentence(r) : 'The workspace could not be closed.');
-      }
-    }
-  }, [bridge, navigate]);
-
-  // While the dialog is open, read the blocking run; once it has ended and
-  // the user chose to wait (or cancelled it), switch.
-  useEffect(() => {
-    if (blocking === null) return;
-    let stop = false;
-    const tick = async () => {
-      const r = await statusOf(blocking);
-      if (stop || !alive.current) return;
-      setBlockingRun(r);
-      if (waiting && (r === null || r.terminal)) {
-        stop = true;
-        setWaiting(false);
-        await leave();
-      }
-    };
-    tick();
-    const t = setInterval(tick, pollMs);
-    return () => {
-      stop = true;
-      clearInterval(t);
-    };
-  }, [blocking, waiting, statusOf, pollMs, leave]);
-
-  const cancelRun = useCallback(async () => {
-    if (blocking === null) return;
-    setWaiting(true);
-    // Through the run's own kind's cancel (decision 80).
-    await commandsFor(kinds, blocking.kind).cancel(blocking.runId);
-  }, [blocking, kinds]);
-
-  const stay = useCallback(() => {
-    setBlocking(null);
-    setBlockingRun(null);
-    setWaiting(false);
-  }, []);
 
   const statisticsOpen = view !== null && isActive(view.state, 'statistics');
 
@@ -401,26 +214,7 @@ export const WorkspaceShell: React.FC<WorkspaceShellProps> = ({
           </Card>
         </div>
       </AppShell>
-      <Modal open={blocking !== null} title={SWITCH_DIALOG.title} onClose={stay}>
-        <div data-testid="ws-switch-dialog">
-          <p>{SWITCH_DIALOG.body}</p>
-          <p role="status" aria-live="polite" data-testid="ws-switch-run">
-            {blockingRun ? jobSentence(blockingRun) : `Run ${blocking?.runId ?? ''}`}
-          </p>
-          {waiting && <p data-testid="ws-switch-waiting">{SWITCH_DIALOG.waiting}</p>}
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <Button data-testid="ws-switch-wait" autoFocus onClick={() => setWaiting(true)} disabled={waiting}>
-              {SWITCH_DIALOG.wait}
-            </Button>
-            <Button variant="secondary" data-testid="ws-switch-cancel" onClick={cancelRun} disabled={waiting}>
-              {SWITCH_DIALOG.cancel}
-            </Button>
-            <Button variant="ghost" data-testid="ws-switch-stay" onClick={stay}>
-              {SWITCH_DIALOG.stay}
-            </Button>
-          </div>
-        </div>
-      </Modal>
+      {switchDialog}
     </div>
   );
 };

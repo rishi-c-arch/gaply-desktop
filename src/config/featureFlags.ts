@@ -21,6 +21,11 @@ export type FeatureName =
   // The Research OS descriptive summary (Phase 2B): its route and hub tile.
   // Default OFF. Hides unfinished UI; not an authorization boundary.
   | 'statsDescribe'
+  // The Research OS Statistics window (Phase 8P, decision 449): its route and
+  // its link in the Statistics workspace's tools. Default OFF, and shown only
+  // with 'statsDescribe' on too (statistics/statisticsRoute.tsx). Hides
+  // unfinished UI; not an authorization boundary.
+  | 'statsLayout'
   // The Research OS workspace chooser and shell (Phase 3). Default OFF. Hides
   // unfinished UI; not an authorization boundary (Rust checks the active
   // workspace on every stats_desc_* command whatever this says).
@@ -53,6 +58,7 @@ export const FEATURE_FLAGS: Record<FeatureName, boolean> = {
   plagiarismCheck: envBool(process.env.REACT_APP_FEATURE_PLAGIARISM_CHECK),
   statsL1: envBool(process.env.REACT_APP_FEATURE_STATS_L1),
   statsDescribe: envBool(process.env.REACT_APP_FEATURE_STATS_DESCRIBE),
+  statsLayout: envBool(process.env.REACT_APP_FEATURE_STATS_LAYOUT),
   workspaces: envBool(process.env.REACT_APP_FEATURE_WORKSPACES),
   projects: envBool(process.env.REACT_APP_FEATURE_PROJECTS),
   storedData: envBool(process.env.REACT_APP_FEATURE_STORED_DATA),

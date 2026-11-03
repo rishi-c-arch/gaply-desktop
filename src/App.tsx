@@ -37,7 +37,7 @@ import { OfflineHintBanner } from './components/OfflineHintBanner';
 import { isTauri } from './utils/isTauri';
 import { isFeatureEnabled } from './config/featureFlags';
 import { describeRoute } from './screens/statistics/describeRoute';
-import { statisticsRoutes } from './screens/statistics/statisticsRoute';
+import { statisticsRoutes, statisticsWindowRoute } from './screens/statistics/statisticsRoute';
 import { projectRoutes } from './screens/statistics/projects/projectRoute';
 import { workspaceRoutes } from './screens/workspace/workspaceRoute';
 
@@ -75,6 +75,7 @@ const GaplyPairedRoute = React.lazy(() => import('./screens/GaplyScreens').then(
 const GaplyAnovaRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.AnovaRoute })));
 const GaplyCorrRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.CorrRoute })));
 const GaplyAlphaRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.AlphaRoute })));
+const GaplyStatisticsWindowRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.StatisticsWindowRoute })));
 const GaplyProjectPageRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.ProjectPageRoute })));
 const GaplyWorkspaceChooserRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.WorkspaceChooserRoute })));
 const GaplyWorkspaceShellRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.WorkspaceShellRoute })));
@@ -689,6 +690,8 @@ const AppContent: React.FC = () => {
             <Suspense fallback={null}><GaplyCorrRoute /></Suspense>,
             <Suspense fallback={null}><GaplyAlphaRoute /></Suspense>
           )}
+          {/* The Research OS Statistics window: only while its flag and the describe flag are on. */}
+          {statisticsWindowRoute(<Suspense fallback={null}><GaplyStatisticsWindowRoute /></Suspense>)}
           {/* An open project's page: only while the project screens show (Phase 5B-3b). */}
           {projectRoutes(<Suspense fallback={null}><GaplyProjectPageRoute /></Suspense>)}
           {/* The Research OS workspace chooser and shell: only while their flag is on. */}

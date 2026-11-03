@@ -25,7 +25,15 @@ export const ANOVA_PATH = '/app/statistics/anova';
 export const CORR_PATH = '/app/statistics/correlations';
 /** Cronbach's alpha's screen (Research OS, Phase 8I-2, decision 384). */
 export const ALPHA_PATH = '/app/statistics/alpha';
+/** The Statistics window (Research OS, Phase 8P, decision 449). */
+export const STATISTICS_WINDOW_PATH = '/app/statistics/window';
 export const STATISTICS_TILE = { label: 'Statistical Methods', href: STATISTICS_HOME_PATH };
+const STATISTICS_WINDOW_TOOL = { label: 'Statistics window (in development)', href: STATISTICS_WINDOW_PATH };
+
+/** Whether the Statistics window shows: its own flag, under the describe flag
+ *  (decision 449). It hides unfinished UI, and is not an authorization
+ *  boundary. */
+const windowShown = () => isFeatureEnabled('statsDescribe') && isFeatureEnabled('statsLayout');
 
 /** The selector's and every method's screen's routes (the t-test's, the
  *  one-sample t-test's, the paired t-test's, the one-way ANOVA's, the
@@ -52,6 +60,13 @@ export function statisticsRoutes(
   ];
 }
 
+/** The Statistics window's route, or nothing while either flag is off. A
+ *  function of its own, as describeRoute is, since statisticsRoutes takes
+ *  exactly its seven elements (decision 449). Called inside `<Routes>`. */
+export function statisticsWindowRoute(element: React.ReactElement): React.ReactElement | null {
+  return windowShown() ? <Route path={STATISTICS_WINDOW_PATH} element={element} /> : null;
+}
+
 /** The hub tile, or none while the flag is off. With the workspaces flag on
  *  too, the selector is reached from the Statistics workspace instead, so the
  *  hub has no tile for it. */
@@ -60,7 +75,9 @@ export function statisticsTiles(): Array<typeof STATISTICS_TILE> {
 }
 
 /** The Statistics workspace's entry to the selector, while the describe flag
- *  is on (decision 77). */
+ *  is on (decision 77), and to the Statistics window, while its flag is on too
+ *  (decision 449). */
 export function statisticsTools(): Array<{ label: string; href: string }> {
-  return isFeatureEnabled('statsDescribe') ? [STATISTICS_TILE] : [];
+  if (!isFeatureEnabled('statsDescribe')) return [];
+  return windowShown() ? [STATISTICS_TILE, STATISTICS_WINDOW_TOOL] : [STATISTICS_TILE];
 }

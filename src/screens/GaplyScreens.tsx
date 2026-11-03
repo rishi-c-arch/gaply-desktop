@@ -40,6 +40,7 @@ import { PairedPage } from './statistics/PairedFlow';
 import { AnovaPage } from './statistics/AnovaFlow';
 import { AlphaPage } from './statistics/AlphaFlow';
 import { CorrPage } from './statistics/CorrFlow';
+import { StatisticsWindow } from './statistics/window/StatisticsWindow';
 import { ProjectPageScreen } from './statistics/ProjectPageScreen';
 import { WorkspaceChooser } from './workspace/WorkspaceChooser';
 import { WorkspaceShell } from './workspace/WorkspaceShell';
@@ -306,6 +307,19 @@ export const CorrRoute: React.FC = () => (
     <RequireAuth>
       <RequireWorkspace id="statistics" body="Open the Statistics workspace to use the correlations.">
         <CorrPage />
+      </RequireWorkspace>
+    </RequireAuth>
+  </GaplySessionProvider>
+);
+
+/** /app/statistics/window — the Statistics window (Research OS, Phase 8P,
+ *  decision 449), only while its flag is on (see statistics/statisticsRoute),
+ *  and shown only while the Statistics workspace is active, as a method is. */
+export const StatisticsWindowRoute: React.FC = () => (
+  <GaplySessionProvider>
+    <RequireAuth>
+      <RequireWorkspace id="statistics" body="Open the Statistics workspace to use the Statistics window.">
+        <StatisticsWindow />
       </RequireWorkspace>
     </RequireAuth>
   </GaplySessionProvider>
