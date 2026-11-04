@@ -53,6 +53,15 @@ pub(crate) fn text(field: &str) -> String {
     format!("\"{}\"", guarded.replace('"', "\"\""))
 }
 
+/// A number for a file a user's cells go to, or for the screen that shows them:
+/// Rust's shortest form that reads back to the same double. `stat_fields`,
+/// `stats_prep::export::prepared_csv` and `cells::cells_window` all call this, so
+/// their bytes cannot drift apart (decision 458). The five method exports that
+/// keep a `format!` of their own do not write a user's cells.
+pub(crate) fn number(v: f64) -> String {
+    format!("{v}")
+}
+
 fn row(
     out: &mut String,
     alias: &str,
@@ -78,7 +87,7 @@ fn row(
 
 fn stat_fields(s: Stat) -> (String, &'static str) {
     match s {
-        Stat::Value(v) => (format!("{v}"), ""),
+        Stat::Value(v) => (number(v), ""),
         Stat::NotComputable(code) => (String::new(), <DescCode as Closed>::wire(code)),
     }
 }

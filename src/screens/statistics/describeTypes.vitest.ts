@@ -16,6 +16,7 @@ import startedJson from './fixtures/runStartedView.json';
 import stateJson from './fixtures/runStateView.json';
 import resultJson from './fixtures/resultBundleView.json';
 import exportJson from './fixtures/exportView.json';
+import cellWindowJson from './fixtures/cellWindow.json';
 import * as typed from './fixtures/describeFixtures';
 
 const PAIRS: Array<[string, unknown, unknown]> = [
@@ -161,5 +162,26 @@ describe('a prepared slot\'s view', () => {
     expect(Object.keys(datasetPreparedJson.preparation).sort()).toEqual([
       'capabilityVersion', 'engineVersion', 'recipeHash', 'sourceColumns', 'sourceHash',
     ]);
+  });
+});
+
+// Research OS, Phase 8Q, decision 459. Outside PAIRS, on the pattern above: PAIRS'
+// walk fails on a null, and a null is what a missing cell is.
+describe('a window of cells', () => {
+  it('the typed copy equals the JSON Rust serialises', () => {
+    expect(typed.cellWindow).toEqual(cellWindowJson);
+  });
+
+  it('every value is a string, and a missing cell the one null', () => {
+    const flat: Array<string | null> = cellWindowJson.cells.flat();
+    expect(flat.filter((c) => c === null)).toHaveLength(1);
+    expect(flat.filter((c) => typeof c === 'string')).toHaveLength(flat.length - 1);
+    expect(flat).toEqual(expect.arrayContaining(['41.25', 'inf', 'NaN', '-0', 'an answer']));
+    expect(flat.find((c) => c?.length === 301)).toBe(`1${'0'.repeat(300)}`);
+  });
+
+  it('says whose table it is, its whole size and where it starts', () => {
+    expect(Object.keys(cellWindowJson)).toEqual(['slot', 'inputHash', 'rows', 'columns', 'firstRow', 'firstColumn', 'cells']);
+    expect(cellWindowJson.inputHash).toBe(datasetJson.inputRef.contentHash);
   });
 });

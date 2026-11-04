@@ -26,6 +26,10 @@ export type FeatureName =
   // with 'statsDescribe' on too (statistics/statisticsRoute.tsx). Hides
   // unfinished UI; not an authorization boundary.
   | 'statsLayout'
+  // The Statistics window's timing counter (Phase 8Q, decision 462): a line in its
+  // footer, for the real-app check. Default OFF, and shown only with 'statsLayout'
+  // on too. Hides unfinished UI; not an authorization boundary.
+  | 'statsTiming'
   // The Research OS workspace chooser and shell (Phase 3). Default OFF. Hides
   // unfinished UI; not an authorization boundary (Rust checks the active
   // workspace on every stats_desc_* command whatever this says).
@@ -59,6 +63,7 @@ export const FEATURE_FLAGS: Record<FeatureName, boolean> = {
   statsL1: envBool(process.env.REACT_APP_FEATURE_STATS_L1),
   statsDescribe: envBool(process.env.REACT_APP_FEATURE_STATS_DESCRIBE),
   statsLayout: envBool(process.env.REACT_APP_FEATURE_STATS_LAYOUT),
+  statsTiming: envBool(process.env.REACT_APP_FEATURE_STATS_TIMING),
   workspaces: envBool(process.env.REACT_APP_FEATURE_WORKSPACES),
   projects: envBool(process.env.REACT_APP_FEATURE_PROJECTS),
   storedData: envBool(process.env.REACT_APP_FEATURE_STORED_DATA),

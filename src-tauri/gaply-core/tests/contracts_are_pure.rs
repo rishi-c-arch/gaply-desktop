@@ -132,7 +132,7 @@
 //! module, not after it: inside the crate `crate::contracts`, exactly
 //! `crate::research_project::is_invisible_format`, exactly
 //! `crate::stats_alpha::{reverse, outside_scale_count, row_total, ScaleEnds}`,
-//! `crate::stats_desc::{Alias}`, `crate::stats_desc::export::text`,
+//! `crate::stats_desc::{Alias}`, `crate::stats_desc::export::{number, text}`,
 //! `crate::stats_l1::dataset`, `crate::stats_ttest::{column,
 //! non_finite_cells}` and exactly `crate::stats_verify::mean`. Exactly the
 //! types listed below derive `Serialize`; one of them, `ScaleScoreStep`, holds
@@ -594,7 +594,7 @@ const PREP_ITEMS: &[(&str, &[&str])] = &[
         "crate::stats_alpha",
         &["reverse", "outside_scale_count", "row_total", "ScaleEnds"],
     ),
-    ("crate::stats_desc::export", &["text"]),
+    ("crate::stats_desc::export", &["number", "text"]),
     ("crate::stats_desc", &["Alias"]),
     ("crate::stats_ttest", &["column", "non_finite_cells"]),
     ("crate::stats_verify", &["mean"]),

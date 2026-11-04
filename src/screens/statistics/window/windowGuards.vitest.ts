@@ -37,12 +37,15 @@ const FORBIDDEN: Array<[string, RegExp]> = [
   ['a Supabase client', /supabase/i],
   ['an AI bridge', /\baiBridge\b|\baiReady\b|\/ai\/|statsL1Bridge|stats_assist|stats_ai\b/],
   ['markup from a string', /dangerouslySetInnerHTML/],
+  ['innerHTML', /\binnerHTML\b/],
+  ['outerHTML', /\bouterHTML\b/],
+  ['insertAdjacentHTML', /\binsertAdjacentHTML\b/],
 ];
 
 describe("the Statistics window's files", () => {
   it('are found: the scan is not inert', () => {
     const names = FILES.map((f) => path.basename(f));
-    for (const n of ['StatisticsWindow.tsx', 'statisticsSession.ts', 'useWindowFile.ts', 'VariableView.tsx', 'HelpDialog.tsx', 'windowMenus.ts', 'windowWording.ts', 'useWorkspaceSwitch.tsx']) {
+    for (const n of ['StatisticsWindow.tsx', 'statisticsSession.ts', 'useWindowFile.ts', 'VariableView.tsx', 'HelpDialog.tsx', 'windowMenus.ts', 'windowWording.ts', 'useWorkspaceSwitch.tsx', 'DataGrid.tsx', 'gridCells.ts', 'gridRange.ts', 'gridTiming.ts', 'TimingLine.tsx']) {
       expect(names, n).toContain(n);
     }
     for (const f of FILES) expect(code(fs.readFileSync(f, 'utf8')).length, f).toBeGreaterThan(100);

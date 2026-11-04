@@ -1,0 +1,143 @@
+/* Gaply — the Data View's grid (Research OS, Phase 8Q, decision 460). With a file
+   open, the tab's body does not scroll: the grid is the one scroller. */
+
+.gds-root .sw-body.sw-body--grid {
+  overflow: hidden;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.gds-root .sw-body.sw-body--grid > .sw-message {
+  margin: 0;
+  padding: 0 var(--g-space-2);
+}
+
+.gds-root .sw-grid-area {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto auto;
+}
+
+.gds-root .sw-grid {
+  position: relative;
+  min-height: 0;
+  overflow: auto;
+  font-size: var(--g-text-size-sm);
+  line-height: 24px;
+}
+.gds-root .sw-grid:focus {
+  outline: none;
+}
+.gds-root .sw-grid:focus .sw-grid__cell--active {
+  outline: 2px solid var(--g-accent);
+  outline-offset: -2px;
+}
+
+.gds-root .sw-grid__spacer {
+  position: relative;
+}
+
+.gds-root .sw-grid__headrow {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--g-bg-layer1);
+  border-bottom: 1px solid var(--g-border);
+}
+.gds-root .sw-grid__corner {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  height: 100%;
+  box-sizing: border-box;
+  padding: 0 var(--g-space-1);
+  background: var(--g-bg-layer1);
+  border-right: 1px solid var(--g-border);
+  color: var(--g-text-3);
+  line-height: 44px;
+  text-align: right;
+}
+.gds-root .sw-grid__head {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  box-sizing: border-box;
+  display: grid;
+  grid-template-rows: 1fr 1fr;
+  padding: 0 var(--g-space-1);
+  overflow: hidden;
+  border-right: 1px solid var(--g-border);
+  line-height: 22px;
+  white-space: nowrap;
+}
+.gds-root .sw-grid__head--prepared {
+  border-top: 2px solid var(--g-accent);
+}
+.gds-root .sw-grid__alias {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--g-text-3);
+}
+.gds-root .sw-grid__prepared {
+  color: var(--g-text-2);
+}
+.gds-root .sw-grid__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gds-root .sw-grid__row {
+  position: absolute;
+  left: 0;
+}
+.gds-root .sw-grid__rownum {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  height: 100%;
+  box-sizing: border-box;
+  padding: 0 var(--g-space-1);
+  background: var(--g-bg-layer1);
+  border-right: 1px solid var(--g-border);
+  border-bottom: 1px solid var(--g-border);
+  color: var(--g-text-3);
+  text-align: right;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.gds-root .sw-grid__cell {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  box-sizing: border-box;
+  padding: 0 var(--g-space-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-right: 1px solid var(--g-border);
+  border-bottom: 1px solid var(--g-border);
+  user-select: none;
+  -webkit-user-select: none;
+}
+.gds-root .sw-grid__cell--number {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.gds-root .sw-grid__error {
+  margin: 0;
+  padding: 2px var(--g-space-2);
+  font-size: var(--g-text-size-sm);
+}
+.gds-root .sw-grid__active {
+  margin: 0;
+  max-height: 72px;
+  padding: 2px var(--g-space-2);
+  overflow: auto;
+  overflow-wrap: anywhere;
+  border-top: 1px solid var(--g-border);
+  font-size: var(--g-text-size-sm);
+  user-select: text;
+  -webkit-user-select: text;
+}

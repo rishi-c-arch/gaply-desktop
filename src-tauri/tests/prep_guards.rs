@@ -25,6 +25,10 @@ const FORBIDDEN: &[&str] = &[
     "Recipe",
     "Preparation",
     "with_appended_columns",
+    // Phase 8Q (decision 463): a window of cells reaches none of these files.
+    "CellWindowView",
+    "CellWindow",
+    "cells_window",
 ];
 
 /// Each named: the stats_assist files, the Level 1 commands and the ingest both

@@ -149,6 +149,21 @@ export interface DatasetView {
   scoreCounts?: ScoreCounts[];
 }
 
+/** A window of a table's cells (Phase 8Q, decision 458), for the user's own
+ *  screen and nowhere else: whose table it is, its whole size, where the window
+ *  starts after clamping, and its rows. A cell is a string as Rust printed it,
+ *  or null for missing. */
+export interface CellWindowView {
+  slot: number;
+  /** The DatasetView's inputRef.contentHash; a make keeps the slot and changes this. */
+  inputHash: string;
+  rows: number;
+  columns: number;
+  firstRow: number;
+  firstColumn: number;
+  cells: Array<Array<string | null>>;
+}
+
 /** What made a prepared input: hashes and numbers, never a name. */
 export interface Preparation {
   sourceHash: string;

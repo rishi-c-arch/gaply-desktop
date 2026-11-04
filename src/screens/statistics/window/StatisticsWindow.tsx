@@ -25,15 +25,17 @@ import { readMethodLimits } from '../statsInvoke';
 import { capabilityBridge, type CapabilityBridge } from '../ttestBridge';
 import type { CapabilityView } from '../ttestTypes';
 import './StatisticsWindow.css';
+import { DataGrid } from './DataGrid';
+import { GridTiming, timingShown } from './gridTiming';
 import { HelpDialog } from './HelpDialog';
 import { statisticsSession, useStatisticsSession } from './statisticsSession';
+import { TimingLine } from './TimingLine';
 import { useWindowFile } from './useWindowFile';
 import { VariableView } from './VariableView';
 import { openBlocked, windowMenus, type HelpTopic } from './windowMenus';
 import {
   AS_READ_LINE,
   FOOTER_PHRASES,
-  GRID_LATER,
   MENU_WORDS,
   NO_PROJECT_LINE,
   OPEN_BUTTON,
@@ -54,6 +56,8 @@ export interface StatisticsWindowProps {
   workspace?: WorkspaceBridge;
   /** Opens and closes the session's file. */
   files?: Pick<DescribeBridge, 'open' | 'close'>;
+  /** Reads the grid's windows of cells; describeBridge's by default. */
+  cells?: Pick<DescribeBridge, 'cells'>;
   capabilities?: CapabilityBridge;
   projects?: ProjectBridge;
   /** Reads and cancels a run that blocks a switch, each through its kind's. */
@@ -105,6 +109,7 @@ const defaultPick = () => pickManuscriptPath(DATA_EXTENSIONS, 'Data file');
 export const StatisticsWindow: React.FC<StatisticsWindowProps> = ({
   workspace: givenWorkspace,
   files: givenFiles,
+  cells,
   capabilities: givenCapabilities,
   projects: givenProjects,
   runs: givenRuns,
@@ -118,6 +123,7 @@ export const StatisticsWindow: React.FC<StatisticsWindowProps> = ({
   const capabilities = useMemo(() => givenCapabilities ?? capabilityBridge(), [givenCapabilities]);
   const projects = useMemo(() => givenProjects ?? projectBridge(), [givenProjects]);
   const runs = useMemo(() => defaultRunBridges(givenRuns), [givenRuns]);
+  const timing = useMemo(() => (timingShown() ? new GridTiming() : undefined), []);
   const session = useStatisticsSession();
   const { view } = session;
   const [message, setMessage] = useState<string | null>(null);
@@ -202,10 +208,10 @@ export const StatisticsWindow: React.FC<StatisticsWindowProps> = ({
 
   const openWhy = openBlocked({ runGoing, busy: session.busy });
 
-  const body = (content: React.ReactNode) => (
+  const body = (content: React.ReactNode, grid = false) => (
     <>
       <AboveTheGrid view={view} />
-      <div className="sw-body" data-testid="sw-body" tabIndex={0}>
+      <div className={grid ? 'sw-body sw-body--grid' : 'sw-body'} data-testid="sw-body" tabIndex={grid ? undefined : 0}>
         <p className="sw-message" role="status" aria-live="polite" data-testid="sw-message">
           {message ?? ''}
         </p>
@@ -226,7 +232,7 @@ export const StatisticsWindow: React.FC<StatisticsWindowProps> = ({
   );
 
   const dataTab = view ? (
-    <p data-testid="sw-grid-later">{GRID_LATER}</p>
+    <DataGrid view={view} cells={cells} timing={timing} />
   ) : (
     <section data-testid="sw-data-empty" style={{ display: 'grid', gap: 8, justifyItems: 'start' }}>
       <Button data-testid="sw-open" onClick={() => void choose()} disabled={openWhy !== undefined}>
@@ -247,7 +253,7 @@ export const StatisticsWindow: React.FC<StatisticsWindowProps> = ({
       <main className="sw-main">
         <Tabs
           tabs={[
-            { id: 'data', label: TABS.data, content: body(dataTab) },
+            { id: 'data', label: TABS.data, content: body(dataTab, view !== null) },
             { id: 'variable', label: TABS.variable, content: body(view ? <VariableView view={view} /> : <p data-testid="sw-variable-empty">{VARIABLE_EMPTY}</p>) },
             { id: 'output', label: TABS.output(session.output.length), content: body(<p data-testid="sw-output-empty">{OUTPUT_EMPTY}</p>) },
           ]}
@@ -257,6 +263,7 @@ export const StatisticsWindow: React.FC<StatisticsWindowProps> = ({
         {FOOTER_PHRASES.map((p) => (
           <span key={p}>{p}</span>
         ))}
+        {timing && <TimingLine timing={timing} />}
       </footer>
       {help && <HelpDialog topic={help} capabilities={list} unread={listUnread} limits={limits} onClose={() => setHelp(null)} />}
       {switchDialog}

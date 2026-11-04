@@ -75,6 +75,7 @@ use gaply_core::contracts::{
     RunManifest, RunState, ValidationStatus,
 };
 use gaply_core::stats_adapters;
+use gaply_core::stats_desc::cells::cells_window;
 use gaply_core::stats_desc::export::{manifest_json, result_csv};
 use gaply_core::stats_desc::{
     self, ColumnProfile, ColumnResult, DatasetProfile, DescCode, DescribeParams,
@@ -126,6 +127,25 @@ pub struct DatasetView {
     /// Absent on a file's own table.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub score_counts: Vec<ScoreCounts>,
+}
+
+/// A window of a table's cells, for the user's own screen and nowhere else
+/// (Research OS, Phase 8Q, decision 458; ADR-012 Part 3): whose table this is, the
+/// table's whole size, where the window starts after clamping, and its rows. A
+/// cell is a string, as Rust printed it, or `null` for missing. `input_hash` is
+/// the `DatasetView`'s `inputRef.contentHash`: a make keeps the slot's number and
+/// changes this, so a screen can drop a window that arrives late. It has no
+/// `Debug`, and it is the only view but `DatasetView`'s level labels to hold cells.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CellWindowView {
+    pub slot: u64,
+    pub input_hash: ContentHash,
+    pub rows: u64,
+    pub columns: u64,
+    pub first_row: u64,
+    pub first_column: u64,
+    pub cells: Vec<Vec<Option<String>>>,
 }
 
 /// The profile, for the user's own screen, each column with what the core's
@@ -437,6 +457,46 @@ pub fn close(slots: &DatasetSlots, slot: u64) -> bool {
     slots.close(slot)
 }
 
+/// A window of `slot`'s cells: what [`stats_desc_cells`] runs, and what the tests
+/// and the release probe drive (decision 459). It starts no run, needs no
+/// capability, writes nothing and keeps nothing, and it logs counts only.
+pub fn cells(
+    slots: &DatasetSlots,
+    slot: u64,
+    first_row: u64,
+    row_count: u64,
+    first_column: u64,
+    column_count: u64,
+) -> Result<CellWindowView, GaplyError> {
+    let held = slots.get(slot).map_err(refuse_run)?;
+    let dataset = held.dataset();
+    let at_most = |n: u64| usize::try_from(n).unwrap_or(usize::MAX);
+    let window = cells_window(
+        dataset,
+        at_most(first_row),
+        at_most(row_count),
+        at_most(first_column),
+        at_most(column_count),
+    );
+    let rows = window.cells.len();
+    let columns = window.cells.first().map_or(0, Vec::len);
+    tracing::debug!(
+        rows,
+        columns,
+        cells = rows * columns,
+        "stats_desc: window read"
+    );
+    Ok(CellWindowView {
+        slot,
+        input_hash: stats_desc::input_ref(dataset).content_hash,
+        rows: window.rows as u64,
+        columns: window.columns as u64,
+        first_row: window.first_row as u64,
+        first_column: window.first_column as u64,
+        cells: window.cells,
+    })
+}
+
 /// The view of a tier's limits (decision 284). Pure, so each tier's wire
 /// fixture is built from an injected reading.
 pub fn limits_view(reading: MemoryReading) -> MethodLimitsView {
@@ -625,4 +685,32 @@ pub async fn stats_desc_close(state: St<'_>, slot: u64) -> Result<bool, GaplyErr
         .require_statistics()
         .map_err(refuse_workspace)?;
     Ok(close(&engine.datasets, slot))
+}
+
+/// A window of cells for the Data View (decision 459; ADR-012 Part 3).
+#[tauri::command]
+#[tracing::instrument(skip_all)]
+pub async fn stats_desc_cells(
+    state: St<'_>,
+    slot: u64,
+    first_row: u64,
+    row_count: u64,
+    first_column: u64,
+    column_count: u64,
+) -> Result<CellWindowView, GaplyError> {
+    let engine = state
+        .workspace
+        .require_statistics()
+        .map_err(refuse_workspace)?;
+    blocking(move || {
+        cells(
+            &engine.datasets,
+            slot,
+            first_row,
+            row_count,
+            first_column,
+            column_count,
+        )
+    })
+    .await
 }

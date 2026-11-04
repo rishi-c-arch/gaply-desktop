@@ -485,6 +485,41 @@ fn no_recipe_type_reaches_an_outbound_struct_or_a_transport() {
     assert!(found.is_empty(), "ADR-011 Part 11:\n{}", found.join("\n"));
 }
 
+/// Phase 8Q (decision 463, ADR-012 Part 10): a window of cells is for the user's own
+/// screen, so it reaches no outbound struct or transport, now and without condition:
+/// no AI task reads a cell.
+#[test]
+fn no_cell_window_type_reaches_an_outbound_struct_or_a_transport() {
+    let forbidden: Vec<String> = ["CellWindowView", "CellWindow", "cells_window"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let root = Path::new(ROOT);
+    let mut files = Vec::new();
+    for o in OUTBOUND {
+        rust_files(&root.join(o), &mut files);
+    }
+    assert!(
+        files.len() >= 15,
+        "{} outbound files — the scan would pass vacuously",
+        files.len()
+    );
+    let mut found = Vec::new();
+    for f in &files {
+        let rel = f
+            .strip_prefix(root)
+            .unwrap()
+            .to_string_lossy()
+            .replace('\\', "/");
+        found.extend(mentions(
+            &rel,
+            &std::fs::read_to_string(f).unwrap(),
+            &forbidden,
+        ));
+    }
+    assert!(found.is_empty(), "ADR-012 Part 10:\n{}", found.join("\n"));
+}
+
 #[test]
 fn no_project_type_reaches_an_outbound_struct_a_transport_or_supabase() {
     let mut types = model_items();

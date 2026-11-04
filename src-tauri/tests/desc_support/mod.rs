@@ -247,6 +247,7 @@ pub fn app_with(
             desc::stats_desc_cancel,
             desc::stats_desc_export,
             desc::stats_desc_close,
+            desc::stats_desc_cells,
             // Research OS, Phase 8F-1 (decision 284).
             desc::stats_desc_limits,
             desc::stats_desc_open_progress,

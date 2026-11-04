@@ -80,6 +80,10 @@ interface Over {
 function setUp(o: Over = {}, entries: string[] = ['/w']) {
   const workspace = makeMockWorkspaceBridge({ workspace_state: o.state ?? ACTIVE, workspace_deactivate: o.deactivate ?? NONE });
   const files = makeMockDescribeBridge({ stats_desc_open: fileView(1), stats_desc_close: true, ...o.files });
+  // Decision 460: the grid's reads are its own, so files' recorded calls do not change.
+  const cells = makeMockDescribeBridge({
+    stats_desc_cells: (a: Record<string, unknown>) => ({ slot: a.slot, inputHash: 'ab'.repeat(32), rows: 250, columns: 1, firstRow: a.firstRow, firstColumn: a.firstColumn, cells: [] }),
+  });
   const capabilities = makeMockCapabilityBridge({ capability_list: o.capabilities ?? ALL });
   const projects = makeMockProjectBridge(o.projects ?? { [C.current]: { projectId: null, rerun: null }, [C.list]: [] });
   const pick = o.pick ?? (() => Promise.resolve('/x/survey.csv'));
@@ -91,7 +95,7 @@ function setUp(o: Over = {}, entries: string[] = ['/w']) {
   const ui = (
     <MemoryRouter initialEntries={entries}>
       <Routes>
-        <Route path="/w" element={<StatisticsWindow workspace={workspace} files={files} capabilities={capabilities} projects={projects} pickPath={pick} limits={limits} pollMs={15} />} />
+        <Route path="/w" element={<StatisticsWindow workspace={workspace} files={files} cells={cells} capabilities={capabilities} projects={projects} pickPath={pick} limits={limits} pollMs={15} />} />
         <Route path="/app" element={<div data-testid="home-here"><Nav /></div>} />
         <Route path="/app/settings" element={<div data-testid="settings-here" />} />
         <Route path="/app/statsverifier" element={<div data-testid="verifier-here" />} />
@@ -170,13 +174,14 @@ describe('the tabs, until the grid and the Output come', () => {
     const empty = await screen.findByTestId('sw-data-empty');
     expect(within(empty).getByRole('button', { name: 'Open a data file' })).toBeTruthy();
     await waitFor(() => expect(within(empty).getByTestId('sw-limits').textContent).toBe(limitsSentence(limits8 as MethodLimitsView)));
-    expect(screen.queryByTestId('sw-grid-later')).toBeNull();
+    expect(screen.queryByTestId('sw-grid')).toBeNull();
   });
 
-  it('Data View with a file: the sentence in the grid\'s place', async () => {
+  it('Data View with a file: the grid, in place of the sentence that held its place', async () => {
     setUp();
     await opened();
-    expect(screen.getByTestId('sw-grid-later').textContent).toBe('The grid comes in the next step of the build.');
+    expect(screen.getByRole('grid').getAttribute('aria-readonly')).toBe('true');
+    expect(screen.queryByText('The grid comes in the next step of the build.')).toBeNull();
     expect(screen.queryByTestId('sw-data-empty')).toBeNull();
   });
 
@@ -470,5 +475,130 @@ describe('the picker\'s list of extensions', () => {
     const list = JSON.parse((m as RegExpMatchArray)[1].replace(/'/g, '"'));
     expect(list.length).toBeGreaterThan(0);
     expect([...DATA_EXTENSIONS]).toEqual(list);
+  });
+});
+
+// Research OS, Phase 8Q (decision 460): the grid follows the session's view, and
+// the cache belongs to it.
+describe('the grid and the session', () => {
+  const hashed = (slot: number, hash: string): DatasetView => ({ ...fileView(slot), inputRef: { ...fileView(slot).inputRef, contentHash: hash } });
+  const box = () => {
+    Object.defineProperty(HTMLElement.prototype, 'clientHeight', { configurable: true, get: () => 560 });
+    Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, get: () => 1000 });
+  };
+  afterEach(() => {
+    delete (HTMLElement.prototype as unknown as Record<string, unknown>).clientHeight;
+    delete (HTMLElement.prototype as unknown as Record<string, unknown>).clientWidth;
+  });
+
+  function withCells(answer: (a: Record<string, unknown>) => unknown) {
+    box();
+    const cells = makeMockDescribeBridge({ stats_desc_cells: answer });
+    render(
+      <MemoryRouter initialEntries={['/w']}>
+        <Routes>
+          <Route
+            path="/w"
+            element={
+              <StatisticsWindow
+                workspace={makeMockWorkspaceBridge({ workspace_state: ACTIVE, workspace_deactivate: NONE })}
+                files={makeMockDescribeBridge({ stats_desc_close: true })}
+                cells={cells}
+                capabilities={makeMockCapabilityBridge({ capability_list: ALL })}
+                projects={makeMockProjectBridge({ [C.current]: { projectId: null, rerun: null }, [C.list]: [] })}
+                pickPath={() => Promise.resolve(null)}
+                limits={() => Promise.resolve(limits8)}
+                pollMs={1000}
+              />
+            }
+          />
+        </Routes>
+      </MemoryRouter>
+    );
+    return cells;
+  }
+  const answer = (hash: string, value: string) => (a: Record<string, unknown>) => ({
+    slot: a.slot,
+    inputHash: hash,
+    rows: 250,
+    columns: 1,
+    firstRow: a.firstRow,
+    firstColumn: a.firstColumn,
+    cells: Array.from({ length: Math.min(a.rowCount as number, 250 - (a.firstRow as number)) }, () => [value]),
+  });
+
+  it('a make: setFile with the same slot and a new inputHash empties the cache, and the grid reads again', async () => {
+    let value = 'BEFORE';
+    let hash = 'ab'.repeat(32);
+    const cells = withCells((a) => answer(hash, value)(a));
+    act(() => statisticsSession.setFile(hashed(1, hash)));
+    await waitFor(() => expect(screen.getByTestId('sw-cell-0-0').textContent).toBe('BEFORE'));
+    const asked = cells.calls.length;
+    value = 'AFTER';
+    hash = 'cd'.repeat(32);
+    act(() => statisticsSession.setFile(hashed(1, hash)));
+    expect(screen.getByTestId('sw-cell-0-0').textContent).not.toBe('BEFORE');
+    await waitFor(() => expect(screen.getByTestId('sw-cell-0-0').textContent).toBe('AFTER'));
+    expect(cells.calls.length).toBeGreaterThan(asked);
+  });
+
+  it.each([
+    ['a close', () => statisticsSession.clearFile()],
+    ['a clear', () => statisticsSession.clear()],
+    ['a slot gone', () => statisticsSession.slotGone()],
+  ])('%s: the grid goes, and the next file starts empty', async (_what, change) => {
+    const hash = 'ab'.repeat(32);
+    const cells = withCells((a) => answer(hash, 'FIRST')(a));
+    act(() => statisticsSession.setFile(hashed(1, hash)));
+    await waitFor(() => expect(screen.getByTestId('sw-cell-0-0').textContent).toBe('FIRST'));
+    act(() => change());
+    expect(screen.queryByTestId('sw-grid')).toBeNull();
+    expect(document.body.textContent).not.toContain('FIRST');
+    const asked = cells.calls.length;
+    act(() => statisticsSession.setFile(hashed(1, hash)));
+    expect(screen.getByTestId('sw-cell-0-0').textContent).toBe('');
+    await waitFor(() => expect(cells.calls.length).toBeGreaterThan(asked));
+  });
+
+  it('an open: a new slot starts empty, and a window answered for the old one is not drawn', async () => {
+    const cells = withCells((a) => answer(a.slot === 1 ? 'ab'.repeat(32) : 'cd'.repeat(32), a.slot === 1 ? 'ONE' : 'TWO')(a));
+    act(() => statisticsSession.setFile(hashed(1, 'ab'.repeat(32))));
+    await waitFor(() => expect(screen.getByTestId('sw-cell-0-0').textContent).toBe('ONE'));
+    act(() => statisticsSession.setFile(hashed(2, 'cd'.repeat(32))));
+    expect(screen.getByTestId('sw-cell-0-0').textContent).toBe('');
+    await waitFor(() => expect(screen.getByTestId('sw-cell-0-0').textContent).toBe('TWO'));
+    expect(cells.calls.some(([, a]) => a.slot === 2)).toBe(true);
+  });
+
+  it('a slot gone found by a window: the file goes, and the sentence shows', async () => {
+    withCells(() => Promise.reject('{"code":"run.unknown_input"}'));
+    act(() => statisticsSession.setFile(hashed(1, 'ab'.repeat(32))));
+    await waitFor(() => expect(screen.getByTestId('sw-notice').textContent).toBe('This file is no longer held in memory. Open it again.'));
+    expect(screen.queryByTestId('sw-grid')).toBeNull();
+    expect(screen.getByTestId('sw-data-empty')).toBeTruthy();
+  });
+
+  it('the body does not scroll around the grid, and scrolls again with no file', async () => {
+    withCells((a) => answer('ab'.repeat(32), 'x')(a));
+    expect(screen.getByTestId('sw-body').className).toBe('sw-body');
+    expect(screen.getByTestId('sw-body').getAttribute('tabindex')).toBe('0');
+    act(() => statisticsSession.setFile(hashed(1, 'ab'.repeat(32))));
+    await screen.findByTestId('sw-grid');
+    expect(screen.getByTestId('sw-body').className).toBe('sw-body sw-body--grid');
+    expect(screen.getByTestId('sw-body').getAttribute('tabindex')).toBeNull();
+  });
+
+  it('the Data View\'s reads go through the grid\'s prop, never the files bridge', async () => {
+    const { files } = setUp();
+    box();
+    await opened();
+    await act(async () => undefined);
+    expect(files.calls.map(([c]) => c)).not.toContain('stats_desc_cells');
+  });
+
+  it('the counter is not there with statsTiming off', async () => {
+    setUp();
+    await opened();
+    expect(screen.queryByTestId('sw-timing')).toBeNull();
   });
 });

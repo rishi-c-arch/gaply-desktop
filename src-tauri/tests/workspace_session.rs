@@ -138,6 +138,15 @@ fn every_desc_call(w: &World, path: &str) -> Vec<(&'static str, Result<Value, Va
             "stats_desc_close",
             call(&w.w, "stats_desc_close", json!({ "slot": 1 })),
         ),
+        // Research OS, Phase 8Q (decision 459).
+        (
+            "stats_desc_cells",
+            call(
+                &w.w,
+                "stats_desc_cells",
+                json!({ "slot": 1, "firstRow": 0, "rowCount": 1, "firstColumn": 0, "columnCount": 1 }),
+            ),
+        ),
         // Research OS, Phase 8F-1 (decision 284).
         (
             "stats_desc_limits",
@@ -151,7 +160,7 @@ fn every_desc_call(w: &World, path: &str) -> Vec<(&'static str, Result<Value, Va
 }
 
 fn assert_all_inactive(calls: Vec<(&str, Result<Value, Value>)>, phase: &str) {
-    assert_eq!(calls.len(), 10, "every stats_desc_* command");
+    assert_eq!(calls.len(), 11, "every stats_desc_* command");
     for (name, r) in calls {
         let e = r.expect_err(name);
         let c = refusal(&e);

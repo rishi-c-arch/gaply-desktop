@@ -5,6 +5,7 @@
 // for byte (src-tauri/tests/stats_desc_wire.rs). The screen's tests reuse
 // them as the bridge's answers.
 import type {
+  CellWindowView,
   DatasetView,
   Diagnostic,
   ExportView,
@@ -186,3 +187,18 @@ export const datasetViewPrepared = {
     },
   ],
 } satisfies DatasetView;
+
+// Research OS, Phase 8Q, decision 459: every value a cell can print, and a
+// missing cell, the one null.
+export const cellWindow = {
+  slot: 3,
+  inputHash: INPUT,
+  rows: 250,
+  columns: 11,
+  firstRow: 40,
+  firstColumn: 2,
+  cells: [
+    ['41.25', 'inf', 'NaN', '-0'],
+    [`1${'0'.repeat(300)}`, 'an answer', null, '12'],
+  ],
+} satisfies CellWindowView;

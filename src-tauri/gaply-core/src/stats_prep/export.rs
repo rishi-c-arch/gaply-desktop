@@ -16,7 +16,7 @@
 //! empty field, whatever made it missing.
 
 use super::Prepared;
-use crate::stats_desc::export::text;
+use crate::stats_desc::export::{number, text};
 use crate::stats_l1::dataset::Cell;
 
 /// The prepared table as CSV bytes (UTF-8, no byte-order mark).
@@ -41,7 +41,7 @@ pub fn prepared_csv(prepared: &Prepared) -> Vec<u8> {
         for (i, column) in cells.iter().enumerate() {
             match &column[r] {
                 Cell::Missing => {}
-                Cell::Number(v) => out.push_str(&format!("{v}")),
+                Cell::Number(v) => out.push_str(&number(*v)),
                 Cell::Text(t) => out.push_str(&text(t)),
             }
             if i != last {

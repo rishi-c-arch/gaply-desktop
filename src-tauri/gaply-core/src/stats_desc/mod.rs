@@ -47,6 +47,7 @@
 //! they derive `Serialize` for that and nothing else, and their `Debug`
 //! prints counts only. The manifest holds hashes and counts.
 
+pub mod cells;
 pub mod export;
 
 use std::collections::BTreeMap;

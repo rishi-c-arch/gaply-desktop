@@ -98,11 +98,11 @@ describe('How Gaply reads a file', () => {
 });
 
 describe('Keyboard', () => {
-  it("names the menu's keys, and no grid's yet", () => {
+  it("names the menu's keys and the grid's", () => {
     render(<HelpDialog topic="keyboard" capabilities={null} unread={false} limits={null} onClose={noop} />);
     const t = screen.getByTestId('sw-help-keyboard').textContent as string;
     for (const k of ['Tab', 'Left', 'Right', 'Up', 'Down', 'Enter', 'Escape', 'letter']) expect(t, k).toContain(k);
-    expect(t).not.toMatch(/grid|Page Up|Home and End/);
+    for (const k of ['grid', 'arrow keys', 'Page Up', 'Page Down', 'Home and End', 'Cmd or Ctrl']) expect(t, k).toContain(k);
   });
 });
 

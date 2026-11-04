@@ -18,7 +18,8 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use app_lib::stats_desc_commands::{
-    DatasetView, ExportView, ResultBundleView, RunStartedView, RunStateView, ValidationReportView,
+    CellWindowView, DatasetView, ExportView, ResultBundleView, RunStartedView, RunStateView,
+    ValidationReportView,
 };
 use gaply_core::contracts::codes::{Closed, RunCode};
 use gaply_core::contracts::{
@@ -206,6 +207,34 @@ fn each_view_serialises_to_exactly_its_fixtures_bytes() {
     let bytes = b"\"a\"\r\n".to_vec();
     let sha256 = ContentHash::of_bytes(&bytes).as_hex().to_string();
     assert_bytes("exportView.json", &ExportView { bytes, sha256 });
+    // Research OS, Phase 8Q (decision 459): every value a cell can print, each a
+    // string, and a missing cell, which is the one null. The printed forms are
+    // Rust's own, so a change to them fails here.
+    assert_bytes(
+        "cellWindow.json",
+        &CellWindowView {
+            slot: 3,
+            input_hash: hash(INPUT),
+            rows: 250,
+            columns: 11,
+            first_row: 40,
+            first_column: 2,
+            cells: vec![
+                vec![
+                    Some(format!("{}", 41.25_f64)),
+                    Some(format!("{}", f64::INFINITY)),
+                    Some(format!("{}", f64::NAN)),
+                    Some(format!("{}", -0.0_f64)),
+                ],
+                vec![
+                    Some(format!("{}", 1e300_f64)),
+                    Some("an answer".to_string()),
+                    None,
+                    Some("12".to_string()),
+                ],
+            ],
+        },
+    );
 }
 
 /// Evaluation of Phases 2 and 3, F11: the screen words the run ceiling from

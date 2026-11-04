@@ -6,6 +6,7 @@
 import { isTauri } from '../../utils/isTauri';
 import { openWithProgress } from './statsInvoke';
 import type {
+  CellWindowView,
   DatasetView,
   ExportFormat,
   ExportView,
@@ -29,6 +30,9 @@ export interface DescribeBridge {
   cancel(runId: number): Promise<RunStateView>;
   export(runId: number, format: ExportFormat): Promise<ExportView>;
   close(slot: number): Promise<boolean>;
+  /** A window of the slot's cells, for the Data View (Phase 8Q, decision 459).
+   *  Clamped and never refused for its size; each value a string, null for missing. */
+  cells(slot: number, firstRow: number, rowCount: number, firstColumn: number, columnCount: number): Promise<CellWindowView>;
 }
 
 export class TauriDescribeBridge implements DescribeBridge {
@@ -64,6 +68,9 @@ export class TauriDescribeBridge implements DescribeBridge {
   close(slot: number) {
     return this.invoke<boolean>('stats_desc_close', { slot });
   }
+  cells(slot: number, firstRow: number, rowCount: number, firstColumn: number, columnCount: number) {
+    return this.invoke<CellWindowView>('stats_desc_cells', { slot, firstRow, rowCount, firstColumn, columnCount });
+  }
 }
 
 /** A canned response, or a function of the call's arguments (a sequence of
@@ -96,6 +103,7 @@ export function makeMockDescribeBridge(
     cancel: (runId) => call('stats_desc_cancel', { runId }),
     export: (runId, format) => call('stats_desc_export', { runId, format }),
     close: (slot) => call('stats_desc_close', { slot }),
+    cells: (slot, firstRow, rowCount, firstColumn, columnCount) => call('stats_desc_cells', { slot, firstRow, rowCount, firstColumn, columnCount }),
   };
 }
 

@@ -31,7 +31,25 @@ export const TABS = {
 };
 
 export const OPEN_BUTTON = 'Open a data file';
-export const GRID_LATER = 'The grid comes in the next step of the build.';
+/** The Data View's grid (decisions 460 and 461; 462 for the counter). */
+export const GRID_LABEL = 'The data, as Gaply read it';
+export const ROW_HEAD = 'Row';
+export const PREPARED_WORD = 'prepared';
+export const CELL_EMPTY = 'empty';
+export const ACTIVE_WAITING = 'Reading this cell.';
+export const GRID_UNREADABLE = 'This part of the file could not be read. Scroll away and back to try again.';
+
+/** The active cell's place, from its row counted from 0. */
+export function activeCellLabel(row: number, alias: string): string {
+  return `Row ${row + 1}, ${alias}`;
+}
+
+/** The timing counter's line: three figures in ms, each named. */
+export function timingSentence(f: { windowMs: number | null; paintMs: number | null; frameP95: number | null }): string {
+  const ms = (v: number | null) => (v === null ? 'not read' : `${v.toFixed(1)} ms`);
+  return `Window: ${ms(f.windowMs)}. First paint: ${ms(f.paintMs)}. Frames, 95th percentile: ${ms(f.frameP95)}.`;
+}
+
 export const VARIABLE_EMPTY = 'Open a data file first.';
 export const OUTPUT_EMPTY = 'No output yet. Run an analysis from the Analyze menu; each result is added here, newest last.';
 
@@ -95,4 +113,9 @@ export const KEYBOARD_LINES = [
   'Up and Down move between its items, and Enter chooses one.',
   'Escape closes the menu and returns to the bar.',
   'A letter jumps to the next item that starts with it.',
+  'Tab enters the grid at the active cell, and Tab again leaves it.',
+  'The arrow keys move the active cell one cell.',
+  'Page Up and Page Down move it one screen.',
+  'Home and End move it to the start and the end of its row.',
+  'Cmd or Ctrl with Home and End moves it to the first and the last cell of the file.',
 ];
