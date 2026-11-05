@@ -273,3 +273,35 @@ describe('the Save dialog', () => {
     expect(bridge.calls).toEqual([]);
   });
 });
+
+describe('onSaved (Phase 8R, decision 471)', () => {
+  it('is called once with the project, after the Save, and not on a refusal or a cancel', async () => {
+    const onSaved = vi.fn();
+    const bridge = makeMockProjectBridge({ project_save_run: { projectId: ID, storedRunId: 1, created: true }, project_current: { projectId: null }, project_list: [] });
+    render(<SaveToProject runId={5} bridge={bridge} desktop onSaved={onSaved} />);
+    fireEvent.click(screen.getByTestId('project-save-button'));
+    fireEvent.click(screen.getByTestId('project-save-cancel'));
+    expect(onSaved).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId('project-save-button'));
+    fireEvent.change(screen.getByTestId('project-save-name'), { target: { value: 'Chapter 3' } });
+    fireEvent.click(screen.getByTestId('project-save-confirm'));
+    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+    expect(onSaved).toHaveBeenCalledWith(ID);
+    expect(screen.getByTestId('project-save-saved-name').textContent).toBe('Chapter 3');
+    expect(openProjectStore.get()).toEqual({ projectId: ID, name: 'Chapter 3' });
+  });
+
+  it('a refused Save does not call it', async () => {
+    const onSaved = vi.fn();
+    const refuse = () => {
+      throw new Error(JSON.stringify({ code: 'project.data_unavailable' }));
+    };
+    const bridge = makeMockProjectBridge({ project_save_run: refuse, project_current: { projectId: null }, project_list: [] });
+    render(<SaveToProject runId={5} bridge={bridge} desktop onSaved={onSaved} />);
+    fireEvent.click(screen.getByTestId('project-save-button'));
+    fireEvent.change(screen.getByTestId('project-save-name'), { target: { value: 'Chapter 3' } });
+    fireEvent.click(screen.getByTestId('project-save-confirm'));
+    await screen.findByTestId('project-save-refusal');
+    expect(onSaved).not.toHaveBeenCalled();
+  });
+});

@@ -6,8 +6,8 @@
 // once (to open), the slot, the run id and the user's choices, and shows what
 // comes back.
 //
-// The choices, none made for the user: the numeric columns as items (none
-// ticked, at least two; "Tick every numeric column" and "Untick all" are
+// The choices, none made for the user, in AlphaSettings.tsx (decision 470): the numeric columns as items (none
+// ticked, at least two; "Add every numeric column" and "Remove all" are
 // actions the user takes), a Reverse-score box beside each ticked item (none
 // ticked; unticking an item unticks it), the scale's lowest and highest
 // values when an item is reverse-scored (two empty fields, never filled in
@@ -42,6 +42,7 @@ import { CELL_PADDING } from '../../design-system/primitives';
 import { pickManuscriptPath } from '../common/pickFile';
 import { saveTextFile } from '../../utils/saveTextFile';
 import { alphaBridge, type AlphaBridge } from './alphaBridge';
+import { AlphaSettings, alphaNames, buildAlphaSpec, useAlphaSettings } from './AlphaSettings';
 import { SaveToProject } from './projects/SaveToProject';
 import {
   DiagnosticList,
@@ -68,7 +69,7 @@ import {
 } from './flowHooks';
 import { readMethodLimits } from './statsInvoke';
 import type { DatasetView, ExportFormat } from './describeTypes';
-import type { AlphaResultView, AlphaRunStateView, AlphaSpec, AlphaValidationView, ScaleEnds } from './alphaTypes';
+import type { AlphaResultView, AlphaRunStateView, AlphaValidationView } from './alphaTypes';
 import { Stage, STATUS_SENTENCES } from './describeWording';
 import {
   ALPHA_DIGITS_NOTE,
@@ -78,18 +79,10 @@ import {
   ALPHA_ROWS_USED_NOTE,
   ALPHA_STAGE_HEADINGS,
   alphaIntervalText,
-  alphaMissingCodeQuestion,
   alphaRefusalSentence,
   alphaRunEndedSentence,
   alphaSentence,
   alphaStatText,
-  HIGHEST_LABEL,
-  ITEMS_QUESTION,
-  LOWEST_LABEL,
-  REVERSE_LABEL,
-  REVERSE_SENTENCE,
-  scaleEnd,
-  settingsMissingSentence,
   stepsSentence,
   type AlphaNames,
 } from './alphaWording';
@@ -108,57 +101,10 @@ export interface AlphaFlowProps {
   limits?: () => Promise<unknown>;
 }
 
+// So alphaTypes.vitest.ts's import holds (decision 470).
+export { buildAlphaSpec };
+
 const aliasNumber = (alias: string) => Number(alias.replace(/^C/, ''));
-
-const numeric = (view: DatasetView) => view.profile.columns.filter((c) => c.kind === 'numeric');
-
-/** A scale field's own visible box. The app's global Tailwind preflight sets
- *  `border: 0` and `padding: 0` on every input, and nothing in the design
- *  system restores a text input's, so without this the field is an invisible
- *  box on the dark panel (real-app check, Step 10). Inline, where no
- *  stylesheet can remove it. */
-const SCALE_FIELD_STYLE: React.CSSProperties = {
-  borderWidth: 1,
-  borderStyle: 'solid',
-  borderColor: 'var(--g-border-strong)',
-  borderRadius: 'var(--g-radius-button)',
-  background: 'var(--g-bg-layer2)',
-  color: 'var(--g-text)',
-  padding: '4px 8px',
-  width: '8em',
-};
-
-/** Decision 338: the items and the reversed items in the file's column order,
- *  the reversed items always among the items, the codes ascending and once
- *  each, and the scale only when an item is reverse-scored. */
-export function buildAlphaSpec(
-  view: DatasetView,
-  items: string[],
-  reversed: string[],
-  scale: ScaleEnds | null,
-  missingCodes: number[],
-  operationId: number
-): AlphaSpec {
-  const codes = missingCodes.filter((c, i) => missingCodes.indexOf(c) === i).sort((a, b) => a - b);
-  const inOrder = view.profile.columns.map((c) => c.alias).filter((a) => items.includes(a));
-  const reverse = inOrder.filter((a) => reversed.includes(a));
-  return {
-    schemaVersion: 1,
-    operationId,
-    workspaceId: 'statistics',
-    capabilityId: 'stats.analyze.cronbach_alpha',
-    capabilityVersion: 1,
-    inputs: [view.inputRef],
-    parameters: {
-      items: inOrder,
-      reversed: reverse,
-      scale: reverse.length > 0 ? scale : null,
-      missingCodes: codes,
-    },
-    randomSeed: null,
-    confirmationRefs: [],
-  };
-}
 
 const AlphaFlow: React.FC<AlphaFlowProps> = ({
   bridge,
@@ -171,11 +117,7 @@ const AlphaFlow: React.FC<AlphaFlowProps> = ({
   const openProgress = useOpenProgress();
   const [stage, setStage] = useState<Stage>('import');
   const [view, setView] = useState<DatasetView | null>(null);
-  const [items, setItems] = useState<string[]>([]);
-  const [reversed, setReversed] = useState<string[]>([]);
-  const [lowest, setLowest] = useState('');
-  const [highest, setHighest] = useState('');
-  const [ticked, setTicked] = useState<number[]>([]);
+  const settings = useAlphaSettings(view);
   const [report, setReport] = useState<AlphaValidationView | null>(null);
   const [runView, setRunView] = useState<AlphaRunStateView | null>(null);
   const [result, setResult] = useState<AlphaResultView | null>(null);
@@ -189,52 +131,19 @@ const AlphaFlow: React.FC<AlphaFlowProps> = ({
   const heading = useStageFocus(stage);
   useCloseOnUnmount(bridge, slot);
 
-  /** The reversed items that are still items: unticking an item unticks
-   *  its Reverse-score box. */
-  const reversedItems = useMemo(() => reversed.filter((a) => items.includes(a)), [reversed, items]);
-
-  /** The candidate codes of the ticked items, ascending, with where each
-   *  appears (the union over the ticked items). */
-  const offered = useMemo(() => {
-    const where = new Map<number, Array<{ header: string; cells: number }>>();
-    for (const c of view?.profile.columns ?? []) {
-      if (!items.includes(c.alias)) continue;
-      for (const s of c.suspectMissingCodes) where.set(s.code, [...(where.get(s.code) ?? []), { header: c.header, cells: s.cells }]);
-    }
-    return Array.from(where.keys())
-      .sort((a, b) => a - b)
-      .map((code) => ({ code, where: where.get(code) ?? [] }));
-  }, [view, items]);
-  const missingCodes = useMemo(() => ticked.filter((t) => offered.some((s) => s.code === t)), [ticked, offered]);
-
-  const names: AlphaNames = useMemo(
-    () => ({
-      column: (alias: number) => {
-        const c = view?.profile.columns.find((col) => aliasNumber(col.alias) === alias);
-        return c ? `"${c.header}"` : `C${alias}`;
-      },
-    }),
-    [view]
-  );
+  const names: AlphaNames = useMemo(() => alphaNames(view), [view]);
 
   const spec = useCallback(() => {
     operation.current += 1;
-    const lo = scaleEnd(lowest);
-    const hi = scaleEnd(highest);
-    const scale = lo !== null && hi !== null ? { min: lo, max: hi } : null;
-    return buildAlphaSpec(view as DatasetView, items, reversedItems, scale, missingCodes, operation.current);
-  }, [view, items, reversedItems, lowest, highest, missingCodes]);
+    return settings.spec(operation.current);
+  }, [settings]);
 
   useRunPolling(runView, setRunView, bridge, setError, alphaRefusalSentence, pollMs);
 
   const act = actWith(setBusy, setError, alphaRefusalSentence);
 
   const reset = () => {
-    setItems([]);
-    setReversed([]);
-    setLowest('');
-    setHighest('');
-    setTicked([]);
+    settings.reset();
     setReport(null);
     setRunView(null);
     setResult(null);
@@ -298,34 +207,12 @@ const AlphaFlow: React.FC<AlphaFlowProps> = ({
       setExportNote(saved.note);
     });
 
-  /** The reversed items after a change: when none is left, the scale's ends
-   *  go with them, so they are empty when the fields next appear. */
-  const setReversedTo = (next: string[]) => {
-    setReversed(next);
-    if (next.length === 0) {
-      setLowest('');
-      setHighest('');
-    }
-  };
-
-  const toggleItem = (alias: string, on: boolean) => {
-    setItems((t) => (on ? [...t.filter((y) => y !== alias), alias] : t.filter((y) => y !== alias)));
-    if (!on) setReversedTo(reversedItems.filter((a) => a !== alias));
-  };
-
-  const toggleReversed = (alias: string, on: boolean) =>
-    setReversedTo(on ? [...reversedItems.filter((y) => y !== alias), alias] : reversedItems.filter((y) => y !== alias));
-
-  const toggleCode = (code: number, on: boolean) =>
-    setTicked((t) => (on ? [...t.filter((y) => y !== code), code] : t.filter((y) => y !== code)));
-
   const title = (
     <h3 className="gds-card__title" ref={heading} tabIndex={-1} data-testid="al-stage-heading">
       {ALPHA_STAGE_HEADINGS[stage]}
     </h3>
   );
 
-  const stillMissing = settingsMissingSentence(items.length, reversedItems.length, lowest, highest);
 
   return (
     <div style={{ display: 'grid', gap: 12 }} data-testid="al-flow">
@@ -371,104 +258,8 @@ const AlphaFlow: React.FC<AlphaFlowProps> = ({
       {stage === 'settings' && view && (
         <Card>
           {title}
-          <div style={{ display: 'grid', gap: 8 }}>
-            <fieldset data-testid="al-item-choices">
-              <legend>{ITEMS_QUESTION}</legend>
-              <div style={{ display: 'flex', gap: 8, marginBottom: 4 }}>
-                <Button variant="secondary" onClick={() => setItems(numeric(view).map((c) => c.alias))} data-testid="al-tick-all">
-                  Tick every numeric column
-                </Button>
-                <Button
-                  variant="secondary"
-                  onClick={() => {
-                    setItems([]);
-                    setReversedTo([]);
-                  }}
-                  data-testid="al-untick-all"
-                >
-                  Untick all
-                </Button>
-              </div>
-              {numeric(view).map((c) => (
-                <div key={c.alias} style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={items.includes(c.alias)}
-                      data-testid={`al-item-${c.alias}`}
-                      onChange={(e) => toggleItem(c.alias, e.target.checked)}
-                    />{' '}
-                    {c.alias} {c.header}
-                  </label>
-                  {items.includes(c.alias) && (
-                    <label>
-                      <input
-                        type="checkbox"
-                        checked={reversedItems.includes(c.alias)}
-                        data-testid={`al-reverse-${c.alias}`}
-                        onChange={(e) => toggleReversed(c.alias, e.target.checked)}
-                      />{' '}
-                      {REVERSE_LABEL}
-                    </label>
-                  )}
-                </div>
-              ))}
-            </fieldset>
-            {reversedItems.length > 0 && (
-              <fieldset data-testid="al-scale">
-                <legend>The scale&apos;s ends</legend>
-                <p id="al-reverse-sentence" className="gds-jc__disclaimer" data-testid="al-reverse-sentence">
-                  {REVERSE_SENTENCE}
-                </p>
-                <label style={{ display: 'block' }}>
-                  <span>{LOWEST_LABEL}</span>{' '}
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={lowest}
-                    aria-describedby="al-reverse-sentence"
-                    data-testid="al-scale-min"
-                    style={SCALE_FIELD_STYLE}
-                    onChange={(e) => setLowest(e.target.value)}
-                  />
-                </label>
-                <label style={{ display: 'block' }}>
-                  <span>{HIGHEST_LABEL}</span>{' '}
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={highest}
-                    aria-describedby="al-reverse-sentence"
-                    data-testid="al-scale-max"
-                    style={SCALE_FIELD_STYLE}
-                    onChange={(e) => setHighest(e.target.value)}
-                  />
-                </label>
-              </fieldset>
-            )}
-            {offered.length > 0 && (
-              <fieldset data-testid="al-missing-codes">
-                <legend>Candidate missing codes</legend>
-                {offered.map((s) => (
-                  <label key={s.code} style={{ display: 'block' }}>
-                    <input
-                      type="checkbox"
-                      checked={ticked.includes(s.code)}
-                      data-testid={`al-code-${s.code}`}
-                      onChange={(e) => toggleCode(s.code, e.target.checked)}
-                    />{' '}
-                    {alphaMissingCodeQuestion(s.code, s.where)}
-                  </label>
-                ))}
-              </fieldset>
-            )}
-            {stillMissing && (
-              <p role="status" data-testid="al-settings-missing">
-                {stillMissing}
-              </p>
-            )}
-          </div>
-          <SettingsActions prefix="al" busy={busy} ready={stillMissing === null} onBack={() => setStage('profile')} onCheck={() => void check()} />
+          <AlphaSettings view={view} settings={settings} />
+          <SettingsActions prefix="al" busy={busy} ready={settings.stillMissing === null} onBack={() => setStage('profile')} onCheck={() => void check()} />
         </Card>
       )}
 

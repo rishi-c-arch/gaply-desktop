@@ -55,7 +55,7 @@ peak from a 1.5 MB workbook (M-9) before part C bounded inflation.
    flag was read could miss and end `TimedOut`, evaluation of Phases 2 and
    3, F2.)
 4. **Memory is bounded by count.** At most 8 run records and 4 dataset
-   slots, in memory only.
+   slots, in memory only. Raised to 40 by ADR-012 (decision 468), a rerun's finished record dropped first.
 5. **The estimate is reported before the run.** `ValidationReport.
    estimated_resources` carries rows, columns and cells.
 6. **Not yet:** a per-capability resource profile (RAM class, startup cost,

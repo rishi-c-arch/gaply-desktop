@@ -16,7 +16,7 @@ import { GridCells } from './gridCells';
 import { blocksFor, columnOffsets, drawnRange, HEAD_HEIGHT, moveActive, NOTHING_DRAWN, pageRows, reveal, ROW_HEIGHT, ROW_NUMBER_WIDTH, sameRange, type GridCell } from './gridRange';
 import type { GridTiming } from './gridTiming';
 import { statisticsSession } from './statisticsSession';
-import { ACTIVE_WAITING, activeCellLabel, CELL_EMPTY, GRID_LABEL, PREPARED_WORD, ROW_HEAD } from './windowWording';
+import { ACTIVE_WAITING, activeCellLabel, CELL_EMPTY, columnLabel, GRID_LABEL, PREPARED_WORD, ROW_HEAD } from './windowWording';
 
 export interface DataGridProps {
   view: DatasetView;
@@ -26,11 +26,9 @@ export interface DataGridProps {
   timing?: GridTiming;
 }
 
-const nameOf = (c: ColumnProfile): string => c.scoreName ?? c.header;
-
 const ActiveLine: React.FC<{ at: GridCell; column: ColumnProfile; value: string | null | undefined }> = ({ at, column, value }) => (
   <p className="sw-grid__active" data-testid="sw-active-cell" tabIndex={0}>
-    {activeCellLabel(at.row, column.alias)} <bdi>{nameOf(column)}</bdi>: <bdi data-testid="sw-active-value">{value === undefined ? ACTIVE_WAITING : value === null ? CELL_EMPTY : value}</bdi>
+    {activeCellLabel(at.row, column.alias)} <bdi>{columnLabel(column)}</bdi>: <bdi data-testid="sw-active-value">{value === undefined ? ACTIVE_WAITING : value === null ? CELL_EMPTY : value}</bdi>
   </p>
 );
 
@@ -43,7 +41,15 @@ const Grid: React.FC<Required<Pick<DataGridProps, 'view' | 'cells'>> & Pick<Data
   const [, setVersion] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [range, setRange] = useState(NOTHING_DRAWN);
-  const [active, setActive] = useState<GridCell | null>(rows > 0 && columns.length > 0 ? { row: 0, column: 0 } : null);
+  // The place the session holds for this very view (decision 473).
+  const placeKey = `${view.slot}:${view.inputRef.contentHash}`;
+  const [place] = useState(() => {
+    const held = statisticsSession.get().gridPlace;
+    return held?.key === placeKey ? held : null;
+  });
+  const [active, setActive] = useState<GridCell | null>(place ? place.active : rows > 0 && columns.length > 0 ? { row: 0, column: 0 } : null);
+  const activeNow = useRef(active);
+  activeNow.current = active;
   const opened = useRef(timing ? performance.now() : 0);
   const [store] = useState(
     () =>
@@ -54,6 +60,21 @@ const Grid: React.FC<Required<Pick<DataGridProps, 'view' | 'cells'>> & Pick<Data
         roundTrip: timing ? (ms) => timing.noteWindow(ms) : undefined,
       })
   );
+
+  // Restored before the first measure, and read back as the grid goes: a change
+  // of tab draws only the active panel, so this grid unmounts. Numbers only.
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    if (el && place) {
+      el.scrollTop = place.top;
+      el.scrollLeft = place.left;
+    }
+    return () => {
+      if (el && statisticsSession.get().view === view) {
+        statisticsSession.setGridPlace({ key: placeKey, top: el.scrollTop, left: el.scrollLeft, active: activeNow.current });
+      }
+    };
+  }, [place, placeKey, view]);
 
   const measure = useCallback(() => {
     const el = scroller.current;
@@ -147,14 +168,14 @@ const Grid: React.FC<Required<Pick<DataGridProps, 'view' | 'cells'>> & Pick<Data
                     data-testid={`sw-head-${c}`}
                     role="columnheader"
                     aria-colindex={c + 2}
-                    title={nameOf(column)}
+                    title={columnLabel(column)}
                     style={{ left: ROW_NUMBER_WIDTH + offsets[c], width: offsets[c + 1] - offsets[c] }}
                   >
                     <span className="sw-grid__alias">
                       {column.alias}
                       {column.prepared === true && <span className="sw-grid__prepared"> {PREPARED_WORD}</span>}
                     </span>
-                    <bdi className="sw-grid__name">{nameOf(column)}</bdi>
+                    <bdi className="sw-grid__name">{columnLabel(column)}</bdi>
                   </div>
                 );
             })}

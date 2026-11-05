@@ -30,6 +30,8 @@ export interface DescribeBridge {
   cancel(runId: number): Promise<RunStateView>;
   export(runId: number, format: ExportFormat): Promise<ExportView>;
   close(slot: number): Promise<boolean>;
+  /** Remove in the Output drops its record (Phase 8R, decision 468). */
+  forgetRun(runId: number): Promise<void>;
   /** A window of the slot's cells, for the Data View (Phase 8Q, decision 459).
    *  Clamped and never refused for its size; each value a string, null for missing. */
   cells(slot: number, firstRow: number, rowCount: number, firstColumn: number, columnCount: number): Promise<CellWindowView>;
@@ -68,6 +70,9 @@ export class TauriDescribeBridge implements DescribeBridge {
   close(slot: number) {
     return this.invoke<boolean>('stats_desc_close', { slot });
   }
+  forgetRun(runId: number) {
+    return this.invoke<void>('stats_desc_forget_run', { runId });
+  }
   cells(slot: number, firstRow: number, rowCount: number, firstColumn: number, columnCount: number) {
     return this.invoke<CellWindowView>('stats_desc_cells', { slot, firstRow, rowCount, firstColumn, columnCount });
   }
@@ -103,6 +108,7 @@ export function makeMockDescribeBridge(
     cancel: (runId) => call('stats_desc_cancel', { runId }),
     export: (runId, format) => call('stats_desc_export', { runId, format }),
     close: (slot) => call('stats_desc_close', { slot }),
+    forgetRun: (runId) => call('stats_desc_forget_run', { runId }),
     cells: (slot, firstRow, rowCount, firstColumn, columnCount) => call('stats_desc_cells', { slot, firstRow, rowCount, firstColumn, columnCount }),
   };
 }

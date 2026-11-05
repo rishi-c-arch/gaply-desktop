@@ -198,7 +198,8 @@ describe('what Rust says may run', () => {
     ['transform', 'Scale score…', SCALE_SCORE_CAPABILITY],
   ];
 
-  it.each(ROWS)('%s, %s: Rust calling it runnable shows the later-step sentence', (m, label) => {
+  // Alpha's item is live since 8R (decision 473), and has its tests below.
+  it.each(ROWS.filter((r) => r[2] !== 'stats.analyze.cronbach_alpha'))('%s, %s: Rust calling it runnable shows the later-step sentence', (m, label) => {
     const i = item(windowMenus(context({ fileOpen: true })), m, label);
     expect(i.disabled).toBe(true);
     expect(i.description).toBe(LATER_STEP);
@@ -241,5 +242,30 @@ describe('Coming later', () => {
   it.each(['analyze', 'transform'])('%s: none carries a date or a promise', (id) => {
     const NO = /\b(19|20)\d\d\b|\b\d{1,2}\/\d{1,2}\b|\bq[1-4]\b|\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b|\b(soon|next|planned|upcoming|release|version|beta|stats\.)\b/i;
     for (const i of later(id)) expect(i.label).not.toMatch(NO);
+  });
+});
+
+describe("alpha's item, live (decision 473)", () => {
+  const LABEL = "Reliability (Cronbach's alpha)…";
+
+  it('no file, a run going, a file busy, the Output full: disabled, each with its sentence', () => {
+    const said = (over: Partial<WindowMenuContext>) => item(windowMenus(context(over)), 'analyze', LABEL);
+    expect(said({ fileOpen: false }).description).toBe(NO_FILE);
+    expect(said({ fileOpen: true, runGoing: true }).description).toBe(RUN_GOING);
+    expect(said({ fileOpen: true, outputFull: true }).description).toBe('The Output is full. Remove a result you have kept, then run this.');
+    for (const o of [{ fileOpen: false }, { fileOpen: true, runGoing: true }, { fileOpen: true, outputFull: true }]) expect(said(o).disabled).toBe(true);
+  });
+
+  it('with a file, it opens the dialog of its own kind', () => {
+    const method = vi.fn();
+    const i = item(windowMenus(context({ fileOpen: true, actions: { open: vi.fn(), close: vi.fn(), go: vi.fn(), switchWorkspace: vi.fn(), help: vi.fn(), method } })), 'analyze', LABEL);
+    expect(i.disabled).toBeFalsy();
+    i.onSelect?.();
+    expect(method).toHaveBeenCalledWith('cronbach_alpha');
+  });
+
+  it('Rust not calling it runnable wins, with a file and an empty Output', () => {
+    const notRunnable = ALL.map((c) => (c.id === 'stats.analyze.cronbach_alpha' ? { ...c, runnable: false } : c));
+    expect(item(windowMenus(context({ fileOpen: true, capabilities: notRunnable })), 'analyze', LABEL).description).toBe(NOT_RUNNABLE);
   });
 });

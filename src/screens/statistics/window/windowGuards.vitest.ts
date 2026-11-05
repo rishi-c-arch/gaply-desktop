@@ -19,6 +19,9 @@ const FILES = [
     .filter((f) => /\.(ts|tsx)$/.test(f) && !isTest(f))
     .map((f) => path.join(HERE, f)),
   path.join(HERE, '../../workspace/useWorkspaceSwitch.tsx'),
+  // Decision 469: the dialog's frame and alpha's settings sit outside this folder.
+  path.join(HERE, '../../../design-system/ProjectDialog.tsx'),
+  path.join(HERE, '../AlphaSettings.tsx'),
 ];
 
 const code = (src: string) =>
@@ -45,7 +48,7 @@ const FORBIDDEN: Array<[string, RegExp]> = [
 describe("the Statistics window's files", () => {
   it('are found: the scan is not inert', () => {
     const names = FILES.map((f) => path.basename(f));
-    for (const n of ['StatisticsWindow.tsx', 'statisticsSession.ts', 'useWindowFile.ts', 'VariableView.tsx', 'HelpDialog.tsx', 'windowMenus.ts', 'windowWording.ts', 'useWorkspaceSwitch.tsx', 'DataGrid.tsx', 'gridCells.ts', 'gridRange.ts', 'gridTiming.ts', 'TimingLine.tsx']) {
+    for (const n of ['StatisticsWindow.tsx', 'statisticsSession.ts', 'useWindowFile.ts', 'VariableView.tsx', 'HelpDialog.tsx', 'windowMenus.ts', 'windowWording.ts', 'useWorkspaceSwitch.tsx', 'DataGrid.tsx', 'gridCells.ts', 'gridRange.ts', 'gridTiming.ts', 'TimingLine.tsx', 'ProjectDialog.tsx', 'AlphaSettings.tsx', 'MethodDialog.tsx', 'AlphaDialog.tsx', 'Output.tsx', 'OutputOutline.tsx']) {
       expect(names, n).toContain(n);
     }
     for (const f of FILES) expect(code(fs.readFileSync(f, 'utf8')).length, f).toBeGreaterThan(100);

@@ -93,10 +93,14 @@ describe('only the project bridge names a project command', () => {
 });
 
 describe('the project screens', () => {
-  const screens = fs
-    .readdirSync(HERE)
-    .filter((f) => /\.(ts|tsx)$/.test(f) && !isTest(f))
-    .map((f) => path.join(HERE, f));
+  // ProjectDialog moved beside Modal in Phase 8R (decision 469), so it is named by path.
+  const screens = [
+    ...fs
+      .readdirSync(HERE)
+      .filter((f) => /\.(ts|tsx)$/.test(f) && !isTest(f))
+      .map((f) => path.join(HERE, f)),
+    path.join(HERE, '../../../design-system/ProjectDialog.tsx'),
+  ];
 
   it('use no raw HTML and send a name nowhere it must not go', () => {
     expect(screens.length).toBeGreaterThanOrEqual(8);

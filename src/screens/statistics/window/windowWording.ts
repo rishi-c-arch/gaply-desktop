@@ -3,6 +3,7 @@
 // sentences and is pinned to Rust's codes (capabilityWording.ts:4-6). Fixed
 // text, or text built from counts and the user's own column names, for the
 // user's own screen. No verdict, no advice, no date.
+import { HIGHEST_LABEL, LOWEST_LABEL, REVERSE_LABEL } from '../alphaWording';
 
 export const WINDOW_TITLE = 'Statistics';
 
@@ -119,3 +120,66 @@ export const KEYBOARD_LINES = [
   'Home and End move it to the start and the end of its row.',
   'Cmd or Ctrl with Home and End moves it to the first and the last cell of the file.',
 ];
+
+/** A column by the name the user sees (decision 470): a score by what they
+ *  typed, since its header is its alias word; any other column by its header. */
+export function columnLabel(c: { header: string; scoreName?: string }): string {
+  return c.scoreName ?? c.header;
+}
+
+/** Alpha's settings, on the page and in the dialog (decision 470). */
+export const ALPHA_COLUMNS_HEADING = 'Numeric columns';
+export const ALPHA_ITEMS_HEADING = "Items, in the file's order";
+export const ALPHA_ITEMS_NONE = 'None yet. Nothing is chosen for you.';
+export const ALPHA_ADD_ALL = 'Add every numeric column';
+export const ALPHA_REMOVE_ALL = 'Remove all';
+export const ALPHA_REMOVE_ITEM = 'Remove';
+
+/** The Output's cap, as the dialog and the menu say it (decision 471). */
+export const OUTPUT_FULL = 'The Output is full. Remove a result you have kept, then run this.';
+export const RUN_WORD = 'Run';
+export const RUN_WITH_WARNINGS = 'Run with these warnings';
+export const DIALOG_CANCEL = 'Cancel';
+export const ALPHA_DIALOG_TITLE = "Reliability (Cronbach's alpha)";
+
+/** The settings line of an alpha entry (decision 471): the spec the dialog built,
+ *  in alpha's own words, each column by the name the user sees at this run. */
+export function alphaSettingsLine(
+  p: { items: string[]; reversed: string[]; scale: { min: number; max: number } | null; missingCodes: number[] },
+  view: { profile: { columns: Array<{ alias: string; header: string; scoreName?: string }> } }
+): string {
+  const named = (aliases: string[]) =>
+    aliases
+      .map((a) => {
+        const c = view.profile.columns.find((x) => x.alias === a);
+        return c ? `${a} ${columnLabel(c)}` : a;
+      })
+      .join(', ');
+  const parts = [`Items: ${named(p.items)}.`];
+  if (p.reversed.length === 0) parts.push(`${REVERSE_LABEL}: none.`);
+  else {
+    parts.push(`${REVERSE_LABEL}: ${named(p.reversed)}.`);
+    if (p.scale) parts.push(`${LOWEST_LABEL}: ${p.scale.min}. ${HIGHEST_LABEL}: ${p.scale.max}.`);
+  }
+  parts.push(p.missingCodes.length === 0 ? 'Missing codes: none.' : `Missing codes: ${p.missingCodes.join(', ')}.`);
+  return parts.join(' ');
+}
+
+/** Before something is lost (decision 472, ADR-012 Part 7's table, word for word). */
+export const ASK_CONTINUE = 'Continue';
+export const ASK_CANCEL = 'Cancel';
+const CLOSE_REST = 'Your results stay here and can still be exported, but those you have not saved to a project can no longer be saved. Any scores you made go with the file; only a saved run keeps their recipe.';
+export const ASK_CLOSE = { title: 'Close this file', sentence: `Close this file? ${CLOSE_REST}` };
+export const ASK_OPEN = { title: 'Open another file', sentence: `Open another file? ${CLOSE_REST}` };
+export const ASK_LEAVE = { title: 'Leave Statistics', sentence: 'Leave Statistics? Your results and scores go when you leave, unless you saved them to a project. Exported files are not affected.' };
+export const ASK_REMOVE = { title: 'Remove this result', sentence: 'Remove this result? It has not been saved to a project. It goes from the Output and from memory. Exported files are not affected.' };
+
+/** The Output (decision 471). */
+export const OUTPUT_LABEL = 'Results, in order';
+export const OUTPUT_REMOVE = 'Remove';
+export const OUTPUT_EXPORT = 'Export CSV…';
+export const OUTPUT_SETTINGS = 'Settings: ';
+export const OUTPUT_SAVED = 'Saved in the project ';
+export function outputShownSentence(number: number): string {
+  return `Result ${number} is shown.`;
+}

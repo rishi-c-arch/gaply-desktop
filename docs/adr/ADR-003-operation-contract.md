@@ -35,7 +35,8 @@ shape, and Level 1's run store (`L1Runs`, four runs, no state machine).
    A diagnostic's parameters are integers or closed words, never text.
 4. **The run manager is the app's, in memory** (`runs.rs`, decision 6): at
    most 8 run records, the oldest finished one dropped first and an
-   unfinished one never; at most 4 dataset slots. One foreground run at a
+   unfinished one never; at most 4 dataset slots. Raised to 40 by ADR-012 (decision 468), a rerun's finished record dropped first.
+   One foreground run at a
    time (`run.run_busy`). A run is detached: created, validated, queued and
    started on its own thread, then polled. Cancel is cooperative, through a
    check point the operation calls between columns

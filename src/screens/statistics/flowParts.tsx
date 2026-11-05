@@ -202,12 +202,16 @@ export const RunCard: React.FC<{
   diagnostics: React.ReactNode;
   busy: boolean;
   onCancel: () => void;
-  onSeeResults: () => void;
-  onBack: () => void;
+  /** Drawn only when given: the Output shows the result itself (decision 471). */
+  onSeeResults?: () => void;
+  /** Drawn only when given: a new dialog is a new choice (decision 471). */
+  onBack?: () => void;
   /** A method's own progress line, in what it counts (Research OS, Phase
    *  8G-2, decision 328); none by default. */
   progress?: React.ReactNode;
-}> = ({ prefix, title, runView, endedSentence, diagnostics, busy, onCancel, onSeeResults, onBack, progress }) => (
+  /** Replaces this card's own Save to a project… (decision 471). */
+  save?: React.ReactNode;
+}> = ({ prefix, title, runView, endedSentence, diagnostics, busy, onCancel, onSeeResults, onBack, progress, save }) => (
   <Card>
     {title}
     <div role="status" aria-live="polite" data-testid={`${prefix}-run-status`}>
@@ -224,7 +228,7 @@ export const RunCard: React.FC<{
         <p data-testid={`${prefix}-run-ended`}>{endedSentence(runView.state)}</p>
         {diagnostics}
         {/* A failed run is saved where its failure is shown (decision 140). */}
-        {runView.terminal && savableOnScreen(runView) && <SaveToProject runId={runView.runId} testId={`${prefix}-project-save`} />}
+        {runView.terminal && savableOnScreen(runView) && (save ?? <SaveToProject runId={runView.runId} testId={`${prefix}-project-save`} />)}
       </>
     )}
     <div style={{ display: 'flex', gap: 8 }}>
@@ -233,12 +237,12 @@ export const RunCard: React.FC<{
           {runView.cancelRequested ? 'Cancelling…' : 'Cancel'}
         </Button>
       )}
-      {runView.terminal && runView.state === 'succeeded' && (
+      {onSeeResults && runView.terminal && runView.state === 'succeeded' && (
         <Button onClick={onSeeResults} disabled={busy} data-testid={`${prefix}-see-results`}>
           See the results
         </Button>
       )}
-      {runView.terminal && (
+      {onBack && runView.terminal && (
         <Button variant="secondary" onClick={onBack} data-testid={`${prefix}-run-back`}>
           Back to settings
         </Button>

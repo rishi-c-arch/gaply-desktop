@@ -5,9 +5,11 @@
 //!   its file's display name (the base name, never a path; decision 4).
 //!   Opening a fifth drops the oldest. A slot is also dropped when it is
 //!   closed, and every slot when the app exits.
-//! * [`Runs`] holds at most [`MAX_RUNS`] run records (decision 6). Adding a
-//!   ninth drops the oldest FINISHED record; a queued or running record is
-//!   never dropped.
+//! * [`Runs`] holds at most [`MAX_RUNS`] run records: 40 since ADR-012 raised
+//!   decision 6's 8 (decision 468), so the Output's 32 entries and a going
+//!   rerun all keep theirs. Adding one past that drops a rerun's finished
+//!   record first, then the oldest FINISHED record of any kind; a queued or
+//!   running record is never dropped.
 //! * A run is detached: [`Runs::start`] creates the record, validates the
 //!   spec, queues it, starts the work on its own thread and returns the run
 //!   id at once. The screen polls [`Runs::snapshot`].
@@ -132,8 +134,8 @@ use gaply_core::stats_prep::{self, Prepared};
 use gaply_core::stats_ttest::{self, TTestCode, TTestParams, TTestResult};
 use serde::Serialize;
 
-/// Run records held at once (decision 6).
-pub const MAX_RUNS: usize = 8;
+/// Run records held at once (decision 6; 40 since decision 468).
+pub const MAX_RUNS: usize = 40;
 /// Dataset slots held at once (decision 6).
 pub const MAX_SLOTS: usize = 4;
 /// The cells [`DatasetSlots::default`] and [`DatasetSlots::numbered_by`]
@@ -787,6 +789,9 @@ struct Entry {
     columns_total: usize,
     columns_done: usize,
     cancel_requested: bool,
+    /// Whether it was started with an end hook: a rerun. [`Runs::evict`] drops
+    /// its finished record before any other finished one (decision 468).
+    rerun: bool,
     held: Held,
 }
 
@@ -1852,11 +1857,16 @@ impl Runs {
         }
     }
 
-    /// Drops the oldest finished records past [`MAX_RUNS`], whatever their
-    /// kind. An unfinished one is never dropped.
+    /// Drops finished records past [`MAX_RUNS`]: a rerun's first, oldest first
+    /// (decision 468), then the oldest of any kind. An unfinished one is never
+    /// dropped.
     fn evict(entries: &mut VecDeque<Entry>) {
         while entries.len() > MAX_RUNS {
-            match entries.iter().position(|e| e.record.state.is_terminal()) {
+            let finished_rerun = entries
+                .iter()
+                .position(|e| e.rerun && e.record.state.is_terminal());
+            let oldest = entries.iter().position(|e| e.record.state.is_terminal());
+            match finished_rerun.or(oldest) {
                 Some(i) => {
                     entries.remove(i);
                 }
@@ -2063,6 +2073,9 @@ impl Runs {
             columns_total,
             columns_done: 0,
             cancel_requested: false,
+            // Only a rerun passes an end hook, so every start function needs no
+            // change for this (decision 468).
+            rerun: end.is_some(),
             held,
         };
         Self::step(&mut entry, RunEvent::BeginValidation, now);
@@ -2576,6 +2589,22 @@ impl Runs {
         run.0 >= 1 && run.0 <= self.last_id()
     }
 
+    /// Drops a finished record, for Remove in the Output (decision 468):
+    /// `NotFinished` for an unfinished one, which stays, and `UnknownRun` for
+    /// none. The id stays issued, so a later Save reads it as evicted.
+    pub fn forget(&self, run: RunId) -> Result<(), RunCode> {
+        let mut entries = lock(&self.entries);
+        let at = entries
+            .iter()
+            .position(|e| e.record.run_id == run)
+            .ok_or(RunCode::UnknownRun)?;
+        if !entries[at].record.state.is_terminal() {
+            return Err(RunCode::NotFinished);
+        }
+        entries.remove(at);
+        Ok(())
+    }
+
     /// How many records are held.
     pub fn held(&self) -> usize {
         lock(&self.entries).len()
@@ -2652,6 +2681,7 @@ mod tests {
             columns_total: 1,
             columns_done: 0,
             cancel_requested: false,
+            rerun: false,
             held: Held::Describe(Outputs::default()),
         }
     }
@@ -2743,6 +2773,106 @@ mod tests {
             .collect();
         Runs::evict(&mut busy);
         assert_eq!(busy.len(), MAX_RUNS + 1);
+    }
+
+    /// Decision 468: a rerun's finished record goes before any other finished
+    /// one, oldest first; only then the oldest finished record of any kind. An
+    /// unfinished rerun is never dropped, so 40 reruns cannot push out a live
+    /// result the Output still shows.
+    #[test]
+    fn eviction_drops_a_reruns_finished_record_first_and_never_an_unfinished_one() {
+        // The Output holds 32, and a going rerun is one more (ADR-012 Part 7).
+        let records = MAX_RUNS;
+        assert!(records > 32, "the Output holds 32: {records} records");
+
+        let rerun = |run, state| Entry {
+            rerun: true,
+            ..entry(run, state)
+        };
+
+        // A live finished record, oldest, then two finished reruns and an
+        // unfinished rerun older than either: the older finished rerun goes.
+        let mut entries: VecDeque<Entry> = VecDeque::new();
+        entries.push_back(entry(1, RunState::Succeeded));
+        entries.push_back(rerun(2, RunState::Running));
+        entries.push_back(rerun(3, RunState::Succeeded));
+        entries.push_back(rerun(4, RunState::Failed));
+        for run in 5..=MAX_RUNS as u64 + 1 {
+            entries.push_back(entry(run, RunState::Succeeded));
+        }
+        assert_eq!(entries.len(), MAX_RUNS + 1);
+        Runs::evict(&mut entries);
+        let held: Vec<u64> = entries.iter().map(|e| e.record.run_id.0).collect();
+        assert_eq!(held.len(), MAX_RUNS);
+        assert!(!held.contains(&3), "the older finished rerun: {held:?}");
+        for kept in [1, 2, 4] {
+            assert!(held.contains(&kept), "{kept} is kept: {held:?}");
+        }
+
+        // With only an unfinished rerun: the rule falls back to the oldest
+        // finished record of any kind, and the rerun stays.
+        let mut entries: VecDeque<Entry> = VecDeque::new();
+        entries.push_back(rerun(1, RunState::Running));
+        for run in 2..=MAX_RUNS as u64 + 1 {
+            entries.push_back(entry(run, RunState::Succeeded));
+        }
+        Runs::evict(&mut entries);
+        let held: Vec<u64> = entries.iter().map(|e| e.record.run_id.0).collect();
+        assert_eq!(held.len(), MAX_RUNS);
+        assert_eq!(held[0], 1, "the unfinished rerun stays");
+        assert!(!held.contains(&2), "the oldest finished one: {held:?}");
+    }
+
+    /// Decision 468: the flag comes from the end hook, at the one place every
+    /// start passes through, so a start function need not know about it.
+    #[test]
+    fn a_record_is_a_rerun_exactly_when_it_was_started_with_an_end_hook() {
+        let runs = Arc::new(Runs::default());
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let flag = |run: RunId| {
+            lock(&runs.entries)
+                .iter()
+                .find(|e| e.record.run_id == run)
+                .map(|e| e.rerun)
+                .expect("held")
+        };
+
+        let (slot, spec) = summary_of(1);
+        let live = runs.start(slot, spec).unwrap();
+        wait_for("the live run ended", || {
+            runs.snapshot(live).unwrap().record.state.is_terminal()
+        });
+        assert!(!flag(live), "started with no hook");
+
+        let (slot, spec) = summary_of(1);
+        let rerun = runs
+            .start_then(slot, spec, recorder(&runs, &calls))
+            .unwrap();
+        wait_for("the hook was called", || calls.lock().unwrap().len() == 1);
+        assert!(flag(rerun), "started with a hook");
+    }
+
+    /// Decision 468: Remove drops its record. A finished one goes and is
+    /// afterwards only an id that was issued; an unfinished one is refused and
+    /// stays; a record that is not held is `UnknownRun`, which Remove treats
+    /// as done.
+    #[test]
+    fn forget_drops_a_finished_record_refuses_an_unfinished_one_and_knows_no_other() {
+        let runs = Arc::new(Runs::default());
+        lock(&runs.entries).push_back(entry(1, RunState::Succeeded));
+        lock(&runs.entries).push_back(entry(2, RunState::Running));
+        lock(&runs.entries).push_back(entry(3, RunState::Queued));
+        runs.next.store(3, Ordering::SeqCst);
+
+        assert!(matches!(runs.forget(RunId(2)), Err(RunCode::NotFinished)));
+        assert!(matches!(runs.forget(RunId(3)), Err(RunCode::NotFinished)));
+        assert_eq!(runs.held(), 3, "an unfinished record stays");
+
+        assert!(runs.forget(RunId(1)).is_ok());
+        assert_eq!(runs.held(), 2, "the finished record went");
+        assert!(matches!(runs.forget(RunId(1)), Err(RunCode::UnknownRun)));
+        assert!(runs.was_issued(RunId(1)), "a Save reads it as evicted");
+        assert!(matches!(runs.forget(RunId(99)), Err(RunCode::UnknownRun)));
     }
 
     /// Phase 3. Leaving the Statistics workspace seals its run manager. With a

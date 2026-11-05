@@ -7,7 +7,7 @@
 // Nothing here is kept but in memory, logged or sent. A path goes to the open
 // once and is never held. A column's name and the file's base name are shown
 // on the user's own screen only.
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button, Menu, Tabs } from '../../../design-system';
 import { isFeatureEnabled } from '../../../config/featureFlags';
@@ -15,6 +15,7 @@ import { pickManuscriptPath } from '../../common/pickFile';
 import { defaultRunBridges, useWorkspaceSwitch, type RunBridges } from '../../workspace/useWorkspaceSwitch';
 import { workspaceBridge, type WorkspaceBridge } from '../../workspace/workspaceBridge';
 import { describeBridge, type DescribeBridge } from '../describeBridge';
+import { saveTextFile } from '../../../utils/saveTextFile';
 import type { DatasetView } from '../describeTypes';
 import { useMethodLimits } from '../flowHooks';
 import { FileSummary, LimitsLine, OpenProgressLine } from '../flowParts';
@@ -25,21 +26,26 @@ import { readMethodLimits } from '../statsInvoke';
 import { capabilityBridge, type CapabilityBridge } from '../ttestBridge';
 import type { CapabilityView } from '../ttestTypes';
 import './StatisticsWindow.css';
+import { AlphaDialog, type StartedAlpha } from './AlphaDialog';
 import { DataGrid } from './DataGrid';
 import { GridTiming, timingShown } from './gridTiming';
 import { HelpDialog } from './HelpDialog';
-import { statisticsSession, useStatisticsSession } from './statisticsSession';
+import { AskFirst } from './MethodDialog';
+import { entryHeadingId, Output, OutputWatchers } from './Output';
+import { holdsUnsavedWork, MAX_OUTPUT, runIsGoing, statisticsSession, useStatisticsSession } from './statisticsSession';
 import { TimingLine } from './TimingLine';
 import { useWindowFile } from './useWindowFile';
 import { VariableView } from './VariableView';
 import { openBlocked, windowMenus, type HelpTopic } from './windowMenus';
 import {
+  ASK_CLOSE,
+  ASK_OPEN,
   AS_READ_LINE,
   FOOTER_PHRASES,
   MENU_WORDS,
   NO_PROJECT_LINE,
   OPEN_BUTTON,
-  OUTPUT_EMPTY,
+  outputShownSentence,
   preparedNote,
   PROJECT_LINE_PREFIX,
   STATE_UNREAD,
@@ -67,6 +73,12 @@ export interface StatisticsWindowProps {
   pickPath?: () => Promise<string | null>;
   /** This computer's limits, read once; stats_desc_limits by default. */
   limits?: () => Promise<unknown>;
+  /** Forgets a removed result's record; describeBridge's by default. */
+  forget?: Pick<DescribeBridge, 'forgetRun'>;
+  /** Writes an export through the save dialog. */
+  save?: (name: string, text: string, mime: string) => Promise<string | null>;
+  /** How often a run's state is read while it runs. */
+  runPollMs?: number;
   /** How often the workspace's state is read. */
   pollMs?: number;
 }
@@ -116,6 +128,9 @@ export const StatisticsWindow: React.FC<StatisticsWindowProps> = ({
   pickPath = defaultPick,
   limits: loadLimits = readMethodLimits,
   pollMs = 1000,
+  forget: givenForget,
+  save = saveTextFile,
+  runPollMs = 250,
 }) => {
   const navigate = useNavigate();
   const workspace = useMemo(() => givenWorkspace ?? workspaceBridge(), [givenWorkspace]);
@@ -123,6 +138,7 @@ export const StatisticsWindow: React.FC<StatisticsWindowProps> = ({
   const capabilities = useMemo(() => givenCapabilities ?? capabilityBridge(), [givenCapabilities]);
   const projects = useMemo(() => givenProjects ?? projectBridge(), [givenProjects]);
   const runs = useMemo(() => defaultRunBridges(givenRuns), [givenRuns]);
+  const forget = useMemo(() => givenForget ?? describeBridge(), [givenForget]);
   const timing = useMemo(() => (timingShown() ? new GridTiming() : undefined), []);
   const session = useStatisticsSession();
   const { view } = session;
@@ -131,6 +147,13 @@ export const StatisticsWindow: React.FC<StatisticsWindowProps> = ({
   const [list, setList] = useState<CapabilityView[] | null>(null);
   const [listUnread, setListUnread] = useState(false);
   const [help, setHelp] = useState<HelpTopic | null>(null);
+  const [dialogKind, setDialogKind] = useState<string | null>(null);
+  const [asking, setAsking] = useState<'close' | 'open' | null>(null);
+  const [tabs, setTabs] = useState<{ key: number; first?: string }>({ key: 0 });
+  const [outputStatus, setOutputStatus] = useState<string | null>(null);
+  // Where the focus goes as a dialog closes: the new entry's heading after a run, else its opener.
+  const started = useRef<number | null>(null);
+  const afterDialog = useRef<(() => HTMLElement | null) | null>(() => (started.current === null ? null : document.getElementById(entryHeadingId(started.current))));
   const limits = useMethodLimits(loadLimits);
   const showProjects = projectsShown();
   const { choose, closeFile, rowsRead, error } = useWindowFile({ bridge: files, pickPath });
@@ -189,29 +212,48 @@ export const StatisticsWindow: React.FC<StatisticsWindowProps> = ({
     };
   }, [projects, showProjects]);
 
+  // Rust's word, or an entry of this window's whose run has not ended.
+  const going = runGoing || session.output.some(runIsGoing);
+  const outputFull = session.output.length >= MAX_OUTPUT;
+
+  const onStarted = (s: StartedAlpha) => {
+    if (view === null || session.slot === null) return;
+    const number = statisticsSession.addEntry({ kind: 'cronbach_alpha', view, slot: session.slot, settings: s.settings, runId: s.runId, run: s.run });
+    if (number === null) return;
+    started.current = number;
+    setOutputStatus(outputShownSentence(number));
+    setTabs((t) => ({ key: t.key + 1, first: 'output' }));
+    setDialogKind(null);
+  };
+
   const menus = windowMenus({
     fileOpen: view !== null,
-    runGoing,
+    runGoing: going,
+    outputFull,
     busy: session.busy,
     capabilities: list,
     projects: showProjects,
     statsCheck: isFeatureEnabled('statsCheck'),
     workspaces: isFeatureEnabled('workspaces'),
     actions: {
-      open: () => void choose(),
-      close: () => void closeFile(),
+      open: () => (view !== null && holdsUnsavedWork(session) ? setAsking('open') : void choose()),
+      close: () => (holdsUnsavedWork(session) ? setAsking('close') : void closeFile()),
       go: (path) => navigate(path),
       switchWorkspace: () => void leave(),
       help: setHelp,
+      method: (kind) => {
+        started.current = null;
+        setDialogKind(kind);
+      },
     },
   });
 
-  const openWhy = openBlocked({ runGoing, busy: session.busy });
+  const openWhy = openBlocked({ runGoing: going, busy: session.busy });
 
-  const body = (content: React.ReactNode, grid = false) => (
+  const body = (content: React.ReactNode, full?: 'grid' | 'output') => (
     <>
       <AboveTheGrid view={view} />
-      <div className={grid ? 'sw-body sw-body--grid' : 'sw-body'} data-testid="sw-body" tabIndex={grid ? undefined : 0}>
+      <div className={full ? `sw-body sw-body--${full}` : 'sw-body'} data-testid="sw-body" tabIndex={full ? undefined : 0}>
         <p className="sw-message" role="status" aria-live="polite" data-testid="sw-message">
           {message ?? ''}
         </p>
@@ -252,10 +294,16 @@ export const StatisticsWindow: React.FC<StatisticsWindowProps> = ({
       </header>
       <main className="sw-main">
         <Tabs
+          key={tabs.key}
+          defaultTabId={tabs.first}
           tabs={[
-            { id: 'data', label: TABS.data, content: body(dataTab, view !== null) },
+            { id: 'data', label: TABS.data, content: body(dataTab, view !== null ? 'grid' : undefined) },
             { id: 'variable', label: TABS.variable, content: body(view ? <VariableView view={view} /> : <p data-testid="sw-variable-empty">{VARIABLE_EMPTY}</p>) },
-            { id: 'output', label: TABS.output(session.output.length), content: body(<p data-testid="sw-output-empty">{OUTPUT_EMPTY}</p>) },
+            {
+              id: 'output',
+              label: TABS.output(session.output.length),
+              content: body(<Output session={session} bridge={runs.alpha} forget={forget} projects={projects} save={save} status={outputStatus} />, session.output.length > 0 ? 'output' : undefined),
+            },
           ]}
         />
       </main>
@@ -266,6 +314,23 @@ export const StatisticsWindow: React.FC<StatisticsWindowProps> = ({
         {timing && <TimingLine timing={timing} />}
       </footer>
       {help && <HelpDialog topic={help} capabilities={list} unread={listUnread} limits={limits} onClose={() => setHelp(null)} />}
+      <OutputWatchers entries={session.output} bridge={runs.alpha} pollMs={runPollMs} />
+      {dialogKind === 'cronbach_alpha' && view && session.slot !== null && (
+        <AlphaDialog view={view} slot={session.slot} bridge={runs.alpha} outputFull={outputFull} onStarted={onStarted} onCancel={() => setDialogKind(null)} returnFocus={afterDialog} />
+      )}
+      {asking && (
+        <AskFirst
+          title={asking === 'close' ? ASK_CLOSE.title : ASK_OPEN.title}
+          sentence={asking === 'close' ? ASK_CLOSE.sentence : ASK_OPEN.sentence}
+          testId="sw-ask"
+          onCancel={() => setAsking(null)}
+          onContinue={() => {
+            const act = asking === 'close' ? closeFile : choose;
+            setAsking(null);
+            void act();
+          }}
+        />
+      )}
       {switchDialog}
     </div>
   );

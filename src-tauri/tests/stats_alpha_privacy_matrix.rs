@@ -258,6 +258,17 @@ fn no_sentinel_reaches_a_surface_it_is_not_allowed_on() {
         &call(&w, "stats_alpha_result", json!({ "runId": plain_run })).unwrap(),
     );
 
+    // Remove in the Output (decision 468): the forget's answer, its refusal,
+    // and below its span. The record's sentinels go nowhere new.
+    push(
+        &mut surfaces,
+        "the forget's answer",
+        &call(&w, "stats_desc_forget_run", json!({ "runId": plain_run })).unwrap(),
+    );
+    errors.push(
+        call(&w, "stats_desc_forget_run", json!({ "runId": plain_run })).expect_err("forgotten"),
+    );
+
     // Refused runs, as views: an item that holds text, and a validation with
     // several errors.
     let bad = call(
@@ -354,6 +365,12 @@ fn no_sentinel_reaches_a_surface_it_is_not_allowed_on() {
 
     // Tracing: every span and event, from every thread.
     let traced = lines.lock().unwrap().clone();
+    assert!(
+        traced
+            .iter()
+            .any(|l| l.contains("span stats_desc_forget_run")),
+        "the forget's span was captured"
+    );
     assert!(
         traced
             .iter()

@@ -42,6 +42,7 @@ describe('TauriDescribeBridge', () => {
     await b.export(4, 'csv');
     await b.export(4, 'manifestJson');
     await b.close(3);
+    await b.forgetRun(4);
     await b.cells(3, 40, 50, 0, 24);
 
     const seen = invoke.mock.calls.map(([cmd, args]) => [cmd, Object.keys(args ?? {}).sort()]);
@@ -56,6 +57,8 @@ describe('TauriDescribeBridge', () => {
       ['stats_desc_export', ['format', 'runId']],
       ['stats_desc_export', ['format', 'runId']],
       ['stats_desc_close', ['slot']],
+      // Phase 8R (decision 468).
+      ['stats_desc_forget_run', ['runId']],
       // Phase 8Q (decision 459).
       ['stats_desc_cells', ['columnCount', 'firstColumn', 'firstRow', 'rowCount', 'slot']],
     ]);

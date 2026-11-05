@@ -36,7 +36,7 @@ import { projectsShown } from './projectGate';
 import { currentId, noteCurrent, noteDeleted, noteWorkspaceState, openProjectStore, useOpenProject } from './projectSession';
 import type { ProjectListEntryView, ProjectSizesView } from './projectTypes';
 import { DELETE_SENTENCE, PROJECT_TEXT, PROJECT_WORDS, projectSentence, savedOn, sizeSentence, totalsSentence } from './projectWording';
-import ProjectDialog from './ProjectDialog';
+import ProjectDialog from '../../../design-system/ProjectDialog';
 import { useGeneration, type Generation } from './useGeneration';
 
 export interface ProjectsPanelProps {

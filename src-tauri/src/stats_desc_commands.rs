@@ -687,6 +687,17 @@ pub async fn stats_desc_close(state: St<'_>, slot: u64) -> Result<bool, GaplyErr
     Ok(close(&engine.datasets, slot))
 }
 
+/// Remove in the Output drops its record (decision 468; ADR-012 Part 7).
+#[tauri::command]
+#[tracing::instrument(skip_all)]
+pub async fn stats_desc_forget_run(state: St<'_>, run_id: u64) -> Result<(), GaplyError> {
+    let engine = state
+        .workspace
+        .require_statistics()
+        .map_err(refuse_workspace)?;
+    engine.runs.forget(RunId(run_id)).map_err(refuse_run)
+}
+
 /// A window of cells for the Data View (decision 459; ADR-012 Part 3).
 #[tauri::command]
 #[tracing::instrument(skip_all)]

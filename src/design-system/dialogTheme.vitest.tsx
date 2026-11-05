@@ -17,7 +17,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { Modal } from './Modal';
 import { Button } from './primitives';
-import { ProjectDialog } from '../screens/statistics/projects/ProjectDialog';
+import { ProjectDialog } from './ProjectDialog';
 
 afterEach(cleanup);
 

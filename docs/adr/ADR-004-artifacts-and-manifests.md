@@ -61,7 +61,8 @@ carry the data file's name.
 
 Run records, datasets, profiles and result bundles of unsaved work stay in
 memory (ADR-003): at most 8 records and 4 slots, dropped on eviction, close
-or exit (decision 6). **[Accepted, decision 105]** Nothing is written to a
+or exit (decision 6). Raised to 40 by ADR-012 (decision 468), a rerun's finished record dropped first.
+**[Accepted, decision 105]** Nothing is written to a
 project except when the user clicks Save; there is no autosave.
 
 When the user saves a run to a project (ADR-009), these are stored under

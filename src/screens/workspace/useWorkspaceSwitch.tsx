@@ -19,7 +19,9 @@ import { corrBridge, type CorrBridge } from '../statistics/corrBridge';
 import { alphaBridge, type AlphaBridge } from '../statistics/alphaBridge';
 import { byKind } from '../statistics/methods';
 import { openProjectStore } from '../statistics/projects/projectSession';
-import { statisticsSession } from '../statistics/window/statisticsSession';
+import { AskFirst } from '../statistics/window/MethodDialog';
+import { holdsUnsavedWork, statisticsSession } from '../statistics/window/statisticsSession';
+import { ASK_LEAVE } from '../statistics/window/windowWording';
 import type { WorkspaceBridge } from './workspaceBridge';
 import { workspaceRefusal, type RunEntry } from './workspaceTypes';
 import { SWITCH_DIALOG, workspaceSentence } from './workspaceWording';
@@ -196,6 +198,8 @@ export function useWorkspaceSwitch({ bridge, runs, pollMs, setMessage }: Workspa
   const [blocking, setBlocking] = useState<RunEntry | null>(null);
   const [blockingRun, setBlockingRun] = useState<JobView | null>(null);
   const [waiting, setWaiting] = useState(false);
+  /** The sentence before leaving is up (decision 472). */
+  const [asking, setAsking] = useState(false);
   const alive = useRef(true);
 
   useEffect(() => {
@@ -209,7 +213,7 @@ export function useWorkspaceSwitch({ bridge, runs, pollMs, setMessage }: Workspa
 
   const statusOf = useCallback((e: RunEntry): Promise<JobView | null> => commandsFor(kinds, e.kind).status(e.runId), [kinds]);
 
-  const leave = useCallback(async () => {
+  const deactivate = useCallback(async () => {
     setMessage(null);
     try {
       await bridge.deactivate();
@@ -233,6 +237,16 @@ export function useWorkspaceSwitch({ bridge, runs, pollMs, setMessage }: Workspa
     }
   }, [bridge, navigate, setMessage]);
 
+  // Asked once, here, before the first deactivate; the Wait path's own deactivate
+  // does not ask again. With an empty session it goes straight on, as ever.
+  const leave = useCallback(async () => {
+    if (holdsUnsavedWork(statisticsSession.get())) {
+      setAsking(true);
+      return;
+    }
+    await deactivate();
+  }, [deactivate]);
+
   // While the dialog is open, read the blocking run; once it has ended and
   // the user chose to wait (or cancelled it), switch.
   useEffect(() => {
@@ -245,7 +259,7 @@ export function useWorkspaceSwitch({ bridge, runs, pollMs, setMessage }: Workspa
       if (waiting && (r === null || r.terminal)) {
         stop = true;
         setWaiting(false);
-        await leave();
+        await deactivate();
       }
     };
     tick();
@@ -254,7 +268,7 @@ export function useWorkspaceSwitch({ bridge, runs, pollMs, setMessage }: Workspa
       stop = true;
       clearInterval(t);
     };
-  }, [blocking, waiting, statusOf, pollMs, leave]);
+  }, [blocking, waiting, statusOf, pollMs, deactivate]);
 
   const cancelRun = useCallback(async () => {
     if (blocking === null) return;
@@ -270,6 +284,7 @@ export function useWorkspaceSwitch({ bridge, runs, pollMs, setMessage }: Workspa
   }, []);
 
   const dialog = (
+    <>
     <Modal open={blocking !== null} title={SWITCH_DIALOG.title} onClose={stay}>
       <div data-testid="ws-switch-dialog">
         <p>{SWITCH_DIALOG.body}</p>
@@ -290,6 +305,19 @@ export function useWorkspaceSwitch({ bridge, runs, pollMs, setMessage }: Workspa
         </div>
       </div>
     </Modal>
+    {asking && (
+      <AskFirst
+        title={ASK_LEAVE.title}
+        sentence={ASK_LEAVE.sentence}
+        testId="sw-ask"
+        onCancel={() => setAsking(false)}
+        onContinue={() => {
+          setAsking(false);
+          void deactivate();
+        }}
+      />
+    )}
+    </>
   );
 
   return { leave, statusOf, dialog };

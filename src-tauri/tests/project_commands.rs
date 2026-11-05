@@ -38,7 +38,7 @@ use app_lib::project_commands::{
     RerunProgress, RerunStartedView, RerunView, RunResultView, SaveTarget, SavedRunView,
     StoredArtifactView, StoredRunView, CONFIRMATION_LIFETIME_MS,
 };
-use app_lib::runs::{Point, RunKind};
+use app_lib::runs::{Point, RunKind, MAX_RUNS};
 use gaply_core::contracts::codes::Closed;
 use gaply_core::contracts::{RunId, RunState};
 use gaply_core::research_project::{ArtifactKind, Caps, DataFormat, ProjectCode, RerunComparison};
@@ -327,11 +327,11 @@ fn runs_that_may_not_be_saved_are_refused_with_their_codes_and_nothing_is_writte
     assert_eq!(code(&e), "project.run_unknown");
     assert_eq!(files(&w.root()), before, "nothing written");
 
-    // Evicted: nine later runs push it out of the eight held.
+    // Evicted: MAX_RUNS later runs push it out of the records held.
     let w = World::new("evicted");
     let slot = w.open("a.csv", CSV);
     let first = w.describe(slot);
-    for _ in 0..8 {
+    for _ in 0..MAX_RUNS {
         w.describe(slot);
     }
     let before = files(&w.root());
@@ -713,7 +713,7 @@ fn a_save_racing_its_runs_eviction_is_whole_or_refused() {
         let w = World::new(&format!("race-evict-{round}"));
         let slot = w.open("a.csv", CSV);
         let target = w.describe(slot);
-        for _ in 0..7 {
+        for _ in 0..MAX_RUNS - 1 {
             w.describe(slot);
         }
         let gate = Arc::new(Barrier::new(2));
@@ -723,7 +723,7 @@ fn a_save_racing_its_runs_eviction_is_whole_or_refused() {
             pc::save_run(&root, &ws, target, new_project("p"))
         });
         gate.wait();
-        w.describe(slot); // the ninth: evicts the oldest finished run
+        w.describe(slot); // the one past MAX_RUNS: evicts the oldest finished run
         match saver.join().unwrap() {
             Ok(v) => {
                 let e = pc::list(&w.root(), &w.ws).unwrap();

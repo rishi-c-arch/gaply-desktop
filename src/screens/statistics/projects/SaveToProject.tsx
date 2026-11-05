@@ -25,7 +25,7 @@ import { projectBridge, type ProjectBridge } from './projectBridge';
 import { projectsShown } from './projectGate';
 import { noteCurrent, openProjectStore, useOpenProject } from './projectSession';
 import { NAME_WORDS, PROJECT_TEXT, projectSentence, SAVE_SENTENCE } from './projectWording';
-import ProjectDialog from './ProjectDialog';
+import ProjectDialog from '../../../design-system/ProjectDialog';
 import { useGeneration } from './useGeneration';
 
 /** A run the screens offer to save: one that Succeeded, or Failed with its
@@ -44,6 +44,8 @@ export interface SaveToProjectProps {
   /** Test seam: whether this is the desktop app. */
   desktop?: boolean;
   testId?: string;
+  /** After a Save: the Output keeps it in its entry (decision 471). */
+  onSaved?: (projectId: string) => void;
 }
 
 type Choice = 'new' | 'open' | null;
@@ -56,7 +58,7 @@ interface Saved {
 export const SaveToProject: React.FC<SaveToProjectProps> = (props) =>
   projectsShown(props.desktop) ? <SaveToProjectShown {...props} /> : null;
 
-const SaveToProjectShown: React.FC<SaveToProjectProps> = ({ runId, bridge: given, testId = 'project-save' }) => {
+const SaveToProjectShown: React.FC<SaveToProjectProps> = ({ runId, bridge: given, testId = 'project-save', onSaved }) => {
   const bridge = useMemo(() => given ?? projectBridge(), [given]);
   const open = useOpenProject();
   const [dialog, setDialog] = useState(false);
@@ -128,6 +130,7 @@ const SaveToProjectShown: React.FC<SaveToProjectProps> = ({ runId, bridge: given
       if (!gen.is(g)) return;
       openProjectStore.set({ projectId: r.projectId, name: shownName });
       setSaved({ created: r.created, name: shownName });
+      onSaved?.(r.projectId);
       setDialog(false);
     } catch (e) {
       if (!gen.is(g)) return;

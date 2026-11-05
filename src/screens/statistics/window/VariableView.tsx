@@ -6,10 +6,8 @@ import React from 'react';
 import { CELL_PADDING } from '../../../design-system/primitives';
 import type { ColumnProfile, DatasetView } from '../describeTypes';
 import { FileFindings } from '../flowParts';
-import { FROM_A_RECIPE, FROM_THE_FILE, missingCodeWords, nonFiniteSentence, scoreCountsSentence, VARIABLE_HEADERS, VARIABLE_NOTE } from './windowWording';
+import { columnLabel, FROM_A_RECIPE, FROM_THE_FILE, missingCodeWords, nonFiniteSentence, scoreCountsSentence, VARIABLE_HEADERS, VARIABLE_NOTE } from './windowWording';
 
-/** A score is named by what the user typed; its header is its alias word. */
-const nameOf = (c: ColumnProfile): string => c.scoreName ?? c.header;
 
 const kindName = (c: ColumnProfile): string => (c.kind === 'numeric' ? 'Numeric' : c.kind === 'categorical' ? 'Categorical' : 'Empty');
 
@@ -17,7 +15,7 @@ export const VariableView: React.FC<{ view: DatasetView }> = ({ view }) => {
   const columns = view.profile.columns;
   const label = (alias: string) => {
     const c = columns.find((x) => x.alias === alias);
-    return c ? `${alias} ${nameOf(c)}` : alias;
+    return c ? `${alias} ${columnLabel(c)}` : alias;
   };
   return (
     <div data-testid="sw-variable-view">
@@ -37,7 +35,7 @@ export const VariableView: React.FC<{ view: DatasetView }> = ({ view }) => {
               <td className="gds-mono" style={CELL_PADDING}>{c.alias.replace(/^C/, '')}</td>
               <td className="gds-mono" style={CELL_PADDING}>{c.alias}</td>
               <td style={CELL_PADDING}>
-                <bdi data-testid={`sw-var-name-${c.alias}`}>{nameOf(c)}</bdi>
+                <bdi data-testid={`sw-var-name-${c.alias}`}>{columnLabel(c)}</bdi>
               </td>
               <td style={CELL_PADDING}>{kindName(c)}</td>
               <td className="gds-mono" style={CELL_PADDING}>{c.distinct}</td>

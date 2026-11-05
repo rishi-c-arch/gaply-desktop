@@ -370,6 +370,7 @@ pub fn run() {
             stats_desc_commands::stats_desc_export,
             stats_desc_commands::stats_desc_close,
             stats_desc_commands::stats_desc_cells,
+            stats_desc_commands::stats_desc_forget_run,
             stats_desc_commands::stats_desc_limits,
             stats_desc_commands::stats_desc_open_progress,
             // Research OS, Phase 4B-2: the independent-samples t-test, behind

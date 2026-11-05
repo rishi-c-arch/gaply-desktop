@@ -83,7 +83,7 @@ describe('Methods and limits', () => {
   it('imports the home\'s pieces rather than holding a copy', () => {
     const src = fs.readFileSync(path.join(__dirname, 'HelpDialog.tsx'), 'utf8');
     expect(src).toMatch(/import \{[^}]*\bLimitations\b[^}]*\bplace\b[^}]*\bRetiredList\b[^}]*\bRoadmapList\b[^}]*\} from '\.\.\/StatisticsHome'/);
-    expect(src).toMatch(/import \{ ProjectDialog \} from '\.\.\/projects\/ProjectDialog'/);
+    expect(src).toMatch(/import \{ ProjectDialog \} from '\.\.\/\.\.\/\.\.\/design-system\/ProjectDialog'/);
     expect(src).not.toMatch(/stats-roadmap-|stats-retired-|stats-limits-/);
   });
 });

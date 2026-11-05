@@ -15,7 +15,7 @@
 //   dialog's accessible name, and a name must stay inside <bdi> as text.
 import React, { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import '../../../design-system/primitives.css';
+import './primitives.css';
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';

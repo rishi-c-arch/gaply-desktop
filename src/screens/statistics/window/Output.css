@@ -1,0 +1,80 @@
+/* Gaply — the Output (Research OS, Phase 8R, decision 471; ADR-012 Part 1): the
+   outline 220 px and the result pane, each scrolling inside itself. */
+
+.gds-root .sw-body.sw-body--output {
+  overflow: hidden;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.gds-root .sw-body.sw-body--output > .sw-message {
+  margin: 0;
+  padding: 0 var(--g-space-2);
+}
+.gds-root .sw-output {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+}
+.gds-root .sw-outline {
+  min-height: 0;
+  overflow: auto;
+  border-right: 1px solid var(--g-border);
+  padding: var(--g-space-1);
+}
+.gds-root .sw-outline__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.gds-root .sw-outline__line {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.gds-root .sw-outline__go {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 4px;
+  background: none;
+  border: 0;
+  color: var(--g-text);
+  font: inherit;
+  font-size: var(--g-text-size-sm);
+  text-align: left;
+  cursor: pointer;
+}
+.gds-root .sw-outline__go[aria-current='true'] {
+  font-weight: 600;
+  border-left: 2px solid var(--g-accent);
+}
+.gds-root .sw-pane {
+  min-height: 0;
+  overflow: auto;
+  padding: var(--g-space-2);
+}
+.gds-root .sw-entry {
+  display: grid;
+  gap: var(--g-space-1);
+}
+.gds-root .sw-entry[hidden] {
+  display: none;
+}
+.gds-root .sw-entry__heading {
+  margin: 0;
+}
+.gds-root .sw-entry__settings {
+  margin: 0;
+  font-size: var(--g-text-size-sm);
+  color: var(--g-text-2);
+}
+.gds-root .sw-entry__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--g-space-1);
+  align-items: flex-start;
+}

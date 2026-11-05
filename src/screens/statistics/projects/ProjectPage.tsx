@@ -85,7 +85,7 @@ import {
   savedOn,
   sizeSentence,
 } from './projectWording';
-import ProjectDialog from './ProjectDialog';
+import ProjectDialog from '../../../design-system/ProjectDialog';
 import SavedResult, { RerunWords } from './SavedResult';
 import { useGeneration, type Generation } from './useGeneration';
 

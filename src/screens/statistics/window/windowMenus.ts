@@ -8,7 +8,7 @@
 import type { MenuDefinition, MenuItem } from '../../../design-system';
 import { METHODS } from '../methods';
 import type { CapabilityView } from '../ttestTypes';
-import { FILE_BUSY, LATER_STEP, MENU_WORDS, NOT_RUNNABLE, NO_FILE, RUN_GOING, WINDOW_TITLE } from './windowWording';
+import { FILE_BUSY, LATER_STEP, MENU_WORDS, NOT_RUNNABLE, NO_FILE, OUTPUT_FULL, RUN_GOING, WINDOW_TITLE } from './windowWording';
 
 /** The scale score is no METHODS row, since it has no run kind (decision 451). */
 export const SCALE_SCORE_CAPABILITY = 'stats.prepare.scale_score';
@@ -26,6 +26,8 @@ export interface WindowMenuActions {
   go: (path: string) => void;
   switchWorkspace: () => void;
   help: (topic: HelpTopic) => void;
+  /** Opens a method's dialog (decision 471). */
+  method?: (kind: string) => void;
 }
 
 export interface WindowMenuContext {
@@ -34,6 +36,8 @@ export interface WindowMenuContext {
   runGoing: boolean;
   /** A picker, an open or a close of this window's is going. */
   busy: boolean;
+  /** The Output holds its 32 (decision 471). */
+  outputFull?: boolean;
   /** Rust's list, or null while unread or when it could not be read. */
   capabilities: CapabilityView[] | null;
   projects: boolean;
@@ -65,6 +69,18 @@ function capabilityItem(c: WindowMenuContext, id: string, label: string, capabil
   return disabled(id, label, runnable ? LATER_STEP : NOT_RUNNABLE);
 }
 
+/** The methods with a dialog in this step (decision 473); the rest in 8S. */
+const LIVE_METHODS: readonly string[] = ['cronbach_alpha'];
+
+/** A method's item: Rust's word first, then whether this build has its dialog,
+ *  then why it cannot be pressed now (decision 471). */
+function methodItem(c: WindowMenuContext, id: string, label: string, kind: string, capabilityId: string): MenuItem {
+  const generic = capabilityItem(c, id, label, capabilityId);
+  if (generic.description === NOT_RUNNABLE || !LIVE_METHODS.includes(kind)) return generic;
+  const why = !c.fileOpen ? NO_FILE : c.runGoing ? RUN_GOING : c.busy ? FILE_BUSY : c.outputFull ? OUTPUT_FULL : undefined;
+  return why ? disabled(id, label, why) : live(id, label, () => c.actions.method?.(kind));
+}
+
 /** METHODS' rows, in order, under each group's heading. */
 function analyzeGroups(c: WindowMenuContext): MenuDefinition['groups'] {
   const groups: MenuDefinition['groups'] = [];
@@ -74,7 +90,7 @@ function analyzeGroups(c: WindowMenuContext): MenuDefinition['groups'] {
       group = { heading: m.menuGroup, items: [] };
       groups.push(group);
     }
-    group.items.push(capabilityItem(c, `analyze-${m.kind}`, m.menuLabel, m.capabilityId));
+    group.items.push(methodItem(c, `analyze-${m.kind}`, m.menuLabel, m.kind, m.capabilityId));
   }
   return groups;
 }

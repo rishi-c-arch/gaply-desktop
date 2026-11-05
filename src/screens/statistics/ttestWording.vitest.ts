@@ -118,7 +118,7 @@ describe('the sentences say what the code does (evaluation F6)', () => {
   });
 
   it('(c) "the last N runs" is read from describeLimits.json, on both screens', () => {
-    expect(LIMITS.maxRuns).toBe(8);
+    expect(LIMITS.maxRuns).toBe(40);
     expect(words.ttestSentence({ code: 'run.unknown_run' })).toContain(`the last ${LIMITS.maxRuns} runs`);
     expect(describeRefusalSentence(JSON.stringify({ code: 'run.unknown_run' }))).toContain(`the last ${LIMITS.maxRuns} runs`);
   });

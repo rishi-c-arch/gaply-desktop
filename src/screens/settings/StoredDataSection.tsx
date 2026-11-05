@@ -24,7 +24,7 @@
 //   unchanged.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Card } from '../../design-system';
-import ProjectDialog from '../statistics/projects/ProjectDialog';
+import ProjectDialog from '../../design-system/ProjectDialog';
 import { mb } from '../statistics/projects/projectWording';
 import { useGeneration, type Generation } from '../statistics/projects/useGeneration';
 import {

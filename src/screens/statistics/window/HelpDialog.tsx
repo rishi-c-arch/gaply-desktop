@@ -10,7 +10,7 @@ import { isFeatureEnabled } from '../../../config/featureFlags';
 import { capabilitySentence, HOME_TEXT, LIFECYCLE_LABELS } from '../capabilityWording';
 import type { MethodLimitsView } from '../describeTypes';
 import { limitsSentence } from '../flowParts';
-import { ProjectDialog } from '../projects/ProjectDialog';
+import { ProjectDialog } from '../../../design-system/ProjectDialog';
 import { Limitations, place, RetiredList, RoadmapList } from '../StatisticsHome';
 import type { CapabilityView } from '../ttestTypes';
 import type { HelpTopic } from './windowMenus';
