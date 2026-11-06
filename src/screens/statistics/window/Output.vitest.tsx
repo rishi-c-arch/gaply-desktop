@@ -200,11 +200,11 @@ describe('the alpha menu item', () => {
     await openDialog();
   });
 
-  it('the other six stay in a later step', async () => {
+  it('every method is live with a file (decision 485), and Transform stays in a later step', async () => {
     setUp();
     await opened();
-    await untilItem('analyze', 'analyze-correlations', (i) => i.said === LATER_STEP);
-    expect(readItem('analyze', 'analyze-ttest').said).toBe(LATER_STEP);
+    for (const m of METHODS) await untilItem('analyze', `analyze-${m.kind}`, (i) => !i.off);
+    expect(readItem('transform', 'transform-scale-score').said).toBe(LATER_STEP);
   });
 });
 
@@ -710,5 +710,42 @@ describe("the grid's place, through the window's tabs (decision 473)", () => {
     expect(grid().scrollTop).toBe(240);
     act(() => statisticsSession.setFile(fileView(7)));
     await waitFor(() => expect(grid().scrollTop).toBe(0));
+  });
+});
+
+describe('Remove asks only for what could be saved (decision 480)', () => {
+  it('asks nothing for a cancelled run', async () => {
+    const { files } = setUp({ status: (a) => runState(a.runId as number, 'cancelled', true) });
+    await opened();
+    await runAlpha();
+    await screen.findByTestId('sw-entry-1-run-ended');
+    fireEvent.click(screen.getByTestId('sw-outline-remove-1'));
+    expect(screen.queryByTestId('sw-ask-sentence')).toBeNull();
+    await waitFor(() => expect(files.calls.filter(([c]) => c === 'stats_desc_forget_run')).toHaveLength(1));
+  });
+
+  it('asks nothing for a result whose file has closed, which can no longer be saved', async () => {
+    const { files } = setUp();
+    await opened();
+    await runAlpha();
+    await finished(1);
+    openMenu('file');
+    fireEvent.click(menuItem('file-close'));
+    fireEvent.click(screen.getByTestId('sw-ask-continue'));
+    await waitFor(() => expect(statisticsSession.get().view).toBeNull());
+    fireEvent.click(await screen.findByTestId('sw-outline-remove-1'));
+    expect(screen.queryByTestId('sw-ask-sentence')).toBeNull();
+    await waitFor(() => expect(files.calls.filter(([c]) => c === 'stats_desc_forget_run')).toHaveLength(1));
+  });
+
+  it('Close asks nothing when the only entry was cancelled', async () => {
+    const { files } = setUp({ status: (a) => runState(a.runId as number, 'cancelled', true) });
+    await opened();
+    await runAlpha();
+    await screen.findByTestId('sw-entry-1-run-ended');
+    openMenu('file');
+    fireEvent.click(menuItem('file-close'));
+    expect(screen.queryByTestId('sw-ask-sentence')).toBeNull();
+    await waitFor(() => expect(files.calls.filter(([c]) => c === 'stats_desc_close')).toHaveLength(1));
   });
 });

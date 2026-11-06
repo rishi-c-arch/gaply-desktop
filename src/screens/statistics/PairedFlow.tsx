@@ -30,6 +30,7 @@ import { Button, Card } from '../../design-system';
 import { pickManuscriptPath } from '../common/pickFile';
 import { saveTextFile } from '../../utils/saveTextFile';
 import { pairedBridge, type PairedBridge } from './onesampleBridge';
+import { PairedSettings, usePairedSettings } from './PairedSettings';
 import { SaveToProject } from './projects/SaveToProject';
 import {
   DiagnosticList,
@@ -56,20 +57,18 @@ import {
 } from './flowHooks';
 import { readMethodLimits } from './statsInvoke';
 import type { DatasetView, ExportFormat } from './describeTypes';
-import type { OneSampleRunStateView, OneSampleValidationView, PairedResultView, PairedSpec } from './onesampleTypes';
+import type { OneSampleRunStateView, OneSampleValidationView, PairedResultView } from './onesampleTypes';
 import { Stage, STATUS_SENTENCES } from './describeWording';
 import { shownNumber, TTEST_DIGITS_NOTE } from './ttestWording';
 import {
   oneSampleRefusalSentence,
   oneSampleRunEndedSentence,
   oneSampleSentence,
-  PAIRED_DIFFERENCE_LINE,
   PAIRED_ENTRY_TEXT,
   PAIRED_EXPORT_CHOICES,
   PAIRED_EXPORT_TEXT,
   PAIRED_ROWS_USED_NOTE,
   PAIRED_STAGE_HEADINGS,
-  pairedMissingCodeQuestion,
   type OneSampleNames,
 } from './onesampleWording';
 
@@ -90,33 +89,6 @@ export interface PairedFlowProps {
   limits?: () => Promise<unknown>;
 }
 
-const aliasNumber = (alias: string) => Number(alias.replace(/^C/, ''));
-
-/** The columns the test can read: numeric ones. */
-const numericColumns = (view: DatasetView) => view.profile.columns.filter((c) => c.kind === 'numeric');
-
-/** One candidate missing code of either chosen column, with each column's
- *  count (0 where the code is absent). */
-interface OfferedCode {
-  code: number;
-  first: number;
-  second: number;
-}
-
-function buildSpec(view: DatasetView, first: string, second: string, missingCodes: number[], operationId: number): PairedSpec {
-  return {
-    schemaVersion: 1,
-    operationId,
-    workspaceId: 'statistics',
-    capabilityId: 'stats.analyze.paired_t',
-    capabilityVersion: 1,
-    inputs: [view.inputRef],
-    parameters: { first, second, missingCodes },
-    randomSeed: null,
-    confirmationRefs: [],
-  };
-}
-
 const PairedFlow: React.FC<PairedFlowProps> = ({
   bridge,
   pickPath = () => pickManuscriptPath(DATA_EXTENSIONS, 'Data file'),
@@ -128,9 +100,7 @@ const PairedFlow: React.FC<PairedFlowProps> = ({
   const openProgress = useOpenProgress();
   const [stage, setStage] = useState<Stage>('import');
   const [view, setView] = useState<DatasetView | null>(null);
-  const [first, setFirst] = useState('');
-  const [second, setSecond] = useState('');
-  const [ticked, setTicked] = useState<number[]>([]);
+  const settings = usePairedSettings(view);
   const [report, setReport] = useState<OneSampleValidationView | null>(null);
   const [runView, setRunView] = useState<OneSampleRunStateView | null>(null);
   const [result, setResult] = useState<PairedResultView | null>(null);
@@ -146,37 +116,12 @@ const PairedFlow: React.FC<PairedFlowProps> = ({
   // The file is closed, and its rows dropped in Rust, when the screen goes.
   useCloseOnUnmount(bridge, slot);
 
-  const firstColumn = useMemo(() => view?.profile.columns.find((c) => c.alias === first), [view, first]);
-  const secondColumn = useMemo(() => view?.profile.columns.find((c) => c.alias === second), [view, second]);
-
-  /** Each code of the first column, then each of the second's not already
-   *  offered, once, with both columns' counts. */
-  const offered = useMemo<OfferedCode[]>(() => {
-    if (!firstColumn || !secondColumn) return [];
-    const cellsIn = (codes: Array<{ code: number; cells: number }>, code: number) => codes.find((s) => s.code === code)?.cells ?? 0;
-    const out: OfferedCode[] = [];
-    for (const s of [...firstColumn.suspectMissingCodes, ...secondColumn.suspectMissingCodes]) {
-      if (out.some((o) => o.code === s.code)) continue;
-      out.push({ code: s.code, first: cellsIn(firstColumn.suspectMissingCodes, s.code), second: cellsIn(secondColumn.suspectMissingCodes, s.code) });
-    }
-    return out;
-  }, [firstColumn, secondColumn]);
-  const missingCodes = useMemo(() => ticked.filter((t) => offered.some((s) => s.code === t)), [ticked, offered]);
-
-  const names: OneSampleNames = useMemo(
-    () => ({
-      column: (alias: number) => {
-        const c = view?.profile.columns.find((col) => aliasNumber(col.alias) === alias);
-        return c ? `"${c.header}"` : `C${alias}`;
-      },
-    }),
-    [view]
-  );
+  const { names } = settings;
 
   const spec = useCallback(() => {
     operation.current += 1;
-    return buildSpec(view as DatasetView, first, second, missingCodes, operation.current);
-  }, [view, first, second, missingCodes]);
+    return settings.spec(operation.current);
+  }, [settings]);
 
   // While a run is unfinished, its state is read every `pollMs`.
   useRunPolling(runView, setRunView, bridge, setError, oneSampleRefusalSentence, pollMs);
@@ -184,9 +129,7 @@ const PairedFlow: React.FC<PairedFlowProps> = ({
   const act = actWith(setBusy, setError, oneSampleRefusalSentence);
 
   const reset = () => {
-    setFirst('');
-    setSecond('');
-    setTicked([]);
+    settings.reset();
     setReport(null);
     setRunView(null);
     setResult(null);
@@ -250,7 +193,6 @@ const PairedFlow: React.FC<PairedFlowProps> = ({
       setExportNote(saved.note);
     });
 
-  const toggleCode = (code: number, on: boolean) => setTicked((t) => (on ? [...t.filter((x) => x !== code), code] : t.filter((x) => x !== code)));
 
   const say = (d: { code: string; params?: Record<string, unknown>; count?: number }) => oneSampleSentence(d, names);
 
@@ -258,24 +200,6 @@ const PairedFlow: React.FC<PairedFlowProps> = ({
     <h3 className="gds-card__title" ref={heading} tabIndex={-1} data-testid="pt-stage-heading">
       {PAIRED_STAGE_HEADINGS[stage]}
     </h3>
-  );
-
-  // Check the settings needs both columns; the same one twice is Rust's to
-  // refuse (decision 271).
-  const ready = first !== '' && second !== '';
-
-  const picker = (which: 'first' | 'second', label: string, value: string, set: (v: string) => void) => (
-    <label>
-      {label}{' '}
-      <select value={value} data-testid={`pt-${which}`} aria-describedby="pt-difference-line" onChange={(e) => set(e.target.value)}>
-        <option value="">Choose a column…</option>
-        {numericColumns(view as DatasetView).map((c) => (
-          <option key={c.alias} value={c.alias}>
-            {c.alias} {c.header}
-          </option>
-        ))}
-      </select>
-    </label>
   );
 
   return (
@@ -322,34 +246,8 @@ const PairedFlow: React.FC<PairedFlowProps> = ({
       {stage === 'settings' && view && (
         <Card>
           {title}
-          <div style={{ display: 'grid', gap: 8 }}>
-            {picker('first', 'First column (a numeric column)', first, setFirst)}
-            {picker('second', 'Second column (a numeric column)', second, setSecond)}
-            <p id="pt-difference-line" data-testid="pt-difference-line" style={{ margin: 0 }}>
-              {PAIRED_DIFFERENCE_LINE}
-            </p>
-            {firstColumn && secondColumn && offered.length > 0 && (
-              <fieldset data-testid="pt-missing-codes">
-                <legend>Candidate missing codes</legend>
-                {offered.map((s) => (
-                  <label key={s.code} style={{ display: 'block' }}>
-                    <input
-                      type="checkbox"
-                      checked={ticked.includes(s.code)}
-                      data-testid={`pt-code-${s.code}`}
-                      onChange={(e) => toggleCode(s.code, e.target.checked)}
-                    />{' '}
-                    {pairedMissingCodeQuestion(
-                      s.code,
-                      { header: firstColumn.header, cells: s.first },
-                      { header: secondColumn.header, cells: s.second }
-                    )}
-                  </label>
-                ))}
-              </fieldset>
-            )}
-          </div>
-          <SettingsActions prefix="pt" busy={busy} ready={ready} onBack={() => setStage('profile')} onCheck={() => void check()} />
+          <PairedSettings view={view} settings={settings} />
+          <SettingsActions prefix="pt" busy={busy} ready={settings.ready} onBack={() => setStage('profile')} onCheck={() => void check()} />
         </Card>
       )}
 

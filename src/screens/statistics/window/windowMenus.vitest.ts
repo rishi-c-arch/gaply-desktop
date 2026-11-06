@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { MenuDefinition, MenuItem } from '../../../design-system';
 import { METHODS } from '../methods';
 import type { CapabilityView } from '../ttestTypes';
-import { COMING_LATER, SCALE_SCORE_CAPABILITY, windowMenus, type WindowMenuContext } from './windowMenus';
+import { COMING_LATER, LIVE_METHODS, SCALE_SCORE_CAPABILITY, windowMenus, type WindowMenuContext } from './windowMenus';
 import { LATER_STEP, NOT_RUNNABLE, NO_FILE, RUN_GOING } from './windowWording';
 
 const capability = (id: string, runnable = true): CapabilityView => ({
@@ -198,8 +198,9 @@ describe('what Rust says may run', () => {
     ['transform', 'Scale score…', SCALE_SCORE_CAPABILITY],
   ];
 
-  // Alpha's item is live since 8R (decision 473), and has its tests below.
-  it.each(ROWS.filter((r) => r[2] !== 'stats.analyze.cronbach_alpha'))('%s, %s: Rust calling it runnable shows the later-step sentence', (m, label) => {
+  // A method's item is live once its dialog exists (decision 485), and has its tests below.
+  const notLive = (r: [string, string, string]) => !METHODS.some((m) => m.capabilityId === r[2] && LIVE_METHODS.includes(m.kind));
+  it.each(ROWS.filter(notLive))('%s, %s: Rust calling it runnable shows the later-step sentence', (m, label) => {
     const i = item(windowMenus(context({ fileOpen: true })), m, label);
     expect(i.disabled).toBe(true);
     expect(i.description).toBe(LATER_STEP);
@@ -267,5 +268,27 @@ describe("alpha's item, live (decision 473)", () => {
   it('Rust not calling it runnable wins, with a file and an empty Output', () => {
     const notRunnable = ALL.map((c) => (c.id === 'stats.analyze.cronbach_alpha' ? { ...c, runnable: false } : c));
     expect(item(windowMenus(context({ fileOpen: true, capabilities: notRunnable })), 'analyze', LABEL).description).toBe(NOT_RUNNABLE);
+  });
+});
+
+describe('every method, live (decision 485)', () => {
+  it('LIVE_METHODS holds all seven', () => {
+    expect([...LIVE_METHODS].sort()).toEqual(METHODS.map((m) => m.kind).sort());
+  });
+
+  it.each(METHODS.map((m) => [m.menuLabel, m.kind] as const))('%s opens the dialog of its own kind, with a file', (label, kind) => {
+    const method = vi.fn();
+    const i = item(windowMenus(context({ fileOpen: true, actions: { open: vi.fn(), close: vi.fn(), go: vi.fn(), switchWorkspace: vi.fn(), help: vi.fn(), method } })), 'analyze', label);
+    expect(i.disabled).toBeFalsy();
+    i.onSelect?.();
+    expect(method).toHaveBeenCalledWith(kind);
+    expect(item(windowMenus(context({ fileOpen: false })), 'analyze', label).description).toBe(NO_FILE);
+  });
+
+  it("Transform's and Project's items, and the prepared data's export, keep the later-step sentence", () => {
+    const ms = windowMenus(context({ fileOpen: true }));
+    expect(item(ms, 'transform', 'Scale score…').description).toBe(LATER_STEP);
+    expect(item(ms, 'file', 'Export the prepared data (CSV)…').description).toBe(LATER_STEP);
+    for (const label of ['Open a project…', 'Run every saved result again', 'Export the project report…']) expect(item(ms, 'project', label).description).toBe(LATER_STEP);
   });
 });

@@ -69,8 +69,8 @@ function capabilityItem(c: WindowMenuContext, id: string, label: string, capabil
   return disabled(id, label, runnable ? LATER_STEP : NOT_RUNNABLE);
 }
 
-/** The methods with a dialog in this step (decision 473); the rest in 8S. */
-const LIVE_METHODS: readonly string[] = ['cronbach_alpha'];
+/** The methods with a dialog (decisions 473 and 485), each still reading Rust's list. */
+export const LIVE_METHODS: readonly string[] = ['describe', 'ttest', 'one_sample', 'paired', 'anova', 'correlations', 'cronbach_alpha'];
 
 /** A method's item: Rust's word first, then whether this build has its dialog,
  *  then why it cannot be pressed now (decision 471). */

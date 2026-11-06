@@ -375,5 +375,10 @@ describe('CorrResultCard with many variables', () => {
       `CORR_RENDER_MS 50 variables (1225 pairs): ${times.k50.toFixed(0)}; 128 variables (8128 pairs): first page ${times.k128first.toFixed(0)}, last page ${times.k128last.toFixed(0)}`
     );
     expect(times.k50 + times.k128first + times.k128last).toBeLessThan(30000);
-  });
+    // Its own timeout, above the 30,000 ms ceiling, so that ceiling decides rather than the
+    // global 20 s (vitest.config.ts:26). Measured 5 Nov 2026 (decision 480): alone, five runs,
+    // 2,119 to 2,227 ms; in the whole suite at default workers, five runs, 6,209 to 8,619 ms.
+    // On a loaded Mac: 22,422 ms in 8R, which is what died at 20 s; and 90,189 ms on 5 Nov at a
+    // load average near 20 with 5 GB of swap in use, its renders 12 s of that, so the ceiling held.
+  }, 180000);
 });

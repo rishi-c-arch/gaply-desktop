@@ -343,7 +343,7 @@ describe('Analyze and Transform read Rust\'s list', () => {
     });
     openMenu('analyze');
     expect(description('analyze-paired')).toBe(NOT_RUNNABLE);
-    expect(description('analyze-ttest')).toBe(LATER_STEP);
+    expect(description('analyze-ttest')).toBe(NO_FILE);
     openMenu('analyze');
     openMenu('transform');
     expect(description('transform-scale-score')).toBe(LATER_STEP);

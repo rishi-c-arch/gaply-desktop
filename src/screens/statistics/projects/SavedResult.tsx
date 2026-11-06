@@ -66,7 +66,7 @@ const BY_POSITION = (alias: number) => `C${alias}`;
 
 /** The t-test's names: columns by position, levels by the result's own two
  *  groups, as the live screen names them from the same labels. */
-function ttestNames(result: TTestResultView): TTestNames {
+export function ttestNames(result: TTestResultView): TTestNames {
   return {
     column: BY_POSITION,
     level: (index: number) => result.result.groups.find((g) => g.level === index)?.label ?? `level ${index + 1}`,
@@ -75,7 +75,7 @@ function ttestNames(result: TTestResultView): TTestNames {
 
 /** The one-way ANOVA's names: columns by position, levels by the result's
  *  own groups, as the live screen names them from the same labels. */
-function anovaNames(result: AnovaResultView): AnovaNames {
+export function anovaNames(result: AnovaResultView): AnovaNames {
   return {
     column: BY_POSITION,
     level: (index: number) => result.result.groups.find((g) => g.level === index)?.label ?? `level ${index + 1}`,

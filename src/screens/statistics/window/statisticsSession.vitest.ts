@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { DatasetView } from '../describeTypes';
 import LIMITS from '../describeLimits.json';
 import type { WorkspaceStateView } from '../../workspace/workspaceTypes';
-import { holdsUnsavedWork, MAX_OUTPUT, sessionSlot, SLOT_GONE, statisticsSession } from './statisticsSession';
+import { entryNotSaved, holdsUnsavedWork, MAX_OUTPUT, sessionSlot, SLOT_GONE, statisticsSession, type OutputEntry } from './statisticsSession';
 
 const view = (slot: number): DatasetView => ({
   slot,
@@ -187,5 +187,76 @@ describe('the records behind the Output (decision 468)', () => {
   it('outnumber its entries, so a going rerun never pushes out a live result', () => {
     expect(LIMITS.maxRuns).toBe(40);
     expect(LIMITS.maxRuns).toBeGreaterThan(MAX_OUTPUT);
+  });
+});
+
+describe('what counts as not saved (decision 480)', () => {
+  const entryOf = (run: Record<string, unknown>, slot = 1) =>
+    ({
+      kind: 'cronbach_alpha',
+      view: view(slot),
+      slot,
+      settings: 'S.',
+      runId: 5,
+      run: { runId: 5, elapsedMs: 0, cancelRequested: false, stepsDone: 0, stepsTotal: 7, diagnostics: [], ...run },
+    }) as never;
+  const added = (run: Record<string, unknown>, slot = 1) => {
+    statisticsSession.setFile(view(1));
+    const n = statisticsSession.addEntry(entryOf(run, slot)) as number;
+    return statisticsSession.get().output.find((e) => e.number === n) as OutputEntry;
+  };
+  const openSlot = () => statisticsSession.get().slot;
+
+  it('running: yes, since it may yet be savable', () => {
+    expect(entryNotSaved(added({ state: 'running', terminal: false }), openSlot())).toBe(true);
+  });
+
+  it('queued: yes', () => {
+    expect(entryNotSaved(added({ state: 'queued', terminal: false }), openSlot())).toBe(true);
+  });
+
+  it('cancelled: no', () => {
+    expect(entryNotSaved(added({ state: 'cancelled', terminal: true }), openSlot())).toBe(false);
+  });
+
+  it('refused: no', () => {
+    expect(entryNotSaved(added({ state: 'refused', terminal: true }), openSlot())).toBe(false);
+  });
+
+  it('failed with no error diagnostic: no', () => {
+    expect(entryNotSaved(added({ state: 'failed', terminal: true, diagnostics: [{ code: 'x', severity: 'warning' }] }), openSlot())).toBe(false);
+  });
+
+  it('failed with one, its slot open: yes', () => {
+    expect(entryNotSaved(added({ state: 'failed', terminal: true, diagnostics: [{ code: 'x', severity: 'error' }] }), openSlot())).toBe(true);
+  });
+
+  it('succeeded with its slot gone: no', () => {
+    const e = added({ state: 'succeeded', terminal: true });
+    statisticsSession.clearFile();
+    expect(entryNotSaved(e, openSlot())).toBe(false);
+  });
+
+  it('succeeded, another file open: no', () => {
+    expect(entryNotSaved(added({ state: 'succeeded', terminal: true }, 2), openSlot())).toBe(false);
+  });
+
+  it('saved: no', () => {
+    const e = added({ state: 'succeeded', terminal: true });
+    expect(entryNotSaved({ ...e, saved: { projectId: 'p', name: 'P' } }, openSlot())).toBe(false);
+  });
+
+  it('succeeded, unsaved, its slot open: yes', () => {
+    expect(entryNotSaved(added({ state: 'succeeded', terminal: true }), openSlot())).toBe(true);
+  });
+
+  it("holdsUnsavedWork follows it: a cancelled entry and an entry of a closed file ask nothing", () => {
+    added({ state: 'cancelled', terminal: true });
+    expect(holdsUnsavedWork(statisticsSession.get())).toBe(false);
+    statisticsSession.clear();
+    added({ state: 'succeeded', terminal: true });
+    expect(holdsUnsavedWork(statisticsSession.get())).toBe(true);
+    statisticsSession.clearFile();
+    expect(holdsUnsavedWork(statisticsSession.get())).toBe(false);
   });
 });

@@ -74,6 +74,7 @@ pub fn app_with(
             desc::stats_desc_cancel,
             desc::stats_desc_export,
             desc::stats_desc_close,
+            desc::stats_desc_forget_run,
             ttest::stats_ttest_run,
             ttest::stats_ttest_status,
             ttest::stats_ttest_result,

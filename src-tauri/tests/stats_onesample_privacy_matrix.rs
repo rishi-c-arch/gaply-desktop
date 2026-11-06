@@ -238,6 +238,33 @@ fn no_sentinel_reaches_a_surface_it_is_not_allowed_on() {
     let pair = pspec(&o, 2, "C1", "C2", &[]);
     let run2 = flow(&w, &o, "stats_paired", "paired", &pair, &mut surfaces);
 
+    // Remove in the Output (decision 486), for both tests: the forget's answer, a
+    // second forget's refusal, and below its span, each on a run of its own so the
+    // rest is untouched.
+    for (prefix, spec) in [("stats_onesample", &one), ("stats_paired", &pair)] {
+        let forgotten = call(
+            &w,
+            &format!("{prefix}_run"),
+            json!({ "slot": o["slot"], "spec": spec }),
+        )
+        .unwrap()["runId"]
+            .as_u64()
+            .unwrap();
+        assert_eq!(
+            until_terminal_of(&w, prefix, forgotten)["state"],
+            "succeeded"
+        );
+        push(
+            &mut surfaces,
+            "the forget's answer",
+            &call(&w, "stats_desc_forget_run", json!({ "runId": forgotten })).unwrap(),
+        );
+        errors.push(
+            call(&w, "stats_desc_forget_run", json!({ "runId": forgotten }))
+                .expect_err("forgotten"),
+        );
+    }
+
     // Refused and questioned runs, as views: a column that holds text, no
     // test value, and validations with errors and a warning.
     let bad = call(
@@ -349,6 +376,12 @@ fn no_sentinel_reaches_a_surface_it_is_not_allowed_on() {
 
     // Tracing: every span and event, from every thread.
     let traced = lines.lock().unwrap().clone();
+    assert!(
+        traced
+            .iter()
+            .any(|l| l.contains("span stats_desc_forget_run")),
+        "the forget's span was captured"
+    );
     assert!(
         traced
             .iter()
@@ -479,7 +512,11 @@ fn no_sentinel_reaches_a_surface_it_is_not_allowed_on() {
     ] {
         assert!(grid.contains_key(surface), "{surface} was collected");
     }
-    assert_eq!(errors.len(), 2 + 2 * 9 + 4, "every refusal was collected");
+    assert_eq!(
+        errors.len(),
+        2 + 2 * 9 + 4 + 2,
+        "every refusal was collected"
+    );
     assert!(
         o.to_string()
             .contains(&format!("\"displayName\":\"{FILE}.csv\"")),

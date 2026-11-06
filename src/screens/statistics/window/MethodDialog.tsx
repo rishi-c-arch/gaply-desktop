@@ -46,6 +46,8 @@ export interface MethodDialogProps<S, D> {
   };
   sentence: (d: D) => string;
   refusalSentence: (e: unknown) => string;
+  /** A refusal from the settings themselves, such as reading a group's levels. */
+  settingsRefusal?: string | null;
   onStarted: (spec: S, runId: number) => void | Promise<void>;
   onCancel: () => void;
   /** Where the focus goes when it closes: a new entry's heading after a run. */
@@ -53,14 +55,14 @@ export interface MethodDialogProps<S, D> {
   children: React.ReactNode;
 }
 
-export function MethodDialog<S, D>({ title, prefix, slot, ready, outputFull, settingsKey, buildSpec, bridge, sentence, refusalSentence, onStarted, onCancel, returnFocus, children }: MethodDialogProps<S, D>) {
+export function MethodDialog<S, D>({ title, prefix, slot, ready, outputFull, settingsKey, buildSpec, bridge, sentence, refusalSentence, settingsRefusal, onStarted, onCancel, returnFocus, children }: MethodDialogProps<S, D>) {
   const [pending, setPending] = useState(false);
   const [checked, setChecked] = useState<{ key: string; report: Report<D> } | null>(null);
   const [refused, setRefused] = useState<{ key: string; sentence: string } | null>(null);
   const inFlight = useRef(false);
 
   const report = checked !== null && checked.key === settingsKey ? checked.report : null;
-  const refusal = refused !== null && refused.key === settingsKey ? refused.sentence : null;
+  const refusal = settingsRefusal ?? (refused !== null && refused.key === settingsKey ? refused.sentence : null);
   const warned = report?.status === 'valid_with_warnings';
   const cannotRun = report !== null && report.status !== 'valid' && !warned;
 

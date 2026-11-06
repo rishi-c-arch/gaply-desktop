@@ -3,11 +3,11 @@
 // result pane to it. Each line has Remove, disabled while its run is going.
 import React from 'react';
 import { Button } from '../../../design-system';
-import { METHODS } from '../methods';
+import { METHODS, type MethodKind } from '../methods';
 import { runIsGoing, type OutputEntry } from './statisticsSession';
 import { OUTPUT_LABEL, OUTPUT_REMOVE, RUN_GOING } from './windowWording';
 
-export function methodName(kind: OutputEntry['kind']): string {
+export function methodName(kind: MethodKind): string {
   return METHODS.find((m) => m.kind === kind)?.name ?? kind;
 }
 

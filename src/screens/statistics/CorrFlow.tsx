@@ -40,6 +40,7 @@ import { CELL_PADDING } from '../../design-system/primitives';
 import { pickManuscriptPath } from '../common/pickFile';
 import { saveTextFile } from '../../utils/saveTextFile';
 import { corrBridge, type CorrBridge } from './corrBridge';
+import { buildCorrSpec, CorrSettings, useCorrSettings } from './CorrSettings';
 import { SaveToProject } from './projects/SaveToProject';
 import {
   DiagnosticList,
@@ -67,22 +68,17 @@ import {
 import { readMethodLimits } from './statsInvoke';
 import type { DatasetView, ExportFormat } from './describeTypes';
 import {
-  COEFFICIENTS,
   type CoefficientTable,
   type Coefficient,
   type CorrResultView,
   type CorrRunStateView,
-  type CorrSpec,
   type CorrValidationView,
-  type MissingHandling,
   type Pair,
 } from './corrTypes';
 import { Stage, STATUS_SENTENCES } from './describeWording';
 import { shownNumber } from './ttestWording';
 import {
   boundedText,
-  COEFFICIENT_CHOICES,
-  COEFFICIENTS_QUESTION,
   coefficientHeading,
   CORR_DIGITS_NOTE,
   CORR_ENTRY_TEXT,
@@ -90,19 +86,14 @@ import {
   CORR_EXPORT_TEXT,
   CORR_ROWS_USED_NOTE,
   CORR_STAGE_HEADINGS,
-  corrMissingCodeQuestion,
   corrRefusalSentence,
   corrRunEndedSentence,
   corrSentence,
   corrStatText,
   MATRIX_MAX_VARIABLES,
-  MISSING_CHOICES,
-  MISSING_QUESTION,
   PAIRS_PAGE,
   pairsShownSentence,
-  settingsMissingSentence,
   stepsSentence,
-  VARIABLES_QUESTION,
   type CorrNames,
 } from './corrWording';
 
@@ -120,38 +111,10 @@ export interface CorrFlowProps {
   limits?: () => Promise<unknown>;
 }
 
+// So corrTypes.vitest.ts's import holds (decision 481).
+export { buildCorrSpec };
+
 const aliasNumber = (alias: string) => Number(alias.replace(/^C/, ''));
-
-const numeric = (view: DatasetView) => view.profile.columns.filter((c) => c.kind === 'numeric');
-
-/** Decision 338: the ticked columns in the file's column order, the
- *  coefficients in COEFFICIENTS' order, the codes ascending and once each. */
-export function buildCorrSpec(
-  view: DatasetView,
-  variables: string[],
-  coefficients: Coefficient[],
-  missing: MissingHandling,
-  missingCodes: number[],
-  operationId: number
-): CorrSpec {
-  const codes = missingCodes.filter((c, i) => missingCodes.indexOf(c) === i).sort((a, b) => a - b);
-  return {
-    schemaVersion: 1,
-    operationId,
-    workspaceId: 'statistics',
-    capabilityId: 'stats.analyze.correlations',
-    capabilityVersion: 1,
-    inputs: [view.inputRef],
-    parameters: {
-      variables: view.profile.columns.map((c) => c.alias).filter((a) => variables.includes(a)),
-      coefficients: COEFFICIENTS.filter((c) => coefficients.includes(c)),
-      missing,
-      missingCodes: codes,
-    },
-    randomSeed: null,
-    confirmationRefs: [],
-  };
-}
 
 const CorrFlow: React.FC<CorrFlowProps> = ({
   bridge,
@@ -164,10 +127,7 @@ const CorrFlow: React.FC<CorrFlowProps> = ({
   const openProgress = useOpenProgress();
   const [stage, setStage] = useState<Stage>('import');
   const [view, setView] = useState<DatasetView | null>(null);
-  const [variables, setVariables] = useState<string[]>([]);
-  const [coefficients, setCoefficients] = useState<Coefficient[]>([]);
-  const [missing, setMissing] = useState<MissingHandling | null>(null);
-  const [ticked, setTicked] = useState<number[]>([]);
+  const settings = useCorrSettings(view);
   const [report, setReport] = useState<CorrValidationView | null>(null);
   const [runView, setRunView] = useState<CorrRunStateView | null>(null);
   const [result, setResult] = useState<CorrResultView | null>(null);
@@ -181,44 +141,19 @@ const CorrFlow: React.FC<CorrFlowProps> = ({
   const heading = useStageFocus(stage);
   useCloseOnUnmount(bridge, slot);
 
-  /** The candidate codes of the ticked columns, ascending, with where each
-   *  appears (decision 359: the union over the ticked columns). */
-  const offered = useMemo(() => {
-    const where = new Map<number, Array<{ header: string; cells: number }>>();
-    for (const c of view?.profile.columns ?? []) {
-      if (!variables.includes(c.alias)) continue;
-      for (const s of c.suspectMissingCodes) where.set(s.code, [...(where.get(s.code) ?? []), { header: c.header, cells: s.cells }]);
-    }
-    return Array.from(where.keys())
-      .sort((a, b) => a - b)
-      .map((code) => ({ code, where: where.get(code) ?? [] }));
-  }, [view, variables]);
-  const missingCodes = useMemo(() => ticked.filter((t) => offered.some((s) => s.code === t)), [ticked, offered]);
-
-  const names: CorrNames = useMemo(
-    () => ({
-      column: (alias: number) => {
-        const c = view?.profile.columns.find((col) => aliasNumber(col.alias) === alias);
-        return c ? `"${c.header}"` : `C${alias}`;
-      },
-    }),
-    [view]
-  );
+  const { names } = settings;
 
   const spec = useCallback(() => {
     operation.current += 1;
-    return buildCorrSpec(view as DatasetView, variables, coefficients, missing as MissingHandling, missingCodes, operation.current);
-  }, [view, variables, coefficients, missing, missingCodes]);
+    return settings.spec(operation.current);
+  }, [settings]);
 
   useRunPolling(runView, setRunView, bridge, setError, corrRefusalSentence, pollMs);
 
   const act = actWith(setBusy, setError, corrRefusalSentence);
 
   const reset = () => {
-    setVariables([]);
-    setCoefficients([]);
-    setMissing(null);
-    setTicked([]);
+    settings.reset();
     setReport(null);
     setRunView(null);
     setResult(null);
@@ -282,16 +217,11 @@ const CorrFlow: React.FC<CorrFlowProps> = ({
       setExportNote(saved.note);
     });
 
-  const toggle = <T,>(set: React.Dispatch<React.SetStateAction<T[]>>, x: T, on: boolean) =>
-    set((t) => (on ? [...t.filter((y) => y !== x), x] : t.filter((y) => y !== x)));
-
   const title = (
     <h3 className="gds-card__title" ref={heading} tabIndex={-1} data-testid="cr-stage-heading">
       {CORR_STAGE_HEADINGS[stage]}
     </h3>
   );
-
-  const stillMissing = settingsMissingSentence(variables.length, coefficients.length, missing !== null);
 
   return (
     <div style={{ display: 'grid', gap: 12 }} data-testid="cr-flow">
@@ -337,93 +267,8 @@ const CorrFlow: React.FC<CorrFlowProps> = ({
       {stage === 'settings' && view && (
         <Card>
           {title}
-          <div style={{ display: 'grid', gap: 8 }}>
-            <fieldset data-testid="cr-variables">
-              <legend>{VARIABLES_QUESTION}</legend>
-              <div style={{ display: 'flex', gap: 8, marginBottom: 4 }}>
-                <Button variant="secondary" onClick={() => setVariables(numeric(view).map((c) => c.alias))} data-testid="cr-tick-all">
-                  Tick every numeric column
-                </Button>
-                <Button variant="secondary" onClick={() => setVariables([])} data-testid="cr-untick-all">
-                  Untick all
-                </Button>
-              </div>
-              {numeric(view).map((c) => (
-                <label key={c.alias} style={{ display: 'block' }}>
-                  <input
-                    type="checkbox"
-                    checked={variables.includes(c.alias)}
-                    data-testid={`cr-variable-${c.alias}`}
-                    onChange={(e) => toggle(setVariables, c.alias, e.target.checked)}
-                  />{' '}
-                  {c.alias} {c.header}
-                </label>
-              ))}
-            </fieldset>
-            <fieldset data-testid="cr-coefficients">
-              <legend>{COEFFICIENTS_QUESTION}</legend>
-              {COEFFICIENT_CHOICES.map((c) => (
-                <div key={c.coefficient}>
-                  <label style={{ display: 'block' }}>
-                    <input
-                      type="checkbox"
-                      checked={coefficients.includes(c.coefficient)}
-                      data-testid={`cr-coefficient-${c.coefficient}`}
-                      aria-describedby={`cr-coefficient-line-${c.coefficient}`}
-                      onChange={(e) => toggle(setCoefficients, c.coefficient, e.target.checked)}
-                    />{' '}
-                    {c.label}
-                  </label>
-                  <p id={`cr-coefficient-line-${c.coefficient}`} className="gds-jc__disclaimer" style={{ margin: '0 0 0.5em 1.5em' }}>
-                    {c.line}
-                  </p>
-                </div>
-              ))}
-            </fieldset>
-            <fieldset data-testid="cr-missing">
-              <legend>{MISSING_QUESTION}</legend>
-              {MISSING_CHOICES.map((c) => (
-                <div key={c.missing}>
-                  <label style={{ display: 'block' }}>
-                    <input
-                      type="radio"
-                      name="cr-missing"
-                      checked={missing === c.missing}
-                      data-testid={`cr-missing-${c.missing}`}
-                      aria-describedby={`cr-missing-line-${c.missing}`}
-                      onChange={() => setMissing(c.missing)}
-                    />{' '}
-                    {c.label}
-                  </label>
-                  <p id={`cr-missing-line-${c.missing}`} className="gds-jc__disclaimer" style={{ margin: '0 0 0.5em 1.5em' }}>
-                    {c.line}
-                  </p>
-                </div>
-              ))}
-            </fieldset>
-            {offered.length > 0 && (
-              <fieldset data-testid="cr-missing-codes">
-                <legend>Candidate missing codes</legend>
-                {offered.map((s) => (
-                  <label key={s.code} style={{ display: 'block' }}>
-                    <input
-                      type="checkbox"
-                      checked={ticked.includes(s.code)}
-                      data-testid={`cr-code-${s.code}`}
-                      onChange={(e) => toggle(setTicked, s.code, e.target.checked)}
-                    />{' '}
-                    {corrMissingCodeQuestion(s.code, s.where)}
-                  </label>
-                ))}
-              </fieldset>
-            )}
-            {stillMissing && (
-              <p role="status" data-testid="cr-settings-missing">
-                {stillMissing}
-              </p>
-            )}
-          </div>
-          <SettingsActions prefix="cr" busy={busy} ready={stillMissing === null} onBack={() => setStage('profile')} onCheck={() => void check()} />
+          <CorrSettings view={view} settings={settings} />
+          <SettingsActions prefix="cr" busy={busy} ready={settings.stillMissing === null} onBack={() => setStage('profile')} onCheck={() => void check()} />
         </Card>
       )}
 

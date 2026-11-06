@@ -4,15 +4,12 @@
 // the start. All it shows lives in its session entry, so a remount draws the same.
 // In memory only, with no autosave: Save and Export are the user's clicks, through
 // today's commands, and Rust's refusal stays the boundary whatever this shows.
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Button } from '../../../design-system';
-import { AlphaResultCard } from '../AlphaFlow';
-import type { AlphaBridge } from '../alphaBridge';
-import { alphaNames } from '../AlphaSettings';
-import type { AlphaRunStateView } from '../alphaTypes';
-import { ALPHA_EXPORT_CHOICES, ALPHA_EXPORT_TEXT, ALPHA_STAGE_HEADINGS, alphaRefusalSentence, alphaRunEndedSentence, alphaSentence, stepsSentence } from '../alphaWording';
+import type { RunBridges } from '../../workspace/useWorkspaceSwitch';
 import type { DescribeBridge } from '../describeBridge';
 import { refusalOf } from '../../statsverifier/l1/l1Wording';
+import type { RunState } from '../describeTypes';
 import { saveExactly, useRunPolling } from '../flowHooks';
 import { DiagnosticList, ExportCard, RunCard } from '../flowParts';
 import type { ProjectBridge } from '../projects/projectBridge';
@@ -20,23 +17,24 @@ import { projectsShown } from '../projects/projectGate';
 import { openProjectStore } from '../projects/projectSession';
 import { PROJECT_TEXT, PROJECT_WORDS } from '../projects/projectWording';
 import { SaveToProject } from '../projects/SaveToProject';
+import { rowOf, type EntryBridge } from './methodOutput';
 import { AskFirst } from './MethodDialog';
 import './Output.css';
 import { methodName, OutputOutline } from './OutputOutline';
-import { runIsGoing, statisticsSession, type OutputEntry, type StatisticsSessionState } from './statisticsSession';
+import { entryNotSaved, runIsGoing, statisticsSession, type EntryPatch, type MethodRuns, type OutputEntry, type StatisticsSessionState } from './statisticsSession';
 import { ASK_REMOVE, OUTPUT_EMPTY, OUTPUT_EXPORT, OUTPUT_SAVED, OUTPUT_SETTINGS } from './windowWording';
 
-/** What an entry may do with its run. It owns no file, so no open and no close. */
-export type OutputBridge = Omit<AlphaBridge, 'open' | 'close' | 'validate' | 'run'>;
 type SaveFile = (name: string, text: string, mime: string) => Promise<string | null>;
 
 export const entryHeadingId = (number: number) => `sw-entry-heading-${number}`;
 
-const EntryWatcher: React.FC<{ entry: OutputEntry; bridge: OutputBridge; pollMs: number }> = ({ entry, bridge, pollMs }) => {
-  const { number, runId, run, result, error } = entry;
-  const setRun = useCallback((next: AlphaRunStateView) => statisticsSession.updateEntry(number, { run: next }), [number]);
+const EntryWatcher: React.FC<{ entry: OutputEntry; bridges: RunBridges; pollMs: number }> = ({ entry, bridges, pollMs }) => {
+  const { number, runId, run, result, error, kind } = entry;
+  const row = rowOf(kind);
+  const bridge = row.bridge(bridges);
+  const setRun = useCallback((next: MethodRuns[OutputEntry['kind']]) => statisticsSession.updateEntry(number, { run: next }), [number]);
   const setError = useCallback((sentence: string) => statisticsSession.updateEntry(number, { error: sentence }), [number]);
-  useRunPolling(error === null ? run : null, setRun, bridge, setError, alphaRefusalSentence, pollMs);
+  useRunPolling<MethodRuns[OutputEntry['kind']]>(error === null ? run : null, setRun, bridge, setError, row.refusal, pollMs);
   const wantsResult = run.state === 'succeeded' && run.terminal && result === null && error === null;
   useEffect(() => {
     if (!wantsResult) return undefined;
@@ -46,24 +44,24 @@ const EntryWatcher: React.FC<{ entry: OutputEntry; bridge: OutputBridge; pollMs:
         if (live) statisticsSession.updateEntry(number, { result: r });
       },
       (e) => {
-        if (live) setError(alphaRefusalSentence(e));
+        if (live) setError(row.refusal(e));
       }
     );
     return () => {
       live = false;
     };
-  }, [wantsResult, bridge, runId, number, setError]);
+  }, [wantsResult, bridge, row, runId, number, setError]);
   return null;
 };
 
 /** Reads each run that needs reading, whichever tab is shown: mounted by the
  *  window, so a run that ended behind the Data View is not "going" for ever. */
-export const OutputWatchers: React.FC<{ entries: readonly OutputEntry[]; bridge: OutputBridge; pollMs: number }> = ({ entries, bridge, pollMs }) => (
+export const OutputWatchers: React.FC<{ entries: readonly OutputEntry[]; bridges: RunBridges; pollMs: number }> = ({ entries, bridges, pollMs }) => (
   <>
     {entries
       .filter((e) => e.error === null && (!e.run.terminal || (e.run.state === 'succeeded' && e.result === null)))
       .map((e) => (
-        <EntryWatcher key={e.number} entry={e} bridge={bridge} pollMs={pollMs} />
+        <EntryWatcher key={e.number} entry={e} bridges={bridges} pollMs={pollMs} />
       ))}
   </>
 );
@@ -72,7 +70,7 @@ interface EntryPaneProps {
   entry: OutputEntry;
   shown: boolean;
   slotOpen: boolean;
-  bridge: OutputBridge;
+  bridge: EntryBridge;
   projects?: ProjectBridge;
   save: SaveFile;
 }
@@ -82,8 +80,11 @@ interface EntryPaneProps {
 const EntryPane = React.memo<EntryPaneProps>(({ entry, shown, slotOpen, bridge, projects, save }) => {
   const { number, run, result } = entry;
   const prefix = `sw-entry-${number}`;
-  const names = useMemo(() => alphaNames(entry.view), [entry.view]);
-  const update = (patch: Partial<OutputEntry>) => statisticsSession.updateEntry(number, patch);
+  const row = rowOf(entry.kind);
+  const update = (patch: EntryPatch) => statisticsSession.updateEntry(number, patch);
+
+  const progress = row.progress(run);
+  const diagnostics: Array<{ code: string; params?: Record<string, unknown>; severity: string }> = run.diagnostics as never;
 
   const saveNode = !slotOpen ? (
     projectsShown() ? (
@@ -111,12 +112,12 @@ const EntryPane = React.memo<EntryPaneProps>(({ entry, shown, slotOpen, bridge, 
   const cancel = () => {
     bridge.cancel(entry.runId).then(
       (next) => update({ run: next }),
-      (e) => update({ error: alphaRefusalSentence(e) })
+      (e) => update({ error: row.refusal(e) })
     );
   };
 
   const saveExport = async () => {
-    const choice = ALPHA_EXPORT_CHOICES.find((c) => c.format === entry.exportFormat) ?? ALPHA_EXPORT_CHOICES[0];
+    const choice = row.exportChoices.find((c) => c.format === entry.exportFormat) ?? row.exportChoices[0];
     update({ exportNote: null });
     try {
       const out = await bridge.export(entry.runId, entry.exportFormat);
@@ -124,7 +125,7 @@ const EntryPane = React.memo<EntryPaneProps>(({ entry, shown, slotOpen, bridge, 
       if ('error' in saved) update({ error: saved.error });
       else update({ exportNote: saved.note });
     } catch (e) {
-      update({ error: alphaRefusalSentence(e) });
+      update({ error: row.refusal(e) });
     }
   };
 
@@ -153,13 +154,15 @@ const EntryPane = React.memo<EntryPaneProps>(({ entry, shown, slotOpen, bridge, 
           prefix={prefix}
           title={null}
           runView={run}
-          endedSentence={alphaRunEndedSentence}
+          endedSentence={(state) => row.runEnded(state as RunState)}
           progress={
-            <p style={{ margin: 0 }} data-testid={`${prefix}-progress`}>
-              {stepsSentence(run.stepsDone, run.stepsTotal)}
-            </p>
+            progress === null ? undefined : (
+              <p style={{ margin: 0 }} data-testid={`${prefix}-progress`}>
+                {progress}
+              </p>
+            )
           }
-          diagnostics={<DiagnosticList items={run.diagnostics} sentence={(d) => alphaSentence(d, names)} testId={`${prefix}-diagnostics`} />}
+          diagnostics={<DiagnosticList items={diagnostics} sentence={(d) => row.sentence(d, entry.view)} testId={`${prefix}-diagnostics`} />}
           busy={false}
           onCancel={cancel}
           save={saveNode}
@@ -167,7 +170,7 @@ const EntryPane = React.memo<EntryPaneProps>(({ entry, shown, slotOpen, bridge, 
       )}
       {result !== null && (
         <>
-          <AlphaResultCard result={result} names={names} />
+          {row.card(result, entry.view)}
           <div className="sw-entry__actions">
             {saveNode}
             <Button variant="secondary" onClick={() => update({ exportOpen: !entry.exportOpen })} data-testid={`${prefix}-export`}>
@@ -177,9 +180,9 @@ const EntryPane = React.memo<EntryPaneProps>(({ entry, shown, slotOpen, bridge, 
           {entry.exportOpen && (
             <ExportCard
               prefix={prefix}
-              title={<h4 style={{ margin: 0 }}>{ALPHA_STAGE_HEADINGS.export}</h4>}
-              text={ALPHA_EXPORT_TEXT}
-              choices={ALPHA_EXPORT_CHOICES}
+              title={<h4 style={{ margin: 0 }}>{row.exportHeading}</h4>}
+              text={row.exportText}
+              choices={row.exportChoices}
               format={entry.exportFormat}
               onFormat={(exportFormat) => update({ exportFormat })}
               busy={false}
@@ -202,13 +205,13 @@ EntryPane.displayName = 'EntryPane';
 
 export const Output: React.FC<{
   session: StatisticsSessionState;
-  bridge: OutputBridge;
+  bridges: RunBridges;
   forget: Pick<DescribeBridge, 'forgetRun'>;
   projects?: ProjectBridge;
   save: SaveFile;
   /** Which result a run just moved the pane to. */
   status: string | null;
-}> = ({ session, bridge, forget, projects, save, status }) => {
+}> = ({ session, bridges, forget, projects, save, status }) => {
   const { output, selected, slot } = session;
   const [asking, setAsking] = useState<number | null>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
@@ -237,7 +240,7 @@ export const Output: React.FC<{
     } catch (err) {
       // A record already gone is what Remove wanted.
       if (refusalOf(err)?.code !== 'run.unknown_run') {
-        setRefusal(alphaRefusalSentence(err));
+        setRefusal(rowOf(e.kind).refusal(err));
         return;
       }
     }
@@ -250,7 +253,7 @@ export const Output: React.FC<{
   const remove = (number: number) => {
     const e = output.find((x) => x.number === number);
     if (!e || runIsGoing(e)) return;
-    if (e.saved === null) setAsking(number);
+    if (entryNotSaved(e, slot)) setAsking(number);
     else void removeNow(number);
   };
 
@@ -271,7 +274,7 @@ export const Output: React.FC<{
         {output
           .filter((e) => seen.current.has(e.number))
           .map((e) => (
-            <EntryPane key={e.number} entry={e} shown={e.number === selected} slotOpen={e.slot === slot} bridge={bridge} projects={projects} save={save} />
+            <EntryPane key={e.number} entry={e} shown={e.number === selected} slotOpen={e.slot === slot} bridge={rowOf(e.kind).bridge(bridges)} projects={projects} save={save} />
           ))}
       </div>
       {asking !== null && (

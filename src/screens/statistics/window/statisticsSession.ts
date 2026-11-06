@@ -12,7 +12,13 @@
 import { useSyncExternalStore } from 'react';
 import { isActive, type WorkspaceStateView } from '../../workspace/workspaceTypes';
 import type { AlphaResultView, AlphaRunStateView } from '../alphaTypes';
-import type { DatasetView, ExportFormat } from '../describeTypes';
+import type { AnovaResultView, AnovaRunStateView } from '../anovaTypes';
+import type { CorrResultView, CorrRunStateView } from '../corrTypes';
+import type { DatasetView, ExportFormat, ResultBundleView, RunStateView } from '../describeTypes';
+import type { MethodKind } from '../methods';
+import type { OneSampleResultView, OneSampleRunStateView, PairedResultView } from '../onesampleTypes';
+import { savableOnScreen } from '../projects/SaveToProject';
+import type { TTestResultView, TTestRunStateView } from '../ttestTypes';
 import type { GridCell } from './gridRange';
 
 /** The sentence for a slot the window finds gone (ADR-012 Part 2). */
@@ -21,18 +27,37 @@ export const SLOT_GONE = 'This file is no longer held in memory. Open it again.'
 /** The Output holds at most this many; none is ever dropped by itself. */
 export const MAX_OUTPUT = 32;
 
-/** One result, with all it shows, so a remount draws the same (decision 471). */
-export interface OutputEntry {
+/** Each kind's run, as its status reads it (decision 479). */
+export interface MethodRuns {
+  describe: RunStateView;
+  ttest: TTestRunStateView;
+  one_sample: OneSampleRunStateView;
+  paired: OneSampleRunStateView;
+  anova: AnovaRunStateView;
+  correlations: CorrRunStateView;
+  cronbach_alpha: AlphaRunStateView;
+}
+
+/** Each kind's result, as its result command reads it (decision 479). */
+export interface MethodResults {
+  describe: ResultBundleView;
+  ttest: TTestResultView;
+  one_sample: OneSampleResultView;
+  paired: PairedResultView;
+  anova: AnovaResultView;
+  correlations: CorrResultView;
+  cronbach_alpha: AlphaResultView;
+}
+
+/** What every entry holds, whatever its method (decision 471). */
+export interface EntryCommon {
   number: number;
-  kind: 'cronbach_alpha';
   /** That DatasetView itself, so its names survive a close, an open or a new recipe. */
   view: DatasetView;
   /** The slot its run used: a Save needs that one still open. */
   slot: number;
   settings: string;
   runId: number;
-  run: AlphaRunStateView;
-  result: AlphaResultView | null;
   /** Why the run could not be read, or why an action on it was refused. */
   error: string | null;
   saved: { projectId: string; name: string } | null;
@@ -41,7 +66,14 @@ export interface OutputEntry {
   exportNote: string | null;
 }
 
-export type NewOutputEntry = Pick<OutputEntry, 'kind' | 'view' | 'slot' | 'settings' | 'runId' | 'run'>;
+/** One result, with all it shows, so a remount draws the same: its run and result
+ *  a union keyed by its kind. */
+export type OutputEntry = { [K in MethodKind]: EntryCommon & { kind: K; run: MethodRuns[K]; result: MethodResults[K] | null } }[MethodKind];
+
+export type NewOutputEntry = { [K in MethodKind]: Pick<EntryCommon, 'view' | 'slot' | 'settings' | 'runId'> & { kind: K; run: MethodRuns[K] } }[MethodKind];
+
+/** A change to an entry. Its kind never changes, and only its own bridge answers it. */
+export type EntryPatch = Partial<Omit<EntryCommon, 'number'>> & { run?: MethodRuns[MethodKind]; result?: MethodResults[MethodKind] | null };
 
 /** The grid's place: numbers only, never a cell (decision 473). */
 export interface GridPlace {
@@ -82,9 +114,19 @@ function replace(next: Partial<StatisticsSessionState>) {
   listeners.forEach((l) => l());
 }
 
+/** Whether something of this entry's would be lost (decision 480): not saved, and
+ *  either its run has not ended, so it may yet be savable, or a Save could take it
+ *  now. A cancelled or refused run, a failure with no error of its own, and a result
+ *  whose file has closed can no longer be saved, so nothing is lost with them.
+ *  Whether projects are shown is no part of this: the question is about the result. */
+export function entryNotSaved(e: OutputEntry, openSlot: number | null): boolean {
+  if (e.saved !== null) return false;
+  return runIsGoing(e) || (savableOnScreen(e.run) && e.slot === openSlot);
+}
+
 /** Something would be lost: an entry not saved, or a recipe (decision 472). */
 export function holdsUnsavedWork(s: StatisticsSessionState): boolean {
-  return s.output.some((e) => e.saved === null) || s.view?.preparation !== undefined;
+  return s.output.some((e) => entryNotSaved(e, s.slot)) || s.view?.preparation !== undefined;
 }
 
 /** Rust is still working on it, as far as this session can tell. */
@@ -129,13 +171,13 @@ export const statisticsSession = {
     if (current.output.length >= MAX_OUTPUT) return null;
     numbered += 1;
     const number = numbered;
-    const made: OutputEntry = { ...entry, number, result: null, error: null, saved: null, exportOpen: false, exportFormat: 'csv', exportNote: null };
+    const made = { ...entry, number, result: null, error: null, saved: null, exportOpen: false, exportFormat: 'csv', exportNote: null } as OutputEntry;
     replace({ output: [...current.output, made], selected: number });
     return number;
   },
-  updateEntry(number: number, patch: Partial<Omit<OutputEntry, 'number'>>) {
+  updateEntry(number: number, patch: EntryPatch) {
     if (!current.output.some((e) => e.number === number)) return;
-    replace({ output: current.output.map((e) => (e.number === number ? { ...e, ...patch } : e)) });
+    replace({ output: current.output.map((e) => (e.number === number ? ({ ...e, ...patch } as OutputEntry) : e)) });
   },
   /** The only thing that ever removes one entry. */
   removeEntry(number: number) {

@@ -36,6 +36,7 @@ import { CELL_PADDING } from '../../design-system/primitives';
 import { pickManuscriptPath } from '../common/pickFile';
 import { saveTextFile } from '../../utils/saveTextFile';
 import { anovaBridge, type AnovaBridge } from './anovaBridge';
+import { AnovaSettings, buildAnovaSpec, useAnovaSettings } from './AnovaSettings';
 import { SaveToProject } from './projects/SaveToProject';
 import {
   DiagnosticList,
@@ -61,13 +62,10 @@ import {
   useStageFocus,
 } from './flowHooks';
 import { readMethodLimits } from './statsInvoke';
-import type { ColumnProfile, DatasetView, ExportFormat } from './describeTypes';
-import type { GroupLevel } from './ttestTypes';
+import type { DatasetView, ExportFormat } from './describeTypes';
 import {
-  POST_HOC_TESTS,
   type AnovaResultView,
   type AnovaRunStateView,
-  type AnovaSpec,
   type AnovaValidationView,
   type FOutcome,
   type PostHoc,
@@ -80,21 +78,14 @@ import {
   ANOVA_ENTRY_TEXT,
   ANOVA_EXPORT_CHOICES,
   ANOVA_EXPORT_TEXT,
-  ANOVA_GROUP_LIMIT_SENTENCE,
   ANOVA_LEVELS_RULE,
   ANOVA_ROWS_USED_NOTE,
   ANOVA_STAGE_HEADINGS,
-  anovaMissingCodeQuestion,
   anovaRefusalSentence,
   anovaRunEndedSentence,
   anovaSentence,
   anovaStatText,
-  LEVELS_QUESTION,
   LEVENE_NOTE,
-  levelsTooFewSentence,
-  MAX_GROUP_LEVELS,
-  POST_HOC_CHOICES,
-  POST_HOC_QUESTION,
   POST_HOC_STATISTIC,
   postHocHeading,
   postHocPText,
@@ -116,44 +107,8 @@ export interface AnovaFlowProps {
   limits?: () => Promise<unknown>;
 }
 
-const aliasNumber = (alias: string) => Number(alias.replace(/^C/, ''));
-
-const outcomes = (view: DatasetView) => view.profile.columns.filter((c) => c.kind === 'numeric');
-
-const groups = (view: DatasetView) =>
-  view.profile.columns.filter((c: ColumnProfile) => c.distinct >= 2 && c.distinct <= MAX_GROUP_LEVELS);
-
-/** Decision 329: null when every level is ticked; otherwise the ticked
- *  indexes, ascending. The post hoc tests in the method's order. */
-export function buildAnovaSpec(
-  view: DatasetView,
-  outcome: string,
-  group: string,
-  all: GroupLevel[],
-  ticked: number[],
-  postHoc: PostHoc[],
-  missingCodes: number[],
-  operationId: number
-): AnovaSpec {
-  const included = all.map((l) => l.index).filter((i) => ticked.includes(i));
-  return {
-    schemaVersion: 1,
-    operationId,
-    workspaceId: 'statistics',
-    capabilityId: 'stats.analyze.one_way_anova',
-    capabilityVersion: 1,
-    inputs: [view.inputRef],
-    parameters: {
-      outcome,
-      group,
-      levels: included.length === all.length ? null : [...included].sort((a, b) => a - b),
-      postHoc: POST_HOC_TESTS.filter((t) => postHoc.includes(t)),
-      missingCodes,
-    },
-    randomSeed: null,
-    confirmationRefs: [],
-  };
-}
+// So anovaTypes.vitest.ts's import holds (decision 481).
+export { buildAnovaSpec };
 
 const AnovaFlow: React.FC<AnovaFlowProps> = ({
   bridge,
@@ -166,12 +121,6 @@ const AnovaFlow: React.FC<AnovaFlowProps> = ({
   const openProgress = useOpenProgress();
   const [stage, setStage] = useState<Stage>('import');
   const [view, setView] = useState<DatasetView | null>(null);
-  const [outcome, setOutcome] = useState('');
-  const [group, setGroup] = useState('');
-  const [groupLevels, setGroupLevels] = useState<GroupLevel[]>([]);
-  const [tickedLevels, setTickedLevels] = useState<number[]>([]);
-  const [postHoc, setPostHoc] = useState<PostHoc[]>([]);
-  const [ticked, setTicked] = useState<number[]>([]);
   const [report, setReport] = useState<AnovaValidationView | null>(null);
   const [runView, setRunView] = useState<AnovaRunStateView | null>(null);
   const [result, setResult] = useState<AnovaResultView | null>(null);
@@ -185,37 +134,19 @@ const AnovaFlow: React.FC<AnovaFlowProps> = ({
   const heading = useStageFocus(stage);
   useCloseOnUnmount(bridge, slot);
 
-  const outcomeColumn = useMemo(() => view?.profile.columns.find((c) => c.alias === outcome), [view, outcome]);
-  const offered = useMemo(() => outcomeColumn?.suspectMissingCodes ?? [], [outcomeColumn]);
-  const missingCodes = useMemo(() => ticked.filter((t) => offered.some((s) => s.code === t)), [ticked, offered]);
-
-  const names: AnovaNames = useMemo(
-    () => ({
-      column: (alias: number) => {
-        const c = view?.profile.columns.find((col) => aliasNumber(col.alias) === alias);
-        return c ? `"${c.header}"` : `C${alias}`;
-      },
-      level: (index: number) => groupLevels.find((l) => l.index === index)?.label ?? `level ${index + 1}`,
-    }),
-    [view, groupLevels]
-  );
+  const act = actWith(setBusy, setError, anovaRefusalSentence);
+  const settings = useAnovaSettings(view, { bridge, slot: () => slot.current, act });
+  const { names } = settings;
 
   const spec = useCallback(() => {
     operation.current += 1;
-    return buildAnovaSpec(view as DatasetView, outcome, group, groupLevels, tickedLevels, postHoc, missingCodes, operation.current);
-  }, [view, outcome, group, groupLevels, tickedLevels, postHoc, missingCodes]);
+    return settings.spec(operation.current);
+  }, [settings]);
 
   useRunPolling(runView, setRunView, bridge, setError, anovaRefusalSentence, pollMs);
 
-  const act = actWith(setBusy, setError, anovaRefusalSentence);
-
   const reset = () => {
-    setOutcome('');
-    setGroup('');
-    setGroupLevels([]);
-    setTickedLevels([]);
-    setPostHoc([]);
-    setTicked([]);
+    settings.reset();
     setReport(null);
     setRunView(null);
     setResult(null);
@@ -279,31 +210,11 @@ const AnovaFlow: React.FC<AnovaFlowProps> = ({
       setExportNote(saved.note);
     });
 
-  const chooseGroup = (alias: string) =>
-    act(async () => {
-      setGroup(alias);
-      setGroupLevels([]);
-      setTickedLevels([]);
-      if (alias === '' || slot.current === null) return;
-      // The levels in the core's own order; their indexes are what the spec
-      // sends. Every level starts ticked (decision 329).
-      const read = await bridge.groupLevels(slot.current, alias);
-      setGroupLevels(read.levels);
-      setTickedLevels(read.levels.map((l) => l.index));
-    });
-  const toggleLevel = (index: number, on: boolean) =>
-    setTickedLevels((t) => (on ? [...t.filter((x) => x !== index), index] : t.filter((x) => x !== index)));
-  const togglePostHoc = (test: PostHoc, on: boolean) =>
-    setPostHoc((t) => (on ? [...t.filter((x) => x !== test), test] : t.filter((x) => x !== test)));
-  const toggleCode = (code: number, on: boolean) => setTicked((t) => (on ? [...t.filter((x) => x !== code), code] : t.filter((x) => x !== code)));
-
   const title = (
     <h3 className="gds-card__title" ref={heading} tabIndex={-1} data-testid="an-stage-heading">
       {ANOVA_STAGE_HEADINGS[stage]}
     </h3>
   );
-
-  const ready = outcome !== '' && group !== '' && groupLevels.length > 0 && tickedLevels.length >= 2;
 
   return (
     <div style={{ display: 'grid', gap: 12 }} data-testid="an-flow">
@@ -350,92 +261,8 @@ const AnovaFlow: React.FC<AnovaFlowProps> = ({
       {stage === 'settings' && view && (
         <Card>
           {title}
-          <div style={{ display: 'grid', gap: 8 }}>
-            <label>
-              Outcome (a numeric column){' '}
-              <select value={outcome} data-testid="an-outcome" onChange={(e) => setOutcome(e.target.value)}>
-                <option value="">Choose a column…</option>
-                {outcomes(view).map((c) => (
-                  <option key={c.alias} value={c.alias}>
-                    {c.alias} {c.header}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Group (a column with 2 to {MAX_GROUP_LEVELS} levels){' '}
-              <select value={group} data-testid="an-group" onChange={(e) => void chooseGroup(e.target.value)}>
-                <option value="">Choose a column…</option>
-                {groups(view).map((c) => (
-                  <option key={c.alias} value={c.alias}>
-                    {c.alias} {c.header}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <p style={{ margin: 0 }} data-testid="an-group-limit">
-              <small>{ANOVA_GROUP_LIMIT_SENTENCE}</small>
-            </p>
-            {groupLevels.length > 0 && (
-              <fieldset data-testid="an-levels">
-                <legend>{LEVELS_QUESTION}</legend>
-                {/* Rust's own order; each box is the index Rust gave. */}
-                {groupLevels.map((l) => (
-                  <label key={l.index} style={{ display: 'block' }}>
-                    <input
-                      type="checkbox"
-                      checked={tickedLevels.includes(l.index)}
-                      data-testid={`an-level-${l.index}`}
-                      onChange={(e) => toggleLevel(l.index, e.target.checked)}
-                    />{' '}
-                    {l.label} ({l.count})
-                  </label>
-                ))}
-                {tickedLevels.length < 2 && (
-                  <p role="status" data-testid="an-levels-too-few">
-                    {levelsTooFewSentence(tickedLevels.length)}
-                  </p>
-                )}
-              </fieldset>
-            )}
-            <fieldset data-testid="an-post-hoc">
-              <legend>{POST_HOC_QUESTION}</legend>
-              {POST_HOC_CHOICES.map((c) => (
-                <div key={c.test}>
-                  <label style={{ display: 'block' }}>
-                    <input
-                      type="checkbox"
-                      checked={postHoc.includes(c.test)}
-                      data-testid={`an-post-hoc-${c.test}`}
-                      aria-describedby={`an-post-hoc-line-${c.test}`}
-                      onChange={(e) => togglePostHoc(c.test, e.target.checked)}
-                    />{' '}
-                    {c.label}
-                  </label>
-                  <p id={`an-post-hoc-line-${c.test}`} className="gds-jc__disclaimer" style={{ margin: '0 0 0.5em 1.5em' }}>
-                    {c.line}
-                  </p>
-                </div>
-              ))}
-            </fieldset>
-            {outcomeColumn && offered.length > 0 && (
-              <fieldset data-testid="an-missing-codes">
-                <legend>Candidate missing codes</legend>
-                {offered.map((s) => (
-                  <label key={s.code} style={{ display: 'block' }}>
-                    <input
-                      type="checkbox"
-                      checked={ticked.includes(s.code)}
-                      data-testid={`an-code-${s.code}`}
-                      onChange={(e) => toggleCode(s.code, e.target.checked)}
-                    />{' '}
-                    {anovaMissingCodeQuestion(s.code, outcomeColumn.header, s.cells)}
-                  </label>
-                ))}
-              </fieldset>
-            )}
-          </div>
-          <SettingsActions prefix="an" busy={busy} ready={ready} onBack={() => setStage('profile')} onCheck={() => void check()} />
+          <AnovaSettings view={view} settings={settings} />
+          <SettingsActions prefix="an" busy={busy} ready={settings.ready} onBack={() => setStage('profile')} onCheck={() => void check()} />
         </Card>
       )}
 

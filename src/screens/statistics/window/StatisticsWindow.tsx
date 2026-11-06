@@ -19,6 +19,7 @@ import { saveTextFile } from '../../../utils/saveTextFile';
 import type { DatasetView } from '../describeTypes';
 import { useMethodLimits } from '../flowHooks';
 import { FileSummary, LimitsLine, OpenProgressLine } from '../flowParts';
+import type { MethodKind } from '../methods';
 import { projectBridge, type ProjectBridge } from '../projects/projectBridge';
 import { projectsShown } from '../projects/projectGate';
 import { noteCurrent, noteWorkspaceState as noteProjectWorkspaceState, useOpenProject } from '../projects/projectSession';
@@ -26,13 +27,13 @@ import { readMethodLimits } from '../statsInvoke';
 import { capabilityBridge, type CapabilityBridge } from '../ttestBridge';
 import type { CapabilityView } from '../ttestTypes';
 import './StatisticsWindow.css';
-import { AlphaDialog, type StartedAlpha } from './AlphaDialog';
 import { DataGrid } from './DataGrid';
 import { GridTiming, timingShown } from './gridTiming';
 import { HelpDialog } from './HelpDialog';
+import { METHOD_DIALOGS, type StartedRun } from './methodOutput';
 import { AskFirst } from './MethodDialog';
 import { entryHeadingId, Output, OutputWatchers } from './Output';
-import { holdsUnsavedWork, MAX_OUTPUT, runIsGoing, statisticsSession, useStatisticsSession } from './statisticsSession';
+import { holdsUnsavedWork, MAX_OUTPUT, runIsGoing, statisticsSession, useStatisticsSession, type NewOutputEntry } from './statisticsSession';
 import { TimingLine } from './TimingLine';
 import { useWindowFile } from './useWindowFile';
 import { VariableView } from './VariableView';
@@ -147,7 +148,7 @@ export const StatisticsWindow: React.FC<StatisticsWindowProps> = ({
   const [list, setList] = useState<CapabilityView[] | null>(null);
   const [listUnread, setListUnread] = useState(false);
   const [help, setHelp] = useState<HelpTopic | null>(null);
-  const [dialogKind, setDialogKind] = useState<string | null>(null);
+  const [dialogKind, setDialogKind] = useState<MethodKind | null>(null);
   const [asking, setAsking] = useState<'close' | 'open' | null>(null);
   const [tabs, setTabs] = useState<{ key: number; first?: string }>({ key: 0 });
   const [outputStatus, setOutputStatus] = useState<string | null>(null);
@@ -216,9 +217,9 @@ export const StatisticsWindow: React.FC<StatisticsWindowProps> = ({
   const going = runGoing || session.output.some(runIsGoing);
   const outputFull = session.output.length >= MAX_OUTPUT;
 
-  const onStarted = (s: StartedAlpha) => {
-    if (view === null || session.slot === null) return;
-    const number = statisticsSession.addEntry({ kind: 'cronbach_alpha', view, slot: session.slot, settings: s.settings, runId: s.runId, run: s.run });
+  const onStarted = (s: StartedRun) => {
+    if (dialogKind === null || view === null || session.slot === null) return;
+    const number = statisticsSession.addEntry({ kind: dialogKind, view, slot: session.slot, settings: s.settings, runId: s.runId, run: s.run } as NewOutputEntry);
     if (number === null) return;
     started.current = number;
     setOutputStatus(outputShownSentence(number));
@@ -243,12 +244,13 @@ export const StatisticsWindow: React.FC<StatisticsWindowProps> = ({
       help: setHelp,
       method: (kind) => {
         started.current = null;
-        setDialogKind(kind);
+        setDialogKind(kind as MethodKind);
       },
     },
   });
 
   const openWhy = openBlocked({ runGoing: going, busy: session.busy });
+  const MethodDialogFor = dialogKind ? METHOD_DIALOGS[dialogKind] : undefined;
 
   const body = (content: React.ReactNode, full?: 'grid' | 'output') => (
     <>
@@ -302,7 +304,7 @@ export const StatisticsWindow: React.FC<StatisticsWindowProps> = ({
             {
               id: 'output',
               label: TABS.output(session.output.length),
-              content: body(<Output session={session} bridge={runs.alpha} forget={forget} projects={projects} save={save} status={outputStatus} />, session.output.length > 0 ? 'output' : undefined),
+              content: body(<Output session={session} bridges={runs} forget={forget} projects={projects} save={save} status={outputStatus} />, session.output.length > 0 ? 'output' : undefined),
             },
           ]}
         />
@@ -314,9 +316,9 @@ export const StatisticsWindow: React.FC<StatisticsWindowProps> = ({
         {timing && <TimingLine timing={timing} />}
       </footer>
       {help && <HelpDialog topic={help} capabilities={list} unread={listUnread} limits={limits} onClose={() => setHelp(null)} />}
-      <OutputWatchers entries={session.output} bridge={runs.alpha} pollMs={runPollMs} />
-      {dialogKind === 'cronbach_alpha' && view && session.slot !== null && (
-        <AlphaDialog view={view} slot={session.slot} bridge={runs.alpha} outputFull={outputFull} onStarted={onStarted} onCancel={() => setDialogKind(null)} returnFocus={afterDialog} />
+      <OutputWatchers entries={session.output} bridges={runs} pollMs={runPollMs} />
+      {MethodDialogFor && view && session.slot !== null && (
+        <MethodDialogFor view={view} slot={session.slot} bridges={runs} outputFull={outputFull} onStarted={onStarted} onCancel={() => setDialogKind(null)} returnFocus={afterDialog} />
       )}
       {asking && (
         <AskFirst

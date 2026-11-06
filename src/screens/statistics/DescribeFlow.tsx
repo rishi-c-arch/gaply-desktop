@@ -21,6 +21,8 @@ import { CELL_PADDING } from '../../design-system/primitives';
 import { pickManuscriptPath } from '../common/pickFile';
 import { saveTextFile } from '../../utils/saveTextFile';
 import { describeBridge, type DescribeBridge } from './describeBridge';
+import { defaultPicks, DescribeSettings, useDescribeSettings } from './DescribeSettings';
+import { columnNames } from './window/windowWording';
 import { savableOnScreen, SaveToProject } from './projects/SaveToProject';
 import { FileFindings, LimitsLine, OpenProgressLine } from './flowParts';
 import { useMethodLimits, useOpenProgress } from './flowHooks';
@@ -31,11 +33,9 @@ import type {
   DatasetView,
   Diagnostic,
   ExportFormat,
-  OperationSpec,
   ResultBundleView,
   RunStateView,
   Stat,
-  TreatAs,
   ValidationReportView,
 } from './describeTypes';
 import {
@@ -48,7 +48,6 @@ import {
   EXPORT_TEXT,
   KIND_NAMES,
   LEVELS_RULE,
-  missingCodeQuestion,
   notComputableReason,
   platformName,
   progressSentence,
@@ -81,52 +80,6 @@ export interface DescribeFlowProps {
   /** This computer's limits for the methods, read once (Research OS, Phase
    *  8F-2, decision 289); stats_desc_limits by default. */
   limits?: () => Promise<unknown>;
-}
-
-interface Pick {
-  include: boolean;
-  treatAs: TreatAs;
-}
-
-const aliasNumber = (alias: string) => Number(alias.replace(/^C/, ''));
-
-function defaultPicks(view: DatasetView): Record<string, Pick> {
-  const picks: Record<string, Pick> = {};
-  for (const c of view.profile.columns) {
-    picks[c.alias] = { include: true, treatAs: c.kind === 'categorical' ? 'categorical' : 'numeric' };
-  }
-  return picks;
-}
-
-/** The candidate missing codes of the columns chosen as numeric, each with
- *  the columns that hold it. */
-function offeredCodes(view: DatasetView, picks: Record<string, Pick>): Array<[number, Array<{ header: string; cells: number }>]> {
-  const byCode = new Map<number, Array<{ header: string; cells: number }>>();
-  for (const c of view.profile.columns) {
-    const p = picks[c.alias];
-    if (!p?.include || p.treatAs !== 'numeric') continue;
-    for (const s of c.suspectMissingCodes) {
-      byCode.set(s.code, [...(byCode.get(s.code) ?? []), { header: c.header, cells: s.cells }]);
-    }
-  }
-  return Array.from(byCode.entries()).sort((a, b) => a[0] - b[0]);
-}
-
-function buildSpec(view: DatasetView, picks: Record<string, Pick>, missingCodes: number[], operationId: number): OperationSpec {
-  return {
-    schemaVersion: 1,
-    operationId,
-    workspaceId: 'statistics',
-    capabilityId: 'stats.describe',
-    capabilityVersion: 1,
-    inputs: [view.inputRef],
-    parameters: {
-      columns: view.profile.columns.filter((c) => picks[c.alias]?.include).map((c) => ({ alias: c.alias, treatAs: picks[c.alias].treatAs })),
-      missingCodes,
-    },
-    randomSeed: null,
-    confirmationRefs: [],
-  };
 }
 
 /** A statistic's cell: its value, or "Could not compute" and why, styled
@@ -274,8 +227,7 @@ const DescribeFlow: React.FC<DescribeFlowProps> = ({
   const openProgress = useOpenProgress();
   const [stage, setStage] = useState<Stage>('import');
   const [view, setView] = useState<DatasetView | null>(null);
-  const [picks, setPicks] = useState<Record<string, Pick>>({});
-  const [ticked, setTicked] = useState<number[]>([]);
+  const settings = useDescribeSettings(view, defaultPicks);
   const [report, setReport] = useState<ValidationReportView | null>(null);
   const [runView, setRunView] = useState<RunStateView | null>(null);
   const [result, setResult] = useState<ResultBundleView | null>(null);
@@ -303,19 +255,11 @@ const DescribeFlow: React.FC<DescribeFlowProps> = ({
     [bridge]
   );
 
-  const name = useCallback(
-    (alias: number) => {
-      const c = view?.profile.columns.find((col) => aliasNumber(col.alias) === alias);
-      return c ? `"${c.header}"` : `C${alias}`;
-    },
-    [view]
-  );
-  const offered = useMemo(() => (view ? offeredCodes(view, picks) : []), [view, picks]);
-  const missingCodes = useMemo(() => ticked.filter((t) => offered.some(([code]) => code === t)), [ticked, offered]);
+  const name = useMemo(() => columnNames(view), [view]);
   const spec = useCallback(() => {
     operation.current += 1;
-    return buildSpec(view as DatasetView, picks, missingCodes, operation.current);
-  }, [view, picks, missingCodes]);
+    return settings.spec(operation.current);
+  }, [settings]);
 
   // While a run is unfinished, its state is read every `pollMs`.
   useEffect(() => {
@@ -354,8 +298,7 @@ const DescribeFlow: React.FC<DescribeFlowProps> = ({
       if (slot.current !== null) void bridge.close(slot.current).catch(() => undefined);
       slot.current = opened.slot;
       setView(opened);
-      setPicks(defaultPicks(opened));
-      setTicked([]);
+      settings.reset(opened);
       setReport(null);
       setRunView(null);
       setResult(null);
@@ -417,7 +360,6 @@ const DescribeFlow: React.FC<DescribeFlowProps> = ({
       setExportNote(where ? `Saved. SHA-256 of the file: ${shortHash(out.sha256)}` : 'Not saved: the save dialog was closed.');
     });
 
-  const toggleCode = (code: number, on: boolean) => setTicked((t) => (on ? [...t.filter((x) => x !== code), code] : t.filter((x) => x !== code)));
 
   const stageNav = (
     <nav aria-label="Steps" data-testid="desc-steps" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -518,70 +460,7 @@ const DescribeFlow: React.FC<DescribeFlowProps> = ({
       {stage === 'settings' && view && (
         <Card>
           {title}
-          <table data-testid="desc-settings" style={{ borderCollapse: 'collapse' }}>
-            <thead>
-              <tr>
-                <th scope="col" style={{ textAlign: 'left', ...CELL_PADDING }}>
-                  Include
-                </th>
-                <th scope="col" style={{ textAlign: 'left', ...CELL_PADDING }}>
-                  Column
-                </th>
-                <th scope="col" style={{ textAlign: 'left', ...CELL_PADDING }}>
-                  Summarise as
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {view.profile.columns.map((c) => {
-                const p = picks[c.alias];
-                return (
-                  <tr key={c.alias}>
-                    <td style={CELL_PADDING}>
-                      <input
-                        type="checkbox"
-                        checked={p?.include ?? false}
-                        aria-label={`Include ${c.header}`}
-                        data-testid={`desc-include-${c.alias}`}
-                        onChange={(e) => setPicks({ ...picks, [c.alias]: { ...p, include: e.target.checked } })}
-                      />
-                    </td>
-                    <td style={CELL_PADDING}>
-                      <span className="gds-mono">{c.alias}</span> {c.header} <small>({KIND_NAMES[c.kind]})</small>
-                    </td>
-                    <td style={CELL_PADDING}>
-                      <select
-                        value={p?.treatAs}
-                        aria-label={`Summarise ${c.header} as`}
-                        data-testid={`desc-kind-${c.alias}`}
-                        disabled={!p?.include}
-                        onChange={(e) => setPicks({ ...picks, [c.alias]: { ...p, treatAs: e.target.value as TreatAs } })}
-                      >
-                        <option value="numeric">Numeric</option>
-                        <option value="categorical">Categorical</option>
-                      </select>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-          {offered.length > 0 && (
-            <fieldset data-testid="desc-missing-codes">
-              <legend>Candidate missing codes</legend>
-              {offered.map(([code, where]) => (
-                <label key={code} style={{ display: 'block' }}>
-                  <input
-                    type="checkbox"
-                    checked={ticked.includes(code)}
-                    data-testid={`desc-code-${code}`}
-                    onChange={(e) => toggleCode(code, e.target.checked)}
-                  />{' '}
-                  {missingCodeQuestion(code, where)}
-                </label>
-              ))}
-            </fieldset>
-          )}
+          <DescribeSettings view={view} settings={settings} />
           <div style={{ display: 'flex', gap: 8 }}>
             <Button variant="secondary" onClick={() => setStage('profile')} data-testid="desc-back-profile">
               Back to the profile

@@ -12,6 +12,7 @@ import { describe, expect, it } from 'vitest';
 import { byKind, capabilityOfKind, methodFor, METHODS } from './methods';
 import { STORED_CHECKERS } from './projects/storedShape';
 import { SAVED_RENDERERS } from './projects/SavedResult';
+import { METHOD_OUTPUT } from './window/methodOutput';
 import { capabilityName } from './projects/projectWording';
 
 const FIXTURES = path.join(__dirname, 'fixtures');
@@ -104,5 +105,11 @@ describe('the methods table', () => {
     expect(methodFor('stats.check')).toBeUndefined();
     expect(methodFor('toString')).toBeUndefined();
     expect(capabilityName('toString')).toBe('An analysis this version of Gaply does not know');
+  });
+});
+
+describe("the Output's table (Research OS, Phase 8S, decision 479)", () => {
+  it('has a row for every kind, as STORED_CHECKERS has for every capability', () => {
+    expect(Object.keys(METHOD_OUTPUT).sort()).toEqual(METHODS.map((m) => m.kind).sort());
   });
 });

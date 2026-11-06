@@ -4,6 +4,9 @@
 // text, or text built from counts and the user's own column names, for the
 // user's own screen. No verdict, no advice, no date.
 import { HIGHEST_LABEL, LOWEST_LABEL, REVERSE_LABEL } from '../alphaWording';
+import { POST_HOC_CHOICES } from '../anovaWording';
+import { COEFFICIENT_CHOICES, MISSING_CHOICES } from '../corrWording';
+import { VARIANT_CHOICES } from '../ttestWording';
 
 export const WINDOW_TITLE = 'Statistics';
 
@@ -182,4 +185,78 @@ export const OUTPUT_SETTINGS = 'Settings: ';
 export const OUTPUT_SAVED = 'Saved in the project ';
 export function outputShownSentence(number: number): string {
   return `Result ${number} is shown.`;
+}
+
+/** A column by alias number, in a sentence: the name the user sees, quoted, or its
+ *  alias when the view has no such column (decision 479). */
+export function columnNames(view: { profile: { columns: Array<{ alias: string; header: string; scoreName?: string }> } } | null | undefined): (alias: number) => string {
+  return (alias) => {
+    const c = view?.profile.columns.find((col) => col.alias === `C${alias}`);
+    return c ? `"${columnLabel(c)}"` : `C${alias}`;
+  };
+}
+
+/** A column in a settings line: its alias and the name the user sees. */
+function namedColumn(alias: string, view: { profile: { columns: Array<{ alias: string; header: string; scoreName?: string }> } }): string {
+  const c = view.profile.columns.find((x) => x.alias === alias);
+  return c ? `${alias} ${columnLabel(c)}` : alias;
+}
+const codesWords = (codes: number[]) => (codes.length === 0 ? 'Missing codes: none.' : `Missing codes: ${codes.join(', ')}.`);
+type LineView = { profile: { columns: Array<{ alias: string; header: string; scoreName?: string }> } };
+
+/** The summary's dialog (decision 482). */
+export const DESCRIBE_DIALOG_TITLE = 'Descriptive statistics: Summary';
+export const DESCRIBE_NOT_READY = 'To run the summary, include at least one column.';
+export function describeSettingsLine(p: { columns: Array<{ alias: string; treatAs: string }>; missingCodes: number[] }, view: LineView): string {
+  return `Columns: ${p.columns.map((c) => `${namedColumn(c.alias, view)} as ${c.treatAs}`).join(', ')}. ${codesWords(p.missingCodes)}`;
+}
+
+/** The independent-samples t-test's dialog (decision 483). */
+export const TTEST_DIALOG_TITLE = 'Compare means: Independent-samples t-test';
+export function ttestSettingsLine(
+  p: { outcome: string; group: string; levels: [number, number] | null; variant: string | null; missingCodes: number[] },
+  view: LineView,
+  levels: ReadonlyArray<{ index: number; label: string }>
+): string {
+  const level = (i: number) => levels.find((l) => l.index === i)?.label ?? `level ${i + 1}`;
+  const parts = [`Outcome: ${namedColumn(p.outcome, view)}.`, `Group: ${namedColumn(p.group, view)}.`];
+  if (p.levels) parts.push(`Group 1: ${level(p.levels[0])}. Group 2: ${level(p.levels[1])}.`);
+  const variant = VARIANT_CHOICES.find((c) => c.variant === p.variant);
+  if (variant) parts.push(`Test: ${variant.label}.`);
+  parts.push(codesWords(p.missingCodes));
+  return parts.join(' ');
+}
+
+/** The one-sample and paired t-tests' dialogs (decision 483). */
+export const ONE_SAMPLE_DIALOG_TITLE = 'Compare means: One-sample t-test';
+export const PAIRED_DIALOG_TITLE = 'Compare means: Paired t-test';
+export function oneSampleSettingsLine(p: { outcome: string; testValue: number | null; missingCodes: number[] }, view: LineView): string {
+  return `Column: ${namedColumn(p.outcome, view)}. Test value: ${p.testValue}. ${codesWords(p.missingCodes)}`;
+}
+export function pairedSettingsLine(p: { first: string; second: string; missingCodes: number[] }, view: LineView): string {
+  return `First column: ${namedColumn(p.first, view)}. Second column: ${namedColumn(p.second, view)}. ${codesWords(p.missingCodes)}`;
+}
+
+/** The ANOVA's and the correlations' dialogs (decision 484). */
+export const ANOVA_DIALOG_TITLE = 'Compare means: One-way ANOVA';
+export const CORR_DIALOG_TITLE = 'Correlate: Correlations';
+export function anovaSettingsLine(
+  p: { outcome: string; group: string; levels: number[] | null; postHoc: string[]; missingCodes: number[] },
+  view: LineView,
+  levels: ReadonlyArray<{ index: number; label: string }>
+): string {
+  const level = (i: number) => levels.find((l) => l.index === i)?.label ?? `level ${i + 1}`;
+  const tests = p.postHoc.map((t) => POST_HOC_CHOICES.find((c) => c.test === t)?.label ?? t);
+  return [
+    `Outcome: ${namedColumn(p.outcome, view)}.`,
+    `Group: ${namedColumn(p.group, view)}.`,
+    `Levels: ${p.levels === null ? 'all' : p.levels.map(level).join(', ')}.`,
+    `Post hoc: ${tests.length === 0 ? 'none' : tests.join(', ')}.`,
+    codesWords(p.missingCodes),
+  ].join(' ');
+}
+export function corrSettingsLine(p: { variables: string[]; coefficients: string[]; missing: string; missingCodes: number[] }, view: LineView): string {
+  const coefficients = p.coefficients.map((c) => COEFFICIENT_CHOICES.find((x) => x.coefficient === c)?.label ?? c);
+  const handling = MISSING_CHOICES.find((m) => m.missing === p.missing)?.label ?? p.missing;
+  return `Variables: ${p.variables.map((a) => namedColumn(a, view)).join(', ')}. Coefficients: ${coefficients.join(', ')}. Missing values: ${handling}. ${codesWords(p.missingCodes)}`;
 }

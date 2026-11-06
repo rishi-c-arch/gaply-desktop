@@ -32,6 +32,7 @@ import { CELL_PADDING } from '../../design-system/primitives';
 import { pickManuscriptPath } from '../common/pickFile';
 import { saveTextFile } from '../../utils/saveTextFile';
 import { ttestBridge, type TTestBridge } from './ttestBridge';
+import { TTestSettings, useTTestSettings } from './TTestSettings';
 import { SaveToProject } from './projects/SaveToProject';
 import {
   DiagnosticList,
@@ -57,23 +58,17 @@ import {
   useStageFocus,
 } from './flowHooks';
 import { readMethodLimits } from './statsInvoke';
-import type { ColumnProfile, DatasetView, ExportFormat } from './describeTypes';
+import type { DatasetView, ExportFormat } from './describeTypes';
 import type {
-  GroupLevel,
   TTestResultView,
   TTestRunStateView,
-  TTestSpec,
   TTestValidationReportView,
-  Variant,
 } from './ttestTypes';
 import {
   Stage,
   STATUS_SENTENCES,
 } from './describeWording';
 import {
-  GROUP_LIMIT_SENTENCE,
-  levelsQuestion,
-  MAX_GROUP_LEVELS,
   SD_RATIO_NOTE,
   shownNumber,
   STANDARDIZER_NAMES,
@@ -85,14 +80,11 @@ import {
   TTEST_LEVELS_RULE,
   TTEST_ROWS_USED_NOTE,
   TTEST_STAGE_HEADINGS,
-  ttestMissingCodeQuestion,
   ttestRefusalSentence,
   ttestRunEndedSentence,
   ttestSentence,
   type TTestNames,
-  VARIANT_CHOICES,
   VARIANT_NAMES,
-  VARIANT_QUESTION,
 } from './ttestWording';
 
 const DATA_EXTENSIONS = ['csv', 'tsv', 'xlsx', 'xls', 'xlsb', 'xlsm', 'ods', 'sav', 'mat'];
@@ -112,55 +104,6 @@ export interface TTestFlowProps {
   limits?: () => Promise<unknown>;
 }
 
-const aliasNumber = (alias: string) => Number(alias.replace(/^C/, ''));
-
-/** The columns that can be an outcome: numeric ones. */
-const outcomes = (view: DatasetView) => view.profile.columns.filter((c) => c.kind === 'numeric');
-
-/** The columns that can be a group: any with 2 to MAX_GROUP_LEVELS levels
- *  when read as categorical, numeric ones included (decisions 81, 87). The
- *  profile's `distinct` counts them for every kind; the levels themselves
- *  come from stats_ttest_group_levels, which refuses a column with more. */
-const groups = (view: DatasetView) =>
-  view.profile.columns.filter((c: ColumnProfile) => c.distinct >= 2 && c.distinct <= MAX_GROUP_LEVELS);
-
-/** The two chosen levels, by position in the group-levels list. */
-type LevelPicks = [number | null, number | null];
-
-function defaultLevels(levels: GroupLevel[]): LevelPicks {
-  return levels.length === 2 ? [0, 1] : [null, null];
-}
-
-function buildSpec(
-  view: DatasetView,
-  outcome: string,
-  group: string,
-  levels: LevelPicks,
-  variant: Variant | null,
-  missingCodes: number[],
-  operationId: number
-): TTestSpec {
-  const [a, b] = levels;
-  return {
-    schemaVersion: 1,
-    operationId,
-    workspaceId: 'statistics',
-    capabilityId: 'stats.analyze.independent_t',
-    capabilityVersion: 1,
-    inputs: [view.inputRef],
-    parameters: {
-      outcome,
-      group,
-      // Positions, never labels (decision 78). Both or neither.
-      levels: a !== null && b !== null ? [a, b] : null,
-      variant,
-      missingCodes,
-    },
-    randomSeed: null,
-    confirmationRefs: [],
-  };
-}
-
 const TTestFlow: React.FC<TTestFlowProps> = ({
   bridge,
   pickPath = () => pickManuscriptPath(DATA_EXTENSIONS, 'Data file'),
@@ -172,13 +115,6 @@ const TTestFlow: React.FC<TTestFlowProps> = ({
   const openProgress = useOpenProgress();
   const [stage, setStage] = useState<Stage>('import');
   const [view, setView] = useState<DatasetView | null>(null);
-  const [outcome, setOutcome] = useState('');
-  const [group, setGroup] = useState('');
-  /** The chosen group's levels, as Rust indexes them. */
-  const [groupLevels, setGroupLevels] = useState<GroupLevel[]>([]);
-  const [levels, setLevels] = useState<LevelPicks>([null, null]);
-  const [variant, setVariant] = useState<Variant | null>(null);
-  const [ticked, setTicked] = useState<number[]>([]);
   const [report, setReport] = useState<TTestValidationReportView | null>(null);
   const [runView, setRunView] = useState<TTestRunStateView | null>(null);
   const [result, setResult] = useState<TTestResultView | null>(null);
@@ -195,38 +131,20 @@ const TTestFlow: React.FC<TTestFlowProps> = ({
   // The file is closed, and its rows dropped in Rust, when the screen goes.
   useCloseOnUnmount(bridge, slot);
 
-  const outcomeColumn = useMemo(() => view?.profile.columns.find((c) => c.alias === outcome), [view, outcome]);
-  const offered = useMemo(() => outcomeColumn?.suspectMissingCodes ?? [], [outcomeColumn]);
-  const missingCodes = useMemo(() => ticked.filter((t) => offered.some((s) => s.code === t)), [ticked, offered]);
-
-  const names: TTestNames = useMemo(
-    () => ({
-      column: (alias: number) => {
-        const c = view?.profile.columns.find((col) => aliasNumber(col.alias) === alias);
-        return c ? `"${c.header}"` : `C${alias}`;
-      },
-      level: (index: number) => groupLevels.find((l) => l.index === index)?.label ?? `level ${index + 1}`,
-    }),
-    [view, groupLevels]
-  );
+  const act = actWith(setBusy, setError, ttestRefusalSentence);
+  const settings = useTTestSettings(view, { bridge, slot: () => slot.current, act });
+  const { names } = settings;
 
   const spec = useCallback(() => {
     operation.current += 1;
-    return buildSpec(view as DatasetView, outcome, group, levels, variant, missingCodes, operation.current);
-  }, [view, outcome, group, levels, variant, missingCodes]);
+    return settings.spec(operation.current);
+  }, [settings]);
 
   // While a run is unfinished, its state is read every `pollMs`.
   useRunPolling(runView, setRunView, bridge, setError, ttestRefusalSentence, pollMs);
 
-  const act = actWith(setBusy, setError, ttestRefusalSentence);
-
   const reset = () => {
-    setOutcome('');
-    setGroup('');
-    setGroupLevels([]);
-    setLevels([null, null]);
-    setVariant(null);
-    setTicked([]);
+    settings.reset();
     setReport(null);
     setRunView(null);
     setResult(null);
@@ -290,26 +208,6 @@ const TTestFlow: React.FC<TTestFlowProps> = ({
       setExportNote(saved.note);
     });
 
-  const chooseGroup = (alias: string) =>
-    act(async () => {
-      setGroup(alias);
-      setGroupLevels([]);
-      setLevels([null, null]);
-      if (alias === '' || slot.current === null) return;
-      // The levels in the core's own order (decision 81); positions in this
-      // list are what the spec sends.
-      const read = await bridge.groupLevels(slot.current, alias);
-      setGroupLevels(read.levels);
-      setLevels(defaultLevels(read.levels));
-    });
-  const chooseLevel = (which: 0 | 1, value: string) =>
-    setLevels((l) => {
-      const next: LevelPicks = [l[0], l[1]];
-      next[which] = value === '' ? null : Number(value);
-      return next;
-    });
-  const toggleCode = (code: number, on: boolean) => setTicked((t) => (on ? [...t.filter((x) => x !== code), code] : t.filter((x) => x !== code)));
-
   const stageNav = <StageNav prefix="tt" stage={stage} />;
 
   const title = (
@@ -317,8 +215,6 @@ const TTestFlow: React.FC<TTestFlowProps> = ({
       {TTEST_STAGE_HEADINGS[stage]}
     </h3>
   );
-
-  const ready = outcome !== '' && group !== '';
 
   return (
     <div style={{ display: 'grid', gap: 12 }} data-testid="tt-flow">
@@ -365,98 +261,8 @@ const TTestFlow: React.FC<TTestFlowProps> = ({
       {stage === 'settings' && view && (
         <Card>
           {title}
-          <div style={{ display: 'grid', gap: 8 }}>
-            <label>
-              Outcome (a numeric column){' '}
-              <select value={outcome} data-testid="tt-outcome" onChange={(e) => setOutcome(e.target.value)}>
-                <option value="">Choose a column…</option>
-                {outcomes(view).map((c) => (
-                  <option key={c.alias} value={c.alias}>
-                    {c.alias} {c.header}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Group (a column with at least two levels){' '}
-              <select value={group} data-testid="tt-group" onChange={(e) => void chooseGroup(e.target.value)}>
-                <option value="">Choose a column…</option>
-                {groups(view).map((c) => (
-                  <option key={c.alias} value={c.alias}>
-                    {c.alias} {c.header}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <p style={{ margin: 0 }} data-testid="tt-group-limit">
-              <small>{GROUP_LIMIT_SENTENCE}</small>
-            </p>
-            {groupLevels.length > 0 && (
-              <fieldset data-testid="tt-levels">
-                <legend>The two groups</legend>
-                {groupLevels.length > 2 && <p data-testid="tt-levels-question">{levelsQuestion(groupLevels.length)}</p>}
-                {([0, 1] as const).map((which) => (
-                  <label key={which} style={{ display: 'block' }}>
-                    {which === 0 ? 'Group 1' : 'Group 2'}{' '}
-                    <select
-                      value={levels[which] === null ? '' : String(levels[which])}
-                      data-testid={`tt-level-${which + 1}`}
-                      onChange={(e) => chooseLevel(which, e.target.value)}
-                    >
-                      <option value="">Choose a level…</option>
-                      {/* Rust's own order; the value is the index Rust gave. */}
-                      {groupLevels.map((l) => (
-                        <option key={l.index} value={String(l.index)}>
-                          {l.label} ({l.count})
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                ))}
-                <p style={{ margin: 0 }}>The mean difference is group 1 minus group 2.</p>
-              </fieldset>
-            )}
-            <fieldset data-testid="tt-variant">
-              <legend>{VARIANT_QUESTION}</legend>
-              {VARIANT_CHOICES.map((c) => (
-                <div key={c.variant}>
-                  <label style={{ display: 'block' }}>
-                    <input
-                      type="radio"
-                      name="tt-variant"
-                      value={c.variant}
-                      checked={variant === c.variant}
-                      data-testid={`tt-variant-${c.variant}`}
-                      aria-describedby={`tt-variant-line-${c.variant}`}
-                      onChange={() => setVariant(c.variant)}
-                    />{' '}
-                    {c.label}
-                  </label>
-                  {/* Decision 93: what this test assumes, as information. */}
-                  <p id={`tt-variant-line-${c.variant}`} data-testid={`tt-variant-line-${c.variant}`} className="gds-jc__disclaimer" style={{ margin: '0 0 0.5em 1.5em' }}>
-                    {c.line}
-                  </p>
-                </div>
-              ))}
-            </fieldset>
-            {outcomeColumn && offered.length > 0 && (
-              <fieldset data-testid="tt-missing-codes">
-                <legend>Candidate missing codes</legend>
-                {offered.map((s) => (
-                  <label key={s.code} style={{ display: 'block' }}>
-                    <input
-                      type="checkbox"
-                      checked={ticked.includes(s.code)}
-                      data-testid={`tt-code-${s.code}`}
-                      onChange={(e) => toggleCode(s.code, e.target.checked)}
-                    />{' '}
-                    {ttestMissingCodeQuestion(s.code, outcomeColumn.header, s.cells)}
-                  </label>
-                ))}
-              </fieldset>
-            )}
-          </div>
-          <SettingsActions prefix="tt" busy={busy} ready={ready} onBack={() => setStage('profile')} onCheck={() => void check()} />
+          <TTestSettings view={view} settings={settings} />
+          <SettingsActions prefix="tt" busy={busy} ready={settings.ready} onBack={() => setStage('profile')} onCheck={() => void check()} />
         </Card>
       )}
 

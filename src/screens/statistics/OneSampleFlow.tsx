@@ -29,6 +29,7 @@ import { Button, Card } from '../../design-system';
 import { pickManuscriptPath } from '../common/pickFile';
 import { saveTextFile } from '../../utils/saveTextFile';
 import { oneSampleBridge, type OneSampleBridge } from './onesampleBridge';
+import { OneSampleSettings, testValueOf, useOneSampleSettings } from './OneSampleSettings';
 import { SaveToProject } from './projects/SaveToProject';
 import {
   DiagnosticList,
@@ -55,7 +56,7 @@ import {
 } from './flowHooks';
 import { readMethodLimits } from './statsInvoke';
 import type { DatasetView, ExportFormat } from './describeTypes';
-import type { OneSampleResultView, OneSampleRunStateView, OneSampleSpec, OneSampleValidationView } from './onesampleTypes';
+import type { OneSampleResultView, OneSampleRunStateView, OneSampleValidationView } from './onesampleTypes';
 import { Stage, STATUS_SENTENCES } from './describeWording';
 import { shownNumber, TTEST_DIGITS_NOTE } from './ttestWording';
 import {
@@ -64,12 +65,10 @@ import {
   ONE_SAMPLE_EXPORT_TEXT,
   ONE_SAMPLE_ROWS_USED_NOTE,
   ONE_SAMPLE_STAGE_HEADINGS,
-  oneSampleMissingCodeQuestion,
   oneSampleRefusalSentence,
   oneSampleRunEndedSentence,
   oneSampleSentence,
   TEST_VALUE_LABEL,
-  TEST_VALUE_LINE,
   type OneSampleNames,
 } from './onesampleWording';
 
@@ -90,32 +89,8 @@ export interface OneSampleFlowProps {
   limits?: () => Promise<unknown>;
 }
 
-const aliasNumber = (alias: string) => Number(alias.replace(/^C/, ''));
-
-/** The columns the test can read: numeric ones. */
-const numericColumns = (view: DatasetView) => view.profile.columns.filter((c) => c.kind === 'numeric');
-
-/** The test value the spec sends: the number typed when the trimmed text is
- *  not empty and is a finite number; null otherwise. Never a default. */
-export function testValueOf(text: string): number | null {
-  if (text.trim() === '') return null;
-  const v = Number(text);
-  return Number.isFinite(v) ? v : null;
-}
-
-function buildSpec(view: DatasetView, outcome: string, testValue: number | null, missingCodes: number[], operationId: number): OneSampleSpec {
-  return {
-    schemaVersion: 1,
-    operationId,
-    workspaceId: 'statistics',
-    capabilityId: 'stats.analyze.one_sample_t',
-    capabilityVersion: 1,
-    inputs: [view.inputRef],
-    parameters: { outcome, testValue, missingCodes },
-    randomSeed: null,
-    confirmationRefs: [],
-  };
-}
+// So OneSampleFlow.vitest.tsx's import holds (decision 481).
+export { testValueOf };
 
 const OneSampleFlow: React.FC<OneSampleFlowProps> = ({
   bridge,
@@ -128,10 +103,7 @@ const OneSampleFlow: React.FC<OneSampleFlowProps> = ({
   const openProgress = useOpenProgress();
   const [stage, setStage] = useState<Stage>('import');
   const [view, setView] = useState<DatasetView | null>(null);
-  const [outcome, setOutcome] = useState('');
-  /** The test value as typed; empty at first. */
-  const [testValueText, setTestValueText] = useState('');
-  const [ticked, setTicked] = useState<number[]>([]);
+  const settings = useOneSampleSettings(view);
   const [report, setReport] = useState<OneSampleValidationView | null>(null);
   const [runView, setRunView] = useState<OneSampleRunStateView | null>(null);
   const [result, setResult] = useState<OneSampleResultView | null>(null);
@@ -147,24 +119,12 @@ const OneSampleFlow: React.FC<OneSampleFlowProps> = ({
   // The file is closed, and its rows dropped in Rust, when the screen goes.
   useCloseOnUnmount(bridge, slot);
 
-  const outcomeColumn = useMemo(() => view?.profile.columns.find((c) => c.alias === outcome), [view, outcome]);
-  const offered = useMemo(() => outcomeColumn?.suspectMissingCodes ?? [], [outcomeColumn]);
-  const missingCodes = useMemo(() => ticked.filter((t) => offered.some((s) => s.code === t)), [ticked, offered]);
-
-  const names: OneSampleNames = useMemo(
-    () => ({
-      column: (alias: number) => {
-        const c = view?.profile.columns.find((col) => aliasNumber(col.alias) === alias);
-        return c ? `"${c.header}"` : `C${alias}`;
-      },
-    }),
-    [view]
-  );
+  const { names } = settings;
 
   const spec = useCallback(() => {
     operation.current += 1;
-    return buildSpec(view as DatasetView, outcome, testValueOf(testValueText), missingCodes, operation.current);
-  }, [view, outcome, testValueText, missingCodes]);
+    return settings.spec(operation.current);
+  }, [settings]);
 
   // While a run is unfinished, its state is read every `pollMs`.
   useRunPolling(runView, setRunView, bridge, setError, oneSampleRefusalSentence, pollMs);
@@ -172,9 +132,7 @@ const OneSampleFlow: React.FC<OneSampleFlowProps> = ({
   const act = actWith(setBusy, setError, oneSampleRefusalSentence);
 
   const reset = () => {
-    setOutcome('');
-    setTestValueText('');
-    setTicked([]);
+    settings.reset();
     setReport(null);
     setRunView(null);
     setResult(null);
@@ -238,7 +196,6 @@ const OneSampleFlow: React.FC<OneSampleFlowProps> = ({
       setExportNote(saved.note);
     });
 
-  const toggleCode = (code: number, on: boolean) => setTicked((t) => (on ? [...t.filter((x) => x !== code), code] : t.filter((x) => x !== code)));
 
   const say = (d: { code: string; params?: Record<string, unknown>; count?: number }) => oneSampleSentence(d, names);
 
@@ -247,10 +204,6 @@ const OneSampleFlow: React.FC<OneSampleFlowProps> = ({
       {ONE_SAMPLE_STAGE_HEADINGS[stage]}
     </h3>
   );
-
-  // Check the settings needs the column only; the test value is Rust's to
-  // ask for (decision 268).
-  const ready = outcome !== '';
 
   return (
     <div style={{ display: 'grid', gap: 12 }} data-testid="os-flow">
@@ -296,50 +249,8 @@ const OneSampleFlow: React.FC<OneSampleFlowProps> = ({
       {stage === 'settings' && view && (
         <Card>
           {title}
-          <div style={{ display: 'grid', gap: 8 }}>
-            <label>
-              Column (a numeric column){' '}
-              <select value={outcome} data-testid="os-outcome" onChange={(e) => setOutcome(e.target.value)}>
-                <option value="">Choose a column…</option>
-                {numericColumns(view).map((c) => (
-                  <option key={c.alias} value={c.alias}>
-                    {c.alias} {c.header}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              {TEST_VALUE_LABEL}{' '}
-              <input
-                type="text"
-                inputMode="decimal"
-                value={testValueText}
-                data-testid="os-test-value"
-                aria-describedby="os-test-value-line"
-                onChange={(e) => setTestValueText(e.target.value)}
-              />
-            </label>
-            <p id="os-test-value-line" data-testid="os-test-value-line" style={{ margin: 0 }}>
-              {TEST_VALUE_LINE}
-            </p>
-            {outcomeColumn && offered.length > 0 && (
-              <fieldset data-testid="os-missing-codes">
-                <legend>Candidate missing codes</legend>
-                {offered.map((s) => (
-                  <label key={s.code} style={{ display: 'block' }}>
-                    <input
-                      type="checkbox"
-                      checked={ticked.includes(s.code)}
-                      data-testid={`os-code-${s.code}`}
-                      onChange={(e) => toggleCode(s.code, e.target.checked)}
-                    />{' '}
-                    {oneSampleMissingCodeQuestion(s.code, outcomeColumn.header, s.cells)}
-                  </label>
-                ))}
-              </fieldset>
-            )}
-          </div>
-          <SettingsActions prefix="os" busy={busy} ready={ready} onBack={() => setStage('profile')} onCheck={() => void check()} />
+          <OneSampleSettings view={view} settings={settings} />
+          <SettingsActions prefix="os" busy={busy} ready={settings.ready} onBack={() => setStage('profile')} onCheck={() => void check()} />
         </Card>
       )}
 

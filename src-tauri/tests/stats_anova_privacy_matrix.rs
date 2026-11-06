@@ -230,6 +230,26 @@ fn no_sentinel_reaches_a_surface_it_is_not_allowed_on() {
         String::from_utf8(mj_bytes).unwrap(),
     ));
 
+    // Remove in the Output (decision 486): the forget's answer, a second forget's
+    // refusal, and below its span, on a run of its own so the rest is untouched.
+    let forgotten = call(
+        &w,
+        "stats_anova_run",
+        json!({ "slot": o["slot"], "spec": spec }),
+    )
+    .unwrap()["runId"]
+        .as_u64()
+        .unwrap();
+    assert_eq!(until_terminal_anova(&w, forgotten)["state"], "succeeded");
+    push(
+        &mut surfaces,
+        "the forget's answer",
+        &call(&w, "stats_desc_forget_run", json!({ "runId": forgotten })).unwrap(),
+    );
+    errors.push(
+        call(&w, "stats_desc_forget_run", json!({ "runId": forgotten })).expect_err("forgotten"),
+    );
+
     // Refused runs, as views: an outcome that holds text, a level left out
     // so one level remains, and a validation with several errors.
     let bad = call(
@@ -343,6 +363,12 @@ fn no_sentinel_reaches_a_surface_it_is_not_allowed_on() {
 
     // Tracing: every span and event, from every thread.
     let traced = lines.lock().unwrap().clone();
+    assert!(
+        traced
+            .iter()
+            .any(|l| l.contains("span stats_desc_forget_run")),
+        "the forget's span was captured"
+    );
     assert!(
         traced
             .iter()
