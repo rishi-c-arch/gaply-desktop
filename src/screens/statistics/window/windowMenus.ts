@@ -28,6 +28,8 @@ export interface WindowMenuActions {
   help: (topic: HelpTopic) => void;
   /** Opens a method's dialog (decision 471). */
   method?: (kind: string) => void;
+  /** Opens the scale score's dialog (decision 506). */
+  score?: () => void;
 }
 
 export interface WindowMenuContext {
@@ -81,6 +83,17 @@ function methodItem(c: WindowMenuContext, id: string, label: string, kind: strin
   return why ? disabled(id, label, why) : live(id, label, () => c.actions.method?.(kind));
 }
 
+/** Transform, Scale score… (decision 506): methodItem's order without the
+ *  Output's cap, since a score adds no entry. */
+function scoreItem(c: WindowMenuContext): MenuItem {
+  const id = 'transform-scale-score';
+  const label = 'Scale score…';
+  const generic = capabilityItem(c, id, label, SCALE_SCORE_CAPABILITY);
+  if (generic.description === NOT_RUNNABLE) return generic;
+  const why = !c.fileOpen ? NO_FILE : c.runGoing ? RUN_GOING : c.busy ? FILE_BUSY : undefined;
+  return why ? disabled(id, label, why) : live(id, label, () => c.actions.score?.());
+}
+
 /** METHODS' rows, in order, under each group's heading. */
 function analyzeGroups(c: WindowMenuContext): MenuDefinition['groups'] {
   const groups: MenuDefinition['groups'] = [];
@@ -132,7 +145,7 @@ export function windowMenus(c: WindowMenuContext): MenuDefinition[] {
     {
       id: 'transform',
       label: MENU_WORDS.transform,
-      groups: [{ items: [capabilityItem(c, 'transform-scale-score', 'Scale score…', SCALE_SCORE_CAPABILITY)] }, comingLater(COMING_LATER.transform)],
+      groups: [{ items: [scoreItem(c)] }, comingLater(COMING_LATER.transform)],
     },
     {
       id: 'analyze',

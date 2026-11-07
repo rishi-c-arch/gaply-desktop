@@ -38,7 +38,7 @@ const numeric = (view: DatasetView) => view.profile.columns.filter((c) => c.kind
  *  system restores a text input's, so without this the field is an invisible
  *  box on the dark panel (real-app check, Step 10). Inline, where no
  *  stylesheet can remove it. */
-const SCALE_FIELD_STYLE: React.CSSProperties = {
+export const SCALE_FIELD_STYLE: React.CSSProperties = {
   borderWidth: 1,
   borderStyle: 'solid',
   borderColor: 'var(--g-border-strong)',

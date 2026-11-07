@@ -3,7 +3,8 @@
    is narrower and ProjectDialog takes no class name. Its settings scroll; Cancel
    and Run always show. */
 
-[data-testid='sw-method-dialog'].gds-modal {
+[data-testid='sw-method-dialog'].gds-modal,
+[data-testid='sw-score-dialog'].gds-modal {
   width: min(800px, 90vw);
   max-width: min(800px, 90vw);
   max-height: min(640px, 90vh);
@@ -11,7 +12,8 @@
   display: flex;
   flex-direction: column;
 }
-[data-testid='sw-method-dialog'] .gds-modal__body {
+[data-testid='sw-method-dialog'] .gds-modal__body,
+[data-testid='sw-score-dialog'] .gds-modal__body {
   flex: 1 1 auto;
   min-height: 0;
   display: flex;

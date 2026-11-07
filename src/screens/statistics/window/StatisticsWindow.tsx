@@ -20,6 +20,7 @@ import type { DatasetView } from '../describeTypes';
 import { useMethodLimits } from '../flowHooks';
 import { FileSummary, LimitsLine, OpenProgressLine } from '../flowParts';
 import type { MethodKind } from '../methods';
+import { prepBridge, type PrepBridge } from '../prepBridge';
 import { projectBridge, type ProjectBridge } from '../projects/projectBridge';
 import { projectsShown } from '../projects/projectGate';
 import { noteCurrent, noteWorkspaceState as noteProjectWorkspaceState, useOpenProject } from '../projects/projectSession';
@@ -33,6 +34,7 @@ import { HelpDialog } from './HelpDialog';
 import { METHOD_DIALOGS, type StartedRun } from './methodOutput';
 import { AskFirst } from './MethodDialog';
 import { entryHeadingId, Output, OutputWatchers } from './Output';
+import { ScoreDialog } from './ScoreDialog';
 import { holdsUnsavedWork, MAX_OUTPUT, runIsGoing, statisticsSession, useStatisticsSession, type NewOutputEntry } from './statisticsSession';
 import { TimingLine } from './TimingLine';
 import { useWindowFile } from './useWindowFile';
@@ -82,6 +84,8 @@ export interface StatisticsWindowProps {
   runPollMs?: number;
   /** How often the workspace's state is read. */
   pollMs?: number;
+  /** Makes, reads and clears the slot's scores; prepBridge() by default (decision 505). */
+  prep?: PrepBridge;
 }
 
 const AboveTheGrid: React.FC<{ view: DatasetView | null }> = ({ view }) => {
@@ -132,6 +136,7 @@ export const StatisticsWindow: React.FC<StatisticsWindowProps> = ({
   forget: givenForget,
   save = saveTextFile,
   runPollMs = 250,
+  prep: givenPrep,
 }) => {
   const navigate = useNavigate();
   const workspace = useMemo(() => givenWorkspace ?? workspaceBridge(), [givenWorkspace]);
@@ -140,6 +145,7 @@ export const StatisticsWindow: React.FC<StatisticsWindowProps> = ({
   const projects = useMemo(() => givenProjects ?? projectBridge(), [givenProjects]);
   const runs = useMemo(() => defaultRunBridges(givenRuns), [givenRuns]);
   const forget = useMemo(() => givenForget ?? describeBridge(), [givenForget]);
+  const prep = useMemo(() => givenPrep ?? prepBridge(), [givenPrep]);
   const timing = useMemo(() => (timingShown() ? new GridTiming() : undefined), []);
   const session = useStatisticsSession();
   const { view } = session;
@@ -150,6 +156,8 @@ export const StatisticsWindow: React.FC<StatisticsWindowProps> = ({
   const [help, setHelp] = useState<HelpTopic | null>(null);
   const [dialogKind, setDialogKind] = useState<MethodKind | null>(null);
   const [asking, setAsking] = useState<'close' | 'open' | null>(null);
+  // The slot the score dialog was opened for: it shows only while that slot is the session's.
+  const [scoreFor, setScoreFor] = useState<number | null>(null);
   const [tabs, setTabs] = useState<{ key: number; first?: string }>({ key: 0 });
   const [outputStatus, setOutputStatus] = useState<string | null>(null);
   // Where the focus goes as a dialog closes: the new entry's heading after a run, else its opener.
@@ -246,6 +254,7 @@ export const StatisticsWindow: React.FC<StatisticsWindowProps> = ({
         started.current = null;
         setDialogKind(kind as MethodKind);
       },
+      score: () => setScoreFor(session.slot),
     },
   });
 
@@ -319,6 +328,18 @@ export const StatisticsWindow: React.FC<StatisticsWindowProps> = ({
       <OutputWatchers entries={session.output} bridges={runs} pollMs={runPollMs} />
       {MethodDialogFor && view && session.slot !== null && (
         <MethodDialogFor view={view} slot={session.slot} bridges={runs} outputFull={outputFull} onStarted={onStarted} onCancel={() => setDialogKind(null)} returnFocus={afterDialog} />
+      )}
+      {scoreFor !== null && scoreFor === session.slot && view && (
+        <ScoreDialog
+          view={view}
+          slot={scoreFor}
+          prep={prep}
+          onCancel={() => setScoreFor(null)}
+          onDone={(sentence) => {
+            setScoreFor(null);
+            if (sentence !== null) setMessage(sentence);
+          }}
+        />
       )}
       {asking && (
         <AskFirst

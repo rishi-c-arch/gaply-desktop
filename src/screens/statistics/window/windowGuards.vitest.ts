@@ -55,7 +55,7 @@ const FORBIDDEN: Array<[string, RegExp]> = [
 describe("the Statistics window's files", () => {
   it('are found: the scan is not inert', () => {
     const names = FILES.map((f) => path.basename(f));
-    for (const n of ['StatisticsWindow.tsx', 'statisticsSession.ts', 'useWindowFile.ts', 'VariableView.tsx', 'HelpDialog.tsx', 'windowMenus.ts', 'windowWording.ts', 'useWorkspaceSwitch.tsx', 'DataGrid.tsx', 'gridCells.ts', 'gridRange.ts', 'gridTiming.ts', 'TimingLine.tsx', 'ProjectDialog.tsx', 'AlphaSettings.tsx', 'MethodDialog.tsx', 'AlphaDialog.tsx', 'Output.tsx', 'OutputOutline.tsx', 'methodOutput.tsx', 'DescribeSettings.tsx', 'TTestSettings.tsx', 'OneSampleSettings.tsx', 'PairedSettings.tsx', 'AnovaSettings.tsx', 'CorrSettings.tsx', 'DescribeDialog.tsx', 'TTestDialog.tsx', 'OneSampleDialog.tsx', 'PairedDialog.tsx', 'AnovaDialog.tsx', 'CorrDialog.tsx']) {
+    for (const n of ['StatisticsWindow.tsx', 'statisticsSession.ts', 'useWindowFile.ts', 'VariableView.tsx', 'HelpDialog.tsx', 'windowMenus.ts', 'windowWording.ts', 'useWorkspaceSwitch.tsx', 'DataGrid.tsx', 'gridCells.ts', 'gridRange.ts', 'gridTiming.ts', 'TimingLine.tsx', 'ProjectDialog.tsx', 'AlphaSettings.tsx', 'MethodDialog.tsx', 'AlphaDialog.tsx', 'Output.tsx', 'OutputOutline.tsx', 'methodOutput.tsx', 'DescribeSettings.tsx', 'TTestSettings.tsx', 'OneSampleSettings.tsx', 'PairedSettings.tsx', 'AnovaSettings.tsx', 'CorrSettings.tsx', 'DescribeDialog.tsx', 'TTestDialog.tsx', 'OneSampleDialog.tsx', 'PairedDialog.tsx', 'AnovaDialog.tsx', 'CorrDialog.tsx', 'ScoreSettings.tsx', 'ScoreDialog.tsx']) {
       expect(names, n).toContain(n);
     }
     for (const f of FILES) expect(code(fs.readFileSync(f, 'utf8')).length, f).toBeGreaterThan(100);

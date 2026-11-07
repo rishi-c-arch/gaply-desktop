@@ -66,6 +66,11 @@ export type PrepCode =
   | 'stats.prep.not_scored_too_few'
   | 'stats.prep.not_scored_overflow';
 
+/** The most characters a score's name may have, counted by code point, as Rust
+ *  counts them. Pinned to stats_prep::NAME_MAX_CHARS by
+ *  src-tauri/tests/stats_prep_screen_wire.rs, which reads this line. */
+export const SCORE_NAME_MAX_CHARS = 128;
+
 /** What a score is, of the values a row has. */
 export type Statistic = 'sum' | 'mean';
 

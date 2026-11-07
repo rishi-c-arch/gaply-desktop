@@ -6,6 +6,7 @@
 import { HIGHEST_LABEL, LOWEST_LABEL, REVERSE_LABEL } from '../alphaWording';
 import { POST_HOC_CHOICES } from '../anovaWording';
 import { COEFFICIENT_CHOICES, MISSING_CHOICES } from '../corrWording';
+import { SCORE_NAME_MAX_CHARS, type Statistic } from '../prepTypes';
 import { VARIANT_CHOICES } from '../ttestWording';
 
 export const WINDOW_TITLE = 'Statistics';
@@ -260,3 +261,69 @@ export function corrSettingsLine(p: { variables: string[]; coefficients: string[
   const handling = MISSING_CHOICES.find((m) => m.missing === p.missing)?.label ?? p.missing;
   return `Variables: ${p.variables.map((a) => namedColumn(a, view)).join(', ')}. Coefficients: ${coefficients.join(', ')}. Missing values: ${handling}. ${codesWords(p.missingCodes)}`;
 }
+
+/** The scale score's dialog (decisions 504 to 507). Its form's words, Make's
+ *  sentence, the scores it lists and the questions before a deletion. A score's
+ *  name is the user's own, shown on their own screen. "Delete", never "Remove",
+ *  so the item list's Remove all and a deletion cannot be confused. */
+export const SCORE_DIALOG_TITLE = 'Scale score';
+export const SCORE_NAME_LABEL = 'Name of the score';
+export const SCORE_ITEMS_LEGEND = "Items. None is chosen unless you choose it; choose at least two of the file's numeric columns.";
+export const SCORE_SCALE_LEGEND = "The scale's ends";
+export const SCORE_STATISTIC_LEGEND = 'The score is the';
+export const SCORE_STATISTIC_CHOICES: ReadonlyArray<{ statistic: Statistic; label: string }> = [
+  { statistic: 'sum', label: 'sum of the items' },
+  { statistic: 'mean', label: 'mean of the items' },
+];
+export const SCORE_RULE_LEGEND = 'A person gets a score when';
+export const SCORE_RULE_EVERY = 'every item has a value';
+export const SCORE_RULE_AT_LEAST = 'at least this many items have one';
+export const SCORE_AT_LEAST_LABEL = 'Number of items';
+export const SCORE_CODES_LEGEND = 'Candidate missing codes';
+export const SCORE_MAKE = 'Make the column';
+export const SCORE_HELD_READING = 'Reading the scores this file holds.';
+
+/** Each piece Make waits for, in the form's order. */
+export const SCORE_MISSING = {
+  name: 'a name for the score',
+  nameLong: `a name of at most ${SCORE_NAME_MAX_CHARS} characters`,
+  twoItems: 'two items',
+  oneMoreItem: 'one more item',
+  lowest: 'a number for the lowest value on the scale',
+  highest: 'a number for the highest value on the scale',
+  statistic: 'the sum or the mean',
+  rule: 'when a person gets a score',
+  atLeast: (top: number) => `a whole number of items from 1 to ${top}`,
+};
+
+/** Everything still missing, in one sentence; null for nothing. */
+export function scoreMissingSentence(parts: readonly string[]): string | null {
+  if (parts.length === 0) return null;
+  const list = parts.length === 1 ? parts[0] : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
+  return `To make the column, choose ${list}.`;
+}
+
+export const SCORES_HEADING = 'Scores in this file';
+export const SCORE_DELETE = 'Delete';
+export const SCORE_DELETE_ALL = 'Delete every score';
+export function scoreDeleteLabel(name: string): string {
+  return `Delete the score "${name}"`;
+}
+export const ASK_DELETE_SCORE = {
+  title: 'Delete this score',
+  sentence: (name: string) =>
+    `Delete the score "${name}"? It is deleted from the table. The file on disk is not changed, results already in the Output keep it, and you can make it again.`,
+};
+export const ASK_DELETE_ALL = {
+  title: 'Delete every score',
+  sentence: 'Delete every score? Each is deleted from the table. The file on disk is not changed, results already in the Output keep them, and you can make them again.',
+};
+
+/** sw-message after a make: the score's four counts, by its name. */
+export function scoreMadeSentence(name: string, c: { scoredFromEveryItem: number; scoredFromFewer: number; notScoredTooFew: number; notScoredOverflow: number }): string {
+  return `The score was made. ${scoreCountsSentence(`"${name}"`, c)}`;
+}
+export function scoreDeletedSentence(name: string): string {
+  return `The score "${name}" was deleted.`;
+}
+export const SCORES_DELETED = 'Every score was deleted.';

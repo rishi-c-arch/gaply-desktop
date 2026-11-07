@@ -200,11 +200,11 @@ describe('the alpha menu item', () => {
     await openDialog();
   });
 
-  it('every method is live with a file (decision 485), and Transform stays in a later step', async () => {
+  it('every method is live with a file (decision 485), and so is Transform\'s scale score (decision 506)', async () => {
     setUp();
     await opened();
     for (const m of METHODS) await untilItem('analyze', `analyze-${m.kind}`, (i) => !i.off);
-    expect(readItem('transform', 'transform-scale-score').said).toBe(LATER_STEP);
+    await untilItem('transform', 'transform-scale-score', (i) => !i.off && i.said === undefined);
   });
 });
 

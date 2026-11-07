@@ -346,7 +346,7 @@ describe('Analyze and Transform read Rust\'s list', () => {
     expect(description('analyze-ttest')).toBe(NO_FILE);
     openMenu('analyze');
     openMenu('transform');
-    expect(description('transform-scale-score')).toBe(LATER_STEP);
+    expect(description('transform-scale-score')).toBe(NO_FILE);
   });
 
   it('a list that could not be read leaves every method not runnable', async () => {
