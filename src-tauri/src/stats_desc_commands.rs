@@ -61,7 +61,10 @@
 //! [`view_of`], is the open's, with each score marked and named for the user's
 //! own screen, what a spec on it copies, and each score's counts. Each is absent
 //! on a file's own table, so that view keeps its bytes. The name never enters
-//! the core's profile, a schema, a result, a manifest or a log.
+//! the core's profile, a schema, a result, a manifest or a log. Since Phase
+//! 8T-1b (decision 498) the slot keeps the open's profile of the file's
+//! columns, and [`view_of`] profiles only the columns a recipe added, with the
+//! same bytes as a full profile.
 
 use std::path::Path;
 use std::sync::atomic::AtomicU64;
@@ -321,7 +324,8 @@ pub fn open(slots: &DatasetSlots, path: &Path) -> Result<DatasetView, GaplyError
 
 /// The open's body (Research OS, Phase 8F-1, decision 286): the file read
 /// through the ingest under `limits`, its rows read stored into `progress`
-/// while it is parsed, profiled and held in a slot. `stats_desc_open` passes
+/// while it is parsed, profiled and held in a slot, which keeps that profile
+/// for every later view (decision 498). `stats_desc_open` passes
 /// `IngestLimits::this_computer()` (Phase 8F-2, decision 288) and [`open`]
 /// `IngestLimits::METHODS` (`tests/ingest_limits_guard.rs`).
 pub fn open_with(
@@ -342,11 +346,20 @@ pub fn open_with(
     // the ingest's extensions are the store's data formats, word for word.
     let source = DataFormat::from_wire(&ext)
         .map(|format| SourceFile::new(bytes, input_ref.content_hash.clone(), format));
-    let slot = slots.insert_opened(display_name.clone(), dataset, source, file_findings.clone());
+    // The slot keeps this profile, so a make never profiles the file's columns
+    // again (decision 498); the view is built from a clone of it.
+    let view_profile = profile.clone();
+    let slot = slots.insert_profiled(
+        display_name.clone(),
+        dataset,
+        profile,
+        source,
+        file_findings.clone(),
+    );
     Ok(DatasetView {
         slot,
         display_name,
-        profile: profile.into(),
+        profile: view_profile.into(),
         input_ref,
         file_findings,
         preparation: None,
@@ -358,9 +371,25 @@ pub fn open_with(
 /// 424): the profile of the whole table, each score with its typed name, the
 /// file's findings, and what a spec on it copies. What a make and a clear
 /// return.
+///
+/// The file's columns come from the profile the slot keeps, so they are never
+/// profiled again; on a prepared table only the scores' columns are, from the
+/// file's width onward (decision 498). Each column's profile reads only that
+/// column, so the bytes are a full profile's (`tests/slot_file_profile.rs`).
+/// A slot [`DatasetSlots`] holds always has its file profile.
 pub fn view_of(slot: &Slot) -> DatasetView {
     let dataset = slot.dataset();
-    let mut profile = ProfileView::from(stats_desc::profile(dataset));
+    let mut whole = slot
+        .file_profile()
+        .expect("every slot DatasetSlots holds keeps its file profile")
+        .clone();
+    if slot.prepared().is_some() {
+        let first = whole.columns.len();
+        whole
+            .columns
+            .extend(stats_desc::profile_columns_from(dataset, first));
+    }
+    let mut profile = ProfileView::from(whole);
     let mut score_counts = Vec::new();
     if let Some(prepared) = slot.prepared() {
         for RecipeStep::ScaleScore(step) in &prepared.recipe.steps {

@@ -1,0 +1,53 @@
+{
+  "counts": [],
+  "dataset": null,
+  "errors": [
+    {
+      "code": "stats.prep.too_few_items",
+      "params": {
+        "count": 1,
+        "index": 1
+      },
+      "severity": "error"
+    },
+    {
+      "code": "stats.prep.reversed_not_an_item",
+      "params": {
+        "column": 2,
+        "index": 1
+      },
+      "severity": "error"
+    },
+    {
+      "code": "stats.prep.scale_missing",
+      "params": {
+        "index": 1
+      },
+      "severity": "error"
+    }
+  ],
+  "estimatedResources": {
+    "cells": 108,
+    "columns": 9,
+    "rows": 12
+  },
+  "missingInformation": [
+    {
+      "code": "stats.prep.statistic_not_chosen",
+      "params": {
+        "index": 1
+      },
+      "severity": "error"
+    }
+  ],
+  "status": "invalid",
+  "warnings": [
+    {
+      "code": "stats.prep.sum_over_fewer_items",
+      "params": {
+        "index": 0
+      },
+      "severity": "warning"
+    }
+  ]
+}

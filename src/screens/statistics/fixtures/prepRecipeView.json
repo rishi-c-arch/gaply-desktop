@@ -1,0 +1,44 @@
+{
+  "counts": [
+    {
+      "column": "C8",
+      "notScoredOverflow": 0,
+      "notScoredTooFew": 0,
+      "scoredFromEveryItem": 12,
+      "scoredFromFewer": 0
+    }
+  ],
+  "recipe": {
+    "capabilityId": "stats.prepare.scale_score",
+    "capabilityVersion": 1,
+    "engineVersion": 1,
+    "schemaVersion": 1,
+    "sourceColumns": 7,
+    "steps": [
+      {
+        "alias": "C8",
+        "items": [
+          "C1",
+          "C2",
+          "C3"
+        ],
+        "kind": "scale_score",
+        "missingCodes": [
+          9.0
+        ],
+        "name": "wellbeing",
+        "reversed": [
+          "C2"
+        ],
+        "rule": {
+          "at_least": 2
+        },
+        "scale": {
+          "max": 5.0,
+          "min": 1.0
+        },
+        "statistic": "mean"
+      }
+    ]
+  }
+}

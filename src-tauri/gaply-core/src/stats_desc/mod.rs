@@ -501,10 +501,24 @@ fn column_param(alias: Alias) -> ParamValue<DescCode> {
 
 /// Every column of the dataset, with no missing codes applied.
 pub fn profile(dataset: &Dataset) -> DatasetProfile {
-    let columns = dataset
+    DatasetProfile {
+        rows: dataset.rows() as u64,
+        columns: profile_columns_from(dataset, 0),
+    }
+}
+
+/// [`profile`]'s columns from the `first`-th (0-based) onward, each exactly as
+/// [`profile`] gives it, since a column's profile reads only that column and
+/// whether it is a score (Research OS, Phase 8T-1b, decision 498). So a
+/// prepared table's profile is its file columns' profile followed by this from
+/// the file's width: what a make reads instead of profiling the whole table.
+/// Empty when `first` is past the last column.
+pub fn profile_columns_from(dataset: &Dataset, first: usize) -> Vec<ColumnProfile> {
+    dataset
         .schema
         .columns
         .iter()
+        .skip(first)
         .map(|summary| {
             let alias = Alias(summary.alias);
             let cells = dataset
@@ -539,11 +553,7 @@ pub fn profile(dataset: &Dataset) -> DatasetProfile {
                 non_finite: non_finite_cells(summary),
             }
         })
-        .collect();
-    DatasetProfile {
-        rows: dataset.rows() as u64,
-        columns,
-    }
+        .collect()
 }
 
 /* ------------------------------------------------------------------------ *

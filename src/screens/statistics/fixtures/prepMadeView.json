@@ -1,0 +1,163 @@
+{
+  "counts": [
+    {
+      "column": "C8",
+      "notScoredOverflow": 0,
+      "notScoredTooFew": 0,
+      "scoredFromEveryItem": 12,
+      "scoredFromFewer": 0
+    }
+  ],
+  "dataset": {
+    "displayName": "data.csv",
+    "inputRef": {
+      "columns": 8,
+      "contentHash": "1e82d5f7adfbf58537d7d65f5aa5b6904e0ec7285197b1a5af548f03d6e68986",
+      "rows": 12,
+      "semanticRole": "table"
+    },
+    "preparation": {
+      "capabilityVersion": 1,
+      "engineVersion": 1,
+      "recipeHash": "133676988cd395a241873d95ea8dd63a38c69cb2268970ec4c062849073a1492",
+      "sourceColumns": 7,
+      "sourceHash": "6595abb8fb86460d0295beb802f225288a3f73762b172242cb683039d6720f9a"
+    },
+    "profile": {
+      "columns": [
+        {
+          "alias": "C1",
+          "distinct": 5,
+          "header": "q1",
+          "kind": "numeric",
+          "levels": null,
+          "missing": 0,
+          "n": 12,
+          "nonFinite": 0,
+          "suspectMissingCodes": []
+        },
+        {
+          "alias": "C2",
+          "distinct": 5,
+          "header": "q2",
+          "kind": "numeric",
+          "levels": null,
+          "missing": 0,
+          "n": 12,
+          "nonFinite": 0,
+          "suspectMissingCodes": []
+        },
+        {
+          "alias": "C3",
+          "distinct": 5,
+          "header": "q3",
+          "kind": "numeric",
+          "levels": null,
+          "missing": 0,
+          "n": 12,
+          "nonFinite": 0,
+          "suspectMissingCodes": []
+        },
+        {
+          "alias": "C4",
+          "distinct": 5,
+          "header": "q4",
+          "kind": "numeric",
+          "levels": null,
+          "missing": 0,
+          "n": 12,
+          "nonFinite": 0,
+          "suspectMissingCodes": []
+        },
+        {
+          "alias": "C5",
+          "distinct": 2,
+          "header": "arm",
+          "kind": "categorical",
+          "levels": [
+            {
+              "count": 6,
+              "label": "a"
+            },
+            {
+              "count": 6,
+              "label": "b"
+            }
+          ],
+          "missing": 0,
+          "n": 12,
+          "nonFinite": 0,
+          "suspectMissingCodes": []
+        },
+        {
+          "alias": "C6",
+          "distinct": 3,
+          "header": "site",
+          "kind": "categorical",
+          "levels": [
+            {
+              "count": 4,
+              "label": "x"
+            },
+            {
+              "count": 4,
+              "label": "y"
+            },
+            {
+              "count": 4,
+              "label": "z"
+            }
+          ],
+          "missing": 0,
+          "n": 12,
+          "nonFinite": 0,
+          "suspectMissingCodes": []
+        },
+        {
+          "alias": "C7",
+          "distinct": 12,
+          "header": "age",
+          "kind": "numeric",
+          "levels": null,
+          "missing": 0,
+          "n": 12,
+          "nonFinite": 0,
+          "suspectMissingCodes": []
+        },
+        {
+          "alias": "C8",
+          "distinct": 10,
+          "header": "C8",
+          "kind": "numeric",
+          "levels": null,
+          "missing": 0,
+          "n": 12,
+          "nonFinite": 0,
+          "prepared": true,
+          "scoreName": "wellbeing",
+          "suspectMissingCodes": []
+        }
+      ],
+      "rows": 12
+    },
+    "scoreCounts": [
+      {
+        "column": "C8",
+        "notScoredOverflow": 0,
+        "notScoredTooFew": 0,
+        "scoredFromEveryItem": 12,
+        "scoredFromFewer": 0
+      }
+    ],
+    "slot": 1
+  },
+  "errors": [],
+  "estimatedResources": {
+    "cells": 96,
+    "columns": 8,
+    "rows": 12
+  },
+  "missingInformation": [],
+  "status": "valid",
+  "warnings": []
+}

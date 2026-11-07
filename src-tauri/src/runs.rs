@@ -125,7 +125,9 @@ use gaply_core::stats_adapters;
 use gaply_core::stats_alpha::{self, AlphaCode, AlphaOutcome, AlphaParams};
 use gaply_core::stats_anova::{self, AnovaCode, AnovaOutcome, AnovaParams};
 use gaply_core::stats_corr::{self, CorrCode, CorrOutcome, CorrParams};
-use gaply_core::stats_desc::{self, DescCode, DescribeParams, DescribeResult, Halt};
+use gaply_core::stats_desc::{
+    self, DatasetProfile, DescCode, DescribeParams, DescribeResult, Halt,
+};
 use gaply_core::stats_l1::dataset::{DataFingerprint, Dataset};
 use gaply_core::stats_onesample::{
     self, OneSampleCode, OneSampleParams, OneSampleResult, PairedParams, PairedResult,
@@ -251,12 +253,19 @@ enum Table {
 /// A recipe gives a new `Slot` under the same number, which shares the bytes
 /// through their `Arc`: a Save may hold this one (decision 424), so it cannot
 /// be taken apart.
+///
+/// Every slot [`DatasetSlots`] holds keeps the profile of its file's own
+/// columns, shared through a make and a clear as the bytes are, so a view
+/// profiles only the columns a recipe added (Research OS, Phase 8T-1b,
+/// decision 498). It holds headers and level labels, so it is the user's data
+/// too. A one-run slot holds none: no view reads it.
 pub struct Slot {
     id: u64,
     display_name: String,
     table: Table,
     source: Option<Arc<SourceFile>>,
     file_findings: Vec<SavFinding>,
+    file_profile: Option<Arc<DatasetProfile>>,
 }
 
 impl Slot {
@@ -272,6 +281,7 @@ impl Slot {
             table: Table::File(dataset),
             source: Some(Arc::new(source)),
             file_findings: Vec::new(),
+            file_profile: None,
         }
     }
 
@@ -290,6 +300,7 @@ impl Slot {
             table: Table::Prepared { prepared, original },
             source: Some(Arc::new(source)),
             file_findings: Vec::new(),
+            file_profile: None,
         }
     }
 
@@ -319,6 +330,12 @@ impl Slot {
             Table::File(_) => None,
             Table::Prepared { prepared, .. } => Some(prepared),
         }
+    }
+    /// The profile of the file's own columns, as `stats_desc::profile` gave it
+    /// when the slot was first held (decision 498). `Some` for every slot
+    /// [`DatasetSlots`] holds, `None` for a one-run slot.
+    pub fn file_profile(&self) -> Option<&DatasetProfile> {
+        self.file_profile.as_deref()
     }
     /// The file's fingerprint, whether or not a recipe is held.
     pub fn original_fingerprint(&self) -> &DataFingerprint {
@@ -355,8 +372,9 @@ pub struct DatasetSlots {
     next: Arc<AtomicU64>,
     slots: Mutex<VecDeque<(u64, Arc<Slot>)>>,
     /// The cells the slots may hold in all, the newest dataset included
-    /// (decision 282). Cells only: not the file bytes a slot keeps, nor a
-    /// rerun's one-run slot.
+    /// (decision 282). Cells only: not the file bytes a slot keeps, nor the
+    /// profile of its file's columns (decision 498), nor a rerun's one-run
+    /// slot.
     budget_cells: u64,
 }
 
@@ -429,6 +447,8 @@ impl DatasetSlots {
 
     /// [`DatasetSlots::insert_with_source`], with what the reader noted about
     /// the file, which a recipe's view shows as the open's does (decision 424).
+    /// The table is profiled here, before the lock is taken, so the slot holds
+    /// its file profile (decision 498).
     pub fn insert_opened(
         &self,
         display_name: String,
@@ -436,6 +456,27 @@ impl DatasetSlots {
         source: Option<SourceFile>,
         file_findings: Vec<SavFinding>,
     ) -> u64 {
+        let profile = stats_desc::profile(&dataset);
+        self.insert_profiled(display_name, dataset, profile, source, file_findings)
+    }
+
+    /// [`DatasetSlots::insert_opened`] with the file's profile already made:
+    /// the open profiles the table for its view, so the slot keeps that one
+    /// rather than profiling it twice (decision 498). `profile` must be
+    /// `stats_desc::profile(&dataset)`.
+    pub fn insert_profiled(
+        &self,
+        display_name: String,
+        dataset: Dataset,
+        profile: DatasetProfile,
+        source: Option<SourceFile>,
+        file_findings: Vec<SavFinding>,
+    ) -> u64 {
+        debug_assert_eq!(
+            profile.columns.len(),
+            dataset.schema.columns.len(),
+            "the profile is of this table"
+        );
         let id = self.next.fetch_add(1, Ordering::SeqCst) + 1;
         let mut slots = lock(&self.slots);
         slots.push_back((
@@ -446,6 +487,7 @@ impl DatasetSlots {
                 table: Table::File(dataset),
                 source: source.map(Arc::new),
                 file_findings,
+                file_profile: Some(Arc::new(profile)),
             }),
         ));
         self.evict(&mut slots);
@@ -468,7 +510,7 @@ impl DatasetSlots {
 
     /// **`held`'s slot, its table replaced (decision 424): the same number,
     /// moved to the back so it is never the one dropped, sharing the bytes and
-    /// keeping the file's findings.** Then the eviction runs, since a table
+    /// the file's profile (decision 498) and keeping the file's findings.** Then the eviction runs, since a table
     /// with one more column may take the cells held past the budget.
     ///
     /// Only the slot `held` is may be replaced, so a make cannot overwrite what
@@ -490,6 +532,7 @@ impl DatasetSlots {
             table,
             source: held.source.clone(),
             file_findings: held.file_findings.clone(),
+            file_profile: held.file_profile.clone(),
         });
         slots.remove(at);
         slots.push_back((held.id, next.clone()));
@@ -2931,6 +2974,7 @@ mod tests {
             table: Table::File(dataset),
             source: None,
             file_findings: Vec::new(),
+            file_profile: None,
         });
         assert_eq!(runs.start(slot, spec), Err(NotStarted::Sealed));
         assert_eq!(runs.held(), 1, "no record was made");
@@ -2982,6 +3026,7 @@ mod tests {
             table: Table::File(dataset),
             source: None,
             file_findings: Vec::new(),
+            file_profile: None,
         });
         (slot, spec)
     }
@@ -3215,6 +3260,7 @@ mod tests {
             table: Table::File(dataset),
             source: None,
             file_findings: Vec::new(),
+            file_profile: None,
         })
     }
 
@@ -3386,6 +3432,7 @@ mod tests {
             table: Table::File(dataset),
             source: None,
             file_findings: Vec::new(),
+            file_profile: None,
         })
     }
 

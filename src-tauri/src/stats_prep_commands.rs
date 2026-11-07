@@ -15,8 +15,12 @@
 //!
 //! **There is no run, so no run kind, no ceiling and no cancel.** Measured for
 //! decision 424 at each tier's largest table: the build itself 0.02 to 0.17 s,
-//! the whole make 1.8 to 5.2 s, nearly all of it the profile of the whole table,
-//! which an open computes too. Making, replacing and clearing are refused with
+//! the whole make 1.8 to 5.2 s, nearly all of it the profile of the whole table.
+//! Since decision 498 the slot keeps the open's profile of the file's columns
+//! and a make profiles only the new ones: measured by a release probe at
+//! 100,000 x 49 with one score of 49 items, the make's median went from 1.47 s
+//! to 0.08 s, and with 40 numeric and 10 text columns from 1.41 s to 0.11 s,
+//! the view's bytes unchanged. Making, replacing and clearing are refused with
 //! `run.run_busy` while any run is unfinished. A run keeps the handle it started
 //! with.
 //!
