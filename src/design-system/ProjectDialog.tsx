@@ -7,6 +7,8 @@
 // * Focus moves to `initialFocus` (or the first control) when it opens.
 // * Tab and Shift+Tab stay inside it.
 // * Escape closes it, as Cancel does.
+// * A key from a dialog nested inside it (a portal of its own) is that one's:
+//   this one ignores it, so each dialog traps only its own Tab.
 // * When it closes, focus goes to what `returnFocus` names: the control that
 //   opened it, recorded from its click (WebKit, which the macOS app runs on,
 //   does not focus a button on a click, so the focused element at opening is
@@ -54,6 +56,10 @@ export const ProjectDialog: React.FC<ProjectDialogProps> = ({ title, onClose, in
   }, []);
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    // A key from a dialog inside this one reaches here too, since React bubbles
+    // through portals: each dialog keeps only its own keys (Research OS, Phase
+    // 8U-1, decision 525), so the outer one never pulls Tab back from it.
+    if (!box.current || !box.current.contains(e.target as Node)) return;
     if (e.key === 'Escape') {
       e.stopPropagation();
       close.current();

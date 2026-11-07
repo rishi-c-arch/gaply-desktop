@@ -25,8 +25,12 @@ import { prepBridge, type PrepBridge } from '../prepBridge';
 import { prepRefusalSentence } from '../prepWording';
 import { projectBridge, type ProjectBridge } from '../projects/projectBridge';
 import { projectsShown } from '../projects/projectGate';
+import { EXPORTS } from '../projects/projectExport';
+import { ProjectExportDialog } from '../projects/ProjectExportDialog';
+import { projectPagePath } from '../projects/projectRoute';
 import { noteCurrent, noteWorkspaceState as noteProjectWorkspaceState, useOpenProject } from '../projects/projectSession';
 import { readMethodLimits } from '../statsInvoke';
+import { useGeneration } from '../projects/useGeneration';
 import { capabilityBridge, type CapabilityBridge } from '../ttestBridge';
 import type { CapabilityView } from '../ttestTypes';
 import './StatisticsWindow.css';
@@ -34,6 +38,7 @@ import { DataGrid } from './DataGrid';
 import { GridTiming, timingShown } from './gridTiming';
 import { HelpDialog } from './HelpDialog';
 import { METHOD_DIALOGS, type StartedRun } from './methodOutput';
+import { OpenProjectDialog } from './OpenProjectDialog';
 import { AskFirst } from './MethodDialog';
 import { entryHeadingId, Output, OutputWatchers } from './Output';
 import { ScoreDialog } from './ScoreDialog';
@@ -109,15 +114,17 @@ const AboveTheGrid: React.FC<{ view: DatasetView | null }> = ({ view }) => {
   );
 };
 
-const ProjectLine: React.FC = () => {
+/** The open project's line (decision 523): with a project open, a button
+ *  opening its page; with none, plain text. */
+const ProjectLine: React.FC<{ onOpen: (projectId: string) => void }> = ({ onOpen }) => {
   const open = useOpenProject();
   return (
     <p className="sw-project" data-testid="sw-project-line" title={open?.name}>
       {open ? (
-        <>
+        <button type="button" className="sw-project__open" onClick={() => onOpen(open.projectId)} data-testid="sw-project-open">
           {PROJECT_LINE_PREFIX}
           <bdi>{open.name}</bdi>
-        </>
+        </button>
       ) : (
         NO_PROJECT_LINE
       )}
@@ -166,6 +173,12 @@ export const StatisticsWindow: React.FC<StatisticsWindowProps> = ({
   const [scoreFor, setScoreFor] = useState<number | null>(null);
   const [tabs, setTabs] = useState<{ key: number; first?: string }>({ key: 0 });
   const [outputStatus, setOutputStatus] = useState<string | null>(null);
+  // Project, Open a project…'s dialog (decision 525).
+  const [openingProject, setOpeningProject] = useState(false);
+  // Project, Export the project report…'s dialog, for the open project (decision 526).
+  const [exportingReport, setExportingReport] = useState(false);
+  const openProject = useOpenProject();
+  const reportGen = useGeneration();
   // Where the focus goes as a dialog closes: the new entry's heading after a run, else its opener.
   const started = useRef<number | null>(null);
   const afterDialog = useRef<(() => HTMLElement | null) | null>(() => (started.current === null ? null : document.getElementById(entryHeadingId(started.current))));
@@ -276,6 +289,7 @@ export const StatisticsWindow: React.FC<StatisticsWindowProps> = ({
   const menus = windowMenus({
     fileOpen: view !== null,
     prepared: view?.preparation !== undefined,
+    projectOpen: openProject !== null,
     runGoing: going,
     outputFull,
     busy: session.busy,
@@ -295,6 +309,8 @@ export const StatisticsWindow: React.FC<StatisticsWindowProps> = ({
       },
       score: () => setScoreFor(session.slot),
       exportPrepared: () => setAsking('export'),
+      openProject: () => setOpeningProject(true),
+      exportReport: () => setExportingReport(true),
     },
   });
 
@@ -341,7 +357,7 @@ export const StatisticsWindow: React.FC<StatisticsWindowProps> = ({
       <h1 className="sw-sr">{WINDOW_TITLE}</h1>
       <header className="sw-top" data-testid="sw-top">
         <Menu label={MENU_WORDS.bar} menus={menus} />
-        {showProjects && <ProjectLine />}
+        {showProjects && <ProjectLine onOpen={(id) => navigate(projectPagePath(id))} />}
       </header>
       <main className="sw-main">
         <Tabs
@@ -403,6 +419,31 @@ export const StatisticsWindow: React.FC<StatisticsWindowProps> = ({
             const act = asking === 'close' ? closeFile : choose;
             setAsking(null);
             void act();
+          }}
+        />
+      )}
+      {openingProject && (
+        <OpenProjectDialog
+          projects={projects}
+          workspace={workspace}
+          onClose={() => setOpeningProject(false)}
+          onOpened={(id) => {
+            setOpeningProject(false);
+            navigate(projectPagePath(id));
+          }}
+        />
+      )}
+      {exportingReport && openProject && (
+        <ProjectExportDialog
+          kind="report"
+          projectId={openProject.projectId}
+          bridge={projects}
+          gen={reportGen}
+          save={(n, t, m) => save(n, t, m ?? EXPORTS.report.mime)}
+          openerAfter={() => null}
+          onDone={(said) => {
+            setExportingReport(false);
+            if (said !== null) setMessage(said);
           }}
         />
       )}

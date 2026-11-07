@@ -43,12 +43,23 @@ function page(bridge: ReturnType<typeof makeMockWorkspaceBridge>) {
   );
 }
 
+/** ws-switch is drawn at once but disabled until the first workspace_state read
+ *  lands (WorkspaceShell.tsx:166), and a click on it before then is dropped. 8T-2b's
+ *  run failed so (~/gaply-corpus/os/phase8/8t2b/logs/vt_dirs_1794050091.log: no
+ *  chooser, the button enabled, no switch dialog), and 8U-1's probe reproduced it
+ *  with the first read held 300 ms (decision 527). */
+async function switchWhenEnabled(): Promise<HTMLButtonElement> {
+  const sw = (await screen.findByTestId('ws-switch')) as HTMLButtonElement;
+  await waitFor(() => expect(sw.disabled).toBe(false));
+  return sw;
+}
+
 describe('a Switch from the workspace page', () => {
   it("drops the Statistics window's file once Rust has let the workspace go", async () => {
     statisticsSession.setFile(view);
     const bridge = makeMockWorkspaceBridge({ workspace_state: ACTIVE, workspace_deactivate: NONE });
     page(bridge);
-    fireEvent.click(await screen.findByTestId('ws-switch'));
+    fireEvent.click(await switchWhenEnabled());
     await screen.findByTestId('chooser');
     expect(statisticsSession.get().view).toBeNull();
   });
@@ -63,7 +74,7 @@ describe('a Switch from the workspace page', () => {
       },
     });
     page(bridge);
-    fireEvent.click(await screen.findByTestId('ws-switch'));
+    fireEvent.click(await switchWhenEnabled());
     await screen.findByTestId('ws-switch-dialog');
     await waitFor(() => expect(bridge.calls.some(([c]) => c === 'workspace_deactivate')).toBe(true));
     expect(statisticsSession.get().view).toBe(view);

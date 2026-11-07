@@ -148,6 +148,7 @@ const PAGE_SCREEN = path.join(SRC, 'screens/statistics/ProjectPageScreen.tsx');
  *  check, the export's checks, the counter, the route and the page around it. */
 const NEW_CODE = [
   path.join(HERE, 'ProjectPage.tsx'),
+  path.join(HERE, 'ProjectExportDialog.tsx'),
   path.join(HERE, 'SavedResult.tsx'),
   path.join(HERE, 'storedShape.ts'),
   path.join(HERE, 'projectExport.ts'),
@@ -176,11 +177,12 @@ describe("Phase 5B-3b's new code", () => {
     for (const w of ['dangerouslySetInnerHTML', 'innerHTML', 'console.', 'localStorage', 'sessionStorage', 'indexedDB', 'document.title', 'history.', 'fetch(']) {
       expect(typed, w).not.toContain(w);
     }
-    const calls = typed.match(/navigate\(([^)]*)\)/g) ?? [];
+    const calls = typed.match(/\bnavigate\(((?:[^()]|\(\))*)\)/g) ?? [];
+    expect(calls).toHaveLength((typed.match(/\bnavigate\(/g) ?? []).length);
     expect(calls.length).toBeGreaterThan(0);
-    for (const c of calls) expect(c, c).toMatch(/^navigate\((STATISTICS_HOME_PATH|'\/app')\)$/);
+    for (const c of calls) expect(c, c).toMatch(/^navigate\((STATISTICS_HOME_PATH|projectPageHome\(\)|'\/app')\)$/);
     // No router state: navigate takes one argument here, a fixed path.
-    expect(typed).not.toMatch(/navigate\([^)]*,/);
+    expect(typed).not.toMatch(/\bnavigate\((?:[^()]|\(\))*,/);
   });
 
   it('no throw builds its message from data', () => {

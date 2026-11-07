@@ -340,3 +340,9 @@ export const ASK_EXPORT_PREPARED = {
     "This file holds your data as Gaply read it, with your scores added. Missing answers are empty, SPSS's value labels are not included, and numbers are written in full. Your original file is not changed.",
 };
 export const EXPORT_PREPARED_NAME = 'prepared_data.csv';
+
+/** Project, Open a project… (decision 525): its dialog's title, fixed text. */
+export const OPEN_PROJECT_TITLE = 'Open a project';
+/** Project, Export the project report… with no project open (decision 526;
+ *  ADR-012 Part 5), word for word. */
+export const NO_PROJECT_OPEN = 'Open a project first.';

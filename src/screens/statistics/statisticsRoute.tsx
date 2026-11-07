@@ -35,6 +35,13 @@ const STATISTICS_WINDOW_TOOL = { label: 'Statistics window (in development)', hr
  *  boundary. */
 const windowShown = () => isFeatureEnabled('statsDescribe') && isFeatureEnabled('statsLayout');
 
+/** Where the project page goes back to (decision 524): the Statistics window
+ *  while it is shown, and the Statistics home otherwise. Only these two fixed
+ *  paths, never one built from data. */
+export function projectPageHome(): string {
+  return windowShown() ? STATISTICS_WINDOW_PATH : STATISTICS_HOME_PATH;
+}
+
 /** The selector's and every method's screen's routes (the t-test's, the
  *  one-sample t-test's, the paired t-test's, the one-way ANOVA's, the
  *  correlations' and Cronbach's alpha's), or nothing while the flag is off. Called inside `<Routes>`. Every element is required, so a caller

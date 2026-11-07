@@ -8,7 +8,7 @@
 import type { MenuDefinition, MenuItem } from '../../../design-system';
 import { METHODS } from '../methods';
 import type { CapabilityView } from '../ttestTypes';
-import { FILE_BUSY, LATER_STEP, MENU_WORDS, NOT_RUNNABLE, NO_FILE, NO_SCORE, OUTPUT_FULL, RUN_GOING, WINDOW_TITLE } from './windowWording';
+import { FILE_BUSY, LATER_STEP, MENU_WORDS, NOT_RUNNABLE, NO_FILE, NO_PROJECT_OPEN, NO_SCORE, OUTPUT_FULL, RUN_GOING, WINDOW_TITLE } from './windowWording';
 
 /** The scale score is no METHODS row, since it has no run kind (decision 451). */
 export const SCALE_SCORE_CAPABILITY = 'stats.prepare.scale_score';
@@ -32,6 +32,10 @@ export interface WindowMenuActions {
   score?: () => void;
   /** Asks first, then exports the prepared data (decision 514). */
   exportPrepared?: () => void;
+  /** Opens the Open a project dialog (decision 525). */
+  openProject?: () => void;
+  /** Opens the open project's report dialog (decision 526). */
+  exportReport?: () => void;
 }
 
 export interface WindowMenuContext {
@@ -44,6 +48,8 @@ export interface WindowMenuContext {
   outputFull?: boolean;
   /** The open file holds a scale score: its view has a preparation (decision 514). */
   prepared?: boolean;
+  /** Rust holds a project open, as the line reads it (decision 526). */
+  projectOpen?: boolean;
   /** Rust's list, or null while unread or when it could not be read. */
   capabilities: CapabilityView[] | null;
   projects: boolean;
@@ -177,9 +183,11 @@ export function windowMenus(c: WindowMenuContext): MenuDefinition[] {
       groups: [
         {
           items: [
-            disabled('project-open', 'Open a project…', LATER_STEP),
+            live('project-open', 'Open a project…', () => actions.openProject?.()),
             disabled('project-rerun-all', 'Run every saved result again', LATER_STEP),
-            disabled('project-report', 'Export the project report…', LATER_STEP),
+            c.projectOpen === true
+              ? live('project-report', 'Export the project report…', () => actions.exportReport?.())
+              : disabled('project-report', 'Export the project report…', NO_PROJECT_OPEN),
           ],
         },
       ],

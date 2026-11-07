@@ -176,9 +176,7 @@ describe("each live item's state", () => {
 
 describe('the items that come in a later step', () => {
   const LATER: Array<[string, string]> = [
-    ['project', 'Open a project…'],
     ['project', 'Run every saved result again'],
-    ['project', 'Export the project report…'],
   ];
 
   it.each(LATER)('%s, %s: disabled, with the later-step sentence, and no handler, in every state', (m, label) => {
@@ -275,9 +273,9 @@ describe('every method, live (decision 485)', () => {
     expect(item(windowMenus(context({ fileOpen: false })), 'analyze', label).description).toBe(NO_FILE);
   });
 
-  it("Project's items keep the later-step sentence, and Transform's scale score is live (decision 506)", () => {
+  it("Run every saved result again keeps the later-step sentence, and Transform's scale score is live (decision 506)", () => {
     const ms = windowMenus(context({ fileOpen: true }));
     expect([item(ms, 'transform', 'Scale score…').disabled, item(ms, 'transform', 'Scale score…').description, typeof item(ms, 'transform', 'Scale score…').onSelect]).toEqual([undefined, undefined, 'function']);
-    for (const label of ['Open a project…', 'Run every saved result again', 'Export the project report…']) expect(item(ms, 'project', label).description).toBe(LATER_STEP);
+    expect(item(ms, 'project', 'Run every saved result again').description).toBe(LATER_STEP);
   });
 });

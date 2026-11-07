@@ -62,7 +62,7 @@ import { anovaBridge, type AnovaBridge } from '../anovaBridge';
 import { corrBridge, type CorrBridge } from '../corrBridge';
 import { alphaBridge, type AlphaBridge } from '../alphaBridge';
 import { projectBridge, type ProjectBridge } from './projectBridge';
-import { EXPORTS, prepareExport, type ExportKind, type SaveFile } from './projectExport';
+import { EXPORTS, type ExportKind, type SaveFile } from './projectExport';
 import { projectsShown } from './projectGate';
 import { currentId, noteCurrent, noteWorkspaceState, openProjectStore } from './projectSession';
 import type {
@@ -75,7 +75,6 @@ import type {
 } from './projectTypes';
 import {
   capabilityName,
-  EXPORT_WORDS,
   FALLBACK_SENTENCE,
   PROJECT_TEXT,
   PROJECT_WORDS,
@@ -89,6 +88,7 @@ import {
 import ProjectDialog from '../../../design-system/ProjectDialog';
 import SavedResult, { RerunWords } from './SavedResult';
 import { useGeneration, type Generation } from './useGeneration';
+import { ProjectExportDialog } from './ProjectExportDialog';
 
 const PROJECT_ID = /^[0-9a-f]{32}$/;
 
@@ -583,7 +583,7 @@ const ProjectPageShown: React.FC<ProjectPageProps> = ({
         {body}
       </section>
       {exporting && view.kind === 'open' && (
-        <ExportDialog
+        <ProjectExportDialog
           kind={exporting}
           projectId={projectId}
           bridge={bridge}
@@ -791,96 +791,6 @@ const OpenProject: React.FC<OpenProjectProps> = ({
     )}
   </>
 );
-
-interface ExportDialogProps {
-  kind: ExportKind;
-  projectId: string;
-  bridge: ProjectBridge;
-  gen: Generation;
-  save: SaveFile;
-  openerAfter: () => HTMLElement | null;
-  /** Closes the dialog; `said` is the page's status line, or null. */
-  onDone: (said: string | null) => void;
-}
-
-const ExportDialog: React.FC<ExportDialogProps> = ({ kind, projectId, bridge, gen, save, openerAfter, onDone }) => {
-  const [pending, setPending] = useState(false);
-  const [refusal, setRefusal] = useState<string | null>(null);
-  const inFlight = useRef(false);
-  const cancelButton = useRef<HTMLButtonElement>(null);
-  const returnFocus = useRef<(() => HTMLElement | null) | null>(openerAfter);
-  const e = EXPORTS[kind];
-
-  const cancel = () => {
-    if (!pending) onDone(null);
-  };
-
-  // On the Export click only: render, check, then today's export path.
-  const run = async () => {
-    if (inFlight.current) return;
-    inFlight.current = true;
-    const g = gen.next();
-    setPending(true);
-    setRefusal(null);
-    try {
-      let rendered: unknown;
-      try {
-        rendered = kind === 'report' ? await bridge.report(projectId) : await bridge.provenance(projectId);
-      } catch (err) {
-        if (gen.is(g)) setRefusal(projectSentence(err));
-        return;
-      }
-      if (!gen.is(g)) return;
-      const ready = await prepareExport(rendered, kind);
-      if (!gen.is(g)) return;
-      if (!ready.ok) {
-        setRefusal(ready.sentence);
-        return;
-      }
-      let where: string | null;
-      try {
-        where = await save(ready.fileName, ready.text, e.mime);
-      } catch {
-        if (gen.is(g)) setRefusal(EXPORT_WORDS.writeFailed);
-        return;
-      }
-      if (!gen.is(g)) return;
-      onDone(where === null ? PROJECT_TEXT.exportCancelled : EXPORT_WORDS.saved(ready.sha256));
-    } finally {
-      inFlight.current = false;
-      if (gen.is(g)) setPending(false);
-    }
-  };
-
-  return (
-    <ProjectDialog title={e.title} onClose={cancel} initialFocus={cancelButton} returnFocus={returnFocus} testId={`project-export-dialog`}>
-      <p data-testid="project-export-sentence">{e.sentence}</p>
-      {refusal && (
-        <p role="alert" data-testid="project-export-refusal">
-          {refusal}
-        </p>
-      )}
-      <p role="status" aria-live="polite" data-testid="project-export-pending" style={{ margin: '4px 0' }}>
-        {pending ? PROJECT_TEXT.exporting : ''}
-      </p>
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        <button
-          ref={cancelButton}
-          type="button"
-          className="gds-btn gds-btn--secondary"
-          onClick={cancel}
-          disabled={pending}
-          data-testid="project-export-cancel"
-        >
-          {PROJECT_TEXT.cancel}
-        </button>
-        <Button onClick={() => void run()} disabled={pending} data-testid="project-export-confirm">
-          {PROJECT_TEXT.exportConfirm}
-        </Button>
-      </div>
-    </ProjectDialog>
-  );
-};
 
 interface RerunDialogProps {
   run: StoredRunView;

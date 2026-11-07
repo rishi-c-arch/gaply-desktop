@@ -35,6 +35,19 @@
   font-size: var(--g-text-size-sm);
   color: var(--g-text-2);
 }
+/* The open project's line as a button (decision 523): it looks like the line, and clips the name. */
+.gds-root .sw-project__open {
+  font: inherit;
+  color: inherit;
+  border: 0;
+  background: none;
+  padding: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
 
 .gds-root .sw-main {
   min-height: 0;
