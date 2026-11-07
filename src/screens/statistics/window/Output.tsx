@@ -102,6 +102,7 @@ const EntryPane = React.memo<EntryPaneProps>(({ entry, shown, slotOpen, bridge, 
       runId={entry.runId}
       bridge={projects}
       testId={`${prefix}-project`}
+      prepared={entry.view.preparation !== undefined}
       onSaved={(projectId) => {
         const open = openProjectStore.get();
         update({ saved: { projectId, name: open?.projectId === projectId ? open.name : '' } });

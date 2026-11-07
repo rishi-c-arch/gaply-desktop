@@ -1023,6 +1023,7 @@ fn every_response_serialises_to_its_fixture() {
                 repeated_platform: None,
                 platform_differs: None,
                 numbers_agree_to_last_digits: None,
+                prepared: false,
             },
             StoredRunView {
                 // Phase 5C-1a (decision 189): a rerun, compared.
@@ -1043,6 +1044,7 @@ fn every_response_serialises_to_its_fixture() {
                 repeated_platform: None,
                 platform_differs: None,
                 numbers_agree_to_last_digits: None,
+                prepared: false,
             },
         ],
     );

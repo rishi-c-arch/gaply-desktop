@@ -724,6 +724,11 @@ pub struct StoredRunView {
     /// last digits (`research_project::numbers_agree_to_last_digits`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub numbers_agree_to_last_digits: Option<bool>,
+    /// The run used a recipe: the loaded graph holds a `used` edge of role
+    /// `recipe` for it (Research OS, Phase 8T-2b, decision 516; §11 D309).
+    /// Sent only when true, so a view without it is the same bytes as before.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub prepared: bool,
 }
 
 /// An artifact by its row: hash, kind, format and size.
@@ -1740,9 +1745,27 @@ pub fn runs(_root: &Path, ws: &WorkspaceSession, project_id: &str) -> Res<Vec<St
             repeated_platform,
             platform_differs,
             numbers_agree_to_last_digits: numbers_agree,
+            prepared: used_a_recipe(&loaded.graph, r.run_id),
         });
     }
     Ok(out)
+}
+
+/// Whether the graph holds a `used` edge of role `recipe` for `run`, as
+/// [`artifacts_of`] reads that edge, from the graph already loaded (decision
+/// 516). Not through `artifacts_of`, which refuses a run with two recipe
+/// edges or a missing data or spec edge and so would refuse the whole listing.
+fn used_a_recipe(graph: &ProvGraph, run: StoredRunId) -> bool {
+    graph.edges().iter().any(|e| {
+        matches!(
+            e,
+            ProvEdge::Used {
+                run: r,
+                role: UsedRole::Recipe,
+                ..
+            } if *r == run
+        )
+    })
 }
 
 /// The open project's runs, artifact rows and provenance graph, read once per

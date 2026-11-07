@@ -8,7 +8,7 @@
 import type { MenuDefinition, MenuItem } from '../../../design-system';
 import { METHODS } from '../methods';
 import type { CapabilityView } from '../ttestTypes';
-import { FILE_BUSY, LATER_STEP, MENU_WORDS, NOT_RUNNABLE, NO_FILE, OUTPUT_FULL, RUN_GOING, WINDOW_TITLE } from './windowWording';
+import { FILE_BUSY, LATER_STEP, MENU_WORDS, NOT_RUNNABLE, NO_FILE, NO_SCORE, OUTPUT_FULL, RUN_GOING, WINDOW_TITLE } from './windowWording';
 
 /** The scale score is no METHODS row, since it has no run kind (decision 451). */
 export const SCALE_SCORE_CAPABILITY = 'stats.prepare.scale_score';
@@ -30,6 +30,8 @@ export interface WindowMenuActions {
   method?: (kind: string) => void;
   /** Opens the scale score's dialog (decision 506). */
   score?: () => void;
+  /** Asks first, then exports the prepared data (decision 514). */
+  exportPrepared?: () => void;
 }
 
 export interface WindowMenuContext {
@@ -40,6 +42,8 @@ export interface WindowMenuContext {
   busy: boolean;
   /** The Output holds its 32 (decision 471). */
   outputFull?: boolean;
+  /** The open file holds a scale score: its view has a preparation (decision 514). */
+  prepared?: boolean;
   /** Rust's list, or null while unread or when it could not be read. */
   capabilities: CapabilityView[] | null;
   projects: boolean;
@@ -94,6 +98,19 @@ function scoreItem(c: WindowMenuContext): MenuItem {
   return why ? disabled(id, label, why) : live(id, label, () => c.actions.score?.());
 }
 
+/** File, Export the prepared data (CSV)… (decision 514): the scale score's
+ *  capability first, as scoreItem reads it; then no file; then no score, which
+ *  also keeps csv's run.unknown_input for a slot with no recipe from happening;
+ *  then busy. A run going does not stop it: stats_prep_csv only reads the slot. */
+function exportItem(c: WindowMenuContext): MenuItem {
+  const id = 'file-export';
+  const label = 'Export the prepared data (CSV)…';
+  const generic = capabilityItem(c, id, label, SCALE_SCORE_CAPABILITY);
+  if (generic.description === NOT_RUNNABLE) return generic;
+  const why = !c.fileOpen ? NO_FILE : c.prepared !== true ? NO_SCORE : c.busy ? FILE_BUSY : undefined;
+  return why ? disabled(id, label, why) : live(id, label, () => c.actions.exportPrepared?.());
+}
+
 /** METHODS' rows, in order, under each group's heading. */
 function analyzeGroups(c: WindowMenuContext): MenuDefinition['groups'] {
   const groups: MenuDefinition['groups'] = [];
@@ -137,7 +154,7 @@ export function windowMenus(c: WindowMenuContext): MenuDefinition[] {
           items: [
             openWhy ? disabled('file-open', 'Open a data file…', openWhy) : live('file-open', 'Open a data file…', actions.open),
             closeWhy ? disabled('file-close', 'Close this file', closeWhy) : live('file-close', 'Close this file', actions.close),
-            disabled('file-export', 'Export the prepared data (CSV)…', LATER_STEP),
+            exportItem(c),
           ],
         },
       ],

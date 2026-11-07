@@ -176,7 +176,6 @@ describe("each live item's state", () => {
 
 describe('the items that come in a later step', () => {
   const LATER: Array<[string, string]> = [
-    ['file', 'Export the prepared data (CSV)…'],
     ['project', 'Open a project…'],
     ['project', 'Run every saved result again'],
     ['project', 'Export the project report…'],
@@ -197,15 +196,6 @@ describe('what Rust says may run', () => {
     ...METHODS.map((m): [string, string, string] => ['analyze', m.menuLabel, m.capabilityId]),
     ['transform', 'Scale score…', SCALE_SCORE_CAPABILITY],
   ];
-
-  // A method's item is live once its dialog exists (decision 485), and has its tests below.
-  const notLive = (r: [string, string, string]) => r[2] !== SCALE_SCORE_CAPABILITY && !METHODS.some((m) => m.capabilityId === r[2] && LIVE_METHODS.includes(m.kind));
-  it.each(ROWS.filter(notLive))('%s, %s: Rust calling it runnable shows the later-step sentence', (m, label) => {
-    const i = item(windowMenus(context({ fileOpen: true })), m, label);
-    expect(i.disabled).toBe(true);
-    expect(i.description).toBe(LATER_STEP);
-    expect(i.onSelect).toBeUndefined();
-  });
 
   it.each(ROWS)('%s, %s: Rust not calling it runnable shows the not-runnable sentence, which wins', (m, label, id) => {
     const notRunnable = ALL.map((c) => (c.id === id ? { ...c, runnable: false } : c));
@@ -285,10 +275,9 @@ describe('every method, live (decision 485)', () => {
     expect(item(windowMenus(context({ fileOpen: false })), 'analyze', label).description).toBe(NO_FILE);
   });
 
-  it("Project's items and the prepared data's export keep the later-step sentence, and Transform's scale score is live (decision 506)", () => {
+  it("Project's items keep the later-step sentence, and Transform's scale score is live (decision 506)", () => {
     const ms = windowMenus(context({ fileOpen: true }));
     expect([item(ms, 'transform', 'Scale score…').disabled, item(ms, 'transform', 'Scale score…').description, typeof item(ms, 'transform', 'Scale score…').onSelect]).toEqual([undefined, undefined, 'function']);
-    expect(item(ms, 'file', 'Export the prepared data (CSV)…').description).toBe(LATER_STEP);
     for (const label of ['Open a project…', 'Run every saved result again', 'Export the project report…']) expect(item(ms, 'project', label).description).toBe(LATER_STEP);
   });
 });

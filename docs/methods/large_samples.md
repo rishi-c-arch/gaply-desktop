@@ -370,3 +370,34 @@ rows, 128 columns, 10 MiB, 2 MiB of cell text).
   keeps the file's bytes); a categorical column can now carry up to 100,000
   levels into the profile; and two 64 MB files cannot share one project,
   because decision 107's 100 MiB cap is per project.
+- **A scale score counts toward the cell cap** (Research OS, Phase 8M to
+  8T-2b; [scale_scores.md](scale_scores.md)). A make checks the prepared
+  table's rows times every column, the file's and the scores', against this
+  computer's cap, and refuses only more (`stats_prep/mod.rs:609-610`,
+  `stats.prep.cells_over_cap`); the columns, scores included, against 128
+  (`too_wide`). So a file already at the cap takes no score, and a 128-column
+  file takes none. On the 8 GB tier (5,000,000 cells,
+  `supplementary.rs:152-158`) the largest prepared table is 100,000 rows of 49
+  columns plus one score: it opens at 4,900,000 cells and makes at exactly
+  5,000,000. On the 16 and 32 GB tiers it is 100,000 × 127 plus one score.
+- **A make's speed (decision 502).** Since 8T-1b a make profiles only the
+  columns its recipe adds and keeps the file's columns' profile from the
+  open. Measured by a release probe on in-memory tables, five runs each: at
+  100,000 × 49 with one score of 49 items the make's median went from
+  1.468 s to 0.083 s, and at 100,000 × (40 numeric + 10 distinct text) from
+  1.407 s to 0.114 s, every view's bytes unchanged. Before it, 8M-3's probe
+  (decision 430) at the 8 GB tier's largest prepared table: the build 0.02 to
+  0.05 s, the make 1.8 to 2.1 s, the make's increment 114 to 116 MiB, beside
+  the open's 626 MiB.
+- **The prepared data's export.** `stats_prep_csv` returns the CSV's bytes
+  and their SHA-256 as an `ExportView`, an array of numbers through IPC, and
+  the window writes them through the save dialog to the one file the user
+  names (decision 514). 8M-3's probe (decision 430) measured the Rust half: at
+  100,000 × 49 plus one score, a 35 MB CSV and 105 to 106 MB on the wire; at
+  100,000 × 127 plus one score, 89 MB and 266 to 267 MB. **The webview's half**
+  through the real app (Continue to the save dialog, Save to the note, the
+  app's and its Web Content process's memory, the file's size), at 100,000 ×
+  49 plus one score: **to be measured by realapp_8t2b.md**, and written here
+  in the step after it runs. If the save dialog takes more than 10 s, the memory
+  rises by more than 1 GB, the export shows an error or the window reloads,
+  the export moves to a binary response, a step of its own.

@@ -81,6 +81,7 @@ import {
   PROJECT_WORDS,
   projectSentence,
   RERUN_SENTENCE,
+  RERUN_SENTENCE_PREPARED,
   RERUN_WORDS,
   savedOn,
   sizeSentence,
@@ -928,7 +929,7 @@ const RerunDialog: React.FC<RerunDialogProps> = ({ run, bridge, gen, openerAfter
 
   return (
     <ProjectDialog title={PROJECT_TEXT.runAgainTitle} onClose={cancel} initialFocus={cancelButton} returnFocus={returnFocus} testId="project-rerun-dialog">
-      <p data-testid="project-rerun-sentence">{RERUN_SENTENCE}</p>
+      <p data-testid="project-rerun-sentence">{run.prepared === true ? RERUN_SENTENCE_PREPARED : RERUN_SENTENCE}</p>
       {refusal && (
         <p role="alert" data-testid="project-rerun-refusal">
           {refusal}

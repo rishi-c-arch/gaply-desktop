@@ -20,6 +20,12 @@ import type { Platform } from '../describeTypes';
 export const SAVE_SENTENCE =
   "Saving keeps a copy of the data file, exactly as it is, in this app's folder on this computer. Gaply uploads none of it. You can delete the project at any time.";
 
+/** The save sentence for a run on prepared data (Research OS, Phase 8T-2b,
+ *  decision 515; ADR-011's disk list): the recipe and the names typed for its
+ *  scores are kept as well. */
+export const SAVE_SENTENCE_PREPARED =
+  "Saving keeps a copy of the data file, exactly as it is, and the recipe of its scale scores, with the names you typed for them, in this app's folder on this computer. Gaply uploads none of it. You can delete the project at any time.";
+
 export const REPORT_EXPORT_SENTENCE =
   "This report holds fingerprints (SHA-256) of the data file, the analysis settings and the results, and none of the data itself. The project's name is its title.";
 
@@ -292,6 +298,11 @@ export const EXPORT_WORDS = {
 /** The Run again dialog's sentence (decision 191), word for word. */
 export const RERUN_SENTENCE =
   'Run this again? Gaply runs the same method, with the same settings, on the copy of the data file kept in this project. When it finishes, the new run is saved in this project, beside the saved one, which does not change.';
+
+/** The Run again dialog's sentence for a stored run that used a recipe
+ *  (Research OS, Phase 8T-2b, decision 516). */
+export const RERUN_SENTENCE_PREPARED =
+  'Run this again? This result was made on data with scale scores. Gaply makes the scores again from the recipe kept in this project, on the copy of the data file kept in this project, then runs the same method with the same settings. When it finishes, the new run is saved in this project, beside the saved one, which does not change.';
 
 /** A platform's words (decision 366), for the values the manifest gives
  *  (research_project's render.rs). */

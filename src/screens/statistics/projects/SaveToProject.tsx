@@ -24,7 +24,7 @@ import { checkName } from './projectName';
 import { projectBridge, type ProjectBridge } from './projectBridge';
 import { projectsShown } from './projectGate';
 import { noteCurrent, openProjectStore, useOpenProject } from './projectSession';
-import { NAME_WORDS, PROJECT_TEXT, projectSentence, SAVE_SENTENCE } from './projectWording';
+import { NAME_WORDS, PROJECT_TEXT, projectSentence, SAVE_SENTENCE, SAVE_SENTENCE_PREPARED } from './projectWording';
 import ProjectDialog from '../../../design-system/ProjectDialog';
 import { useGeneration } from './useGeneration';
 
@@ -46,6 +46,8 @@ export interface SaveToProjectProps {
   testId?: string;
   /** After a Save: the Output keeps it in its entry (decision 471). */
   onSaved?: (projectId: string) => void;
+  /** The run is on prepared data, so its recipe is kept too (decision 515). */
+  prepared?: boolean;
 }
 
 type Choice = 'new' | 'open' | null;
@@ -58,7 +60,7 @@ interface Saved {
 export const SaveToProject: React.FC<SaveToProjectProps> = (props) =>
   projectsShown(props.desktop) ? <SaveToProjectShown {...props} /> : null;
 
-const SaveToProjectShown: React.FC<SaveToProjectProps> = ({ runId, bridge: given, testId = 'project-save', onSaved }) => {
+const SaveToProjectShown: React.FC<SaveToProjectProps> = ({ runId, bridge: given, testId = 'project-save', onSaved, prepared = false }) => {
   const bridge = useMemo(() => given ?? projectBridge(), [given]);
   const open = useOpenProject();
   const [dialog, setDialog] = useState(false);
@@ -161,7 +163,7 @@ const SaveToProjectShown: React.FC<SaveToProjectProps> = ({ runId, bridge: given
           returnFocus={returnFocus}
           testId={`${testId}-dialog`}
         >
-          <p data-testid={`${testId}-sentence`}>{SAVE_SENTENCE}</p>
+          <p data-testid={`${testId}-sentence`}>{prepared ? SAVE_SENTENCE_PREPARED : SAVE_SENTENCE}</p>
           <fieldset style={{ border: 0, padding: 0, margin: '8px 0' }}>
             <legend>{PROJECT_TEXT.whereToSave}</legend>
             {open && (

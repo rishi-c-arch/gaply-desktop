@@ -195,6 +195,9 @@ export interface StoredRunView {
   repeatedPlatform?: Platform;
   platformDiffers?: boolean;
   numbersAgreeToLastDigits?: boolean;
+  /** 8T-2b (decision 516): the run used a recipe; absent when it did not, as
+   *  Rust sends it. */
+  prepared?: true;
 }
 
 export interface StoredArtifactView {

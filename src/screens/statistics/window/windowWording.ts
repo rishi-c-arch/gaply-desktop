@@ -327,3 +327,16 @@ export function scoreDeletedSentence(name: string): string {
   return `The score "${name}" was deleted.`;
 }
 export const SCORES_DELETED = 'Every score was deleted.';
+
+/** File, Export the prepared data (CSV)… (decision 514; ADR-011 Part 8 and
+ *  ADR-012 Part 5). Why it cannot be chosen on a file with no score, ADR-012
+ *  Part 5's sentence; the question before it, ADR-011 Part 8's sentence word for
+ *  word under the title decision 519 gives; and the name the save dialog
+ *  suggests, fixed, carrying no file name. */
+export const NO_SCORE = 'Make a scale score first.';
+export const ASK_EXPORT_PREPARED = {
+  title: 'Export the prepared data',
+  sentence:
+    "This file holds your data as Gaply read it, with your scores added. Missing answers are empty, SPSS's value labels are not included, and numbers are written in full. Your original file is not changed.",
+};
+export const EXPORT_PREPARED_NAME = 'prepared_data.csv';

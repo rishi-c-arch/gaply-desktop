@@ -16,11 +16,13 @@ import { defaultRunBridges, useWorkspaceSwitch, type RunBridges } from '../../wo
 import { workspaceBridge, type WorkspaceBridge } from '../../workspace/workspaceBridge';
 import { describeBridge, type DescribeBridge } from '../describeBridge';
 import { saveTextFile } from '../../../utils/saveTextFile';
-import type { DatasetView } from '../describeTypes';
-import { useMethodLimits } from '../flowHooks';
+import { refusalOf } from '../../statsverifier/l1/l1Wording';
+import type { DatasetView, ExportView } from '../describeTypes';
+import { actWith, saveExactly, useMethodLimits } from '../flowHooks';
 import { FileSummary, LimitsLine, OpenProgressLine } from '../flowParts';
 import type { MethodKind } from '../methods';
 import { prepBridge, type PrepBridge } from '../prepBridge';
+import { prepRefusalSentence } from '../prepWording';
 import { projectBridge, type ProjectBridge } from '../projects/projectBridge';
 import { projectsShown } from '../projects/projectGate';
 import { noteCurrent, noteWorkspaceState as noteProjectWorkspaceState, useOpenProject } from '../projects/projectSession';
@@ -42,7 +44,9 @@ import { VariableView } from './VariableView';
 import { openBlocked, windowMenus, type HelpTopic } from './windowMenus';
 import {
   ASK_CLOSE,
+  ASK_EXPORT_PREPARED,
   ASK_OPEN,
+  EXPORT_PREPARED_NAME,
   AS_READ_LINE,
   FOOTER_PHRASES,
   MENU_WORDS,
@@ -155,7 +159,9 @@ export const StatisticsWindow: React.FC<StatisticsWindowProps> = ({
   const [listUnread, setListUnread] = useState(false);
   const [help, setHelp] = useState<HelpTopic | null>(null);
   const [dialogKind, setDialogKind] = useState<MethodKind | null>(null);
-  const [asking, setAsking] = useState<'close' | 'open' | null>(null);
+  const [asking, setAsking] = useState<'close' | 'open' | 'export' | null>(null);
+  // The export's own error (decision 514), shown in the one sw-error paragraph after useWindowFile's.
+  const [exportError, setExportError] = useState<string | null>(null);
   // The slot the score dialog was opened for: it shows only while that slot is the session's.
   const [scoreFor, setScoreFor] = useState<number | null>(null);
   const [tabs, setTabs] = useState<{ key: number; first?: string }>({ key: 0 });
@@ -221,6 +227,11 @@ export const StatisticsWindow: React.FC<StatisticsWindowProps> = ({
     };
   }, [projects, showProjects]);
 
+  // An export's error belongs to the file it was asked of.
+  useEffect(() => {
+    setExportError(null);
+  }, [view]);
+
   // Rust's word, or an entry of this window's whose run has not ended.
   const going = runGoing || session.output.some(runIsGoing);
   const outputFull = session.output.length >= MAX_OUTPUT;
@@ -235,8 +246,36 @@ export const StatisticsWindow: React.FC<StatisticsWindowProps> = ({
     setDialogKind(null);
   };
 
+  /** File, Export the prepared data (decision 514): csv for the slot the
+   *  question was asked of, then the save dialog, each answer taken only while
+   *  the session's generation and slot are what they were (8T-2a's check, written
+   *  again here, since the score dialog's is its own). run.unknown_input means
+   *  the slot is gone; from csv it can also mean the slot holds no recipe, which
+   *  the item's guard keeps from happening. */
+  const exportAct = actWith(statisticsSession.setBusy, setExportError, (e) => prepRefusalSentence(e, view));
+  const exportPrepared = (slot: number | null) =>
+    exportAct(async () => {
+      if (slot === null) return;
+      const generation = statisticsSession.generation();
+      const still = () => statisticsSession.generation() === generation && statisticsSession.get().slot === slot;
+      let out: ExportView;
+      try {
+        out = await prep.csv(slot);
+      } catch (e) {
+        if (!still()) return;
+        if (refusalOf(e)?.code !== 'run.unknown_input') throw e;
+        statisticsSession.slotGone();
+        return;
+      }
+      if (!still()) return;
+      const saved = await saveExactly(out, { file: EXPORT_PREPARED_NAME, mime: 'text/csv' }, save);
+      if ('error' in saved) setExportError(saved.error);
+      else setMessage(saved.note);
+    });
+
   const menus = windowMenus({
     fileOpen: view !== null,
+    prepared: view?.preparation !== undefined,
     runGoing: going,
     outputFull,
     busy: session.busy,
@@ -255,6 +294,7 @@ export const StatisticsWindow: React.FC<StatisticsWindowProps> = ({
         setDialogKind(kind as MethodKind);
       },
       score: () => setScoreFor(session.slot),
+      exportPrepared: () => setAsking('export'),
     },
   });
 
@@ -268,9 +308,9 @@ export const StatisticsWindow: React.FC<StatisticsWindowProps> = ({
         <p className="sw-message" role="status" aria-live="polite" data-testid="sw-message">
           {message ?? ''}
         </p>
-        {error && (
+        {(error ?? exportError) && (
           <p className="sw-message" role="alert" data-testid="sw-error">
-            {error}
+            {error ?? exportError}
           </p>
         )}
         {session.notice && (
@@ -341,7 +381,19 @@ export const StatisticsWindow: React.FC<StatisticsWindowProps> = ({
           }}
         />
       )}
-      {asking && (
+      {asking === 'export' && (
+        <AskFirst
+          title={ASK_EXPORT_PREPARED.title}
+          sentence={ASK_EXPORT_PREPARED.sentence}
+          testId="sw-ask-export"
+          onCancel={() => setAsking(null)}
+          onContinue={() => {
+            setAsking(null);
+            void exportPrepared(session.slot);
+          }}
+        />
+      )}
+      {(asking === 'close' || asking === 'open') && (
         <AskFirst
           title={asking === 'close' ? ASK_CLOSE.title : ASK_OPEN.title}
           sentence={asking === 'close' ? ASK_CLOSE.sentence : ASK_OPEN.sentence}
