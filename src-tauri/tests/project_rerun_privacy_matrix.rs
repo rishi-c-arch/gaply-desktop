@@ -42,7 +42,9 @@
 //!
 //! **A run on prepared data (Research OS, Phase 8M-4, decision 437), with 8M-3's
 //! three sentinels.** A summary and Cronbach's alpha of a score, saved and run
-//! again, then a Save refused and a rerun refused. The typed name is only in the
+//! again, then a Save after a second make that keeps the run's own recipe
+//! (Phase 8T-1a, decision 491), a Save refused after the file's close, and a
+//! rerun refused. The typed name is only in the
 //! recipe artifact and the `DatasetView`; an item's value only in the data file's
 //! artifact and the `DatasetView`; the score's value only in the `DatasetView`.
 //! All three are absent from `project.db`'s bytes, every spec, manifest, bundle,
@@ -577,8 +579,10 @@ fn a_rerun_puts_no_sentinel_anywhere_but_the_projects_artifacts_and_its_title() 
             prepared_results.push_str(&serde_json::to_string(&back).unwrap());
         }
     }
-    // A Save refused: the recipe replaced since the run.
-    let unsaved = summary_of(&w, prepared_open.slot, 8);
+    // Phase 8T-1a (decision 491): a run keeps its recipe, so a Save after a
+    // second make succeeds, as stored run 13, with the recipe it ran on: NAME's,
+    // reused by its hash, so the files swept below are the same two.
+    let kept = summary_of(&w, prepared_open.slot, 8);
     prep::make(
         &e.runs,
         &e.datasets,
@@ -588,6 +592,23 @@ fn a_rerun_puts_no_sentinel_anywhere_but_the_projects_artifacts_and_its_title() 
     )
     .map_err(|_| "the second make")
     .unwrap();
+    let saved = pc::save_run(
+        &app,
+        &w.ws,
+        kept,
+        SaveTarget::OpenProject {
+            project_id: id.clone(),
+        },
+    )
+    .expect("a Save after a second make keeps the run's own recipe");
+    assert_eq!(saved.stored_run_id, 13);
+    prepared_surfaces.push((
+        "a Save after a second make".into(),
+        serde_json::to_string(&saved).unwrap(),
+    ));
+    // A Save refused by another route: the file closed since the run.
+    let unsaved = summary_of(&w, prepared_open.slot, 8);
+    assert!(desc::close(&e.datasets, prepared_open.slot));
     let refused = pc::save_run(
         &app,
         &w.ws,
@@ -599,7 +620,7 @@ fn a_rerun_puts_no_sentinel_anywhere_but_the_projects_artifacts_and_its_title() 
     .map(|_| ())
     .unwrap_err();
     prepared_surfaces.push(("a refused Save".into(), refused.to_string()));
-    assert!(refused.to_string().contains("project.data_mismatch"));
+    assert!(refused.to_string().contains("project.data_unavailable"));
 
     responses.push((
         "runs".into(),

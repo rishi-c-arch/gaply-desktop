@@ -64,6 +64,8 @@ export function buildDescribeSpec(view: DatasetView, picks: DescribePicks, missi
     },
     randomSeed: null,
     confirmationRefs: [],
+    // Decision 490: the view's preparation exactly when it has one; absent, never null, on a file's own table.
+    ...(view.preparation ? { preparation: view.preparation } : {}),
   };
 }
 

@@ -15,6 +15,7 @@
 import type {
   InputRef,
   Platform,
+  Preparation,
   Reproducibility,
   ResourceEstimate,
   RunState,
@@ -244,4 +245,6 @@ export interface AnovaSpec {
   randomSeed: null;
   /** The ANOVA takes no confirmation. */
   confirmationRefs: [];
+  /** 8T-1a (decision 490): what made a prepared input. Absent on a file's own table, never null. */
+  preparation?: Preparation;
 }

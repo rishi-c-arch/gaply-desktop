@@ -657,11 +657,20 @@ pub enum RunKind {
 }
 
 /// The data a run read: its slot, and the SHA-256 of the original bytes the
-/// slot held when the run started (Phase 5B-2, decision 123).
+/// slot held when the run started (Phase 5B-2, decision 123); since Phase
+/// 8T-1a (decision 491) also the recipe the slot held, so a Save writes the
+/// recipe the run ran on, whatever the slot holds by then.
+///
+/// The recipe holds the score's typed name, so this is never `Debug` or
+/// `Serialize` (pinned by `tests/run_record_guards.rs`). It lives as long as its
+/// record: a forget, an eviction or leaving Statistics drops it.
 #[derive(Clone)]
 pub struct RunInput {
     pub slot: u64,
     pub sha256: ContentHash,
+    /// The recipe's canonical bytes, through `stats_adapters::prep_recipe_bytes`,
+    /// when the slot held one; `None` on a file's own table.
+    pub recipe: Option<Vec<u8>>,
 }
 
 /// A record's spec, as canonical JSON, and the capability it names.
@@ -2094,6 +2103,9 @@ impl Runs {
         let input = slot.source().map(|s| RunInput {
             slot: slot.id(),
             sha256: s.sha256().clone(),
+            recipe: slot
+                .prepared()
+                .map(|p| stats_adapters::prep_recipe_bytes(&p.recipe)),
         });
         let (queued, due) = {
             let now = self.clock.now_ms();

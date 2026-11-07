@@ -943,20 +943,21 @@ fn spec_preparation(spec_json: &[u8]) -> Result<Option<Preparation>, ProjectCode
     }
 }
 
-/// A run on prepared data, against the slot a Save would keep it from (decision
-/// 433). A finished run keeps no handle to its recipe, so the slot is the only
-/// place the recipe can come from, and these prove it is the same one: a recipe
-/// replaced or cleared since the run is refused. Each comparison is its own, so
-/// none can stand in for another.
+/// A run on prepared data, against its own record and the slot a Save would
+/// keep its file from (decision 433). Since Phase 8T-1a (decision 491) the
+/// record keeps the recipe the run ran on ([`RunInput::recipe`]), so the recipe
+/// comes from the record, never the slot: a recipe replaced or cleared on the
+/// slot since the run leaves the run savable, with its own recipe. The file's
+/// bytes still come from the slot. Each comparison is its own, so none can
+/// stand in for another.
 fn check_prepared(
     copy: &RunCopy,
     input: &RunInput,
-    slot: &Slot,
     source: &SourceFile,
     preparation: &Preparation,
 ) -> Result<(), ProjectCode> {
-    let held = slot.preparation().ok_or(ProjectCode::DataMismatch)?;
-    if held.recipe_hash != preparation.recipe_hash {
+    let recipe = input.recipe.as_deref().ok_or(ProjectCode::DataMismatch)?;
+    if ContentHash::of_bytes(recipe) != preparation.recipe_hash {
         return Err(ProjectCode::DataMismatch);
     }
     // The run's input is always the source's (runs.rs's `queue`).
@@ -1001,7 +1002,7 @@ fn data_of(
         .map(spec_preparation)
         .transpose()?;
     if let Some(preparation) = preparation.flatten() {
-        check_prepared(copy, input, slot, source, &preparation)?;
+        check_prepared(copy, input, source, &preparation)?;
     } else {
         let manifest_agrees = copy.state != RunState::Succeeded
             || copy.manifest_inputs.as_slice() == std::slice::from_ref(&input.sha256);
@@ -1020,9 +1021,12 @@ fn data_of(
 }
 
 /// What a Save keeps of a run's recipe, for a run whose spec names one: its
-/// canonical bytes, from the slot [`data_of`] has checked, and the hash the spec
-/// recorded.
-fn recipe_of(copy: &RunCopy, slot: &Slot) -> Result<Option<(Vec<u8>, ArtifactHash)>, ProjectCode> {
+/// canonical bytes, from the run's own record [`data_of`] has checked (decision
+/// 491), and the hash the spec recorded.
+fn recipe_of(
+    copy: &RunCopy,
+    input: &RunInput,
+) -> Result<Option<(Vec<u8>, ArtifactHash)>, ProjectCode> {
     let preparation = copy
         .spec_json
         .as_deref()
@@ -1031,9 +1035,9 @@ fn recipe_of(copy: &RunCopy, slot: &Slot) -> Result<Option<(Vec<u8>, ArtifactHas
     let Some(preparation) = preparation.flatten() else {
         return Ok(None);
     };
-    let prepared = slot.prepared().ok_or(ProjectCode::DataMismatch)?;
+    let recipe = input.recipe.clone().ok_or(ProjectCode::DataMismatch)?;
     Ok(Some((
-        stats_adapters::prep_recipe_bytes(&prepared.recipe),
+        recipe,
         ArtifactHash::parse(preparation.recipe_hash.as_hex())?,
     )))
 }
@@ -1067,7 +1071,7 @@ fn request_from_slot(
     now: i64,
 ) -> Result<SaveRequest, ProjectCode> {
     let data = data_of(copy, input, slot)?;
-    let recipe = recipe_of(copy, slot)?;
+    let recipe = recipe_of(copy, input)?;
     Ok(with_recipe(request_for(copy, data, now)?, recipe))
 }
 
@@ -3465,6 +3469,7 @@ mod tests {
             input: Some(crate::runs::RunInput {
                 slot: 1,
                 sha256: recorded.clone(),
+                recipe: None,
             }),
             bundle_json: None,
             manifest_json: None,
@@ -3565,6 +3570,8 @@ mod tests {
         recipe: ContentHash,
         manifest: Vec<ContentHash>,
         state: RunState,
+        /// The recipe's bytes the record holds (decision 491).
+        held_recipe: Option<Vec<u8>>,
     }
 
     impl Forged {
@@ -3584,6 +3591,7 @@ mod tests {
                 recipe,
                 manifest: vec![prepared],
                 state: RunState::Succeeded,
+                held_recipe: Some(stats_adapters::prep_recipe_bytes(&two_item_recipe())),
             }
         }
 
@@ -3598,12 +3606,14 @@ mod tests {
                     "engineVersion": 1,
                 },
             });
-            RunCopy {
+            let mut copy = RunCopy {
                 state: self.state,
                 spec_json: Some(serde_json::to_vec(&spec).unwrap()),
                 manifest_inputs: self.manifest.clone(),
                 ..failed_copy(&self.input)
-            }
+            };
+            copy.input.as_mut().unwrap().recipe = self.held_recipe.clone();
+            copy
         }
 
         fn checked(&self, slot: &Slot) -> Result<(), ProjectCode> {
@@ -3682,13 +3692,15 @@ mod tests {
         assert_eq!(hash.as_hex(), ContentHash::of_bytes(PREPARED_CSV).as_hex());
     }
 
+    /// Since Phase 8T-1a (decision 491), against the record's recipe, not the
+    /// slot's.
     #[test]
-    fn a_preparation_naming_another_recipe_than_the_slots_is_a_mismatch() {
+    fn a_preparation_naming_another_recipe_than_the_records_is_a_mismatch() {
         let slot = a_prepared_slot(true);
         let mut forged = Forged::honest();
         forged.recipe = another_hash();
         // The prepared input hash agrees with the forged recipe, so only the
-        // slot's recipe can catch it.
+        // record's recipe can catch it.
         forged.spec_input = ContentHash::from_hex(&stats_adapters::prep_input_hash(
             forged.source.as_hex(),
             forged.recipe.as_hex(),
@@ -3696,6 +3708,21 @@ mod tests {
         .unwrap();
         forged.manifest = vec![forged.spec_input.clone()];
         assert_eq!(forged.checked(&slot), Err(ProjectCode::DataMismatch));
+    }
+
+    /// Phase 8T-1a (decision 491): a spec naming a preparation on a record that
+    /// holds no recipe is a mismatch, though the slot holds the very recipe.
+    #[test]
+    fn a_spec_naming_a_preparation_on_a_record_holding_no_recipe_is_a_mismatch() {
+        let slot = a_prepared_slot(true);
+        let mut forged = Forged::honest();
+        forged.held_recipe = None;
+        assert_eq!(forged.checked(&slot), Err(ProjectCode::DataMismatch));
+        let copy = forged.copy();
+        assert_eq!(
+            recipe_of(&copy, copy.input.as_ref().unwrap()).map(|_| ()),
+            Err(ProjectCode::DataMismatch)
+        );
     }
 
     #[test]

@@ -1,8 +1,9 @@
 //! **A Save of a run on a prepared slot (Research OS, Phase 8M-3, decision 425;
 //! Phase 8M-4, decision 433).** Through the commands' plain bodies, over a root
 //! and a workspace session the test makes. A run on a prepared table saves with
-//! its recipe beside its data file and its spec. Once the recipe is cleared it
-//! is refused as `project.data_mismatch`. A run made on the original before a
+//! its recipe beside its data file and its spec. Since Phase 8T-1a (decision
+//! 491) a run keeps its own recipe, so once the slot's recipe is cleared the run
+//! still saves, with the recipe it ran on. A run made on the original before a
 //! recipe still saves, as the slot's `SourceFile` is the same, with no recipe.
 
 mod project_support;
@@ -158,8 +159,10 @@ fn a_save_of_a_run_on_a_prepared_slot_keeps_its_recipe_beside_its_data_and_its_s
     assert_eq!(back.data_file.sha256, by_kind["data_file"]);
 }
 
+/// Decision 491: the run keeps its recipe, so a Save after a clear writes it.
+/// Until 8T-1a this was refused as `project.data_mismatch`.
 #[test]
-fn a_save_of_a_prepared_run_after_a_clear_is_refused_too() {
+fn a_save_of_a_prepared_run_after_a_clear_writes_its_own_recipe() {
     let w = World::new("8m3-save-cleared");
     let slot = w.open("items.csv", DATA);
     make(&w, slot);
@@ -168,10 +171,20 @@ fn a_save_of_a_prepared_run_after_a_clear_is_refused_too() {
     prep::clear(&e.runs, &e.datasets, slot)
         .map_err(|_| "clears")
         .unwrap();
-    let refused = pc::save_run(&w.root(), &w.ws, run, target("Cleared"))
-        .map(|_| ())
-        .unwrap_err();
-    assert_eq!(code(&refused), "project.data_mismatch");
+    let saved = pc::save_run(&w.root(), &w.ws, run, target("Cleared")).expect("it saves");
+    let dir = w.root().join("projects").join(&saved.project_id);
+    let hash: String =
+        Connection::open_with_flags(dir.join("project.db"), OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .unwrap()
+            .query_row(
+                "SELECT hash FROM artifacts WHERE kind = 'recipe'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(hash, stats_prep::recipe_hash(&recipe()));
+    let bytes = std::fs::read(dir.join("artifacts").join(&hash)).unwrap();
+    assert_eq!(bytes, stats_prep::recipe_bytes(&recipe()));
 }
 
 #[test]

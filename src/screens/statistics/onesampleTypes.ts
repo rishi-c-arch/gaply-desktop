@@ -16,6 +16,7 @@
 import type {
   InputRef,
   Platform,
+  Preparation,
   Reproducibility,
   ResourceEstimate,
   RunState,
@@ -205,6 +206,8 @@ interface SpecOf<C extends string, P> {
   randomSeed: null;
   /** Neither test takes a confirmation. */
   confirmationRefs: [];
+  /** 8T-1a (decision 490): what made a prepared input. Absent on a file's own table, never null. */
+  preparation?: Preparation;
 }
 
 export type OneSampleSpec = SpecOf<'stats.analyze.one_sample_t', OneSampleParams>;

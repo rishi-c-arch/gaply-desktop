@@ -554,16 +554,27 @@ fn a_failed_run_on_a_prepared_slot_saves_its_recipe_beside_its_failure() {
     assert!(!serde_json::to_string(&back).unwrap().contains(NAME));
 }
 
+/// A run keeps its own recipe (Phase 8T-1a, decision 491; ADR-012 question 9):
+/// a Save after the slot's recipe was replaced writes the run's recipe, never
+/// the slot's. Until 8T-1a this was refused as `project.data_mismatch`.
 #[test]
-fn a_save_after_the_recipe_was_replaced_is_a_data_mismatch_and_writes_nothing() {
+fn a_save_after_the_recipe_was_replaced_writes_the_runs_own_recipe() {
     let w = World::new("save-replaced");
     let slot = w.open("items.csv", TABLE);
     make(&w, slot, &mean_recipe());
     let run = run_method(&w, slot, "summary");
-    make(&w, slot, &a_recipe(7, NAME, Statistic::Sum, 3));
-    let e = pc::save_run(&w.root(), &w.ws, run, new_project("Replaced")).unwrap_err();
-    assert_eq!(code(&e), "project.data_mismatch");
-    assert!(!w.root().join("projects").exists() || names(&w.root().join("projects")).is_empty());
+    let replaced = a_recipe(7, NAME, Statistic::Sum, 3);
+    make(&w, slot, &replaced);
+    let id = pc::save_run(&w.root(), &w.ws, run, new_project("Replaced"))
+        .expect("it saves with its own recipe")
+        .project_id;
+    let stored = std::fs::read(recipe_file(&w, &id)).unwrap();
+    assert_eq!(stored, stats_prep::recipe_bytes(&mean_recipe()));
+    assert_ne!(stored, stats_prep::recipe_bytes(&replaced));
+    assert_eq!(
+        column(&w, &id, "SELECT hash FROM artifacts WHERE kind = 'recipe'"),
+        [stats_prep::recipe_hash(&mean_recipe())]
+    );
 }
 
 #[cfg(unix)]
