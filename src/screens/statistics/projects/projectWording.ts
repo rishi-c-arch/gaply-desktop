@@ -260,6 +260,11 @@ export const PROJECT_TEXT = {
   cancelling: 'Cancelling…',
 } as const;
 
+/** A code's sentence, or the fallback for a code this screen does not know
+ *  (moved here from the project page, not copied, in Research OS, Phase 8U-2,
+ *  decision 539, so the window's list of reruns says the same). */
+export const codeSentence = (code: ProjectCode | null): string => (code && PROJECT_WORDS[code]?.({ code })) || FALLBACK_SENTENCE;
+
 /* ---- the project page (Phase 5B-3b) ---------------------------------------- */
 
 /** What a saved run is, by its capability: its method's name, from the

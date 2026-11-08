@@ -346,3 +346,57 @@ export const OPEN_PROJECT_TITLE = 'Open a project';
 /** Project, Export the project report… with no project open (decision 526;
  *  ADR-012 Part 5), word for word. */
 export const NO_PROJECT_OPEN = 'Open a project first.';
+
+/** Project, Run every saved result again… (decisions 537 and 546; ADR-012
+ *  Part 9), each word for word. The list's lines are built by rerunAll.ts from
+ *  these and the project page's own words. */
+export const RERUN_ALL_TITLE = 'Run every saved result again';
+export function rerunAllSentence(n: number): string {
+  return n === 1
+    ? 'Run the 1 saved result again? Gaply runs it, with the same settings, on the copy of the data file kept in this project. The new run is saved beside the one it repeats, which does not change.'
+    : `Run all ${n} saved results again? Gaply runs each one, in the order they were saved, with the same settings, on the copy of the data file kept in this project. Each new run is saved beside the one it repeats, which does not change.`;
+}
+export const RERUN_ALL_PREPARED = 'For a result made on data with scale scores, Gaply first makes the scores again from the recipe kept in this project.';
+export const RERUN_ALL_LEFT_OUT = 'Runs of an earlier result, and results that did not finish, are not included.';
+/** Written by decision 546: twenty reruns beside a held file peaked at 871 MiB,
+ *  over 837.5, and 709 MiB with no file held, 18.6% lower (8U-2 Part 1b). */
+export const RERUN_ALL_MEMORY =
+  "A data file is open in this window, and each run holds its own copy of its data in memory beside it. Closing the file first uses less of this computer's memory.";
+export const RERUN_ALL_GOING_NOTE = 'The runs go on if you close this. Stop cancels the one running and starts no more.';
+export const RERUN_ALL_STOP = 'Stop';
+export const RERUN_ALL_NOT_RUN = 'It was not run again.';
+export const RERUN_ALL_FAILED = 'The new run failed. Its reason is saved with it.';
+export const RERUN_ALL_STOPPED = 'Stopped.';
+export const RERUN_ALL_REST = 'The rest were not run again.';
+export const RERUNS_GOING = 'Saved results are being run again. Wait for them, or stop them from the Project menu.';
+
+/** What became of each run of the list: every run takes exactly one. */
+export interface RerunAllCounts {
+  identical: number;
+  different: number;
+  notCompared: number;
+  failed: number;
+  savedNotRead: number;
+  notSaved: number;
+  notKnown: number;
+  notRun: number;
+  notStarted: number;
+}
+const COUNT_WORDS: ReadonlyArray<[keyof RerunAllCounts, string]> = [
+  ['identical', 'identical'],
+  ['different', 'not identical'],
+  ['notCompared', 'not compared'],
+  ['failed', 'failed'],
+  ['savedNotRead', 'saved but not read'],
+  ['notSaved', 'not saved'],
+  ['notKnown', 'not known'],
+  ['notRun', 'not run'],
+  ['notStarted', 'not started'],
+];
+/** The list's last line: the total, then each count above zero, in order. */
+export function rerunAllCount(total: number, counts: RerunAllCounts): string {
+  const head = total === 1 ? '1 saved result: ' : `${total} saved results: `;
+  return `${head}${COUNT_WORDS.filter(([k]) => counts[k] > 0)
+    .map(([k, w]) => `${counts[k]} ${w}`)
+    .join(', ')}.`;
+}

@@ -39,6 +39,8 @@ import { GridTiming, timingShown } from './gridTiming';
 import { HelpDialog } from './HelpDialog';
 import { METHOD_DIALOGS, type StartedRun } from './methodOutput';
 import { OpenProjectDialog } from './OpenProjectDialog';
+import { useRerunAll } from './rerunAll';
+import { RerunAllDialog } from './RerunAllDialog';
 import { AskFirst } from './MethodDialog';
 import { entryHeadingId, Output, OutputWatchers } from './Output';
 import { ScoreDialog } from './ScoreDialog';
@@ -179,6 +181,10 @@ export const StatisticsWindow: React.FC<StatisticsWindowProps> = ({
   const [exportingReport, setExportingReport] = useState(false);
   const openProject = useOpenProject();
   const reportGen = useGeneration();
+  // Project, Run every saved result again…'s dialog, and the list it starts (decision 538).
+  const [rerunAllOpen, setRerunAllOpen] = useState(false);
+  const rerunList = useRerunAll();
+  const rerunsGoing = rerunList.status === 'going';
   // Where the focus goes as a dialog closes: the new entry's heading after a run, else its opener.
   const started = useRef<number | null>(null);
   const afterDialog = useRef<(() => HTMLElement | null) | null>(() => (started.current === null ? null : document.getElementById(entryHeadingId(started.current))));
@@ -246,7 +252,7 @@ export const StatisticsWindow: React.FC<StatisticsWindowProps> = ({
   }, [view]);
 
   // Rust's word, or an entry of this window's whose run has not ended.
-  const going = runGoing || session.output.some(runIsGoing);
+  const going = runGoing || session.output.some(runIsGoing) || rerunsGoing;
   const outputFull = session.output.length >= MAX_OUTPUT;
 
   const onStarted = (s: StartedRun) => {
@@ -290,6 +296,7 @@ export const StatisticsWindow: React.FC<StatisticsWindowProps> = ({
     fileOpen: view !== null,
     prepared: view?.preparation !== undefined,
     projectOpen: openProject !== null,
+    rerunsGoing,
     runGoing: going,
     outputFull,
     busy: session.busy,
@@ -311,10 +318,13 @@ export const StatisticsWindow: React.FC<StatisticsWindowProps> = ({
       exportPrepared: () => setAsking('export'),
       openProject: () => setOpeningProject(true),
       exportReport: () => setExportingReport(true),
+      rerunAll: () => setRerunAllOpen(true),
     },
   });
 
-  const openWhy = openBlocked({ runGoing: going, busy: session.busy });
+  const openWhy = openBlocked({ runGoing: going, busy: session.busy, rerunsGoing });
+  // The list's project while it goes, else the open one.
+  const rerunAllProject = rerunsGoing ? rerunList.projectId : (openProject?.projectId ?? null);
   const MethodDialogFor = dialogKind ? METHOD_DIALOGS[dialogKind] : undefined;
 
   const body = (content: React.ReactNode, full?: 'grid' | 'output') => (
@@ -446,6 +456,9 @@ export const StatisticsWindow: React.FC<StatisticsWindowProps> = ({
             if (said !== null) setMessage(said);
           }}
         />
+      )}
+      {rerunAllOpen && rerunAllProject !== null && (
+        <RerunAllDialog projectId={rerunAllProject} projects={projects} runs={runs} pollMs={runPollMs} fileOpen={view !== null} onClose={() => setRerunAllOpen(false)} />
       )}
       {switchDialog}
     </div>

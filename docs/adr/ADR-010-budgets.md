@@ -215,3 +215,66 @@ categorical column of up to 100,000 levels in the profile; and two 64 MB files
 in one project, which decision 107's per-project cap refuses. The real-app
 check (`~/gaply-corpus/os/phase8/realapp_8f2.md`) reads the app's memory in
 Activity Monitor; its figure is recorded when it has run.
+
+## Addendum: a rerun beside an open file (Phase 8U-2, decision 535)
+
+**What was measured, and how.** 8F-1's method, for the window's Run every saved
+result again (ADR-012 Part 9). The probe was a release build of
+`examples/p8u2_probe.rs`. Part 1's version took 131 s to build, Part 1b's 9 s
+incrementally. Its source is kept as
+`~/gaply-corpus/os/phase8/8u2/p8u2_probe.rs.kept`, SHA-256 `d648bc46…`, with
+Part 1's `0581fa1c…` beside it as `p8u2_probe_part1.rs.kept`, and was removed
+from `examples/` after the runs.
+
+- **The data:** 8F-1's synthetic CSVs (seed 20261026, `ddd.dd`): 100,000 × 50
+  (34,449,484 bytes) and 100,000 × 49 (33,760,415 bytes).
+- **The sessions:** each process builds its own session over one fixed project
+  root (`ProjectSession::with`, caps 128 MiB, 512 MiB and 64 KiB). It reaches
+  the projects a setup process made with `project_open`:
+  - P50, five saved summaries of all fifty columns;
+  - P49s, one saved summary of the mean of all 49, made at the 8 GB cap.
+- **The runs:** every rerun is polled through `project_current` and asserted
+  Saved and Identical. One case per process under `/usr/bin/time -l`, through a
+  script that refused under 15 GiB free and waited while anything built.
+- **The footprint:** `proc_pid_rusage`'s `ri_lifetime_max_phys_footprint`, with
+  the current footprint after each rerun. Swap did not grow in any case.
+- **The machine:** macOS aarch64, 8 GiB RAM, 8 Nov 2026, at loads of 7.18 or
+  below.
+
+| case | what | peak footprint MiB | footprint after each rerun, MiB | rerun s | note |
+|---|---|---|---|---|---|
+| 1 | 8F-1's case: 100,000 × 50 opened (2.41 s), validated (1.30 s), its summary run (5.29 s) | **637** | — | — | 8F-1: 670 |
+| 2 | P50 opened, one saved summary rerun, no file held | **638** | 242 | 8.03 | |
+| 3 | the file held, P50 opened, one rerun | **637** | 361 | 7.99 | the open's own peak |
+| 4 | the file held, P50's five originals rerun in a row (run twice) | **869**, both runs | 361 822 748 745 836 | 7.87 to 8.11 | 36% above case 3 |
+| 5 | the 49-column file's score made and held, P49s opened, its summary rerun | **627** | 476 (397 two seconds later) | 1.67 | |
+| 6 | the file held, twenty reruns (P50's five originals, four times) | **871** | 374 494 501 745 747 · 653 343 343 555 342 · 537 575 738 785 747 · 748 750 781 751 751 | 7.88 to 8.79 | |
+| 7 | as 6, each finished rerun's record forgotten (`Runs::forget`) | **872** | 377 680 687 695 692 · 746 746 747 748 748 · 347 455 521 454 460 · 515 343 459 524 464 | 7.89 to 9.35 | 418 two seconds after the last |
+| 8 | as 6, with no file held | **709** | 244 227 424 330 376 · 412 351 314 387 314 · 195 402 193 365 304 · 197 196 194 193 192 | 8.08 to 8.86 | 142 two seconds after the last |
+
+All 73 reruns were Saved and Identical, none near the 30 s ceiling.
+
+**Case 4 fired decision 535's 10% stop.** Decision 545 then replaced it with a
+bound over twenty reruns, and decision 547 records the change.
+
+**The branches chosen**
+- **Bounded (decision 545).** Case 6's 871 MiB is within 956 (869 × 1.10).
+  Twenty reruns hold no more than five, so the extra memory is a step that
+  levels off, not a leak that grows with the list. At about one table more than
+  a single rerun, it is within this ADR's 10,000,000 cells held across the open
+  datasets on the 8 GB tier.
+- **Not the record (decision 545).** Case 7, 872 MiB, is not more than 10% below
+  case 6. So a finished rerun's record does not hold the memory, and the driver
+  forgets nothing. *Inferred, not measured:* the step is an allocator high-water
+  mark, since the current footprint swings between about 340 and 790 MiB rather
+  than climbing.
+- **The memory sentence (decision 546).** Case 6, 871 MiB, is over 837.5 MiB
+  (this ADR's 670 × 1.25), and case 8 with no file held is 18.6% lower. So the
+  dialog says, whenever a data file is open in the window: "A data file is open
+  in this window, and each run holds its own copy of its data in memory beside
+  it. Closing the file first uses less of this computer's memory." The window
+  closes nothing by itself.
+
+**What these figures leave out.** The app's own memory (the webview and the
+rest) comes on top of every figure here. `realapp_8u2.md` reads it in Activity
+Monitor during a list.

@@ -79,7 +79,7 @@ describe('every item, in decision 441\'s words and order', () => {
   });
 
   it('Project', () => {
-    expect(shape(menu(ms, 'project'))).toEqual([[null, ['Open a project…', 'Run every saved result again', 'Export the project report…']]]);
+    expect(shape(menu(ms, 'project'))).toEqual([[null, ['Open a project…', 'Run every saved result again…', 'Export the project report…']]]);
   });
 
   it('Help', () => {
@@ -175,16 +175,14 @@ describe("each live item's state", () => {
 });
 
 describe('the items that come in a later step', () => {
-  const LATER: Array<[string, string]> = [
-    ['project', 'Run every saved result again'],
-  ];
-
-  it.each(LATER)('%s, %s: disabled, with the later-step sentence, and no handler, in every state', (m, label) => {
-    for (const over of [{}, { fileOpen: true }, { fileOpen: true, runGoing: true }]) {
-      const i = item(windowMenus(context(over)), m, label);
-      expect(i.disabled).toBe(true);
-      expect(i.description).toBe(LATER_STEP);
-      expect(i.onSelect).toBeUndefined();
+  // Decision 540: the later-step list is empty since Run every saved result
+  // again… went live, so no item, in any state tried, says the later step.
+  it('no item says the later-step sentence, in any state', () => {
+    const states: Array<Partial<WindowMenuContext>> = [{}, { fileOpen: true }, { fileOpen: true, runGoing: true }, { busy: true }, { projectOpen: true }, { projectOpen: true, rerunsGoing: true, runGoing: true }, { prepared: true, fileOpen: true }];
+    for (const over of states) {
+      for (const m of windowMenus(context(over))) {
+        for (const i of items(m)) expect(i.description, `${m.id} ${i.label} ${JSON.stringify(over)}`).not.toBe(LATER_STEP);
+      }
     }
   });
 });
@@ -273,9 +271,8 @@ describe('every method, live (decision 485)', () => {
     expect(item(windowMenus(context({ fileOpen: false })), 'analyze', label).description).toBe(NO_FILE);
   });
 
-  it("Run every saved result again keeps the later-step sentence, and Transform's scale score is live (decision 506)", () => {
+  it("Transform's scale score is live (decision 506)", () => {
     const ms = windowMenus(context({ fileOpen: true }));
     expect([item(ms, 'transform', 'Scale score…').disabled, item(ms, 'transform', 'Scale score…').description, typeof item(ms, 'transform', 'Scale score…').onSelect]).toEqual([undefined, undefined, 'function']);
-    expect(item(ms, 'project', 'Run every saved result again').description).toBe(LATER_STEP);
   });
 });

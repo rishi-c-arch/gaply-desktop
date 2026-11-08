@@ -27480,3 +27480,71 @@ Tests for files unsafe under 0.4.4 stop first if `Cargo.lock` names a version be
 **8T-2b's existing tests changed, and why.** `tests/project_commands.rs`: the two `StoredRunView` literals each gain `prepared: false`, so `projectRuns.json`'s bytes stand (decision 516). `windowMenus.vitest.ts`: notLive's comment, notLive and its empty `it.each` removed (decision 512's answer 1), the export's row out of LATER, the later-step test's name losing "and the prepared data's export" and its export line removed, the export having tests of its own (decision 514). None was loosened. New: `stored_run_prepared.rs`, `exportPrepared.vitest.tsx`, `outputSavePrepared.vitest.tsx`, `preparedSentences.vitest.tsx`.
 
 **The real-app checks.** `realapp_8m2.md` (the home's Beta card), `realapp_8t2a.md` (the dialog, every score and method against R at the window's precision; decision 512), and `realapp_8t2b.md`: the readings decision 488 still lacks first, then the old and the new save sentence, a project HT8T2, the export asked first and cancelled at the save dialog, then saved and its SHA-256 matched, the file opened again with Average's summary against R, the rerun sentence and an `Identical` rerun, and the export's route measured at this Mac's largest prepared table against its stop (the save dialog within 10 s, memory within 1 GB, no error, no reload).
+
+### D310 — Research OS, Phase 8U-2: Run every saved result again, the window's driver over today's commands, with a rerun's memory beside an open file measured first `[src]` `[test]` `[measured]`
+
+**Decisions followed:** 533 to 547 (`~/gaply-corpus/os/decisions.md`), on ADR-012 Part 9 and ADR-010 (decision 285's method). 8U-2 stopped once in Part 1, at decision 535's 10% stop, and was resumed by decisions 543 to 547 with Part 1b. No Rust file of the repository changed. No project command was added, and no new kind of write is made: each rerun's save is Rust's, as a Run again click's is. **With this entry, 8U-2 is complete once `~/gaply-corpus/os/phase8/realapp_8u2.md` passes (after `realapp_8t2b.md` and `realapp_8u1.md`) and the next push's CI runs are green.**
+
+**The memory, measured first (decisions 535, 544 to 547; ADR-010's 8U-2 addendum).**
+- **The probe.** A release probe on 8F-1's method (`p8u2_probe.rs.kept`, SHA-256 `d648bc46…`; Part 1's `0581fa1c…`). Each process builds its own session over one fixed root, and its projects are P50 (five summaries of 100,000 × 50) and P49s (a summary of a 49-item score).
+- **The peak footprints:**
+  - 8F-1's open, 637 MiB (670 before);
+  - one rerun, alone or beside the held file, 637–638 MiB;
+  - five in a row beside the file, 869 MiB, twice, which fired the 10% stop;
+  - the score's rerun, 627 MiB;
+  - twenty in a row beside the file, 871 MiB;
+  - the same with each finished record forgotten, 872;
+  - the same with no file held, 709.
+- **Every rerun:** all 73 were Saved and Identical, in 1.67 to 9.35 s, and swap never grew.
+- **The branches:**
+  - **bounded:** 871 is within 956, so the extra memory is a step, not a leak;
+  - **not the record:** the driver forgets nothing;
+  - **the memory sentence is written:** 871 is over 837.5, and 709 is 18.6% lower with no file held.
+
+**The driver (decision 536): `window/rerunAll.ts`.** It is a module store of its own, read through `useRerunAll()`.
+- **Its token** holds the session's generation at the start. Any clear of the session (the window's poll, or the switch) makes the list stale: it starts nothing more, adds nothing, and reads as idle. A stale list emits at its next check, since a clear of an empty session tells no one.
+- **Which runs:** those with no `rerunOf` that succeeded, oldest saved first.
+- **For each run:**
+  1. A `project_current` check: another project, another screen's rerun, or a failed read ends the list with its reason.
+  2. One `project_rerun`. A refusal is that run's line, ending the list for the ending codes or for a refusal that is no project code.
+  3. Then reads every `runPollMs` until that rerun is no longer going. A failed or foreign poll is "not known" and ends the list.
+- **Each line** says what `rerunLines` or `codeSentence` gives. A saved run whose runs read fails is "saved but not read", never a comparison.
+- **The ending codes:** the three caps, `rerun_busy`, `rerun_in_progress`, `not_open` and `run_cancelled`.
+- **Stop:** one press calls the kind's cancel once, through `runKinds` by an own key, and starts nothing more; it also covers a press during the start. It ends "Stopped.", with "The rest were not run again." when runs are left.
+- **The last line** is the count: every run takes exactly one of nine outcomes.
+
+**The dialog, the menu and the window (decisions 537 and 538).**
+- **The dialog**, `window/RerunAllDialog.tsx`, on ProjectDialog:
+  - it reads the runs once, under its own generation, then shows the sentence for n, with the prepared, left-out and memory sentences where they apply;
+  - Run again starts the list once;
+  - while it goes: the lines in a `role="log"`, the note, Stop and Close;
+  - at the end: the count and Close, which empties the store;
+  - the focus moves to Stop when the list starts and to Close when it ends, and Escape is Close in every state.
+- **The menu:** Project, Run every saved result again… is live, with its ellipsis. While the list goes:
+  - "Saved results are being run again. Wait for them, or stop them from the Project menu." replaces "A run is going…" on Open a data file…, Close this file, the methods and Scale score…;
+  - Open a project… is greyed;
+  - each Output entry's Save to a project… shows its disabled form with that sentence;
+  - the window's `going` includes the list.
+- **One copy:** `codeSentence` moved from `ProjectPage.tsx` to `projectWording.ts` (decision 539).
+
+**The existing tests changed (decision 540, and one more):**
+- `windowMenus.vitest.ts`:
+  - the Project shape's label gains "…";
+  - the emptied later-step `it.each` becomes "no item says the later-step sentence, in any state";
+  - the scale score's test loses its rerun line and title part.
+- `exportReport.vitest.tsx`:
+  - :87-92 pins the item's new states;
+  - and, not in decision 540's list, :155's `getByText("Open a project first.")`, which two items now say, reads the report item's own description through its `aria-describedby`.
+- None was loosened.
+
+**The tests and mutations.**
+- **New tests:** `rerunAll.vitest.ts` (29), `RerunAllDialog.vitest.tsx` (13), `rerunAllMenu.vitest.ts` (8), `rerunAllWindow.vitest.tsx` (6), `rerunAllWords.vitest.ts` (3), and `projects/codeSentenceOneCopy.vitest.ts` (3).
+- **Mutations:** 23 records.
+  - v03's green came from a second guard: the loop-top Stop check catches what the after-the-line one would. It was covered by v03b, a Stop that never marks the list, and v03c, against a new test for Stop during the last run.
+  - The words and the count were written before their tests, so their red is v19 and v20.
+
+**The real-app check, `realapp_8u2.md`:**
+- the chain (alpha, a score, a t-test on it, correlations) saved to HT8U2 and run again, three times Identical;
+- Stop in the middle of a three-summary list at 100,000 × 50;
+- what the project page shows while the list goes (decision 541);
+- the app's memory during a list.

@@ -84,11 +84,12 @@ describe('Project, Export the project report… (decision 526)', () => {
     expect(exportReport).toHaveBeenCalledTimes(2);
   });
 
-  it('Run every saved result again stays the later step, in every state', () => {
-    for (const over of [{}, { projectOpen: true }]) {
-      const i = projectItem(windowMenus(context(over)), 'project-rerun-all');
-      expect([i.disabled, i.description, i.onSelect]).toEqual([true, LATER_STEP, undefined]);
-    }
+  it('Run every saved result again… now: grey with no project open, live with one (decision 538)', () => {
+    const none = projectItem(windowMenus(context({})), 'project-rerun-all');
+    expect([none.disabled, none.description, none.onSelect]).toEqual([true, NO_PROJECT_OPEN, undefined]);
+    const open = projectItem(windowMenus(context({ projectOpen: true })), 'project-rerun-all');
+    expect([open.disabled, open.description, typeof open.onSelect]).toEqual([undefined, undefined, 'function']);
+    expect(open.description).not.toBe(LATER_STEP);
   });
 });
 
@@ -151,7 +152,8 @@ describe("the window's report export (decision 526)", () => {
     });
     openMenu();
     expect(reportItem().getAttribute('aria-disabled')).toBe('true');
-    expect(screen.getByText(NO_PROJECT_OPEN)).toBeTruthy();
+    // The item's own description (8U-2: Run every saved result again… says the same sentence now).
+    expect(document.getElementById(reportItem().getAttribute('aria-describedby') ?? '')?.textContent).toBe(NO_PROJECT_OPEN);
   });
 
   it("with one open: the page's report dialog, its title and sentence, and nothing of provenance", async () => {

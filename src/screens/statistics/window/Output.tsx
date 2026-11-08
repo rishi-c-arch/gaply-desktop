@@ -22,7 +22,8 @@ import { AskFirst } from './MethodDialog';
 import './Output.css';
 import { methodName, OutputOutline } from './OutputOutline';
 import { entryNotSaved, runIsGoing, statisticsSession, type EntryPatch, type MethodRuns, type OutputEntry, type StatisticsSessionState } from './statisticsSession';
-import { ASK_REMOVE, OUTPUT_EMPTY, OUTPUT_EXPORT, OUTPUT_SAVED, OUTPUT_SETTINGS } from './windowWording';
+import { useRerunAll } from './rerunAll';
+import { ASK_REMOVE, OUTPUT_EMPTY, OUTPUT_EXPORT, OUTPUT_SAVED, OUTPUT_SETTINGS, RERUNS_GOING } from './windowWording';
 
 type SaveFile = (name: string, text: string, mime: string) => Promise<string | null>;
 
@@ -86,14 +87,17 @@ const EntryPane = React.memo<EntryPaneProps>(({ entry, shown, slotOpen, bridge, 
   const progress = row.progress(run);
   const diagnostics: Array<{ code: string; params?: Record<string, unknown>; severity: string }> = run.diagnostics as never;
 
-  const saveNode = !slotOpen ? (
+  // While the window's list of reruns goes, no Save may change the open project
+  // between two reruns (decision 538): the same disabled form, with its sentence.
+  const listGoing = useRerunAll().status === 'going';
+  const saveNode = !slotOpen || listGoing ? (
     projectsShown() ? (
       <div>
         <Button variant="secondary" disabled aria-describedby={`${prefix}-save-why`} data-testid={`${prefix}-save-off`}>
           {PROJECT_TEXT.saveButton}
         </Button>
         <p id={`${prefix}-save-why`} style={{ margin: '4px 0 0' }} data-testid={`${prefix}-save-why`}>
-          {PROJECT_WORDS['project.data_unavailable']({ code: 'project.data_unavailable' })}
+          {listGoing ? RERUNS_GOING : PROJECT_WORDS['project.data_unavailable']({ code: 'project.data_unavailable' })}
         </p>
       </div>
     ) : null

@@ -8,7 +8,7 @@
 import type { MenuDefinition, MenuItem } from '../../../design-system';
 import { METHODS } from '../methods';
 import type { CapabilityView } from '../ttestTypes';
-import { FILE_BUSY, LATER_STEP, MENU_WORDS, NOT_RUNNABLE, NO_FILE, NO_PROJECT_OPEN, NO_SCORE, OUTPUT_FULL, RUN_GOING, WINDOW_TITLE } from './windowWording';
+import { FILE_BUSY, LATER_STEP, MENU_WORDS, NOT_RUNNABLE, NO_FILE, NO_PROJECT_OPEN, NO_SCORE, OUTPUT_FULL, RERUNS_GOING, RUN_GOING, WINDOW_TITLE } from './windowWording';
 
 /** The scale score is no METHODS row, since it has no run kind (decision 451). */
 export const SCALE_SCORE_CAPABILITY = 'stats.prepare.scale_score';
@@ -36,6 +36,8 @@ export interface WindowMenuActions {
   openProject?: () => void;
   /** Opens the open project's report dialog (decision 526). */
   exportReport?: () => void;
+  /** Opens Run every saved result again…'s dialog (decision 538). */
+  rerunAll?: () => void;
 }
 
 export interface WindowMenuContext {
@@ -50,6 +52,8 @@ export interface WindowMenuContext {
   prepared?: boolean;
   /** Rust holds a project open, as the line reads it (decision 526). */
   projectOpen?: boolean;
+  /** The window's list of reruns is going (decision 538). */
+  rerunsGoing?: boolean;
   /** Rust's list, or null while unread or when it could not be read. */
   capabilities: CapabilityView[] | null;
   projects: boolean;
@@ -64,9 +68,18 @@ const comingLater = (labels: string[]) => ({ heading: MENU_WORDS.comingLater, it
 
 /** Why Open cannot be pressed now; undefined when it can. The file's Open
  *  button and the menu's item ask the same question. */
-export function openBlocked(c: Pick<WindowMenuContext, 'runGoing' | 'busy'>): string | undefined {
-  if (c.runGoing) return RUN_GOING;
+export function openBlocked(c: Pick<WindowMenuContext, 'runGoing' | 'busy' | 'rerunsGoing'>): string | undefined {
+  const going = goingSays(c);
+  if (going) return going;
   return c.busy ? FILE_BUSY : undefined;
+}
+
+/** What an item says while something runs: the list's sentence while the
+ *  window's list of reruns goes, since its runs are not cancelled from the
+ *  Output (decision 538); a run's otherwise; nothing when neither goes. */
+function goingSays(c: Pick<WindowMenuContext, 'runGoing' | 'rerunsGoing'>): string | undefined {
+  if (c.rerunsGoing === true) return RERUNS_GOING;
+  return c.runGoing ? RUN_GOING : undefined;
 }
 
 function closeBlocked(c: WindowMenuContext): string | undefined {
@@ -89,7 +102,7 @@ export const LIVE_METHODS: readonly string[] = ['describe', 'ttest', 'one_sample
 function methodItem(c: WindowMenuContext, id: string, label: string, kind: string, capabilityId: string): MenuItem {
   const generic = capabilityItem(c, id, label, capabilityId);
   if (generic.description === NOT_RUNNABLE || !LIVE_METHODS.includes(kind)) return generic;
-  const why = !c.fileOpen ? NO_FILE : c.runGoing ? RUN_GOING : c.busy ? FILE_BUSY : c.outputFull ? OUTPUT_FULL : undefined;
+  const why = !c.fileOpen ? NO_FILE : goingSays(c) ?? (c.busy ? FILE_BUSY : c.outputFull ? OUTPUT_FULL : undefined);
   return why ? disabled(id, label, why) : live(id, label, () => c.actions.method?.(kind));
 }
 
@@ -100,7 +113,7 @@ function scoreItem(c: WindowMenuContext): MenuItem {
   const label = 'Scale score…';
   const generic = capabilityItem(c, id, label, SCALE_SCORE_CAPABILITY);
   if (generic.description === NOT_RUNNABLE) return generic;
-  const why = !c.fileOpen ? NO_FILE : c.runGoing ? RUN_GOING : c.busy ? FILE_BUSY : undefined;
+  const why = !c.fileOpen ? NO_FILE : goingSays(c) ?? (c.busy ? FILE_BUSY : undefined);
   return why ? disabled(id, label, why) : live(id, label, () => c.actions.score?.());
 }
 
@@ -115,6 +128,17 @@ function exportItem(c: WindowMenuContext): MenuItem {
   if (generic.description === NOT_RUNNABLE) return generic;
   const why = !c.fileOpen ? NO_FILE : c.prepared !== true ? NO_SCORE : c.busy ? FILE_BUSY : undefined;
   return why ? disabled(id, label, why) : live(id, label, () => c.actions.exportPrepared?.());
+}
+
+/** Project, Run every saved result again… (decision 538): live while the list
+ *  goes, opening its dialog on the list; then no project; then a run going;
+ *  then busy; live otherwise. */
+function rerunAllItem(c: WindowMenuContext): MenuItem {
+  const id = 'project-rerun-all';
+  const label = 'Run every saved result again…';
+  if (c.rerunsGoing === true) return live(id, label, () => c.actions.rerunAll?.());
+  const why = c.projectOpen !== true ? NO_PROJECT_OPEN : c.runGoing ? RUN_GOING : c.busy ? FILE_BUSY : undefined;
+  return why ? disabled(id, label, why) : live(id, label, () => c.actions.rerunAll?.());
 }
 
 /** METHODS' rows, in order, under each group's heading. */
@@ -183,8 +207,10 @@ export function windowMenus(c: WindowMenuContext): MenuDefinition[] {
       groups: [
         {
           items: [
-            live('project-open', 'Open a project…', () => actions.openProject?.()),
-            disabled('project-rerun-all', 'Run every saved result again', LATER_STEP),
+            c.rerunsGoing === true
+              ? disabled('project-open', 'Open a project…', RERUNS_GOING)
+              : live('project-open', 'Open a project…', () => actions.openProject?.()),
+            rerunAllItem(c),
             c.projectOpen === true
               ? live('project-report', 'Export the project report…', () => actions.exportReport?.())
               : disabled('project-report', 'Export the project report…', NO_PROJECT_OPEN),

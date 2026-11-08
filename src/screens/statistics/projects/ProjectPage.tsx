@@ -75,7 +75,7 @@ import type {
 } from './projectTypes';
 import {
   capabilityName,
-  FALLBACK_SENTENCE,
+  codeSentence,
   PROJECT_TEXT,
   PROJECT_WORDS,
   projectSentence,
@@ -145,10 +145,6 @@ function goingIn(answer: ProjectCurrentView | null, projectId: string): Going | 
   if (typeof r.runId !== 'number' || typeof r.rerunOf !== 'number') return null;
   return { runId: r.runId, rerunOf: r.rerunOf, kind: null };
 }
-
-/** A code's sentence, or the fallback for a code this screen does not know. */
-const codeSentence = (code: ProjectCode | null) =>
-  (code && PROJECT_WORDS[code]?.({ code })) || FALLBACK_SENTENCE;
 
 type View =
   | { kind: 'loading' }
