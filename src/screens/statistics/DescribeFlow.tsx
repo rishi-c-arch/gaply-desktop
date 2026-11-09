@@ -105,8 +105,11 @@ const DiagnosticList: React.FC<{ items: Diagnostic[]; name: (a: number) => strin
   );
 
 /** The summary's tables: one for the numeric columns, one per categorical
- *  column. */
-function resultTable(columns: ColumnResult[]) {
+ *  column. A row is named by its header, or by `rowLabel` of its alias when
+ *  that gives one (a saved result's score, Research OS, Phase 8U-3, decision
+ *  554). */
+function resultTable(columns: ColumnResult[], rowLabel?: (alias: string) => string | null) {
+  const label = (s: { alias: string; header: string }) => rowLabel?.(s.alias) ?? s.header;
   const numeric = columns.flatMap((c) => ('numeric' in c ? [c.numeric] : []));
   const categorical = columns.flatMap((c) => ('categorical' in c ? [c.categorical] : []));
   return (
@@ -127,7 +130,7 @@ function resultTable(columns: ColumnResult[]) {
             {numeric.map((s) => (
               <tr key={s.alias}>
                 <th scope="row" style={{ textAlign: 'left', ...CELL_PADDING }}>
-                  {s.header}
+                  {label(s)}
                 </th>
                 <td className="gds-mono" style={CELL_PADDING}>{s.n}</td>
                 <td className="gds-mono" style={CELL_PADDING}>{s.missing}</td>
@@ -142,7 +145,7 @@ function resultTable(columns: ColumnResult[]) {
       {categorical.map((s) => (
         <table key={s.alias} data-testid="desc-levels-table" style={{ borderCollapse: 'collapse' }}>
           <caption style={{ textAlign: 'left' }}>
-            {s.header}: n {s.n}, missing {s.missing}
+            {label(s)}: n {s.n}, missing {s.missing}
           </caption>
           <thead>
             <tr>
@@ -171,10 +174,15 @@ function resultTable(columns: ColumnResult[]) {
 /** The summary's result: its notes, the tables, the digits note and the run
  *  manifest. The live results screen renders it, and so does a saved result
  *  (Research OS, Phase 5B-3b, decision 150), from the same props. */
-export const DescribeResult: React.FC<{ result: ResultBundleView; name: (alias: number) => string }> = ({ result, name }) => (
+export const DescribeResult: React.FC<{
+  result: ResultBundleView;
+  name: (alias: number) => string;
+  /** A row's label by its alias, in place of its header when it gives one. */
+  rowLabel?: (alias: string) => string | null;
+}> = ({ result, name, rowLabel }) => (
   <>
     <DiagnosticList items={result.diagnostics} name={name} testId="desc-result-notes" />
-    {resultTable(result.columns)}
+    {resultTable(result.columns, rowLabel)}
     <p className="gds-jc__disclaimer">{SHOWN_DIGITS_NOTE}</p>
     <aside aria-label="Run manifest" data-testid="desc-manifest">
       <h4 style={{ margin: '8px 0 4px' }}>Run manifest</h4>

@@ -12,7 +12,7 @@ import { workspaceRefusal } from '../../workspace/workspaceTypes';
 import { workspaceSentence } from '../../workspace/workspaceWording';
 import { methodFor } from '../methods';
 import type { NameRefusal } from './projectName';
-import { PROJECT_CODES, type ProjectCode, type ProjectRefusalView, type StoredRunView } from './projectTypes';
+import { PROJECT_CODES, type ProjectCode, type ProjectRefusalView, type ScoreView, type StoredRunView } from './projectTypes';
 import type { Platform } from '../describeTypes';
 
 /* ---- decision 133, word for word ------------------------------------------ */
@@ -370,4 +370,40 @@ export function savedOn(secs: number): string {
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+/* ---- a project's recipes (Research OS, Phase 8U-3, decision 555) ---------- */
+
+/** The heading of the page's list of a project's recipes. */
+export const RECIPES_HEADING = 'Scale score recipes';
+
+/** The list's place, when the recipes could not be read. */
+export const RECIPES_UNREAD = "This project's scale score recipes could not be read.";
+
+/** A prepared saved result's line, when its scores' names are not known. */
+export const RUN_SCORES_UNREAD = 'Scale scores: their names could not be read.';
+
+/** A score's column: its C-number, as a saved result names every column, and
+ *  the name the user typed, quoted, as the window's sentences quote it. Text
+ *  only: never in an attribute. */
+export const scoreColumn = (position: number, name: string) => `C${position} "${name}"`;
+
+const savedResults = (n: number) => (n === 1 ? 'Used by 1 saved result' : `Used by ${n} saved results`);
+
+const scoreMade = (s: ScoreView) =>
+  s.statistic === 'mean' ? `, the mean of ${s.items} items` : s.statistic === 'sum' ? `, the sum of ${s.items} items` : `, from ${s.items} items`;
+
+/** One recipe of the project: how many saved results used it, then each score. */
+export function recipeLine(n: number, scores: ScoreView[]): string {
+  return `${savedResults(n)}: ${scores.map((s) => `${scoreColumn(s.position, s.name)}${scoreMade(s)}`).join('; ')}.`;
+}
+
+/** One recipe whose file could not be read. */
+export function recipeUnreadLine(n: number): string {
+  return `${savedResults(n)}. Its scores could not be read.`;
+}
+
+/** A prepared saved result's scores, under its row. */
+export function runScoresLine(scores: ScoreView[]): string {
+  return `Scale scores: ${scores.map((s) => scoreColumn(s.position, s.name)).join(', ')}.`;
 }

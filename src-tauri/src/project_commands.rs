@@ -731,6 +731,52 @@ pub struct StoredRunView {
     pub prepared: bool,
 }
 
+/// A recipe the open project keeps, as `project_recipes` gives it (Research
+/// OS, Phase 8U-3, decision 552): the stored runs that used it, from the
+/// loaded graph's `used` edges of role `recipe`, and what its file says.
+/// `sourceColumns` and `scores` are `null` when the file cannot be read as an
+/// artifact or as a recipe. Its `Debug` prints counts only: a derived one
+/// would print the names, and no scan covers an app view.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecipeView {
+    /// Ascending; a rerun's save reuses its recipe by hash, so reruns are here.
+    pub used_by: Vec<u64>,
+    pub source_columns: Option<u32>,
+    pub scores: Option<Vec<ScoreView>>,
+}
+
+impl std::fmt::Debug for RecipeView {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RecipeView")
+            .field("used_by", &self.used_by.len())
+            .field("scores", &self.scores.as_ref().map(Vec::len))
+            .finish_non_exhaustive()
+    }
+}
+
+/// One score of a kept recipe: its column's C-number, the name as the user
+/// typed it, its statistic and how many items it has (decision 552). The
+/// name is in memory only, for the project page; never in a log or a refusal.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScoreView {
+    pub position: u32,
+    pub name: String,
+    pub statistic: Option<Statistic>,
+    pub items: u64,
+}
+
+/// Counts only, never the name, as `ScaleScoreStep`'s.
+impl std::fmt::Debug for ScoreView {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ScoreView")
+            .field("position", &self.position)
+            .field("items", &self.items)
+            .finish_non_exhaustive()
+    }
+}
+
 /// An artifact by its row: hash, kind, format and size.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -1766,6 +1812,86 @@ fn used_a_recipe(graph: &ProvGraph, run: StoredRunId) -> bool {
             } if *r == run
         )
     })
+}
+
+/// The open project's recipes (Research OS, Phase 8U-3, decision 552), for its
+/// page: each recipe its runs used, from the loaded graph's `used` edges of
+/// role `recipe`, as [`used_a_recipe`] reads them and never through
+/// [`artifacts_of`], which refuses a run with two recipe edges: such a run is
+/// listed under both. In the order of each recipe's first user. A recipe whose
+/// file cannot be read as an artifact, or as a recipe, is listed with its
+/// file's fields `null`, and the read goes on; a database error refuses it.
+pub fn recipes(_root: &Path, ws: &WorkspaceSession, project_id: &str) -> Res<Vec<RecipeView>> {
+    let _engine = ws.require_statistics().map_err(refuse_workspace)?;
+    let mut open = lock(&ws.projects().open);
+    still_active(ws)?;
+    let h = the_open(&mut open, project_id).map_err(refuse)?;
+    let loaded = load(h).map_err(refuse)?;
+    let mut users: BTreeMap<ArtifactHash, BTreeSet<u64>> = BTreeMap::new();
+    for e in loaded.graph.edges() {
+        if let ProvEdge::Used {
+            run,
+            artifact,
+            role: UsedRole::Recipe,
+        } = e
+        {
+            users.entry(artifact.clone()).or_default().insert(run.0);
+        }
+    }
+    let mut out = Vec::with_capacity(users.len());
+    for (hash, by) in users {
+        let read = kept_recipe(h, &hash).map_err(refuse)?;
+        out.push(RecipeView {
+            used_by: by.into_iter().collect(),
+            source_columns: read.as_ref().map(|r| r.source_columns),
+            scores: read.as_ref().map(scores_of),
+        });
+    }
+    out.sort_by_key(|v| v.used_by.first().copied());
+    Ok(out)
+}
+
+/// A kept recipe, read and verified: `None` when `read_artifact` refuses it as
+/// an artifact (an unknown row, a row already damaged, a missing file, a file
+/// not regular, a wrong size, a wrong hash, each marking damage as any read
+/// does) or its bytes are no recipe. Any other refusal is the database's, and
+/// is returned.
+fn kept_recipe(h: &mut ProjectHandle, hash: &ArtifactHash) -> Result<Option<Recipe>, ProjectRefusal> {
+    match h.read_artifact(hash.as_hex()) {
+        Ok(bytes) => Ok(stats_adapters::prep_recipe_from_bytes(&bytes).ok()),
+        Err(e)
+            if matches!(
+                e.code,
+                ProjectCode::UnknownArtifact
+                    | ProjectCode::ArtifactMissing
+                    | ProjectCode::ArtifactNotRegular
+                    | ProjectCode::ArtifactWrongSize
+                    | ProjectCode::ArtifactWrongHash
+            ) =>
+        {
+            Ok(None)
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// A recipe's scores, by ascending position (decision 552).
+fn scores_of(recipe: &Recipe) -> Vec<ScoreView> {
+    let mut out: Vec<ScoreView> = recipe
+        .steps
+        .iter()
+        .map(|step| {
+            let RecipeStep::ScaleScore(s) = step;
+            ScoreView {
+                position: s.alias.0 .0,
+                name: s.name.clone(),
+                statistic: s.statistic,
+                items: s.items.len() as u64,
+            }
+        })
+        .collect();
+    out.sort_by_key(|s| s.position);
+    out
 }
 
 /// The open project's runs, artifact rows and provenance graph, read once per
@@ -2825,6 +2951,22 @@ pub async fn project_runs(
     let root = root_of(&app)?;
     let ws = state.workspace.clone();
     blocking(move || runs(&root, &ws, &project_id)).await
+}
+
+#[tauri::command]
+#[tracing::instrument(skip_all)]
+pub async fn project_recipes(
+    app: tauri::AppHandle,
+    state: St<'_>,
+    project_id: String,
+) -> Result<Vec<RecipeView>, GaplyError> {
+    let _engine = state
+        .workspace
+        .require_statistics()
+        .map_err(refuse_workspace)?;
+    let root = root_of(&app)?;
+    let ws = state.workspace.clone();
+    blocking(move || recipes(&root, &ws, &project_id)).await
 }
 
 #[tauri::command]

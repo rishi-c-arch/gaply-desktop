@@ -45,7 +45,10 @@
 //! again, then a Save after a second make that keeps the run's own recipe
 //! (Phase 8T-1a, decision 491), a Save refused after the file's close, and a
 //! rerun refused. The typed name is only in the
-//! recipe artifact and the `DatasetView`; an item's value only in the data file's
+//! recipe artifact, the `DatasetView`, and, since Phase 8U-3 (decision 553),
+//! `project_recipes`' response, read in memory for the project page before
+//! the recipe is damaged; `project_runs`' response holds none of the three;
+//! an item's value only in the data file's
 //! artifact and the `DatasetView`; the score's value only in the `DatasetView`.
 //! All three are absent from `project.db`'s bytes, every spec, manifest, bundle,
 //! the report, the PROV JSON, every refusal and every log line. The negative
@@ -622,10 +625,11 @@ fn a_rerun_puts_no_sentinel_anywhere_but_the_projects_artifacts_and_its_title() 
     prepared_surfaces.push(("a refused Save".into(), refused.to_string()));
     assert!(refused.to_string().contains("project.data_unavailable"));
 
-    responses.push((
-        "runs".into(),
-        serde_json::to_string(&pc::runs(&app, &w.ws, &id).unwrap()).unwrap(),
-    ));
+    let runs_response = serde_json::to_string(&pc::runs(&app, &w.ws, &id).unwrap()).unwrap();
+    responses.push(("runs".into(), runs_response.clone()));
+    // Phase 8U-3 (decision 553): project_runs holds no name, nor any other of
+    // the prepared run's sentinels.
+    prepared_surfaces.push(("runs".into(), runs_response));
     let mut results = String::new();
     for n in [1, 2, 3, 4, 5, 6, 7, 8] {
         results.push_str(
@@ -665,6 +669,17 @@ fn a_rerun_puts_no_sentinel_anywhere_but_the_projects_artifacts_and_its_title() 
     prepared_surfaces.push(("the report".into(), report.clone()));
     prepared_surfaces.push(("the provenance".into(), prov.clone()));
     prepared_surfaces.push(("results read back".into(), prepared_results.clone()));
+    // Phase 8U-3 (decision 553): project_recipes' response is the one project
+    // read that holds the name, in memory, for the page, as the DatasetView
+    // does above; read before the recipe is damaged below, and holding no
+    // item's value and no score's value.
+    let recipes = serde_json::to_string(&pc::recipes(&app, &w.ws, &id).unwrap()).unwrap();
+    assert_eq!(
+        prepared_found(recipes.as_bytes()),
+        [NAME],
+        "project_recipes' response: the name and nothing else"
+    );
+    assert_eq!(found(recipes.as_bytes()), Vec::<&str>::new(), "project_recipes");
     // A rerun refused: its recipe damaged on disk, the name still in the file.
     let recipe_hash = stats_prep::recipe_hash(&recipe);
     let recipe_path = project.join("artifacts").join(&recipe_hash);

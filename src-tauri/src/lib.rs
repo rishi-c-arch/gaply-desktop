@@ -448,6 +448,9 @@ pub fn run() {
             project_commands::project_open,
             project_commands::project_close,
             project_commands::project_runs,
+            // Research OS, Phase 8U-3 (decision 552): the open project's
+            // recipes, for its page.
+            project_commands::project_recipes,
             project_commands::project_run_result,
             project_commands::project_report,
             project_commands::project_provenance,

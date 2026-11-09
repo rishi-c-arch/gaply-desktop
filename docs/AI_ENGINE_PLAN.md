@@ -27548,3 +27548,40 @@ Tests for files unsafe under 0.4.4 stop first if `Cargo.lock` names a version be
 - Stop in the middle of a three-summary list at 100,000 × 50;
 - what the project page shows while the list goes (decision 541);
 - the app's memory during a list.
+
+### D311 — Research OS, Phase 8U-3: a project's recipes on its page, a saved result naming its scores, and the page following the window's list `[src]` `[test]`
+
+**Decisions followed:** 550 to 559 (`~/gaply-corpus/os/decisions.md`), on ADR-011 (:424, :452-456, :460-461, :600-602) and ADR-012 (:609, :647, :651, :732). This ends ADR-012's sixth step. No new write: the read reads the recipe files a Save already writes. Nothing new crosses the device's edge. **With this entry, 8U-3 is complete once `~/gaply-corpus/os/phase8/realapp_8u3.md` passes (after `realapp_8t2b.md` and `realapp_8u2.md`) and the next push's CI runs are green.**
+
+**Part 1, the read: `project_recipes`, the fourteenth project command.**
+- `project_commands::recipes` (the wrapper `project_recipes`), on `project_runs`' pattern: the workspace check first, the open project only, one `load`, so one graph load.
+- It answers a list of `RecipeView { usedBy, sourceColumns, scores }`, each score a `ScoreView { position, name, statistic, items }`.
+  - `usedBy`: from the loaded graph's `used` edges of role `recipe`, read as `used_a_recipe` reads them (decision 516), never through `artifacts_of`, which refuses a run with two recipe edges: such a run is listed under both. Reruns are included, since a rerun's save reuses its recipe by hash.
+  - The list is in the order of each recipe's first user; a tie keeps the hashes' order.
+  - `scores` is in ascending position. It is `null`, with `sourceColumns`, when the recipe's file cannot be read as an artifact (`unknown_artifact`, `artifact_missing`, `artifact_not_regular`, `artifact_wrong_size`, `artifact_wrong_hash`, each marking damage as any read does) or its bytes are no recipe (`stats_adapters::prep_recipe_from_bytes`). Any other refusal (the database's, an I/O failure) refuses the whole read.
+- **`sourceColumns` is `null` with `scores`**, which decision 552 did not say: it is read from the same bytes.
+- `RecipeView` and `ScoreView` derive `Serialize` and a hand-written `Debug` of counts only, as `ScaleScoreStep`'s.
+- **The name's new surface.** `project_recipes`' response is a third in-memory surface for a score's name, beside `DatasetView` and `stats_prep_recipe` (ADR-012:609). The privacy matrix checks it holds the name and nothing else of the run's sentinels, before the recipe is damaged; `project_runs`' response is now checked against all three of the prepared run's sentinels as well.
+- Wired as `project_runs` is: `lib.rs`, `PROJECT_GATED`, `#[tauri::command]` with `#[tracing::instrument(skip_all)]`; `tests/fixtures/projects/projectRecipes.json` pinned in `tests/project_commands.rs`; `RecipeView` and `ScoreView` in `projectTypes.ts`; `recipes` in `projectBridge.ts`, the Tauri bridge and the mock.
+
+**Part 2, the page.**
+- The page reads `project_recipes` after every read of its runs that finds a prepared run, as an effect on the runs it holds, under that effect's own liveness flag, never the page's counter, which an opened saved result also moves. A page with no prepared run reads exactly what it read at 8eb00b7c, and renders byte for byte what it rendered (`savedResultUnchanged.vitest.tsx`, a hash taken from 8eb00b7c's code).
+- A section after the saved results, "Scale score recipes", a line per recipe; each prepared row's scores in an element of its own after its facts; the unread forms for a refusal and for an answer that is not a list; a run under two recipes named by none.
+- `SavedResult` takes the run's scores. A column whose position is a score's is named `C{n} "name"` wherever `BY_POSITION` named it, through an optional naming every renderer takes; a summary's row is found by its alias's position, never by its header (`DescribeResult`'s optional `rowLabel`). With no scores, every stored fixture renders byte for byte as at 8eb00b7c.
+
+**Part 3, the page follows the list (decision 556, ADR-012:647, replacing decision 541's difference).**
+- In the poll, a going answer about this project with another run id is followed, the runs read again; an ended one reads the runs again and ends the following, with no outcome sentence; no rerun, or another project, is unread, as before.
+- From `useRerunAll()`, the list's going run is followed whenever the page is not already following it, its outcome cleared, its kind taken only as an own key of the page's cancels. While the list goes in this project, Run again and Close the project stay disabled, also between two of its reruns.
+- A follow moves no focus. The page remembers the reruns it has seen end, so the list's store, which can still name one for a moment, is not followed into it again.
+
+**What changed, and only that.**
+- Rust: `project_commands.rs` (the views, `recipes`, `kept_recipe`, `scores_of`, the wrapper), `lib.rs` (the handler), `tests/workspace_guards.rs` (`PROJECT_GATED`), `tests/project_rerun_privacy_matrix.rs` (the new surface's check, the runs check, the doc comment), `tests/project_commands.rs` (the fixture's assert and its import), the new fixture, and `tests/project_recipes.rs` (9). No change to gaply-core, a crate, a package or a lock file.
+- Frontend: `projectTypes.ts`, `projectBridge.ts`, `projectWording.ts`, `ProjectPage.tsx`, `SavedResult.tsx`, `DescribeFlow.tsx` (the optional `rowLabel` only); `projectTypes.vitest.ts` (:180, the calls, the tuples, :212 and the new entry) and `projectGuards.vitest.ts` (:63 and its comment). No file in `window/` changed.
+- New vitests under `projects/`: `projectRecipesBridge` (3), `recipeWords` (9, the three verdict lists copied with their lines), `savedResultScores` (8), `savedResultUnchanged` (16, hashes taken from 8eb00b7c's code before either file changed), `projectRecipesPage` (12), `projectFollowsList` (9).
+
+**The tests and mutations.**
+- Rust 197 targets, 3,532 passed, 12 ignored; the app crate with devtools 101 targets, 1,162 passed, 9 ignored; gaply_core 102 targets, 2,387 passed, 3 ignored, unchanged; each as predicted. The whole vitest suite 207 files, 2,844 tests, at two workers and at default workers, as predicted.
+- 26 mutation records, each red at its named test and green again with an equal SHA-256: 10 in Rust (a score order, a damaged and a missing file failing the read, `artifacts_of`, reruns left out, the workspace check, a second graph load, a `Debug` that prints the name, `project_runs` holding the name, `PROJECT_GATED`), 16 in the frontend.
+- One page test, a read after a follow, was written after its code; its red is its mutation, p14.
+
+**The real-app check, `realapp_8u3.md`:** HT8U3 with alpha, Average, a t-test and correlations on it, Total and a summary of it; the page's two recipe lines and each row's scores; the correlations' and summary's results naming `C10 "Average"` and `C11 "Total"`; then Run every saved result again, the page following each rerun, never unread, Run again and Close grey throughout, and the lines grown at the end.

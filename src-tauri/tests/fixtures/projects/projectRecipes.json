@@ -1,0 +1,30 @@
+[
+  {
+    "usedBy": [
+      2,
+      3
+    ],
+    "sourceColumns": 4,
+    "scores": [
+      {
+        "position": 5,
+        "name": "Average",
+        "statistic": "mean",
+        "items": 3
+      },
+      {
+        "position": 6,
+        "name": "Total",
+        "statistic": null,
+        "items": 2
+      }
+    ]
+  },
+  {
+    "usedBy": [
+      5
+    ],
+    "sourceColumns": null,
+    "scores": null
+  }
+]

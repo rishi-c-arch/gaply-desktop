@@ -619,6 +619,8 @@ const PROJECT_GATED: &[(&str, &str)] = &[
     ("project_commands::project_open", "open"),
     ("project_commands::project_close", "close"),
     ("project_commands::project_runs", "runs"),
+    // Phase 8U-3 (decision 553): a read of the open project, as runs is.
+    ("project_commands::project_recipes", "recipes"),
     ("project_commands::project_run_result", "run_result"),
     ("project_commands::project_report", "report"),
     ("project_commands::project_provenance", "provenance"),

@@ -48,6 +48,16 @@
 //     appeared shows nothing. A failed poll shows its sentence and stops.
 //   - Each rerun, in the list and in its saved result view, says which saved
 //     result it repeats and how its result compares (RerunWords).
+// * Phase 8U-3 (decisions 554 to 556):
+//   - After each read of the runs that finds a prepared run, the page reads
+//     project_recipes, under its own liveness flag; a section after the saved
+//     results lists the recipes, each prepared row says its scores, and an
+//     open saved result names a score's column by its number and name. The
+//     names are text only.
+//   - The page follows the window's list of reruns: another going rerun of
+//     this project, seen by the poll or by the list's store, is followed with
+//     no focus moved; while the list goes here, Run again and Close stay
+//     disabled, also between two of its reruns.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Card } from '../../../design-system';
 import { saveTextFile } from '../../../utils/saveTextFile';
@@ -70,7 +80,9 @@ import type {
   ProjectCurrentView,
   ProjectListEntryView,
   ProjectSizesView,
+  RecipeView,
   RerunStartedView,
+  ScoreView,
   StoredRunView,
 } from './projectTypes';
 import {
@@ -79,9 +91,15 @@ import {
   PROJECT_TEXT,
   PROJECT_WORDS,
   projectSentence,
+  RECIPES_HEADING,
+  RECIPES_UNREAD,
+  recipeLine,
+  recipeUnreadLine,
   RERUN_SENTENCE,
   RERUN_SENTENCE_PREPARED,
   RERUN_WORDS,
+  RUN_SCORES_UNREAD,
+  runScoresLine,
   savedOn,
   sizeSentence,
 } from './projectWording';
@@ -89,6 +107,8 @@ import ProjectDialog from '../../../design-system/ProjectDialog';
 import SavedResult, { RerunWords } from './SavedResult';
 import { useGeneration, type Generation } from './useGeneration';
 import { ProjectExportDialog } from './ProjectExportDialog';
+// Decision 556 (ADR-012:647): the page follows the window's list of reruns.
+import { useRerunAll } from '../window/rerunAll';
 
 const PROJECT_ID = /^[0-9a-f]{32}$/;
 
@@ -159,6 +179,21 @@ type View =
 const newestFirst = (runs: StoredRunView[]) =>
   runs.slice().sort((a, b) => b.savedAt - a.savedAt || b.storedRunId - a.storedRunId);
 
+/** The project's recipes as the page holds them (Research OS, Phase 8U-3,
+ *  decision 554): not read (no prepared run listed), being read, read, or
+ *  unread (refused, or an answer that is not a list). */
+type Recipes = RecipeView[] | 'none' | 'loading' | 'unread';
+
+const usedBy = (recipe: RecipeView, run: number) => Array.isArray(recipe.usedBy) && recipe.usedBy.includes(run);
+
+/** A run's scores: those of the one recipe that lists it, when that recipe's
+ *  scores were read; none for a run listed under two recipes or none. */
+function scoresOf(recipes: Recipes, run: number): ScoreView[] | null {
+  if (!Array.isArray(recipes)) return null;
+  const lists = recipes.filter((r) => usedBy(r, run));
+  return lists.length === 1 && Array.isArray(lists[0].scores) && lists[0].scores.length > 0 ? lists[0].scores : null;
+}
+
 const ProjectPageShown: React.FC<ProjectPageProps> = ({
   projectId,
   onClosed,
@@ -211,6 +246,10 @@ const ProjectPageShown: React.FC<ProjectPageProps> = ({
   const [pollFailed, setPollFailed] = useState(false);
   const [tick, setTick] = useState(0);
   const [cancelling, setCancelling] = useState(false);
+  const [recipes, setRecipes] = useState<Recipes>('none');
+  // Decision 556: the reruns this page has seen end, so the list's store,
+  // which may still name one, is not followed into it again.
+  const ended = useRef(new Set<number>());
   const alive = useRef(true);
   const cancelInFlight = useRef(false);
   const busy = useRef(false);
@@ -283,6 +322,31 @@ const ProjectPageShown: React.FC<ProjectPageProps> = ({
     };
   }, []);
 
+  // Decision 554: the recipes, read after every read of the runs that finds a
+  // prepared run, as an effect on the runs the page holds, under this
+  // effect's own liveness flag, never the page's counter, which an opened
+  // saved result also moves. A page with no prepared run reads nothing more.
+  const heldRuns = view.kind === 'open' && Array.isArray(view.runs) ? view.runs : null;
+  useEffect(() => {
+    if (heldRuns === null || !heldRuns.some((r) => r.prepared === true)) {
+      setRecipes('none');
+      return;
+    }
+    let live = true;
+    setRecipes('loading');
+    bridge.recipes(projectId).then(
+      (answer) => {
+        if (live) setRecipes(Array.isArray(answer) ? answer : 'unread');
+      },
+      () => {
+        if (live) setRecipes('unread');
+      }
+    );
+    return () => {
+      live = false;
+    };
+  }, [heldRuns, bridge, projectId]);
+
   // While a rerun is going, project_current is read every `pollMs`, under
   // this effect's own liveness flag (as DescribeFlow's poll), never the
   // page's counter. Its end is seen here only.
@@ -307,9 +371,37 @@ const ProjectPageShown: React.FC<ProjectPageProps> = ({
       }
       if (!live) return;
       const r = answer && typeof answer === 'object' ? answer.rerun : null;
-      if (!r || currentId(answer) !== projectId || r.runId !== going.runId) {
-        // Not an answer about this rerun: as unread as a failed read.
+      if (!r || currentId(answer) !== projectId || typeof r.runId !== 'number') {
+        // No rerun, or another project's: as unread as a failed read.
         failed();
+        return;
+      }
+      if (r.runId !== going.runId) {
+        // Decision 556: another rerun of this project, as the window's list
+        // starts one after another. Going: the page follows it, the runs
+        // read again so the one before is listed, and no focus moves. Ended:
+        // the runs read again, and nothing more is followed or said.
+        if (r.status !== 'going' && r.status !== 'saved' && r.status !== 'not_saved') {
+          failed();
+          return;
+        }
+        ended.current.add(going.runId);
+        let runs: Runs;
+        try {
+          runs = newestFirst(await bridge.runs(projectId));
+        } catch {
+          runs = 'unread';
+        }
+        if (!live) return;
+        setView((v) => (v.kind === 'open' ? { ...v, runs } : v));
+        setCancelling(false);
+        if (r.status === 'going' && typeof r.rerunOf === 'number' && !ended.current.has(r.runId)) {
+          setOutcome(null);
+          setGoing({ runId: r.runId, rerunOf: r.rerunOf, kind: null });
+        } else {
+          ended.current.add(r.runId);
+          setGoing(null);
+        }
         return;
       }
       if (r.status === 'going') {
@@ -332,6 +424,7 @@ const ProjectPageShown: React.FC<ProjectPageProps> = ({
         failed();
         return;
       }
+      ended.current.add(going.runId);
       followed({ to: 'end', rerunOf: going.rerunOf });
       setGoing(null);
       setCancelling(false);
@@ -375,6 +468,25 @@ const ProjectPageShown: React.FC<ProjectPageProps> = ({
     going === null
       ? null
       : (going.kind ?? (runs ? kindOf(runs.find((r) => r.storedRunId === going.rerunOf)?.capabilityId ?? '') : null));
+
+  // Decision 556: while the window's list goes in this project, its going run
+  // is followed whenever the page is not already following it, its outcome
+  // cleared, so a rerun that starts after this page's poll stopped is seen.
+  // Its kind is taken only as an own key of the cancels; otherwise none, and
+  // goingKind falls back as before. No focus moves.
+  const list = useRerunAll();
+  const listHere = list.status === 'going' && list.projectId === projectId;
+  const listRunId = listHere && list.going !== null ? list.going.runId : null;
+  const listRerunOf = listHere && list.going !== null ? list.going.stored.storedRunId : null;
+  const listKind = listHere && list.going !== null ? list.going.kind : null;
+  useEffect(() => {
+    if (listRunId === null || listRerunOf === null) return;
+    if ((going !== null && going.runId === listRunId) || ended.current.has(listRunId)) return;
+    const own = listKind !== null && Object.prototype.hasOwnProperty.call(cancels, listKind);
+    setOutcome(null);
+    setCancelling(false);
+    setGoing({ runId: listRunId, rerunOf: listRerunOf, kind: own ? (listKind as RerunKind) : null });
+  }, [listRunId, listRerunOf, listKind, going, cancels]);
 
   // Cancel, on its click only: the kind's own cancel. Its end is seen by the
   // poll, which then says the new run was not saved.
@@ -535,6 +647,7 @@ const ProjectPageShown: React.FC<ProjectPageProps> = ({
           gen={gen}
           pending={pending}
           selected={selected}
+          recipes={recipes}
           onSelect={(run, from) => {
             opener.current = from;
             setSelected(run);
@@ -554,6 +667,7 @@ const ProjectPageShown: React.FC<ProjectPageProps> = ({
           onClose={() => void closeIt()}
           rerun={{
             going: going !== null,
+            listGoing: listHere,
             canCancel: goingKind !== null && !cancelling,
             cancelling,
             outcome,
@@ -623,6 +737,7 @@ interface OpenProjectProps {
   gen: Generation;
   pending: 'open' | 'close' | null;
   selected: StoredRunView | null;
+  recipes: Recipes;
   onSelect: (run: StoredRunView, from: HTMLElement) => void;
   onDeselect: () => void;
   onExport: (kind: ExportKind, from: HTMLElement) => void;
@@ -634,6 +749,9 @@ interface OpenProjectProps {
 interface RerunControls {
   /** A rerun of this project is going (decision 199). */
   going: boolean;
+  /** The window's list is going in this project, also between two of its
+   *  reruns (decision 556): Run again and Close stay disabled. */
+  listGoing: boolean;
   /** Its kind is known and no cancel is pending. */
   canCancel: boolean;
   cancelling: boolean;
@@ -658,6 +776,7 @@ const OpenProject: React.FC<OpenProjectProps> = ({
   gen,
   pending,
   selected,
+  recipes,
   onSelect,
   onDeselect,
   onExport,
@@ -685,10 +804,10 @@ const OpenProject: React.FC<OpenProjectProps> = ({
           {EXPORTS[k].button}
         </Button>
       ))}
-      <Button variant="secondary" onClick={onClose} disabled={pending !== null || rerun.going} data-testid="project-page-close">
+      <Button variant="secondary" onClick={onClose} disabled={pending !== null || rerun.going || rerun.listGoing} data-testid="project-page-close">
         {pending === 'close' ? PROJECT_TEXT.closing : PROJECT_TEXT.close}
       </Button>
-      {rerun.going && <span data-testid="project-close-going">{IN_PROGRESS}</span>}
+      {(rerun.going || rerun.listGoing) && <span data-testid="project-close-going">{IN_PROGRESS}</span>}
     </div>
     <div data-testid="project-rerun-status" style={{ display: 'grid', gap: 4 }}>
       {rerun.going && !rerun.pollFailed && (
@@ -725,6 +844,7 @@ const OpenProject: React.FC<OpenProjectProps> = ({
           repeated={Array.isArray(view.runs) ? repeatedIn(view.runs, selected) : null}
           bridge={bridge}
           gen={gen}
+          scores={scoresOf(recipes, selected.storedRunId)}
         />
         <div>
           <Button variant="secondary" onClick={onDeselect} data-testid="saved-result-back">
@@ -745,7 +865,7 @@ const OpenProject: React.FC<OpenProjectProps> = ({
           </p>
         )}
         {Array.isArray(view.runs) && view.runs.length === 0 && <p data-testid="project-runs-empty">{PROJECT_TEXT.runsEmpty}</p>}
-        {Array.isArray(view.runs) && view.runs.length > 0 && rerun.going && (
+        {Array.isArray(view.runs) && view.runs.length > 0 && (rerun.going || rerun.listGoing) && (
           <p data-testid="project-runs-going" style={{ margin: 0 }}>
             {IN_PROGRESS}
           </p>
@@ -771,7 +891,7 @@ const OpenProject: React.FC<OpenProjectProps> = ({
                     <Button
                       variant="secondary"
                       onClick={(e) => rerun.onRunAgain(r, e.currentTarget)}
-                      disabled={pending !== null || rerun.going}
+                      disabled={pending !== null || rerun.going || rerun.listGoing}
                       data-testid={`project-run-rerun-${r.storedRunId}`}
                     >
                       {PROJECT_TEXT.runAgain}
@@ -779,14 +899,57 @@ const OpenProject: React.FC<OpenProjectProps> = ({
                   </>
                 )}
                 <RerunWords run={r} repeated={repeatedIn(all, r)} testId={`project-run-repeats-${r.storedRunId}`} />
+                <RunScores run={r} recipes={recipes} />
               </li>
             ))}
           </ol>
         )}
       </section>
     )}
+    {!selected && <RecipesSection recipes={recipes} />}
   </>
 );
+
+/** A prepared saved result's scores, in an element of its own after its facts
+ *  (decision 554): nothing while the recipes are read, or for a run that used
+ *  none. The names are text only. */
+const RunScores: React.FC<{ run: StoredRunView; recipes: Recipes }> = ({ run, recipes }) => {
+  if (run.prepared !== true || recipes === 'none' || recipes === 'loading') return null;
+  const scores = scoresOf(recipes, run.storedRunId);
+  return (
+    <p data-testid={`project-run-scores-${run.storedRunId}`} style={{ margin: 0 }}>
+      {scores ? runScoresLine(scores) : RUN_SCORES_UNREAD}
+    </p>
+  );
+};
+
+/** The project's recipes, after its saved results (decision 554): a line for
+ *  each, or one sentence when they could not be read. */
+const RecipesSection: React.FC<{ recipes: Recipes }> = ({ recipes }) => {
+  if (recipes === 'unread') {
+    return (
+      <p data-testid="project-recipes-unread" style={{ margin: 0 }}>
+        {RECIPES_UNREAD}
+      </p>
+    );
+  }
+  if (!Array.isArray(recipes) || recipes.length === 0) return null;
+  return (
+    <section aria-label={RECIPES_HEADING} data-testid="project-recipes">
+      <h4 style={{ margin: '8px 0 4px' }}>{RECIPES_HEADING}</h4>
+      <ul style={{ margin: 0, paddingLeft: 20, display: 'grid', gap: 4 }}>
+        {recipes.map((r, i) => {
+          const n = Array.isArray(r.usedBy) ? r.usedBy.length : 0;
+          return (
+            <li key={i} data-testid={`project-recipe-${i}`}>
+              {Array.isArray(r.scores) && r.scores.length > 0 ? recipeLine(n, r.scores) : recipeUnreadLine(n)}
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+};
 
 interface RerunDialogProps {
   run: StoredRunView;

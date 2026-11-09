@@ -59,8 +59,9 @@ describe('only the project bridge names a project command', () => {
   it('no other file, inside or outside the project screens', () => {
     const names = Object.values(PROJECT_COMMANDS);
     // Twelve since Phase 5B-3b: project_current (decision 148); thirteen
-    // since 5C-1a: project_rerun (decision 185).
-    expect(names).toHaveLength(13);
+    // since 5C-1a: project_rerun (decision 185); fourteen since 8U-3:
+    // project_recipes (decision 553).
+    expect(names).toHaveLength(14);
     const files = walk(SRC);
     expect(files.length).toBeGreaterThan(200);
     const bridge = fs.readFileSync(BRIDGE, 'utf8');

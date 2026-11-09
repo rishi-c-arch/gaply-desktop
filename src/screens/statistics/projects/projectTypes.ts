@@ -200,6 +200,25 @@ export interface StoredRunView {
   prepared?: true;
 }
 
+/** project_recipes (8U-3, decision 552): one score of a kept recipe, its
+ *  column by C-number, the name the user typed, its statistic and how many
+ *  items it has. The name is shown as text only, never in an attribute. */
+export interface ScoreView {
+  position: number;
+  name: string;
+  statistic: 'mean' | 'sum' | null;
+  items: number;
+}
+
+/** project_recipes (8U-3, decision 552): a recipe the open project keeps, the
+ *  stored runs that used it, ascending, reruns included, and what its file
+ *  says; both null when the file could not be read. */
+export interface RecipeView {
+  usedBy: number[];
+  sourceColumns: number | null;
+  scores: ScoreView[] | null;
+}
+
 export interface StoredArtifactView {
   sha256: string;
   kind: 'data_file' | 'operation_spec' | 'result_bundle' | 'run_manifest' | 'run_failure' | 'recipe';

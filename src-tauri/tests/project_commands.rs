@@ -35,8 +35,8 @@ use serde_json::{json, Value};
 use app_lib::project_commands::{
     self as pc, DeleteConfirmationView, ProjectClosedView, ProjectCurrentView, ProjectDeletedView,
     ProjectExportView, ProjectListEntryView, ProjectOpenView, ProjectRefusalView, ProjectSizesView,
-    RerunProgress, RerunStartedView, RerunView, RunResultView, SaveTarget, SavedRunView,
-    StoredArtifactView, StoredRunView, CONFIRMATION_LIFETIME_MS,
+    RecipeView, RerunProgress, RerunStartedView, RerunView, RunResultView, SaveTarget,
+    SavedRunView, ScoreView, StoredArtifactView, StoredRunView, CONFIRMATION_LIFETIME_MS,
 };
 use app_lib::runs::{Point, RunKind, MAX_RUNS};
 use gaply_core::contracts::codes::Closed;
@@ -1045,6 +1045,37 @@ fn every_response_serialises_to_its_fixture() {
                 platform_differs: None,
                 numbers_agree_to_last_digits: None,
                 prepared: false,
+            },
+        ],
+    );
+    // Phase 8U-3 (decisions 552 and 553): a recipe read whole, with a score
+    // whose statistic is open, and one whose file could not be read. The
+    // names are synthetic.
+    assert_fixture(
+        "projectRecipes.json",
+        &vec![
+            RecipeView {
+                used_by: vec![2, 3],
+                source_columns: Some(4),
+                scores: Some(vec![
+                    ScoreView {
+                        position: 5,
+                        name: "Average".into(),
+                        statistic: Some(gaply_core::stats_prep::Statistic::Mean),
+                        items: 3,
+                    },
+                    ScoreView {
+                        position: 6,
+                        name: "Total".into(),
+                        statistic: None,
+                        items: 2,
+                    },
+                ]),
+            },
+            RecipeView {
+                used_by: vec![5],
+                source_columns: None,
+                scores: None,
             },
         ],
     );

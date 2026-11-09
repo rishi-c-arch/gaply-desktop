@@ -23,6 +23,7 @@ import {
   type ProjectOpenView,
   type ProjectRefusalView,
   type ProjectSizesView,
+  type RecipeView,
   type RerunStartedView,
   type RunResultView,
   type SavedRunView,
@@ -111,6 +112,22 @@ const typed: Array<[string, unknown]> = [
       },
     ] satisfies StoredRunView[],
   ],
+  // Phase 8U-3 (decisions 552 and 553): a recipe read whole, and one whose
+  // file could not be read.
+  [
+    'projectRecipes.json',
+    [
+      {
+        usedBy: [2, 3],
+        sourceColumns: 4,
+        scores: [
+          { position: 5, name: 'Average', statistic: 'mean', items: 3 },
+          { position: 6, name: 'Total', statistic: null, items: 2 },
+        ],
+      },
+      { usedBy: [5], sourceColumns: null, scores: null },
+    ] satisfies RecipeView[],
+  ],
   [
     'projectRunResult.json',
     {
@@ -177,7 +194,7 @@ describe('the project view fixtures Rust writes', () => {
 });
 
 describe('the project bridge', () => {
-  it('sends each of the thirteen commands with the argument keys its wrapper reads', async () => {
+  it('sends each of the fourteen commands with the argument keys its wrapper reads', async () => {
     const b = new TauriProjectBridge();
     await b.list();
     await b.sizes();
@@ -189,6 +206,7 @@ describe('the project bridge', () => {
     await b.open(ID);
     await b.close();
     await b.runs(ID);
+    await b.recipes(ID);
     await b.runResult(ID, 1);
     await b.report(ID);
     await b.provenance(ID);
@@ -204,12 +222,13 @@ describe('the project bridge', () => {
       ['project_open', { projectId: ID }],
       ['project_close', {}],
       ['project_runs', { projectId: ID }],
+      ['project_recipes', { projectId: ID }],
       ['project_run_result', { projectId: ID, storedRunId: 1 }],
       ['project_report', { projectId: ID }],
       ['project_provenance', { projectId: ID }],
       ['project_rerun', { runId: 3 }],
     ]);
-    expect(Object.keys(PROJECT_COMMANDS)).toHaveLength(13);
+    expect(Object.keys(PROJECT_COMMANDS)).toHaveLength(14);
   });
 
   it('names exactly the commands Rust registers', () => {

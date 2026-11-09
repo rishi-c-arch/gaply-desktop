@@ -1,7 +1,8 @@
 // Gaply — the project bridge (Research OS, Phases 5B-3a, 5B-3b and 5C-1a): the
-// one wrapper that calls the thirteen project_* commands in
+// one wrapper that calls the fourteen project_* commands in
 // src-tauri/src/project_commands.rs (D282's table, project_current, decision
-// 148, and project_rerun, decision 185, which the project page calls since 5C-1b). Rust owns every decision and every check; the screens show
+// 148, project_rerun, decision 185, which the project page calls since 5C-1b,
+// and project_recipes, decision 552, since 8U-3). Rust owns every decision and every check; the screens show
 // what comes back. No other file may name a project command
 // (projectGuards.vitest.ts).
 //
@@ -17,6 +18,7 @@ import type {
   ProjectListEntryView,
   ProjectOpenView,
   ProjectSizesView,
+  RecipeView,
   RerunStartedView,
   RunResultView,
   SavedRunView,
@@ -37,6 +39,8 @@ export interface ProjectBridge {
   open(projectId: string): Promise<ProjectOpenView>;
   close(): Promise<ProjectClosedView>;
   runs(projectId: string): Promise<StoredRunView[]>;
+  /** The open project's recipes, for its page (8U-3, decision 552). */
+  recipes(projectId: string): Promise<RecipeView[]>;
   runResult(projectId: string, storedRunId: number): Promise<RunResultView>;
   report(projectId: string): Promise<ProjectExportView>;
   provenance(projectId: string): Promise<ProjectExportView>;
@@ -55,6 +59,7 @@ export const PROJECT_COMMANDS = {
   open: 'project_open',
   close: 'project_close',
   runs: 'project_runs',
+  recipes: 'project_recipes',
   runResult: 'project_run_result',
   report: 'project_report',
   provenance: 'project_provenance',
@@ -96,6 +101,9 @@ export class TauriProjectBridge implements ProjectBridge {
   }
   runs(projectId: string) {
     return this.invoke<StoredRunView[]>(C.runs, { projectId });
+  }
+  recipes(projectId: string) {
+    return this.invoke<RecipeView[]>(C.recipes, { projectId });
   }
   runResult(projectId: string, storedRunId: number) {
     return this.invoke<RunResultView>(C.runResult, { projectId, storedRunId });
@@ -141,6 +149,7 @@ export function makeMockProjectBridge(
     open: (projectId) => call(C.open, { projectId }),
     close: () => call(C.close),
     runs: (projectId) => call(C.runs, { projectId }),
+    recipes: (projectId) => call(C.recipes, { projectId }),
     runResult: (projectId, storedRunId) => call(C.runResult, { projectId, storedRunId }),
     report: (projectId) => call(C.report, { projectId }),
     provenance: (projectId) => call(C.provenance, { projectId }),
