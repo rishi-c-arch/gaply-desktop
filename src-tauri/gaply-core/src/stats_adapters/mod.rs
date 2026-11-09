@@ -50,6 +50,12 @@
 //!   refusal worded `stats.alpha.unknown_capability` or
 //!   `stats.alpha.capability_version_mismatch`. Planned in 8I, Beta since
 //!   8I-2's Part 2 (decision 377), so the real registry admits it.
+//! * [`xtab_admit`], [`xtab_validate`] and [`xtab_run`]
+//!   (`stats.analyze.crosstabs`, Phase 8X-1, decision 578):
+//!   `stats_xtab::validate` and `stats_xtab::run`, the same way, a registry
+//!   refusal worded `stats.xtab.unknown_capability` or
+//!   `stats.xtab.capability_version_mismatch`. Planned in 8X-1's Part 2, Beta
+//!   since its Part 3 (decision 580), so the real registry admits it.
 //! * [`prep_runnable`], [`prep_admit`], [`prep_validate`], [`prep_build`],
 //!   [`prep_original`] and [`prep_csv`] (`stats.prepare.scale_score`, Phase
 //!   8M-3, decision 425): `stats_prep::validate`, `build`, `original` and
@@ -92,6 +98,7 @@ use crate::stats_onesample::{
 use crate::stats_prep::{self, PrepCode, PrepRefusal, Prepared, Recipe};
 use crate::stats_registry::{Entry, Kind, Registry, CHECK_ID, VERIFY_PREFIX};
 use crate::stats_ttest::{self, TTestCode, TTestParams, TTestResult};
+use crate::stats_xtab::{self, CrosstabsOutcome, CrosstabsParams, XtabCode};
 
 type Refusal = Diagnostic<CapabilityCode>;
 
@@ -946,6 +953,105 @@ pub(crate) fn alpha_run_in<B>(
     alpha_entry(registry, spec, build)
         .map_err(|r| stats_alpha::Halt::Refused(alpha_refusal(&r)))?;
     stats_alpha::run(dataset, &spec.parameters, checkpoint)
+}
+
+/* ------------------------------------------------------------------------ *
+ *  stats.analyze.crosstabs (Phase 8X-1)
+ * ------------------------------------------------------------------------ */
+
+/// A registry refusal in crosstabs' own codes, as [`anova_refusal`] does.
+fn xtab_refusal(r: &Refusal) -> Diagnostic<XtabCode> {
+    match r.code {
+        CapabilityCode::VersionMismatch => {
+            let int = |k| match r.params.get(&k) {
+                Some(ParamValue::Int(n)) => *n,
+                _ => 0,
+            };
+            Diagnostic::error(XtabCode::CapabilityVersionMismatch)
+                .int(ParamKey::Expected, int(ParamKey::Expected))
+                .int(ParamKey::Found, int(ParamKey::Found))
+        }
+        _ => Diagnostic::error(XtabCode::UnknownCapability),
+    }
+}
+
+/// The registry's check for a crosstabs spec, as [`anova_entry`] does: a
+/// registered, runnable entry of crosstabs' kind, and no confirmation.
+fn xtab_entry(
+    registry: &Registry,
+    spec: &OperationSpec<CrosstabsParams>,
+    build: Build,
+) -> Result<(), Refusal> {
+    let entry = runnable(registry, spec, build)?;
+    if entry.kind != Kind::AnalyzeCrosstabs {
+        return Err(refused(CapabilityCode::UnknownCapability));
+    }
+    no_confirmation(spec)
+}
+
+/// The registry's answer for a crosstabs spec, as it gives it, for the app's
+/// `stats_xtab_*` commands, as [`anova_admit`] is for the ANOVA.
+pub fn xtab_admit(spec: &OperationSpec<CrosstabsParams>, build: Build) -> Result<(), Refusal> {
+    xtab_entry(&Registry::statistics(), spec, build)
+}
+
+/// `stats.analyze.crosstabs`' validation: the registry first, so a spec the
+/// registry refuses is `Unsupported` before anything reads the dataset; then
+/// `stats_xtab::validate`, unchanged.
+pub fn xtab_validate(
+    spec: &OperationSpec<CrosstabsParams>,
+    build: Build,
+    dataset: &Dataset,
+) -> ValidationReport<XtabCode> {
+    xtab_validate_in(&Registry::statistics(), spec, build, dataset)
+}
+
+pub(crate) fn xtab_validate_in(
+    registry: &Registry,
+    spec: &OperationSpec<CrosstabsParams>,
+    build: Build,
+    dataset: &Dataset,
+) -> ValidationReport<XtabCode> {
+    match xtab_entry(registry, spec, build) {
+        Ok(()) => stats_xtab::validate(dataset, spec),
+        Err(r) => {
+            let rows = dataset.rows() as u64;
+            let estimate = ResourceEstimate {
+                rows,
+                columns: 2,
+                cells: rows.saturating_mul(2),
+            };
+            ValidationReport::new(
+                vec![xtab_refusal(&r)],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                estimate,
+            )
+        }
+    }
+}
+
+/// `stats.analyze.crosstabs`' run: the registry again, then
+/// `stats_xtab::run`, unchanged, with its one check point.
+pub fn xtab_run<B>(
+    spec: &OperationSpec<CrosstabsParams>,
+    build: Build,
+    dataset: &Dataset,
+    checkpoint: impl FnMut(usize) -> ControlFlow<B>,
+) -> Result<CrosstabsOutcome, stats_xtab::Halt<B>> {
+    xtab_run_in(&Registry::statistics(), spec, build, dataset, checkpoint)
+}
+
+pub(crate) fn xtab_run_in<B>(
+    registry: &Registry,
+    spec: &OperationSpec<CrosstabsParams>,
+    build: Build,
+    dataset: &Dataset,
+    checkpoint: impl FnMut(usize) -> ControlFlow<B>,
+) -> Result<CrosstabsOutcome, stats_xtab::Halt<B>> {
+    xtab_entry(registry, spec, build).map_err(|r| stats_xtab::Halt::Refused(xtab_refusal(&r)))?;
+    stats_xtab::run(dataset, &spec.parameters, checkpoint)
 }
 
 /* ------------------------------------------------------------------------ *
@@ -2062,6 +2168,152 @@ mod alpha_facade_tests {
         assert_eq!(
             alpha_run_in(&real, &good, b, &d, go).unwrap(),
             stats_alpha::compute(&d, &good.parameters).unwrap()
+        );
+    }
+}
+
+/// Crosstabs' façade (Research OS, Phase 8X-1, decisions 578 and 580): the
+/// real registry admits it in both builds, since it is Beta; it refuses an
+/// id of another façade, a wrong version, a Planned table and a
+/// confirmation, each in its own codes, and runs the real spec exactly as
+/// `stats_xtab` does.
+#[cfg(test)]
+mod xtab_facade_tests {
+    use super::*;
+    use crate::contracts::capability::Lifecycle;
+    use crate::stats_desc::Alias;
+    use crate::stats_l1::dataset::{
+        build_dataset, ColumnAlias, DataFingerprint, RawTable, TableRef,
+    };
+    use crate::stats_xtab::{CrosstabsParams, Halt};
+
+    fn data() -> Dataset {
+        let rows: Vec<Vec<String>> = [
+            ("a", "x"),
+            ("a", "x"),
+            ("a", "y"),
+            ("b", "y"),
+            ("b", "y"),
+            ("b", "x"),
+            ("b", "y"),
+            ("a", "x"),
+        ]
+        .iter()
+        .map(|(r, c)| vec![r.to_string(), c.to_string()])
+        .collect();
+        build_dataset(
+            RawTable::from_rows(vec!["r".into(), "c".into()], rows),
+            DataFingerprint::of_bytes(b"xtab facade", "test", TableRef::FirstTable),
+        )
+        .expect("dataset")
+    }
+
+    fn forged(d: &Dataset, id: &str, version: u32) -> OperationSpec<CrosstabsParams> {
+        let mut s = stats_xtab::spec(
+            OperationId(7),
+            d,
+            CrosstabsParams {
+                rows: Alias(ColumnAlias(1)),
+                columns: Alias(ColumnAlias(2)),
+                missing_codes: Vec::new(),
+            },
+        );
+        s.capability_id = CapabilityId::parse(id).unwrap();
+        s.capability_version = version;
+        s
+    }
+
+    fn go(_: usize) -> ControlFlow<()> {
+        ControlFlow::Continue(())
+    }
+
+    fn codes(r: &ValidationReport<XtabCode>) -> Vec<XtabCode> {
+        r.errors.iter().map(|e| e.code).collect()
+    }
+
+    fn unknown() -> Halt<()> {
+        Halt::Refused(Diagnostic::error(XtabCode::UnknownCapability))
+    }
+
+    #[test]
+    fn the_real_registry_admits_crosstabs_in_both_builds_because_it_is_beta() {
+        let d = data();
+        let s = forged(&d, stats_xtab::CAPABILITY_ID, 1);
+        for build in [Build::Standard, Build::Devtools] {
+            xtab_admit(&s, build)
+                .unwrap_or_else(|r| panic!("Beta is admitted in {build:?}: {r:?}"));
+            assert!(xtab_validate(&s, build, &d).may_run(), "{build:?}");
+            assert_eq!(
+                xtab_run(&s, build, &d, go).ok(),
+                stats_xtab::compute(&d, &s.parameters).ok(),
+                "{build:?}: the module's own result"
+            );
+            assert!(xtab_run(&s, build, &d, go).is_ok(), "{build:?}");
+        }
+    }
+
+    #[test]
+    fn the_xtab_facade_refuses_forged_specs_and_runs_the_real_one_as_the_module_does() {
+        let d = data();
+        let b = Build::Devtools;
+        let real = Registry::statistics();
+        // Not in the table at all, and registered ids of other façades.
+        for id in [
+            "stats.analyze.crosstabs_layers",
+            "stats.describe",
+            "stats.analyze.one_way_anova",
+            "stats.verify.chi_square_independence",
+        ] {
+            let s = forged(&d, id, 1);
+            assert_eq!(
+                codes(&xtab_validate_in(&real, &s, b, &d)),
+                [XtabCode::UnknownCapability],
+                "{id}"
+            );
+            assert!(!xtab_validate_in(&real, &s, b, &d).may_run(), "{id}");
+            assert_eq!(xtab_run_in(&real, &s, b, &d, go).unwrap_err(), unknown(), "{id}");
+            assert!(xtab_admit(&s, b).is_err(), "{id}");
+        }
+        // A wrong version, in crosstabs' own codes with its numbers.
+        let v = xtab_validate_in(&real, &forged(&d, stats_xtab::CAPABILITY_ID, 2), b, &d);
+        assert_eq!(codes(&v), [XtabCode::CapabilityVersionMismatch]);
+        assert_eq!(
+            v.errors[0].params.get(&ParamKey::Expected),
+            Some(&ParamValue::Int(1))
+        );
+        assert_eq!(
+            v.errors[0].params.get(&ParamKey::Found),
+            Some(&ParamValue::Int(2))
+        );
+        // A Planned table: the real one, set back to Planned, as Part 2 had it.
+        let good = forged(&d, stats_xtab::CAPABILITY_ID, 1);
+        let planned =
+            Registry::statistics().with_lifecycle(stats_xtab::CAPABILITY_ID, Lifecycle::Planned);
+        for build in [Build::Standard, Build::Devtools] {
+            assert_eq!(
+                codes(&xtab_validate_in(&planned, &good, build, &d)),
+                [XtabCode::UnknownCapability]
+            );
+            assert_eq!(
+                xtab_run_in(&planned, &good, build, &d, go).unwrap_err(),
+                unknown()
+            );
+        }
+        // A confirmation on a capability that takes none.
+        let mut c = good.clone();
+        c.confirmation_refs = vec![ConfirmationId::parse(&"ef".repeat(32)).unwrap()];
+        assert_eq!(
+            codes(&xtab_validate_in(&real, &c, b, &d)),
+            [XtabCode::UnknownCapability]
+        );
+        // The real spec: exactly the direct calls.
+        assert_eq!(
+            xtab_validate_in(&real, &good, b, &d),
+            stats_xtab::validate(&d, &good)
+        );
+        assert_eq!(
+            xtab_run_in(&real, &good, b, &d, go).unwrap(),
+            stats_xtab::compute(&d, &good.parameters).unwrap()
         );
     }
 }

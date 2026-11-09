@@ -964,6 +964,7 @@ fn run_ids_and_slot_numbers_stay_unique_across_both_kinds() {
             RunKind::Anova => "stats_anova_status",
             RunKind::Correlations => "stats_corr_status",
             RunKind::CronbachAlpha => "stats_alpha_status",
+            RunKind::Crosstabs => "stats_xtab_status",
         };
         assert_eq!(
             code_of(&call(&w.w, cmd, json!({ "runId": run })).unwrap_err()),

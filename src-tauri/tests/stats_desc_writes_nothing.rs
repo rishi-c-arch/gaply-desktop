@@ -65,6 +65,9 @@ const SCANNED: &[&str] = &[
     "gaply-core/src/stats_corr",
     "src/stats_alpha_commands.rs",
     "gaply-core/src/stats_alpha",
+    // Phase 8X-1 (decision 580): crosstabs' commands and operations.
+    "src/stats_xtab_commands.rs",
+    "gaply-core/src/stats_xtab",
 ];
 
 /// The one Research OS module allowed to write (Phase 5B-1, ADR-009): the

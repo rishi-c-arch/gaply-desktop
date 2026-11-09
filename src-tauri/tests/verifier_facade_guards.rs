@@ -167,6 +167,17 @@ fn each_operation_path_calls_its_facade() {
             "admit",
             "stats_adapters::alpha_admit(",
         ),
+        // Research OS, Phase 8X-1 (decision 580).
+        (
+            "src/stats_xtab_commands.rs",
+            "validate",
+            "stats_adapters::xtab_validate(",
+        ),
+        (
+            "src/stats_xtab_commands.rs",
+            "admit",
+            "stats_adapters::xtab_admit(",
+        ),
         // Research OS, Phase 8M-3 (decision 425): no Method impl and no start,
         // so these and the direct-call scan below are what apply.
         (
@@ -254,6 +265,12 @@ fn each_operation_path_calls_its_facade() {
             "stats_adapters::alpha_validate(",
             "stats_adapters::alpha_run(",
         ),
+        // Phase 8X-1 (decision 580).
+        (
+            "Crosstabs",
+            "stats_adapters::xtab_validate(",
+            "stats_adapters::xtab_run(",
+        ),
     ] {
         let block = impl_block(&runs_src, &format!("impl Method for {method} {{"));
         for (f, facade) in [("validate", validate), ("compute", compute)] {
@@ -280,6 +297,8 @@ fn each_operation_path_calls_its_facade() {
         ("start_corr_then", "self.begin::<Correlations>("),
         ("start_alpha", "self.begin::<CronbachAlpha>("),
         ("start_alpha_then", "self.begin::<CronbachAlpha>("),
+        ("start_xtab", "self.begin::<Crosstabs>("),
+        ("start_xtab_then", "self.begin::<Crosstabs>("),
     ] {
         assert!(
             squash(fn_body(&runs_src, f)).contains(through),
@@ -330,6 +349,9 @@ fn each_operation_path_calls_its_facade() {
         "stats_alpha::validate(",
         "stats_alpha::run(",
         "stats_alpha::compute(",
+        "stats_xtab::validate(",
+        "stats_xtab::run(",
+        "stats_xtab::compute(",
     ] {
         assert!(
             !runs.contains(direct),

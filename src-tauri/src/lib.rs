@@ -51,6 +51,7 @@ pub mod stats_onesample_commands;
 pub mod stats_prep_commands;
 pub mod stats_reproduction;
 pub mod stats_ttest_commands;
+pub mod stats_xtab_commands;
 // Research OS Phase 5D-1a: the Stored data section's command; read only.
 pub mod stored_data_commands;
 pub mod supplementary;
@@ -423,6 +424,14 @@ pub fn run() {
             stats_alpha_commands::stats_alpha_result,
             stats_alpha_commands::stats_alpha_cancel,
             stats_alpha_commands::stats_alpha_export,
+            // Research OS, Phase 8X-1 (decision 580): crosstabs, behind the
+            // workspace check. No screen starts it until 8X-2.
+            stats_xtab_commands::stats_xtab_validate,
+            stats_xtab_commands::stats_xtab_run,
+            stats_xtab_commands::stats_xtab_status,
+            stats_xtab_commands::stats_xtab_result,
+            stats_xtab_commands::stats_xtab_cancel,
+            stats_xtab_commands::stats_xtab_export,
             // Research OS, Phase 8M-3 (decision 425): scale scores, behind the
             // workspace check. In memory only; the screen comes with the layout.
             stats_prep_commands::stats_prep_make,

@@ -6,8 +6,9 @@ The three t-tests on the user's data ([independent_t.md](independent_t.md),
 [one_sample_t.md](one_sample_t.md), [paired_t.md](paired_t.md)) and, since
 Phase 8G, the one-way ANOVA ([one_way_anova.md](one_way_anova.md)) and, since
 8H, the correlations ([correlations.md](correlations.md)) and, since 8I,
-Cronbach's alpha ([cronbach_alpha.md](cronbach_alpha.md)) take every p and
-quantile from it; the regression will (decision 275). Level 0 and Level 1 keep
+Cronbach's alpha ([cronbach_alpha.md](cronbach_alpha.md)) and, since 8X-1,
+crosstabs ([crosstabs.md](crosstabs.md)), its chi-square p and Fisher's exact
+test, take every p and quantile from it; the regression will (decision 275). Level 0 and Level 1 keep
 `stats_l0::pvalue` as it is.
 
 ## 1. Why

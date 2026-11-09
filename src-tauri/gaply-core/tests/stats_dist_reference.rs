@@ -14,6 +14,13 @@
 //! | `t_two_tailed` | 338 (13 df × 26 t) | 1e-9 · R's `pt` | at df 1e4 bit for bit `stats_l0`'s; `stats_l0`'s own error printed on every row above 1e4, ungated |
 //! | `f_upper`, df1 = 1 | 144 (16 df2 × 9 F) | 1e-9 · R's `pf` | at df2 ≤ 1e4 bit for bit `stats_l0`'s; `stats_l0`'s own error printed on every row, ungated above 1e4 (8A's unmeasured stretch from df2 5e3 to 5e4) |
 //! | `f_upper`, df1 = 2 and 3 | 54 | bit for bit `stats_l0`'s | its error against R printed, ungated (decision 275) |
+//! | `chi_square_upper` (8X-1) | 316 (12 df to 2,401), `chi_p.csv` | 2e-11 · R's `pchisq`, ten times 1.812e-12 measured | bit for bit `stats_l0`'s at every row |
+//! | `fisher_2x2` (8X-1) | 197 tables × 3 p, `fisher_p.csv` | 4e-10 · R's `fisher.test`, ten times 3.351e-11 measured | a zero margin gives 1 three times |
+//!
+//! The two 8X-1 files are written by a second script,
+//! `make_xtab_dist_fixtures.R` (decision 576), so the four files above stay
+//! byte for byte; a row whose R p is below the smallest normal double is
+//! not compared, and gaply's must be below it too.
 //!
 //! Then the range (`None` above `MEASURED_MAX_DF`, at a df that defines no
 //! distribution, and for a statistic that is not a number; 0 for an
@@ -31,13 +38,17 @@
 //! ```
 
 use gaply_core::stats_dist::{
-    cornish_fisher_975, f_upper, normal_quantile_975, t_quantile_975, t_two_tailed, LARGE_DF,
-    MEASURED_MAX_DF,
+    chi_square_upper, cornish_fisher_975, f_upper, fisher_2x2, fisher_two_sided_sum,
+    normal_quantile_975, t_quantile_975, t_two_tailed, CHI_SQUARE_MAX_DF, FISHER_TIE_TOLERANCE,
+    LARGE_DF, MEASURED_MAX_DF,
 };
 use gaply_core::stats_l0::pvalue;
 
 const DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/stats_dist");
 const PROVENANCE: &str = "/usr/local/bin/Rscript make_dist_fixtures.R";
+/// The second script, for crosstabs' two distributions (Phase 8X-1, decision
+/// 576): `chi_p.csv` and `fisher_p.csv`.
+const PROVENANCE_XTAB: &str = "/usr/local/bin/Rscript make_xtab_dist_fixtures.R";
 const R_VERSION: &str = "R version 4.6.1";
 
 /// The bits `ttest_quantile.rs` pins for the bisection at df 1e4.
@@ -51,12 +62,17 @@ const P_GATE: f64 = 1e-9;
 /// The rows of a fixture, after its provenance header (asserted) and its
 /// column header (asserted), each field parsed as a double.
 fn rows(name: &str, header: &str) -> Vec<Vec<f64>> {
+    rows_by(name, header, PROVENANCE)
+}
+
+/// [`rows`] for a file written by another script, named by `provenance`.
+fn rows_by(name: &str, header: &str, provenance_of: &str) -> Vec<Vec<f64>> {
     let text =
         std::fs::read_to_string(format!("{DIR}/{name}")).unwrap_or_else(|e| panic!("{name}: {e}"));
     let provenance: Vec<&str> = text.lines().take_while(|l| l.starts_with('#')).collect();
     assert!(
-        provenance.iter().any(|h| h.contains(PROVENANCE)),
-        "{name}: not written by {PROVENANCE}"
+        provenance.iter().any(|h| h.contains(provenance_of)),
+        "{name}: not written by {provenance_of}"
     );
     assert!(
         provenance.iter().any(|h| h.contains(R_VERSION)),
@@ -441,4 +457,146 @@ fn p_at_the_quantile_is_0_05_within_1e_9_and_the_quantile_does_not_increase_in_d
         rows.len()
     );
     assert_eq!((checked, rows.len()), (17, 20));
+}
+
+/* ------------------------------------------------------------------------ *
+ *  Crosstabs' distributions (Research OS, Phase 8X-1, decision 576), over
+ *  make_xtab_dist_fixtures.R's chi_p.csv and fisher_p.csv
+ * ------------------------------------------------------------------------ */
+
+/// R's smallest normal double: below it R's own p carries fewer digits, so
+/// a row whose R p is below it is counted and not compared (decision 576).
+const R_SMALLEST_NORMAL: f64 = f64::MIN_POSITIVE;
+
+/// Ten times the largest relative error measured over chi_p.csv (decision
+/// 316): 1.812e-12, at df 2,401 (macOS aarch64, 9 Nov 2026), printed by the
+/// test below.
+const CHI_GATE: f64 = 2e-11;
+/// Ten times the largest relative error measured over fisher_p.csv, over
+/// all three p values (decision 316): 3.351e-11, greater at [50 49950; 40
+/// 49960], a total of 100,000 (macOS aarch64, 9 Nov 2026).
+const FISHER_GATE: f64 = 4e-10;
+
+#[test]
+fn chi_square_upper_is_within_its_gate_of_r_pchisq_to_df_2401() {
+    let rows = rows_by("chi_p.csv", "df,x,p", PROVENANCE_XTAB);
+    let mut worst = Worst::default();
+    let mut over = Vec::new();
+    let (mut compared, mut below_normal) = (0, 0);
+    let mut dfs = std::collections::BTreeSet::new();
+    for r in &rows {
+        let (df, x, want) = (r[0], r[1], r[2]);
+        dfs.insert(df as u64);
+        let got = chi_square_upper(x, df).unwrap_or_else(|| panic!("df {df} x {x}: refused"));
+        assert_eq!(
+            Some(got.to_bits()),
+            pvalue::chi_square_upper(x, df).map(f64::to_bits),
+            "df {df} x {x}: not stats_l0's value, bit for bit"
+        );
+        if want < R_SMALLEST_NORMAL {
+            assert!(got < R_SMALLEST_NORMAL, "df {df} x {x}: R's p {want:e} is below the smallest normal, gaply's {got:e}");
+            below_normal += 1;
+            continue;
+        }
+        compared += 1;
+        let ratio = relative(got, want);
+        println!("chi df {df:>6} x {x:.17e}  gaply {got:.17e}  R {want:.17e}  relative {ratio:.3e}");
+        if ratio > CHI_GATE {
+            over.push(format!("df {df} x {x}: relative {ratio:e}"));
+        }
+        worst.see(ratio, format!("df {df} x {x}"));
+    }
+    println!(
+        "chi_square_upper: {compared} rows compared, {below_normal} with R's p below the smallest normal; the largest |gaply - R| / R is {:.3e} ({}); gate {CHI_GATE:e}",
+        worst.0, worst.1
+    );
+    assert_eq!(dfs.len(), 12, "chi_p.csv's df: {dfs:?}");
+    assert!(dfs.contains(&2401), "the largest df a 50 x 50 table reaches");
+    assert!(compared >= 250, "{compared} rows compared");
+    assert!(over.is_empty(), "over the gate {CHI_GATE:e}:\n{}", over.join("\n"));
+}
+
+#[test]
+fn chi_square_upper_answers_to_df_2401_and_refuses_above_it() {
+    assert_eq!(CHI_SQUARE_MAX_DF, 2401.0);
+    assert!(chi_square_upper(2401.0, CHI_SQUARE_MAX_DF).is_some());
+    for df in [just_above(CHI_SQUARE_MAX_DF), 2402.0, 1e7, f64::INFINITY, f64::NAN, 0.0, -1.0] {
+        assert_eq!(chi_square_upper(1.0, df), None, "df {df}");
+    }
+    for x in [f64::NAN, f64::INFINITY, -1.0] {
+        assert_eq!(chi_square_upper(x, 4.0), None, "x {x}");
+    }
+    assert_eq!(chi_square_upper(0.0, 4.0), Some(1.0));
+}
+
+#[test]
+fn fisher_2x2_is_within_its_gate_of_r_fisher_test() {
+    let rows = rows_by(
+        "fisher_p.csv",
+        "a,b,c,d,two_sided,less,greater",
+        PROVENANCE_XTAB,
+    );
+    let mut worst = [Worst::default(), Worst::default(), Worst::default()];
+    let mut over = Vec::new();
+    let (mut compared, mut below_normal, mut large) = (0, 0, 0);
+    for r in &rows {
+        let (a, b, c, d) = (r[0] as u64, r[1] as u64, r[2] as u64, r[3] as u64);
+        if a + b + c + d >= 100_000 {
+            large += 1;
+        }
+        let got = fisher_2x2(a, b, c, d);
+        for (i, (name, g, want)) in [
+            ("two_sided", got.two_sided, r[4]),
+            ("less", got.less, r[5]),
+            ("greater", got.greater, r[6]),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            assert!((0.0..=1.0).contains(&g), "[{a} {b}; {c} {d}] {name}: {g}");
+            if want < R_SMALLEST_NORMAL {
+                assert!(g < R_SMALLEST_NORMAL, "[{a} {b}; {c} {d}] {name}: R's p {want:e}, gaply's {g:e}");
+                below_normal += 1;
+                continue;
+            }
+            compared += 1;
+            let ratio = relative(g, want);
+            println!("fisher [{a} {b}; {c} {d}] {name:<9}  gaply {g:.17e}  R {want:.17e}  relative {ratio:.3e}");
+            if ratio > FISHER_GATE {
+                over.push(format!("[{a} {b}; {c} {d}] {name}: relative {ratio:e}"));
+            }
+            worst[i].see(ratio, format!("[{a} {b}; {c} {d}]"));
+        }
+    }
+    for (name, w) in ["two_sided", "less", "greater"].iter().zip(&worst) {
+        println!("fisher_2x2 {name}: the largest |gaply - R| / R is {:.3e} ({}); gate {FISHER_GATE:e}", w.0, w.1);
+    }
+    println!("fisher_2x2: {} tables, {compared} p values compared, {below_normal} with R's p below the smallest normal, {large} of a total of 100,000", rows.len());
+    assert!(rows.len() >= 190, "{} tables", rows.len());
+    assert!(large >= 7, "{large} tables of a total of 100,000");
+    assert!(over.is_empty(), "over the gate {FISHER_GATE:e}:\n{}", over.join("\n"));
+}
+
+#[test]
+fn fisher_2x2_with_a_zero_margin_is_one_three_times() {
+    for t in [(0, 0, 3, 4), (3, 0, 4, 0), (0, 6, 0, 2), (5, 2, 0, 0), (0, 0, 0, 0)] {
+        let f = fisher_2x2(t.0, t.1, t.2, t.3);
+        assert_eq!((f.two_sided, f.less, f.greater), (1.0, 1.0, 1.0), "{t:?}");
+    }
+}
+
+#[test]
+fn fisher_two_sided_sum_counts_a_density_within_1e_7_of_the_observed_as_a_tie() {
+    assert_eq!(FISHER_TIE_TOLERANCE, 1e-7);
+    // Index 2 is above index 0 by 5e-8 relative: a tie, so counted.
+    let d = [1.0, 2.0, 1.0 + 5e-8];
+    let want = (1.0 + 1.0 + 5e-8) / (4.0 + 5e-8);
+    let near = |got: f64, want: f64| relative(got, want) <= 1e-15;
+    assert!(near(fisher_two_sided_sum(&d, 0), want), "observed 0, its floating-point tie counted");
+    assert!(near(fisher_two_sided_sum(&d, 2), want), "observed 2, index 0 below it");
+    // Above by 2e-7 relative: not a tie.
+    let e = [1.0, 2.0, 1.0 + 2e-7];
+    assert!(near(fisher_two_sided_sum(&e, 0), 1.0 / (4.0 + 2e-7)), "2e-7 above is not a tie");
+    // The observed at the mode takes every table, clamped at 1.
+    assert_eq!(fisher_two_sided_sum(&d, 1), 1.0);
 }

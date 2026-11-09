@@ -19,6 +19,8 @@
 //! * Cronbach's alpha whose work panics, with no cancel (Phase 8I-2,
 //!   decision 380): `stats_desc: Cronbach's alpha panicked`, and the run
 //!   ends `Failed`.
+//! * Crosstabs whose work panics, with no cancel (Phase 8X-1, decision 580):
+//!   `stats_desc: crosstabs panicked`, and the run ends `Failed`.
 //! * Any kind whose work panics after a cancel was accepted: the shared
 //!   `stats_desc: the run's work panicked`, and the run ends `Cancelled`.
 //! * Every run that ends: the shared `stats_desc: run ended`.
@@ -45,6 +47,7 @@ use gaply_core::stats_desc::{self, Alias, DescribeParams};
 use gaply_core::stats_l1::dataset::ColumnAlias;
 use gaply_core::stats_onesample::{self, OneSampleParams, PairedParams};
 use gaply_core::stats_ttest::{self, TTestParams, Variant};
+use gaply_core::stats_xtab::{self, CrosstabsParams};
 
 const CSV: &[u8] = b"x,g\n1,a\n2,a\n4,a\n3,b\n5,b\n8,b\n";
 /// Two numeric columns, for the one-sample and paired t-tests.
@@ -83,6 +86,7 @@ enum Kind {
     Anova,
     Correlations,
     CronbachAlpha,
+    Crosstabs,
 }
 
 /// A manager whose hook panics at `Column(0)`, after cancelling the run
@@ -104,6 +108,7 @@ fn panicking(what: AtColumn0, kind: Kind) -> Arc<Runs> {
                 Kind::Anova => drop(runs.anova_cancel(run).expect("cancelled")),
                 Kind::Correlations => drop(runs.corr_cancel(run).expect("cancelled")),
                 Kind::CronbachAlpha => drop(runs.alpha_cancel(run).expect("cancelled")),
+                Kind::Crosstabs => drop(runs.xtab_cancel(run).expect("cancelled")),
             }
         }
         panic!("the test's hook panics at column 0");
@@ -165,6 +170,15 @@ fn each_kind_says_its_own_panic_and_both_say_the_shared_lines() {
             group: Alias(ColumnAlias(2)),
             levels: None,
             post_hoc: vec![PostHoc::Tukey],
+            missing_codes: vec![],
+        },
+    );
+    let xtab = stats_xtab::spec(
+        OperationId(8),
+        &dataset,
+        CrosstabsParams {
+            rows: Alias(ColumnAlias(1)),
+            columns: Alias(ColumnAlias(2)),
             missing_codes: vec![],
         },
     );
@@ -280,6 +294,13 @@ fn each_kind_says_its_own_panic_and_both_say_the_shared_lines() {
             runs.alpha_snapshot(run).unwrap().record.state.is_terminal()
         });
         ends.push(runs.alpha_snapshot(run).unwrap().record.state);
+
+        let runs = panicking(what, Kind::Crosstabs);
+        let run = runs.start_xtab(Arc::clone(&slot), xtab.clone()).unwrap();
+        wait_for("crosstabs ended", || {
+            runs.xtab_snapshot(run).unwrap().record.state.is_terminal()
+        });
+        ends.push(runs.xtab_snapshot(run).unwrap().record.state);
     }
     let _ = std::panic::take_hook();
 
@@ -293,6 +314,8 @@ fn each_kind_says_its_own_panic_and_both_say_the_shared_lines() {
             RunState::Failed,
             RunState::Failed,
             RunState::Failed,
+            RunState::Failed,
+            RunState::Cancelled,
             RunState::Cancelled,
             RunState::Cancelled,
             RunState::Cancelled,
@@ -312,7 +335,8 @@ fn each_kind_says_its_own_panic_and_both_say_the_shared_lines() {
     assert_eq!(events(&lines, "stats_desc: the one-way ANOVA panicked"), 1);
     assert_eq!(events(&lines, "stats_desc: the correlations panicked"), 1);
     assert_eq!(events(&lines, "stats_desc: Cronbach's alpha panicked"), 1);
-    assert_eq!(events(&lines, "stats_desc: the run's work panicked"), 7);
-    assert_eq!(events(&lines, "stats_desc: run ended"), 14);
+    assert_eq!(events(&lines, "stats_desc: crosstabs panicked"), 1);
+    assert_eq!(events(&lines, "stats_desc: the run's work panicked"), 8);
+    assert_eq!(events(&lines, "stats_desc: run ended"), 16);
     assert_eq!(events(&lines, "stats_desc: a run event had no edge"), 0);
 }

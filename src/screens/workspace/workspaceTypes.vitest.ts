@@ -52,6 +52,7 @@ const list = [
       'stats.analyze.one_way_anova',
       'stats.analyze.correlations',
       'stats.analyze.cronbach_alpha',
+      'stats.analyze.crosstabs',
       'stats.prepare.scale_score',
     ],
     supportsOffline: true,

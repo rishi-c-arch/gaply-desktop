@@ -180,8 +180,9 @@ fn workspace_list_carries_the_registrys_capability_ids() {
     // 8H: fourteen, with `stats.analyze.correlations` last (decision 344);
     // Phase 8I: fifteen, with `stats.analyze.cronbach_alpha` last (decision
     // 372); Phase 8M: sixteen, with `stats.prepare.scale_score` last (decision
-    // 411).
-    assert_eq!(ids.len(), 16);
+    // 411); Phase 8X-1: seventeen, with `stats.analyze.crosstabs` before it
+    // (decision 578).
+    assert_eq!(ids.len(), 17);
 }
 
 #[test]

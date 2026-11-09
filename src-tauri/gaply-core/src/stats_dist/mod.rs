@@ -69,6 +69,16 @@
 //!   decision 314, Tukey and Games-Howell): the module `studentized_range`,
 //!   measured against an mpmath evaluation of the definition, 570 rows for k
 //!   2 to 50 and df 1 to infinite, within 6.3e-11 relative down to p 1e-10.
+//! * [`chi_square_upper`] (Phase 8X-1, decision 576, crosstabs):
+//!   `stats_l0::pvalue::chi_square_upper`, bit for bit, to
+//!   [`CHI_SQUARE_MAX_DF`] (2,401), measured against R's `pchisq`.
+//! * [`fisher_2x2`] (Phase 8X-1, decision 576, crosstabs): Fisher's exact
+//!   test for a 2 x 2 table, R. A. Fisher, "On the interpretation of χ² from
+//!   contingency tables, and the calculation of P", Journal of the Royal
+//!   Statistical Society 85(1), 87–94, 1922,
+//!   <https://doi.org/10.2307/2340521>: the hypergeometric probabilities of
+//!   the first cell given the margins, measured against R's `fisher.test`
+//!   (`make_xtab_dist_fixtures.R`'s `fisher_p.csv`).
 //!
 //! Measured against R 4.6.1 in `tests/stats_dist_reference.rs` over
 //! `tests/fixtures/stats_dist/` (`make_dist_fixtures.R`): the quantile within
@@ -80,13 +90,15 @@
 //!
 //! Pure: no file, network, process, clock, model or log
 //! (`tests/contracts_are_pure.rs`); only `std` and `statrs` from outside the
-//! crate, and of the crate only `stats_l0::pvalue`'s two functions.
+//! crate, and of the crate only `stats_l0::pvalue`'s three functions.
 
 use std::f64::consts::SQRT_2;
 
 use statrs::distribution::{ContinuousCDF, Normal};
 use statrs::function::erf::erfc;
+use statrs::function::factorial::ln_binomial;
 
+use crate::stats_l0::pvalue::chi_square_upper as l0_chi_square_upper;
 use crate::stats_l0::pvalue::f_upper as l0_f_upper;
 use crate::stats_l0::pvalue::t_two_tailed as l0_t_two_tailed;
 
@@ -375,4 +387,99 @@ pub fn f_upper(f: f64, df1: f64, df2: f64) -> Option<f64> {
     } else {
         l0_f_upper(f, df1, df2)
     }
+}
+
+/* ------------------------------------------------------------------------ *
+ *  Crosstabs' two distributions (Research OS, Phase 8X-1, decision 576)
+ * ------------------------------------------------------------------------ */
+
+/// The largest df [`chi_square_upper`] answers for: (50 − 1)², a table of 50
+/// levels by 50, the largest crosstabs reaches (decision 575), and the
+/// largest df measured against R's `pchisq` (`tests/stats_dist_reference.rs`
+/// over `make_xtab_dist_fixtures.R`'s `chi_p.csv`). A range of its own, as
+/// [`F_QUANTILE_MAX_DF1`] is.
+pub const CHI_SQUARE_MAX_DF: f64 = 2401.0;
+
+/// Upper-tail p of a chi-square statistic `x` with `df` degrees of freedom:
+/// `stats_l0::pvalue::chi_square_upper`'s value, bit for bit, the one
+/// implementation, for a df from above 0 to [`CHI_SQUARE_MAX_DF`]. `None`
+/// above that df, for a df that is not finite and above 0, and for an `x`
+/// that is negative, NaN or infinite; `x` = 0 is 1.
+pub fn chi_square_upper(x: f64, df: f64) -> Option<f64> {
+    if !(df.is_finite() && df > 0.0 && df <= CHI_SQUARE_MAX_DF) {
+        return None;
+    }
+    l0_chi_square_upper(x, df)
+}
+
+/// Fisher's exact test's three p values for a 2 x 2 table.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Fisher2x2 {
+    /// The tables no more probable than the observed one, ties within
+    /// [`FISHER_TIE_TOLERANCE`] counted.
+    pub two_sided: f64,
+    /// P(X ≤ a): the observed table and those with a smaller first cell.
+    pub less: f64,
+    /// P(X ≥ a): the observed table and those with a larger first cell.
+    pub greater: f64,
+}
+
+/// The relative tolerance by which a table's probability counts as equal to
+/// the observed one's in the two-sided sum: at most the observed
+/// probability times 1 + 1e-7, so two tables equally probable in exact
+/// arithmetic and a few units apart as doubles are both counted. Taken from
+/// R's `fisher.test`'s results, which count such ties; R's help page states
+/// no value, and nothing is taken from R's source (ADR-008). Recorded as a
+/// departure for approval (Phase 8X-1 report, decision 576); its effect is
+/// fixed by `fisher_p.csv`.
+pub const FISHER_TIE_TOLERANCE: f64 = 1e-7;
+
+/// Fisher's exact test for the table [a b; c d], by the hypergeometric
+/// distribution of the first cell given the margins: in R's terms x = a,
+/// m = a + c (the first column's total), n = b + d and k = a + b (the first
+/// row's total). Each table's probability is taken in log space,
+/// ln C(m, x) + ln C(n, k − x) with statrs's `ln_binomial`, shifted by the
+/// largest and exponentiated, then divided by their sum, in one pass over
+/// the possible first cells. `less` and `greater` are each summed as its
+/// own tail, from its far end, never one as 1 minus the other; the
+/// two-sided p is [`fisher_two_sided_sum`]. A table with a zero margin has
+/// one possible table, so its three p values are 1. Each p is at most 1.
+pub fn fisher_2x2(a: u64, b: u64, c: u64, d: u64) -> Fisher2x2 {
+    let (m, n, k) = (a + c, b + d, a + b);
+    if m == 0 || n == 0 || k == 0 || k == m + n {
+        return Fisher2x2 {
+            two_sided: 1.0,
+            less: 1.0,
+            greater: 1.0,
+        };
+    }
+    let lo = k.saturating_sub(n);
+    let hi = k.min(m);
+    let ln: Vec<f64> = (lo..=hi)
+        .map(|x| ln_binomial(m, x) + ln_binomial(n, k - x))
+        .collect();
+    let top = ln.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    let densities: Vec<f64> = ln.iter().map(|l| (l - top).exp()).collect();
+    let observed = (a - lo) as usize;
+    let total: f64 = densities.iter().sum();
+    let less: f64 = densities[..=observed].iter().sum();
+    let greater: f64 = densities[observed..].iter().rev().sum();
+    Fisher2x2 {
+        two_sided: fisher_two_sided_sum(&densities, observed),
+        less: (less / total).min(1.0),
+        greater: (greater / total).min(1.0),
+    }
+}
+
+/// THE tie rule of Fisher's two-sided p, on supplied densities (each
+/// table's probability, or any common multiple of them): the sum of the
+/// densities at most `densities[observed]` times 1 + [`FISHER_TIE_TOLERANCE`],
+/// over the sum of them all, clamped at 1. A function of its own so the rule
+/// is tested on chosen numbers (`tests/stats_dist_reference.rs`), since a
+/// natural table rarely tells it apart.
+pub fn fisher_two_sided_sum(densities: &[f64], observed: usize) -> f64 {
+    let bound = densities[observed] * (1.0 + FISHER_TIE_TOLERANCE);
+    let total: f64 = densities.iter().sum();
+    let tail: f64 = densities.iter().filter(|d| **d <= bound).sum();
+    (tail / total).min(1.0)
 }

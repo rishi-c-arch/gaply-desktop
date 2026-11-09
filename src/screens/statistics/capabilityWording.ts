@@ -76,6 +76,19 @@ export const CAPABILITY_WORDS: Record<string, string> = {
     "Cronbach's alpha for a scale of two or more numeric items in your own data file, with standardized alpha, a 95% interval, and each item's statistics if it were left out, with the items you choose reverse-scored.",
   'stats.capability.limit.analyze.alpha_one_dimension': 'Alpha assumes the items measure one thing; Gaply does not check that.',
   'stats.capability.limit.analyze.no_omega_or_smc': "McDonald's omega and squared multiple correlations are not shown yet.",
+  // Phase 8X-1 (decisions 575, 578 and 579): crosstabs and chi-square,
+  // Planned in Part 2 and Beta from Part 3 (decision 580).
+  'stats.capability.analyze.crosstabs.title': 'Crosstabs and chi-square on your data',
+  'stats.capability.analyze.crosstabs.description':
+    "Counts how often each pair of levels of two columns of your own data file occurs together, with expected counts, residuals, Pearson's chi-square, the likelihood ratio, Fisher's exact test for a table of two rows and two columns, phi, Cramer's V and the contingency coefficient.",
+  'stats.capability.limit.analyze.crosstabs_two_columns_only': 'Crosstabs takes two columns; a third, layer column is not offered.',
+  'stats.capability.limit.analyze.fisher_two_by_two_only':
+    "Fisher's exact test is given for a table of two rows and two columns only; no exact test is given for a larger table.",
+  'stats.capability.limit.analyze.no_further_nominal_measures':
+    "Lambda, Goodman and Kruskal's tau, the uncertainty coefficient, the linear-by-linear test and the measures for ordered levels are not given.",
+  'stats.capability.limit.analyze.no_weights': 'Each row is counted once; weighting rows by a column is not offered.',
+  'stats.capability.limit.analyze.levels_in_code_point_order':
+    "Levels are listed in the order Gaply reads them, so a column of numbers lists 10 before 2; the sign of phi and the direction of Fisher's one-sided tests follow that order.",
   // Phase 8M (decision 411): scale scores, Planned in 8M and Beta since 8M-2's
   // Part 2 (decision 416), with no route yet.
   'stats.capability.prepare.scale_score.title': 'Scale scores',

@@ -73,6 +73,7 @@ use crate::stats_l1::compute::L1Registry;
 use crate::stats_onesample::{ONE_SAMPLE_ID, ONE_SAMPLE_VERSION, PAIRED_ID, PAIRED_VERSION};
 use crate::stats_prep::{CAPABILITY_ID as PREP_ID, CAPABILITY_VERSION as PREP_VERSION};
 use crate::stats_ttest::{CAPABILITY_ID as TTEST_ID, CAPABILITY_VERSION as TTEST_VERSION};
+use crate::stats_xtab::{CAPABILITY_ID as XTAB_ID, CAPABILITY_VERSION as XTAB_VERSION};
 
 /// The free Stats Check's id.
 pub const CHECK_ID: &str = "stats.check";
@@ -161,6 +162,20 @@ closed! {
         /// McDonald's omega and squared multiple correlations are not shown
         /// (decision 372).
         LimitAnalyzeNoOmegaOrSmc => "limit.analyze.no_omega_or_smc",
+        AnalyzeCrosstabsTitle => "analyze.crosstabs.title",
+        AnalyzeCrosstabsDescription => "analyze.crosstabs.description",
+        /// Two columns, no third, layer column (decision 579).
+        LimitAnalyzeCrosstabsTwoColumnsOnly => "limit.analyze.crosstabs_two_columns_only",
+        /// Fisher's exact test for a 2 x 2 table only (decision 579).
+        LimitAnalyzeFisherTwoByTwoOnly => "limit.analyze.fisher_two_by_two_only",
+        /// No lambda, Goodman and Kruskal's tau, uncertainty coefficient,
+        /// linear-by-linear test or ordered measures (decision 579).
+        LimitAnalyzeNoFurtherNominalMeasures => "limit.analyze.no_further_nominal_measures",
+        /// Each row counts once; no weights (decision 579).
+        LimitAnalyzeNoWeights => "limit.analyze.no_weights",
+        /// Levels in code-point order, which sets phi's sign and Fisher's
+        /// one-sided directions (decision 579).
+        LimitAnalyzeLevelsInCodePointOrder => "limit.analyze.levels_in_code_point_order",
         PrepareScaleScoreTitle => "prepare.scale_score.title",
         PrepareScaleScoreDescription => "prepare.scale_score.description",
         /// A score's items are the file's columns (ADR-011 question 13).
@@ -192,6 +207,8 @@ pub enum Kind {
     AnalyzeCorrelations,
     /// `stats.analyze.cronbach_alpha` (Phase 8I).
     AnalyzeCronbachAlpha,
+    /// `stats.analyze.crosstabs` (Phase 8X-1).
+    AnalyzeCrosstabs,
     /// `stats.prepare.scale_score` (Phase 8M). Not a method: no run kind.
     PrepareScaleScore,
 }
@@ -220,6 +237,9 @@ const LIFECYCLES: &[(&str, Lifecycle)] = &[
     // Planned in 8I (decision 372); Beta at the start of 8I-2's Part 2
     // (decision 377), so its commands, runs and projects can run.
     (ALPHA_ID, Lifecycle::Beta),
+    // Planned in 8X-1's Part 2 (decision 578); Beta at the start of its Part 3
+    // (decision 580), so its commands and runs can run.
+    (XTAB_ID, Lifecycle::Beta),
     // Planned in 8M (decision 411); Beta at the start of 8M-2's Part 2
     // (decision 416), so 8M-3's commands can run in both builds.
     (PREP_ID, Lifecycle::Beta),
@@ -674,6 +694,53 @@ fn analyze_cronbach_alpha() -> Entry {
     }
 }
 
+/// Crosstabs and chi-square on the user's data (Phase 8X-1, decisions 575,
+/// 578 and 579): the other methods' profile, formats and licence; the table
+/// capabilities' two limitations, the levels' reading, and its own five.
+fn analyze_crosstabs() -> Entry {
+    Entry {
+        kind: Kind::AnalyzeCrosstabs,
+        descriptor: StatsDescriptor {
+            id: id(XTAB_ID),
+            version: XTAB_VERSION,
+            workspace_id: WorkspaceId::Statistics,
+            title_code: StatsWording::AnalyzeCrosstabsTitle,
+            description_code: StatsWording::AnalyzeCrosstabsDescription,
+            lifecycle: lifecycle_of(XTAB_ID),
+            input_schema_version: 1,
+            output_schema_version: 1,
+            method_schema_version: 1,
+            supported_formats: TABLE_FORMATS.to_vec(),
+            dependency_ids: Vec::new(),
+            license_notes: vec![StatsWording::LicenseStatrsMit],
+            resource_profile: ResourceProfile {
+                ram_class: RamClass::Gb8,
+                max_rows: Some(METHOD_MAX_ROWS),
+                max_columns: Some(METHOD_MAX_COLUMNS),
+                max_input_bytes: None,
+                ceiling_ms: Some(DESCRIBE_CEILING_MS),
+                cancel: Cancel::Cooperative,
+                uses_gpu: false,
+                temp_disk: false,
+            },
+            offline_behavior: OfflineBehavior::RunsOffline,
+            validation_suite_id: SuiteId("crosstabs_r_golden"),
+            known_limitation_codes: vec![
+                StatsWording::LimitTableTextFilesUtf8Only,
+                StatsWording::LimitTableLimitsByMemory,
+                StatsWording::LimitDescribeLevelsFollowLevel1,
+                StatsWording::LimitAnalyzeCrosstabsTwoColumnsOnly,
+                StatsWording::LimitAnalyzeFisherTwoByTwoOnly,
+                StatsWording::LimitAnalyzeNoFurtherNominalMeasures,
+                StatsWording::LimitAnalyzeNoWeights,
+                StatsWording::LimitAnalyzeLevelsInCodePointOrder,
+            ],
+            export_kinds: vec![ExportKind::Csv, ExportKind::Json],
+            documentation_id: DocId("methods/crosstabs"),
+        },
+    }
+}
+
 /// Scale scores (Phase 8M, decisions 408 and 411): the methods' rows, columns,
 /// formats and table limitations, with no ceiling and no cancel (ADR-011 Part
 /// 12): one fast call, measured at 0.18 s at 100,000 × 128 (decision 410), never
@@ -730,8 +797,8 @@ impl Registry {
     /// per catalogue entry in its order, `stats.describe`, then
     /// `stats.analyze.independent_t`, `stats.analyze.one_sample_t`,
     /// `stats.analyze.paired_t`, `stats.analyze.one_way_anova`,
-    /// `stats.analyze.correlations`, `stats.analyze.cronbach_alpha` and
-    /// `stats.prepare.scale_score`.
+    /// `stats.analyze.correlations`, `stats.analyze.cronbach_alpha`,
+    /// `stats.analyze.crosstabs` and `stats.prepare.scale_score`.
     pub fn statistics() -> Registry {
         let mut entries = vec![check()];
         entries.extend(MethodCatalogue::ENTRIES.iter().map(|e| verify(e.id)));
@@ -742,6 +809,7 @@ impl Registry {
         entries.push(analyze_one_way_anova());
         entries.push(analyze_correlations());
         entries.push(analyze_cronbach_alpha());
+        entries.push(analyze_crosstabs());
         entries.push(prepare_scale_score());
         Registry { entries }
     }
@@ -913,7 +981,7 @@ mod tests {
                 checked += 1;
             }
         }
-        assert_eq!(checked, 2 * 16, "sixteen capabilities, two builds");
+        assert_eq!(checked, 2 * 17, "seventeen capabilities, two builds");
     }
 
     /// Phase 8D-1 (decision 253), made Beta in 8D-2a (decision 265): the
@@ -966,7 +1034,7 @@ mod tests {
         }
         let ids: Vec<String> = t.ids().iter().map(|i| i.as_str().to_string()).collect();
         assert_eq!(
-            &ids[ids.len() - 7..ids.len() - 4],
+            &ids[ids.len() - 8..ids.len() - 5],
             [TTEST_ID, ONE_SAMPLE_ID, PAIRED_ID],
             "appended after the independent t-test, one-sample first"
         );
@@ -991,6 +1059,7 @@ mod tests {
                 | Kind::AnalyzeOneWayAnova
                 | Kind::AnalyzeCorrelations
                 | Kind::AnalyzeCronbachAlpha
+                | Kind::AnalyzeCrosstabs
                 | Kind::PrepareScaleScore => {
                     methods += 1;
                     assert!(
@@ -1028,7 +1097,7 @@ mod tests {
                 }
             }
         }
-        assert_eq!((methods, verify), (8, 7));
+        assert_eq!((methods, verify), (9, 7));
         assert_eq!((METHOD_MAX_ROWS, METHOD_MAX_COLUMNS), (100_000, 128));
     }
 
@@ -1073,7 +1142,7 @@ mod tests {
         }
         let ids: Vec<String> = t.ids().iter().map(|i| i.as_str().to_string()).collect();
         assert_eq!(
-            &ids[ids.len() - 4..ids.len() - 2],
+            &ids[ids.len() - 5..ids.len() - 3],
             [ANOVA_ID, CORR_ID],
             "appended after the paired t-test, the correlations after it"
         );
@@ -1118,7 +1187,7 @@ mod tests {
         }
         let ids: Vec<String> = t.ids().iter().map(|i| i.as_str().to_string()).collect();
         assert_eq!(
-            &ids[ids.len() - 3..ids.len() - 1],
+            &ids[ids.len() - 4..ids.len() - 2],
             [CORR_ID, ALPHA_ID],
             "appended after the one-way ANOVA, Cronbach's alpha after it"
         );
@@ -1127,8 +1196,8 @@ mod tests {
     /// Phase 8I (decision 372): Cronbach's alpha is listed, with its own title,
     /// description and limitations, and its validation suite and page named.
     /// Planned in 8I and refused in both builds; Beta since 8I-2's Part 2
-    /// (decision 377), so runnable in both. Last until 8M, now just before
-    /// scale scores (decision 411).
+    /// (decision 377), so runnable in both. Last until 8M, just before scale
+    /// scores until 8X-1, now just before crosstabs (decision 578).
     #[test]
     fn cronbach_alpha_is_listed_as_beta_and_runs_in_both_builds() {
         let t = Registry::statistics();
@@ -1163,9 +1232,63 @@ mod tests {
         }
         let ids: Vec<String> = t.ids().iter().map(|i| i.as_str().to_string()).collect();
         assert_eq!(
+            &ids[ids.len() - 3..ids.len() - 1],
+            [ALPHA_ID, XTAB_ID],
+            "appended after the correlations, crosstabs after it (decision 578)"
+        );
+    }
+
+    /// Phase 8X-1 (decision 578): crosstabs is listed after Cronbach's alpha and
+    /// before scale scores, with its own title, description and limitations,
+    /// the levels' reading among them, and its validation suite and page named.
+    /// Planned in Part 2 and refused in both builds; Beta since Part 3
+    /// (decision 580), so runnable in both.
+    #[test]
+    fn crosstabs_is_listed_as_beta_and_runs_in_both_builds() {
+        let t = Registry::statistics();
+        let id = CapabilityId::parse(XTAB_ID).unwrap();
+        let e = t.lookup(&id).expect("listed");
+        let d = &e.descriptor;
+        assert_eq!(e.kind, Kind::AnalyzeCrosstabs);
+        assert_eq!((d.version, d.lifecycle), (1, Lifecycle::Beta));
+        assert_eq!(
+            (d.title_code, d.description_code),
+            (
+                StatsWording::AnalyzeCrosstabsTitle,
+                StatsWording::AnalyzeCrosstabsDescription
+            )
+        );
+        assert_eq!(
+            d.known_limitation_codes,
+            [
+                StatsWording::LimitTableTextFilesUtf8Only,
+                StatsWording::LimitTableLimitsByMemory,
+                StatsWording::LimitDescribeLevelsFollowLevel1,
+                StatsWording::LimitAnalyzeCrosstabsTwoColumnsOnly,
+                StatsWording::LimitAnalyzeFisherTwoByTwoOnly,
+                StatsWording::LimitAnalyzeNoFurtherNominalMeasures,
+                StatsWording::LimitAnalyzeNoWeights,
+                StatsWording::LimitAnalyzeLevelsInCodePointOrder,
+            ]
+        );
+        assert!(
+            !d.known_limitation_codes
+                .contains(&StatsWording::LimitAnalyzeLevelsFollowLevel1),
+            "the user chooses no two levels"
+        );
+        assert_eq!(
+            (d.validation_suite_id, d.documentation_id),
+            (SuiteId("crosstabs_r_golden"), DocId("methods/crosstabs"))
+        );
+        for build in [Build::Standard, Build::Devtools] {
+            t.require_runnable(&id, 1, build)
+                .unwrap_or_else(|r| panic!("Beta runs in {build:?}: {r:?}"));
+        }
+        let ids: Vec<String> = t.ids().iter().map(|i| i.as_str().to_string()).collect();
+        assert_eq!(
             &ids[ids.len() - 2..],
-            [ALPHA_ID, PREP_ID],
-            "appended after the correlations, scale scores after it"
+            [XTAB_ID, PREP_ID],
+            "appended after Cronbach's alpha, scale scores after it"
         );
     }
 

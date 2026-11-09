@@ -36,6 +36,7 @@ use gaply_core::stats_prep::{
     RECIPE_SCHEMA_VERSION,
 };
 use gaply_core::stats_ttest::{self, TTestParams, Variant};
+use gaply_core::stats_xtab::{self, CrosstabsParams};
 
 const CAP: u64 = 5_000_000;
 const NAME_SENTINEL: &str = "NAME_SENTINEL_q7";
@@ -927,4 +928,146 @@ fn a_prepared_tables_file_columns_keep_the_suspect_code_rule() {
     assert_eq!(r.warnings, ["stats.desc.suspect_missing_code"]);
     let profile = stats_desc::profile(&d);
     assert_eq!(profile.columns[0].suspect_missing_codes.len(), 1);
+}
+
+/* ---- crosstabs (Phase 8X-1, decision 577) ---------------------------------- */
+//
+// Crosstabs refuses a score as either column, so it is not among `methods()`,
+// whose tests run each method on a score. Its preparation checks run here on
+// two of the file's columns of the prepared table, the group and the level.
+
+fn xtab_params(rows: u32, columns: u32) -> CrosstabsParams {
+    CrosstabsParams {
+        rows: a(rows),
+        columns: a(columns),
+        missing_codes: Vec::new(),
+    }
+}
+
+/// Crosstabs' validate on `on` of a spec made on `made_on` with this
+/// preparation, over the group and the level.
+fn xtab_validate(made_on: &Dataset, prep: Option<Preparation>, on: &Dataset) -> Report {
+    let mut spec = stats_xtab::spec(OperationId(1), made_on, xtab_params(GRP, LVL));
+    spec.preparation = prep;
+    report_of(stats_xtab::validate(on, &spec))
+}
+
+#[test]
+fn a_score_is_refused_as_either_column_of_crosstabs() {
+    let d = prepared();
+    for (rows, columns) in [(SUM, GRP), (GRP, SUM)] {
+        let params = xtab_params(rows, columns);
+        let mut spec = stats_xtab::spec(OperationId(1), &d, params.clone());
+        spec.preparation = Some(preparation());
+        let r = report_of(stats_xtab::validate(&d, &spec));
+        assert_eq!(
+            r.errors,
+            [(
+                "stats.xtab.score_as_column".to_string(),
+                Some(i64::from(SUM)),
+                None
+            )],
+            "rows C{rows}, columns C{columns}"
+        );
+        let refused = stats_xtab::compute(&d, &params).unwrap_err();
+        assert_eq!(refused.code.wire(), "stats.xtab.score_as_column");
+    }
+    // Both columns scores: each named, the rows' first.
+    let mut spec = stats_xtab::spec(OperationId(1), &d, xtab_params(SUM, MEAN));
+    spec.preparation = Some(preparation());
+    let r = report_of(stats_xtab::validate(&d, &spec));
+    assert_eq!(
+        r.errors,
+        [
+            ("stats.xtab.score_as_column".to_string(), Some(i64::from(SUM)), None),
+            ("stats.xtab.score_as_column".to_string(), Some(i64::from(MEAN)), None),
+        ]
+    );
+}
+
+/// The same numbers as a file's column are a column like any other: it is
+/// the column's origin that refuses, not its values.
+#[test]
+fn the_same_values_as_a_files_column_may_be_a_crosstabs_column() {
+    let d = as_a_file();
+    let r = report_of(stats_xtab::validate(
+        &d,
+        &stats_xtab::spec(OperationId(1), &d, xtab_params(SUM, GRP)),
+    ));
+    assert!(
+        !words(&r.errors).contains(&"stats.xtab.score_as_column"),
+        "{:?}",
+        r.errors
+    );
+    assert!(stats_xtab::compute(&d, &xtab_params(SUM, GRP)).is_ok());
+}
+
+#[test]
+fn a_forged_preparation_is_refused_in_crosstabs_and_nothing_else_is_said() {
+    let d = prepared();
+    let want = "stats.xtab.preparation_mismatch";
+    let good = xtab_validate(&d, Some(preparation()), &d);
+    assert!(good.errors.is_empty(), "{:?}", good.errors);
+    let other_hash = ContentHash::of_bytes(b"something else");
+    let forgeries: [(&str, Box<dyn Fn(&mut Preparation)>); 5] = [
+        (
+            "source hash",
+            Box::new({
+                let h = other_hash.clone();
+                move |p| p.source_hash = h.clone()
+            }),
+        ),
+        (
+            "recipe hash",
+            Box::new({
+                let h = other_hash.clone();
+                move |p| p.recipe_hash = h.clone()
+            }),
+        ),
+        ("source columns", Box::new(|p| p.source_columns += 1)),
+        (
+            "capability version",
+            Box::new(|p| p.capability_version += 1),
+        ),
+        ("engine version", Box::new(|p| p.engine_version += 1)),
+    ];
+    for (what, forge) in &forgeries {
+        let mut forged = preparation();
+        forge(&mut forged);
+        let r = xtab_validate(&d, Some(forged), &d);
+        assert_eq!(r.status, ValidationStatus::Invalid, "{what}");
+        assert_eq!(words(&r.errors), [want], "{what}");
+    }
+    let absent = xtab_validate(&d, None, &d);
+    assert_eq!(words(&absent.errors), [want], "absent");
+}
+
+#[test]
+fn two_recipes_of_one_width_are_refused_for_each_other_in_crosstabs() {
+    let s = source();
+    let (r1, r2) = (recipe(), other_recipe());
+    let (d1, d2) = (
+        prepared_with(&s, &r1).dataset,
+        prepared_with(&s, &r2).dataset,
+    );
+    let carried = xtab_validate(&d1, Some(preparation_of(&s, &r1)), &d2);
+    let got = words(&carried.errors);
+    assert!(got.contains(&"stats.xtab.input_mismatch"), "{got:?}");
+    assert!(got.contains(&"stats.xtab.preparation_mismatch"), "{got:?}");
+    let forged = xtab_validate(&d2, Some(preparation_of(&s, &r1)), &d2);
+    assert_eq!(words(&forged.errors), ["stats.xtab.preparation_mismatch"]);
+}
+
+#[test]
+fn a_crosstabs_spec_made_on_the_original_is_refused_on_the_prepared_table_and_the_reverse() {
+    let (s, d) = (source(), prepared());
+    let on_prepared = xtab_validate(&s, None, &d);
+    let got = words(&on_prepared.errors);
+    assert!(got.contains(&"stats.xtab.input_mismatch"), "{got:?}");
+    assert!(got.contains(&"stats.xtab.preparation_mismatch"), "{got:?}");
+    let on_original = xtab_validate(&d, Some(preparation()), &s);
+    let got = words(&on_original.errors);
+    assert_eq!(on_original.status, ValidationStatus::Invalid);
+    assert!(got.contains(&"stats.xtab.input_mismatch"), "{got:?}");
+    assert!(got.contains(&"stats.xtab.preparation_mismatch"), "{got:?}");
 }

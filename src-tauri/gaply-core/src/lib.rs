@@ -94,6 +94,8 @@ pub mod stats_registry;
 pub mod stats_ttest;
 pub mod stats_verdict;
 pub mod stats_verify;
+// Research OS Phase 8X-1: crosstabs and chi-square, the pure core.
+pub mod stats_xtab;
 // Research OS Phase 5D-1a: what the older features keep, counted; read only.
 pub mod stored_data;
 pub mod swarm;

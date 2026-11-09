@@ -1159,3 +1159,62 @@ fn every_prep_command_checks_the_workspace_first() {
         failures.join("\n")
     );
 }
+
+/// Phase 8X-1 (decision 580): crosstabs' six commands, each checking the
+/// workspace first, in the same form; none is exempt, and there is no levels
+/// command. (registered path)
+const XTAB_OPERATIONS: &[&str] = &[
+    "stats_xtab_commands::stats_xtab_validate",
+    "stats_xtab_commands::stats_xtab_run",
+    "stats_xtab_commands::stats_xtab_status",
+    "stats_xtab_commands::stats_xtab_result",
+    "stats_xtab_commands::stats_xtab_cancel",
+    "stats_xtab_commands::stats_xtab_export",
+];
+
+#[test]
+fn every_xtab_command_checks_the_workspace_first() {
+    let all = registered();
+    assert!(all.len() > 100, "the handler parse is inert");
+    let mut family: Vec<&str> = all
+        .iter()
+        .map(|p| p.as_str())
+        .filter(|p| p.starts_with("stats_xtab_commands::"))
+        .collect();
+    family.sort_unstable();
+    let mut listed: Vec<&str> = XTAB_OPERATIONS.to_vec();
+    listed.sort_unstable();
+    assert_eq!(
+        family, listed,
+        "every registered stats_xtab_commands command is listed, and every listed one is registered"
+    );
+    // Nothing registers a stats_xtab_* command from another module.
+    for p in &all {
+        if p.rsplit("::")
+            .next()
+            .is_some_and(|n| n.starts_with("stats_xtab_"))
+        {
+            assert!(p.starts_with("stats_xtab_commands::"), "{p}");
+        }
+    }
+
+    let src = without_line_comments(&read(&root().join("src/stats_xtab_commands.rs")));
+    let mut failures = Vec::new();
+    for path in XTAB_OPERATIONS {
+        let name = path.rsplit("::").next().unwrap();
+        match fn_body(&src, name) {
+            Some(body) if checks_first(body) => {}
+            Some(body) => failures.push(format!(
+                "{path}: first statement is `{}`",
+                body.split(';').next().unwrap_or("").trim()
+            )),
+            None => failures.push(format!("{path}: no body found")),
+        }
+    }
+    println!("gated {} crosstabs commands", XTAB_OPERATIONS.len());
+    assert!(
+        failures.is_empty(),
+        "decision 580:\n{}",
+        failures.join("\n")
+    );
+}

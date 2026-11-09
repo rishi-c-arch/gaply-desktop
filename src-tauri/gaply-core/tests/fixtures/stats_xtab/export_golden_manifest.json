@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "capabilityId": "stats.analyze.crosstabs",
+  "capabilityVersion": 1,
+  "engineVersion": 1,
+  "inputs": [
+    "b332311fa15e7a498c32aa29f07419bb7acc7b4b9cfc582f1990587bc2c89af2"
+  ],
+  "parametersHash": "b4faf7c0154bede8a1abb90b7a05eb3ec4a452e84d2f4532dcaa63a7ccd005db",
+  "seed": null,
+  "rowsRead": 23,
+  "rowsUsed": 19,
+  "exclusions": [
+    {
+      "code": "stats.xtab.missing_row",
+      "count": 1,
+      "params": {
+        "column": 1
+      }
+    },
+    {
+      "code": "stats.xtab.missing_code",
+      "count": 1,
+      "params": {
+        "column": 1
+      }
+    },
+    {
+      "code": "stats.xtab.missing_column",
+      "count": 1,
+      "params": {
+        "column": 2
+      }
+    },
+    {
+      "code": "stats.xtab.missing_code",
+      "count": 1,
+      "params": {
+        "column": 2
+      }
+    }
+  ],
+  "platform": {
+    "os": "macos",
+    "arch": "aarch64"
+  },
+  "elapsedMs": 0,
+  "outputHash": "f89c54d090d35e7eb839353e76455c0227167c100b6ae38f059b8299b7b9e939",
+  "reproducibility": "bitwise"
+}

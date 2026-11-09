@@ -1,0 +1,37 @@
+{
+  "status": "invalid",
+  "errors": [
+    {
+      "code": "stats.xtab.too_many_levels",
+      "params": {
+        "column": 1,
+        "count": 51,
+        "limit": 50
+      },
+      "severity": "error"
+    }
+  ],
+  "warnings": [
+    {
+      "code": "stats.xtab.suspect_missing_code",
+      "params": {
+        "column": 2,
+        "count": 3,
+        "value": 99
+      },
+      "severity": "warning"
+    }
+  ],
+  "missingInformation": [
+    {
+      "code": "stats.xtab.same_column",
+      "params": {},
+      "severity": "error"
+    }
+  ],
+  "estimatedResources": {
+    "rows": 22,
+    "columns": 2,
+    "cells": 44
+  }
+}

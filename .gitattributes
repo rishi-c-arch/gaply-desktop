@@ -57,3 +57,6 @@ src-tauri/gaply-core/tests/fixtures/stats_corr/export_golden.csv -text
 # Research OS, Phase 8I-2 (decision 379): Cronbach's alpha's export golden,
 # CRLF for the same reason, pinned by `alpha_export.rs`.
 src-tauri/gaply-core/tests/fixtures/stats_alpha/export_golden.csv -text
+# Research OS, Phase 8X-1 (decision 577): crosstabs' export golden, CRLF for
+# the same reason, pinned by `xtab_export.rs`.
+src-tauri/gaply-core/tests/fixtures/stats_xtab/export_golden.csv -text

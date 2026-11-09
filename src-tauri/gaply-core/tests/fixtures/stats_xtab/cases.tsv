@@ -1,0 +1,26 @@
+# written by: /usr/local/bin/Rscript make_xtab_fixtures.R
+# R version 4.6.1 (2026-06-24), base R stats only
+case	file	rows	columns	missing_codes
+t2x2_small	data_t2x2_small.csv	r	c	-
+t2x2_zero	data_t2x2_zero.csv	r	c	-
+t2x2_large	counts_t2x2_large.csv	r	c	-
+near_independent	counts_near_independent.csv	r	c	-
+t2x3	data_t2x3.csv	r	c	-
+t3x4	data_t3x4.csv	r	c	-
+t5x5	counts_t5x5.csv	r	c	-
+t50x50	counts_t50x50.csv	r	c	-
+low_expected	counts_low_expected.csv	r	c	-
+codepoint_text	data_codepoint_text.csv	r	c	-
+numeric_2_10	data_numeric_2_10.csv	r	c	-
+numeric_negative	data_numeric_negative.csv	r	c	-
+codes_both	data_codes_both.csv	r	c	-9 99
+empty_both	data_empty_both.csv	r	c	-
+refuse_code_not_finite	data_refuse_codes.csv	r	c	NaN
+refuse_codes_out_of_order	data_refuse_codes.csv	r	c	9 1
+refuse_code_repeated	data_refuse_codes.csv	r	c	9 9
+refuse_unknown_column	data_refuse_codes.csv	nosuch	c	-
+refuse_same_column	data_refuse_codes.csv	r	r	-
+refuse_one_level	data_refuse_one_level.csv	r	c	-
+refuse_coded_level	data_refuse_coded_level.csv	r	c	7
+refuse_51_levels	data_refuse_51_levels.csv	r	c	-
+refuse_no_rows	data_refuse_no_rows.csv	r	c	-

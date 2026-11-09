@@ -91,6 +91,11 @@
 //! no budget (decision 371); the ceiling applies, as to every kind. A spec
 //! validation refuses never starts.
 //!
+//! Research OS, Phase 8X-1 (decision 580): a record may hold crosstabs, started
+//! with [`Runs::start_xtab`]. Its one check point is `stats_xtab::run`'s, before
+//! the arithmetic, and the record's `columns_total` is
+//! `stats_xtab::check_points`, one. No screen starts it until 8X-2.
+//!
 //! Phase 3: the run manager and the slots belong to the Statistics workspace
 //! (`crate::workspace`), built when it is activated and dropped when it is
 //! left. [`Runs::seal`] is how it is left: under the records' lock it either
@@ -133,6 +138,7 @@ use gaply_core::stats_onesample::{
     self, OneSampleCode, OneSampleParams, OneSampleResult, PairedParams, PairedResult,
 };
 use gaply_core::stats_prep::{self, Prepared};
+use gaply_core::stats_xtab::{self, CrosstabsOutcome, CrosstabsParams, XtabCode};
 use gaply_core::stats_ttest::{self, TTestCode, TTestParams, TTestResult};
 use serde::Serialize;
 
@@ -697,6 +703,9 @@ pub enum RunKind {
     /// `stats.analyze.cronbach_alpha`, through the `stats_alpha_*` commands
     /// (Research OS, Phase 8I-2, decision 380).
     CronbachAlpha,
+    /// `stats.analyze.crosstabs`, through the `stats_xtab_*` commands
+    /// (Research OS, Phase 8X-1, decision 580).
+    Crosstabs,
 }
 
 /// The data a run read: its slot, and the SHA-256 of the original bytes the
@@ -824,6 +833,7 @@ enum Held {
     Anova(Outputs<AnovaOutcome, AnovaCode>),
     Correlations(Outputs<CorrOutcome, CorrCode>),
     CronbachAlpha(Outputs<AlphaOutcome, AlphaCode>),
+    Crosstabs(Outputs<CrosstabsOutcome, XtabCode>),
 }
 
 impl Held {
@@ -889,6 +899,7 @@ enum Job {
     Anova(OperationSpec<AnovaParams>),
     Correlations(OperationSpec<CorrParams>),
     CronbachAlpha(OperationSpec<AlphaParams>),
+    Crosstabs(OperationSpec<CrosstabsParams>),
 }
 
 impl Job {
@@ -916,6 +927,7 @@ enum Report {
     Anova(ValidationReport<AnovaCode>),
     Correlations(ValidationReport<CorrCode>),
     CronbachAlpha(ValidationReport<AlphaCode>),
+    Crosstabs(ValidationReport<XtabCode>),
 }
 
 impl Report {
@@ -934,6 +946,7 @@ enum Done {
     Anova(Finished<OneWayAnova>),
     Correlations(Finished<Correlations>),
     CronbachAlpha(Finished<CronbachAlpha>),
+    Crosstabs(Finished<Crosstabs>),
 }
 
 /* ------------------------------------------------------------------------ *
@@ -975,6 +988,10 @@ macro_rules! by_method {
             }
             $enum::CronbachAlpha($x) => {
                 type $m = CronbachAlpha;
+                $body
+            }
+            $enum::Crosstabs($x) => {
+                type $m = Crosstabs;
                 $body
             }
         }
@@ -1790,6 +1807,112 @@ impl Method for CronbachAlpha {
     }
 }
 
+/// `stats.analyze.crosstabs`, through the `stats_xtab_*` commands (Research OS,
+/// Phase 8X-1, decision 580).
+struct Crosstabs;
+
+impl Method for Crosstabs {
+    const KIND: RunKind = RunKind::Crosstabs;
+    type Params = CrosstabsParams;
+    type Result = CrosstabsOutcome;
+    type Code = XtabCode;
+    type Halt = stats_xtab::Halt<Stop>;
+
+    /// `stats_xtab::check_points`: one, before the arithmetic.
+    fn columns_total(_: &OperationSpec<CrosstabsParams>, _: &Dataset) -> usize {
+        stats_xtab::check_points()
+    }
+
+    fn validate(
+        spec: &OperationSpec<CrosstabsParams>,
+        dataset: &Dataset,
+    ) -> ValidationReport<XtabCode> {
+        // Through `stats.analyze.crosstabs`' façade: the registry first,
+        // then `stats_xtab::validate`, unchanged.
+        stats_adapters::xtab_validate(spec, crate::workspace::build(), dataset)
+    }
+
+    fn compute(
+        spec: &OperationSpec<CrosstabsParams>,
+        build: Build,
+        dataset: &Dataset,
+        checkpoint: impl FnMut(usize) -> ControlFlow<Stop>,
+    ) -> Result<CrosstabsOutcome, stats_xtab::Halt<Stop>> {
+        // One check point, before the arithmetic.
+        stats_adapters::xtab_run(spec, build, dataset, checkpoint)
+    }
+
+    fn manifest(
+        spec: &OperationSpec<CrosstabsParams>,
+        dataset: &Dataset,
+        result: &CrosstabsOutcome,
+        elapsed: u64,
+    ) -> RunManifest<XtabCode> {
+        stats_xtab::manifest(spec, dataset, result, elapsed, Platform::current())
+    }
+
+    /// The result's own limitations, as notes.
+    fn limitations(result: &CrosstabsOutcome) -> Vec<Diagnostic<XtabCode>> {
+        result
+            .limitations
+            .iter()
+            .map(|c| Diagnostic::note(*c))
+            .collect()
+    }
+
+    /// Its one check point on a result; a stop leaves the count the check
+    /// point set.
+    fn columns_done(total: usize, outcome: &Outcome<Self>) -> Option<usize> {
+        match outcome {
+            Ok(Ok(_)) => Some(total),
+            Ok(Err(_)) | Err(_) => None,
+        }
+    }
+
+    fn halted(halt: stats_xtab::Halt<Stop>) -> Halted<XtabCode> {
+        match halt {
+            stats_xtab::Halt::Stopped { reason } => Halted::Stopped(reason),
+            stats_xtab::Halt::Refused(d) => Halted::Refused(d),
+        }
+    }
+
+    fn panicked() {
+        tracing::warn!("stats_desc: crosstabs panicked");
+    }
+
+    fn outputs(held: &Held) -> Option<&Outputs<CrosstabsOutcome, XtabCode>> {
+        if let Held::Crosstabs(o) = held {
+            Some(o)
+        } else {
+            None
+        }
+    }
+
+    fn outputs_mut(held: &mut Held) -> Option<&mut Outputs<CrosstabsOutcome, XtabCode>> {
+        if let Held::Crosstabs(o) = held {
+            Some(o)
+        } else {
+            None
+        }
+    }
+
+    fn held(outputs: Outputs<CrosstabsOutcome, XtabCode>) -> Held {
+        Held::Crosstabs(outputs)
+    }
+
+    fn job(spec: OperationSpec<CrosstabsParams>) -> Job {
+        Job::Crosstabs(spec)
+    }
+
+    fn report(report: ValidationReport<XtabCode>) -> Report {
+        Report::Crosstabs(report)
+    }
+
+    fn done(finished: Finished<Self>) -> Done {
+        Done::Crosstabs(finished)
+    }
+}
+
 /// An end hook that is due, with what it is called with: called only once
 /// the records' lock is released (Phase 5C-1a).
 struct Due {
@@ -2069,6 +2192,27 @@ impl Runs {
         end: EndHook,
     ) -> Result<RunId, NotStarted> {
         self.begin::<CronbachAlpha>(slot, spec, Some(end))
+    }
+
+    /// Starts crosstabs (Research OS, Phase 8X-1, decision 580): its one check
+    /// point before the arithmetic, the manager's ceiling and cancel, as every
+    /// kind's.
+    pub fn start_xtab(
+        self: &Arc<Self>,
+        slot: Arc<Slot>,
+        spec: OperationSpec<CrosstabsParams>,
+    ) -> Result<RunId, NotStarted> {
+        self.begin::<Crosstabs>(slot, spec, None)
+    }
+
+    /// [`Runs::start_xtab`], with an end hook: a rerun, which 8X-2 wires.
+    pub fn start_xtab_then(
+        self: &Arc<Self>,
+        slot: Arc<Slot>,
+        spec: OperationSpec<CrosstabsParams>,
+        end: EndHook,
+    ) -> Result<RunId, NotStarted> {
+        self.begin::<Crosstabs>(slot, spec, Some(end))
     }
 
     /// Every start, of any method (Research OS, Phase 8C): the record, then
@@ -2452,6 +2596,11 @@ impl Runs {
         self.snapshot_as::<CronbachAlpha>(run)
     }
 
+    /// [`Runs::snapshot`] for a crosstabs run (Phase 8X-1).
+    pub fn xtab_snapshot(&self, run: RunId) -> Result<RunSnapshot<XtabCode>, RunCode> {
+        self.snapshot_as::<Crosstabs>(run)
+    }
+
     /// Asks the run to stop. Queued: cancelled now. Running: the flag is set,
     /// and the next check point, or the worker's last step if no check point
     /// is left, ends it `Cancelled`. Finished: unchanged.
@@ -2516,6 +2665,11 @@ impl Runs {
     /// Cancels Cronbach's alpha's run; `run.wrong_kind` for another kind's.
     pub fn alpha_cancel(&self, run: RunId) -> Result<RunSnapshot<AlphaCode>, RunCode> {
         self.cancel_as::<CronbachAlpha>(run)
+    }
+
+    /// [`Runs::cancel`] for a crosstabs run (Phase 8X-1).
+    pub fn xtab_cancel(&self, run: RunId) -> Result<RunSnapshot<XtabCode>, RunCode> {
+        self.cancel_as::<Crosstabs>(run)
     }
 
     /// The result of a run of `M`'s kind that succeeded. Otherwise the closed
@@ -2586,6 +2740,14 @@ impl Runs {
         run: RunId,
     ) -> Result<ResultBundle<AlphaOutcome, AlphaCode>, RunCode> {
         self.result_as::<CronbachAlpha>(run)
+    }
+
+    /// The result of a crosstabs run that succeeded (Phase 8X-1).
+    pub fn xtab_result(
+        &self,
+        run: RunId,
+    ) -> Result<ResultBundle<CrosstabsOutcome, XtabCode>, RunCode> {
+        self.result_as::<Crosstabs>(run)
     }
 
     /// A copy of `run` for a project Save (Phase 5B-2), of either kind:
