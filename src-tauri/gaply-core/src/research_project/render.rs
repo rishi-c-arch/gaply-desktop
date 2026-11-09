@@ -70,6 +70,11 @@ closed! {
         First => "first",
         /// The paired t-test's second column.
         Second => "second",
+        /// The column whose levels are a crosstab's rows (Research OS, Phase
+        /// 8X-2, decision 590).
+        TableRows => "table_rows",
+        /// The column whose levels are a crosstab's columns.
+        TableColumns => "table_columns",
     }
 }
 
@@ -1062,7 +1067,9 @@ mod tests {
                 "outcome",
                 "group",
                 "first",
-                "second"
+                "second",
+                "table_rows",
+                "table_columns"
             ]
         );
         let variants: Vec<&str> = TestVariant::ALL.iter().map(|c| c.wire()).collect();

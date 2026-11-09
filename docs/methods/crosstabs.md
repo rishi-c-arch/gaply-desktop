@@ -1,7 +1,8 @@
 # Crosstabs and chi-square, as an analysis
 
 Capability `stats.analyze.crosstabs`, version 1, **Beta**, in the Statistics
-workspace (Research OS, Phase 8X-1; decisions 573 to 582, 9 Nov 2026; D313).
+workspace (Research OS, Phase 8X-1; decisions 573 to 582, 9 Nov 2026; D313;
+and Phase 8X-2, decisions 586 to 594; D314).
 This page is the capability's `documentation_id` (`methods/crosstabs`).
 
 It counts how often each pair of levels of two columns of the user's own data
@@ -15,8 +16,16 @@ The pure core is `gaply_core::stats_xtab`; its façade is
 `stats_adapters::xtab_admit` / `xtab_validate` / `xtab_run`. The app reaches it
 through the six `stats_xtab_*` commands and the run manager's `crosstabs`
 kind. Planned in 8X-1's Part 2 (decision 578), Beta since its Part 3 (decision
-580). **No screen starts it yet:** the Statistics window's dialog and Output,
-saving to a project and rerunning are 8X-2's.
+580). Since 8X-2 (decisions 588 to 591) a user runs it from the Statistics
+window: Analyze, Descriptive statistics, **Crosstabs…**, after Summary…, where
+SPSS has it, opens its dialog (two pickers, rows and columns, each offering a
+file's columns with 2 to 50 distinct values in the profile, and the two
+columns' candidate missing codes); its result is a card in the Output, with
+one cell statistic shown at a time; it is saved to a project, named in the
+project report by its two columns' positions and the roles `table_rows` and
+`table_columns`, and run again from the project page or the window's Project
+menu. It has no page and no route of its own (ADR-012:233-241); the old
+Statistics home shows the card a method with no page shows.
 
 ## 1. Inputs and the spec
 
@@ -218,9 +227,10 @@ digit (Rust's shortest round-trip form); a value not computable is empty with
 its code in `word`. The descriptive summary's field writer gives the one
 formula-injection rule (a label `=lo` is written `'=lo`). Pinned by
 `tests/xtab_export.rs`: read back field by field, a golden CSV and manifest on
-macOS aarch64, every other platform, Linux x86_64 included, checking that pin's
-layout within 4 ulps until Linux's bytes are measured, as the correlations'
-and alpha's pins first did; ten runs byte-identical.
+macOS aarch64 and, since 8X-2 (decisions 586 and 592), Linux x86_64 checked
+exactly against the same pin, measured outside this Mac at 1c6462a8 to give the
+same bytes, as alpha's was (decision 389); every other platform checks that
+pin's layout within 4 ulps; ten runs byte-identical.
 
 ## 8. What is not assessed, and the limitations
 
@@ -243,6 +253,46 @@ wording codes:
   on every computer.
 
 The wording is neutral: no verdict word, no stars (decision 66).
+
+The screen's sentence for each of crosstabs' 26 codes (`xtabWording.ts`,
+8X-2), word for word; {column} is the column's name as the user sees it, and
+{n}, {count}, {limit} and {value} are the code's numbers:
+
+| code | sentence |
+|---|---|
+| unknown_capability | These settings name a capability Gaply does not have here. |
+| capability_version_mismatch | These settings were made for version {found} of crosstabs, and this is version {expected}. |
+| input_count | These settings name {count} files, and crosstabs reads exactly one. |
+| input_mismatch | These settings were made for a different file from the one open. Open the file again. |
+| preparation_mismatch | These settings do not match how the open data was prepared. Choose the settings again. |
+| missing_code_not_finite | Missing code {n} is not a finite number. |
+| missing_code_repeated | Missing code {n} is listed twice. |
+| missing_codes_out_of_order | Missing code {n} is out of ascending order, so Gaply refuses these settings rather than reorder them. |
+| unknown_column | Column {column} is not in this file. |
+| same_column | The rows and the columns are the same column. Choose two different columns. |
+| score_as_column | Column {column} is a score, so it cannot be the rows or the columns of a table. Choose a column from your file. |
+| too_few_levels | Column {column} has {count} levels among the rows included, and a table needs at least two in each column. (1 level, at 1) |
+| too_many_levels | Column {column} has {count} levels among the rows included, more than the {limit} a table takes in each column. |
+| suspect_missing_code | Column {column} holds {value} in {count} cells, which may be a code for a missing value. It is counted as a level unless you tick it in Settings. (1 cell, at 1) |
+| overflow | Not computable: the arithmetic went past the largest number a double can hold. |
+| arithmetic_refused | Not computable: the arithmetic refused to give a value. |
+| distribution_out_of_range | Not computable: this needs the chi-square distribution at more than 2,401 degrees of freedom, where Gaply has not measured its accuracy. |
+| expected_below_five | Some expected counts are below 5, where the chi-square p values rest on a rougher approximation; for a table of two rows and two columns, Fisher's exact test does not rely on it. |
+| missing_row | {count} rows had no value (an empty cell or a missing-value token) in {column}, the rows' column, and were left out. (1 row … was left out, at 1) |
+| missing_column | {count} rows had no value (an empty cell or a missing-value token) in {column}, the columns' column, and were left out. (as missing_row) |
+| missing_code | {count} rows held a missing code you ticked in {column}, and were left out. (as missing_row) |
+| no_layers | Crosstabs takes two columns; a third, layer column is not offered. |
+| fisher_two_by_two_only | Fisher's exact test is given for a table of two rows and two columns only; no exact test is given for a larger table. |
+| no_further_nominal_measures | Lambda, Goodman and Kruskal's tau, the uncertainty coefficient, the linear-by-linear test and the measures for ordered levels are not given. |
+| no_weights | Each row is counted once; weighting rows by a column is not offered. |
+| code_point_order | Levels are listed in the order Gaply reads them, so a column of numbers lists 10 before 2; the sign of phi and the direction of Fisher's one-sided tests follow that order. |
+
+Each code is `stats.xtab.` and the word in the first column. The card shows,
+always, "{k} of {cells} cells have an expected count below 5; the smallest is
+{smallest}." (decision 589), 0 included. The run manager's, the registry's and
+the workspace's sentences are the one-way ANOVA's, but "run crosstabs again"
+and "This run is not a crosstabs run, so this screen cannot read it." The
+progress shows no steps sentence: a crosstab has one check point.
 
 ## 9. What SPSS documents, and where it differs
 
@@ -274,7 +324,7 @@ formulas were not read; the comparison below is of what SPSS reports.
 | Formula/method and variant documented | §2, §3; `stats_xtab/mod.rs` and `stats_dist/mod.rs` headers | done |
 | Golden fixtures and edge cases pass | `crosstabs_r_golden` (23 cases), `xtab_cases`, `xtab_export`, `stats_dist_reference` | done |
 | Missing values, ties, weights, precision and sample size handled | §1, §4, §5, §6; weights not supported, stated | done |
-| Diagnostic meanings and limitations documented | §4, §8; `XtabCode` docs; `xtabCodes.json` pinned to Rust by `stats_xtab_wire.rs`. The screen's sentences for the 26 codes are 8X-2's | partly: the words are 8X-2's |
+| Diagnostic meanings and limitations documented | §4, §8; `XtabCode` docs; a sentence for each of the 48 codes the screen can show, crosstabs' own 26 listed in §8 (`xtabWording.ts`, `xtabCodes.json` pinned to Rust by `stats_xtab_wire.rs`, `xtabWording.vitest.ts`) | done |
 | Independent reference comparison completed | R, §5 | done |
 | Unsupported designs return explicit reasons | §4; each refusal's code through IPC (`stats_xtab_commands.rs`) | done |
-| Result manifest and export verified | §7; through IPC the CSV equals the module's export of the run's result and manifest; the privacy matrix (`stats_xtab_privacy_matrix.rs`). Saving and rerunning are 8X-2's | partly: rerun is 8X-2's |
+| Result manifest and export verified | §7; through IPC the CSV equals the module's export of the run's result and manifest; the privacy matrix (`stats_xtab_privacy_matrix.rs`); since 8X-2 a crosstab saved to a project, closed and opened, its report's lines, and its rerun `Identical`, on a file's own table and on a prepared slot (`project_xtab.rs`), and the rerun privacy matrix's crosstabs section (`project_rerun_privacy_matrix.rs`) | done |

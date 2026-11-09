@@ -2,7 +2,7 @@
 // OS, Phase 8C; decision 249). Pure data, one row per method: the run
 // manager's word for its runs (Rust's RunKind), its capability id, its name,
 // the shell's job name (none for the summary, whose sentence has no
-// parenthesis), its screen's route, and its place in the Statistics window's
+// parenthesis), its screen's route (null for crosstabs, which has none), and its place in the Statistics window's
 // Analyze menu (Research OS, Phase 8P, decision 451).
 //
 // RunKind, the capability names, the shell's job names and the Statistics
@@ -80,6 +80,20 @@ export const METHODS = [
     path: ALPHA_PATH,
     menuGroup: 'Scale',
     menuLabel: "Reliability (Cronbach's alpha)…",
+  },
+  // Research OS, Phase 8X-2 (decision 591). The kind is Rust's RunKind word. No
+  // page and no route: ADR-012 retires the old pages (:233-241, :737), so the
+  // window's dialog is its one screen, and the old home shows the card a method
+  // with no page shows. In Analyze's Descriptive statistics group, after
+  // Summary…, where SPSS has it.
+  {
+    kind: 'crosstabs',
+    capabilityId: 'stats.analyze.crosstabs',
+    name: 'Crosstabs',
+    jobName: 'crosstabs',
+    path: null,
+    menuGroup: 'Descriptive statistics',
+    menuLabel: 'Crosstabs…',
   },
 ] as const;
 

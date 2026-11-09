@@ -19,6 +19,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { makeMockWorkspaceBridge } from '../../workspace/workspaceBridge';
 import type { WorkspaceStateView } from '../../workspace/workspaceTypes';
 import { RUN_STATE_NAMES } from '../describeWording';
+import { makeMockDescribeBridge } from '../describeBridge';
+import { makeMockXtabBridge } from '../xtabBridge';
 import { makeMockProjectBridge } from './projectBridge';
 import { openProjectStore } from './projectSession';
 import type { ProjectListEntryView, StoredRunView } from './projectTypes';
@@ -437,5 +439,26 @@ describe('the Save dialog and a late answer', () => {
     await waitFor(() => expect(openProjectStore.get()).toEqual({ projectId: A, name: 'Chapter 3' }));
     await act(async () => late.resolve({ projectId: null }));
     expect(openProjectStore.get()).toEqual({ projectId: A, name: 'Chapter 3' });
+  });
+});
+
+// Research OS, Phase 8X-2 (decision 591): a going rerun of a saved crosstab is
+// cancelled through crosstabs' own bridge, its kind read from the runs, never
+// through the summary's (decision 580's departure, closed).
+describe('a going rerun of a saved crosstab', () => {
+  it("Cancel calls stats_xtab_cancel through the page's crosstabs bridge, and nothing else", async () => {
+    const xtabRun: StoredRunView = { ...RUNS[0], storedRunId: 4, capabilityId: 'stats.analyze.crosstabs' };
+    const { bridge, workspace } = pageBridges({
+      project_current: { projectId: A, rerun: { runId: 9, rerunOf: 4, status: 'going', storedRunId: null, code: null } },
+      project_runs: [...RUNS, xtabRun],
+    });
+    const describe_ = makeMockDescribeBridge({ stats_desc_cancel: { runId: 0 } });
+    const crosstabs = makeMockXtabBridge({ stats_xtab_cancel: { runId: 0 } });
+    render(<ProjectPage projectId={A} bridge={bridge} workspace={workspace} desktop describe={describe_} crosstabs={crosstabs} pollMs={5} onClosed={vi.fn()} onBack={vi.fn()} />);
+    await screen.findByTestId('project-runs-list');
+    await waitFor(() => expect((screen.getByTestId('project-rerun-cancel') as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByTestId('project-rerun-cancel'));
+    await waitFor(() => expect(crosstabs.calls).toEqual([['stats_xtab_cancel', { runId: 9 }]]));
+    expect(describe_.calls).toEqual([]);
   });
 });

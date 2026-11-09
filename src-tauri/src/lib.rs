@@ -425,7 +425,8 @@ pub fn run() {
             stats_alpha_commands::stats_alpha_cancel,
             stats_alpha_commands::stats_alpha_export,
             // Research OS, Phase 8X-1 (decision 580): crosstabs, behind the
-            // workspace check. No screen starts it until 8X-2.
+            // workspace check. Since 8X-2 (decision 591) the window's dialog
+            // starts it.
             stats_xtab_commands::stats_xtab_validate,
             stats_xtab_commands::stats_xtab_run,
             stats_xtab_commands::stats_xtab_status,

@@ -34,9 +34,11 @@ const STATS_CHECK_PATH = '/app/check/stats';
 const VERIFIER_PATH = '/app/statsverifier';
 
 /** Where each runnable capability with a screen of its own opens: each
- *  method's route, from the methods table (Phase 8C). */
+ *  method's route, from the methods table (Phase 8C). A method with no page
+ *  (crosstabs, Research OS Phase 8X-2, decision 591) has no entry, so its card
+ *  says HOME_TEXT.noRoute, as the scale score's does. */
 const ROUTES: Record<string, string> = METHODS.reduce<Record<string, string>>((out, m) => {
-  out[m.capabilityId] = m.path;
+  if (m.path !== null) out[m.capabilityId] = m.path;
   return out;
 }, {});
 

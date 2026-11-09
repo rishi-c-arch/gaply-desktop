@@ -6,8 +6,8 @@
 //
 // * The capability must be one this app knows (the summary, the t-test, or
 //   since Phase 8D-2b the one-sample t-test, since 8D-2c the paired, since
-//   8G-2 the one-way ANOVA, since 8H-2 the correlations, and since 8I-2
-//   Cronbach's alpha),
+//   8G-2 the one-way ANOVA, since 8H-2 the correlations, since 8I-2
+//   Cronbach's alpha, and since 8X-2 crosstabs),
 //   and every schema version the one this app reads: 1, the literal type of
 //   `schemaVersion` in describeTypes.ts and ttestTypes.ts and Rust's
 //   `SchemaVersion::NUMBER` (gaply-core/src/contracts/mod.rs).
@@ -24,12 +24,14 @@ import type { OneSampleDiagnostic, OneSampleResultView, PairedResultView } from 
 import type { AnovaDiagnostic, AnovaResultView } from '../anovaTypes';
 import type { CorrDiagnostic, CorrResultView } from '../corrTypes';
 import type { AlphaDiagnostic, AlphaResultView } from '../alphaTypes';
+import type { XtabDiagnostic, XtabResultView } from '../xtabTypes';
 import DESCRIBE_CODES from '../describeCodes.json';
 import TTEST_CODES from '../ttestCodes.json';
 import ONESAMPLE_CODES from '../onesampleCodes.json';
 import ANOVA_CODES from '../anovaCodes.json';
 import CORR_CODES from '../corrCodes.json';
 import ALPHA_CODES from '../alphaCodes.json';
+import XTAB_CODES from '../xtabCodes.json';
 import { capabilityOfKind } from '../methods';
 
 /** The schema version this app reads, for every stored part. */
@@ -43,15 +45,16 @@ export const PAIRED_CAPABILITY = capabilityOfKind('paired');
 export const ANOVA_CAPABILITY = capabilityOfKind('anova');
 export const CORR_CAPABILITY = capabilityOfKind('correlations');
 export const ALPHA_CAPABILITY = capabilityOfKind('cronbach_alpha');
+export const XTAB_CAPABILITY = capabilityOfKind('crosstabs');
 
 /** A data file's formats: the ingest's (DataFormat in Rust, without json). */
 const DATA_FORMATS = ['csv', 'tsv', 'xlsx', 'xlsm', 'xlsb', 'xls', 'ods', 'sav', 'mat'];
 
 /** The case a method's checked results are shown as. */
-export type CaseKind = 'summary' | 'ttest' | 'one_sample' | 'paired' | 'anova' | 'correlations' | 'cronbach_alpha';
+export type CaseKind = 'summary' | 'ttest' | 'one_sample' | 'paired' | 'anova' | 'correlations' | 'cronbach_alpha' | 'crosstabs';
 
 /** A failed run's stored diagnostic, in its method's codes. */
-export type StoredFailure = Diagnostic | TTestDiagnostic | OneSampleDiagnostic | AnovaDiagnostic | CorrDiagnostic | AlphaDiagnostic;
+export type StoredFailure = Diagnostic | TTestDiagnostic | OneSampleDiagnostic | AnovaDiagnostic | CorrDiagnostic | AlphaDiagnostic | XtabDiagnostic;
 
 /** What a saved result is, once checked: what to show, or why not. */
 export type Checked =
@@ -62,6 +65,7 @@ export type Checked =
   | { kind: 'anova'; result: AnovaResultView; dataFile: DataFileFacts }
   | { kind: 'correlations'; result: CorrResultView; dataFile: DataFileFacts }
   | { kind: 'cronbach_alpha'; result: AlphaResultView; dataFile: DataFileFacts }
+  | { kind: 'crosstabs'; result: XtabResultView; dataFile: DataFileFacts }
   | { kind: 'failed'; capability: CaseKind; failure: StoredFailure; dataFile: DataFileFacts }
   | { kind: 'unknownCapability' }
   | { kind: 'unknownSchema' }
@@ -91,6 +95,7 @@ const OS_CODES = (ONESAMPLE_CODES as string[]).filter((c) => c.indexOf('stats.on
 const AN_CODES = (ANOVA_CODES as string[]).filter((c) => c.indexOf('stats.anova.') === 0);
 const CR_CODES = (CORR_CODES as string[]).filter((c) => c.indexOf('stats.corr.') === 0);
 const AL_CODES = (ALPHA_CODES as string[]).filter((c) => c.indexOf('stats.alpha.') === 0);
+const XT_CODES = (XTAB_CODES as string[]).filter((c) => c.indexOf('stats.xtab.') === 0);
 const SEVERITIES = ['error', 'warning', 'note'];
 const DESC_PARAM_KEYS = ['column', 'count', 'index', 'value', 'limit', 'expected', 'found', 'from', 'event'];
 const T_PARAM_KEYS = ['column', 'count', 'index', 'value', 'limit', 'expected', 'found'];
@@ -98,6 +103,7 @@ const OS_PARAM_KEYS = ['column', 'count', 'index', 'value', 'limit', 'expected',
 const AN_PARAM_KEYS = ['column', 'count', 'index', 'value', 'limit', 'expected', 'found'];
 const CR_PARAM_KEYS = ['column', 'count', 'index', 'value', 'limit', 'expected', 'found'];
 const AL_PARAM_KEYS = ['column', 'count', 'index', 'value', 'expected', 'found'];
+const XT_PARAM_KEYS = ['column', 'count', 'index', 'value', 'limit', 'expected', 'found'];
 const RUN_STATES = [
   'draft',
   'validating',
@@ -571,6 +577,118 @@ function alphaBundle(v: O): AlphaResultView | null {
   };
 }
 
+/* ---- crosstabs (Phase 8X-2, decision 591) ------------------------------------- */
+
+/** The codes stats_xtab writes where a number would be (stats_xtab/mod.rs's
+ *  not-computable codes): overflow, a refused chi-square, or a df past 2,401. */
+const XT_NC = ['overflow', 'arithmetic_refused', 'distribution_out_of_range'].map((c) => `stats.xtab.${c}`);
+const xtNc = (x: unknown) => oneOf(x, XT_NC);
+const xtStat = (v: unknown) => oneKey(v, { value: isNum, not_computable: xtNc });
+const chiTest = (v: unknown) => isObject(v) && Object.keys(v).length === 3 && [v.statistic, v.df, v.p].every(isNum);
+const chiOutcome = (v: unknown) => oneKey(v, { computed: chiTest, not_computable: xtNc });
+const fisherTest = (v: unknown) => isObject(v) && Object.keys(v).length === 3 && [v.twoSided, v.less, v.greater].every(isNum);
+const levelLabel = (v: unknown) => isObject(v) && Object.keys(v).length === 2 && isCount(v.level) && isStr(v.label);
+const FREQUENCY_NUMBERS = ['expected', 'rowProportion', 'columnProportion', 'totalProportion', 'residual', 'pearsonResidual', 'adjustedResidual'];
+const frequency = (v: unknown) =>
+  isObject(v) &&
+  Object.keys(v).length === 3 + FREQUENCY_NUMBERS.length &&
+  isCount(v.row) &&
+  isCount(v.column) &&
+  isCount(v.observed) &&
+  FREQUENCY_NUMBERS.every((k) => isNum(v[k]));
+
+/** A crosstabs exclusion, exactly as stats_xtab writes it (stats_xtab/mod.rs's
+ *  exclusions, 337b's rule): missing_row, missing_column or missing_code, each
+ *  naming its column and nothing else. missing_code can come twice, once for
+ *  each column. */
+const XT_EXCLUDED = ['missing_row', 'missing_column', 'missing_code'].map((c) => `stats.xtab.${c}`);
+const xtExclusion = (e: unknown) =>
+  isObject(e) &&
+  oneOf(e.code, XT_EXCLUDED) &&
+  isCount(e.count) &&
+  isObject(e.params) &&
+  Object.keys(e.params).length === 1 &&
+  isCount(e.params.column);
+
+/** A diagnostic as stats_xtab writes it: as every method's, and the suspect-code
+ *  warning always names its column, value and count (stats_xtab/mod.rs's
+ *  validate), so a stored one missing any is not one Rust wrote. */
+const xtDiagnostic = (v: unknown) =>
+  diagnostic(XT_CODES, XT_PARAM_KEYS, false)(v) &&
+  isObject(v) &&
+  (v.code !== 'stats.xtab.suspect_missing_code' || (isObject(v.params) && ['column', 'value', 'count'].every((k) => isNum((v.params as O)[k]))));
+
+/** Every result's limitations, in stats_xtab's order (its LIMITATIONS). */
+const XTAB_LIMITATIONS = ['no_layers', 'fisher_two_by_two_only', 'no_further_nominal_measures', 'no_weights', 'code_point_order'].map(
+  (c) => `stats.xtab.${c}`
+);
+
+/** CrosstabsOutcome's keys, every one always written. */
+const XTAB_RESULT_KEYS = [
+  'rowLevels',
+  'columnLevels',
+  'frequencies',
+  'rowTotals',
+  'columnTotals',
+  'n',
+  'pearson',
+  'likelihoodRatio',
+  'continuityCorrected',
+  'fisher',
+  'phi',
+  'cramersV',
+  'contingencyCoefficient',
+  'expectedBelowFive',
+  'cellCount',
+  'smallestExpected',
+  'exclusions',
+  'notes',
+  'limitations',
+];
+
+function xtabBundle(v: O): XtabResultView | null {
+  const r = v.primaryOutputs;
+  const ok =
+    isCount(v.runId) &&
+    v.status === 'succeeded' &&
+    isObject(r) &&
+    Object.keys(r).length === XTAB_RESULT_KEYS.length &&
+    XTAB_RESULT_KEYS.every((k) => k in r) &&
+    arrayOf(r.rowLevels, levelLabel) &&
+    arrayOf(r.columnLevels, levelLabel) &&
+    arrayOf(r.frequencies, frequency) &&
+    arrayOf(r.rowTotals, isCount) &&
+    arrayOf(r.columnTotals, isCount) &&
+    isCount(r.n) &&
+    chiOutcome(r.pearson) &&
+    chiOutcome(r.likelihoodRatio) &&
+    (r.continuityCorrected === null || chiOutcome(r.continuityCorrected)) &&
+    (r.fisher === null || fisherTest(r.fisher)) &&
+    xtStat(r.phi) &&
+    xtStat(r.cramersV) &&
+    xtStat(r.contingencyCoefficient) &&
+    isCount(r.expectedBelowFive) &&
+    isCount(r.cellCount) &&
+    isNum(r.smallestExpected) &&
+    arrayOf(r.exclusions, xtExclusion) &&
+    Array.isArray(r.notes) &&
+    (r.notes.length === 0 || (r.notes.length === 1 && r.notes[0] === 'stats.xtab.expected_below_five')) &&
+    Array.isArray(r.limitations) &&
+    JSON.stringify(r.limitations) === JSON.stringify(XTAB_LIMITATIONS) &&
+    arrayOf(v.diagnostics, xtDiagnostic) &&
+    arrayOf(v.limitations, xtDiagnostic) &&
+    manifest(v.manifest, XTAB_CAPABILITY, xtExclusion);
+  if (!ok) return null;
+  // As Rust's stats_xtab_commands::result makes the live view.
+  return {
+    runId: v.runId as number,
+    status: 'succeeded',
+    result: r as unknown as XtabResultView['result'],
+    diagnostics: v.diagnostics as XtabDiagnostic[],
+    manifest: v.manifest as XtabResultView['manifest'],
+  };
+}
+
 /* ---- the checkers, one per method (Phase 8C; decision 249) ------------------- */
 
 /** How one method's saved result is checked: the case it is shown as, its
@@ -654,6 +772,17 @@ export const STORED_CHECKERS: Record<string, StoredChecker> = {
     bundle: (v, dataFile) => {
       const result = alphaBundle(v);
       return result ? { kind: 'cronbach_alpha', result, dataFile } : null;
+    },
+  },
+  // Research OS, Phase 8X-2 (decision 591).
+  [XTAB_CAPABILITY]: {
+    which: 'crosstabs',
+    codes: XT_CODES,
+    keys: XT_PARAM_KEYS,
+    strings: false,
+    bundle: (v, dataFile) => {
+      const result = xtabBundle(v);
+      return result ? { kind: 'crosstabs', result, dataFile } : null;
     },
   },
 };

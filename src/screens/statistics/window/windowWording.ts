@@ -262,6 +262,13 @@ export function corrSettingsLine(p: { variables: string[]; coefficients: string[
   return `Variables: ${p.variables.map((a) => namedColumn(a, view)).join(', ')}. Coefficients: ${coefficients.join(', ')}. Missing values: ${handling}. ${codesWords(p.missingCodes)}`;
 }
 
+/** Crosstabs' dialog (Research OS, Phase 8X-2, decision 589), on corrSettingsLine's
+ *  pattern: here because namedColumn and codesWords are private to this file. */
+export const XTAB_DIALOG_TITLE = 'Descriptive statistics: Crosstabs';
+export function xtabSettingsLine(p: { rows: string; columns: string; missingCodes: number[] }, view: LineView): string {
+  return `Rows: ${namedColumn(p.rows, view)}. Columns: ${namedColumn(p.columns, view)}. ${codesWords(p.missingCodes)}`;
+}
+
 /** The scale score's dialog (decisions 504 to 507). Its form's words, Make's
  *  sentence, the scores it lists and the questions before a deletion. A score's
  *  name is the user's own, shown on their own screen. "Delete", never "Remove",

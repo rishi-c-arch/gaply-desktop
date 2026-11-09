@@ -19,6 +19,7 @@ import type { MethodKind } from '../methods';
 import type { OneSampleResultView, OneSampleRunStateView, PairedResultView } from '../onesampleTypes';
 import { savableOnScreen } from '../projects/SaveToProject';
 import type { TTestResultView, TTestRunStateView } from '../ttestTypes';
+import type { XtabResultView, XtabRunStateView } from '../xtabTypes';
 import type { GridCell } from './gridRange';
 
 /** The sentence for a slot the window finds gone (ADR-012 Part 2). */
@@ -36,6 +37,8 @@ export interface MethodRuns {
   anova: AnovaRunStateView;
   correlations: CorrRunStateView;
   cronbach_alpha: AlphaRunStateView;
+  /** Research OS, Phase 8X-2 (decision 591). */
+  crosstabs: XtabRunStateView;
 }
 
 /** Each kind's result, as its result command reads it (decision 479). */
@@ -47,6 +50,8 @@ export interface MethodResults {
   anova: AnovaResultView;
   correlations: CorrResultView;
   cronbach_alpha: AlphaResultView;
+  /** Research OS, Phase 8X-2 (decision 591). */
+  crosstabs: XtabResultView;
 }
 
 /** What every entry holds, whatever its method (decision 471). */

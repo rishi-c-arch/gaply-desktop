@@ -13,8 +13,10 @@ import { FILE_BUSY, LATER_STEP, MENU_WORDS, NOT_RUNNABLE, NO_FILE, NO_PROJECT_OP
 /** The scale score is no METHODS row, since it has no run kind (decision 451). */
 export const SCALE_SCORE_CAPABILITY = 'stats.prepare.scale_score';
 
+/** Research OS, Phase 8X-2 (decision 591; ADR-012:482-483): "Crosstabs and
+ *  chi-square" left this list as Crosstabs… went live, in one change. */
 export const COMING_LATER = {
-  analyze: ['Crosstabs and chi-square', 'Regression', 'Factor analysis', 'Nonparametric tests', 'CFA and SEM'],
+  analyze: ['Regression', 'Factor analysis', 'Nonparametric tests', 'CFA and SEM'],
   transform: ['Recode values…', 'Compute from a formula…', 'Select cases…'],
 };
 
@@ -95,7 +97,7 @@ function capabilityItem(c: WindowMenuContext, id: string, label: string, capabil
 }
 
 /** The methods with a dialog (decisions 473 and 485), each still reading Rust's list. */
-export const LIVE_METHODS: readonly string[] = ['describe', 'ttest', 'one_sample', 'paired', 'anova', 'correlations', 'cronbach_alpha'];
+export const LIVE_METHODS: readonly string[] = ['describe', 'ttest', 'one_sample', 'paired', 'anova', 'correlations', 'cronbach_alpha', 'crosstabs'];
 
 /** A method's item: Rust's word first, then whether this build has its dialog,
  *  then why it cannot be pressed now (decision 471). */

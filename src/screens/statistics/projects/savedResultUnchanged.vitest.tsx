@@ -59,6 +59,17 @@ const AT_8EB00B7C: Record<string, string> = {
   'ttest_failed.json': 'ef79fd3d7b752ea4ca7a4c0fe54e76497a4ca923bdefce655a7ab10ae1b793cd',
 };
 
+/** Research OS, Phase 8X-2 (decision 591): the stored fixtures 8X-2 added, which
+ *  8eb00b7c's code never rendered. Captured from 8X-2's own render, the record a
+ *  later step keeps its own result against; AT_8EB00B7C is unchanged. */
+const AT_8X2: Record<string, string> = {
+  'xtab_2x2.json': '96a21e30a4827ebb65310a04d4a38c106bfe16567a3800d39759fcbf55278194',
+  'xtab_3x3.json': '49b8837842bda6892741d30d1e01cc791a261452d8a2148d16f084dd4b125e82',
+};
+
+/** Each file's record: 8eb00b7c's, or 8X-2's for a file it added. */
+const RECORDED: Record<string, string> = { ...AT_8EB00B7C, ...AT_8X2 };
+
 const sha = (s: string) => createHash('sha256').update(s).digest('hex');
 
 function rendered(f: string, scores?: Parameters<typeof SavedResultBody>[0] extends { scores?: infer S } ? S : never): string {
@@ -125,13 +136,15 @@ describe('a project page with no prepared run, byte for byte as at 8eb00b7c', ()
 
 describe('a saved result with no scores, byte for byte as at 8eb00b7c', () => {
   it('covers every stored fixture', () => {
-    expect(FILES.length).toBeGreaterThanOrEqual(14);
-    expect(Object.keys(AT_8EB00B7C).sort()).toEqual(FILES);
+    expect(FILES.length).toBeGreaterThanOrEqual(16);
+    // The two records name disjoint files, and together the whole directory.
+    expect(Object.keys(AT_8EB00B7C).filter((k) => k in AT_8X2)).toEqual([]);
+    expect([...Object.keys(AT_8EB00B7C), ...Object.keys(AT_8X2)].sort()).toEqual(FILES);
   });
 
   it.each(FILES)('%s', (f) => {
     const html = rendered(f);
     expect(html.length).toBeGreaterThan(40);
-    expect({ [f]: sha(html) }).toEqual({ [f]: AT_8EB00B7C[f] });
+    expect({ [f]: sha(html) }).toEqual({ [f]: RECORDED[f] });
   });
 });

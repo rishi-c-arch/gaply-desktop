@@ -94,7 +94,8 @@
 //! Research OS, Phase 8X-1 (decision 580): a record may hold crosstabs, started
 //! with [`Runs::start_xtab`]. Its one check point is `stats_xtab::run`'s, before
 //! the arithmetic, and the record's `columns_total` is
-//! `stats_xtab::check_points`, one. No screen starts it until 8X-2.
+//! `stats_xtab::check_points`, one. Since Phase 8X-2 (decision 591) the
+//! Statistics window's Crosstabs… dialog starts it, and a project reruns it.
 //!
 //! Phase 3: the run manager and the slots belong to the Statistics workspace
 //! (`crate::workspace`), built when it is activated and dropped when it is
@@ -2205,7 +2206,8 @@ impl Runs {
         self.begin::<Crosstabs>(slot, spec, None)
     }
 
-    /// [`Runs::start_xtab`], with an end hook: a rerun, which 8X-2 wires.
+    /// [`Runs::start_xtab`], with an end hook: a project's rerun (Research OS,
+    /// Phase 8X-2, decision 590).
     pub fn start_xtab_then(
         self: &Arc<Self>,
         slot: Arc<Slot>,

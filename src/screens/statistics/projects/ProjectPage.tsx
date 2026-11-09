@@ -71,6 +71,7 @@ import { oneSampleBridge, pairedBridge, type OneSampleBridge, type PairedBridge 
 import { anovaBridge, type AnovaBridge } from '../anovaBridge';
 import { corrBridge, type CorrBridge } from '../corrBridge';
 import { alphaBridge, type AlphaBridge } from '../alphaBridge';
+import { xtabBridge, type XtabBridge } from '../xtabBridge';
 import { projectBridge, type ProjectBridge } from './projectBridge';
 import { EXPORTS, type ExportKind, type SaveFile } from './projectExport';
 import { projectsShown } from './projectGate';
@@ -132,6 +133,8 @@ export interface ProjectPageProps {
   anova?: AnovaBridge;
   correlations?: CorrBridge;
   cronbachAlpha?: AlphaBridge;
+  /** Research OS, Phase 8X-2 (decision 591). */
+  crosstabs?: XtabBridge;
   /** How often project_current is read while a rerun is going. */
   pollMs?: number;
 }
@@ -208,6 +211,7 @@ const ProjectPageShown: React.FC<ProjectPageProps> = ({
   anova: givenAnova,
   correlations: givenCorr,
   cronbachAlpha: givenAlpha,
+  crosstabs: givenXtab,
   pollMs = 250,
 }) => {
   const bridge = useMemo(() => given ?? projectBridge(), [given]);
@@ -219,6 +223,7 @@ const ProjectPageShown: React.FC<ProjectPageProps> = ({
   const anova = useMemo(() => givenAnova ?? anovaBridge(), [givenAnova]);
   const correlations = useMemo(() => givenCorr ?? corrBridge(), [givenCorr]);
   const cronbachAlpha = useMemo(() => givenAlpha ?? alphaBridge(), [givenAlpha]);
+  const crosstabs = useMemo(() => givenXtab ?? xtabBridge(), [givenXtab]);
   // Each kind's cancel, from the bridges given (Phase 8C).
   const cancels = useMemo<Record<RerunKind, (runId: number) => Promise<unknown>>>(
     () => ({
@@ -229,8 +234,9 @@ const ProjectPageShown: React.FC<ProjectPageProps> = ({
       anova: (runId) => anova.cancel(runId),
       correlations: (runId) => correlations.cancel(runId),
       cronbach_alpha: (runId) => cronbachAlpha.cancel(runId),
+      crosstabs: (runId) => crosstabs.cancel(runId),
     }),
-    [describe, ttest, oneSample, paired, anova, correlations, cronbachAlpha]
+    [describe, ttest, oneSample, paired, anova, correlations, cronbachAlpha, crosstabs]
   );
   const gen = useGeneration();
   const [view, setView] = useState<View>({ kind: 'loading' });

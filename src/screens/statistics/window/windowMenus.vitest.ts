@@ -70,11 +70,12 @@ describe('every item, in decision 441\'s words and order', () => {
 
   it('Analyze', () => {
     expect(shape(menu(ms, 'analyze'))).toEqual([
-      ['Descriptive statistics', ['Summary…']],
+      // Research OS, Phase 8X-2 (decision 591): Crosstabs… after Summary…, where SPSS has it.
+      ['Descriptive statistics', ['Summary…', 'Crosstabs…']],
       ['Compare means', ['Independent-samples t-test…', 'One-sample t-test…', 'Paired t-test…', 'One-way ANOVA…']],
       ['Correlate', ['Correlations…']],
       ['Scale', ["Reliability (Cronbach's alpha)…"]],
-      ['Coming later', ['Crosstabs and chi-square', 'Regression', 'Factor analysis', 'Nonparametric tests', 'CFA and SEM']],
+      ['Coming later', ['Regression', 'Factor analysis', 'Nonparametric tests', 'CFA and SEM']],
     ]);
   });
 
@@ -213,7 +214,7 @@ describe('Coming later', () => {
   };
 
   it('is the closed list decision 441 gives, and the table is what the menus show', () => {
-    expect(COMING_LATER.analyze).toEqual(['Crosstabs and chi-square', 'Regression', 'Factor analysis', 'Nonparametric tests', 'CFA and SEM']);
+    expect(COMING_LATER.analyze).toEqual(['Regression', 'Factor analysis', 'Nonparametric tests', 'CFA and SEM']);
     expect(COMING_LATER.transform).toEqual(['Recode values…', 'Compute from a formula…', 'Select cases…']);
     expect(later('analyze').map((i) => i.label)).toEqual(COMING_LATER.analyze);
     expect(later('transform').map((i) => i.label)).toEqual(COMING_LATER.transform);
@@ -258,7 +259,7 @@ describe("alpha's item, live (decision 473)", () => {
 });
 
 describe('every method, live (decision 485)', () => {
-  it('LIVE_METHODS holds all seven', () => {
+  it('LIVE_METHODS holds all eight', () => {
     expect([...LIVE_METHODS].sort()).toEqual(METHODS.map((m) => m.kind).sort());
   });
 

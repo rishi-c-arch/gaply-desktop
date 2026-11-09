@@ -110,6 +110,7 @@ use gaply_core::stats_prep::{
 };
 use gaply_core::stats_registry;
 use gaply_core::stats_ttest::{self, TTestCode, TTestParams, Variant};
+use gaply_core::stats_xtab::{self, CrosstabsParams, XtabCode};
 use gaply_core::GaplyError;
 
 #[cfg(test)]
@@ -1211,6 +1212,13 @@ const METHODS: &[MethodRow] = &[
         read_back: read_back::<OperationSpec<AlphaParams>>,
         export: export_with::<OperationSpec<AlphaParams>>,
     },
+    // Research OS, Phase 8X-2 (decision 590).
+    MethodRow {
+        capability: stats_xtab::CAPABILITY_ID,
+        kind: RunKind::Crosstabs,
+        read_back: read_back::<OperationSpec<CrosstabsParams>>,
+        export: export_with::<OperationSpec<CrosstabsParams>>,
+    },
 ];
 
 /// The row of a capability, if a method has one.
@@ -1455,6 +1463,37 @@ impl SavedSpec for OperationSpec<AlphaParams> {
 
     fn parameters(&self) -> Vec<ExportParameter> {
         alpha_parameters(self)
+    }
+}
+
+// Research OS, Phase 8X-2 (decision 590): crosstabs, checked through its
+// façade, never stats_xtab itself (verifier_facade_guards.rs).
+impl Rerun for OperationSpec<CrosstabsParams> {
+    fn valid_on(&self, build: Build, dataset: &Dataset) -> bool {
+        check_spec(
+            WorkspaceId::Statistics,
+            self.workspace_id,
+            &self.capability_id,
+        )
+        .is_ok()
+            && passes(stats_adapters::xtab_validate(self, build, dataset).status)
+    }
+
+    fn launch(
+        self: Box<Self>,
+        runs: &Arc<Runs>,
+        slot: Arc<Slot>,
+        end: EndHook,
+    ) -> Result<RunId, NotStarted> {
+        runs.start_xtab_then(slot, *self, end)
+    }
+}
+
+impl SavedSpec for OperationSpec<CrosstabsParams> {
+    type Code = XtabCode;
+
+    fn parameters(&self) -> Vec<ExportParameter> {
+        xtab_parameters(self)
     }
 }
 
@@ -2373,7 +2412,8 @@ pub enum SpecFieldShown {
 /// 330); the correlations share `missingCodes[]` and add `variables[]`,
 /// `coefficients[]` and `missing` (decision 357); Cronbach's alpha shares
 /// `missingCodes[]` and adds `items[]`, `reversed[]` and `scale`, null or its
-/// `min` and `max` (decision 382).
+/// `min` and `max` (decision 382); crosstabs shares `missingCodes[]` and adds
+/// `rows` and `columns` (decision 590).
 pub const SPEC_FIELDS: &[(&str, SpecFieldShown)] = &[
     (
         "schemaVersion",
@@ -2430,6 +2470,11 @@ pub const SPEC_FIELDS: &[(&str, SpecFieldShown)] = &[
     ("parameters.scale", SpecFieldShown::Reported),
     ("parameters.scale.min", SpecFieldShown::Reported),
     ("parameters.scale.max", SpecFieldShown::Reported),
+    // Research OS, Phase 8X-2 (decision 590): crosstabs' two columns by
+    // position. `parameters.columns` is a string here, distinct from the
+    // summary's `parameters.columns[].alias`.
+    ("parameters.rows", SpecFieldShown::Reported),
+    ("parameters.columns", SpecFieldShown::Reported),
     // Research OS, Phase 8M-4 (decision 435): what made a prepared input,
     // hashes and numbers. Its two hashes are the data file's and the recipe's
     // rows in the report's inputs table; its columns and versions are the lines
@@ -2685,6 +2730,27 @@ fn alpha_parameters(spec: &OperationSpec<AlphaParams>) -> Vec<ExportParameter> {
     out.push(ExportParameter::ScaleEnds(
         p.scale.map(|s| [s.min.to_bits(), s.max.to_bits()]),
     ));
+    out.push(ExportParameter::MissingCodes {
+        count: p.missing_codes.len() as u64,
+    });
+    out.push(ExportParameter::Seed(spec.random_seed));
+    out
+}
+
+/// A crosstab spec's settings, by the allow-list (Research OS, Phase 8X-2,
+/// decision 590): its rows' and columns' columns by position, and how many
+/// missing codes. No level is named: the table takes every level.
+fn xtab_parameters(spec: &OperationSpec<CrosstabsParams>) -> Vec<ExportParameter> {
+    let p = &spec.parameters;
+    let mut out = shape(&spec.inputs);
+    out.push(ExportParameter::Column {
+        position: p.rows.0 .0,
+        role: ColumnRole::TableRows,
+    });
+    out.push(ExportParameter::Column {
+        position: p.columns.0 .0,
+        role: ColumnRole::TableColumns,
+    });
     out.push(ExportParameter::MissingCodes {
         count: p.missing_codes.len() as u64,
     });
@@ -3258,6 +3324,50 @@ mod tests {
         )
     }
 
+    /// Research OS, Phase 8X-2 (decision 590): a crosstab's spec, its rows' and
+    /// columns' columns by alias, two codes.
+    fn xtab_spec() -> OperationSpec<CrosstabsParams> {
+        OperationSpec {
+            schema_version: SchemaVersion,
+            operation_id: OperationId(11),
+            workspace_id: WorkspaceId::Statistics,
+            capability_id: stats_xtab::capability_id(),
+            capability_version: 1,
+            inputs: vec![input()],
+            parameters: CrosstabsParams {
+                rows: Alias(ColumnAlias(2)),
+                columns: Alias(ColumnAlias(3)),
+                missing_codes: vec![-99.0, 99.0],
+            },
+            random_seed: None,
+            confirmation_refs: Vec::new(),
+            preparation: None,
+        }
+    }
+
+    #[test]
+    fn the_crosstabs_settings_are_positions_roles_and_counts() {
+        assert_eq!(
+            xtab_parameters(&xtab_spec()),
+            [
+                ExportParameter::InputShape {
+                    rows: 12,
+                    columns: 3
+                },
+                ExportParameter::Column {
+                    position: 2,
+                    role: ColumnRole::TableRows
+                },
+                ExportParameter::Column {
+                    position: 3,
+                    role: ColumnRole::TableColumns
+                },
+                ExportParameter::MissingCodes { count: 2 },
+                ExportParameter::Seed(None),
+            ]
+        );
+    }
+
     #[test]
     fn the_alpha_settings_are_positions_bits_and_counts() {
         let (reversed, plain) = alpha_specs();
@@ -3452,6 +3562,9 @@ mod tests {
         let (reversed, plain) = alpha_specs();
         paths(&serde_json::to_value(&reversed).unwrap(), "", &mut seen);
         paths(&serde_json::to_value(&plain).unwrap(), "", &mut seen);
+        // Crosstabs (decision 590): its `rows` and `columns`, a string each,
+        // distinct from the summary's `columns[].alias`.
+        paths(&serde_json::to_value(xtab_spec()).unwrap(), "", &mut seen);
         // A run on prepared data (decision 435).
         paths(
             &serde_json::to_value(prepared_spec()).unwrap(),
@@ -4291,6 +4404,8 @@ mod tests {
             stats_ttest::CAPABILITY_ID,
             stats_onesample::ONE_SAMPLE_ID,
             stats_onesample::PAIRED_ID,
+            // Research OS, Phase 8X-2 (decision 590).
+            stats_xtab::CAPABILITY_ID,
         ] {
             assert_eq!(
                 METHODS.iter().filter(|m| m.capability == id).count(),

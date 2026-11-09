@@ -319,6 +319,29 @@ impl World {
         id
     }
 
+    /// A crosstab of column `rows` by column `columns` (Research OS, Phase 8X-2,
+    /// decision 590), its spec carrying the slot's preparation exactly when it
+    /// has one, as a screen's does (decision 490), run to its end.
+    pub fn xtab(&self, slot: u64, rows: u32, columns: u32, missing_codes: Vec<f64>) -> u64 {
+        let e = self.engine();
+        let held = e.datasets.get(slot).expect("the slot");
+        let mut spec = gaply_core::stats_xtab::spec(
+            OperationId(12),
+            held.dataset(),
+            gaply_core::stats_xtab::CrosstabsParams {
+                rows: Alias(ColumnAlias(rows)),
+                columns: Alias(ColumnAlias(columns)),
+                missing_codes,
+            },
+        );
+        spec.preparation = held.preparation();
+        let id = app_lib::stats_xtab_commands::run(&e.runs, &e.datasets, slot, spec)
+            .expect("the run starts")
+            .run_id;
+        self.wait_new_kind(id);
+        id
+    }
+
     pub fn wait_new_kind(&self, run: u64) -> RunState {
         let e = self.engine();
         let start = Instant::now();
@@ -331,6 +354,7 @@ impl World {
                 .or_else(|_| e.runs.anova_snapshot(RunId(run)).map(|s| s.record.state))
                 .or_else(|_| e.runs.corr_snapshot(RunId(run)).map(|s| s.record.state))
                 .or_else(|_| e.runs.alpha_snapshot(RunId(run)).map(|s| s.record.state))
+                .or_else(|_| e.runs.xtab_snapshot(RunId(run)).map(|s| s.record.state))
                 .expect("the run is held");
             if state.is_terminal() {
                 return state;

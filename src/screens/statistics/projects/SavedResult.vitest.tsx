@@ -109,7 +109,7 @@ function withStored(name: string, field: 'bundleJson' | 'failureJson' | 'specJso
 /* ---- the shape check ----------------------------------------------------------- */
 
 describe('the shape check', () => {
-  it('has the fourteen snapshots Rust wrote, and accepts every one', () => {
+  it('has the sixteen snapshots Rust wrote, and accepts every one', () => {
     expect(SNAPSHOTS).toEqual([
       'alpha.json',
       'alpha_reversed.json',
@@ -125,8 +125,13 @@ describe('the shape check', () => {
       'summary_prepared.json',
       'ttest.json',
       'ttest_failed.json',
+      // Research OS, Phase 8X-2 (decision 591).
+      'xtab_2x2.json',
+      'xtab_3x3.json',
     ]);
     expect(checkStored(stored('summary.json')).kind).toBe('summary');
+    expect(checkStored(stored('xtab_2x2.json')).kind).toBe('crosstabs');
+    expect(checkStored(stored('xtab_3x3.json')).kind).toBe('crosstabs');
     expect(checkStored(stored('ttest.json')).kind).toBe('ttest');
     const failed = checkStored(stored('ttest_failed.json'));
     expect(failed.kind).toBe('failed');
@@ -148,6 +153,8 @@ describe('the shape check', () => {
     ['alpha.json', 'bundleJson'],
     ['summary_prepared.json', 'bundleJson'],
     ['alpha_reversed.json', 'bundleJson'],
+    ['xtab_2x2.json', 'bundleJson'],
+    ['xtab_3x3.json', 'bundleJson'],
   ] as const)('%s: rejects it with any one field of its %s removed', (name, field) => {
     const all = paths(JSON.parse(stored(name)[field] as string)).filter((p) => typeof p[p.length - 1] === 'string');
     expect(all.length).toBeGreaterThan(5);
@@ -165,6 +172,8 @@ describe('the shape check', () => {
     ['ttest_failed.json', 'failureJson'],
     ['one_sample.json', 'bundleJson'],
     ['paired.json', 'bundleJson'],
+    ['xtab_2x2.json', 'bundleJson'],
+    ['xtab_3x3.json', 'bundleJson'],
   ] as const)('%s: rejects it with any one number in its %s made null, or made a string', (name, field) => {
     const v0 = JSON.parse(stored(name)[field] as string);
     const numbers = paths(v0).filter((p) => typeof getAt(v0, p) === 'number');

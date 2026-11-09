@@ -13,13 +13,13 @@
 //! * The bytes are pinned on macOS aarch64 (captured 9 Nov 2026): a golden
 //!   CSV and the manifest's JSON for a 2 x 2 table over 23 rows, with a
 //!   ticked missing code in each column, an empty cell in each, and a cell
-//!   with an expected count below 5. Every other platform, Linux x86_64
-//!   included, checks that pin's layout (decision 346's check,
-//!   `pin_support`, unchanged), as the correlations' and alpha's pins first
-//!   did (decisions 354 and 379): the chi-square's p and Fisher's come from
-//!   the platform's maths library through statrs, so another platform's last
-//!   digits may differ. Linux x86_64 is measured outside this Mac before it
-//!   is made exact (decision 577). It never passes by skipping.
+//!   with an expected count below 5. Linux x86_64 checks the same pin
+//!   exactly since Research OS Phase 8X-2 (decision 592): measured outside
+//!   this Mac at 1c6462a8, it gives the same bytes (decision 586), as alpha's
+//!   did (decision 389). Every other platform checks that pin's layout
+//!   (decision 346's check, `pin_support`, unchanged): the chi-square's p and
+//!   Fisher's come from the platform's maths library through statrs, so
+//!   another platform's last digits may differ. It never passes by skipping.
 //! * Ten runs give byte-identical CSV and manifest bytes.
 
 use gaply_core::contracts::{Arch, OperationId, Os, Platform, RunManifest};
@@ -342,19 +342,20 @@ enum PinCheck {
 /// name the `target_os` and `target_arch` this test was built for.
 fn pin_check(os: &str, arch: &str) -> PinCheck {
     match (os, arch) {
-        ("macos", "aarch64") => PinCheck::Exact,
+        ("macos", "aarch64") | ("linux", "x86_64") => PinCheck::Exact,
         _ => PinCheck::Layout,
     }
 }
 
-/// Run on every platform: exact bytes on macOS aarch64, the layout check
-/// everywhere else, Linux x86_64 included until it is measured, never a
-/// skip.
+/// Decisions 584 and 592, run on every platform: exact bytes on macOS aarch64
+/// and on Linux x86_64 (measured outside this Mac at 1c6462a8: the same bytes,
+/// decision 586), the layout check everywhere else, never a skip, as alpha's
+/// pin was made exact (alpha_export.rs, decision 389).
 #[test]
-fn the_pin_is_checked_exactly_on_macos_aarch64_and_by_layout_elsewhere() {
+fn the_pin_is_checked_exactly_on_macos_aarch64_and_linux_x86_64() {
     for (os, arch, want) in [
         ("macos", "aarch64", PinCheck::Exact),
-        ("linux", "x86_64", PinCheck::Layout),
+        ("linux", "x86_64", PinCheck::Exact),
         ("windows", "x86_64", PinCheck::Layout),
         ("macos", "x86_64", PinCheck::Layout),
         ("linux", "aarch64", PinCheck::Layout),
@@ -388,8 +389,8 @@ fn the_export_bytes_are_pinned() {
     }
 }
 
-/// Linux relies on this: the layout check on altered copies of the pin, on
-/// every platform.
+/// Every platform but macOS aarch64 and Linux x86_64 relies on this: the
+/// layout check on altered copies of the pin, run on every platform.
 #[test]
 fn the_layout_check_allows_a_few_ulps_and_nothing_else() {
     let pin = pin_bytes(MAC_CSV);

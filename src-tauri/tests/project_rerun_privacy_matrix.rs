@@ -17,6 +17,8 @@
 //!   which reports each group's min and max, it is neither: its group is
 //!   10.5, 95.5, 61.8129, 50 and 31;
 //! * `TXT_SENTINEL_m02`, a text cell in a column the user does not select;
+//! * since Phase 8X-2 (decision 590), `LV2_SENTINEL_r35`, a level label of
+//!   crosstabs' second column, on a table of its own (below);
 //! * the project's name, `TITLESENTp22`.
 //!
 //! The flow, through the commands' plain functions: open the file, run a
@@ -26,7 +28,12 @@
 //! saved into the open project and run again; since Phase 8H-2 (decision
 //! 357) the same for correlations of the selected column and `aux`, all
 //! three coefficients, pairwise; since Phase 8I-2 (decision 382) the same for
-//! Cronbach's alpha of the selected column and `aux`, nothing reversed; read the project back (`project_current`, `project_runs`, each
+//! Cronbach's alpha of the selected column and `aux`, nothing reversed; since
+//! Phase 8X-2 (decision 590), after the prepared runs below, crosstabs of a
+//! second table's two text columns, headed by the header sentinel and holding
+//! LVL and LV2 among their levels and the code -99, ticked, the file named
+//! `FILE_SENTINEL_d17_xtab.csv` in the same folder, saved as run 14 and run
+//! again as 15, so no run id above moves; read the project back (`project_current`, `project_runs`, each
 //! run's result) and render both exports, then delete the project.
 //!
 //! * In the app's data folder, the sentinels of the data appear only inside
@@ -77,6 +84,7 @@ use gaply_core::stats_corr::{self, Coefficient, CorrParams, MissingHandling};
 use gaply_core::stats_desc::{self, Alias, ColumnRequest, DescribeParams, TreatAs};
 use gaply_core::stats_l1::dataset::ColumnAlias;
 use gaply_core::stats_prep::{self, MissingRule, Recipe, RecipeStep, ScaleScoreStep, Statistic};
+use gaply_core::stats_xtab::{self, CrosstabsParams};
 use gaply_core::Database;
 use project_support::World;
 
@@ -88,8 +96,11 @@ const UNSEL_NUM: &str = "7123.4567";
 const SEL_NUM: &str = "61.8129";
 const TXT: &str = "TXT_SENTINEL_m02";
 const TITLE: &str = "TITLESENTp22";
+// Research OS, Phase 8X-2 (decision 590): a level label of crosstabs' second
+// column, on its own table.
+const LV2: &str = "LV2_SENTINEL_r35";
 
-const SENTINELS: [&str; 7] = [HDR, LVL, FILE, PATH, UNSEL_NUM, SEL_NUM, TXT];
+const SENTINELS: [&str; 8] = [HDR, LVL, FILE, PATH, UNSEL_NUM, SEL_NUM, TXT, LV2];
 
 // 8M-3's (stats_prep_privacy_matrix.rs), on a binary grid: 61.8125 is an item's
 // value in one row, and the score there, the mean of it and 85.25, is 73.53125.
@@ -107,6 +118,28 @@ fn table() -> Vec<u8> {
     let aux = ["1", "2", "3", "4", UNSEL_NUM, "6", "7", "8", "9"];
     let rows: Vec<Vec<C>> = (0..9)
         .map(|i| vec![C::N(score[i]), C::T(group[i]), C::T(note[i]), C::N(aux[i])])
+        .collect();
+    delimited(&headers, &rows, ",", "\n")
+}
+
+/// Crosstabs' table (Research OS, Phase 8X-2, decision 590): two text columns,
+/// the first headed by the header sentinel with LVL among its levels and one
+/// cell the code -99, the second with LV2 among its levels. Its own table,
+/// since `table()`'s only other text column holds TXT, which no result may
+/// hold.
+fn xtab_table() -> Vec<u8> {
+    let headers = [HDR, "side"];
+    let first = ["a", LVL, "a", LVL, "-99", "a", LVL, "a", LVL, LVL];
+    let second = ["p", LV2, LV2, "p", "p", LV2, "p", LV2, "p", LV2];
+    let rows: Vec<Vec<C>> = (0..10)
+        .map(|i| {
+            let cell = if first[i] == "-99" {
+                C::N(first[i])
+            } else {
+                C::T(first[i])
+            };
+            vec![cell, C::T(second[i])]
+        })
         .collect();
     delimited(&headers, &rows, ",", "\n")
 }
@@ -625,13 +658,52 @@ fn a_rerun_puts_no_sentinel_anywhere_but_the_projects_artifacts_and_its_title() 
     prepared_surfaces.push(("a refused Save".into(), refused.to_string()));
     assert!(refused.to_string().contains("project.data_unavailable"));
 
+    // Phase 8X-2 (decision 590): crosstabs of the two text columns of a table
+    // of its own, the code -99 ticked, named and placed as the first file is,
+    // saved into the open project as run 14 and run again as 15. Placed after
+    // the prepared runs, so no stored run id above moves.
+    let xtab_data = folder.join(format!("{FILE}_xtab.csv"));
+    std::fs::write(&xtab_data, xtab_table()).unwrap();
+    let xtab_open = desc::open(&e.datasets, &xtab_data).expect("open");
+    let held = e.datasets.get(xtab_open.slot).unwrap();
+    let xtab_spec = stats_xtab::spec(
+        OperationId(7),
+        held.dataset(),
+        CrosstabsParams {
+            rows: Alias(ColumnAlias(1)),
+            columns: Alias(ColumnAlias(2)),
+            missing_codes: vec![-99.0],
+        },
+    );
+    drop(held);
+    let xtab_run = app_lib::stats_xtab_commands::run(&e.runs, &e.datasets, xtab_open.slot, xtab_spec)
+        .unwrap()
+        .run_id;
+    w.wait_new_kind(xtab_run);
+    let saved_xtab = pc::save_run(
+        &app,
+        &w.ws,
+        xtab_run,
+        SaveTarget::OpenProject {
+            project_id: id.clone(),
+        },
+    )
+    .expect("the crosstab saved");
+    assert_eq!(saved_xtab.stored_run_id, 14);
+    responses.push((
+        "save (crosstabs)".into(),
+        serde_json::to_string(&saved_xtab).unwrap(),
+    ));
+    responses.push(("rerun (crosstabs)".into(), rerun_saved(&w, &app, 14)));
+
     let runs_response = serde_json::to_string(&pc::runs(&app, &w.ws, &id).unwrap()).unwrap();
     responses.push(("runs".into(), runs_response.clone()));
     // Phase 8U-3 (decision 553): project_runs holds no name, nor any other of
     // the prepared run's sentinels.
     prepared_surfaces.push(("runs".into(), runs_response));
     let mut results = String::new();
-    for n in [1, 2, 3, 4, 5, 6, 7, 8] {
+    // Phase 8X-2 (decision 590): the crosstab and its rerun, 14 and 15.
+    for n in [1, 2, 3, 4, 5, 6, 7, 8, 14, 15] {
         results.push_str(
             &serde_json::to_string(&pc::run_result(&app, &w.ws, &id, n).unwrap()).unwrap(),
         );
@@ -656,6 +728,14 @@ fn a_rerun_puts_no_sentinel_anywhere_but_the_projects_artifacts_and_its_title() 
     assert!(
         report.contains("Repeats run 7.") && report.contains("- Items: columns 1, 4, by position"),
         "alpha and its rerun are in the report"
+    );
+    // Phase 8X-2 (decision 590): the crosstab and its rerun, its two columns by
+    // position and role.
+    assert!(
+        report.contains("Repeats run 14.")
+            && report.matches("- Column 1: table_rows").count() == 2
+            && report.matches("- Column 2: table_columns").count() == 2,
+        "the crosstab and its rerun are in the report"
     );
     assert!(prov.contains("wasInformedBy"), "and in the provenance");
 
@@ -706,8 +786,11 @@ fn a_rerun_puts_no_sentinel_anywhere_but_the_projects_artifacts_and_its_title() 
     }
     let in_results = found(results.as_bytes());
     assert!(in_results.contains(&HDR) && in_results.contains(&LVL));
+    // Phase 8X-2 (decision 590): the crosstab's second level label, a level
+    // label in a result, as LVL is; never anywhere else.
+    assert!(in_results.contains(&LV2), "the crosstab's result holds its labels");
     for s in &in_results {
-        assert!([HDR, LVL].contains(s), "{s} in a result read back");
+        assert!([HDR, LVL, LV2].contains(s), "{s} in a result read back");
     }
     assert_eq!(found(report.as_bytes()), [TITLE], "the report's title only");
     assert_eq!(report.matches(TITLE).count(), 1);
@@ -770,7 +853,7 @@ fn a_rerun_puts_no_sentinel_anywhere_but_the_projects_artifacts_and_its_title() 
             assert!(!hits.contains(&s), "{s} in {}", f.display());
         }
     }
-    for s in [HDR, LVL, TXT, SEL_NUM, UNSEL_NUM] {
+    for s in [HDR, LVL, TXT, SEL_NUM, UNSEL_NUM, LV2] {
         assert!(in_artifacts.contains(&s), "the copy of the data holds {s}");
     }
     assert!(in_db.contains(&TITLE), "the name is in project.title");

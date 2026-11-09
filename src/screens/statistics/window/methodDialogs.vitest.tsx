@@ -19,12 +19,14 @@ import { exportView, resultBundleView } from '../fixtures/describeFixtures';
 import onesampleResult from '../fixtures/onesampleResultView.json';
 import pairedResult from '../fixtures/pairedResultView.json';
 import { ttestResultView } from '../fixtures/ttestFixtures';
+import { xtabResultView } from '../fixtures/xtabFixtures';
 import { METHODS } from '../methods';
 import { makeMockOneSampleBridge, makeMockPairedBridge } from '../onesampleBridge';
 import { makeMockProjectBridge, PROJECT_COMMANDS as C } from '../projects/projectBridge';
 import { openProjectStore } from '../projects/projectSession';
 import { makeMockCapabilityBridge, makeMockTTestBridge } from '../ttestBridge';
 import type { CapabilityView } from '../ttestTypes';
+import { makeMockXtabBridge } from '../xtabBridge';
 import { METHOD_DIALOGS, METHOD_OUTPUT } from './methodOutput';
 import { statisticsSession } from './statisticsSession';
 import { StatisticsWindow } from './StatisticsWindow';
@@ -140,6 +142,18 @@ const ROWS = [
     choose: async () => click('al-tick-all'),
     line: null,
   },
+  // Research OS, Phase 8X-2 (decision 591).
+  {
+    kind: 'crosstabs',
+    run: 'xt-run',
+    card: 'xt-result-card',
+    prefix: 'stats_xtab',
+    choose: async () => {
+      select('xt-rows', 'C3');
+      select('xt-columns', 'C1');
+    },
+    line: 'Rows: C3 Arm. Columns: C1 Height. Missing codes: none.',
+  },
 ] as const;
 
 function setUp() {
@@ -153,6 +167,7 @@ function setUp() {
     anova: makeMockAnovaBridge({ stats_anova_group_levels: levels, ...fill('stats_anova', anovaResultView) }),
     corr: makeMockCorrBridge(fill('stats_corr', corrResultView)),
     alpha: makeMockAlphaBridge(fill('stats_alpha', alphaResultView)),
+    xtab: makeMockXtabBridge(fill('stats_xtab', xtabResultView)),
   };
   const capabilities: CapabilityView[] = METHODS.map((m) => ({ id: m.capabilityId, version: 1, lifecycle: 'beta', titleCode: 'stats.capability.describe.title', descriptionCode: 'stats.capability.describe.description', licenseNotes: [], knownLimitations: [], runnable: true }));
   const save = vi.fn().mockResolvedValue('/chosen/out.csv');

@@ -1461,6 +1461,48 @@ fn stored_anova_results_have_the_layout_of_their_fixtures() {
     }
 }
 
+/// Crosstabs' saved results (Research OS, Phase 8X-2, decision 591): a 2 x 2
+/// with the code -99 ticked and an empty cell in each column, so its result
+/// holds all four exclusions, missing_code once for each column; and a 3 x 3
+/// with no code. Each on a file's own table, never a prepared slot (the
+/// prepared case is project_xtab.rs's), laid out as their fixtures, for the
+/// webview's shape check, as the other kinds' are.
+#[test]
+fn stored_xtab_results_have_the_layout_of_their_fixtures() {
+    let w = World::new("stored-xtab");
+    let slot = w.open(
+        "xtab.csv",
+        b"arm,sex,site,dose\n\
+a,f,x,low\na,m,x,mid\na,f,y,high\nb,m,y,low\nb,f,z,mid\nb,m,z,high\n\
+a,f,x,mid\nb,m,y,high\n-99,f,x,low\na,-99,y,low\n,m,z,low\nb,,x,mid\n\
+a,m,z,high\nb,f,x,low\n",
+    );
+    let two = w.xtab(slot, 1, 2, vec![-99.0]);
+    let id = pc::save_run(&w.root(), &w.ws, two, new_project("Stored crosstabs"))
+        .unwrap()
+        .project_id;
+    let three = w.xtab(slot, 3, 4, vec![]);
+    pc::save_run(&w.root(), &w.ws, three, into_open(&id)).unwrap();
+    for (n, name, side, exclusions) in [(1, "xtab_2x2.json", 2, 4), (2, "xtab_3x3.json", 3, 0)] {
+        let back = pc::run_result(&w.root(), &w.ws, &id, n).expect("read back");
+        assert_eq!(back.state, RunState::Succeeded, "{name}");
+        assert_eq!(back.capability_id, "stats.analyze.crosstabs", "{name}");
+        let bundle: Value = serde_json::from_str(back.bundle_json.as_deref().unwrap()).unwrap();
+        let r = &bundle["primaryOutputs"];
+        assert_eq!(r["rowLevels"].as_array().unwrap().len(), side, "{name}");
+        assert_eq!(r["columnLevels"].as_array().unwrap().len(), side, "{name}");
+        assert_eq!(r["exclusions"].as_array().unwrap().len(), exclusions, "{name}");
+        assert_eq!(r["fisher"].is_null(), side != 2, "{name}");
+        assert_eq!(r["continuityCorrected"].is_null(), side != 2, "{name}");
+        assert_eq!(
+            bundle["diagnostics"].as_array().unwrap().len(),
+            0,
+            "{name}: no warning, so every parameter the checker reads is pinned"
+        );
+        assert_stored_fixture(name, &back);
+    }
+}
+
 /// The correlations' saved results (Research OS, Phase 8H-2, decision 357):
 /// one pairwise with all three coefficients and a ticked missing code, and
 /// one listwise with Pearson only, laid out as their fixtures, for the

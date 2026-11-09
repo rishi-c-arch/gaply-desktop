@@ -39,6 +39,9 @@ import type { CorrDiagnostic } from '../corrTypes';
 import { AlphaResultCard } from '../AlphaFlow';
 import { alphaSentence } from '../alphaWording';
 import type { AlphaDiagnostic } from '../alphaTypes';
+import { XtabCard } from '../XtabCard';
+import { xtabSentence, type XtabNames } from '../xtabWording';
+import type { XtabDiagnostic } from '../xtabTypes';
 import { diagnosticSentence } from '../describeWording';
 import { ttestSentence, type TTestNames } from '../ttestWording';
 import { oneSampleSentence } from '../onesampleWording';
@@ -58,6 +61,7 @@ import {
   PAIRED_CAPABILITY,
   SUMMARY_CAPABILITY,
   TTEST_CAPABILITY,
+  XTAB_CAPABILITY,
   type Checked,
   type StoredFailure,
 } from './storedShape';
@@ -117,6 +121,15 @@ export function anovaNames(result: AnovaResultView, column: (alias: number) => s
     column,
     level: (index: number) => result.result.groups.find((g) => g.level === index)?.label ?? `level ${index + 1}`,
   };
+}
+
+/** Crosstabs' names (Research OS, Phase 8X-2, decision 591), on anovaNames':
+ *  columns by position, or a score's C{n} "name" given the run's scores
+ *  (decision 554), which for crosstabs never names a column, since it refuses a
+ *  score. No level is named in a sentence: its codes carry none, and the card
+ *  draws each level's label from the result as text. */
+export function xtabNames(column: (alias: number) => string = BY_POSITION): XtabNames {
+  return { column };
 }
 
 interface BoundaryProps {
@@ -203,6 +216,15 @@ export const SAVED_RENDERERS: Record<string, SavedRenderer> = {
     failedSentence: (failure, n = BY_POSITION_ONLY) => alphaSentence(failure as AlphaDiagnostic, { column: n.column }),
     result: (checked, n = BY_POSITION_ONLY) =>
       checked.kind === 'cronbach_alpha' ? <AlphaResultCard result={checked.result} names={{ column: n.column }} /> : null,
+    hidden: () => false,
+  },
+  // Research OS, Phase 8X-2 (decision 591): through the Output's own card,
+  // XtabCard, columns by position (C1, C2, …), levels by the result's own
+  // labels as text; not behind a flag.
+  [XTAB_CAPABILITY]: {
+    failedSentence: (failure, n = BY_POSITION_ONLY) => xtabSentence(failure as XtabDiagnostic, xtabNames(n.column)),
+    result: (checked, n = BY_POSITION_ONLY) =>
+      checked.kind === 'crosstabs' ? <XtabCard result={checked.result} names={xtabNames(n.column)} /> : null,
     hidden: () => false,
   },
 };

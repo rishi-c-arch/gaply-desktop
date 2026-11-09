@@ -9,6 +9,8 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { WorkspaceShell } from './WorkspaceShell';
+import { defaultRunBridges, jobSentence, runKinds } from './useWorkspaceSwitch';
+import { makeMockXtabBridge } from '../statistics/xtabBridge';
 import { makeMockWorkspaceBridge } from './workspaceBridge';
 import { makeMockDescribeBridge } from '../statistics/describeBridge';
 import type { DatasetView, RunStateView } from '../statistics/describeTypes';
@@ -105,5 +107,27 @@ describe('both callers reach one hook', () => {
   it('the scan sees a deactivate in code, and not in a comment', () => {
     expect(code('await b.deactivate();')).toMatch(/\.deactivate\(/);
     expect(code('// b.deactivate();')).not.toMatch(/\.deactivate\(/);
+  });
+});
+
+// Research OS, Phase 8X-2 (decision 591): a crosstab is read and cancelled
+// through its own commands, never the summary's (decision 580's departure,
+// closed). With no steps sentence: a crosstab has one check point.
+describe("a crosstab, through the switch's own kinds", () => {
+  it('is polled and cancelled through stats_xtab_status and stats_xtab_cancel, and the summary is never asked', async () => {
+    const xt = { runId: 12, state: 'running' as const, terminal: false, elapsedMs: 40, cancelRequested: false, stepsDone: 0, stepsTotal: 1, diagnostics: [] };
+    const xtab = makeMockXtabBridge({ stats_xtab_status: xt, stats_xtab_cancel: { ...xt, cancelRequested: true } });
+    const summary = makeMockDescribeBridge({});
+    const kinds = runKinds(defaultRunBridges({ xtab, describe: summary }));
+    expect(Object.keys(kinds)).toContain('crosstabs');
+    const job = await kinds.crosstabs.status(12);
+    expect(job).toEqual({ runId: 12, state: 'running', terminal: false, progress: null, kind: 'crosstabs' });
+    expect(jobSentence(job as NonNullable<typeof job>)).toBe('Run 12 (crosstabs): Running.');
+    await kinds.crosstabs.cancel(12);
+    expect(xtab.calls).toEqual([
+      ['stats_xtab_status', { runId: 12 }],
+      ['stats_xtab_cancel', { runId: 12 }],
+    ]);
+    expect(summary.calls).toEqual([]);
   });
 });

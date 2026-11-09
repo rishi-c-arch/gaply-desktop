@@ -17,6 +17,7 @@ import { anovaBridge, type AnovaBridge } from '../statistics/anovaBridge';
 import { stepsSentence } from '../statistics/anovaWording';
 import { corrBridge, type CorrBridge } from '../statistics/corrBridge';
 import { alphaBridge, type AlphaBridge } from '../statistics/alphaBridge';
+import { xtabBridge, type XtabBridge } from '../statistics/xtabBridge';
 import { byKind } from '../statistics/methods';
 import { openProjectStore } from '../statistics/projects/projectSession';
 import { AskFirst } from '../statistics/window/MethodDialog';
@@ -34,13 +35,14 @@ export interface JobView {
   terminal: boolean;
   /** The descriptive summary's column progress, or the one-way ANOVA's or
    *  the correlations' or Cronbach's alpha's steps (decisions 328, 355 and
-   *  380); a t-test has none. */
+   *  380); a t-test has none, nor a crosstab, whose one check point makes a
+   *  steps sentence say nothing (decision 588). */
   progress: string | null;
   kind: RunEntry['kind'];
 }
 
-/** The seven methods' bridges: each kind's run is read and cancelled through
- *  its own (decision 80). */
+/** The eight methods' bridges: each kind's run is read and cancelled through
+ *  its own (decision 80); crosstabs' since Research OS Phase 8X-2 (decision 591). */
 export interface RunBridges {
   describe: DescribeBridge;
   ttest: TTestBridge;
@@ -49,6 +51,7 @@ export interface RunBridges {
   anova: AnovaBridge;
   corr: CorrBridge;
   alpha: AlphaBridge;
+  xtab: XtabBridge;
 }
 
 /** The bridges the app uses, for any a caller does not give. */
@@ -61,6 +64,7 @@ export function defaultRunBridges(given: Partial<RunBridges> = {}): RunBridges {
     anova: given.anova ?? anovaBridge(),
     corr: given.corr ?? corrBridge(),
     alpha: given.alpha ?? alphaBridge(),
+    xtab: given.xtab ?? xtabBridge(),
   };
 }
 
@@ -88,7 +92,7 @@ export function jobSentence(run: JobView): string {
 }
 
 /** Each kind's status and cancel, from the bridges given (Phase 8C). */
-export function runKinds({ describe: runs, ttest, oneSample, paired, anova, corr, alpha }: RunBridges): Record<RunEntry['kind'], KindCommands> {
+export function runKinds({ describe: runs, ttest, oneSample, paired, anova, corr, alpha, xtab }: RunBridges): Record<RunEntry['kind'], KindCommands> {
   return {
     describe: {
       status: async (runId) => {
@@ -170,6 +174,13 @@ export function runKinds({ describe: runs, ttest, oneSample, paired, anova, corr
         );
       },
       cancel: (runId) => alpha.cancel(runId).catch(() => null),
+    },
+    crosstabs: {
+      status: async (runId) => {
+        const r = await xtab.status(runId).catch(() => null);
+        return r && { runId: r.runId, state: r.state, terminal: r.terminal, progress: null, kind: 'crosstabs' };
+      },
+      cancel: (runId) => xtab.cancel(runId).catch(() => null),
     },
   };
 }

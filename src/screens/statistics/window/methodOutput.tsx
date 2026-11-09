@@ -23,6 +23,8 @@ import { PairedResultCard } from '../PairedFlow';
 import { anovaNames, ttestNames } from '../projects/SavedResult';
 import { ResultCard } from '../TTestFlow';
 import { TTEST_EXPORT_CHOICES, TTEST_EXPORT_TEXT, TTEST_STAGE_HEADINGS, ttestRefusalSentence, ttestRunEndedSentence, ttestSentence } from '../ttestWording';
+import { XtabCard } from '../XtabCard';
+import { XTAB_EXPORT_CHOICES, XTAB_EXPORT_HEADING, XTAB_EXPORT_TEXT, xtabRefusalSentence, xtabRunEndedSentence, xtabSentence } from '../xtabWording';
 import type { RunBridges } from '../../workspace/useWorkspaceSwitch';
 import type { MethodResults, MethodRuns } from './statisticsSession';
 import { AlphaDialog } from './AlphaDialog';
@@ -32,6 +34,7 @@ import { DescribeDialog } from './DescribeDialog';
 import { OneSampleDialog } from './OneSampleDialog';
 import { PairedDialog } from './PairedDialog';
 import { TTestDialog } from './TTestDialog';
+import { XtabDialog } from './XtabDialog';
 import { columnNames } from './windowWording';
 
 /** What an entry may do with its run: no open, no close, no validate, no run. */
@@ -137,6 +140,20 @@ export const METHOD_OUTPUT: { [K in MethodKind]: OutputRow<K> } = {
     exportText: ALPHA_EXPORT_TEXT,
     exportChoices: ALPHA_EXPORT_CHOICES,
   },
+  // Research OS, Phase 8X-2 (decisions 588 and 591): its own card, as no page has one; one
+  // check point, so no steps sentence; a column named from the view, a level from the
+  // result's own labels, which the card draws as text.
+  crosstabs: {
+    bridge: (b) => b.xtab,
+    refusal: xtabRefusalSentence,
+    runEnded: xtabRunEndedSentence,
+    progress: () => null,
+    sentence: (d, view) => xtabSentence(d, { column: columnNames(view) }),
+    card: (result, view) => <XtabCard result={result} names={{ column: columnNames(view) }} />,
+    exportHeading: XTAB_EXPORT_HEADING,
+    exportText: XTAB_EXPORT_TEXT,
+    exportChoices: XTAB_EXPORT_CHOICES,
+  },
 };
 
 /** An entry's row. Its kind and its run and result were stored together, so the
@@ -171,4 +188,5 @@ export const METHOD_DIALOGS: Record<MethodKind, React.FC<MethodDialogRowProps>> 
   anova: ({ bridges, ...p }) => <AnovaDialog {...p} bridge={bridges.anova} />,
   correlations: ({ bridges, ...p }) => <CorrDialog {...p} bridge={bridges.corr} />,
   cronbach_alpha: ({ bridges, ...p }) => <AlphaDialog {...p} bridge={bridges.alpha} />,
+  crosstabs: ({ bridges, ...p }) => <XtabDialog {...p} bridge={bridges.xtab} />,
 };
