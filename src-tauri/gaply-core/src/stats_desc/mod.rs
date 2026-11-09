@@ -79,6 +79,11 @@ pub const CAPABILITY_ID: &str = "stats.describe";
 pub const CAPABILITY_VERSION: u32 = 1;
 /// Raised when any number this module computes may change.
 pub const ENGINE_VERSION: u32 = 1;
+/// How many of a categorical column's levels its profile keeps, in code-point
+/// order (Research OS, Phase 8W, decision 566): Level 1's group limit, which
+/// is the t-test's and the ANOVA's too, so no group a dialog offers loses a
+/// level. `distinct` still counts them all.
+pub const PROFILE_LEVELS_MAX: usize = crate::stats_l1::dataset::GROUP_LEVEL_LIMIT;
 
 closed! {
     /// Every finding, outcome and exclusion of the descriptive summary.
@@ -272,8 +277,9 @@ pub struct ColumnProfile {
     /// Distinct non-missing values: by value for a numeric column, by level
     /// for any other.
     pub distinct: u64,
-    /// A categorical column's levels in code-point order; absent for a
-    /// numeric or empty column.
+    /// A categorical column's first PROFILE_LEVELS_MAX levels, in code-point
+    /// order, with their counts; absent for a numeric or empty column.
+    /// distinct counts them all.
     pub levels: Option<Vec<LevelCount>>,
     pub suspect_missing_codes: Vec<SuspectCode>,
     /// Cells holding NaN written out or an infinity.
@@ -462,6 +468,20 @@ fn level_counts(t: &Tally) -> Vec<LevelCount> {
         .collect()
 }
 
+/// The profile's levels: the tally's first [`PROFILE_LEVELS_MAX`], in its
+/// code-point order, with their counts. Only the profile calls this; the
+/// summary's own result lists every level through [`level_counts`].
+fn profile_levels(t: &Tally) -> Vec<LevelCount> {
+    t.levels
+        .iter()
+        .take(PROFILE_LEVELS_MAX)
+        .map(|(label, count)| LevelCount {
+            label: label.clone(),
+            count: *count,
+        })
+        .collect()
+}
+
 fn column(dataset: &Dataset, alias: Alias) -> Option<(&ColumnSummary, &[Cell])> {
     Some((
         dataset.schema.column(alias.0)?,
@@ -542,7 +562,7 @@ pub fn profile_columns_from(dataset: &Dataset, first: usize) -> Vec<ColumnProfil
                 n: t.n(),
                 missing: t.missing(),
                 distinct,
-                levels: (kind == ColumnKind::Categorical).then(|| level_counts(&t)),
+                levels: (kind == ColumnKind::Categorical).then(|| profile_levels(&t)),
                 suspect_missing_codes: suspect_codes_unless_score(dataset, alias, cells)
                     .into_iter()
                     .map(|s| SuspectCode {

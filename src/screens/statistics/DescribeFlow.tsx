@@ -398,7 +398,7 @@ const DescribeFlow: React.FC<DescribeFlowProps> = ({
         <td className="gds-mono" style={CELL_PADDING}>{c.distinct}</td>
         <td style={CELL_PADDING}>
           {levels.slice(0, 12).map((l) => `${l.label} (${l.count})`).join(', ')}
-          {levels.length > 12 ? `, and ${levels.length - 12} more` : ''}
+          {c.levels && c.distinct > 12 ? `, and ${c.distinct - 12} more` : ''}
         </td>
         <td className="gds-mono" style={CELL_PADDING}>{c.suspectMissingCodes.map((s) => s.code).join(', ')}</td>
       </tr>

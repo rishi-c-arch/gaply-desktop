@@ -95,7 +95,9 @@ export interface ColumnProfile {
   n: number;
   missing: number;
   distinct: number;
-  /** A categorical column's levels; null for a numeric or empty column. */
+  /** A categorical column's first PROFILE_LEVELS_MAX (50) levels, in code-point
+   *  order, with their counts; null for a numeric or empty column. distinct
+   *  counts them all. */
   levels: LevelCount[] | null;
   suspectMissingCodes: SuspectCode[];
   nonFinite: number;

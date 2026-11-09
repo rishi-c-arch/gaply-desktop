@@ -278,3 +278,54 @@ bound over twenty reruns, and decision 547 records the change.
 **What these figures leave out.** The app's own memory (the webview and the
 rest) comes on top of every figure here. `realapp_8u2.md` reads it in Activity
 Monitor during a list.
+
+## Addendum: the profile's level list, measured and capped (Phase 8W, decision 565)
+
+**What was measured, and how.** 8F-1's method, for the open of a file whose
+text columns each hold 100,000 levels (the plan's N3; "Not measured in 8F-2"
+above, the categorical column). Measured 9 Nov 2026 on this Mac, a MacBook Air
+(M1, 8 GB, macOS 26.6.2). The probe was a release build of
+`examples/p8w_probe.rs`, built from `src-tauri` with `cargo build --release
+--example p8w_probe` (137 s before the change, 147 s after). Its source is kept
+as `~/gaply-corpus/os/phase8/8w/p8w_probe.rs.kept`, SHA-256 `5ee5740a…`, and
+was removed from `examples/` after the runs, with its build and its data.
+
+- **The open:** `open_with` at the 8 GB tier's limits
+  (`IngestLimits::for_tier(MemoryTier::Gb8)`) into
+  `DatasetSlots::with_cell_budget(10,000,000)`, the slot held to the end.
+- **The cases,** one per process under `/usr/bin/time -l`, through a script
+  that refused under 15 GiB free and waited while anything built:
+  - A, the worst case: 100,000 rows of 10 text columns, every cell distinct
+    within its column (`ida_000001`), 11,000,030 bytes; each column is text,
+    and the profile maps it to Categorical;
+  - B, the control: 8F-1's 100,000 × 50 numbers (seed 20261026, `ddd.dd`),
+    34,449,484 bytes.
+- **The figures:** the open's seconds; the `DatasetView` serialized compact,
+  as Tauri sends it, its length; the current footprint
+  (`ri_phys_footprint`) after the view and its bytes were dropped, the slot
+  still held; the lifetime peak (`ri_lifetime_max_phys_footprint`). Swap did
+  not grow in any case.
+
+| case | | open (s) | view (bytes) | held (MiB) | peak (MiB) |
+|---|---|---|---|---|---|
+| A, 10 × 100,000 levels | before | 0.417 | 33,001,640 | 177 | 177 |
+| A | after | 0.436 | 18,140 | 70 | 153 |
+| B, 100,000 × 50 numbers | before | 2.511 | 7,260 | 207 | 637 |
+| B | after | 2.696 | 7,260 | 207 | 637 |
+
+The load average was above 8 before each case (12 to 25: another session
+was building), so the seconds are the least certain figures here. B's peak and
+held footprint are unchanged, and its 637 MiB peak is 8F-1's open.
+
+**The cap.** The profile keeps a categorical column's first 50 levels
+(`PROFILE_LEVELS_MAX`, Level 1's `GROUP_LEVEL_LIMIT`, which is also the
+t-test's and the ANOVA's group limit), in code-point order, with their counts;
+`distinct` still counts every level. Case A's view fell by 99.95%, and the held
+footprint by 107 MiB: before, the slot held a profile of 1,000,000 levels
+beside the file's cells. The two profile tables show the same twelve levels
+and the same "and {n} more", counted from `distinct`.
+
+**What these figures leave out.** The app's own memory (the webview and the
+rest) comes on top. A summary of a column of many levels is not capped: its
+result still lists every level, and its memory and its bundle's size are not
+measured here.

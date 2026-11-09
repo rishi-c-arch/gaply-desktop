@@ -253,8 +253,9 @@ wording codes:
 - not measured in 8F-2: the run's 30 s ceiling stays, and the 16 GB tier's
   12,800,000-cell summary took 14.08 s on an 8 GB Mac, so a slower computer
   near that size could reach it; a text-heavy 64 MB file (an open dataset
-  also keeps the file's bytes, for a project Save); a categorical column can
-  now carry up to 100,000 levels into the profile; and two 64 MB files cannot
+  also keeps the file's bytes, for a project Save); a categorical column's
+  profile now keeps its first 50 levels in code-point order, its distinct
+  count counting them all (ADR-010's 8W addendum); and two 64 MB files cannot
   share one project, because decision 107's 100 MiB cap is per project..
 
 The wording is neutral: no "significant", no stars, no verdict (decision 66).

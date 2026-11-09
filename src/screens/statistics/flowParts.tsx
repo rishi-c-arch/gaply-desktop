@@ -152,7 +152,7 @@ export const ProfileTable: React.FC<{ prefix: string; view: DatasetView }> = ({ 
             <td className="gds-mono" style={CELL_PADDING}>{c.missing}</td>
             <td style={CELL_PADDING}>
               {(c.levels ?? []).slice(0, 12).map((l) => `${l.label} (${l.count})`).join(', ')}
-              {(c.levels?.length ?? 0) > 12 ? `, and ${(c.levels?.length ?? 0) - 12} more` : ''}
+              {c.levels && c.distinct > 12 ? `, and ${c.distinct - 12} more` : ''}
             </td>
           </tr>
         ))}

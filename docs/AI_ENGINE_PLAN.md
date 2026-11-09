@@ -24152,7 +24152,7 @@ shown red by the evaluation's own mutation, the file restored to its SHA-256.
 **Notes (decision 89), one line each:**
 N1 Tauri's deserialisation refusals are raw strings: needs a no-echo rule on every deserialised IPC type, a contract change across all commands; with eval23 F20, before the describe flag ships.
 N2 `stats_desc_close` is gated: harmless (the engine and its slots drop with the workspace); the next ADR-001 addendum lists it, when a second workspace exists.
-N3 `DatasetView` lists every level of a text column: Phase 2 behaviour kept by decision 81; the profile's level list is capped when the describe flag's tier is decided.
+N3 `DatasetView` lists every level of a text column: Phase 2 behaviour kept by decision 81; the profile's level list is capped when the describe flag's tier is decided. Capped at 50 in Phase 8W (D312).
 N4 `CapabilityDescriptor`'s Serialize-only derive is unpinned: a compile-time check needs a dev-dependency or a trait trick; the next registry change.
 N5 `examples/` are not scanned by the façade guards: dev binaries by decision 7; Phase 5, when examples are reorganised.
 N6 the Level 1 golden header names no architecture: changing it regenerates Level 1's fixtures, a verifier step.
@@ -27585,3 +27585,22 @@ Tests for files unsafe under 0.4.4 stop first if `Cargo.lock` names a version be
 - One page test, a read after a follow, was written after its code; its red is its mutation, p14.
 
 **The real-app check, `realapp_8u3.md`:** HT8U3 with alpha, Average, a t-test and correlations on it, Total and a summary of it; the page's two recipe lines and each row's scores; the correlations' and summary's results naming `C10 "Average"` and `C11 "Total"`; then Run every saved result again, the page following each rerun, never unread, Run again and Close grey throughout, and the lines grown at the end.
+
+### D312 — Research OS, Phase 8W: the profile's level list, measured and capped at 50, with the summary's result unchanged `[src]` `[test]` `[measured]`
+
+**Decisions followed:** 563 to 569 (`~/gaply-corpus/os/decisions.md`), on decision 502's deferred item and N3 above. The tier N3 waited for is read as the 8 GB memory tier (ADR-010). ADR-012:530's "A column of 100,000 levels is the worst case" is left as written and answered here. No real-app checklist: no screen shows anything new.
+
+**Measured first, and again after (ADR-010's 8W addendum).** A release probe on 8U-2's (`p8w_probe.rs.kept`, SHA-256 `5ee5740a…`), each case its own process, opening through `open_with` at the 8 GB tier's limits:
+- A, 10 text columns of 100,000 distinct cells each: the view fell from 33,001,640 bytes to 18,140; the held footprint from 177 MiB to 70; the peak from 177 to 153; the open took 0.417 s and 0.436 s.
+- B, 8F-1's 100,000 × 50 numbers, the control: peak 637 MiB and held 207 MiB both times, its view 7,260 bytes both times.
+- Every stop passed: B within 10% (0%), A's view under 100 KB, no wire fixture changed.
+
+**The cap.**
+- `stats_desc::PROFILE_LEVELS_MAX`, Level 1's `GROUP_LEVEL_LIMIT` (50), which is also `stats_ttest::MAX_GROUP_LEVELS`: no dialog offers a group of more than 50 levels, and the group-levels commands read the dataset, not the profile.
+- The profile alone keeps a categorical column's first 50 levels in code-point order, through a new `profile_levels`; `level_counts`, which the summary's own result also calls, is unchanged, so a summary still lists every level and its output hash is the one 0a84ccc7 gave (pinned). `distinct` still counts every level, so a list shorter than `distinct` says levels were left out. No field was added and `ENGINE_VERSION` was not raised.
+- The slot holds the capped profile, so the open's view, `view_of`'s, a make's and a clear's agree.
+- The two profile tables (`flowParts.tsx`'s `ProfileTable`, `DescribeFlow.tsx`'s profile) count "and {n} more" from `distinct`, for a column with a level list only, so every column shows what it showed before.
+
+**What changed, and only that.** `gaply-core/src/stats_desc/mod.rs` (the constant, `profile_levels`, the comment); `flowParts.tsx`, `DescribeFlow.tsx` and `describeTypes.ts`'s comment; new tests `gaply-core/tests/profile_levels_cap.rs` (6), `tests/profile_levels_view.rs` (2) and `profileLevelsMore.vitest.tsx` (2); ADR-010's 8W addendum, the one clause in `large_samples.md`, `one_sample_t.md` and `independent_t.md`, and N3's line. Every golden, wire and stored fixture of 0a84ccc7 passes unedited.
+
+**The tests and mutations.** gaply_core 103 targets, 2,393 passed, 3 ignored; the workspace 199 targets, 3,540 passed, 12 ignored; the app crate with devtools 102 targets, 1,164 passed, 9 ignored; the whole vitest suite 208 files, 2,846, at two workers and at default workers; each as predicted. 12 mutation records, each red at its named test and green again with an equal SHA-256. The app crate's two tests were written after the core's cap; their red is the cap removed (w00).

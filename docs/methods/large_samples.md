@@ -367,8 +367,10 @@ rows, 128 columns, 10 MiB, 2 MiB of cell text).
 - **Not measured in 8F-2:** the run's 30 s ceiling stays, and the 16 GB tier's
   12,800,000-cell summary took 14.08 s on an 8 GB Mac, so a slower computer
   near that size could reach it; a text-heavy 64 MB file (an open dataset also
-  keeps the file's bytes); a categorical column can now carry up to 100,000
-  levels into the profile; and two 64 MB files cannot share one project,
+  keeps the file's bytes); a categorical column's profile now keeps its first
+  50 levels in code-point order, its distinct count counting them all
+  (ADR-010's 8W addendum: a view of 33,001,640 bytes at 100,000 levels a
+  column became 18,140); and two 64 MB files cannot share one project,
   because decision 107's 100 MiB cap is per project.
 - **A scale score counts toward the cell cap** (Research OS, Phase 8M to
   8T-2b; [scale_scores.md](scale_scores.md)). A make checks the prepared
