@@ -5,12 +5,13 @@
 // with its label as text; ready when an outcome and a group are chosen, they differ,
 // the levels are loaded and at least two are ticked; the codes the outcome's suspect
 // codes, ticked by the user, sent ascending and unique.
-import React from 'react';
+import React, { useState } from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { ColumnProfile, DatasetView } from './describeTypes';
 import { MAX_GROUP_LEVELS } from './anovaWording';
+import { actWith } from './flowHooks';
 import { makeMockRanksBridge } from './ranksBridge';
 import { RanksSettings, useRanksSettings, type RanksSettingsState } from './RanksSettings';
 
@@ -156,6 +157,80 @@ describe('the levels list', () => {
   });
 });
 
+describe('a stale answer, with the dialog\'s own act (decision 635)', () => {
+  const seen: { busy: boolean; refusal: string | null } = { busy: false, refusal: null };
+  const asked: Record<string, { resolve: (v: unknown) => void; reject: (e: unknown) => void }> = {};
+  const bridge = {
+    ...bridgeFor(),
+    groupLevels: (_slot: number, column: string) => new Promise((resolve, reject) => (asked[column] = { resolve, reject })),
+  } as unknown as ReturnType<typeof bridgeFor>;
+  const ActHarness: React.FC = () => {
+    const [busy, setBusy] = useState(false);
+    const [refusal, setRefusal] = useState<string | null>(null);
+    const s = useRanksSettings(view, { bridge, slot: () => 3, act: actWith(setBusy, setRefusal, (e) => (e as Error).message) });
+    state = s;
+    seen.busy = busy;
+    seen.refusal = refusal;
+    return <RanksSettings view={view} settings={s} />;
+  };
+  const choose = async (alias: string) => {
+    await act(async () => {
+      pick('rk-group', alias);
+    });
+  };
+  const answer = (rows: typeof LEVELS) => ({ slot: 3, column: 'C', levels: rows });
+  const NEWER = [
+    { index: 0, label: 'x', count: 1 },
+    { index: 1, label: 'y', count: 2 },
+  ];
+
+  it("shows no refusal when an earlier group's request is refused later", async () => {
+    render(<ActHarness />);
+    await choose('C1');
+    await choose('C3');
+    await act(async () => asked.C3.resolve(answer(NEWER)));
+    await act(async () => asked.C1.reject(new Error('too many levels')));
+    expect(state?.group).toBe('C3');
+    expect(state?.groupLevels).toEqual(NEWER);
+    expect(seen.refusal).toBeNull();
+    expect(seen.busy).toBe(false);
+  });
+
+  it('ignores a refusal that comes after a reset', async () => {
+    render(<ActHarness />);
+    await choose('C1');
+    act(() => state?.reset());
+    await act(async () => asked.C1.reject(new Error('too many levels')));
+    expect(seen.refusal).toBeNull();
+    expect(state?.groupLevels).toEqual([]);
+  });
+
+  it('stays busy when a stale answer ends before the newer one, success or refusal', async () => {
+    render(<ActHarness />);
+    await choose('C1');
+    await choose('C3');
+    await act(async () => asked.C1.resolve(answer(LEVELS)));
+    expect(seen.busy).toBe(true);
+    expect(state?.groupLevels).toEqual([]);
+    await act(async () => asked.C3.resolve(answer(NEWER)));
+    expect(seen.busy).toBe(false);
+    await choose('C1');
+    await choose('C3');
+    await act(async () => asked.C1.reject(new Error('too many levels')));
+    expect(seen.busy).toBe(true);
+    expect(seen.refusal).toBeNull();
+    await act(async () => asked.C3.resolve(answer(NEWER)));
+    expect(seen.busy).toBe(false);
+  });
+
+  it('still shows the refusal of the group chosen last', async () => {
+    render(<ActHarness />);
+    await choose('C1');
+    await act(async () => asked.C1.reject(new Error('too many levels')));
+    expect(seen.refusal).toBe('too many levels');
+  });
+});
+
 describe('readiness', () => {
   it('needs an outcome, a group, the levels loaded and two levels ticked', async () => {
     render(<Harness />);
@@ -192,6 +267,21 @@ describe('the missing codes', () => {
     expect(screen.getByTestId('rk-code-99').closest('label')?.textContent?.trim()).toBe(
       'Is 99 a code for a missing value? It appears in the outcome "age" (2 cells). If you tick it, every row whose outcome is 99 is left out.'
     );
+  });
+
+  it('are cleared when the outcome changes to another that offers the same code', () => {
+    const twoOffer: DatasetView = {
+      ...view,
+      profile: { ...view.profile, columns: [...view.profile.columns, col('C7', 'weight', 41, { kind: 'numeric', suspectMissingCodes: [{ code: 99, cells: 4 }] })] },
+    };
+    render(<Harness v={twoOffer} />);
+    pick('rk-outcome', 'C5');
+    fireEvent.click(screen.getByTestId('rk-code-99'));
+    expect(state?.ticked).toEqual([99]);
+    pick('rk-outcome', 'C7');
+    expect(state?.ticked).toEqual([]);
+    expect(state?.spec(1).parameters.missingCodes).toEqual([]);
+    expect((screen.getByTestId('rk-code-99') as HTMLInputElement).checked).toBe(false);
   });
 
   it('sends a choice of levels, a score as the outcome, and no code the new outcome does not hold', async () => {

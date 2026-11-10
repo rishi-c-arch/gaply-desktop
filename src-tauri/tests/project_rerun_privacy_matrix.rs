@@ -77,7 +77,7 @@ use app_lib::project_commands::{self as pc, RerunProgress, SaveTarget};
 use app_lib::stats_desc_commands as desc;
 use app_lib::stats_prep_commands as prep;
 use desc_support::{delimited, C};
-use gaply_core::contracts::{CapabilityId, OperationId};
+use gaply_core::contracts::{CapabilityId, OperationId, RunState};
 use gaply_core::stats_alpha::{self, AlphaParams};
 use gaply_core::stats_anova::{self, AnovaParams, PostHoc};
 use gaply_core::stats_corr::{self, Coefficient, CorrParams, MissingHandling};
@@ -732,6 +732,25 @@ fn a_rerun_puts_no_sentinel_anywhere_but_the_projects_artifacts_and_its_title() 
         serde_json::to_string(&saved_ranks).unwrap(),
     ));
     responses.push(("rerun (rank tests)".into(), rerun_saved(&w, &app, 16)));
+    // Phase 8Z-1 (decision 635): a positive control. Run 16 ran, is the
+    // Mann-Whitney test of table()'s two levels and holds LVL; its rerun ran.
+    let read_16 = pc::run_result(&app, &w.ws, &id, 16).unwrap();
+    assert_eq!(read_16.state, RunState::Succeeded, "run 16 succeeded");
+    let bundle_16: serde_json::Value =
+        serde_json::from_str(read_16.bundle_json.as_deref().expect("a result")).unwrap();
+    assert!(
+        bundle_16["primaryOutputs"]["test"]["mann_whitney"].is_object(),
+        "run 16 is a Mann-Whitney result"
+    );
+    assert!(
+        read_16.bundle_json.as_deref().unwrap().contains(LVL),
+        "run 16's result holds its level label"
+    );
+    assert_eq!(
+        pc::run_result(&app, &w.ws, &id, 17).unwrap().state,
+        RunState::Succeeded,
+        "run 17 succeeded"
+    );
 
     let runs_response = serde_json::to_string(&pc::runs(&app, &w.ws, &id).unwrap()).unwrap();
     responses.push(("runs".into(), runs_response.clone()));

@@ -1,8 +1,8 @@
 // The 50-group rank test, timed (Research OS, Phase 8Y-2, decision 619): the card's
 // first render, printed on a line as XtabCardRender.vitest.tsx prints its times. Fifty
 // is the most groups a run takes (MAX_GROUP_LEVELS). jsdom draws no pixels, so this is
-// React's work, not a frame's. The ceiling, 10 s, only catches an order-of-magnitude
-// regression on a loaded Mac.
+// React's work, not a frame's. The ceiling, 1,600 ms, is ten times the slowest render
+// measured under load (150.4 ms at default workers, decision 635), rounded up.
 import React from 'react';
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -37,6 +37,6 @@ describe('a 50-group rank test', () => {
     expect(document.querySelectorAll('[data-testid^="rk-group-label-"]').length).toBe(FIFTY);
     expect(screen.getByTestId('rk-group-49').querySelectorAll('td')[0].textContent).toBe('89');
     process.stdout.write(`RANKS_RENDER first=${first.toFixed(1)}ms groups=${FIFTY}\n`);
-    expect(first).toBeLessThan(10000);
+    expect(first).toBeLessThan(1600);
   }, 120000);
 });

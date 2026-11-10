@@ -10,7 +10,8 @@ Cronbach's alpha ([cronbach_alpha.md](cronbach_alpha.md)) and, since 8X-1,
 crosstabs ([crosstabs.md](crosstabs.md)), its chi-square p and Fisher's exact
 test, and, since 8Y-1, the Mann-Whitney and Kruskal-Wallis tests
 ([independent_ranks.md](independent_ranks.md)), their normal and chi-square p
-and the Mann-Whitney exact p, take every p and quantile from it; the regression will (decision 275). Level 0 and Level 1 keep
+and the Mann-Whitney exact p, and, since 8Z-1, the Wilcoxon signed-rank and Friedman tests
+([related_ranks.md](related_ranks.md)), their normal and chi-square p and the Wilcoxon exact p, take every p and quantile from it; the regression will (decision 275). Level 0 and Level 1 keep
 `stats_l0::pvalue` as it is.
 
 ## 1. Why

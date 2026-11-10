@@ -17,6 +17,7 @@
 //! | `chi_square_upper` (8X-1) | 316 (12 df to 2,401), `chi_p.csv` | 2e-11 · R's `pchisq`, ten times 1.812e-12 measured | bit for bit `stats_l0`'s at every row |
 //! | `fisher_2x2` (8X-1) | 197 tables × 3 p, `fisher_p.csv` | 4e-10 · R's `fisher.test`, ten times 3.351e-11 measured | a zero margin gives 1 three times |
 //! | `rank_sum_exact_tails` (8Y-1) | 1,063 (n1 and n2 among 1 to 49, u), `wilcox_p.csv` | 2e-13 · R's `pwilcox`, both tails, ten times 1.310e-14 measured | each tail its own sum; `None` above 49 |
+//! | `signed_rank_exact_tails` (8Z-1) | 2,010 (n 1 to 49, v), `signrank_p.csv` | 3.7e-14 · R's `psignrank`, both tails, ten times 3.650e-15 measured | `None` above 49, and for v above the top |
 //!
 //! The two 8X-1 files are written by a second script,
 //! `make_xtab_dist_fixtures.R` (decision 576), and 8Y-1's by a third,
@@ -45,6 +46,7 @@ use gaply_core::stats_dist::{
     LARGE_DF, MEASURED_MAX_DF,
 };
 use gaply_core::stats_dist::{rank_sum_exact_tails, RANK_SUM_EXACT_MAX};
+use gaply_core::stats_dist::{signed_rank_exact_tails, SIGNED_RANK_EXACT_MAX};
 use gaply_core::stats_l0::pvalue;
 
 const DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/stats_dist");
@@ -697,6 +699,91 @@ fn rank_sum_exact_tails_are_each_their_own_sum() {
             assert!((a.lower + b.upper - 1.0).abs() <= 1e-14, "n1 {n1} n2 {n2} u {u}");
             let mirror = rank_sum_exact_tails(n1 * n2 - u, n1, n2).expect("in range");
             assert!(relative(a.lower, mirror.upper) <= 1e-14, "n1 {n1} n2 {n2} u {u}");
+        }
+    }
+}
+
+/* ------------------------------------------------------------------------ *
+ *  The Wilcoxon signed-rank statistic's exact distribution (Research OS,
+ *  Phase 8Z-1, decision 637), written by a fourth script,
+ *  `make_signed_rank_dist_fixtures.R`, so the files above stay byte for byte.
+ * ------------------------------------------------------------------------ */
+
+/// The fourth script: `signrank_p.csv`.
+const PROVENANCE_SIGNED_RANK: &str = "/usr/local/bin/Rscript make_signed_rank_dist_fixtures.R";
+/// Ten times the largest relative error measured over signrank_p.csv, over
+/// both tails (decision 316): 3.650e-15, at n 48, v 353 and its mirror, v 823
+/// (macOS aarch64, 10 Nov 2026), printed by the test below; rounded up.
+const SIGNRANK_GATE: f64 = 3.7e-14;
+
+#[test]
+fn signed_rank_exact_tails_are_within_their_gate_of_r_psignrank() {
+    let rows = rows_by("signrank_p.csv", "n,v,lower,upper", PROVENANCE_SIGNED_RANK);
+    let mut worst = [Worst::default(), Worst::default()];
+    let mut over = Vec::new();
+    let mut compared = 0;
+    let mut sizes = std::collections::BTreeSet::new();
+    for r in &rows {
+        let (n, v) = (r[0] as u64, r[1] as u64);
+        sizes.insert(n);
+        let got = signed_rank_exact_tails(v, n).unwrap_or_else(|| panic!("n {n} v {v}: refused"));
+        for (i, (name, g, want)) in [("lower", got.lower, r[2]), ("upper", got.upper, r[3])]
+            .into_iter()
+            .enumerate()
+        {
+            assert!((0.0..=1.0).contains(&g), "n {n} v {v} {name}: {g}");
+            compared += 1;
+            let ratio = relative(g, want);
+            if ratio > SIGNRANK_GATE {
+                over.push(format!("n {n} v {v} {name}: relative {ratio:e}"));
+            }
+            worst[i].see(ratio, format!("n {n} v {v}"));
+        }
+    }
+    for (name, w) in ["lower", "upper"].iter().zip(&worst) {
+        println!("signed_rank_exact_tails {name}: the largest |gaply - R| / R is {:.3e} ({}); gate {SIGNRANK_GATE:e}", w.0, w.1);
+    }
+    println!("signed_rank_exact_tails: {} rows, {compared} tails compared", rows.len());
+    assert_eq!(sizes.len(), 49, "every n from 1 to 49");
+    assert_eq!(compared, 2 * rows.len(), "every row compared");
+    assert!(over.is_empty(), "over the gate {SIGNRANK_GATE:e}:\n{}", over.join("\n"));
+}
+
+#[test]
+fn signed_rank_exact_tails_answer_to_49_and_refuse_above_it() {
+    assert_eq!(SIGNED_RANK_EXACT_MAX, 49);
+    let top = 49 * 50 / 2;
+    let low = signed_rank_exact_tails(0, 49).expect("49 is answered");
+    // One arrangement in 2^49: every difference negative.
+    assert_eq!(low.lower, 1.0 / (1u64 << 49) as f64);
+    assert_eq!(low.upper, 1.0);
+    let high = signed_rank_exact_tails(top, 49).expect("v at the top");
+    assert_eq!(high.upper, 1.0 / (1u64 << 49) as f64);
+    assert_eq!(high.lower, 1.0);
+    for (v, n) in [(0, 50), (0, 0), (top + 1, 49), (7, 3), (u64::MAX, 3)] {
+        assert_eq!(signed_rank_exact_tails(v, n), None, "v {v} n {n}");
+    }
+}
+
+/// Every one of the 2^n sign arrangements counted one by one, an independent
+/// check of the recurrence: the tails exactly, and each pair adding as they
+/// must.
+#[test]
+fn signed_rank_exact_tails_equal_a_count_of_every_arrangement() {
+    for n in 1u64..=14 {
+        let top = (n * (n + 1) / 2) as usize;
+        let mut counts = vec![0u64; top + 1];
+        for mask in 0u64..(1 << n) {
+            let v: u64 = (0..n).filter(|i| mask >> i & 1 == 1).map(|i| i + 1).sum();
+            counts[v as usize] += 1;
+        }
+        let total = (1u64 << n) as f64;
+        for v in 0..=top {
+            let got = signed_rank_exact_tails(v as u64, n).expect("in range");
+            let lower: u64 = counts[..=v].iter().sum();
+            let upper: u64 = counts[v..].iter().sum();
+            assert_eq!(got.lower, lower as f64 / total, "n {n} v {v}");
+            assert_eq!(got.upper, upper as f64 / total, "n {n} v {v}");
         }
     }
 }

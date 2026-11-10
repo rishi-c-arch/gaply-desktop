@@ -45,6 +45,27 @@ const BAD = 'badShape';
 const warning = (params: O) => ({ code: 'stats.ranks.suspect_missing_code', params, severity: 'warning' });
 const mw = (b: O) => b.primaryOutputs.test.mann_whitney;
 const kw = (b: O) => b.primaryOutputs.test.kruskal_wallis;
+const code = (c: string) => `stats.ranks.${c}`;
+const nc = (c: string) => ({ not_computable: code(c) });
+/** What Rust writes for a Mann-Whitney result with ties: the tie runs, the note, no exact p. */
+const withTies = (b: O) => {
+  b.primaryOutputs.tieRuns = 1;
+  mw(b).exactP = null;
+  b.primaryOutputs.notes = [code('exact_not_given_ties'), ...b.primaryOutputs.notes];
+};
+/** What Rust writes when every included value is equal (stats_ranks::mann_whitney). */
+const everyValueEqualMw = (b: O) => {
+  withTies(b);
+  mw(b).z = nc('all_values_tied');
+  mw(b).p = nc('all_values_tied');
+};
+/** The same for three or more groups (stats_ranks::kruskal_wallis). */
+const everyValueEqualKw = (b: O) => {
+  b.primaryOutputs.tieRuns = 1;
+  kw(b).h = nc('all_values_tied');
+  kw(b).p = nc('all_values_tied');
+  kw(b).epsilonSquared = nc('all_values_tied');
+};
 
 describe("the rank tests' saved results (decision 622)", () => {
   it('opens both committed snapshots as the rank tests', () => {
@@ -73,11 +94,7 @@ describe("the rank tests' saved results (decision 622)", () => {
 
   it('takes exactP as a number or null, and nothing else, null exactly when a note says why', () => {
     const note = `stats.ranks.exact_not_given_ties`;
-    const absent = (b: O) => {
-      mw(b).exactP = null;
-      b.primaryOutputs.notes = [note, ...b.primaryOutputs.notes];
-    };
-    expect(kindOf(changed(MW, absent))).toBe(OK);
+    expect(kindOf(changed(MW, withTies))).toBe(OK);
     expect(kindOf(changed(MW, (b) => (mw(b).exactP = 0.25)))).toBe(OK);
     expect(kindOf(changed(MW, (b) => (mw(b).exactP = null)))).toBe(BAD);
     expect(kindOf(changed(MW, (b) => (b.primaryOutputs.notes = [note, ...b.primaryOutputs.notes])))).toBe(BAD);
@@ -85,14 +102,192 @@ describe("the rank tests' saved results (decision 622)", () => {
     expect(kindOf(changed(MW, (b) => delete mw(b).exactP))).toBe(BAD);
   });
 
-  it('takes z, p, H, its p and epsilon-squared as a value or a not-computable code it writes', () => {
-    const nc = (code: string) => ({ not_computable: `stats.ranks.${code}` });
-    for (const code of ['all_values_tied', 'overflow', 'distribution_out_of_range']) {
-      expect(kindOf(changed(MW, (b) => (mw(b).z = nc(code)))), code).toBe(OK);
-      expect(kindOf(changed(KW, (b) => (kw(b).h = nc(code)))), code).toBe(OK);
-    }
+  it('takes every value equal as Rust writes it, for two groups and for three', () => {
+    expect(kindOf(changed(MW, everyValueEqualMw))).toBe(OK);
+    expect(kindOf(changed(KW, everyValueEqualKw))).toBe(OK);
+  });
+
+  it('takes overflow where Rust writes it, a Kruskal-Wallis p with its own distribution code', () => {
+    expect(
+      kindOf(
+        changed(MW, (b) => {
+          mw(b).z = nc('overflow');
+          mw(b).p = nc('overflow');
+        })
+      )
+    ).toBe(OK);
+    expect(kindOf(changed(KW, (b) => (kw(b).p = nc('distribution_out_of_range'))))).toBe(OK);
+    expect(kindOf(changed(KW, (b) => (kw(b).epsilonSquared = nc('overflow'))))).toBe(OK);
+  });
+
+  it('refuses a code stats_ranks never writes there', () => {
     expect(kindOf(changed(MW, (b) => (mw(b).z = nc('same_column'))))).toBe(BAD);
     expect(kindOf(changed(KW, (b) => (kw(b).epsilonSquared = nc('no_weights'))))).toBe(BAD);
+  });
+
+  it('refuses z or its p with distribution_out_of_range, which no normal p can be', () => {
+    expect(
+      kindOf(
+        changed(MW, (b) => {
+          mw(b).z = nc('distribution_out_of_range');
+          mw(b).p = nc('distribution_out_of_range');
+        })
+      )
+    ).toBe(BAD);
+    expect(kindOf(changed(MW, (b) => (mw(b).p = nc('distribution_out_of_range'))))).toBe(BAD);
+  });
+
+  it('refuses z not computable beside a numeric p', () => {
+    expect(
+      kindOf(
+        changed(MW, (b) => {
+          withTies(b);
+          mw(b).z = nc('all_values_tied');
+        })
+      )
+    ).toBe(BAD);
+  });
+
+  it('refuses H not computable beside a numeric p or epsilon-squared', () => {
+    expect(
+      kindOf(
+        changed(KW, (b) => {
+          everyValueEqualKw(b);
+          kw(b).p = { value: 0.5 };
+        })
+      )
+    ).toBe(BAD);
+    expect(
+      kindOf(
+        changed(KW, (b) => {
+          everyValueEqualKw(b);
+          kw(b).epsilonSquared = { value: 0.5 };
+        })
+      )
+    ).toBe(BAD);
+  });
+
+  it('refuses all_values_tied with tieRuns other than 1', () => {
+    expect(
+      kindOf(
+        changed(MW, (b) => {
+          everyValueEqualMw(b);
+          b.primaryOutputs.tieRuns = 2;
+        })
+      )
+    ).toBe(BAD);
+    expect(
+      kindOf(
+        changed(KW, (b) => {
+          everyValueEqualKw(b);
+          b.primaryOutputs.tieRuns = 2;
+        })
+      )
+    ).toBe(BAD);
+  });
+
+  it('refuses duplicate or unordered levels', () => {
+    expect(kindOf(changed(KW, (b) => (b.primaryOutputs.groups[1].level = b.primaryOutputs.groups[0].level)))).toBe(BAD);
+    expect(kindOf(changed(KW, (b) => b.primaryOutputs.groups.reverse()))).toBe(BAD);
+  });
+
+  it('refuses a Mann-Whitney result whose first equals its second', () => {
+    expect(
+      kindOf(
+        changed(MW, (b) => {
+          b.primaryOutputs.groups[1].level = b.primaryOutputs.groups[0].level;
+          mw(b).second = mw(b).first;
+        })
+      )
+    ).toBe(BAD);
+  });
+
+  it('refuses a df other than the groups less one', () => {
+    expect(kindOf(changed(KW, (b) => (kw(b).df = kw(b).df + 1)))).toBe(BAD);
+  });
+
+  it('refuses U1 and U2 that do not add up to n1 n2', () => {
+    expect(kindOf(changed(MW, (b) => (mw(b).u2 = mw(b).u2 + 1)))).toBe(BAD);
+  });
+
+  it('refuses an exact p outside 0 to 1', () => {
+    expect(kindOf(changed(MW, (b) => (mw(b).exactP = 7)))).toBe(BAD);
+    expect(kindOf(changed(MW, (b) => (mw(b).exactP = -0.5)))).toBe(BAD);
+  });
+
+  it('refuses tie runs with no ties note and an exact p, and a ties note with none', () => {
+    expect(kindOf(changed(MW, (b) => (b.primaryOutputs.tieRuns = 1)))).toBe(BAD);
+    expect(
+      kindOf(
+        changed(MW, (b) => {
+          withTies(b);
+          b.primaryOutputs.tieRuns = 0;
+        })
+      )
+    ).toBe(BAD);
+  });
+
+  it('refuses a size note with no group of 50 values or more, and a group of 50 with no size note', () => {
+    expect(
+      kindOf(
+        changed(MW, (b) => {
+          mw(b).exactP = null;
+          b.primaryOutputs.notes = [code('exact_not_given_size'), ...b.primaryOutputs.notes];
+        })
+      )
+    ).toBe(BAD);
+    expect(
+      kindOf(
+        changed(MW, (b) => {
+          b.primaryOutputs.groups[0].n = 50;
+          mw(b).u2 = 50 * b.primaryOutputs.groups[1].n - mw(b).u1;
+        })
+      )
+    ).toBe(BAD);
+  });
+
+  it('refuses 51 groups', () => {
+    expect(
+      kindOf(
+        changed(KW, (b) => {
+          const g = b.primaryOutputs.groups[0];
+          b.primaryOutputs.groups = Array.from({ length: 51 }, (_, level) => ({ ...g, level }));
+          kw(b).df = 50;
+        })
+      )
+    ).toBe(BAD);
+  });
+
+  it('takes 50 groups', () => {
+    expect(
+      kindOf(
+        changed(KW, (b) => {
+          const g = b.primaryOutputs.groups[0];
+          b.primaryOutputs.groups = Array.from({ length: 50 }, (_, level) => ({ ...g, level }));
+          kw(b).df = 49;
+        })
+      )
+    ).toBe(OK);
+  });
+
+  it('refuses an exclusion with an extra key, a repeated or unordered reason, and manifest exclusions unlike the result\'s', () => {
+    const ex = (c: string, params: O) => ({ code: code(c), count: 2, params });
+    const set = (exclusions: O[]) =>
+      changed(KW, (b) => {
+        b.primaryOutputs.exclusions = exclusions;
+        b.manifest.exclusions = exclusions;
+      });
+    expect(kindOf(set([{ ...ex('missing_group', { column: 2 }), extra: 1 }]))).toBe(BAD);
+    expect(kindOf(set([ex('missing_group', { column: 2 }), ex('missing_group', { column: 2 })]))).toBe(BAD);
+    expect(kindOf(set([ex('other_level', { column: 2 }), ex('missing_group', { column: 2 })]))).toBe(BAD);
+    expect(
+      kindOf(
+        changed(KW, (b) => {
+          b.primaryOutputs.exclusions = [ex('missing_group', { column: 2 })];
+          b.manifest.exclusions = [];
+        })
+      )
+    ).toBe(BAD);
   });
 
   it('opens a suspect-code warning with its column, value and count, and refuses one without any of them', () => {
@@ -134,11 +329,22 @@ describe("the rank tests' saved results (decision 622)", () => {
       kindOf(
         changed(MW, (b) => {
           mw(b).exactP = null;
+          b.primaryOutputs.tieRuns = 1;
+          b.primaryOutputs.groups[0].n = 50;
+          mw(b).u2 = 50 * b.primaryOutputs.groups[1].n - mw(b).u1;
           b.primaryOutputs.notes = notes(['exact_not_given_ties', 'exact_not_given_size', 'group_below_five']);
         })
       )
     ).toBe(OK);
-    expect(kindOf(changed(MW, (b) => (b.primaryOutputs.notes = notes(['group_below_five', 'exact_not_given_ties']))))).toBe(BAD);
+    expect(
+      kindOf(
+        changed(MW, (b) => {
+          mw(b).exactP = null;
+          b.primaryOutputs.tieRuns = 1;
+          b.primaryOutputs.notes = notes(['group_below_five', 'exact_not_given_ties']);
+        })
+      )
+    ).toBe(BAD);
     expect(kindOf(changed(MW, (b) => (b.primaryOutputs.notes = notes(['no_weights']))))).toBe(BAD);
     expect(kindOf(changed(KW, (b) => b.primaryOutputs.limitations.reverse()))).toBe(BAD);
   });

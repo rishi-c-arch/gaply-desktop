@@ -63,14 +63,20 @@ export function useRunPolling<V extends { runId: number; terminal: boolean }>(
   }, [runView, setRunView, bridge, setError, refusalSentence, pollMs]);
 }
 
-/** An action of the screen: busy while it runs, its refusal shown in the
- *  method's own words. */
+/** How many actions are running for each setBusy (Research OS, Phase 8Z-1, decision
+ *  635). Keyed by the setter, which is stable, since a screen calls actWith on every
+ *  render and two overlapping actions can come from two closures. */
+const running = new WeakMap<(busy: boolean) => void, number>();
+
+/** An action of the screen: busy while it runs, and until the last of any overlapping
+ *  actions ends; its refusal shown in the method's own words. */
 export function actWith(
   setBusy: (busy: boolean) => void,
   setError: (sentence: string | null) => void,
   refusalSentence: (e: unknown) => string
 ): (f: () => Promise<void>) => Promise<void> {
   return async (f) => {
+    running.set(setBusy, (running.get(setBusy) ?? 0) + 1);
     setBusy(true);
     setError(null);
     try {
@@ -78,7 +84,9 @@ export function actWith(
     } catch (e) {
       setError(refusalSentence(e));
     } finally {
-      setBusy(false);
+      const left = (running.get(setBusy) ?? 1) - 1;
+      running.set(setBusy, left);
+      if (left === 0) setBusy(false);
     }
   };
 }

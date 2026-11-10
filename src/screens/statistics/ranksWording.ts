@@ -66,9 +66,9 @@ export const RANKS_WORDS: Record<string, Words> = {
   'stats.ranks.overflow': asAnova('overflow'),
   'stats.ranks.arithmetic_refused': asAnova('arithmetic_refused'),
   'stats.ranks.exact_not_given_ties': () =>
-    'The exact p value is not given, because two or more included values are tied; the p value above comes from the normal approximation.',
+    'The exact p value is not given, because two or more included values are tied.',
   'stats.ranks.exact_not_given_size': () =>
-    'The exact p value is not given, because a group has 50 values or more; the p value above comes from the normal approximation.',
+    'The exact p value is not given, because a group has 50 values or more.',
   'stats.ranks.group_below_five': () => 'A group has fewer than 5 values, where the normal and chi-square approximations are rougher.',
   'stats.ranks.missing_group': asAnova('missing_group'),
   'stats.ranks.other_level': asAnova('other_level'),
@@ -175,6 +175,9 @@ export const MW_ROW_LABELS = {
   exactP: 'Exact p',
   rankBiserial: 'Rank-biserial correlation',
 } as const;
+
+/** Decision 630: an absent exact p's cell; the notes say why. */
+export const RANKS_EXACT_NOT_GIVEN_CELL = 'Not given (see the note below).';
 
 export const KW_ROW_LABELS = {
   h: 'H',

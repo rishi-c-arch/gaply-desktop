@@ -189,6 +189,17 @@ fn each_operation_path_calls_its_facade() {
             "admit",
             "stats_adapters::ranks_admit(",
         ),
+        // Research OS, Phase 8Z-1 (decision 641).
+        (
+            "src/stats_related_ranks_commands.rs",
+            "validate",
+            "stats_adapters::related_ranks_validate(",
+        ),
+        (
+            "src/stats_related_ranks_commands.rs",
+            "admit",
+            "stats_adapters::related_ranks_admit(",
+        ),
         // Research OS, Phase 8M-3 (decision 425): no Method impl and no start,
         // so these and the direct-call scan below are what apply.
         (
@@ -288,6 +299,12 @@ fn each_operation_path_calls_its_facade() {
             "stats_adapters::ranks_validate(",
             "stats_adapters::ranks_run(",
         ),
+        // Phase 8Z-1 (decision 641).
+        (
+            "RelatedRanks",
+            "stats_adapters::related_ranks_validate(",
+            "stats_adapters::related_ranks_run(",
+        ),
     ] {
         let block = impl_block(&runs_src, &format!("impl Method for {method} {{"));
         for (f, facade) in [("validate", validate), ("compute", compute)] {
@@ -318,6 +335,8 @@ fn each_operation_path_calls_its_facade() {
         ("start_xtab_then", "self.begin::<Crosstabs>("),
         ("start_ranks", "self.begin::<IndependentRanks>("),
         ("start_ranks_then", "self.begin::<IndependentRanks>("),
+        ("start_related_ranks", "self.begin::<RelatedRanks>("),
+        ("start_related_ranks_then", "self.begin::<RelatedRanks>("),
     ] {
         assert!(
             squash(fn_body(&runs_src, f)).contains(through),
@@ -374,6 +393,9 @@ fn each_operation_path_calls_its_facade() {
         "stats_ranks::validate(",
         "stats_ranks::run(",
         "stats_ranks::compute(",
+        "stats_related_ranks::validate(",
+        "stats_related_ranks::run(",
+        "stats_related_ranks::compute(",
     ] {
         assert!(
             !runs.contains(direct),

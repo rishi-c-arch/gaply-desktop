@@ -84,6 +84,11 @@
 //!   [`RANK_SUM_EXACT_MAX`] (49) untied values, by a recurrence of additions
 //!   from H. B. Mann and D. R. Whitney (1947), measured against R's `pwilcox`
 //!   (`make_ranks_dist_fixtures.R`'s `wilcox_p.csv`).
+//! * [`signed_rank_exact_tails`] (Phase 8Z-1, decision 637, the Wilcoxon
+//!   signed-rank test): the exact distribution of V for 1 to
+//!   [`SIGNED_RANK_EXACT_MAX`] (49) untied non-zero differences, by a recurrence
+//!   of additions of integers, measured against R's `psignrank`
+//!   (`make_signed_rank_dist_fixtures.R`'s `signrank_p.csv`).
 //!
 //! Measured against R 4.6.1 in `tests/stats_dist_reference.rs` over
 //! `tests/fixtures/stats_dist/` (`make_dist_fixtures.R`): the quantile within
@@ -542,6 +547,63 @@ pub fn rank_sum_exact_tails(u: u64, n1: u64, n2: u64) -> Option<RankSumTails> {
         lower: (lower / total).min(1.0),
         upper: (upper / total).min(1.0),
     })
+}
+
+/// The largest number of non-zero differences [`signed_rank_exact_tails`]
+/// answers for: 49, below the 50 pairs at which the exact p is no longer given
+/// (decision 636), and the largest measured against R's `psignrank`
+/// (`tests/stats_dist_reference.rs` over
+/// `make_signed_rank_dist_fixtures.R`'s `signrank_p.csv`). A range of its own.
+pub const SIGNED_RANK_EXACT_MAX: u64 = 49;
+
+/// The two tails of the Wilcoxon signed-rank statistic at `v`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SignedRankTails {
+    /// P(V ≤ v).
+    pub lower: f64,
+    /// P(V ≥ v).
+    pub upper: f64,
+}
+
+/// The tails of the Wilcoxon signed-rank statistic V, the sum of the ranks of
+/// the positive differences among `n` non-zero differences with no ties, at
+/// `v`. Each of the 2^n sign arrangements is equally likely, and the counts of
+/// arrangements giving each V come from the recurrence
+/// f(n, v) = f(n − 1, v) + f(n − 1, v − n) (the difference of rank n is negative
+/// or positive), with f(0, 0) = 1: F. Wilcoxon, "Individual comparisons by
+/// ranking methods", Biometrics Bulletin 1(6), 80–83, 1945,
+/// <https://doi.org/10.2307/3001968>, written from its text, never from R's
+/// source (ADR-008). The counts are integers below 2^49, so every double here
+/// is exact. `lower` is the sum of the counts from 0 to v and `upper` the sum
+/// from the top down to v, each divided by 2^n once. `None` for an `n` of 0 or
+/// above [`SIGNED_RANK_EXACT_MAX`], or a `v` above n (n + 1) / 2.
+pub fn signed_rank_exact_tails(v: u64, n: u64) -> Option<SignedRankTails> {
+    if !(1..=SIGNED_RANK_EXACT_MAX).contains(&n) || v > n * (n + 1) / 2 {
+        return None;
+    }
+    let counts = signed_rank_counts(n as usize);
+    let v = v as usize;
+    let total = (1u64 << n) as f64;
+    let lower: f64 = counts[..=v].iter().sum();
+    let upper: f64 = counts[v..].iter().rev().sum();
+    Some(SignedRankTails {
+        lower: lower / total,
+        upper: upper / total,
+    })
+}
+
+/// The count of the 2^n sign arrangements giving each V from 0 to n (n + 1) / 2
+/// ([`signed_rank_exact_tails`]'s recurrence), in place, each rank's pass
+/// taking the values from the top down.
+fn signed_rank_counts(n: usize) -> Vec<f64> {
+    let mut f = vec![0.0f64; n * (n + 1) / 2 + 1];
+    f[0] = 1.0;
+    for k in 1..=n {
+        for v in (k..=k * (k + 1) / 2).rev() {
+            f[v] += f[v - k];
+        }
+    }
+    f
 }
 
 /// The count of orders of `n1` and `n2` untied values giving each U from 0

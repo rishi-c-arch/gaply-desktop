@@ -5,19 +5,20 @@
 // The groups' table, then the test the count of groups chose: for two the Mann-Whitney
 // table and decision 620's sentence naming the first and second groups, for three or
 // more the Kruskal-Wallis table. A not-computable value shows its sentence where its
-// number would be; an exact p that is absent shows the sentence of the note that says
-// why. Every number goes through shownNumber. The tone is neutral (decision 66).
+// number would be; an exact p that is absent says so in its cell, and the notes say why
+// (decision 630). Every number goes through shownNumber. The tone is neutral (decision 66).
 //
 // A level's label is the user's own text, shown as text only: never in a key, an
 // attribute, a title or a test id, which take the level's index.
 import React from 'react';
 import { CELL_PADDING } from '../../design-system/primitives';
 import { DiagnosticList, ManifestPanel } from './flowParts';
-import type { KruskalWallis, MannWhitney, RankGroup, RanksCode, RanksResultView, RanksStat } from './ranksTypes';
+import type { KruskalWallis, MannWhitney, RankGroup, RanksResultView, RanksStat } from './ranksTypes';
 import {
   KW_ROW_LABELS,
   MW_ROW_LABELS,
   RANKS_DIGITS_NOTE,
+  RANKS_EXACT_NOT_GIVEN_CELL,
   RANKS_GROUP_COLUMNS,
   RANKS_HEADINGS,
   RANKS_ROWS_USED_NOTE,
@@ -55,9 +56,7 @@ const StatRow: React.FC<{ label: string; stat: RanksStat; testId: string }> = ({
   </tr>
 );
 
-const EXACT_NOTES: readonly RanksCode[] = ['stats.ranks.exact_not_given_ties', 'stats.ranks.exact_not_given_size'];
-
-const MannWhitneyTable: React.FC<{ test: MannWhitney; groups: RankGroup[]; notes: RanksCode[] }> = ({ test, groups, notes }) => {
+const MannWhitneyTable: React.FC<{ test: MannWhitney; groups: RankGroup[] }> = ({ test, groups }) => {
   const label = (level: number) => groups.find((g) => g.level === level)?.label ?? '';
   return (
     <section aria-label={RANKS_HEADINGS.mannWhitney} data-testid="rk-mw">
@@ -76,10 +75,7 @@ const MannWhitneyTable: React.FC<{ test: MannWhitney; groups: RankGroup[]; notes
                 {MW_ROW_LABELS.exactP}
               </th>
               <td style={CELL_PADDING} data-testid="rk-mw-exact-p-not-given">
-                {notes
-                  .filter((code) => EXACT_NOTES.includes(code))
-                  .map((code) => ranksSentence({ code }))
-                  .join(' ')}
+                {RANKS_EXACT_NOT_GIVEN_CELL}
               </td>
             </tr>
           )}
@@ -141,7 +137,7 @@ export const RanksCard: React.FC<{ result: RanksResultView; names: RanksNames }>
           </tbody>
         </table>
       </section>
-      {'mann_whitney' in r.test ? <MannWhitneyTable test={r.test.mann_whitney} groups={r.groups} notes={r.notes} /> : <KruskalWallisTable test={r.test.kruskal_wallis} />}
+      {'mann_whitney' in r.test ? <MannWhitneyTable test={r.test.mann_whitney} groups={r.groups} /> : <KruskalWallisTable test={r.test.kruskal_wallis} />}
       {r.notes.length > 0 && (
         <ul data-testid="rk-notes" style={{ margin: 0 }}>
           {r.notes.map((code) => (

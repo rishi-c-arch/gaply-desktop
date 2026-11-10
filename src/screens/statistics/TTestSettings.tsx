@@ -5,7 +5,7 @@
 // since the user's choice was the column. A prepared score is never listed as a
 // group, and Rust's refusal stays the boundary. What is held here is the user's
 // choices, in this component's state only, and never browser storage.
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import type { ColumnProfile, DatasetView } from './describeTypes';
 import type { GroupLevel, TTestSpec, Variant } from './ttestTypes';
 import type { TTestBridge } from './ttestBridge';
@@ -79,13 +79,16 @@ export interface TTestSettingsOptions {
 }
 
 export function useTTestSettings(view: DatasetView | null, { bridge, slot, act }: TTestSettingsOptions) {
-  const [outcome, setOutcome] = useState('');
+  const [outcome, setOutcomeAlias] = useState('');
   const [group, setGroup] = useState('');
   /** The chosen group's levels, as Rust indexes them. */
   const [groupLevels, setGroupLevels] = useState<GroupLevel[]>([]);
   const [levels, setLevels] = useState<LevelPicks>([null, null]);
   const [variant, setVariant] = useState<Variant | null>(null);
   const [ticked, setTicked] = useState<number[]>([]);
+  // The newest levels request: an answer to an earlier one, success or refusal, for a
+  // group since replaced or a form since reset, changes nothing (decision 635).
+  const levelsAsked = useRef(0);
 
   const outcomeColumn = useMemo(() => view?.profile.columns.find((c) => c.alias === outcome), [view, outcome]);
   const offered = useMemo(() => outcomeColumn?.suspectMissingCodes ?? [], [outcomeColumn]);
@@ -105,7 +108,8 @@ export function useTTestSettings(view: DatasetView | null, { bridge, slot, act }
   );
 
   const reset = useCallback(() => {
-    setOutcome('');
+    levelsAsked.current += 1;
+    setOutcomeAlias('');
     setGroup('');
     setGroupLevels([]);
     setLevels([null, null]);
@@ -113,8 +117,16 @@ export function useTTestSettings(view: DatasetView | null, { bridge, slot, act }
     setTicked([]);
   }, []);
 
+  // A code is ticked for one outcome: another that offers the same code starts unticked (decision 635).
+  const setOutcome = (alias: string) => {
+    setOutcomeAlias(alias);
+    setTicked([]);
+  };
+
   const chooseGroup = (alias: string) =>
     act(async () => {
+      levelsAsked.current += 1;
+      const asked = levelsAsked.current;
       setGroup(alias);
       setGroupLevels([]);
       setLevels([null, null]);
@@ -122,7 +134,15 @@ export function useTTestSettings(view: DatasetView | null, { bridge, slot, act }
       if (alias === '' || at === null) return;
       // The levels in the core's own order (decision 81); positions in this
       // list are what the spec sends.
-      const read = await bridge.groupLevels(at, alias);
+      let read;
+      try {
+        read = await bridge.groupLevels(at, alias);
+      } catch (e) {
+        // A refusal for a group since replaced, or a form since reset, is not this form's.
+        if (asked !== levelsAsked.current) return;
+        throw e;
+      }
+      if (asked !== levelsAsked.current) return;
       setGroupLevels(read.levels);
       setLevels(defaultLevels(read.levels));
     });

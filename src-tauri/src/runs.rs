@@ -105,6 +105,13 @@
 //! Statistics window's Independent samples… dialog starts it, and a project
 //! reruns it.
 //!
+//! Research OS, Phase 8Z-1 (decision 641): a record may hold the related rank
+//! tests, the Wilcoxon signed-rank and Friedman tests, started with
+//! [`Runs::start_related_ranks`]. Its one check point is
+//! `stats_related_ranks::run`'s, before the arithmetic, and the record's
+//! `columns_total` is `stats_related_ranks::check_points`, one. No window
+//! starts it yet, and a saved run's report refuses it, until 8Z-2.
+//!
 //! Phase 3: the run manager and the slots belong to the Statistics workspace
 //! (`crate::workspace`), built when it is activated and dropped when it is
 //! left. [`Runs::seal`] is how it is left: under the records' lock it either
@@ -149,6 +156,9 @@ use gaply_core::stats_onesample::{
 use gaply_core::stats_prep::{self, Prepared};
 use gaply_core::stats_ranks::{
     self, IndependentRanksOutcome, IndependentRanksParams, RanksCode,
+};
+use gaply_core::stats_related_ranks::{
+    self, RelatedRanksCode, RelatedRanksOutcome, RelatedRanksParams,
 };
 use gaply_core::stats_xtab::{self, CrosstabsOutcome, CrosstabsParams, XtabCode};
 use gaply_core::stats_ttest::{self, TTestCode, TTestParams, TTestResult};
@@ -721,6 +731,9 @@ pub enum RunKind {
     /// `stats.analyze.independent_ranks`, through the `stats_ranks_*` commands
     /// (Research OS, Phase 8Y-1, decision 607).
     IndependentRanks,
+    /// `stats.analyze.related_ranks`, through the `stats_related_ranks_*`
+    /// commands (Research OS, Phase 8Z-1, decision 641).
+    RelatedRanks,
 }
 
 /// The data a run read: its slot, and the SHA-256 of the original bytes the
@@ -850,6 +863,7 @@ enum Held {
     CronbachAlpha(Outputs<AlphaOutcome, AlphaCode>),
     Crosstabs(Outputs<CrosstabsOutcome, XtabCode>),
     IndependentRanks(Outputs<IndependentRanksOutcome, RanksCode>),
+    RelatedRanks(Outputs<RelatedRanksOutcome, RelatedRanksCode>),
 }
 
 impl Held {
@@ -917,6 +931,7 @@ enum Job {
     CronbachAlpha(OperationSpec<AlphaParams>),
     Crosstabs(OperationSpec<CrosstabsParams>),
     IndependentRanks(OperationSpec<IndependentRanksParams>),
+    RelatedRanks(OperationSpec<RelatedRanksParams>),
 }
 
 impl Job {
@@ -946,6 +961,7 @@ enum Report {
     CronbachAlpha(ValidationReport<AlphaCode>),
     Crosstabs(ValidationReport<XtabCode>),
     IndependentRanks(ValidationReport<RanksCode>),
+    RelatedRanks(ValidationReport<RelatedRanksCode>),
 }
 
 impl Report {
@@ -966,6 +982,7 @@ enum Done {
     CronbachAlpha(Finished<CronbachAlpha>),
     Crosstabs(Finished<Crosstabs>),
     IndependentRanks(Finished<IndependentRanks>),
+    RelatedRanks(Finished<RelatedRanks>),
 }
 
 /* ------------------------------------------------------------------------ *
@@ -1015,6 +1032,10 @@ macro_rules! by_method {
             }
             $enum::IndependentRanks($x) => {
                 type $m = IndependentRanks;
+                $body
+            }
+            $enum::RelatedRanks($x) => {
+                type $m = RelatedRanks;
                 $body
             }
         }
@@ -2042,6 +2063,112 @@ impl Method for IndependentRanks {
     }
 }
 
+/// `stats.analyze.related_ranks`, through the `stats_related_ranks_*` commands
+/// (Research OS, Phase 8Z-1, decision 641).
+struct RelatedRanks;
+
+impl Method for RelatedRanks {
+    const KIND: RunKind = RunKind::RelatedRanks;
+    type Params = RelatedRanksParams;
+    type Result = RelatedRanksOutcome;
+    type Code = RelatedRanksCode;
+    type Halt = stats_related_ranks::Halt<Stop>;
+
+    /// `stats_related_ranks::check_points`: one, before the arithmetic.
+    fn columns_total(_: &OperationSpec<RelatedRanksParams>, _: &Dataset) -> usize {
+        stats_related_ranks::check_points()
+    }
+
+    fn validate(
+        spec: &OperationSpec<RelatedRanksParams>,
+        dataset: &Dataset,
+    ) -> ValidationReport<RelatedRanksCode> {
+        // Through `stats.analyze.related_ranks`' façade: the registry
+        // first, then `stats_related_ranks::validate`, unchanged.
+        stats_adapters::related_ranks_validate(spec, crate::workspace::build(), dataset)
+    }
+
+    fn compute(
+        spec: &OperationSpec<RelatedRanksParams>,
+        build: Build,
+        dataset: &Dataset,
+        checkpoint: impl FnMut(usize) -> ControlFlow<Stop>,
+    ) -> Result<RelatedRanksOutcome, stats_related_ranks::Halt<Stop>> {
+        // One check point, before the arithmetic.
+        stats_adapters::related_ranks_run(spec, build, dataset, checkpoint)
+    }
+
+    fn manifest(
+        spec: &OperationSpec<RelatedRanksParams>,
+        dataset: &Dataset,
+        result: &RelatedRanksOutcome,
+        elapsed: u64,
+    ) -> RunManifest<RelatedRanksCode> {
+        stats_related_ranks::manifest(spec, dataset, result, elapsed, Platform::current())
+    }
+
+    /// The result's own limitations, as notes.
+    fn limitations(result: &RelatedRanksOutcome) -> Vec<Diagnostic<RelatedRanksCode>> {
+        result
+            .limitations
+            .iter()
+            .map(|c| Diagnostic::note(*c))
+            .collect()
+    }
+
+    /// Its one check point on a result; a stop leaves the count the check
+    /// point set.
+    fn columns_done(total: usize, outcome: &Outcome<Self>) -> Option<usize> {
+        match outcome {
+            Ok(Ok(_)) => Some(total),
+            Ok(Err(_)) | Err(_) => None,
+        }
+    }
+
+    fn halted(halt: stats_related_ranks::Halt<Stop>) -> Halted<RelatedRanksCode> {
+        match halt {
+            stats_related_ranks::Halt::Stopped { reason } => Halted::Stopped(reason),
+            stats_related_ranks::Halt::Refused(d) => Halted::Refused(d),
+        }
+    }
+
+    fn panicked() {
+        tracing::warn!("stats_desc: the related rank tests panicked");
+    }
+
+    fn outputs(held: &Held) -> Option<&Outputs<RelatedRanksOutcome, RelatedRanksCode>> {
+        if let Held::RelatedRanks(o) = held {
+            Some(o)
+        } else {
+            None
+        }
+    }
+
+    fn outputs_mut(held: &mut Held) -> Option<&mut Outputs<RelatedRanksOutcome, RelatedRanksCode>> {
+        if let Held::RelatedRanks(o) = held {
+            Some(o)
+        } else {
+            None
+        }
+    }
+
+    fn held(outputs: Outputs<RelatedRanksOutcome, RelatedRanksCode>) -> Held {
+        Held::RelatedRanks(outputs)
+    }
+
+    fn job(spec: OperationSpec<RelatedRanksParams>) -> Job {
+        Job::RelatedRanks(spec)
+    }
+
+    fn report(report: ValidationReport<RelatedRanksCode>) -> Report {
+        Report::RelatedRanks(report)
+    }
+
+    fn done(finished: Finished<Self>) -> Done {
+        Done::RelatedRanks(finished)
+    }
+}
+
 /// An end hook that is due, with what it is called with: called only once
 /// the records' lock is released (Phase 5C-1a).
 struct Due {
@@ -2365,6 +2492,28 @@ impl Runs {
         end: EndHook,
     ) -> Result<RunId, NotStarted> {
         self.begin::<IndependentRanks>(slot, spec, Some(end))
+    }
+
+    /// Starts the related rank tests (Research OS, Phase 8Z-1, decision 641):
+    /// their one check point before the arithmetic, the manager's ceiling and
+    /// cancel, as every kind's.
+    pub fn start_related_ranks(
+        self: &Arc<Self>,
+        slot: Arc<Slot>,
+        spec: OperationSpec<RelatedRanksParams>,
+    ) -> Result<RunId, NotStarted> {
+        self.begin::<RelatedRanks>(slot, spec, None)
+    }
+
+    /// [`Runs::start_related_ranks`], with an end hook, for the project rerun
+    /// 8Z-2 adds (decision 641).
+    pub fn start_related_ranks_then(
+        self: &Arc<Self>,
+        slot: Arc<Slot>,
+        spec: OperationSpec<RelatedRanksParams>,
+        end: EndHook,
+    ) -> Result<RunId, NotStarted> {
+        self.begin::<RelatedRanks>(slot, spec, Some(end))
     }
 
     /// Every start, of any method (Research OS, Phase 8C): the record, then
@@ -2758,6 +2907,14 @@ impl Runs {
         self.snapshot_as::<IndependentRanks>(run)
     }
 
+    /// [`Runs::snapshot`] for a related rank tests run (Phase 8Z-1).
+    pub fn related_ranks_snapshot(
+        &self,
+        run: RunId,
+    ) -> Result<RunSnapshot<RelatedRanksCode>, RunCode> {
+        self.snapshot_as::<RelatedRanks>(run)
+    }
+
     /// Asks the run to stop. Queued: cancelled now. Running: the flag is set,
     /// and the next check point, or the worker's last step if no check point
     /// is left, ends it `Cancelled`. Finished: unchanged.
@@ -2832,6 +2989,14 @@ impl Runs {
     /// [`Runs::cancel`] for a rank tests run (Phase 8Y-1).
     pub fn ranks_cancel(&self, run: RunId) -> Result<RunSnapshot<RanksCode>, RunCode> {
         self.cancel_as::<IndependentRanks>(run)
+    }
+
+    /// [`Runs::cancel`] for a related rank tests run (Phase 8Z-1).
+    pub fn related_ranks_cancel(
+        &self,
+        run: RunId,
+    ) -> Result<RunSnapshot<RelatedRanksCode>, RunCode> {
+        self.cancel_as::<RelatedRanks>(run)
     }
 
     /// The result of a run of `M`'s kind that succeeded. Otherwise the closed
@@ -2918,6 +3083,14 @@ impl Runs {
         run: RunId,
     ) -> Result<ResultBundle<IndependentRanksOutcome, RanksCode>, RunCode> {
         self.result_as::<IndependentRanks>(run)
+    }
+
+    /// The result of a related rank tests run that succeeded (Phase 8Z-1).
+    pub fn related_ranks_result(
+        &self,
+        run: RunId,
+    ) -> Result<ResultBundle<RelatedRanksOutcome, RelatedRanksCode>, RunCode> {
+        self.result_as::<RelatedRanks>(run)
     }
 
     /// A copy of `run` for a project Save (Phase 5B-2), of either kind:

@@ -62,13 +62,13 @@ export interface RanksSettingsOptions {
 }
 
 export function useRanksSettings(view: DatasetView | null, { bridge, slot, act }: RanksSettingsOptions) {
-  const [outcome, setOutcome] = useState('');
+  const [outcome, setOutcomeAlias] = useState('');
   const [group, setGroup] = useState('');
   const [groupLevels, setGroupLevels] = useState<GroupLevel[]>([]);
   const [tickedLevels, setTickedLevels] = useState<number[]>([]);
   const [ticked, setTicked] = useState<number[]>([]);
-  // The newest levels request: an answer to an earlier one, for a group since
-  // replaced or a form since reset, is dropped.
+  // The newest levels request: an answer to an earlier one, success or refusal, for a
+  // group since replaced or a form since reset, changes nothing (decision 635).
   const levelsAsked = useRef(0);
 
   const outcomeColumn = useMemo(() => view?.profile.columns.find((c) => c.alias === outcome), [view, outcome]);
@@ -90,12 +90,18 @@ export function useRanksSettings(view: DatasetView | null, { bridge, slot, act }
 
   const reset = useCallback(() => {
     levelsAsked.current += 1;
-    setOutcome('');
+    setOutcomeAlias('');
     setGroup('');
     setGroupLevels([]);
     setTickedLevels([]);
     setTicked([]);
   }, []);
+
+  // A code is ticked for one outcome: another that offers the same code starts unticked (decision 635).
+  const setOutcome = (alias: string) => {
+    setOutcomeAlias(alias);
+    setTicked([]);
+  };
 
   const chooseGroup = (alias: string) =>
     act(async () => {
@@ -108,7 +114,14 @@ export function useRanksSettings(view: DatasetView | null, { bridge, slot, act }
       if (alias === '' || at === null) return;
       // The levels in the core's own order; their indexes are what the spec
       // sends. Every level starts ticked (decision 329).
-      const read = await bridge.groupLevels(at, alias);
+      let read;
+      try {
+        read = await bridge.groupLevels(at, alias);
+      } catch (e) {
+        // A refusal for a group since replaced, or a form since reset, is not this form's.
+        if (asked !== levelsAsked.current) return;
+        throw e;
+      }
       if (asked !== levelsAsked.current) return;
       setGroupLevels(read.levels);
       setTickedLevels(read.levels.map((l) => l.index));

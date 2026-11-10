@@ -1,0 +1,31 @@
+# written by: /usr/local/bin/Rscript make_related_ranks_fixtures.R
+# R version 4.6.1 (2026-06-24), base R stats only
+case	file	columns	missing_codes
+w_small	data_w_small.csv	a b	-
+w_tied_abs	data_w_tied_abs.csv	a b	-
+w_zeros	data_w_zeros.csv	a b	-
+w_all_zero	data_w_all_zero.csv	a b	-
+w_49	data_w_49.csv	a b	-
+w_50	data_w_50.csv	a b	-
+w_one_pair	data_w_one_pair.csv	a b	-
+w_small_reversed	data_w_small_reversed.csv	b a	-
+w_one_sign	data_w_one_sign.csv	a b	-
+w_overflow	data_w_overflow.csv	a b	-
+w_overflow_both_signs	data_w_overflow_both_signs.csv	a b	-
+w_large	counts_w_large.csv	a b	-
+f_small	data_f_small.csv	p q r	-
+f_ties	data_f_ties.csv	p q r	-
+f_all_tied	data_f_all_tied.csv	p q r	-
+f_50_columns	data_f_50_columns.csv	c01 c02 c03 c04 c05 c06 c07 c08 c09 c10 c11 c12 c13 c14 c15 c16 c17 c18 c19 c20 c21 c22 c23 c24 c25 c26 c27 c28 c29 c30 c31 c32 c33 c34 c35 c36 c37 c38 c39 c40 c41 c42 c43 c44 c45 c46 c47 c48 c49 c50	-
+f_large	counts_f_large.csv	a b c	-
+missing_three	data_missing_three.csv	a b c	-9
+missing_three_order	data_missing_three_order.csv	c a b	-9
+missing_two	data_missing_two.csv	b a	-9 99
+refuse_code_not_finite	data_refuse_base.csv	a b	NaN
+refuse_too_few_columns	data_refuse_base.csv	a	-
+refuse_too_many_columns	data_refuse_51_columns.csv	c01 c02 c03 c04 c05 c06 c07 c08 c09 c10 c11 c12 c13 c14 c15 c16 c17 c18 c19 c20 c21 c22 c23 c24 c25 c26 c27 c28 c29 c30 c31 c32 c33 c34 c35 c36 c37 c38 c39 c40 c41 c42 c43 c44 c45 c46 c47 c48 c49 c50 c51	-
+refuse_column_repeated	data_refuse_base.csv	a b a	-
+refuse_unknown_column	data_refuse_base.csv	a nosuch	-
+refuse_column_holds_text	data_refuse_text.csv	a b	-
+refuse_column_non_finite	data_refuse_infinite.csv	a b	-
+refuse_no_complete_rows	data_refuse_no_rows.csv	a b	-

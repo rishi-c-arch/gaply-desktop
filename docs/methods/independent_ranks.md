@@ -314,8 +314,8 @@ code's numbers. A count of 1 reads in the singular (1 cell, 1 row, 1 level, and
 | code_equals_score | Column {column} is a score, and it holds a missing code you ticked in {count} cells. Untick the code, or leave this score out. |
 | code_point_order | Groups are listed in the order Gaply reads them, so a group column of numbers lists 10 before 2; which group is first, and the signs of the Mann-Whitney z and of the rank-biserial correlation, follow that order. |
 | distribution_out_of_range | Not computable: this needs the chi-square distribution at more than 2,401 degrees of freedom, where Gaply has not measured its accuracy. |
-| exact_not_given_size | The exact p value is not given, because a group has 50 values or more; the p value above comes from the normal approximation. |
-| exact_not_given_ties | The exact p value is not given, because two or more included values are tied; the p value above comes from the normal approximation. |
+| exact_not_given_size | The exact p value is not given, because a group has 50 values or more. |
+| exact_not_given_ties | The exact p value is not given, because two or more included values are tied. |
 | exact_without_ties_only | The Mann-Whitney test's exact p value is given only when no two values are tied and each group has fewer than 50 values; otherwise only the normal approximation's p value is given. |
 | group_below_five | A group has fewer than 5 values, where the normal and chi-square approximations are rougher. |
 | group_empty | The group "{level}" has no value after the exclusions. Leave it out, or choose another group. |

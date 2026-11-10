@@ -104,6 +104,26 @@ export const CAPABILITY_WORDS: Record<string, string> = {
   'stats.capability.limit.analyze.no_further_k_sample_tests': 'The median test and the Jonckheere-Terpstra test are not given.',
   'stats.capability.limit.analyze.rank_groups_in_code_point_order':
     'Groups are listed in the order Gaply reads them, so a group column of numbers lists 10 before 2; which group is first, and the signs of the Mann-Whitney z and of the rank-biserial correlation, follow that order.',
+  // Phase 8Z-1 (decisions 636, 639 and 640): the Wilcoxon signed-rank and Friedman tests,
+  // Planned in Part 2 and Beta from Part 3 (decision 641).
+  'stats.capability.analyze.related_ranks.title':
+    'Wilcoxon signed-rank and Friedman tests on your data',
+  'stats.capability.analyze.related_ranks.description':
+    "Compares two or more columns of your own data file, measured on the same rows, by the ranks of their values: the Wilcoxon signed-rank test when two columns are chosen, with an exact p value for small samples without ties or zero differences, and the Friedman test when three or more are, with each column's median and mean rank, the matched-pairs rank-biserial correlation and Kendall's W.",
+  'stats.capability.limit.analyze.no_pairwise_related_comparisons':
+    'Pairwise comparisons after a Friedman test are not given.',
+  'stats.capability.limit.analyze.related_tests_two_sided_only':
+    'Each Wilcoxon p value is two-sided; one-sided tests are not offered.',
+  'stats.capability.limit.analyze.no_differences_location_estimate':
+    'No estimate of the typical difference between two columns, such as the Hodges-Lehmann estimate, and no interval for it, is given.',
+  'stats.capability.limit.analyze.signed_rank_exact_p_rule':
+    "The Wilcoxon test's exact p value is given only when no two differences are tied in size, none is zero and there are fewer than 50 pairs; otherwise only the normal approximation's p value is given.",
+  'stats.capability.limit.analyze.zero_differences_dropped':
+    "A pair whose two values are equal is left out of the Wilcoxon test; Pratt's way of keeping such pairs is not offered.",
+  'stats.capability.limit.analyze.no_further_related_tests':
+    "The sign test, the marginal homogeneity test and Cochran's Q test are not given.",
+  'stats.capability.limit.analyze.related_columns_in_chosen_order':
+    'Columns are taken in the order you choose them: the Wilcoxon differences are the first column less the second, and the signs of z and of the matched-pairs rank-biserial correlation follow that order.',
   // Phase 8M (decision 411): scale scores, Planned in 8M and Beta since 8M-2's
   // Part 2 (decision 416), with no route yet.
   'stats.capability.prepare.scale_score.title': 'Scale scores',

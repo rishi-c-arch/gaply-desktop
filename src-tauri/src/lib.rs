@@ -50,6 +50,7 @@ pub mod stats_legacy;
 pub mod stats_onesample_commands;
 pub mod stats_prep_commands;
 pub mod stats_ranks_commands;
+pub mod stats_related_ranks_commands;
 pub mod stats_reproduction;
 pub mod stats_ttest_commands;
 pub mod stats_xtab_commands;
@@ -444,6 +445,12 @@ pub fn run() {
             stats_ranks_commands::stats_ranks_cancel,
             stats_ranks_commands::stats_ranks_export,
             stats_ranks_commands::stats_ranks_group_levels,
+            stats_related_ranks_commands::stats_related_ranks_validate,
+            stats_related_ranks_commands::stats_related_ranks_run,
+            stats_related_ranks_commands::stats_related_ranks_status,
+            stats_related_ranks_commands::stats_related_ranks_result,
+            stats_related_ranks_commands::stats_related_ranks_cancel,
+            stats_related_ranks_commands::stats_related_ranks_export,
             // Research OS, Phase 8M-3 (decision 425): scale scores, behind the
             // workspace check. In memory only; the screen comes with the layout.
             stats_prep_commands::stats_prep_make,

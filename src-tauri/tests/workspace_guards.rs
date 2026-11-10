@@ -1278,3 +1278,62 @@ fn every_ranks_command_checks_the_workspace_first() {
         failures.join("\n")
     );
 }
+
+/// Phase 8Z-1 (decision 641): the related rank tests' six commands, each
+/// checking the workspace first, in the same form; none is exempt. (registered
+/// path) The names are distinct from the `stats_related_ranks_` family.
+const RELATED_RANKS_OPERATIONS: &[&str] = &[
+    "stats_related_ranks_commands::stats_related_ranks_validate",
+    "stats_related_ranks_commands::stats_related_ranks_run",
+    "stats_related_ranks_commands::stats_related_ranks_status",
+    "stats_related_ranks_commands::stats_related_ranks_result",
+    "stats_related_ranks_commands::stats_related_ranks_cancel",
+    "stats_related_ranks_commands::stats_related_ranks_export",
+];
+
+#[test]
+fn every_related_ranks_command_checks_the_workspace_first() {
+    let all = registered();
+    assert!(all.len() > 100, "the handler parse is inert");
+    let mut family: Vec<&str> = all
+        .iter()
+        .map(|p| p.as_str())
+        .filter(|p| p.starts_with("stats_related_ranks_commands::"))
+        .collect();
+    family.sort_unstable();
+    let mut listed: Vec<&str> = RELATED_RANKS_OPERATIONS.to_vec();
+    listed.sort_unstable();
+    assert_eq!(
+        family, listed,
+        "every registered stats_related_ranks_commands command is listed, and every listed one is registered"
+    );
+    // Nothing registers a stats_related_ranks_* command from another module.
+    for p in &all {
+        if p.rsplit("::")
+            .next()
+            .is_some_and(|n| n.starts_with("stats_related_ranks_"))
+        {
+            assert!(p.starts_with("stats_related_ranks_commands::"), "{p}");
+        }
+    }
+
+    let src = without_line_comments(&read(&root().join("src/stats_related_ranks_commands.rs")));
+    let mut failures = Vec::new();
+    for path in RELATED_RANKS_OPERATIONS {
+        let name = path.rsplit("::").next().unwrap();
+        match fn_body(&src, name) {
+            Some(body) if checks_first(body) => {}
+            Some(body) => failures.push(format!(
+                "{path}: first statement is `{}`",
+                body.split(';').next().unwrap_or("").trim()
+            )),
+            None => failures.push(format!("{path}: no body found")),
+        }
+    }
+    println!("gated {} related rank tests commands", RELATED_RANKS_OPERATIONS.len());
+    assert!(
+        failures.is_empty(),
+        "decision 607:\n{}",
+        failures.join("\n")
+    );
+}

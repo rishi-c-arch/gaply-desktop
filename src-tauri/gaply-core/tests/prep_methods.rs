@@ -3,8 +3,9 @@
 //!
 //! Prepared tables here are built by `stats_prep::build`, never by hand.
 //!
-//! * All eight methods run on a score (the rank tests the eighth since Phase
-//!   8Y-1, decision 604): each manifest carries the preparation,
+//! * All nine methods run on a score (the rank tests the eighth since Phase
+//!   8Y-1, decision 604; the related rank tests the ninth since 8Z-1, decision
+//!   638, a score one of their columns): each manifest carries the preparation,
 //!   each result names the score by its alias alone, and each method's numbers
 //!   equal its numbers on the same values given as a file's column. That last
 //!   comparison is byte for byte on the result, so no gate is involved: the
@@ -32,6 +33,7 @@ use gaply_core::stats_l1::dataset::{
 };
 use gaply_core::stats_onesample::{self, OneSampleParams, PairedParams};
 use gaply_core::stats_ranks::{self, IndependentRanksParams};
+use gaply_core::stats_related_ranks::{self, RelatedRanksParams};
 use gaply_core::stats_prep::{
     build, prepared_fingerprint, prepared_input_hash, recipe_hash, MissingRule, Prepared, Recipe,
     RecipeStep, ScaleScoreStep, Statistic, CAPABILITY_ID, CAPABILITY_VERSION, ENGINE_VERSION,
@@ -317,6 +319,12 @@ fn ranks_params(codes: &[f64]) -> IndependentRanksParams {
         missing_codes: codes.to_vec(),
     }
 }
+fn related_params(codes: &[f64]) -> RelatedRanksParams {
+    RelatedRanksParams {
+        columns: vec![a(Q2), a(SUM)],
+        missing_codes: codes.to_vec(),
+    }
+}
 fn alpha_params(codes: &[f64]) -> AlphaParams {
     AlphaParams {
         items: vec![a(Q2), a(SUM), a(MEAN)],
@@ -360,7 +368,7 @@ macro_rules! method {
     };
 }
 
-fn methods() -> [Method; 8] {
+fn methods() -> [Method; 9] {
     [
         method!(
             "summary",
@@ -434,6 +442,15 @@ fn methods() -> [Method; 8] {
             stats_ranks::compute,
             stats_ranks::manifest
         ),
+        method!(
+            "related rank tests",
+            "stats.related_ranks.",
+            related_params,
+            stats_related_ranks::spec,
+            stats_related_ranks::validate,
+            stats_related_ranks::compute,
+            stats_related_ranks::manifest
+        ),
     ]
 }
 
@@ -441,7 +458,7 @@ fn words(errors: &[(String, Option<i64>, Option<i64>)]) -> Vec<&str> {
     errors.iter().map(|e| e.0.as_str()).collect()
 }
 
-/* ---- all eight on a score ------------------------------------------------- */
+/* ---- all nine on a score -------------------------------------------------- */
 
 #[test]
 fn the_fixture_has_the_score_values_the_tests_below_rely_on() {
@@ -459,7 +476,7 @@ fn the_fixture_has_the_score_values_the_tests_below_rely_on() {
 }
 
 #[test]
-fn all_eight_methods_run_on_a_score_and_their_manifests_carry_the_preparation() {
+fn all_nine_methods_run_on_a_score_and_their_manifests_carry_the_preparation() {
     let d = prepared();
     let hash = ContentHash::from_hex(d.schema.fingerprint.sha256_hex()).unwrap();
     for m in methods() {
@@ -770,6 +787,39 @@ fn a_ticked_code_equal_to_a_scores_value_refuses_the_spec_naming_the_column_and_
             m.name
         );
     }
+}
+
+/// The independent review's finding (decision 636): two scores a code collides
+/// with are named in the order the user chose the columns, not by alias.
+#[test]
+fn the_related_rank_tests_name_colliding_scores_in_the_list_order() {
+    let d = prepared();
+    // 9 is in C8 alone, on three rows; 3 is in C9 alone, on four.
+    let mut s = stats_related_ranks::spec(
+        OperationId(1),
+        &d,
+        RelatedRanksParams {
+            columns: vec![a(MEAN), a(SUM)],
+            missing_codes: vec![3.0, 9.0],
+        },
+    );
+    s.preparation = Some(preparation());
+    let r = report_of(stats_related_ranks::validate(&d, &s));
+    assert_eq!(
+        r.errors,
+        [
+            (
+                "stats.related_ranks.code_equals_score".to_string(),
+                Some(i64::from(MEAN)),
+                Some(4)
+            ),
+            (
+                "stats.related_ranks.code_equals_score".to_string(),
+                Some(i64::from(SUM)),
+                Some(3)
+            ),
+        ]
+    );
 }
 
 #[test]

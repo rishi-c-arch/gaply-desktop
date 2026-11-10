@@ -35,6 +35,7 @@ import ALPHA_CODES from '../alphaCodes.json';
 import XTAB_CODES from '../xtabCodes.json';
 import RANKS_CODES from '../ranksCodes.json';
 import { capabilityOfKind } from '../methods';
+import TTEST_LIMITS from '../ttestLimits.json';
 
 /** The schema version this app reads, for every stored part. */
 export const KNOWN_SCHEMA_VERSION = 1;
@@ -702,6 +703,10 @@ function xtabBundle(v: O): XtabResultView | null {
 const RK_NC = ['all_values_tied', 'overflow', 'distribution_out_of_range'].map((c) => `stats.ranks.${c}`);
 const rkNc = (x: unknown) => oneOf(x, RK_NC);
 const rkStat = (v: unknown) => oneKey(v, { value: isNum, not_computable: rkNc });
+/** The codes a normal approximation's z and p can have: no distribution's. */
+const RK_NC_NORMAL = RK_NC.filter((c) => c !== 'stats.ranks.distribution_out_of_range');
+const rkNormalStat = (v: unknown) => oneKey(v, { value: isNum, not_computable: (x) => oneOf(x, RK_NC_NORMAL) });
+const ncCode = (v: unknown): unknown => (isObject(v) ? v.not_computable : undefined);
 const rankGroup = (v: unknown) =>
   isObject(v) &&
   Object.keys(v).length === 6 &&
@@ -718,10 +723,10 @@ const mannWhitney = (v: unknown) =>
   isCount(v.first) &&
   isCount(v.second) &&
   [v.u1, v.u2, v.rankBiserial].every(isNum) &&
-  rkStat(v.z) &&
-  rkStat(v.p) &&
+  rkNormalStat(v.z) &&
+  rkNormalStat(v.p) &&
   'exactP' in v &&
-  (v.exactP === null || isNum(v.exactP));
+  (v.exactP === null || (isNum(v.exactP) && v.exactP >= 0 && v.exactP <= 1));
 
 /** The Kruskal-Wallis form: its four keys, every one always written. */
 const kruskalWallis = (v: unknown) =>
@@ -738,6 +743,7 @@ const rankTest = (test: unknown, groups: unknown) =>
 const RK_EXCLUDED = ['missing_group', 'other_level', 'missing_outcome', 'missing_code'].map((c) => `stats.ranks.${c}`);
 const rkExclusion = (e: unknown) =>
   isObject(e) &&
+  Object.keys(e).length === 3 &&
   oneOf(e.code, RK_EXCLUDED) &&
   isCount(e.count) &&
   isObject(e.params) &&
@@ -755,16 +761,50 @@ const rkDiagnostic = (v: unknown) =>
 const RK_NOTES = ['exact_not_given_ties', 'exact_not_given_size', 'group_below_five'].map((c) => `stats.ranks.${c}`);
 const rkNotes = (v: unknown) => Array.isArray(v) && JSON.stringify(v) === JSON.stringify(RK_NOTES.filter((c) => v.indexOf(c) >= 0));
 
-/** What stats_ranks always writes together: for two groups, the first and second
- *  the groups' own two levels in order, and an absent exact p exactly when a note
- *  says why; for three or more, no note about an exact p. */
+/** What stats_ranks always writes together (stats_ranks::run, mann_whitney and
+ *  kruskal_wallis; decision 635): at most MAX_GROUP_LEVELS groups, their levels strictly
+ *  ascending; every value equal only with one tie run. For two groups, the first and
+ *  second the groups' own two levels in order, U1 and U2 adding up to n1 n2, z not
+ *  computable only with its p, a ties note exactly when there are tie runs, a size note
+ *  exactly when a group has 50 values or more, and an absent exact p exactly when one of
+ *  them says why. For three or more, df the groups less one, H not computable only with
+ *  its p and epsilon-squared, and no note about an exact p. */
 const rkConsistent = (r: O) => {
-  const groups = r.groups as O[];
-  const noted = (r.notes as string[]).some((c) => RK_NOTES.slice(0, 2).indexOf(c) >= 0);
+  const groups = r.groups as Array<{ level: number; n: number }>;
+  if (groups.length > TTEST_LIMITS.maxGroupLevels) return false;
+  if (groups.some((g, i) => i > 0 && g.level <= groups[i - 1].level)) return false;
+  const notes = r.notes as string[];
+  const tiesNote = notes.indexOf(RK_NOTES[0]) >= 0;
+  const sizeNote = notes.indexOf(RK_NOTES[1]) >= 0;
+  const tieRuns = r.tieRuns as number;
+  const allTied = 'stats.ranks.all_values_tied';
   const test = r.test as O;
-  if (!isObject(test.mann_whitney)) return !noted;
+  if (!isObject(test.mann_whitney)) {
+    const t = test.kruskal_wallis as O;
+    const h = ncCode(t.h);
+    if (h !== undefined && (ncCode(t.p) !== h || ncCode(t.epsilonSquared) !== h)) return false;
+    if (h === allTied && tieRuns !== 1) return false;
+    return t.df === groups.length - 1 && !tiesNote && !sizeNote;
+  }
   const t = test.mann_whitney;
-  return t.first === groups[0].level && t.second === groups[1].level && (t.exactP === null) === noted;
+  const z = ncCode(t.z);
+  if (z !== undefined && ncCode(t.p) !== z) return false;
+  if (z === allTied && tieRuns !== 1) return false;
+  return (
+    t.first === groups[0].level &&
+    t.second === groups[1].level &&
+    (t.u1 as number) + (t.u2 as number) === groups[0].n * groups[1].n &&
+    tiesNote === (tieRuns > 0) &&
+    sizeNote === groups.some((g) => g.n >= 50) &&
+    (t.exactP === null) === (tiesNote || sizeNote)
+  );
+};
+
+/** The exclusions as stats_ranks lists them: each reason once, in its order, the
+ *  manifest's the same. */
+const rkExclusionsAgree = (v: O, r: O) => {
+  const codes = (r.exclusions as O[]).map((e) => e.code as string);
+  return JSON.stringify(codes) === JSON.stringify(RK_EXCLUDED.filter((c) => codes.indexOf(c) >= 0)) && JSON.stringify((v.manifest as O).exclusions) === JSON.stringify(r.exclusions);
 };
 
 /** Every result's limitations, in stats_ranks' order (its LIMITATIONS). */
@@ -794,7 +834,8 @@ function ranksBundle(v: O): RanksResultView | null {
     JSON.stringify(r.limitations) === JSON.stringify(RANKS_LIMITATIONS) &&
     arrayOf(v.diagnostics, rkDiagnostic) &&
     arrayOf(v.limitations, rkDiagnostic) &&
-    manifest(v.manifest, RANKS_CAPABILITY, rkExclusion);
+    manifest(v.manifest, RANKS_CAPABILITY, rkExclusion) &&
+    rkExclusionsAgree(v, r);
   if (!ok) return null;
   // As Rust's stats_ranks_commands::result makes the live view.
   return {

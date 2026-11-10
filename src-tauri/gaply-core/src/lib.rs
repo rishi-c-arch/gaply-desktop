@@ -93,6 +93,9 @@ pub mod stats_prep;
 // Research OS Phase 8Y-1: the Mann-Whitney and Kruskal-Wallis tests, the
 // pure core.
 pub mod stats_ranks;
+// Research OS Phase 8Z-1: the Wilcoxon signed-rank and Friedman tests, the pure
+// core.
+pub mod stats_related_ranks;
 pub mod stats_registry;
 pub mod stats_ttest;
 pub mod stats_verdict;

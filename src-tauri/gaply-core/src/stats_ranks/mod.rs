@@ -845,7 +845,7 @@ fn mann_whitney(
     let exact_p = if notes.is_empty() {
         let tails = rank_sum_exact_tails(u1 as u64, first.n, second.n)
             .ok_or(RanksCode::DistributionOutOfRange)?;
-        Some((2.0 * tails.lower.min(tails.upper)).min(1.0))
+        Some(exact_two_sided(tails.lower, tails.upper)?)
     } else {
         None
     };
@@ -862,6 +862,12 @@ fn mann_whitney(
         },
         notes,
     ))
+}
+
+/// The exact two-sided p from its tails. Each tail is checked first, since
+/// `f64::min` turns a NaN into the other operand (decision 635).
+fn exact_two_sided(lower: f64, upper: f64) -> Result<f64, RanksCode> {
+    Ok((2.0 * finite(lower)?.min(finite(upper)?)).min(1.0))
 }
 
 /// The Kruskal-Wallis test of three or more groups, H from the exact
@@ -974,6 +980,17 @@ mod tests {
         assert_eq!(median(&[1.0, 2.0, 3.0, 4.0]), 2.5);
         assert_eq!(median(&[1.0, 3.0, 5.0]), 3.0);
         assert_eq!(median(&[4.0]), 4.0);
+    }
+
+    /// Decision 635: f64::min turns a NaN into the other operand, so each tail is
+    /// checked first. No input reaches it: the tails are exact.
+    #[test]
+    fn a_tail_that_is_not_finite_gives_no_exact_p() {
+        assert_eq!(exact_two_sided(f64::NAN, 0.25), Err(RanksCode::Overflow));
+        assert_eq!(exact_two_sided(0.25, f64::NAN), Err(RanksCode::Overflow));
+        assert_eq!(exact_two_sided(f64::INFINITY, 0.25), Err(RanksCode::Overflow));
+        assert_eq!(exact_two_sided(0.25, 0.75), Ok(0.5));
+        assert_eq!(exact_two_sided(0.75, 0.75), Ok(1.0));
     }
 
     fn crafted_group(level: u32, n: u64, rank_sum: f64) -> RankGroup {

@@ -127,8 +127,9 @@ fn no_header_label_cell_manuscript_text_file_name_or_path_reaches_a_new_surface(
     // fifteen, Cronbach's alpha, Planned, the fifteenth (decision 372); Phase
     // 8M: sixteen, scale scores, Planned, the sixteenth (decision 411); Phase
     // 8X-1: seventeen, crosstabs, Planned, the sixteenth (decision 578); Phase
-    // 8Y-1: eighteen, the rank tests, Planned, the seventeenth (decision 605).
-    assert_eq!(list[0]["capabilityIds"].as_array().unwrap().len(), 18);
+    // 8Y-1: eighteen, the rank tests, Planned, the seventeenth (decision 605);
+    // Phase 8Z-1: nineteen, the related rank tests (decisions 639 and 641).
+    assert_eq!(list[0]["capabilityIds"].as_array().unwrap().len(), 19);
 
     // 4. Active: the operation commands read the sentinel files.
     call(&w.w, "workspace_activate", json!({ "id": "statistics" })).expect("Statistics activates");

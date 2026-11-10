@@ -49,6 +49,7 @@ use gaply_core::stats_desc::{self, Alias, DescribeParams};
 use gaply_core::stats_l1::dataset::ColumnAlias;
 use gaply_core::stats_onesample::{self, OneSampleParams, PairedParams};
 use gaply_core::stats_ranks::{self, IndependentRanksParams};
+use gaply_core::stats_related_ranks::{self, RelatedRanksParams};
 use gaply_core::stats_ttest::{self, TTestParams, Variant};
 use gaply_core::stats_xtab::{self, CrosstabsParams};
 
@@ -91,6 +92,7 @@ enum Kind {
     CronbachAlpha,
     Crosstabs,
     IndependentRanks,
+    RelatedRanks,
 }
 
 /// A manager whose hook panics at `Column(0)`, after cancelling the run
@@ -114,6 +116,7 @@ fn panicking(what: AtColumn0, kind: Kind) -> Arc<Runs> {
                 Kind::CronbachAlpha => drop(runs.alpha_cancel(run).expect("cancelled")),
                 Kind::Crosstabs => drop(runs.xtab_cancel(run).expect("cancelled")),
                 Kind::IndependentRanks => drop(runs.ranks_cancel(run).expect("cancelled")),
+                Kind::RelatedRanks => drop(runs.related_ranks_cancel(run).expect("cancelled")),
             }
         }
         panic!("the test's hook panics at column 0");
@@ -239,6 +242,14 @@ fn each_kind_says_its_own_panic_and_both_say_the_shared_lines() {
             missing_codes: vec![],
         },
     );
+    let related = stats_related_ranks::spec(
+        OperationId(10),
+        &pairs,
+        RelatedRanksParams {
+            columns: vec![Alias(ColumnAlias(1)), Alias(ColumnAlias(2))],
+            missing_codes: vec![],
+        },
+    );
     let pair_slot = slots
         .get(slots.insert("synthetic pairs".into(), pairs))
         .unwrap();
@@ -323,6 +334,19 @@ fn each_kind_says_its_own_panic_and_both_say_the_shared_lines() {
             runs.ranks_snapshot(run).unwrap().record.state.is_terminal()
         });
         ends.push(runs.ranks_snapshot(run).unwrap().record.state);
+
+        let runs = panicking(what, Kind::RelatedRanks);
+        let run = runs
+            .start_related_ranks(Arc::clone(&pair_slot), related.clone())
+            .unwrap();
+        wait_for("the related rank tests ended", || {
+            runs.related_ranks_snapshot(run)
+                .unwrap()
+                .record
+                .state
+                .is_terminal()
+        });
+        ends.push(runs.related_ranks_snapshot(run).unwrap().record.state);
     }
     let _ = std::panic::take_hook();
 
@@ -338,6 +362,8 @@ fn each_kind_says_its_own_panic_and_both_say_the_shared_lines() {
             RunState::Failed,
             RunState::Failed,
             RunState::Failed,
+            RunState::Failed,
+            RunState::Cancelled,
             RunState::Cancelled,
             RunState::Cancelled,
             RunState::Cancelled,
@@ -361,7 +387,8 @@ fn each_kind_says_its_own_panic_and_both_say_the_shared_lines() {
     assert_eq!(events(&lines, "stats_desc: Cronbach's alpha panicked"), 1);
     assert_eq!(events(&lines, "stats_desc: crosstabs panicked"), 1);
     assert_eq!(events(&lines, "stats_desc: the rank tests panicked"), 1);
-    assert_eq!(events(&lines, "stats_desc: the run's work panicked"), 9);
-    assert_eq!(events(&lines, "stats_desc: run ended"), 18);
+    assert_eq!(events(&lines, "stats_desc: the related rank tests panicked"), 1);
+    assert_eq!(events(&lines, "stats_desc: the run's work panicked"), 10);
+    assert_eq!(events(&lines, "stats_desc: run ended"), 20);
     assert_eq!(events(&lines, "stats_desc: a run event had no edge"), 0);
 }

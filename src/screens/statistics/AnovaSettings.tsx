@@ -5,7 +5,7 @@
 // ticked (decision 329). A prepared score is never listed as a group, and Rust's refusal
 // stays the boundary. What is held here is the user's choices, in this component's state
 // only, and never browser storage.
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import type { AnovaBridge } from './anovaBridge';
 import { POST_HOC_TESTS, type AnovaSpec, type PostHoc } from './anovaTypes';
 import {
@@ -70,12 +70,15 @@ export interface AnovaSettingsOptions {
 }
 
 export function useAnovaSettings(view: DatasetView | null, { bridge, slot, act }: AnovaSettingsOptions) {
-  const [outcome, setOutcome] = useState('');
+  const [outcome, setOutcomeAlias] = useState('');
   const [group, setGroup] = useState('');
   const [groupLevels, setGroupLevels] = useState<GroupLevel[]>([]);
   const [tickedLevels, setTickedLevels] = useState<number[]>([]);
   const [postHoc, setPostHoc] = useState<PostHoc[]>([]);
   const [ticked, setTicked] = useState<number[]>([]);
+  // The newest levels request: an answer to an earlier one, success or refusal, for a
+  // group since replaced or a form since reset, changes nothing (decision 635).
+  const levelsAsked = useRef(0);
 
   const outcomeColumn = useMemo(() => view?.profile.columns.find((c) => c.alias === outcome), [view, outcome]);
   const offered = useMemo(() => outcomeColumn?.suspectMissingCodes ?? [], [outcomeColumn]);
@@ -95,7 +98,8 @@ export function useAnovaSettings(view: DatasetView | null, { bridge, slot, act }
   );
 
   const reset = useCallback(() => {
-    setOutcome('');
+    levelsAsked.current += 1;
+    setOutcomeAlias('');
     setGroup('');
     setGroupLevels([]);
     setTickedLevels([]);
@@ -103,8 +107,16 @@ export function useAnovaSettings(view: DatasetView | null, { bridge, slot, act }
     setTicked([]);
   }, []);
 
+  // A code is ticked for one outcome: another that offers the same code starts unticked (decision 635).
+  const setOutcome = (alias: string) => {
+    setOutcomeAlias(alias);
+    setTicked([]);
+  };
+
   const chooseGroup = (alias: string) =>
     act(async () => {
+      levelsAsked.current += 1;
+      const asked = levelsAsked.current;
       setGroup(alias);
       setGroupLevels([]);
       setTickedLevels([]);
@@ -112,7 +124,15 @@ export function useAnovaSettings(view: DatasetView | null, { bridge, slot, act }
       if (alias === '' || at === null) return;
       // The levels in the core's own order; their indexes are what the spec
       // sends. Every level starts ticked (decision 329).
-      const read = await bridge.groupLevels(at, alias);
+      let read;
+      try {
+        read = await bridge.groupLevels(at, alias);
+      } catch (e) {
+        // A refusal for a group since replaced, or a form since reset, is not this form's.
+        if (asked !== levelsAsked.current) return;
+        throw e;
+      }
+      if (asked !== levelsAsked.current) return;
       setGroupLevels(read.levels);
       setTickedLevels(read.levels.map((l) => l.index));
     });

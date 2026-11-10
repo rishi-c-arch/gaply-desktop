@@ -63,3 +63,6 @@ src-tauri/gaply-core/tests/fixtures/stats_xtab/export_golden.csv -text
 # Research OS, Phase 8Y-1 (decision 604): the rank tests' export golden, CRLF
 # for the same reason, pinned by `ranks_export.rs`.
 src-tauri/gaply-core/tests/fixtures/stats_ranks/export_golden.csv -text
+# Research OS, Phase 8Z-1 (decision 638): the related rank tests' export golden,
+# CRLF for the same reason, pinned by `related_ranks_export.rs`.
+src-tauri/gaply-core/tests/fixtures/stats_related_ranks/export_golden.csv -text

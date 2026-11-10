@@ -59,15 +59,14 @@ describe('a Mann-Whitney result', () => {
   it.each<[string, RanksCode[]]>([
     ['ties', ['stats.ranks.exact_not_given_ties']],
     ['size', ['stats.ranks.exact_not_given_size']],
-  ])("shows the note's sentence, not a number, where exactP is null (%s)", (_why, notes) => {
+    ['both', ['stats.ranks.exact_not_given_ties', 'stats.ranks.exact_not_given_size']],
+  ])('says the exact p is not given in its cell, and why once, in the notes, where exactP is null (%s)', (_why, notes) => {
     render(<RanksCard result={withExact(null, notes)} names={NAMES} />);
-    expect(text('rk-mw-exact-p-not-given')).toBe(ranksSentence({ code: notes[0] }));
+    expect(text('rk-mw-exact-p-not-given')).toBe('Not given (see the note below).');
     expect(screen.getByTestId('rk-mw-exact-p').querySelector('.gds-mono')).toBeNull();
-  });
-
-  it('gives both sentences where both notes apply', () => {
-    render(<RanksCard result={withExact(null, ['stats.ranks.exact_not_given_ties', 'stats.ranks.exact_not_given_size'])} names={NAMES} />);
-    expect(text('rk-mw-exact-p-not-given')).toBe(`${ranksSentence({ code: 'stats.ranks.exact_not_given_ties' })} ${ranksSentence({ code: 'stats.ranks.exact_not_given_size' })}`);
+    const shown = within(screen.getByTestId('rk-notes')).getAllByRole('listitem').map((l) => l.textContent);
+    expect(shown).toEqual(notes.map((code) => ranksSentence({ code })));
+    expect(screen.getByTestId('rk-result-card').textContent?.split(ranksSentence({ code: notes[0] }))).toHaveLength(2);
   });
 
   it("shows a not-computable value's sentence where z and p would be", () => {
@@ -119,7 +118,19 @@ describe('a Kruskal-Wallis result', () => {
 });
 
 describe('the lines below the tables', () => {
-  it('lists the notes, every exclusion with its own key, the limitations, the digits note and the manifest', () => {
+  it('gives a repeated exclusion its own key: no duplicate-key warning', () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      const twice = [mw.result.exclusions[0], mw.result.exclusions[0]];
+      render(<RanksCard result={{ ...mw, result: { ...mw.result, exclusions: twice } }} names={NAMES} />);
+      expect(within(screen.getByTestId('rk-exclusions')).getAllByRole('listitem')).toHaveLength(2);
+      expect(errors.mock.calls.filter((c) => String(c[0]).includes('same key'))).toEqual([]);
+    } finally {
+      errors.mockRestore();
+    }
+  });
+
+  it('lists the notes, every exclusion, the limitations, the digits note and the manifest', () => {
     const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     try {
       render(<RanksCard result={mw} names={NAMES} />);
@@ -152,7 +163,7 @@ describe("a level's label is text only", () => {
   it.each([
     ['a Mann-Whitney result', mw],
     ['a Kruskal-Wallis result', kw],
-  ])('a sentinel shows in the text of %s and in no key, attribute, title or test id', (_name, base) => {
+  ])('a sentinel shows in the text of %s and in no element attribute, a title and a test id among them', (_name, base) => {
     const LVL = 'LVL_SENTINEL_y82';
     const result: RanksResultView = { ...base, result: { ...base.result, groups: base.result.groups.map((g) => ({ ...g, label: `${LVL}${g.level}` })) } };
     const { container } = render(<RanksCard result={result} names={NAMES} />);

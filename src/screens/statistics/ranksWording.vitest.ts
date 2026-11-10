@@ -121,13 +121,17 @@ describe('the rank tests screen words every code it can show', () => {
 
   it("says decision 620's notes and the not-computable sentence word for word", () => {
     expect(words.ranksSentence({ code: 'stats.ranks.exact_not_given_ties' })).toBe(
-      'The exact p value is not given, because two or more included values are tied; the p value above comes from the normal approximation.'
+      'The exact p value is not given, because two or more included values are tied.'
     );
     expect(words.ranksSentence({ code: 'stats.ranks.exact_not_given_size' })).toBe(
-      'The exact p value is not given, because a group has 50 values or more; the p value above comes from the normal approximation.'
+      'The exact p value is not given, because a group has 50 values or more.'
     );
     expect(words.ranksSentence({ code: 'stats.ranks.group_below_five' })).toBe('A group has fewer than 5 values, where the normal and chi-square approximations are rougher.');
     expect(words.ranksSentence({ code: 'stats.ranks.all_values_tied' })).toBe('Not computable: every included value is equal, so the ranks do not differ between groups.');
+  });
+
+  it("says decision 630's words in the absent exact p's cell", () => {
+    expect(words.RANKS_EXACT_NOT_GIVEN_CELL).toBe('Not given (see the note below).');
   });
 
   it("says decision 620's sentence under the Mann-Whitney table, the groups as text", () => {
