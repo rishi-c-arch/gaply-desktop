@@ -1,0 +1,150 @@
+{
+  "runId": 5,
+  "status": "succeeded",
+  "result": {
+    "groups": [
+      {
+        "level": 0,
+        "label": "control",
+        "n": 4,
+        "median": 2.5,
+        "rankSum": 13.0,
+        "meanRank": 3.25
+      },
+      {
+        "level": 2,
+        "label": "treated",
+        "n": 6,
+        "median": 6.25,
+        "rankSum": 42.0,
+        "meanRank": 7.0
+      }
+    ],
+    "n": 10,
+    "tieRuns": 0,
+    "test": {
+      "mann_whitney": {
+        "first": 0,
+        "second": 2,
+        "u1": 3.0,
+        "u2": 21.0,
+        "z": {
+          "value": -1.917
+        },
+        "p": {
+          "value": 0.0552
+        },
+        "exactP": 0.0667,
+        "rankBiserial": -0.75
+      }
+    },
+    "exclusions": [
+      {
+        "code": "stats.ranks.missing_group",
+        "count": 2,
+        "params": {
+          "column": 2
+        }
+      },
+      {
+        "code": "stats.ranks.other_level",
+        "count": 5,
+        "params": {
+          "column": 2
+        }
+      },
+      {
+        "code": "stats.ranks.missing_outcome",
+        "count": 1,
+        "params": {
+          "column": 1
+        }
+      },
+      {
+        "code": "stats.ranks.missing_code",
+        "count": 3,
+        "params": {
+          "column": 1
+        }
+      }
+    ],
+    "notes": [
+      "stats.ranks.group_below_five"
+    ],
+    "limitations": [
+      "stats.ranks.no_pairwise_comparisons",
+      "stats.ranks.two_sided_only",
+      "stats.ranks.no_location_shift_estimate",
+      "stats.ranks.exact_without_ties_only",
+      "stats.ranks.no_further_k_sample_tests",
+      "stats.ranks.no_weights",
+      "stats.ranks.code_point_order"
+    ]
+  },
+  "diagnostics": [
+    {
+      "code": "stats.ranks.suspect_missing_code",
+      "params": {
+        "column": 1,
+        "count": 3,
+        "value": 99
+      },
+      "severity": "warning"
+    },
+    {
+      "code": "stats.ranks.no_pairwise_comparisons",
+      "params": {},
+      "severity": "note"
+    }
+  ],
+  "manifest": {
+    "schemaVersion": 1,
+    "capabilityId": "stats.analyze.independent_ranks",
+    "capabilityVersion": 1,
+    "engineVersion": 1,
+    "inputs": [
+      "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    ],
+    "parametersHash": "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+    "seed": 7,
+    "rowsRead": 21,
+    "rowsUsed": 10,
+    "exclusions": [
+      {
+        "code": "stats.ranks.missing_group",
+        "count": 2,
+        "params": {
+          "column": 2
+        }
+      },
+      {
+        "code": "stats.ranks.other_level",
+        "count": 5,
+        "params": {
+          "column": 2
+        }
+      },
+      {
+        "code": "stats.ranks.missing_outcome",
+        "count": 1,
+        "params": {
+          "column": 1
+        }
+      },
+      {
+        "code": "stats.ranks.missing_code",
+        "count": 3,
+        "params": {
+          "column": 1
+        }
+      }
+    ],
+    "platform": {
+      "os": "macos",
+      "arch": "aarch64"
+    },
+    "elapsedMs": 3,
+    "outputHash": "6ad1bf5daee4d8dfcb466411096e7f26e513bf2cadfb0e1605ff085026fe5c5b",
+    "reproducibility": "bitwise"
+  }
+}

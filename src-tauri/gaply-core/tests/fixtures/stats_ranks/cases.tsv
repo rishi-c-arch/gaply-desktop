@@ -1,0 +1,33 @@
+# written by: /usr/local/bin/Rscript make_ranks_fixtures.R
+# R version 4.6.1 (2026-06-24), base R stats only
+case	file	outcome	group	levels	missing_codes
+mw_small	data_mw_small.csv	y	g	all	-
+mw_centre	data_mw_centre.csv	y	g	all	-
+mw_ties	data_mw_ties.csv	y	g	all	-
+mw_49_49	data_mw_49_49.csv	y	g	all	-
+mw_50_10	data_mw_50_10.csv	y	g	all	-
+mw_one_vs_thirty	data_mw_one_vs_thirty.csv	y	g	all	-
+mw_large	counts_mw_large.csv	y	g	all	-
+kw_small	data_kw_small.csv	y	g	all	-
+kw_ties	data_kw_ties.csv	y	g	all	-
+kw_50	data_kw_50.csv	y	g	all	-
+kw_large	counts_kw_large.csv	y	g	all	-
+all_equal_two	data_all_equal_two.csv	y	g	all	-
+all_equal_three	data_all_equal_three.csv	y	g	all	-
+numeric_2_10	data_numeric_2_10.csv	y	g	all	-
+codepoint_text	data_codepoint_text.csv	y	g	all	-
+four_levels_two	data_four_levels.csv	y	g	1 3	-
+four_levels_three	data_four_levels.csv	y	g	0 1 3	-
+codes_outcome	data_codes_outcome.csv	y	g	all	-9 99
+empty_both	data_empty_both.csv	y	g	all	-
+refuse_code_not_finite	data_refuse_base.csv	y	g	all	NaN
+refuse_unknown_column	data_refuse_base.csv	nosuch	g	all	-
+refuse_same_column	data_refuse_base.csv	g	g	all	-
+refuse_level_out_of_range	data_refuse_base.csv	y	g	0 5	-
+refuse_level_repeated	data_refuse_base.csv	y	g	1 1 2	-
+refuse_too_few_levels	data_refuse_base.csv	y	g	2	-
+refuse_outcome_text	data_refuse_text.csv	y	g	all	-
+refuse_outcome_non_finite	data_refuse_infinite.csv	y	g	all	-
+refuse_one_level	data_refuse_one_level.csv	y	g	all	-
+refuse_51_levels	data_refuse_51_levels.csv	y	g	all	-
+refuse_group_empty	data_refuse_group_empty.csv	y	g	all	-9

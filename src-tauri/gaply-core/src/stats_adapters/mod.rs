@@ -56,6 +56,12 @@
 //!   refusal worded `stats.xtab.unknown_capability` or
 //!   `stats.xtab.capability_version_mismatch`. Planned in 8X-1's Part 2, Beta
 //!   since its Part 3 (decision 580), so the real registry admits it.
+//! * [`ranks_admit`], [`ranks_validate`] and [`ranks_run`]
+//!   (`stats.analyze.independent_ranks`, Phase 8Y-1, decision 605):
+//!   `stats_ranks::validate` and `stats_ranks::run`, the same way, a registry
+//!   refusal worded `stats.ranks.unknown_capability` or
+//!   `stats.ranks.capability_version_mismatch`. Planned in 8Y-1's Part 2, so
+//!   the real registry refuses it until Part 3 makes it Beta.
 //! * [`prep_runnable`], [`prep_admit`], [`prep_validate`], [`prep_build`],
 //!   [`prep_original`] and [`prep_csv`] (`stats.prepare.scale_score`, Phase
 //!   8M-3, decision 425): `stats_prep::validate`, `build`, `original` and
@@ -96,6 +102,7 @@ use crate::stats_onesample::{
     self, OneSampleCode, OneSampleParams, OneSampleResult, PairedParams, PairedResult,
 };
 use crate::stats_prep::{self, PrepCode, PrepRefusal, Prepared, Recipe};
+use crate::stats_ranks::{self, IndependentRanksOutcome, IndependentRanksParams, RanksCode};
 use crate::stats_registry::{Entry, Kind, Registry, CHECK_ID, VERIFY_PREFIX};
 use crate::stats_ttest::{self, TTestCode, TTestParams, TTestResult};
 use crate::stats_xtab::{self, CrosstabsOutcome, CrosstabsParams, XtabCode};
@@ -1052,6 +1059,109 @@ pub(crate) fn xtab_run_in<B>(
 ) -> Result<CrosstabsOutcome, stats_xtab::Halt<B>> {
     xtab_entry(registry, spec, build).map_err(|r| stats_xtab::Halt::Refused(xtab_refusal(&r)))?;
     stats_xtab::run(dataset, &spec.parameters, checkpoint)
+}
+
+/* ------------------------------------------------------------------------ *
+ *  stats.analyze.independent_ranks (Phase 8Y-1)
+ * ------------------------------------------------------------------------ */
+
+/// A registry refusal in the rank tests' own codes, as [`xtab_refusal`] does.
+fn ranks_refusal(r: &Refusal) -> Diagnostic<RanksCode> {
+    match r.code {
+        CapabilityCode::VersionMismatch => {
+            let int = |k| match r.params.get(&k) {
+                Some(ParamValue::Int(n)) => *n,
+                _ => 0,
+            };
+            Diagnostic::error(RanksCode::CapabilityVersionMismatch)
+                .int(ParamKey::Expected, int(ParamKey::Expected))
+                .int(ParamKey::Found, int(ParamKey::Found))
+        }
+        _ => Diagnostic::error(RanksCode::UnknownCapability),
+    }
+}
+
+/// The registry's check for a rank tests spec, as [`xtab_entry`] does: a
+/// registered, runnable entry of the rank tests' kind, and no confirmation.
+fn ranks_entry(
+    registry: &Registry,
+    spec: &OperationSpec<IndependentRanksParams>,
+    build: Build,
+) -> Result<(), Refusal> {
+    let entry = runnable(registry, spec, build)?;
+    if entry.kind != Kind::AnalyzeIndependentRanks {
+        return Err(refused(CapabilityCode::UnknownCapability));
+    }
+    no_confirmation(spec)
+}
+
+/// The registry's answer for a rank tests spec, as it gives it, for the
+/// app's `stats_ranks_*` commands, as [`xtab_admit`] is for crosstabs.
+pub fn ranks_admit(
+    spec: &OperationSpec<IndependentRanksParams>,
+    build: Build,
+) -> Result<(), Refusal> {
+    ranks_entry(&Registry::statistics(), spec, build)
+}
+
+/// `stats.analyze.independent_ranks`' validation: the registry first, so a
+/// spec the registry refuses is `Unsupported` before anything reads the
+/// dataset; then `stats_ranks::validate`, unchanged.
+pub fn ranks_validate(
+    spec: &OperationSpec<IndependentRanksParams>,
+    build: Build,
+    dataset: &Dataset,
+) -> ValidationReport<RanksCode> {
+    ranks_validate_in(&Registry::statistics(), spec, build, dataset)
+}
+
+pub(crate) fn ranks_validate_in(
+    registry: &Registry,
+    spec: &OperationSpec<IndependentRanksParams>,
+    build: Build,
+    dataset: &Dataset,
+) -> ValidationReport<RanksCode> {
+    match ranks_entry(registry, spec, build) {
+        Ok(()) => stats_ranks::validate(dataset, spec),
+        Err(r) => {
+            let rows = dataset.rows() as u64;
+            let estimate = ResourceEstimate {
+                rows,
+                columns: 2,
+                cells: rows.saturating_mul(2),
+            };
+            ValidationReport::new(
+                vec![ranks_refusal(&r)],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                estimate,
+            )
+        }
+    }
+}
+
+/// `stats.analyze.independent_ranks`' run: the registry again, then
+/// `stats_ranks::run`, unchanged, with its one check point.
+pub fn ranks_run<B>(
+    spec: &OperationSpec<IndependentRanksParams>,
+    build: Build,
+    dataset: &Dataset,
+    checkpoint: impl FnMut(usize) -> ControlFlow<B>,
+) -> Result<IndependentRanksOutcome, stats_ranks::Halt<B>> {
+    ranks_run_in(&Registry::statistics(), spec, build, dataset, checkpoint)
+}
+
+pub(crate) fn ranks_run_in<B>(
+    registry: &Registry,
+    spec: &OperationSpec<IndependentRanksParams>,
+    build: Build,
+    dataset: &Dataset,
+    checkpoint: impl FnMut(usize) -> ControlFlow<B>,
+) -> Result<IndependentRanksOutcome, stats_ranks::Halt<B>> {
+    ranks_entry(registry, spec, build)
+        .map_err(|r| stats_ranks::Halt::Refused(ranks_refusal(&r)))?;
+    stats_ranks::run(dataset, &spec.parameters, checkpoint)
 }
 
 /* ------------------------------------------------------------------------ *
@@ -2314,6 +2424,145 @@ mod xtab_facade_tests {
         assert_eq!(
             xtab_run_in(&real, &good, b, &d, go).unwrap(),
             stats_xtab::compute(&d, &good.parameters).unwrap()
+        );
+    }
+}
+
+#[cfg(test)]
+mod ranks_facade_tests {
+    use super::*;
+    use crate::contracts::capability::Lifecycle;
+    use crate::stats_desc::Alias;
+    use crate::stats_l1::dataset::{
+        build_dataset, ColumnAlias, DataFingerprint, RawTable, TableRef,
+    };
+    use crate::stats_ranks::{Halt, IndependentRanksParams};
+
+    fn data() -> Dataset {
+        let rows: Vec<Vec<String>> = [
+            ("1.5", "a"),
+            ("2.5", "b"),
+            ("3.5", "a"),
+            ("4.5", "b"),
+            ("5.5", "b"),
+            ("0.5", "a"),
+            ("6.5", "b"),
+            ("7.5", "c"),
+            ("8.5", "c"),
+        ]
+        .iter()
+        .map(|(y, g)| vec![y.to_string(), g.to_string()])
+        .collect();
+        build_dataset(
+            RawTable::from_rows(vec!["y".into(), "g".into()], rows),
+            DataFingerprint::of_bytes(b"ranks facade", "test", TableRef::FirstTable),
+        )
+        .expect("dataset")
+    }
+
+    fn forged(d: &Dataset, id: &str, version: u32) -> OperationSpec<IndependentRanksParams> {
+        let mut s = stats_ranks::spec(
+            OperationId(7),
+            d,
+            IndependentRanksParams {
+                outcome: Alias(ColumnAlias(1)),
+                group: Alias(ColumnAlias(2)),
+                levels: None,
+                missing_codes: Vec::new(),
+            },
+        );
+        s.capability_id = CapabilityId::parse(id).unwrap();
+        s.capability_version = version;
+        s
+    }
+
+    fn go(_: usize) -> ControlFlow<()> {
+        ControlFlow::Continue(())
+    }
+
+    fn codes(r: &ValidationReport<RanksCode>) -> Vec<RanksCode> {
+        r.errors.iter().map(|e| e.code).collect()
+    }
+
+    fn unknown() -> Halt<()> {
+        Halt::Refused(Diagnostic::error(RanksCode::UnknownCapability))
+    }
+
+    #[test]
+    fn the_real_registry_admits_the_rank_tests_in_both_builds_because_they_are_beta() {
+        let d = data();
+        let s = forged(&d, stats_ranks::CAPABILITY_ID, 1);
+        for build in [Build::Standard, Build::Devtools] {
+            ranks_admit(&s, build)
+                .unwrap_or_else(|r| panic!("Beta is admitted in {build:?}: {r:?}"));
+            assert!(ranks_validate(&s, build, &d).may_run(), "{build:?}");
+            assert_eq!(
+                ranks_run(&s, build, &d, go).ok(),
+                stats_ranks::compute(&d, &s.parameters).ok(),
+                "{build:?}: the module's own result"
+            );
+            assert!(ranks_run(&s, build, &d, go).is_ok(), "{build:?}");
+        }
+    }
+
+    #[test]
+    fn the_ranks_facade_refuses_forged_specs_and_runs_the_real_one_as_the_module_does() {
+        let d = data();
+        let b = Build::Devtools;
+        let real = Registry::statistics();
+        for id in [
+            "stats.analyze.independent_ranks_exact",
+            "stats.describe",
+            "stats.analyze.one_way_anova",
+            "stats.analyze.crosstabs",
+        ] {
+            let s = forged(&d, id, 1);
+            assert_eq!(
+                codes(&ranks_validate_in(&real, &s, b, &d)),
+                [RanksCode::UnknownCapability],
+                "{id}"
+            );
+            assert!(!ranks_validate_in(&real, &s, b, &d).may_run(), "{id}");
+            assert_eq!(ranks_run_in(&real, &s, b, &d, go).unwrap_err(), unknown(), "{id}");
+            assert!(ranks_admit(&s, b).is_err(), "{id}");
+        }
+        let v = ranks_validate_in(&real, &forged(&d, stats_ranks::CAPABILITY_ID, 2), b, &d);
+        assert_eq!(codes(&v), [RanksCode::CapabilityVersionMismatch]);
+        assert_eq!(
+            v.errors[0].params.get(&ParamKey::Expected),
+            Some(&ParamValue::Int(1))
+        );
+        assert_eq!(
+            v.errors[0].params.get(&ParamKey::Found),
+            Some(&ParamValue::Int(2))
+        );
+        // A Planned table: the real one, set back to Planned, as Part 2 had it.
+        let good = forged(&d, stats_ranks::CAPABILITY_ID, 1);
+        let planned =
+            Registry::statistics().with_lifecycle(stats_ranks::CAPABILITY_ID, Lifecycle::Planned);
+        for build in [Build::Standard, Build::Devtools] {
+            assert_eq!(
+                codes(&ranks_validate_in(&planned, &good, build, &d)),
+                [RanksCode::UnknownCapability]
+            );
+            assert_eq!(
+                ranks_run_in(&planned, &good, build, &d, go).unwrap_err(),
+                unknown()
+            );
+        }
+        let mut c = good.clone();
+        c.confirmation_refs = vec![ConfirmationId::parse(&"ef".repeat(32)).unwrap()];
+        assert_eq!(
+            codes(&ranks_validate_in(&real, &c, b, &d)),
+            [RanksCode::UnknownCapability]
+        );
+        assert_eq!(
+            ranks_validate_in(&real, &good, b, &d),
+            stats_ranks::validate(&d, &good)
+        );
+        assert_eq!(
+            ranks_run_in(&real, &good, b, &d, go).unwrap(),
+            stats_ranks::compute(&d, &good.parameters).unwrap()
         );
     }
 }

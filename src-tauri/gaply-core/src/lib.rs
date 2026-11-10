@@ -90,6 +90,9 @@ pub mod stats_l1;
 // Research OS Phase 8D-1: the one-sample and paired t-tests, the pure core.
 pub mod stats_onesample;
 pub mod stats_prep;
+// Research OS Phase 8Y-1: the Mann-Whitney and Kruskal-Wallis tests, the
+// pure core.
+pub mod stats_ranks;
 pub mod stats_registry;
 pub mod stats_ttest;
 pub mod stats_verdict;

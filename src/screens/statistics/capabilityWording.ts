@@ -89,6 +89,21 @@ export const CAPABILITY_WORDS: Record<string, string> = {
   'stats.capability.limit.analyze.no_weights': 'Each row is counted once; weighting rows by a column is not offered.',
   'stats.capability.limit.analyze.levels_in_code_point_order':
     "Levels are listed in the order Gaply reads them, so a column of numbers lists 10 before 2; the sign of phi and the direction of Fisher's one-sided tests follow that order.",
+  // Phase 8Y-1 (decisions 602, 605 and 606): the Mann-Whitney and
+  // Kruskal-Wallis tests, Planned in Part 2 and Beta from Part 3 (decision 607).
+  'stats.capability.analyze.independent_ranks.title': 'Mann-Whitney and Kruskal-Wallis tests on your data',
+  'stats.capability.analyze.independent_ranks.description':
+    "Compares a column of your own data file across two or more groups by the ranks of its values: the Mann-Whitney U test when two groups are included, with an exact p value for small groups without ties, and the Kruskal-Wallis H test when three or more are, with each group's count, median and mean rank, the rank-biserial correlation and epsilon-squared.",
+  'stats.capability.limit.analyze.no_pairwise_rank_comparisons':
+    "Pairwise comparisons after a Kruskal-Wallis test, such as Dunn's test, are not given.",
+  'stats.capability.limit.analyze.rank_tests_two_sided_only': 'Each Mann-Whitney p value is two-sided; one-sided tests are not offered.',
+  'stats.capability.limit.analyze.no_location_shift_estimate':
+    'No estimate of the shift between two groups, such as the Hodges-Lehmann estimate, and no interval for it, is given.',
+  'stats.capability.limit.analyze.exact_p_without_ties_only':
+    "The Mann-Whitney test's exact p value is given only when no two values are tied and each group has fewer than 50 values; otherwise only the normal approximation's p value is given.",
+  'stats.capability.limit.analyze.no_further_k_sample_tests': 'The median test and the Jonckheere-Terpstra test are not given.',
+  'stats.capability.limit.analyze.rank_groups_in_code_point_order':
+    'Groups are listed in the order Gaply reads them, so a group column of numbers lists 10 before 2; which group is first, and the signs of the Mann-Whitney z and of the rank-biserial correlation, follow that order.',
   // Phase 8M (decision 411): scale scores, Planned in 8M and Beta since 8M-2's
   // Part 2 (decision 416), with no route yet.
   'stats.capability.prepare.scale_score.title': 'Scale scores',

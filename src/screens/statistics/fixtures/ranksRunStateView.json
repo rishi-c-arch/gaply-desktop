@@ -1,0 +1,20 @@
+{
+  "runId": 5,
+  "state": "running",
+  "terminal": false,
+  "elapsedMs": 12,
+  "cancelRequested": true,
+  "stepsDone": 0,
+  "stepsTotal": 1,
+  "diagnostics": [
+    {
+      "code": "stats.ranks.suspect_missing_code",
+      "params": {
+        "column": 1,
+        "count": 3,
+        "value": 99
+      },
+      "severity": "warning"
+    }
+  ]
+}

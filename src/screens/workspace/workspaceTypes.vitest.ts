@@ -53,6 +53,7 @@ const list = [
       'stats.analyze.correlations',
       'stats.analyze.cronbach_alpha',
       'stats.analyze.crosstabs',
+      'stats.analyze.independent_ranks',
       'stats.prepare.scale_score',
     ],
     supportsOffline: true,

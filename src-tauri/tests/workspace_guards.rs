@@ -1218,3 +1218,63 @@ fn every_xtab_command_checks_the_workspace_first() {
         failures.join("\n")
     );
 }
+
+/// Phase 8Y-1 (decision 607): the rank tests' seven commands, its levels
+/// command included, each checking the workspace first, in the same form;
+/// none is exempt. (registered path)
+const RANKS_OPERATIONS: &[&str] = &[
+    "stats_ranks_commands::stats_ranks_validate",
+    "stats_ranks_commands::stats_ranks_run",
+    "stats_ranks_commands::stats_ranks_status",
+    "stats_ranks_commands::stats_ranks_result",
+    "stats_ranks_commands::stats_ranks_cancel",
+    "stats_ranks_commands::stats_ranks_export",
+    "stats_ranks_commands::stats_ranks_group_levels",
+];
+
+#[test]
+fn every_ranks_command_checks_the_workspace_first() {
+    let all = registered();
+    assert!(all.len() > 100, "the handler parse is inert");
+    let mut family: Vec<&str> = all
+        .iter()
+        .map(|p| p.as_str())
+        .filter(|p| p.starts_with("stats_ranks_commands::"))
+        .collect();
+    family.sort_unstable();
+    let mut listed: Vec<&str> = RANKS_OPERATIONS.to_vec();
+    listed.sort_unstable();
+    assert_eq!(
+        family, listed,
+        "every registered stats_ranks_commands command is listed, and every listed one is registered"
+    );
+    // Nothing registers a stats_ranks_* command from another module.
+    for p in &all {
+        if p.rsplit("::")
+            .next()
+            .is_some_and(|n| n.starts_with("stats_ranks_"))
+        {
+            assert!(p.starts_with("stats_ranks_commands::"), "{p}");
+        }
+    }
+
+    let src = without_line_comments(&read(&root().join("src/stats_ranks_commands.rs")));
+    let mut failures = Vec::new();
+    for path in RANKS_OPERATIONS {
+        let name = path.rsplit("::").next().unwrap();
+        match fn_body(&src, name) {
+            Some(body) if checks_first(body) => {}
+            Some(body) => failures.push(format!(
+                "{path}: first statement is `{}`",
+                body.split(';').next().unwrap_or("").trim()
+            )),
+            None => failures.push(format!("{path}: no body found")),
+        }
+    }
+    println!("gated {} rank tests commands", RANKS_OPERATIONS.len());
+    assert!(
+        failures.is_empty(),
+        "decision 607:\n{}",
+        failures.join("\n")
+    );
+}

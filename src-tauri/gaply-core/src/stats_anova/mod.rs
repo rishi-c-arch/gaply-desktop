@@ -1090,8 +1090,9 @@ enum Centre {
 }
 
 /// The median of ascending values: the middle one, or the mean of the two
-/// middle ones (decision 313).
-fn median(v: &[f64]) -> f64 {
+/// middle ones (decision 313). pub(crate) since Research OS 8Y-1 (decision
+/// 602): the rank tests' group medians come from here.
+pub(crate) fn median(v: &[f64]) -> f64 {
     let n = v.len();
     if n % 2 == 1 {
         v[n / 2]

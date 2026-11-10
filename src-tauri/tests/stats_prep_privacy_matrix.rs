@@ -311,6 +311,10 @@ fn no_sentinel_reaches_a_surface_it_is_not_allowed_on() {
             json!({ "slot": slot, "column": "C8" }),
         ),
         (
+            "stats_ranks_group_levels",
+            json!({ "slot": slot, "column": "C8" }),
+        ),
+        (
             "stats_desc_open",
             json!({ "path": folder.join(format!("{FILE}_missing.csv")).to_string_lossy() }),
         ),

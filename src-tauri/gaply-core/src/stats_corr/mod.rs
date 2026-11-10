@@ -1076,7 +1076,9 @@ fn interval(c: Coefficient, estimate: f64, n: usize) -> Interval {
 }
 
 /// The sizes of the runs of equal values in `v`, which is sorted.
-fn runs(v: &[f64]) -> Vec<u128> {
+/// pub(crate) since Research OS 8Y-1 (decision 602): the rank tests' tie
+/// correction takes its runs from here.
+pub(crate) fn runs(v: &[f64]) -> Vec<u128> {
     let mut out = Vec::new();
     let mut i = 0;
     while i < v.len() {

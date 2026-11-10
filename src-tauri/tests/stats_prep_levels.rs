@@ -16,9 +16,11 @@ fn levels(w: &World, command: &str, slot: &Value, column: &str) -> Result<Value,
     call(&w.w, command, json!({ "slot": slot, "column": column }))
 }
 
-const COMMANDS: [(&str, &str); 2] = [
+const COMMANDS: [(&str, &str); 3] = [
     ("stats_ttest_group_levels", "stats.ttest"),
     ("stats_anova_group_levels", "stats.anova"),
+    // Phase 8Y-1 (decision 607).
+    ("stats_ranks_group_levels", "stats.ranks"),
 ];
 
 #[test]

@@ -543,7 +543,9 @@ pub fn pearson_clamped(x: &[f64], y: &[f64]) -> Result<CorrelationResult, GaplyE
 }
 
 /// Average ranks (ties share the mean of the ranks they'd occupy).
-fn average_ranks(xs: &[f64]) -> Vec<f64> {
+/// pub(crate) since Research OS 8Y-1 (decision 602): the rank tests' ranks
+/// come from here, the one implementation.
+pub(crate) fn average_ranks(xs: &[f64]) -> Vec<f64> {
     let n = xs.len();
     let mut idx: Vec<usize> = (0..n).collect();
     idx.sort_by(|&i, &j| xs[i].partial_cmp(&xs[j]).unwrap_or(std::cmp::Ordering::Equal));

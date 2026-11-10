@@ -72,6 +72,7 @@ use crate::stats_l1::catalogue::{L1MethodId, MethodCatalogue};
 use crate::stats_l1::compute::L1Registry;
 use crate::stats_onesample::{ONE_SAMPLE_ID, ONE_SAMPLE_VERSION, PAIRED_ID, PAIRED_VERSION};
 use crate::stats_prep::{CAPABILITY_ID as PREP_ID, CAPABILITY_VERSION as PREP_VERSION};
+use crate::stats_ranks::{CAPABILITY_ID as RANKS_ID, CAPABILITY_VERSION as RANKS_VERSION};
 use crate::stats_ttest::{CAPABILITY_ID as TTEST_ID, CAPABILITY_VERSION as TTEST_VERSION};
 use crate::stats_xtab::{CAPABILITY_ID as XTAB_ID, CAPABILITY_VERSION as XTAB_VERSION};
 
@@ -176,6 +177,24 @@ closed! {
         /// Levels in code-point order, which sets phi's sign and Fisher's
         /// one-sided directions (decision 579).
         LimitAnalyzeLevelsInCodePointOrder => "limit.analyze.levels_in_code_point_order",
+        AnalyzeIndependentRanksTitle => "analyze.independent_ranks.title",
+        AnalyzeIndependentRanksDescription => "analyze.independent_ranks.description",
+        /// No Dunn's test or other pairwise comparisons after the
+        /// Kruskal-Wallis test (decision 606).
+        LimitAnalyzeNoPairwiseRankComparisons => "limit.analyze.no_pairwise_rank_comparisons",
+        /// Each Mann-Whitney p is two-sided (decision 606).
+        LimitAnalyzeRankTestsTwoSidedOnly => "limit.analyze.rank_tests_two_sided_only",
+        /// No Hodges-Lehmann estimate of the shift, and no interval for it
+        /// (decision 606).
+        LimitAnalyzeNoLocationShiftEstimate => "limit.analyze.no_location_shift_estimate",
+        /// The exact p only without ties and below 50 values a group
+        /// (decision 606).
+        LimitAnalyzeExactPWithoutTiesOnly => "limit.analyze.exact_p_without_ties_only",
+        /// No median test and no Jonckheere-Terpstra test (decision 606).
+        LimitAnalyzeNoFurtherKSampleTests => "limit.analyze.no_further_k_sample_tests",
+        /// Groups in code-point order, which sets the first group and the
+        /// signs of z and the rank-biserial correlation (decision 606).
+        LimitAnalyzeRankGroupsInCodePointOrder => "limit.analyze.rank_groups_in_code_point_order",
         PrepareScaleScoreTitle => "prepare.scale_score.title",
         PrepareScaleScoreDescription => "prepare.scale_score.description",
         /// A score's items are the file's columns (ADR-011 question 13).
@@ -209,6 +228,8 @@ pub enum Kind {
     AnalyzeCronbachAlpha,
     /// `stats.analyze.crosstabs` (Phase 8X-1).
     AnalyzeCrosstabs,
+    /// `stats.analyze.independent_ranks` (Phase 8Y-1).
+    AnalyzeIndependentRanks,
     /// `stats.prepare.scale_score` (Phase 8M). Not a method: no run kind.
     PrepareScaleScore,
 }
@@ -240,6 +261,9 @@ const LIFECYCLES: &[(&str, Lifecycle)] = &[
     // Planned in 8X-1's Part 2 (decision 578); Beta at the start of its Part 3
     // (decision 580), so its commands and runs can run.
     (XTAB_ID, Lifecycle::Beta),
+    // Planned in 8Y-1's Part 2 (decision 605); Beta at the start of its Part 3
+    // (decision 607), so its commands and runs can run.
+    (RANKS_ID, Lifecycle::Beta),
     // Planned in 8M (decision 411); Beta at the start of 8M-2's Part 2
     // (decision 416), so 8M-3's commands can run in both builds.
     (PREP_ID, Lifecycle::Beta),
@@ -741,6 +765,56 @@ fn analyze_crosstabs() -> Entry {
     }
 }
 
+/// The Mann-Whitney and Kruskal-Wallis tests on the user's data (Phase 8Y-1,
+/// decisions 602, 605 and 606): the other methods' profile, formats and
+/// licence; the table capabilities' two limitations, the levels' reading as
+/// crosstabs has it, crosstabs' weights, and its own six.
+fn analyze_independent_ranks() -> Entry {
+    Entry {
+        kind: Kind::AnalyzeIndependentRanks,
+        descriptor: StatsDescriptor {
+            id: id(RANKS_ID),
+            version: RANKS_VERSION,
+            workspace_id: WorkspaceId::Statistics,
+            title_code: StatsWording::AnalyzeIndependentRanksTitle,
+            description_code: StatsWording::AnalyzeIndependentRanksDescription,
+            lifecycle: lifecycle_of(RANKS_ID),
+            input_schema_version: 1,
+            output_schema_version: 1,
+            method_schema_version: 1,
+            supported_formats: TABLE_FORMATS.to_vec(),
+            dependency_ids: Vec::new(),
+            license_notes: vec![StatsWording::LicenseStatrsMit],
+            resource_profile: ResourceProfile {
+                ram_class: RamClass::Gb8,
+                max_rows: Some(METHOD_MAX_ROWS),
+                max_columns: Some(METHOD_MAX_COLUMNS),
+                max_input_bytes: None,
+                ceiling_ms: Some(DESCRIBE_CEILING_MS),
+                cancel: Cancel::Cooperative,
+                uses_gpu: false,
+                temp_disk: false,
+            },
+            offline_behavior: OfflineBehavior::RunsOffline,
+            validation_suite_id: SuiteId("independent_ranks_r_golden"),
+            known_limitation_codes: vec![
+                StatsWording::LimitTableTextFilesUtf8Only,
+                StatsWording::LimitTableLimitsByMemory,
+                StatsWording::LimitDescribeLevelsFollowLevel1,
+                StatsWording::LimitAnalyzeNoWeights,
+                StatsWording::LimitAnalyzeNoPairwiseRankComparisons,
+                StatsWording::LimitAnalyzeRankTestsTwoSidedOnly,
+                StatsWording::LimitAnalyzeNoLocationShiftEstimate,
+                StatsWording::LimitAnalyzeExactPWithoutTiesOnly,
+                StatsWording::LimitAnalyzeNoFurtherKSampleTests,
+                StatsWording::LimitAnalyzeRankGroupsInCodePointOrder,
+            ],
+            export_kinds: vec![ExportKind::Csv, ExportKind::Json],
+            documentation_id: DocId("methods/independent_ranks"),
+        },
+    }
+}
+
 /// Scale scores (Phase 8M, decisions 408 and 411): the methods' rows, columns,
 /// formats and table limitations, with no ceiling and no cancel (ADR-011 Part
 /// 12): one fast call, measured at 0.18 s at 100,000 × 128 (decision 410), never
@@ -798,7 +872,8 @@ impl Registry {
     /// `stats.analyze.independent_t`, `stats.analyze.one_sample_t`,
     /// `stats.analyze.paired_t`, `stats.analyze.one_way_anova`,
     /// `stats.analyze.correlations`, `stats.analyze.cronbach_alpha`,
-    /// `stats.analyze.crosstabs` and `stats.prepare.scale_score`.
+    /// `stats.analyze.crosstabs`, `stats.analyze.independent_ranks` and
+    /// `stats.prepare.scale_score`.
     pub fn statistics() -> Registry {
         let mut entries = vec![check()];
         entries.extend(MethodCatalogue::ENTRIES.iter().map(|e| verify(e.id)));
@@ -810,6 +885,7 @@ impl Registry {
         entries.push(analyze_correlations());
         entries.push(analyze_cronbach_alpha());
         entries.push(analyze_crosstabs());
+        entries.push(analyze_independent_ranks());
         entries.push(prepare_scale_score());
         Registry { entries }
     }
@@ -981,7 +1057,7 @@ mod tests {
                 checked += 1;
             }
         }
-        assert_eq!(checked, 2 * 17, "seventeen capabilities, two builds");
+        assert_eq!(checked, 2 * 18, "eighteen capabilities, two builds");
     }
 
     /// Phase 8D-1 (decision 253), made Beta in 8D-2a (decision 265): the
@@ -1034,7 +1110,7 @@ mod tests {
         }
         let ids: Vec<String> = t.ids().iter().map(|i| i.as_str().to_string()).collect();
         assert_eq!(
-            &ids[ids.len() - 8..ids.len() - 5],
+            &ids[ids.len() - 9..ids.len() - 6],
             [TTEST_ID, ONE_SAMPLE_ID, PAIRED_ID],
             "appended after the independent t-test, one-sample first"
         );
@@ -1060,6 +1136,7 @@ mod tests {
                 | Kind::AnalyzeCorrelations
                 | Kind::AnalyzeCronbachAlpha
                 | Kind::AnalyzeCrosstabs
+                | Kind::AnalyzeIndependentRanks
                 | Kind::PrepareScaleScore => {
                     methods += 1;
                     assert!(
@@ -1097,7 +1174,7 @@ mod tests {
                 }
             }
         }
-        assert_eq!((methods, verify), (9, 7));
+        assert_eq!((methods, verify), (10, 7));
         assert_eq!((METHOD_MAX_ROWS, METHOD_MAX_COLUMNS), (100_000, 128));
     }
 
@@ -1142,7 +1219,7 @@ mod tests {
         }
         let ids: Vec<String> = t.ids().iter().map(|i| i.as_str().to_string()).collect();
         assert_eq!(
-            &ids[ids.len() - 5..ids.len() - 3],
+            &ids[ids.len() - 6..ids.len() - 4],
             [ANOVA_ID, CORR_ID],
             "appended after the paired t-test, the correlations after it"
         );
@@ -1187,7 +1264,7 @@ mod tests {
         }
         let ids: Vec<String> = t.ids().iter().map(|i| i.as_str().to_string()).collect();
         assert_eq!(
-            &ids[ids.len() - 4..ids.len() - 2],
+            &ids[ids.len() - 5..ids.len() - 3],
             [CORR_ID, ALPHA_ID],
             "appended after the one-way ANOVA, Cronbach's alpha after it"
         );
@@ -1232,7 +1309,7 @@ mod tests {
         }
         let ids: Vec<String> = t.ids().iter().map(|i| i.as_str().to_string()).collect();
         assert_eq!(
-            &ids[ids.len() - 3..ids.len() - 1],
+            &ids[ids.len() - 4..ids.len() - 2],
             [ALPHA_ID, XTAB_ID],
             "appended after the correlations, crosstabs after it (decision 578)"
         );
@@ -1286,9 +1363,68 @@ mod tests {
         }
         let ids: Vec<String> = t.ids().iter().map(|i| i.as_str().to_string()).collect();
         assert_eq!(
+            &ids[ids.len() - 3..ids.len() - 1],
+            [XTAB_ID, RANKS_ID],
+            "appended after Cronbach's alpha, the rank tests after it (decision 605)"
+        );
+    }
+
+    /// Phase 8Y-1 (decision 605): the rank tests are listed after crosstabs and
+    /// before scale scores, with their own title, description and
+    /// limitations, the levels' reading and crosstabs' weights among them,
+    /// and their validation suite and page named. Planned in Part 2 and refused
+    /// in both builds; Beta since Part 3 (decision 607), so runnable in both.
+    #[test]
+    fn the_rank_tests_are_listed_as_beta_and_run_in_both_builds() {
+        let t = Registry::statistics();
+        let id = CapabilityId::parse(RANKS_ID).unwrap();
+        let e = t.lookup(&id).expect("listed");
+        let d = &e.descriptor;
+        assert_eq!(e.kind, Kind::AnalyzeIndependentRanks);
+        assert_eq!((d.version, d.lifecycle), (1, Lifecycle::Beta));
+        assert_eq!(
+            (d.title_code, d.description_code),
+            (
+                StatsWording::AnalyzeIndependentRanksTitle,
+                StatsWording::AnalyzeIndependentRanksDescription
+            )
+        );
+        assert_eq!(
+            d.known_limitation_codes,
+            [
+                StatsWording::LimitTableTextFilesUtf8Only,
+                StatsWording::LimitTableLimitsByMemory,
+                StatsWording::LimitDescribeLevelsFollowLevel1,
+                StatsWording::LimitAnalyzeNoWeights,
+                StatsWording::LimitAnalyzeNoPairwiseRankComparisons,
+                StatsWording::LimitAnalyzeRankTestsTwoSidedOnly,
+                StatsWording::LimitAnalyzeNoLocationShiftEstimate,
+                StatsWording::LimitAnalyzeExactPWithoutTiesOnly,
+                StatsWording::LimitAnalyzeNoFurtherKSampleTests,
+                StatsWording::LimitAnalyzeRankGroupsInCodePointOrder,
+            ]
+        );
+        assert!(
+            !d.known_limitation_codes
+                .contains(&StatsWording::LimitAnalyzeLevelsFollowLevel1),
+            "the user's levels are included or left out, never two compared"
+        );
+        assert_eq!(
+            (d.validation_suite_id, d.documentation_id),
+            (
+                SuiteId("independent_ranks_r_golden"),
+                DocId("methods/independent_ranks")
+            )
+        );
+        for build in [Build::Standard, Build::Devtools] {
+            t.require_runnable(&id, 1, build)
+                .unwrap_or_else(|r| panic!("Beta runs in {build:?}: {r:?}"));
+        }
+        let ids: Vec<String> = t.ids().iter().map(|i| i.as_str().to_string()).collect();
+        assert_eq!(
             &ids[ids.len() - 2..],
-            [XTAB_ID, PREP_ID],
-            "appended after Cronbach's alpha, scale scores after it"
+            [RANKS_ID, PREP_ID],
+            "appended after crosstabs, scale scores after it"
         );
     }
 

@@ -16,9 +16,11 @@
 //! | `f_upper`, df1 = 2 and 3 | 54 | bit for bit `stats_l0`'s | its error against R printed, ungated (decision 275) |
 //! | `chi_square_upper` (8X-1) | 316 (12 df to 2,401), `chi_p.csv` | 2e-11 · R's `pchisq`, ten times 1.812e-12 measured | bit for bit `stats_l0`'s at every row |
 //! | `fisher_2x2` (8X-1) | 197 tables × 3 p, `fisher_p.csv` | 4e-10 · R's `fisher.test`, ten times 3.351e-11 measured | a zero margin gives 1 three times |
+//! | `rank_sum_exact_tails` (8Y-1) | 1,063 (n1 and n2 among 1 to 49, u), `wilcox_p.csv` | 2e-13 · R's `pwilcox`, both tails, ten times 1.310e-14 measured | each tail its own sum; `None` above 49 |
 //!
 //! The two 8X-1 files are written by a second script,
-//! `make_xtab_dist_fixtures.R` (decision 576), so the four files above stay
+//! `make_xtab_dist_fixtures.R` (decision 576), and 8Y-1's by a third,
+//! `make_ranks_dist_fixtures.R` (decision 603), so the files before them stay
 //! byte for byte; a row whose R p is below the smallest normal double is
 //! not compared, and gaply's must be below it too.
 //!
@@ -42,6 +44,7 @@ use gaply_core::stats_dist::{
     normal_quantile_975, t_quantile_975, t_two_tailed, CHI_SQUARE_MAX_DF, FISHER_TIE_TOLERANCE,
     LARGE_DF, MEASURED_MAX_DF,
 };
+use gaply_core::stats_dist::{rank_sum_exact_tails, RANK_SUM_EXACT_MAX};
 use gaply_core::stats_l0::pvalue;
 
 const DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/stats_dist");
@@ -599,4 +602,101 @@ fn fisher_two_sided_sum_counts_a_density_within_1e_7_of_the_observed_as_a_tie() 
     assert!(near(fisher_two_sided_sum(&e, 0), 1.0 / (4.0 + 2e-7)), "2e-7 above is not a tie");
     // The observed at the mode takes every table, clamped at 1.
     assert_eq!(fisher_two_sided_sum(&d, 1), 1.0);
+}
+
+/* ------------------------------------------------------------------------ *
+ *  The Mann-Whitney statistic's exact distribution (Research OS, Phase
+ *  8Y-1, decision 603), written by a third script,
+ *  `make_ranks_dist_fixtures.R`, so the six files above stay byte for byte.
+ * ------------------------------------------------------------------------ */
+
+/// The third script: `wilcox_p.csv`.
+const PROVENANCE_RANKS: &str = "/usr/local/bin/Rscript make_ranks_dist_fixtures.R";
+/// Ten times the largest relative error measured over wilcox_p.csv, over
+/// both tails (decision 316): 1.310e-14, the lower tail at n1 49, n2 49,
+/// u 1,200 (macOS aarch64, 10 Nov 2026), printed by the test below.
+const WILCOX_GATE: f64 = 2e-13;
+
+#[test]
+fn rank_sum_exact_tails_are_within_their_gate_of_r_pwilcox() {
+    let rows = rows_by("wilcox_p.csv", "n1,n2,u,lower,upper", PROVENANCE_RANKS);
+    let mut worst = [Worst::default(), Worst::default()];
+    let mut over = Vec::new();
+    let (mut compared, mut below_normal) = (0, 0);
+    let mut sizes = std::collections::BTreeSet::new();
+    for r in &rows {
+        let (n1, n2, u) = (r[0] as u64, r[1] as u64, r[2] as u64);
+        sizes.insert((n1, n2));
+        let got = rank_sum_exact_tails(u, n1, n2)
+            .unwrap_or_else(|| panic!("n1 {n1} n2 {n2} u {u}: refused"));
+        for (i, (name, g, want)) in [("lower", got.lower, r[3]), ("upper", got.upper, r[4])]
+            .into_iter()
+            .enumerate()
+        {
+            assert!((0.0..=1.0).contains(&g), "n1 {n1} n2 {n2} u {u} {name}: {g}");
+            if want < R_SMALLEST_NORMAL {
+                assert!(g < R_SMALLEST_NORMAL, "n1 {n1} n2 {n2} u {u} {name}: R's {want:e}, gaply's {g:e}");
+                below_normal += 1;
+                continue;
+            }
+            compared += 1;
+            let ratio = relative(g, want);
+            println!("wilcox n1 {n1:>2} n2 {n2:>2} u {u:>4} {name:<5}  gaply {g:.17e}  R {want:.17e}  relative {ratio:.3e}");
+            if ratio > WILCOX_GATE {
+                over.push(format!("n1 {n1} n2 {n2} u {u} {name}: relative {ratio:e}"));
+            }
+            worst[i].see(ratio, format!("n1 {n1} n2 {n2} u {u}"));
+        }
+    }
+    for (name, w) in ["lower", "upper"].iter().zip(&worst) {
+        println!("rank_sum_exact_tails {name}: the largest |gaply - R| / R is {:.3e} ({}); gate {WILCOX_GATE:e}", w.0, w.1);
+    }
+    println!("rank_sum_exact_tails: {} rows, {compared} tails compared, {below_normal} with R's below the smallest normal", rows.len());
+    assert_eq!(sizes.len(), 64, "every pair of the eight sizes");
+    assert!(sizes.contains(&(49, 49)), "the largest groups the exact p is given for");
+    assert!(rows.len() >= 1000, "{} rows", rows.len());
+    assert!(over.is_empty(), "over the gate {WILCOX_GATE:e}:\n{}", over.join("\n"));
+}
+
+#[test]
+fn rank_sum_exact_tails_answer_to_49_and_refuse_above_it() {
+    assert_eq!(RANK_SUM_EXACT_MAX, 49);
+    let top = rank_sum_exact_tails(0, RANK_SUM_EXACT_MAX, RANK_SUM_EXACT_MAX)
+        .expect("49 and 49 are answered");
+    assert!(top.lower > 0.0 && top.upper == 1.0, "{top:?}");
+    assert!(rank_sum_exact_tails(49 * 49, 49, 49).is_some(), "u at n1 n2");
+    for (u, n1, n2) in [
+        (0, 50, 49),
+        (0, 49, 50),
+        (0, 50, 50),
+        (0, 0, 5),
+        (0, 5, 0),
+        (26, 5, 5),
+        (u64::MAX, 3, 3),
+    ] {
+        assert_eq!(rank_sum_exact_tails(u, n1, n2), None, "u {u} n1 {n1} n2 {n2}");
+    }
+}
+
+#[test]
+fn rank_sum_exact_tails_are_each_their_own_sum() {
+    // At the far ends a tail is one arrangement in C(N, n1): 1 minus the
+    // other tail would cancel to 0 there. And each tail at u, with the other
+    // tail at u + 1, adds to 1, the centre's tails are equal by symmetry, and
+    // both tails count u itself.
+    let (n1, n2) = (49, 49);
+    let total = (1..=49u32).fold(1.0f64, |c, i| c * f64::from(49 + i) / f64::from(i));
+    let end = rank_sum_exact_tails(n1 * n2, n1, n2).expect("u at n1 n2");
+    assert!(relative(end.upper, 1.0 / total) <= 1e-12, "{} against {}", end.upper, 1.0 / total);
+    let start = rank_sum_exact_tails(0, n1, n2).expect("u at 0");
+    assert!(relative(start.lower, 1.0 / total) <= 1e-12, "{}", start.lower);
+    for (n1, n2) in [(3, 5), (10, 10), (20, 35)] {
+        for u in 0..n1 * n2 {
+            let a = rank_sum_exact_tails(u, n1, n2).expect("in range");
+            let b = rank_sum_exact_tails(u + 1, n1, n2).expect("in range");
+            assert!((a.lower + b.upper - 1.0).abs() <= 1e-14, "n1 {n1} n2 {n2} u {u}");
+            let mirror = rank_sum_exact_tails(n1 * n2 - u, n1, n2).expect("in range");
+            assert!(relative(a.lower, mirror.upper) <= 1e-14, "n1 {n1} n2 {n2} u {u}");
+        }
+    }
 }

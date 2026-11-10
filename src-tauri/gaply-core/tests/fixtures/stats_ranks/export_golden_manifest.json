@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "capabilityId": "stats.analyze.independent_ranks",
+  "capabilityVersion": 1,
+  "engineVersion": 1,
+  "inputs": [
+    "a0f6e49750eabfd4f577a9b1e412539c76006a200dfccf34c02f5682e69cfcac"
+  ],
+  "parametersHash": "92c9e4b944fca3384d8414f0e2bf028960153c5769c8ae9dd4792b933e78479a",
+  "seed": null,
+  "rowsRead": 16,
+  "rowsUsed": 12,
+  "exclusions": [
+    {
+      "code": "stats.ranks.missing_group",
+      "count": 1,
+      "params": {
+        "column": 2
+      }
+    },
+    {
+      "code": "stats.ranks.other_level",
+      "count": 1,
+      "params": {
+        "column": 2
+      }
+    },
+    {
+      "code": "stats.ranks.missing_outcome",
+      "count": 1,
+      "params": {
+        "column": 1
+      }
+    },
+    {
+      "code": "stats.ranks.missing_code",
+      "count": 1,
+      "params": {
+        "column": 1
+      }
+    }
+  ],
+  "platform": {
+    "os": "macos",
+    "arch": "aarch64"
+  },
+  "elapsedMs": 0,
+  "outputHash": "9a28d8d2d8d205d5b2ebe889cc98505a53b685d0903a9cb746e71de2e23959b6",
+  "reproducibility": "bitwise"
+}

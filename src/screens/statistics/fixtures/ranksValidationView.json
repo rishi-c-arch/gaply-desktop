@@ -1,0 +1,35 @@
+{
+  "status": "invalid",
+  "errors": [
+    {
+      "code": "stats.ranks.group_empty",
+      "params": {
+        "index": 1
+      },
+      "severity": "error"
+    }
+  ],
+  "warnings": [
+    {
+      "code": "stats.ranks.suspect_missing_code",
+      "params": {
+        "column": 1,
+        "count": 3,
+        "value": 99
+      },
+      "severity": "warning"
+    }
+  ],
+  "missingInformation": [
+    {
+      "code": "stats.ranks.same_column",
+      "params": {},
+      "severity": "error"
+    }
+  ],
+  "estimatedResources": {
+    "rows": 21,
+    "columns": 2,
+    "cells": 42
+  }
+}

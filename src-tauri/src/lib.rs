@@ -49,6 +49,7 @@ pub mod stats_l1_ingest;
 pub mod stats_legacy;
 pub mod stats_onesample_commands;
 pub mod stats_prep_commands;
+pub mod stats_ranks_commands;
 pub mod stats_reproduction;
 pub mod stats_ttest_commands;
 pub mod stats_xtab_commands;
@@ -433,6 +434,16 @@ pub fn run() {
             stats_xtab_commands::stats_xtab_result,
             stats_xtab_commands::stats_xtab_cancel,
             stats_xtab_commands::stats_xtab_export,
+            // Research OS, Phase 8Y-1 (decision 607): the Mann-Whitney and
+            // Kruskal-Wallis tests, behind the workspace check; no screen starts
+            // them until 8Y-2.
+            stats_ranks_commands::stats_ranks_validate,
+            stats_ranks_commands::stats_ranks_run,
+            stats_ranks_commands::stats_ranks_status,
+            stats_ranks_commands::stats_ranks_result,
+            stats_ranks_commands::stats_ranks_cancel,
+            stats_ranks_commands::stats_ranks_export,
+            stats_ranks_commands::stats_ranks_group_levels,
             // Research OS, Phase 8M-3 (decision 425): scale scores, behind the
             // workspace check. In memory only; the screen comes with the layout.
             stats_prep_commands::stats_prep_make,

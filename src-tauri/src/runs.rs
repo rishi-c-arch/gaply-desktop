@@ -97,6 +97,12 @@
 //! `stats_xtab::check_points`, one. Since Phase 8X-2 (decision 591) the
 //! Statistics window's Crosstabs… dialog starts it, and a project reruns it.
 //!
+//! Research OS, Phase 8Y-1 (decision 607): a record may hold the rank tests,
+//! the Mann-Whitney and Kruskal-Wallis tests, started with
+//! [`Runs::start_ranks`]. Its one check point is `stats_ranks::run`'s, before
+//! the arithmetic, and the record's `columns_total` is
+//! `stats_ranks::check_points`, one. No screen starts it until 8Y-2.
+//!
 //! Phase 3: the run manager and the slots belong to the Statistics workspace
 //! (`crate::workspace`), built when it is activated and dropped when it is
 //! left. [`Runs::seal`] is how it is left: under the records' lock it either
@@ -139,6 +145,9 @@ use gaply_core::stats_onesample::{
     self, OneSampleCode, OneSampleParams, OneSampleResult, PairedParams, PairedResult,
 };
 use gaply_core::stats_prep::{self, Prepared};
+use gaply_core::stats_ranks::{
+    self, IndependentRanksOutcome, IndependentRanksParams, RanksCode,
+};
 use gaply_core::stats_xtab::{self, CrosstabsOutcome, CrosstabsParams, XtabCode};
 use gaply_core::stats_ttest::{self, TTestCode, TTestParams, TTestResult};
 use serde::Serialize;
@@ -707,6 +716,9 @@ pub enum RunKind {
     /// `stats.analyze.crosstabs`, through the `stats_xtab_*` commands
     /// (Research OS, Phase 8X-1, decision 580).
     Crosstabs,
+    /// `stats.analyze.independent_ranks`, through the `stats_ranks_*` commands
+    /// (Research OS, Phase 8Y-1, decision 607).
+    IndependentRanks,
 }
 
 /// The data a run read: its slot, and the SHA-256 of the original bytes the
@@ -835,6 +847,7 @@ enum Held {
     Correlations(Outputs<CorrOutcome, CorrCode>),
     CronbachAlpha(Outputs<AlphaOutcome, AlphaCode>),
     Crosstabs(Outputs<CrosstabsOutcome, XtabCode>),
+    IndependentRanks(Outputs<IndependentRanksOutcome, RanksCode>),
 }
 
 impl Held {
@@ -901,6 +914,7 @@ enum Job {
     Correlations(OperationSpec<CorrParams>),
     CronbachAlpha(OperationSpec<AlphaParams>),
     Crosstabs(OperationSpec<CrosstabsParams>),
+    IndependentRanks(OperationSpec<IndependentRanksParams>),
 }
 
 impl Job {
@@ -929,6 +943,7 @@ enum Report {
     Correlations(ValidationReport<CorrCode>),
     CronbachAlpha(ValidationReport<AlphaCode>),
     Crosstabs(ValidationReport<XtabCode>),
+    IndependentRanks(ValidationReport<RanksCode>),
 }
 
 impl Report {
@@ -948,6 +963,7 @@ enum Done {
     Correlations(Finished<Correlations>),
     CronbachAlpha(Finished<CronbachAlpha>),
     Crosstabs(Finished<Crosstabs>),
+    IndependentRanks(Finished<IndependentRanks>),
 }
 
 /* ------------------------------------------------------------------------ *
@@ -993,6 +1009,10 @@ macro_rules! by_method {
             }
             $enum::Crosstabs($x) => {
                 type $m = Crosstabs;
+                $body
+            }
+            $enum::IndependentRanks($x) => {
+                type $m = IndependentRanks;
                 $body
             }
         }
@@ -1914,6 +1934,112 @@ impl Method for Crosstabs {
     }
 }
 
+/// `stats.analyze.independent_ranks`, through the `stats_ranks_*` commands
+/// (Research OS, Phase 8Y-1, decision 607).
+struct IndependentRanks;
+
+impl Method for IndependentRanks {
+    const KIND: RunKind = RunKind::IndependentRanks;
+    type Params = IndependentRanksParams;
+    type Result = IndependentRanksOutcome;
+    type Code = RanksCode;
+    type Halt = stats_ranks::Halt<Stop>;
+
+    /// `stats_ranks::check_points`: one, before the arithmetic.
+    fn columns_total(_: &OperationSpec<IndependentRanksParams>, _: &Dataset) -> usize {
+        stats_ranks::check_points()
+    }
+
+    fn validate(
+        spec: &OperationSpec<IndependentRanksParams>,
+        dataset: &Dataset,
+    ) -> ValidationReport<RanksCode> {
+        // Through `stats.analyze.independent_ranks`' façade: the registry
+        // first, then `stats_ranks::validate`, unchanged.
+        stats_adapters::ranks_validate(spec, crate::workspace::build(), dataset)
+    }
+
+    fn compute(
+        spec: &OperationSpec<IndependentRanksParams>,
+        build: Build,
+        dataset: &Dataset,
+        checkpoint: impl FnMut(usize) -> ControlFlow<Stop>,
+    ) -> Result<IndependentRanksOutcome, stats_ranks::Halt<Stop>> {
+        // One check point, before the arithmetic.
+        stats_adapters::ranks_run(spec, build, dataset, checkpoint)
+    }
+
+    fn manifest(
+        spec: &OperationSpec<IndependentRanksParams>,
+        dataset: &Dataset,
+        result: &IndependentRanksOutcome,
+        elapsed: u64,
+    ) -> RunManifest<RanksCode> {
+        stats_ranks::manifest(spec, dataset, result, elapsed, Platform::current())
+    }
+
+    /// The result's own limitations, as notes.
+    fn limitations(result: &IndependentRanksOutcome) -> Vec<Diagnostic<RanksCode>> {
+        result
+            .limitations
+            .iter()
+            .map(|c| Diagnostic::note(*c))
+            .collect()
+    }
+
+    /// Its one check point on a result; a stop leaves the count the check
+    /// point set.
+    fn columns_done(total: usize, outcome: &Outcome<Self>) -> Option<usize> {
+        match outcome {
+            Ok(Ok(_)) => Some(total),
+            Ok(Err(_)) | Err(_) => None,
+        }
+    }
+
+    fn halted(halt: stats_ranks::Halt<Stop>) -> Halted<RanksCode> {
+        match halt {
+            stats_ranks::Halt::Stopped { reason } => Halted::Stopped(reason),
+            stats_ranks::Halt::Refused(d) => Halted::Refused(d),
+        }
+    }
+
+    fn panicked() {
+        tracing::warn!("stats_desc: the rank tests panicked");
+    }
+
+    fn outputs(held: &Held) -> Option<&Outputs<IndependentRanksOutcome, RanksCode>> {
+        if let Held::IndependentRanks(o) = held {
+            Some(o)
+        } else {
+            None
+        }
+    }
+
+    fn outputs_mut(held: &mut Held) -> Option<&mut Outputs<IndependentRanksOutcome, RanksCode>> {
+        if let Held::IndependentRanks(o) = held {
+            Some(o)
+        } else {
+            None
+        }
+    }
+
+    fn held(outputs: Outputs<IndependentRanksOutcome, RanksCode>) -> Held {
+        Held::IndependentRanks(outputs)
+    }
+
+    fn job(spec: OperationSpec<IndependentRanksParams>) -> Job {
+        Job::IndependentRanks(spec)
+    }
+
+    fn report(report: ValidationReport<RanksCode>) -> Report {
+        Report::IndependentRanks(report)
+    }
+
+    fn done(finished: Finished<Self>) -> Done {
+        Done::IndependentRanks(finished)
+    }
+}
+
 /// An end hook that is due, with what it is called with: called only once
 /// the records' lock is released (Phase 5C-1a).
 struct Due {
@@ -2215,6 +2341,28 @@ impl Runs {
         end: EndHook,
     ) -> Result<RunId, NotStarted> {
         self.begin::<Crosstabs>(slot, spec, Some(end))
+    }
+
+    /// Starts the rank tests (Research OS, Phase 8Y-1, decision 607): their one
+    /// check point before the arithmetic, the manager's ceiling and cancel, as
+    /// every kind's.
+    pub fn start_ranks(
+        self: &Arc<Self>,
+        slot: Arc<Slot>,
+        spec: OperationSpec<IndependentRanksParams>,
+    ) -> Result<RunId, NotStarted> {
+        self.begin::<IndependentRanks>(slot, spec, None)
+    }
+
+    /// [`Runs::start_ranks`], with an end hook, for a project's rerun when
+    /// 8Y-2 wires it (decision 607).
+    pub fn start_ranks_then(
+        self: &Arc<Self>,
+        slot: Arc<Slot>,
+        spec: OperationSpec<IndependentRanksParams>,
+        end: EndHook,
+    ) -> Result<RunId, NotStarted> {
+        self.begin::<IndependentRanks>(slot, spec, Some(end))
     }
 
     /// Every start, of any method (Research OS, Phase 8C): the record, then
@@ -2603,6 +2751,11 @@ impl Runs {
         self.snapshot_as::<Crosstabs>(run)
     }
 
+    /// [`Runs::snapshot`] for a rank tests run (Phase 8Y-1).
+    pub fn ranks_snapshot(&self, run: RunId) -> Result<RunSnapshot<RanksCode>, RunCode> {
+        self.snapshot_as::<IndependentRanks>(run)
+    }
+
     /// Asks the run to stop. Queued: cancelled now. Running: the flag is set,
     /// and the next check point, or the worker's last step if no check point
     /// is left, ends it `Cancelled`. Finished: unchanged.
@@ -2672,6 +2825,11 @@ impl Runs {
     /// [`Runs::cancel`] for a crosstabs run (Phase 8X-1).
     pub fn xtab_cancel(&self, run: RunId) -> Result<RunSnapshot<XtabCode>, RunCode> {
         self.cancel_as::<Crosstabs>(run)
+    }
+
+    /// [`Runs::cancel`] for a rank tests run (Phase 8Y-1).
+    pub fn ranks_cancel(&self, run: RunId) -> Result<RunSnapshot<RanksCode>, RunCode> {
+        self.cancel_as::<IndependentRanks>(run)
     }
 
     /// The result of a run of `M`'s kind that succeeded. Otherwise the closed
@@ -2750,6 +2908,14 @@ impl Runs {
         run: RunId,
     ) -> Result<ResultBundle<CrosstabsOutcome, XtabCode>, RunCode> {
         self.result_as::<Crosstabs>(run)
+    }
+
+    /// The result of a rank tests run that succeeded (Phase 8Y-1).
+    pub fn ranks_result(
+        &self,
+        run: RunId,
+    ) -> Result<ResultBundle<IndependentRanksOutcome, RanksCode>, RunCode> {
+        self.result_as::<IndependentRanks>(run)
     }
 
     /// A copy of `run` for a project Save (Phase 5B-2), of either kind:

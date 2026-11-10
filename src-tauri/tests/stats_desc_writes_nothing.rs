@@ -68,6 +68,9 @@ const SCANNED: &[&str] = &[
     // Phase 8X-1 (decision 580): crosstabs' commands and operations.
     "src/stats_xtab_commands.rs",
     "gaply-core/src/stats_xtab",
+    // Phase 8Y-1 (decision 607): the rank tests' commands and operations.
+    "src/stats_ranks_commands.rs",
+    "gaply-core/src/stats_ranks",
 ];
 
 /// The one Research OS module allowed to write (Phase 5B-1, ADR-009): the

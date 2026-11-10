@@ -3,7 +3,8 @@
 //!
 //! Prepared tables here are built by `stats_prep::build`, never by hand.
 //!
-//! * All seven methods run on a score: each manifest carries the preparation,
+//! * All eight methods run on a score (the rank tests the eighth since Phase
+//!   8Y-1, decision 604): each manifest carries the preparation,
 //!   each result names the score by its alias alone, and each method's numbers
 //!   equal its numbers on the same values given as a file's column. That last
 //!   comparison is byte for byte on the result, so no gate is involved: the
@@ -30,6 +31,7 @@ use gaply_core::stats_l1::dataset::{
     build_dataset, Cell, ColumnAlias, DataFingerprint, Dataset, RawTable, TableRef,
 };
 use gaply_core::stats_onesample::{self, OneSampleParams, PairedParams};
+use gaply_core::stats_ranks::{self, IndependentRanksParams};
 use gaply_core::stats_prep::{
     build, prepared_fingerprint, prepared_input_hash, recipe_hash, MissingRule, Prepared, Recipe,
     RecipeStep, ScaleScoreStep, Statistic, CAPABILITY_ID, CAPABILITY_VERSION, ENGINE_VERSION,
@@ -307,6 +309,14 @@ fn corr_params(codes: &[f64]) -> CorrParams {
         missing_codes: codes.to_vec(),
     }
 }
+fn ranks_params(codes: &[f64]) -> IndependentRanksParams {
+    IndependentRanksParams {
+        outcome: a(SUM),
+        group: a(LVL),
+        levels: None,
+        missing_codes: codes.to_vec(),
+    }
+}
 fn alpha_params(codes: &[f64]) -> AlphaParams {
     AlphaParams {
         items: vec![a(Q2), a(SUM), a(MEAN)],
@@ -350,7 +360,7 @@ macro_rules! method {
     };
 }
 
-fn methods() -> [Method; 7] {
+fn methods() -> [Method; 8] {
     [
         method!(
             "summary",
@@ -415,6 +425,15 @@ fn methods() -> [Method; 7] {
             stats_alpha::compute,
             stats_alpha::manifest
         ),
+        method!(
+            "rank tests",
+            "stats.ranks.",
+            ranks_params,
+            stats_ranks::spec,
+            stats_ranks::validate,
+            stats_ranks::compute,
+            stats_ranks::manifest
+        ),
     ]
 }
 
@@ -422,7 +441,7 @@ fn words(errors: &[(String, Option<i64>, Option<i64>)]) -> Vec<&str> {
     errors.iter().map(|e| e.0.as_str()).collect()
 }
 
-/* ---- all seven on a score ------------------------------------------------- */
+/* ---- all eight on a score ------------------------------------------------- */
 
 #[test]
 fn the_fixture_has_the_score_values_the_tests_below_rely_on() {
@@ -440,7 +459,7 @@ fn the_fixture_has_the_score_values_the_tests_below_rely_on() {
 }
 
 #[test]
-fn all_seven_methods_run_on_a_score_and_their_manifests_carry_the_preparation() {
+fn all_eight_methods_run_on_a_score_and_their_manifests_carry_the_preparation() {
     let d = prepared();
     let hash = ContentHash::from_hex(d.schema.fingerprint.sha256_hex()).unwrap();
     for m in methods() {
@@ -640,6 +659,25 @@ fn a_score_is_refused_as_the_anovas_group() {
     assert_eq!(refused.code.wire(), "stats.anova.score_as_group");
 }
 
+/// Phase 8Y-1 (decision 602): the rank tests take a score as their outcome
+/// (in `methods()`), never as their group.
+#[test]
+fn a_score_is_refused_as_the_rank_tests_group() {
+    let d = prepared();
+    let mut params = ranks_params(&[]);
+    params.outcome = a(Q2);
+    params.group = a(SUM);
+    let mut spec = stats_ranks::spec(OperationId(1), &d, params.clone());
+    spec.preparation = Some(preparation());
+    let r = report_of(stats_ranks::validate(&d, &spec));
+    assert_eq!(
+        r.errors,
+        [("stats.ranks.score_as_group".to_string(), Some(8), None)]
+    );
+    let refused = stats_ranks::compute(&d, &params).unwrap_err();
+    assert_eq!(refused.code.wire(), "stats.ranks.score_as_group");
+}
+
 #[test]
 fn a_score_is_refused_as_the_summarys_categorical_column() {
     let d = prepared();
@@ -685,6 +723,17 @@ fn the_same_values_as_a_files_column_may_be_a_group() {
     ));
     assert!(
         !words(&r.errors).contains(&"stats.anova.score_as_group"),
+        "{:?}",
+        r.errors
+    );
+    let mut rk = ranks_params(&[]);
+    (rk.outcome, rk.group) = (a(Q2), a(SUM));
+    let r = report_of(stats_ranks::validate(
+        &d,
+        &stats_ranks::spec(OperationId(1), &d, rk),
+    ));
+    assert!(
+        !words(&r.errors).contains(&"stats.ranks.score_as_group"),
         "{:?}",
         r.errors
     );
@@ -815,6 +864,13 @@ fn a_run_with_a_code_equal_to_a_scores_value_is_refused_in_each_method() {
             .code
             .wire(),
         want("stats.alpha.")
+    );
+    assert_eq!(
+        stats_ranks::compute(&d, &ranks_params(&code))
+            .unwrap_err()
+            .code
+            .wire(),
+        want("stats.ranks.")
     );
 }
 

@@ -173,6 +173,7 @@ fn each_named_value_is_todays_constants_and_its_capabilities_profiles() {
             | Kind::AnalyzeCorrelations
             | Kind::AnalyzeCronbachAlpha
             | Kind::AnalyzeCrosstabs
+            | Kind::AnalyzeIndependentRanks
             | Kind::PrepareScaleScore => {
                 methods += 1;
                 for tier in [MemoryTier::Gb8, MemoryTier::Gb16, MemoryTier::Gb32] {
@@ -187,8 +188,8 @@ fn each_named_value_is_todays_constants_and_its_capabilities_profiles() {
     }
     assert_eq!(
         (verify, methods),
-        (7, 9),
-        "seven Level 1 capabilities; the summary, the three t-tests, the one-way ANOVA, the correlations, Cronbach's alpha, crosstabs (Phase 8X-1) and scale scores, which read the same table limits and have no run"
+        (7, 10),
+        "seven Level 1 capabilities; the summary, the three t-tests, the one-way ANOVA, the correlations, Cronbach's alpha, crosstabs (Phase 8X-1), the rank tests (Phase 8Y-1) and scale scores, which read the same table limits and have no run"
     );
 }
 

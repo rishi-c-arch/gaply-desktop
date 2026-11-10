@@ -23,6 +23,7 @@ use app_lib::stats_corr_commands as corr;
 use app_lib::stats_desc_commands as desc;
 use app_lib::stats_onesample_commands as onesample;
 use app_lib::stats_prep_commands as prep;
+use app_lib::stats_ranks_commands as ranks;
 use app_lib::stats_ttest_commands as ttest;
 use app_lib::workspace::{self as ws, RunsFactory, WorkspaceSession};
 use gaply_core::{AppConfig, Database};
@@ -109,6 +110,7 @@ pub fn app_with(
             anova::stats_anova_result,
             anova::stats_anova_export,
             anova::stats_anova_group_levels,
+            ranks::stats_ranks_group_levels,
             corr::stats_corr_validate,
             corr::stats_corr_run,
             corr::stats_corr_status,

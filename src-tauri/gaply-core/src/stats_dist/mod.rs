@@ -79,6 +79,11 @@
 //!   <https://doi.org/10.2307/2340521>: the hypergeometric probabilities of
 //!   the first cell given the margins, measured against R's `fisher.test`
 //!   (`make_xtab_dist_fixtures.R`'s `fisher_p.csv`).
+//! * [`rank_sum_exact_tails`] (Phase 8Y-1, decision 603, the Mann-Whitney
+//!   test): the exact distribution of U for two groups of 1 to
+//!   [`RANK_SUM_EXACT_MAX`] (49) untied values, by a recurrence of additions
+//!   from H. B. Mann and D. R. Whitney (1947), measured against R's `pwilcox`
+//!   (`make_ranks_dist_fixtures.R`'s `wilcox_p.csv`).
 //!
 //! Measured against R 4.6.1 in `tests/stats_dist_reference.rs` over
 //! `tests/fixtures/stats_dist/` (`make_dist_fixtures.R`): the quantile within
@@ -482,4 +487,82 @@ pub fn fisher_two_sided_sum(densities: &[f64], observed: usize) -> f64 {
     let total: f64 = densities.iter().sum();
     let tail: f64 = densities.iter().filter(|d| **d <= bound).sum();
     (tail / total).min(1.0)
+}
+
+/* ------------------------------------------------------------------------ *
+ *  The Mann-Whitney statistic's exact distribution (Research OS, Phase
+ *  8Y-1, decision 603)
+ * ------------------------------------------------------------------------ */
+
+/// The largest group size [`rank_sum_exact_tails`] answers for: 49, below
+/// the 50 values at which the exact p is no longer given (decision 602),
+/// and the largest measured against R's `pwilcox`
+/// (`tests/stats_dist_reference.rs` over `make_ranks_dist_fixtures.R`'s
+/// `wilcox_p.csv`). A range of its own, as [`CHI_SQUARE_MAX_DF`] is.
+pub const RANK_SUM_EXACT_MAX: u64 = 49;
+
+/// The two tails of the Mann-Whitney statistic at `u`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RankSumTails {
+    /// P(U ≤ u).
+    pub lower: f64,
+    /// P(U ≥ u).
+    pub upper: f64,
+}
+
+/// The tails of the Mann-Whitney statistic U, the number of pairs (x, y)
+/// with x from the first group of `n1` values, y from the second of `n2`,
+/// and x above y, at `u`, when no two values are tied: R's W. Every one of
+/// the C(n1 + n2, n1) orders of the two groups is equally likely, and the
+/// counts of orders giving each U come from the recurrence
+/// f(m, n, u) = f(m − 1, n, u − n) + f(m, n − 1, u) (the largest value is
+/// the first group's, above all n of the second, or the second's), with
+/// f(m, 0, u) = f(0, n, u) = 1 at u = 0 and 0 elsewhere: H. B. Mann and
+/// D. R. Whitney, "On a test of whether one of two random variables is
+/// stochastically larger than the other", Annals of Mathematical Statistics
+/// 18(1), 50–60, 1947, <https://doi.org/10.1214/aoms/1177730491>, written
+/// from its text, never from R's source (ADR-008). The counts are additions
+/// of positive doubles only, one table row per first-group size, updated in
+/// place for each second-group size, so nothing cancels. `lower` is the sum
+/// of the counts from 0 to u and `upper` the sum from n1 n2 down to u, each
+/// summed as its own tail, never one as 1 minus the other, each divided by
+/// the total count once and clamped at 1. `None` for a group size of 0 or
+/// above [`RANK_SUM_EXACT_MAX`], or a `u` above n1 n2.
+pub fn rank_sum_exact_tails(u: u64, n1: u64, n2: u64) -> Option<RankSumTails> {
+    let sizes = 1..=RANK_SUM_EXACT_MAX;
+    if !(sizes.contains(&n1) && sizes.contains(&n2)) || u > n1 * n2 {
+        return None;
+    }
+    let counts = rank_sum_counts(n1 as usize, n2 as usize);
+    let u = u as usize;
+    let total: f64 = counts.iter().sum();
+    let lower: f64 = counts[..=u].iter().sum();
+    let upper: f64 = counts[u..].iter().rev().sum();
+    Some(RankSumTails {
+        lower: (lower / total).min(1.0),
+        upper: (upper / total).min(1.0),
+    })
+}
+
+/// The count of orders of `n1` and `n2` untied values giving each U from 0
+/// to n1 n2 ([`rank_sum_exact_tails`]'s recurrence).
+fn rank_sum_counts(n1: usize, n2: usize) -> Vec<f64> {
+    let width = n1 * n2 + 1;
+    // f[m][u] for m from 0 to n1, at the second group's size n: n = 0 first.
+    let mut f = vec![vec![0.0f64; width]; n1 + 1];
+    for row in &mut f {
+        row[0] = 1.0;
+    }
+    for n in 1..=n2 {
+        // Ascending m: f[m - 1] already holds size n, f[m] still holds
+        // n − 1, as the recurrence takes them.
+        for m in 1..=n1 {
+            let (done, rest) = f.split_at_mut(m);
+            let (previous, row) = (&done[m - 1], &mut rest[0]);
+            for v in (n..=m * n).rev() {
+                row[v] += previous[v - n];
+            }
+        }
+    }
+    f.swap_remove(n1)
 }
