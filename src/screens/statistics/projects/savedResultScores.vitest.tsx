@@ -112,6 +112,21 @@ describe("a saved result's score columns", () => {
     expect(screen.getByTestId('rk-result-notes').textContent).toContain('The outcome C4 holds -99');
   });
 
+  // Research OS, Phase 8Z-2 (decision 656): a score among the related rank tests' columns
+  // is named as the rank tests' score outcome is, in a sentence and in the columns' table.
+  it("a related rank test's column and sentence that name a score", () => {
+    const v = edited('related_ranks_f.json', (b) => {
+      b.diagnostics = [{ code: 'stats.related_ranks.suspect_missing_code', params: { column: 2, value: -99, count: 2 }, severity: 'warning' }];
+    });
+    body(v, [score(2, 'Total')]);
+    expect(screen.getByTestId('rr-result-notes').textContent).toContain(`Column ${scoreColumn(2, 'Total')} holds -99`);
+    expect(screen.getByTestId('rr-col-C2').querySelector('th')?.textContent).toBe(scoreColumn(2, 'Total'));
+    cleanup();
+    body(v, null);
+    expect(screen.getByTestId('rr-result-notes').textContent).toContain('Column C2 holds -99');
+    expect(screen.getByTestId('rr-col-C2').querySelector('th')?.textContent).toBe('C2');
+  });
+
   it('a score at no column of the result changes nothing', () => {
     const { container } = body(view('corr_pairwise.json'), [score(40, 'Elsewhere')]);
     const withScores = container.innerHTML;

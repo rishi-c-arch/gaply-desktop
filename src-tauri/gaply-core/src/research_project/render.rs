@@ -174,6 +174,10 @@ pub enum ExportParameter {
     /// Alpha's reverse-scored items, by their 1-based positions, in the
     /// dataset's column order; empty when none was.
     ReverseScored(Vec<u32>),
+    /// The related rank tests' columns, by their 1-based positions, in the order the user
+    /// chose them: the Wilcoxon differences are the first less the second (Research OS,
+    /// Phase 8Z-2, decision 655).
+    ComparedColumns(Vec<u32>),
     /// Alpha's scale ends as the bits of their doubles, the lowest first, as
     /// `TestValue` keeps its value: settings the user typed, not their data.
     /// `None` when nothing is reverse-scored.
@@ -559,6 +563,13 @@ fn parameter_line(p: &ExportParameter) -> String {
         ExportParameter::MissingRows(MissingRows::Listwise) => {
             "Missing values: listwise, every pair uses the rows where every variable has a value"
                 .into()
+        }
+        ExportParameter::ComparedColumns(positions) => {
+            let list: Vec<String> = positions.iter().map(u32::to_string).collect();
+            format!(
+                "Columns compared: columns {}, by position, in the order chosen",
+                list.join(", ")
+            )
         }
         ExportParameter::Items(positions) => {
             let list: Vec<String> = positions.iter().map(u32::to_string).collect();
@@ -1138,6 +1149,21 @@ mod tests {
         assert_eq!(words, ["pearson", "spearman", "kendall"]);
         let words: Vec<&str> = MissingRows::ALL.iter().map(|c| c.wire()).collect();
         assert_eq!(words, ["pairwise", "listwise"]);
+    }
+
+    /// Phase 8Z-2 (decision 655): the related rank tests' columns by position, in the
+    /// order the user chose them, which is not the dataset's: a Wilcoxon's differences
+    /// are the first less the second.
+    #[test]
+    fn the_related_rank_tests_columns_have_a_line_of_their_own_in_the_order_chosen() {
+        assert_eq!(
+            parameter_line(&ExportParameter::ComparedColumns(vec![4, 1])),
+            "Columns compared: columns 4, 1, by position, in the order chosen"
+        );
+        assert_eq!(
+            parameter_line(&ExportParameter::ComparedColumns(vec![7, 2, 9])),
+            "Columns compared: columns 7, 2, 9, by position, in the order chosen"
+        );
     }
 
     /// Phase 8I-2 (decision 382): alpha's items and reverse-scored items as

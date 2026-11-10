@@ -204,18 +204,18 @@ enum PinCheck {
 /// The check for a platform, by `std::env::consts::OS` and `ARCH`.
 fn pin_check(os: &str, arch: &str) -> PinCheck {
     match (os, arch) {
-        ("macos", "aarch64") => PinCheck::Exact,
+        ("macos", "aarch64") | ("linux", "x86_64") => PinCheck::Exact,
         _ => PinCheck::Layout,
     }
 }
 
-/// Decision 638, run on every platform: exact bytes on macOS aarch64, the layout
-/// check everywhere else, Linux x86_64 included until it is measured, never a skip.
+/// Decisions 638 and 652, run on every platform: exact bytes on macOS aarch64 and Linux
+/// x86_64 (decision 650's measurement), the layout check everywhere else, never a skip.
 #[test]
-fn the_pin_is_checked_exactly_on_macos_aarch64_and_by_its_layout_elsewhere() {
+fn the_pin_is_checked_exactly_on_macos_aarch64_and_linux_x86_64() {
     for (os, arch, want) in [
         ("macos", "aarch64", PinCheck::Exact),
-        ("linux", "x86_64", PinCheck::Layout),
+        ("linux", "x86_64", PinCheck::Exact),
         ("windows", "x86_64", PinCheck::Layout),
         ("macos", "x86_64", PinCheck::Layout),
         ("linux", "aarch64", PinCheck::Layout),

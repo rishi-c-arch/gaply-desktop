@@ -17,11 +17,15 @@ The pure core is `gaply_core::stats_related_ranks`; its façade is
 commands and the run manager's `related_ranks` kind. Planned in 8Z-1's Part 2
 (decision 639), Beta since its Part 3 (decision 641).
 
-**What a user sees at this step (decision 641's departure, as decision 607
-recorded the rank tests'):** Beta with no item in the window, the old home's
-card of a method with no screen, Help listing it, Coming later still saying
-"Related-samples nonparametric tests", a workspace switch polling a run through
-the summary's commands, and a saved run's report refusing it, until 8Z-2.
+**What a user sees (since Phase 8Z-2, decisions 653 to 656):** Analyze's
+**Related samples…**, in the Nonparametric tests group, opens a dialog of two
+panes: the numeric columns, scale scores among them, and on the right the chosen
+columns in the order the user chooses, each numbered, moved with ↑ and ↓. Two to 50
+columns; the order fixes the Wilcoxon differences, the first less the second. A
+card in the Output draws the columns' table, then the ranks of the differences and
+the Wilcoxon table, or the Friedman table. A result can be exported, saved to a
+project, read back there, and run again `Identical`. A workspace switch and the
+project page poll and cancel it through its own commands.
 
 ## 1. Inputs and the spec
 
@@ -134,7 +138,10 @@ left out are the data's rows.
 - A difference that overflows from two finite values is ranked by its size, an
   infinity above every finite difference, as R ranks it. Any statistic it makes
   non-finite is not computable with `overflow`, statistic by statistic, never a
-  refusal of the run. `distribution_out_of_range` is the code for a chi-square df
+  refusal of the run. The exact p has no not-computable form: a tail that is not
+  finite, or a V its table does not hold, refuses the run, and no input reaches
+  either, since the exact p is given only for 1 to 49 pairs with a whole V in range.
+  `distribution_out_of_range` is the code for a chi-square df
   outside what `stats_dist` measures; 50 columns gives df 49, so no run reaches it.
 - Fewer than 5 non-zero differences, or complete rows, is noted (`rows_below_five`):
   the approximation is rougher there.
@@ -215,8 +222,16 @@ its index in the chosen list and its alias, never a header. Every digit (Rust's
 shortest round-trip form); a value not computable is empty with its code in `word`,
 an absent exact p carries the first note that says why, and a side with no
 difference has an empty mean. Pinned by `tests/related_ranks_export.rs`: a golden CSV
-and manifest on macOS aarch64, the layout elsewhere. The CSV pin is `-text` in
-`.gitattributes`, so its CRLF line ends are committed as written.
+and manifest, exact on macOS aarch64 and Linux x86_64 (decision 650's measurement), the
+layout elsewhere. The CSV pin is `-text` in `.gitattributes`, so its CRLF line ends are
+committed as written.
+
+**The report and a saved run (decision 655).** A project's report names the columns by
+their positions in the order chosen, with no header: "Columns compared: columns 4, 1, by
+position, in the order chosen", from `ExportParameter::ComparedColumns`, a different
+parameter from the correlations' and alpha's, which keep the dataset's order. The report
+also gives the count of missing codes. The stored result names columns by alias and
+holds no label and no cell.
 
 ## 8. What is not assessed, and the limitations
 
@@ -241,8 +256,44 @@ computer's memory ([large_samples.md](large_samples.md) §8): 100,000 data rows 
 128 columns on every computer.
 
 The wording is neutral: no verdict word, no stars (decision 66). Every p value and
-statistic is a number, never called significant. The screen's sentence for each of
-the method's 34 codes comes with the screen, in 8Z-2.
+statistic is a number, never called significant. The screen's sentence for each of the
+method's 34 codes (`relatedRanksWording.ts`, the placeholders here standing for what a
+screen fills in):
+
+- `stats.related_ranks.all_differences_zero`: "Not computable: no pair has a difference, so there is nothing to rank."
+- `stats.related_ranks.all_values_tied`: "Not computable: in every row the chosen columns' values are equal, so the ranks do not differ between columns."
+- `stats.related_ranks.capability_version_mismatch`: "These settings were made for version 2 of the rank tests, and this is version 1."
+- `stats.related_ranks.code_equals_score`: "Column {column} is a score, and it holds a missing code you ticked in 3 cells. Untick the code, or leave this score out."
+- `stats.related_ranks.column_holds_text`: "Column {column} holds text in 3 cells, so it cannot be compared."
+- `stats.related_ranks.column_non_finite`: "Column {column} holds an infinity or "not a number" in 3 cells, so it cannot be compared."
+- `stats.related_ranks.column_order`: "Columns are taken in the order you choose them: the Wilcoxon differences are the first column less the second, and the signs of z and of the matched-pairs rank-biserial correlation follow that order."
+- `stats.related_ranks.column_repeated`: "Column {column} is chosen more than once. Choose each column once."
+- `stats.related_ranks.distribution_out_of_range`: "Not computable: this needs the chi-square distribution at more than 2,401 degrees of freedom, where Gaply has not measured its accuracy."
+- `stats.related_ranks.exact_not_given_size`: "The exact p value is not given, because 50 or more pairs have a difference."
+- `stats.related_ranks.exact_not_given_ties`: "The exact p value is not given, because two or more differences are equal in size."
+- `stats.related_ranks.exact_not_given_zeros`: "The exact p value is not given, because one or more pairs have no difference."
+- `stats.related_ranks.exact_without_ties_or_zeros_only`: "The Wilcoxon test's exact p value is given only when no two differences are tied in size, none is zero and there are fewer than 50 pairs; otherwise only the normal approximation's p value is given."
+- `stats.related_ranks.input_count`: "These settings name 3 files, and a rank test reads exactly one."
+- `stats.related_ranks.input_mismatch`: "These settings were made for a different file from the one open. Open the file again."
+- `stats.related_ranks.missing_code`: "3 rows held a missing code you ticked in {column}, and were left out."
+- `stats.related_ranks.missing_code_not_finite`: "Missing code 1 is not a finite number."
+- `stats.related_ranks.missing_value`: "3 rows had no value in {column} (an empty cell or a missing-value token), and were left out."
+- `stats.related_ranks.no_complete_rows`: "No row has a value in every chosen column, so there is nothing to compare."
+- `stats.related_ranks.no_further_related_tests`: "The sign test, the marginal homogeneity test and Cochran's Q test are not given."
+- `stats.related_ranks.no_location_estimate`: "No estimate of the typical difference between two columns, such as the Hodges-Lehmann estimate, and no interval for it, is given."
+- `stats.related_ranks.no_pairwise_comparisons`: "Pairwise comparisons after a Friedman test are not given."
+- `stats.related_ranks.no_weights`: "Each row is counted once; weighting rows by a column is not offered."
+- `stats.related_ranks.overflow`: "Not computable: the arithmetic went past the largest number a double can hold."
+- `stats.related_ranks.pratt_not_offered`: "A pair whose two values are equal is left out of the Wilcoxon test; Pratt's way of keeping such pairs is not offered."
+- `stats.related_ranks.preparation_mismatch`: "These settings do not match how the open data was prepared. Choose the settings again."
+- `stats.related_ranks.rows_below_five`: "Fewer than 5 pairs with a difference, or fewer than 5 complete rows, are used, where the normal and chi-square approximations are rougher."
+- `stats.related_ranks.suspect_missing_code`: "Column {column} holds 99 in 3 cells, which may be a code for a missing value. It is counted as a number unless you tick it in Settings."
+- `stats.related_ranks.too_few_columns`: "3 columns chosen, and a related-samples rank test needs at least two."
+- `stats.related_ranks.too_many_columns`: "3 columns chosen, and a related-samples rank test takes at most 50."
+- `stats.related_ranks.two_sided_only`: "Each Wilcoxon p value is two-sided; one-sided tests are not offered."
+- `stats.related_ranks.unknown_capability`: "These settings name a capability Gaply does not have here."
+- `stats.related_ranks.unknown_column`: "Column {column} is not in this file."
+- `stats.related_ranks.zero_differences_dropped`: "Pairs with no difference are left out of the ranks; their count is given above."
 
 ## 9. What SPSS documents, and where it differs
 
@@ -275,7 +326,7 @@ rests on that design's earlier decision, not on a page read here.
 | Formula/method and variant documented | §2, §3; `stats_related_ranks/mod.rs` and `stats_dist/mod.rs` headers | done |
 | Golden fixtures and edge cases pass | `related_ranks_r_golden` (28 cases), `related_ranks_cases` (23), `related_ranks_export` (8), `stats_dist_reference` | done |
 | Missing values, ties, weights, precision and sample size handled | §1, §2, §4, §5, §6; weights not supported, stated | done |
-| Diagnostic meanings and limitations documented | §4, §8; `RelatedRanksCode` docs; `relatedRanksCodes.json` pinned to Rust by `stats_related_ranks_wire.rs`; the screen's sentences are 8Z-2's | partly |
+| Diagnostic meanings and limitations documented | §4, §8; `RelatedRanksCode` docs; `relatedRanksCodes.json` pinned to Rust by `stats_related_ranks_wire.rs`; the screen's sentence for each code in §8, pinned by `relatedRanksWording.vitest.ts` | done |
 | Independent reference comparison completed | R, §5 | done |
 | Unsupported designs return explicit reasons | §1, §4; each refusal's code through IPC (`stats_related_ranks_commands.rs`) | done |
-| Result manifest and export verified | §7; through IPC the CSV equals the module's export of the run's result and manifest; `stats_related_ranks_privacy_matrix.rs`; saving and rerunning are 8Z-2's | partly |
+| Result manifest and export verified | §7; through IPC the CSV equals the module's export of the run's result and manifest; `stats_related_ranks_privacy_matrix.rs`; saved and rerun `Identical` in `tests/project_related_ranks.rs` and `prep_project.rs`, and checked by the stored checker (decision 657) | done |

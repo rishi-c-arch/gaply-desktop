@@ -29,6 +29,8 @@ import { makeMockCapabilityBridge, makeMockTTestBridge } from '../ttestBridge';
 import type { CapabilityView } from '../ttestTypes';
 import { makeMockXtabBridge } from '../xtabBridge';
 import { makeMockRanksBridge } from '../ranksBridge';
+import { relatedRanksResultView } from '../fixtures/relatedRanksFixtures';
+import { makeMockRelatedRanksBridge } from '../relatedRanksBridge';
 import { METHOD_DIALOGS, METHOD_OUTPUT } from './methodOutput';
 import { statisticsSession } from './statisticsSession';
 import { StatisticsWindow } from './StatisticsWindow';
@@ -169,6 +171,18 @@ const ROWS = [
     },
     line: 'Outcome: C1 Height. Group: C3 Arm. Levels: all. Missing codes: none.',
   },
+  // Research OS, Phase 8Z-2 (decision 656).
+  {
+    kind: 'related_ranks',
+    run: 'rr-run',
+    card: 'rr-result-card',
+    prefix: 'stats_related_ranks',
+    choose: async () => {
+      fireEvent.click(screen.getByTestId('rr-column-C1'));
+      fireEvent.click(screen.getByTestId('rr-column-C2'));
+    },
+    line: 'Columns, in this order: C1 Height, C2 Weight. Missing codes: none.',
+  },
 ] as const;
 
 function setUp() {
@@ -184,6 +198,7 @@ function setUp() {
     alpha: makeMockAlphaBridge(fill('stats_alpha', alphaResultView)),
     xtab: makeMockXtabBridge(fill('stats_xtab', xtabResultView)),
     ranks: makeMockRanksBridge({ stats_ranks_group_levels: levels, ...fill('stats_ranks', ranksResultView) }),
+    relatedRanks: makeMockRelatedRanksBridge(fill('stats_related_ranks', relatedRanksResultView)),
   };
   const capabilities: CapabilityView[] = METHODS.map((m) => ({ id: m.capabilityId, version: 1, lifecycle: 'beta', titleCode: 'stats.capability.describe.title', descriptionCode: 'stats.capability.describe.description', licenseNotes: [], knownLimitations: [], runnable: true }));
   const save = vi.fn().mockResolvedValue('/chosen/out.csv');

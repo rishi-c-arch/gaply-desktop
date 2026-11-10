@@ -22,6 +22,7 @@ import { RUN_STATE_NAMES } from '../describeWording';
 import { makeMockDescribeBridge } from '../describeBridge';
 import { makeMockXtabBridge } from '../xtabBridge';
 import { makeMockRanksBridge } from '../ranksBridge';
+import { makeMockRelatedRanksBridge } from '../relatedRanksBridge';
 import { makeMockProjectBridge } from './projectBridge';
 import { openProjectStore } from './projectSession';
 import type { ProjectListEntryView, StoredRunView } from './projectTypes';
@@ -460,6 +461,24 @@ describe('a going rerun of a saved crosstab', () => {
     await waitFor(() => expect((screen.getByTestId('project-rerun-cancel') as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(screen.getByTestId('project-rerun-cancel'));
     await waitFor(() => expect(crosstabs.calls).toEqual([['stats_xtab_cancel', { runId: 9 }]]));
+    expect(describe_.calls).toEqual([]);
+  });
+});
+
+// Research OS, Phase 8Z-2 (decision 656): a going rerun of a saved related rank test is
+// cancelled through its own bridge, its kind read from the runs (D317's departure, closed).
+describe('a going rerun of a saved related rank test', () => {
+  it("Cancel calls stats_related_ranks_cancel through the page's related rank tests bridge, and nothing else", async () => {
+    const relatedRun: StoredRunView = { ...RUNS[0], storedRunId: 4, capabilityId: 'stats.analyze.related_ranks' };
+    const { bridge, workspace } = pageBridges({
+      project_current: { projectId: A, rerun: { runId: 9, rerunOf: 4, status: 'going', storedRunId: null, code: null } },
+      project_runs: [...RUNS, relatedRun],
+    });
+    const describe_ = makeMockDescribeBridge({ stats_desc_cancel: { runId: 0 } });
+    const relatedRanks = makeMockRelatedRanksBridge({ stats_related_ranks_cancel: { runId: 0 } });
+    render(<ProjectPage projectId={A} bridge={bridge} workspace={workspace} desktop describe={describe_} relatedRanks={relatedRanks} pollMs={5} onClosed={vi.fn()} onBack={vi.fn()} />);
+    fireEvent.click(await screen.findByTestId('project-rerun-cancel'));
+    await waitFor(() => expect(relatedRanks.calls).toEqual([['stats_related_ranks_cancel', { runId: 9 }]]));
     expect(describe_.calls).toEqual([]);
   });
 });

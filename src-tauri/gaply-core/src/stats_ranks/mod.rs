@@ -85,12 +85,12 @@ use crate::contracts::{
     ValidationReport, WorkspaceId,
 };
 use crate::stats_anova::median;
-use crate::stats_corr::runs;
+use crate::stats_corr::{runs, tie_cube_sum};
 use crate::stats_desc::{
     input_ref, is_prepared_column, preparation_holds, score_code_count, suspect_codes_unless_score,
     Alias,
 };
-use crate::stats_dist::{chi_square_upper, normal_two_tailed, rank_sum_exact_tails};
+use crate::stats_dist::{chi_square_upper, exact_two_sided, normal_two_tailed, rank_sum_exact_tails};
 use crate::stats_l1::dataset::{Cell, Dataset};
 use crate::stats_ttest::{column, group_levels, non_finite_cells, MAX_GROUP_LEVELS};
 use crate::stats_verify::average_ranks;
@@ -800,7 +800,7 @@ impl Ranked {
         let mut sorted = all;
         sorted.sort_by(f64::total_cmp);
         let sizes = runs(&sorted);
-        let tie_sum: u128 = sizes.iter().map(|t| t * t * t - t).sum();
+        let tie_sum: u128 = tie_cube_sum(&sizes);
         Ranked {
             n: sorted.len() as u64,
             rank_sums,
@@ -845,7 +845,7 @@ fn mann_whitney(
     let exact_p = if notes.is_empty() {
         let tails = rank_sum_exact_tails(u1 as u64, first.n, second.n)
             .ok_or(RanksCode::DistributionOutOfRange)?;
-        Some(exact_two_sided(tails.lower, tails.upper)?)
+        Some(exact_or_overflow(tails.lower, tails.upper)?)
     } else {
         None
     };
@@ -864,10 +864,10 @@ fn mann_whitney(
     ))
 }
 
-/// The exact two-sided p from its tails. Each tail is checked first, since
-/// `f64::min` turns a NaN into the other operand (decision 635).
-fn exact_two_sided(lower: f64, upper: f64) -> Result<f64, RanksCode> {
-    Ok((2.0 * finite(lower)?.min(finite(upper)?)).min(1.0))
+/// The exact two-sided p from its tails, a tail that is not finite this module's
+/// `overflow` (decisions 635 and 652).
+fn exact_or_overflow(lower: f64, upper: f64) -> Result<f64, RanksCode> {
+    exact_two_sided(lower, upper).ok_or(RanksCode::Overflow)
 }
 
 /// The Kruskal-Wallis test of three or more groups, H from the exact
@@ -986,11 +986,11 @@ mod tests {
     /// checked first. No input reaches it: the tails are exact.
     #[test]
     fn a_tail_that_is_not_finite_gives_no_exact_p() {
-        assert_eq!(exact_two_sided(f64::NAN, 0.25), Err(RanksCode::Overflow));
-        assert_eq!(exact_two_sided(0.25, f64::NAN), Err(RanksCode::Overflow));
-        assert_eq!(exact_two_sided(f64::INFINITY, 0.25), Err(RanksCode::Overflow));
-        assert_eq!(exact_two_sided(0.25, 0.75), Ok(0.5));
-        assert_eq!(exact_two_sided(0.75, 0.75), Ok(1.0));
+        assert_eq!(exact_or_overflow(f64::NAN, 0.25), Err(RanksCode::Overflow));
+        assert_eq!(exact_or_overflow(0.25, f64::NAN), Err(RanksCode::Overflow));
+        assert_eq!(exact_or_overflow(f64::INFINITY, 0.25), Err(RanksCode::Overflow));
+        assert_eq!(exact_or_overflow(0.25, 0.75), Ok(0.5));
+        assert_eq!(exact_or_overflow(0.75, 0.75), Ok(1.0));
     }
 
     fn crafted_group(level: u32, n: u64, rank_sum: f64) -> RankGroup {

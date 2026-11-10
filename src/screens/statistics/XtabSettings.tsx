@@ -49,8 +49,8 @@ export function buildXtabSpec(view: DatasetView, rows: string, columns: string, 
 }
 
 export function useXtabSettings(view: DatasetView | null) {
-  const [rows, setRows] = useState('');
-  const [columns, setColumns] = useState('');
+  const [rows, setRowsAlias] = useState('');
+  const [columns, setColumnsAlias] = useState('');
   const [ticked, setTicked] = useState<number[]>([]);
 
   /** The candidate codes of both chosen columns, ascending, with where each
@@ -76,10 +76,20 @@ export function useXtabSettings(view: DatasetView | null) {
   );
 
   const reset = useCallback(() => {
-    setRows('');
-    setColumns('');
+    setRowsAlias('');
+    setColumnsAlias('');
     setTicked([]);
   }, []);
+
+  // The codes are the pair's: another pair that offers the same code starts unticked (decision 652).
+  const setRows = (alias: string) => {
+    setRowsAlias(alias);
+    setTicked([]);
+  };
+  const setColumns = (alias: string) => {
+    setColumnsAlias(alias);
+    setTicked([]);
+  };
 
   return {
     rows,

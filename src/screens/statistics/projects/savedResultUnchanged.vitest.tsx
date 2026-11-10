@@ -75,8 +75,16 @@ const AT_8Y2: Record<string, string> = {
   'ranks_mw.json': 'a33969b70729d288bb4a3c453f059b4607d32ae4139cd37ca8b603c37118926e',
 };
 
+/** Research OS, Phase 8Z-2 (decision 656): the stored fixtures 8Z-2 added, captured
+ *  from 8Z-2's own render, the record a later step keeps its own result against;
+ *  AT_8EB00B7C, AT_8X2 and AT_8Y2 are unchanged. */
+const AT_8Z2: Record<string, string> = {
+  'related_ranks_f.json': '7517b1ced822003af9515284d3a66cd4dc2f25f6a31581551fdd9eeb4a072df4',
+  'related_ranks_w.json': '042d1a8da0c8422c171ebf3bea7f7c8df17e10c0ed3bce2710cc141303637c3f',
+};
+
 /** Each file's record: 8eb00b7c's, or that of the step that added the file. */
-const RECORDED: Record<string, string> = { ...AT_8EB00B7C, ...AT_8X2, ...AT_8Y2 };
+const RECORDED: Record<string, string> = { ...AT_8EB00B7C, ...AT_8X2, ...AT_8Y2, ...AT_8Z2 };
 
 const sha = (s: string) => createHash('sha256').update(s).digest('hex');
 
@@ -144,11 +152,12 @@ describe('a project page with no prepared run, byte for byte as at 8eb00b7c', ()
 
 describe('a saved result with no scores, byte for byte as at 8eb00b7c', () => {
   it('covers every stored fixture', () => {
-    expect(FILES.length).toBeGreaterThanOrEqual(18);
-    // The three records name disjoint files, and together the whole directory.
-    expect(Object.keys(AT_8EB00B7C).filter((k) => k in AT_8X2 || k in AT_8Y2)).toEqual([]);
-    expect(Object.keys(AT_8X2).filter((k) => k in AT_8Y2)).toEqual([]);
-    expect([...Object.keys(AT_8EB00B7C), ...Object.keys(AT_8X2), ...Object.keys(AT_8Y2)].sort()).toEqual(FILES);
+    expect(FILES.length).toBeGreaterThanOrEqual(20);
+    // The four records name disjoint files, and together the whole directory.
+    expect(Object.keys(AT_8EB00B7C).filter((k) => k in AT_8X2 || k in AT_8Y2 || k in AT_8Z2)).toEqual([]);
+    expect(Object.keys(AT_8X2).filter((k) => k in AT_8Y2 || k in AT_8Z2)).toEqual([]);
+    expect(Object.keys(AT_8Y2).filter((k) => k in AT_8Z2)).toEqual([]);
+    expect([...Object.keys(AT_8EB00B7C), ...Object.keys(AT_8X2), ...Object.keys(AT_8Y2), ...Object.keys(AT_8Z2)].sort()).toEqual(FILES);
   });
 
   it.each(FILES)('%s', (f) => {

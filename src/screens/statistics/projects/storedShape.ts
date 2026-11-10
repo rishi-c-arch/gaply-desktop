@@ -26,6 +26,7 @@ import type { CorrDiagnostic, CorrResultView } from '../corrTypes';
 import type { AlphaDiagnostic, AlphaResultView } from '../alphaTypes';
 import type { XtabDiagnostic, XtabResultView } from '../xtabTypes';
 import type { RanksDiagnostic, RanksResultView } from '../ranksTypes';
+import type { RelatedRanksDiagnostic, RelatedRanksResultView } from '../relatedRanksTypes';
 import DESCRIBE_CODES from '../describeCodes.json';
 import TTEST_CODES from '../ttestCodes.json';
 import ONESAMPLE_CODES from '../onesampleCodes.json';
@@ -34,6 +35,8 @@ import CORR_CODES from '../corrCodes.json';
 import ALPHA_CODES from '../alphaCodes.json';
 import XTAB_CODES from '../xtabCodes.json';
 import RANKS_CODES from '../ranksCodes.json';
+import RELATED_RANKS_CODES from '../relatedRanksCodes.json';
+import RELATED_LIMITS from '../fixtures/relatedRanksLimits.json';
 import { capabilityOfKind } from '../methods';
 import TTEST_LIMITS from '../ttestLimits.json';
 
@@ -50,15 +53,16 @@ export const CORR_CAPABILITY = capabilityOfKind('correlations');
 export const ALPHA_CAPABILITY = capabilityOfKind('cronbach_alpha');
 export const XTAB_CAPABILITY = capabilityOfKind('crosstabs');
 export const RANKS_CAPABILITY = capabilityOfKind('independent_ranks');
+export const RELATED_RANKS_CAPABILITY = capabilityOfKind('related_ranks');
 
 /** A data file's formats: the ingest's (DataFormat in Rust, without json). */
 const DATA_FORMATS = ['csv', 'tsv', 'xlsx', 'xlsm', 'xlsb', 'xls', 'ods', 'sav', 'mat'];
 
 /** The case a method's checked results are shown as. */
-export type CaseKind = 'summary' | 'ttest' | 'one_sample' | 'paired' | 'anova' | 'correlations' | 'cronbach_alpha' | 'crosstabs' | 'independent_ranks';
+export type CaseKind = 'summary' | 'ttest' | 'one_sample' | 'paired' | 'anova' | 'correlations' | 'cronbach_alpha' | 'crosstabs' | 'independent_ranks' | 'related_ranks';
 
 /** A failed run's stored diagnostic, in its method's codes. */
-export type StoredFailure = Diagnostic | TTestDiagnostic | OneSampleDiagnostic | AnovaDiagnostic | CorrDiagnostic | AlphaDiagnostic | XtabDiagnostic | RanksDiagnostic;
+export type StoredFailure = Diagnostic | TTestDiagnostic | OneSampleDiagnostic | AnovaDiagnostic | CorrDiagnostic | AlphaDiagnostic | XtabDiagnostic | RanksDiagnostic | RelatedRanksDiagnostic;
 
 /** What a saved result is, once checked: what to show, or why not. */
 export type Checked =
@@ -71,6 +75,7 @@ export type Checked =
   | { kind: 'cronbach_alpha'; result: AlphaResultView; dataFile: DataFileFacts }
   | { kind: 'crosstabs'; result: XtabResultView; dataFile: DataFileFacts }
   | { kind: 'independent_ranks'; result: RanksResultView; dataFile: DataFileFacts }
+  | { kind: 'related_ranks'; result: RelatedRanksResultView; dataFile: DataFileFacts }
   | { kind: 'failed'; capability: CaseKind; failure: StoredFailure; dataFile: DataFileFacts }
   | { kind: 'unknownCapability' }
   | { kind: 'unknownSchema' }
@@ -102,6 +107,7 @@ const CR_CODES = (CORR_CODES as string[]).filter((c) => c.indexOf('stats.corr.')
 const AL_CODES = (ALPHA_CODES as string[]).filter((c) => c.indexOf('stats.alpha.') === 0);
 const XT_CODES = (XTAB_CODES as string[]).filter((c) => c.indexOf('stats.xtab.') === 0);
 const RK_CODES = (RANKS_CODES as string[]).filter((c) => c.indexOf('stats.ranks.') === 0);
+const RR_CODES = (RELATED_RANKS_CODES as string[]).filter((c) => c.indexOf('stats.related_ranks.') === 0);
 const SEVERITIES = ['error', 'warning', 'note'];
 const DESC_PARAM_KEYS = ['column', 'count', 'index', 'value', 'limit', 'expected', 'found', 'from', 'event'];
 const T_PARAM_KEYS = ['column', 'count', 'index', 'value', 'limit', 'expected', 'found'];
@@ -111,6 +117,7 @@ const CR_PARAM_KEYS = ['column', 'count', 'index', 'value', 'limit', 'expected',
 const AL_PARAM_KEYS = ['column', 'count', 'index', 'value', 'expected', 'found'];
 const XT_PARAM_KEYS = ['column', 'count', 'index', 'value', 'limit', 'expected', 'found'];
 const RK_PARAM_KEYS = ['column', 'count', 'index', 'value', 'limit', 'expected', 'found'];
+const RR_PARAM_KEYS = ['column', 'count', 'index', 'value', 'limit', 'expected', 'found'];
 const RUN_STATES = [
   'draft',
   'validating',
@@ -761,16 +768,20 @@ const rkDiagnostic = (v: unknown) =>
 const RK_NOTES = ['exact_not_given_ties', 'exact_not_given_size', 'group_below_five'].map((c) => `stats.ranks.${c}`);
 const rkNotes = (v: unknown) => Array.isArray(v) && JSON.stringify(v) === JSON.stringify(RK_NOTES.filter((c) => v.indexOf(c) >= 0));
 
+/** A column's number from its alias, as an exclusion names it, or null for a word that is
+ *  not an alias (Alias's Deserialize in stats_desc). */
+const aliasNumber = (a: unknown): number | null => (isStr(a) && /^C[1-9][0-9]*$/.test(a) ? Number(a.slice(1)) : null);
+
 /** What stats_ranks always writes together (stats_ranks::run, mann_whitney and
  *  kruskal_wallis; decision 635): at most MAX_GROUP_LEVELS groups, their levels strictly
  *  ascending; every value equal only with one tie run. For two groups, the first and
- *  second the groups' own two levels in order, U1 and U2 adding up to n1 n2, z not
+ *  second the groups' own two levels in order, U1 and U2 as the first rank sum gives them, z not
  *  computable only with its p, a ties note exactly when there are tie runs, a size note
  *  exactly when a group has 50 values or more, and an absent exact p exactly when one of
  *  them says why. For three or more, df the groups less one, H not computable only with
  *  its p and epsilon-squared, and no note about an exact p. */
 const rkConsistent = (r: O) => {
-  const groups = r.groups as Array<{ level: number; n: number }>;
+  const groups = r.groups as Array<{ level: number; n: number; rankSum: number; meanRank: number }>;
   if (groups.length > TTEST_LIMITS.maxGroupLevels) return false;
   if (groups.some((g, i) => i > 0 && g.level <= groups[i - 1].level)) return false;
   const notes = r.notes as string[];
@@ -782,22 +793,70 @@ const rkConsistent = (r: O) => {
   if (!isObject(test.mann_whitney)) {
     const t = test.kruskal_wallis as O;
     const h = ncCode(t.h);
+    // H's codes follow from epsilon-squared's here, since H's code is epsilon-squared's below.
+    if (!oneOf(ncCode(t.epsilonSquared), RK_NC_NORMAL) && ncCode(t.epsilonSquared) !== undefined) return false;
     if (h !== undefined && (ncCode(t.p) !== h || ncCode(t.epsilonSquared) !== h)) return false;
+    if (h !== allTied && (ncCode(t.p) === allTied || ncCode(t.epsilonSquared) === allTied)) return false;
     if (h === allTied && tieRuns !== 1) return false;
+    if (h === allTied && !rkOneRun(r)) return false;
     return t.df === groups.length - 1 && !tiesNote && !sizeNote;
   }
   const t = test.mann_whitney;
   const z = ncCode(t.z);
   if (z !== undefined && ncCode(t.p) !== z) return false;
+  if (z !== allTied && ncCode(t.p) === allTied) return false;
   if (z === allTied && tieRuns !== 1) return false;
+  if (z === allTied && !rkOneRun(r)) return false;
+  const [n1, n2] = [groups[0].n, groups[1].n];
+  if (t.u1 !== groups[0].rankSum - (n1 * (n1 + 1)) / 2) return false;
+  if (t.u2 !== n1 * n2 - (t.u1 as number)) return false;
+  if (t.rankBiserial !== (2 * (t.u1 as number)) / (n1 * n2) - 1) return false;
   return (
     t.first === groups[0].level &&
     t.second === groups[1].level &&
-    (t.u1 as number) + (t.u2 as number) === groups[0].n * groups[1].n &&
     tiesNote === (tieRuns > 0) &&
     sizeNote === groups.some((g) => g.n >= 50) &&
     (t.exactP === null) === (tiesNote || sizeNote)
   );
+};
+
+/** One run of N equal values: every group's rank sum is n_i (N + 1) / 2, exactly, since
+ *  each rank is the half-integer (N + 1) / 2 (stats_ranks::Ranked::of). */
+const rkOneRun = (r: O) => (r.groups as Array<{ n: number; rankSum: number }>).every((g) => g.rankSum === (g.n * ((r.n as number) + 1)) / 2);
+
+/** What the groups, the counts, the notes and the manifest always say of one another
+ *  (stats_ranks::run :698-749, split :357-384, manifest :939-941; decision 652). */
+const rkCounts = (v: O, r: O) => {
+  const groups = r.groups as Array<{ n: number; rankSum: number; meanRank: number }>;
+  const m = v.manifest as O;
+  const n = r.n as number;
+  if (groups.some((g) => g.n < 1)) return false;
+  if (groups.some((g) => g.n !== 0 && g.meanRank !== g.rankSum / g.n)) return false;
+  if (n !== groups.reduce((s, g) => s + g.n, 0)) return false;
+  if ((r.tieRuns as number) > Math.floor(n / 2)) return false;
+  if (((r.notes as string[]).indexOf(RK_NOTES[2]) >= 0) !== groups.some((g) => g.n < 5)) return false;
+  if (m.rowsUsed !== n) return false;
+  return m.rowsRead === n + (r.exclusions as Array<{ count: number }>).reduce((s, e) => s + e.count, 0);
+};
+
+/** What only the spec can say (decision 652): each exclusion names the column Rust names
+ *  for its code (:730-733), missing_code appears only with missing codes, and the groups
+ *  are the spec's levels, which Rust sorts (:544) before it splits. A spec without the
+ *  field read is not one Rust wrote. */
+const rkAgreesWithSpec = (r: O, spec: O) => {
+  const p = spec.parameters;
+  if (!isObject(p)) return false;
+  const [outcome, group] = [aliasNumber(p.outcome), aliasNumber(p.group)];
+  if (outcome === null || group === null || !Array.isArray(p.missingCodes) || !('levels' in p)) return false;
+  if (outcome === group) return false;
+  const named = (c: unknown) => (c === RK_EXCLUDED[0] || c === RK_EXCLUDED[1] ? group : outcome);
+  const exclusions = r.exclusions as Array<{ code: string; params: { column: number } }>;
+  if (exclusions.some((e) => e.params.column !== named(e.code))) return false;
+  if (p.missingCodes.length === 0 && exclusions.some((e) => e.code === RK_EXCLUDED[3])) return false;
+  if (p.levels === null && exclusions.some((e) => e.code === RK_EXCLUDED[1])) return false;
+  if (p.levels === null) return true;
+  const levels = (p.levels as number[]).slice().sort((a, b) => a - b);
+  return JSON.stringify((r.groups as Array<{ level: number }>).map((g) => g.level)) === JSON.stringify(levels);
 };
 
 /** The exclusions as stats_ranks lists them: each reason once, in its order, the
@@ -815,7 +874,7 @@ const RANKS_LIMITATIONS = ['no_pairwise_comparisons', 'two_sided_only', 'no_loca
 /** IndependentRanksOutcome's keys, every one always written. */
 const RANKS_RESULT_KEYS = ['groups', 'n', 'tieRuns', 'test', 'exclusions', 'notes', 'limitations'];
 
-function ranksBundle(v: O): RanksResultView | null {
+function ranksBundle(v: O, spec: O): RanksResultView | null {
   const r = v.primaryOutputs;
   const ok =
     isCount(v.runId) &&
@@ -835,7 +894,9 @@ function ranksBundle(v: O): RanksResultView | null {
     arrayOf(v.diagnostics, rkDiagnostic) &&
     arrayOf(v.limitations, rkDiagnostic) &&
     manifest(v.manifest, RANKS_CAPABILITY, rkExclusion) &&
-    rkExclusionsAgree(v, r);
+    rkExclusionsAgree(v, r) &&
+    rkCounts(v, r) &&
+    rkAgreesWithSpec(r, spec);
   if (!ok) return null;
   // As Rust's stats_ranks_commands::result makes the live view.
   return {
@@ -844,6 +905,180 @@ function ranksBundle(v: O): RanksResultView | null {
     result: r as unknown as RanksResultView['result'],
     diagnostics: v.diagnostics as RanksDiagnostic[],
     manifest: v.manifest as RanksResultView['manifest'],
+  };
+}
+
+/* ---- the related rank tests (Phase 8Z-2, decision 657) ------------------------ */
+
+const rrCode = (c: string) => `stats.related_ranks.${c}`;
+const RR_TIED = rrCode('all_values_tied');
+const RR_OVERFLOW = rrCode('overflow');
+const RR_RANGE = rrCode('distribution_out_of_range');
+const RR_ZERO = rrCode('all_differences_zero');
+const rrStat = (v: unknown, codes: readonly string[]) => oneKey(v, { value: isNum, not_computable: (x) => oneOf(x, codes) });
+/** The number in a stat; undefined for a code. */
+const statValue = (v: unknown): unknown => (isObject(v) ? v.value : undefined);
+
+/** A diagnostic as stats_related_ranks writes it: as every method's, and the
+ *  suspect-code warning always names its column, value and count. */
+const rrDiagnostic = (v: unknown) =>
+  diagnostic(RR_CODES, RR_PARAM_KEYS, false)(v) &&
+  isObject(v) &&
+  (v.code !== 'stats.related_ranks.suspect_missing_code' || (isObject(v.params) && ['column', 'value', 'count'].every((k) => isNum((v.params as O)[k]))));
+
+/** Every result's limitations, in stats_related_ranks' order (its LIMITATIONS). */
+const RELATED_LIMITATIONS = ['no_pairwise_comparisons', 'two_sided_only', 'no_location_estimate', 'exact_without_ties_or_zeros_only', 'pratt_not_offered', 'no_further_related_tests', 'no_weights', 'column_order'].map(rrCode);
+
+/** RelatedRanksOutcome's keys, every one always written. */
+const RELATED_RESULT_KEYS = ['columns', 'rowsUsed', 'test', 'exclusions', 'notes', 'limitations'];
+const WILCOXON_KEYS = ['first', 'second', 'n', 'zeroDifferences', 'tieRuns', 'negative', 'positive', 'v', 'tMinus', 'z', 'p', 'exactP', 'rankBiserial', 'medianDifference'];
+const FRIEDMAN_KEYS = ['columns', 'q', 'df', 'p', 'kendallsW'];
+const hasExactly = (v: O, keys: readonly string[]) => Object.keys(v).length === keys.length && keys.every((k) => k in v);
+
+/** Each of a Wilcoxon test's two sides (stats_related_ranks::sign_ranks): its count whole,
+ *  its rank sum a multiple of 0.5 within what c ranks of n can reach, its mean null exactly
+ *  when it has no pair. */
+const rrSide = (v: unknown, n: number) => {
+  if (!isObject(v) || !hasExactly(v, ['count', 'rankSum', 'meanRank'])) return false;
+  if (!isCount(v.count) || !isNum(v.rankSum)) return false;
+  const [c, s] = [v.count, v.rankSum];
+  if (!Number.isInteger(s * 2)) return false;
+  if (s < (c * (c + 1)) / 2 || s > (c * (2 * n - c + 1)) / 2) return false;
+  return c === 0 ? v.meanRank === null : v.meanRank === s / c;
+};
+
+/** The Wilcoxon form (stats_related_ranks::wilcoxon :716-790): decision 657's rules,
+ *  each its own line, each expression in Rust's order. */
+const rrWilcoxon = (v: unknown, r: O, columns: string[]) => {
+  if (!isObject(v) || !hasExactly(v, WILCOXON_KEYS)) return false;
+  if (v.first !== columns[0] || v.second !== columns[1]) return false;
+  if (!isCount(v.n) || !isCount(v.zeroDifferences) || !isCount(v.tieRuns)) return false;
+  const n = v.n;
+  if (!rrSide(v.negative, n) || !rrSide(v.positive, n)) return false;
+  const [negative, positive] = [v.negative as { count: number; rankSum: number }, v.positive as { count: number; rankSum: number }];
+  if (n !== negative.count + positive.count) return false;
+  if (r.rowsUsed !== n + v.zeroDifferences) return false;
+  if (v.tieRuns > Math.floor(n / 2)) return false;
+  if (v.tieRuns === 0 && (!Number.isInteger(negative.rankSum) || !Number.isInteger(positive.rankSum))) return false;
+  if (v.v !== positive.rankSum) return false;
+  const top = (n * (n + 1)) / 2;
+  if (v.tMinus !== top - (v.v as number)) return false;
+  if (negative.rankSum !== v.tMinus) return false;
+  if ((n === 0) !== (ncCode(v.z) === RR_ZERO && ncCode(v.p) === RR_ZERO && ncCode(v.rankBiserial) === RR_ZERO)) return false;
+  if (n > 0) {
+    if (!rrStat(v.z, [RR_OVERFLOW]) || !rrStat(v.p, [RR_OVERFLOW]) || !rrStat(v.rankBiserial, [RR_OVERFLOW])) return false;
+    if (ncCode(v.z) !== undefined && ncCode(v.p) !== ncCode(v.z)) return false;
+    if (statValue(v.p) !== undefined && ((statValue(v.p) as number) < 0 || (statValue(v.p) as number) > 1)) return false;
+    if (statValue(v.z) !== undefined && Math.sign(statValue(v.z) as number) !== Math.sign((v.v as number) - (v.tMinus as number))) return false;
+    if (statValue(v.rankBiserial) !== undefined && statValue(v.rankBiserial) !== ((v.v as number) - (v.tMinus as number)) / top) return false;
+  }
+  if (!rrStat(v.medianDifference, [RR_OVERFLOW])) return false;
+  const notes = r.notes as string[];
+  const has = (c: string) => notes.indexOf(c) >= 0;
+  const [ties, zeros, size, dropped, below] = [rrCode('exact_not_given_ties'), rrCode('exact_not_given_zeros'), rrCode('exact_not_given_size'), rrCode('zero_differences_dropped'), rrCode('rows_below_five')];
+  if (has(ties) !== (v.tieRuns > 0)) return false;
+  if (has(zeros) !== (v.zeroDifferences > 0)) return false;
+  if (has(size) !== (n >= 50)) return false;
+  if (has(dropped) !== (v.zeroDifferences > 0)) return false;
+  if (has(below) !== (n < 5)) return false;
+  if (JSON.stringify(notes) !== JSON.stringify([ties, zeros, size, dropped, below].filter(has))) return false;
+  const noExact = has(ties) || has(zeros) || has(size);
+  if (noExact) return v.exactP === null;
+  return isNum(v.exactP) && v.exactP > 0 && v.exactP <= 1;
+};
+
+/** The Friedman form (stats_related_ranks::friedman :809-856, q_p_w :793-806). */
+const rrFriedman = (v: unknown, r: O, columns: string[]) => {
+  if (!isObject(v) || !hasExactly(v, FRIEDMAN_KEYS)) return false;
+  const k = columns.length;
+  const rows = r.rowsUsed as number;
+  if (!Array.isArray(v.columns) || v.columns.length !== k) return false;
+  const sums: number[] = [];
+  for (let i = 0; i < k; i += 1) {
+    const c = v.columns[i];
+    if (!isObject(c) || !hasExactly(c, ['column', 'rankSum', 'meanRank']) || c.column !== columns[i] || !isNum(c.rankSum)) return false;
+    if (c.meanRank !== c.rankSum / rows) return false;
+    if (c.rankSum < rows || c.rankSum > rows * k) return false;
+    sums.push(c.rankSum);
+  }
+  if (sums.reduce((s, x) => s + x, 0) !== (rows * k * (k + 1)) / 2) return false;
+  if (v.df !== k - 1) return false;
+  const equalSums = sums.every((s) => s === (rows * (k + 1)) / 2);
+  if (!rrStat(v.q, [RR_TIED, RR_OVERFLOW]) || !rrStat(v.p, [RR_TIED, RR_OVERFLOW, RR_RANGE]) || !rrStat(v.kendallsW, [RR_TIED, RR_OVERFLOW])) return false;
+  const q = ncCode(v.q);
+  const anyTied = [q, ncCode(v.p), ncCode(v.kendallsW)].indexOf(RR_TIED) >= 0;
+  if (anyTied && !(q === RR_TIED && ncCode(v.p) === RR_TIED && ncCode(v.kendallsW) === RR_TIED)) return false;
+  if (q === RR_TIED && !equalSums) return false;
+  if (q !== undefined && (ncCode(v.p) !== q || ncCode(v.kendallsW) !== q)) return false;
+  if (q === undefined) {
+    const value = statValue(v.q) as number;
+    if (value < 0) return false;
+    if ((value === 0) !== equalSums) return false;
+    const p = statValue(v.p);
+    if (p !== undefined && ((p as number) < 0 || (p as number) > 1)) return false;
+    const w = statValue(v.kendallsW);
+    if (w !== undefined && w !== value / (rows * (k - 1))) return false;
+  }
+  const below = rrCode('rows_below_five');
+  return JSON.stringify(r.notes) === JSON.stringify(rows < 5 ? [below] : []);
+};
+
+/** An exclusion, exactly as stats_related_ranks writes it. */
+const RR_EXCLUDED = [rrCode('missing_value'), rrCode('missing_code')];
+const rrExclusion = (e: unknown) =>
+  isObject(e) &&
+  Object.keys(e).length === 3 &&
+  oneOf(e.code, RR_EXCLUDED) &&
+  isCount(e.count) &&
+  e.count >= 1 &&
+  isObject(e.params) &&
+  Object.keys(e.params).length === 1 &&
+  isCount(e.params.column);
+
+/** The exclusions as stats_related_ranks lists them (:638-652): in the spec's column order,
+ *  missing_value before missing_code for the same column, each pair once, each column the
+ *  spec's, and missing_code only with missing codes. */
+const rrExclusionsAgree = (list: O[], columns: string[], codes: unknown[]) => {
+  const numbers = columns.map(aliasNumber);
+  const order = list.map((e) => numbers.indexOf(((e.params as O).column as number) ?? -1) * 2 + (e.code === RR_EXCLUDED[1] ? 1 : 0));
+  if (order.some((o) => o < 0)) return false;
+  if (order.some((o, i) => i > 0 && o <= order[i - 1])) return false;
+  return codes.length > 0 || list.every((e) => e.code !== RR_EXCLUDED[1]);
+};
+
+function relatedRanksBundle(v: O, spec: O): RelatedRanksResultView | null {
+  const p = spec.parameters;
+  const r = v.primaryOutputs;
+  if (!isObject(p) || !Array.isArray(p.columns) || !Array.isArray(p.missingCodes)) return null;
+  const columns = p.columns as string[];
+  if (columns.length < 2 || columns.length > RELATED_LIMITS.maxColumns || columns.some((c) => aliasNumber(c) === null)) return null;
+  if (columns.some((c, i) => columns.indexOf(c) !== i)) return null;
+  if (!isObject(r) || !hasExactly(r, RELATED_RESULT_KEYS)) return null;
+  if (!isCount(v.runId) || v.status !== 'succeeded') return null;
+  if (!isCount(r.rowsUsed) || r.rowsUsed < 1) return null;
+  if (!Array.isArray(r.columns) || r.columns.length !== columns.length) return null;
+  for (let i = 0; i < columns.length; i += 1) {
+    const c = r.columns[i];
+    if (!isObject(c) || !hasExactly(c, ['column', 'median']) || c.column !== columns[i] || !isNum(c.median)) return null;
+  }
+  if (!Array.isArray(r.notes) || !arrayOf(r.exclusions, rrExclusion)) return null;
+  const test = columns.length === 2 ? oneKey(r.test, { wilcoxon: (t) => rrWilcoxon(t, r, columns) }) : oneKey(r.test, { friedman: (t) => rrFriedman(t, r, columns) });
+  if (!test) return null;
+  if (!rrExclusionsAgree(r.exclusions as O[], columns, p.missingCodes)) return null;
+  if (!Array.isArray(r.limitations) || JSON.stringify(r.limitations) !== JSON.stringify(RELATED_LIMITATIONS)) return null;
+  if (!arrayOf(v.diagnostics, rrDiagnostic) || !arrayOf(v.limitations, rrDiagnostic)) return null;
+  if (!manifest(v.manifest, RELATED_RANKS_CAPABILITY, rrExclusion)) return null;
+  const m = v.manifest as O;
+  if (m.rowsUsed !== r.rowsUsed) return null;
+  if (m.rowsRead !== r.rowsUsed + (r.exclusions as Array<{ count: number }>).reduce((s, e) => s + e.count, 0)) return null;
+  if (JSON.stringify(m.exclusions) !== JSON.stringify(r.exclusions)) return null;
+  // As Rust's stats_related_ranks_commands::result makes the live view.
+  return {
+    runId: v.runId as number,
+    status: 'succeeded',
+    result: r as unknown as RelatedRanksResultView['result'],
+    diagnostics: v.diagnostics as RelatedRanksDiagnostic[],
+    manifest: v.manifest as RelatedRanksResultView['manifest'],
   };
 }
 
@@ -857,7 +1092,9 @@ interface StoredChecker {
   codes: readonly string[];
   keys: readonly string[];
   strings: boolean;
-  bundle: (v: O, dataFile: DataFileFacts) => Checked | null;
+  /** `spec` is the stored spec, already parsed (decision 652): a checker that reads it
+   *  answers null when a field it reads is absent. */
+  bundle: (v: O, dataFile: DataFileFacts, spec: O) => Checked | null;
 }
 
 /** The checkers, keyed by capability id. A new method adds one entry. */
@@ -949,9 +1186,20 @@ export const STORED_CHECKERS: Record<string, StoredChecker> = {
     codes: RK_CODES,
     keys: RK_PARAM_KEYS,
     strings: false,
-    bundle: (v, dataFile) => {
-      const result = ranksBundle(v);
+    bundle: (v, dataFile, spec) => {
+      const result = ranksBundle(v, spec);
       return result ? { kind: 'independent_ranks', result, dataFile } : null;
+    },
+  },
+  // Research OS, Phase 8Z-2 (decision 657).
+  [RELATED_RANKS_CAPABILITY]: {
+    which: 'related_ranks',
+    codes: RR_CODES,
+    keys: RR_PARAM_KEYS,
+    strings: false,
+    bundle: (v, dataFile, spec) => {
+      const result = relatedRanksBundle(v, spec);
+      return result ? { kind: 'related_ranks', result, dataFile } : null;
     },
   },
 };
@@ -1036,5 +1284,5 @@ function check(view: unknown): Checked {
   }
   if (!isObject(bundle)) return { kind: 'badShape' };
   if (!preparationsAgree(spec, bundle.manifest)) return { kind: 'badShape' };
-  return checker.bundle(bundle, dataFile) ?? { kind: 'badShape' };
+  return checker.bundle(bundle, dataFile, spec) ?? { kind: 'badShape' };
 }

@@ -1092,6 +1092,13 @@ pub(crate) fn runs(v: &[f64]) -> Vec<u128> {
     out
 }
 
+/// The sum of t³ − t over the sizes of the runs, whole in `u128`: the rank tests' tie
+/// correction, each caller converting it as it needs (Phase 8Z-2, decision 652: its one
+/// home, beside `runs`).
+pub(crate) fn tie_cube_sum(sizes: &[u128]) -> u128 {
+    sizes.iter().map(|t| t * t * t - t).sum()
+}
+
 /// Sorts `v` ascending by a merge sort and returns the pairs it exchanged:
 /// those with the earlier strictly above the later (Knight's discordant
 /// count; equal values are not exchanged).
@@ -1225,5 +1232,21 @@ pub fn manifest(
         output_hash: ContentHash::of_bytes(&result.canonical_bytes()),
         reproducibility: Reproducibility::Bitwise,
         preparation: spec.preparation.clone(),
+    }
+}
+
+#[cfg(test)]
+mod tie_sum_tests {
+    use super::tie_cube_sum;
+
+    /// Decision 652: the one home of the sum of t³ − t over the runs' sizes, whole in u128.
+    #[test]
+    fn the_tie_sum_adds_t_cubed_less_t_over_the_runs_sizes() {
+        assert_eq!(tie_cube_sum(&[]), 0);
+        assert_eq!(tie_cube_sum(&[1, 1, 1]), 0);
+        // 2: 8 - 2 = 6. 3: 27 - 3 = 24. 4: 64 - 4 = 60.
+        assert_eq!(tie_cube_sum(&[2, 3, 1, 4]), 6 + 24 + 60);
+        // Past what a u64 holds: 3,000,000 cubed is 2.7e19.
+        assert_eq!(tie_cube_sum(&[3_000_000]), 27_000_000_000_000_000_000u128 - 3_000_000);
     }
 }

@@ -27,6 +27,7 @@ import { corrBridge, type CorrBridge } from '../statistics/corrBridge';
 import { alphaBridge, type AlphaBridge } from '../statistics/alphaBridge';
 import { xtabBridge, type XtabBridge } from '../statistics/xtabBridge';
 import { ranksBridge, type RanksBridge } from '../statistics/ranksBridge';
+import { relatedRanksBridge, type RelatedRanksBridge } from '../statistics/relatedRanksBridge';
 import { projectsShown } from '../statistics/projects/projectGate';
 import { noteWorkspaceState } from '../statistics/projects/projectSession';
 import { PROJECT_TEXT } from '../statistics/projects/projectWording';
@@ -56,6 +57,8 @@ export interface WorkspaceShellProps {
   xtabRuns?: XtabBridge;
   /** Reads and cancels the rank tests' runs (Research OS, Phase 8Y-2's bridge, decision 622). */
   ranksRuns?: RanksBridge;
+  /** Research OS, Phase 8Z-2 (decision 656). */
+  relatedRanksRuns?: RelatedRanksBridge;
   /** How often the state and the newest run are read. */
   pollMs?: number;
 }
@@ -103,6 +106,7 @@ export const WorkspaceShell: React.FC<WorkspaceShellProps> = ({
   alphaRuns: givenAlpha,
   xtabRuns: givenXtab,
   ranksRuns: givenRanks,
+  relatedRanksRuns: givenRelatedRanks,
   pollMs = 1000,
 }) => {
   const navigate = useNavigate();
@@ -116,6 +120,7 @@ export const WorkspaceShell: React.FC<WorkspaceShellProps> = ({
   const alpha = useMemo(() => givenAlpha ?? alphaBridge(), [givenAlpha]);
   const xtab = useMemo(() => givenXtab ?? xtabBridge(), [givenXtab]);
   const ranks = useMemo(() => givenRanks ?? ranksBridge(), [givenRanks]);
+  const relatedRanks = useMemo(() => givenRelatedRanks ?? relatedRanksBridge(), [givenRelatedRanks]);
   const [view, setView] = useState<WorkspaceStateView | null>(null);
   const [run, setRun] = useState<JobView | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -128,7 +133,7 @@ export const WorkspaceShell: React.FC<WorkspaceShellProps> = ({
     };
   }, []);
 
-  const runBridges = useMemo(() => ({ describe: runs, ttest, oneSample, paired, anova, corr, alpha, xtab, ranks }), [runs, ttest, oneSample, paired, anova, corr, alpha, xtab, ranks]);
+  const runBridges = useMemo(() => ({ describe: runs, ttest, oneSample, paired, anova, corr, alpha, xtab, ranks, relatedRanks }), [runs, ttest, oneSample, paired, anova, corr, alpha, xtab, ranks, relatedRanks]);
   // The switch, and each kind's commands, are one hook's (decision 449).
   const { leave, statusOf, dialog: switchDialog } = useWorkspaceSwitch({ bridge, runs: runBridges, pollMs, setMessage });
 

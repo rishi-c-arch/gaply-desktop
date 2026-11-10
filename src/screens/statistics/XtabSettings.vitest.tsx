@@ -113,9 +113,9 @@ describe('the missing codes', () => {
     fireEvent.click(screen.getByTestId('xt-code-99'));
     fireEvent.click(screen.getByTestId('xt-code--99'));
     expect(state?.spec(1).parameters).toEqual({ rows: 'C1', columns: 'C2', missingCodes: [-99, 99] });
-    // A code no longer offered is no longer sent.
+    // Decision 652: the codes are the pair's, so any change of a column clears every tick.
     pick('xt-columns', 'C4');
-    expect(state?.spec(1).parameters).toEqual({ rows: 'C1', columns: 'C4', missingCodes: [99] });
+    expect(state?.spec(1).parameters).toEqual({ rows: 'C1', columns: 'C4', missingCodes: [] });
   });
 
   it('reset drops every choice', () => {

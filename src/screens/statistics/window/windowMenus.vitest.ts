@@ -76,8 +76,8 @@ describe('every item, in decision 441\'s words and order', () => {
       ['Correlate', ['Correlations…']],
       ['Scale', ["Reliability (Cronbach's alpha)…"]],
       // Research OS, Phase 8Y-2 (decisions 620 and 624): after Scale, as SPSS places it.
-      ['Nonparametric tests', ['Independent samples…']],
-      ['Coming later', ['Regression', 'Factor analysis', 'Related-samples nonparametric tests', 'CFA and SEM']],
+      ['Nonparametric tests', ['Independent samples…', 'Related samples…']],
+      ['Coming later', ['Regression', 'Factor analysis', 'CFA and SEM']],
     ]);
   });
 
@@ -216,7 +216,7 @@ describe('Coming later', () => {
   };
 
   it('is the closed list decision 441 gives, and the table is what the menus show', () => {
-    expect(COMING_LATER.analyze).toEqual(['Regression', 'Factor analysis', 'Related-samples nonparametric tests', 'CFA and SEM']);
+    expect(COMING_LATER.analyze).toEqual(['Regression', 'Factor analysis', 'CFA and SEM']);
     expect(COMING_LATER.transform).toEqual(['Recode values…', 'Compute from a formula…', 'Select cases…']);
     expect(later('analyze').map((i) => i.label)).toEqual(COMING_LATER.analyze);
     expect(later('transform').map((i) => i.label)).toEqual(COMING_LATER.transform);
@@ -261,7 +261,7 @@ describe("alpha's item, live (decision 473)", () => {
 });
 
 describe('every method, live (decision 485)', () => {
-  it('LIVE_METHODS holds all nine', () => {
+  it('LIVE_METHODS holds all ten', () => {
     expect([...LIVE_METHODS].sort()).toEqual(METHODS.map((m) => m.kind).sort());
   });
 

@@ -24,6 +24,7 @@ use app_lib::stats_desc_commands as desc;
 use app_lib::stats_onesample_commands as onesample;
 use app_lib::stats_prep_commands as prep;
 use app_lib::stats_ranks_commands as ranks;
+use app_lib::stats_related_ranks_commands as related_ranks;
 use app_lib::stats_ttest_commands as ttest;
 use app_lib::workspace::{self as ws, RunsFactory, WorkspaceSession};
 use gaply_core::{AppConfig, Database};
@@ -116,6 +117,12 @@ pub fn app_with(
             ranks::stats_ranks_status,
             ranks::stats_ranks_result,
             ranks::stats_ranks_export,
+            related_ranks::stats_related_ranks_validate,
+            related_ranks::stats_related_ranks_run,
+            related_ranks::stats_related_ranks_status,
+            related_ranks::stats_related_ranks_result,
+            related_ranks::stats_related_ranks_cancel,
+            related_ranks::stats_related_ranks_export,
             corr::stats_corr_validate,
             corr::stats_corr_run,
             corr::stats_corr_status,
@@ -241,9 +248,9 @@ pub struct Method {
     pub spec: Value,
 }
 
-/// All eight methods on `score`. The rank tests are last, so no method's index
-/// moves.
-pub fn eight(view: &Value, score: &str) -> Vec<Method> {
+/// All nine methods on `score`. The rank tests and then the related rank tests are
+/// last, so no method's index moves.
+pub fn nine(view: &Value, score: &str) -> Vec<Method> {
     vec![
         Method {
             prefix: "stats_desc",
@@ -338,6 +345,16 @@ pub fn eight(view: &Value, score: &str) -> Vec<Method> {
                     "levels": null,
                     "missingCodes": [],
                 }),
+            ),
+        },
+        // Research OS, Phase 8Z-2 (decision 655): the columns in this order, not in
+        // column order, as a screen's list may be.
+        Method {
+            prefix: "stats_related_ranks",
+            spec: spec(
+                view,
+                "stats.analyze.related_ranks",
+                json!({ "columns": ["C4", "C7", score], "missingCodes": [] }),
             ),
         },
     ]

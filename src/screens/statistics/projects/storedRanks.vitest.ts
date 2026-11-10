@@ -29,12 +29,14 @@ function snapshot(file: string): O {
   return JSON.parse(fs.readFileSync(path.join(STORED, file), 'utf8')) as O;
 }
 
-/** A snapshot with its bundle changed by `edit`. */
-function changed(file: string, edit: (bundle: O) => void): O {
+/** A snapshot with its bundle changed by `edit`, and its spec's parameters by `params`. */
+function changed(file: string, edit: (bundle: O) => void, params?: (p: O) => void): O {
   const view = snapshot(file);
   const bundle = JSON.parse(view.bundleJson) as O;
   edit(bundle);
-  return { ...view, bundleJson: JSON.stringify(bundle) };
+  const spec = JSON.parse(view.specJson) as O;
+  if (params) params(spec.parameters);
+  return { ...view, bundleJson: JSON.stringify(bundle), specJson: JSON.stringify(spec) };
 }
 
 const kindOf = (v: O) => checkStored(v).kind;
@@ -53,15 +55,30 @@ const withTies = (b: O) => {
   mw(b).exactP = null;
   b.primaryOutputs.notes = [code('exact_not_given_ties'), ...b.primaryOutputs.notes];
 };
-/** What Rust writes when every included value is equal (stats_ranks::mann_whitney). */
+/** Every group's rank sum and mean rank as one run of N equal values gives them. */
+const ranksOfOneRun = (b: O) => {
+  const r = b.primaryOutputs;
+  r.tieRuns = 1;
+  for (const g of r.groups) {
+    g.rankSum = (g.n * (r.n + 1)) / 2;
+    g.meanRank = g.rankSum / g.n;
+  }
+};
+/** What Rust writes when every included value is equal (stats_ranks::mann_whitney): decision
+ *  652, rank sums included, so the case passes for its own reason. */
 const everyValueEqualMw = (b: O) => {
   withTies(b);
+  ranksOfOneRun(b);
+  const [g1, g2] = b.primaryOutputs.groups;
+  mw(b).u1 = g1.rankSum - (g1.n * (g1.n + 1)) / 2;
+  mw(b).u2 = g1.n * g2.n - mw(b).u1;
+  mw(b).rankBiserial = (2 * mw(b).u1) / (g1.n * g2.n) - 1;
   mw(b).z = nc('all_values_tied');
   mw(b).p = nc('all_values_tied');
 };
 /** The same for three or more groups (stats_ranks::kruskal_wallis). */
 const everyValueEqualKw = (b: O) => {
-  b.primaryOutputs.tieRuns = 1;
+  ranksOfOneRun(b);
   kw(b).h = nc('all_values_tied');
   kw(b).p = nc('all_values_tied');
   kw(b).epsilonSquared = nc('all_values_tied');
@@ -263,8 +280,18 @@ describe("the rank tests' saved results (decision 622)", () => {
       kindOf(
         changed(KW, (b) => {
           const g = b.primaryOutputs.groups[0];
-          b.primaryOutputs.groups = Array.from({ length: 50 }, (_, level) => ({ ...g, level }));
+          // Decision 652: n, the rank sums and the manifest as Rust would write them for 50 groups
+          // whose ranks balance, H 0.
+          const N = g.n * 50;
+          const rankSum = (g.n * (N + 1)) / 2;
+          b.primaryOutputs.groups = Array.from({ length: 50 }, (_, level) => ({ ...g, level, rankSum, meanRank: rankSum / g.n }));
+          b.primaryOutputs.n = N;
+          b.manifest.rowsUsed = N;
+          b.manifest.rowsRead = N;
           kw(b).df = 49;
+          kw(b).h = { value: 0 };
+          kw(b).p = { value: 1 };
+          kw(b).epsilonSquared = { value: 0 };
         })
       )
     ).toBe(OK);
@@ -302,11 +329,21 @@ describe("the rank tests' saved results (decision 622)", () => {
 
   it('opens each exclusion naming its column, and refuses one naming none, more, or another code', () => {
     const ex = (code: string, params: O) => ({ code: `stats.ranks.${code}`, count: 2, params });
+    // Decision 652: the manifest's rows read and the spec's codes as Rust would have them.
     const set = (exclusions: O[]) =>
-      changed(KW, (b) => {
-        b.primaryOutputs.exclusions = exclusions;
-        b.manifest.exclusions = exclusions;
-      });
+      changed(
+        KW,
+        (b) => {
+          b.primaryOutputs.exclusions = exclusions;
+          b.manifest.exclusions = exclusions;
+          b.manifest.rowsRead = b.manifest.rowsUsed + 2 * exclusions.length;
+        },
+        (p) => {
+          p.missingCodes = [-99];
+          // other_level needs a level left out of the three included.
+          p.levels = [0, 1, 2];
+        }
+      );
     expect(kindOf(set([ex('missing_group', { column: 2 }), ex('other_level', { column: 2 }), ex('missing_outcome', { column: 1 }), ex('missing_code', { column: 1 })]))).toBe(OK);
     expect(kindOf(set([ex('missing_group', {})]))).toBe(BAD);
     expect(kindOf(set([ex('other_level', { column: 2, count: 1 })]))).toBe(BAD);
@@ -328,11 +365,19 @@ describe("the rank tests' saved results (decision 622)", () => {
     expect(
       kindOf(
         changed(MW, (b) => {
+          // Decision 652: a first group of 50 and a second of 4, as Rust would write them.
           mw(b).exactP = null;
-          b.primaryOutputs.tieRuns = 1;
-          b.primaryOutputs.groups[0].n = 50;
-          mw(b).u2 = 50 * b.primaryOutputs.groups[1].n - mw(b).u1;
-          b.primaryOutputs.notes = notes(['exact_not_given_ties', 'exact_not_given_size', 'group_below_five']);
+          const r = b.primaryOutputs;
+          r.tieRuns = 1;
+          r.n = 54;
+          Object.assign(r.groups[0], { n: 50, rankSum: 1400, meanRank: 1400 / 50 });
+          Object.assign(r.groups[1], { n: 4, rankSum: 85, meanRank: 85 / 4 });
+          mw(b).u1 = 1400 - (50 * 51) / 2;
+          mw(b).u2 = 50 * 4 - mw(b).u1;
+          mw(b).rankBiserial = (2 * mw(b).u1) / (50 * 4) - 1;
+          b.manifest.rowsUsed = 54;
+          b.manifest.rowsRead = 54 + b.primaryOutputs.exclusions.reduce((s: number, e: O) => s + e.count, 0);
+          r.notes = notes(['exact_not_given_ties', 'exact_not_given_size', 'group_below_five']);
         })
       )
     ).toBe(OK);
@@ -347,5 +392,208 @@ describe("the rank tests' saved results (decision 622)", () => {
     ).toBe(BAD);
     expect(kindOf(changed(MW, (b) => (b.primaryOutputs.notes = notes(['no_weights']))))).toBe(BAD);
     expect(kindOf(changed(KW, (b) => b.primaryOutputs.limitations.reverse()))).toBe(BAD);
+  });
+});
+
+/** Decisions 651 and 652: what Rust never writes, and the spec's half of it. Each case its
+ *  own rule, each rule's red a mutation (decision 502). */
+describe("what stats_ranks never writes (decisions 651, 652)", () => {
+  const exc = (c: string, column: number, count = 1) => ({ code: code(c), count, params: { column } });
+
+  it('refuses all_values_tied on one of z and p and not the other, either way round', () => {
+    expect(
+      kindOf(
+        changed(MW, (b) => {
+          withTies(b);
+          mw(b).p = nc('all_values_tied');
+        })
+      )
+    ).toBe(BAD);
+    expect(
+      kindOf(
+        changed(MW, (b) => {
+          withTies(b);
+          mw(b).z = nc('all_values_tied');
+        })
+      )
+    ).toBe(BAD);
+  });
+
+  it("refuses a numeric H beside a p or an epsilon-squared of all_values_tied", () => {
+    expect(kindOf(changed(KW, (b) => (kw(b).p = nc('all_values_tied'))))).toBe(BAD);
+    expect(kindOf(changed(KW, (b) => (kw(b).epsilonSquared = nc('all_values_tied'))))).toBe(BAD);
+  });
+
+  it('refuses an H or an epsilon-squared of distribution_out_of_range, which only a p can have', () => {
+    expect(
+      kindOf(
+        changed(KW, (b) => {
+          kw(b).h = nc('distribution_out_of_range');
+          kw(b).p = nc('distribution_out_of_range');
+          kw(b).epsilonSquared = nc('distribution_out_of_range');
+        })
+      )
+    ).toBe(BAD);
+    expect(kindOf(changed(KW, (b) => (kw(b).epsilonSquared = nc('distribution_out_of_range'))))).toBe(BAD);
+  });
+
+  it("refuses decision 651's example: every value equal with a rank sum one run of N cannot give", () => {
+    // u1 = 3 for n1 = 4 and n2 = 5; the fixture's rank sum (13) and u1 agree with each other.
+    expect(
+      kindOf(
+        changed(MW, (b) => {
+          withTies(b);
+          mw(b).z = nc('all_values_tied');
+          mw(b).p = nc('all_values_tied');
+        })
+      )
+    ).toBe(BAD);
+    expect(
+      kindOf(
+        changed(KW, (b) => {
+          b.primaryOutputs.tieRuns = 1;
+          kw(b).h = nc('all_values_tied');
+          kw(b).p = nc('all_values_tied');
+          kw(b).epsilonSquared = nc('all_values_tied');
+        })
+      )
+    ).toBe(BAD);
+  });
+
+  it('refuses a u1 other than the first rank sum less n1 (n1 + 1) / 2', () => {
+    expect(
+      kindOf(
+        changed(MW, (b) => {
+          mw(b).u1 += 1;
+          mw(b).u2 -= 1;
+          mw(b).rankBiserial = (2 * mw(b).u1) / (b.primaryOutputs.groups[0].n * b.primaryOutputs.groups[1].n) - 1;
+        })
+      )
+    ).toBe(BAD);
+  });
+
+  it('refuses a u2 other than n1 n2 less u1', () => {
+    expect(kindOf(changed(MW, (b) => (mw(b).u2 += 0.5)))).toBe(BAD);
+  });
+
+  it('refuses a rank-biserial correlation other than 2 u1 / (n1 n2) - 1', () => {
+    expect(kindOf(changed(MW, (b) => (mw(b).rankBiserial = 0.25)))).toBe(BAD);
+  });
+
+  it('refuses a mean rank other than the rank sum over n', () => {
+    expect(kindOf(changed(KW, (b) => (b.primaryOutputs.groups[0].meanRank += 1)))).toBe(BAD);
+  });
+
+  it("refuses n other than the groups' sum, a group of 0 and more tie runs than n / 2", () => {
+    expect(
+      kindOf(
+        changed(KW, (b) => {
+          b.primaryOutputs.n += 1;
+          b.manifest.rowsUsed += 1;
+          b.manifest.rowsRead += 1;
+        })
+      )
+    ).toBe(BAD);
+    expect(
+      kindOf(
+        changed(KW, (b) => {
+          const g = b.primaryOutputs.groups[0];
+          b.primaryOutputs.n -= g.n;
+          b.manifest.rowsUsed -= g.n;
+          b.manifest.rowsRead -= g.n;
+          g.n = 0;
+          g.meanRank = g.rankSum / 1;
+        })
+      )
+    ).toBe(BAD);
+    expect(kindOf(changed(KW, (b) => (b.primaryOutputs.tieRuns = 1000000)))).toBe(BAD);
+    expect(kindOf(changed(KW, (b) => (b.primaryOutputs.tieRuns = Math.floor(b.primaryOutputs.n / 2) + 1)))).toBe(BAD);
+  });
+
+  it('refuses group_below_five dropped although a group is below 5, and present although none is', () => {
+    expect(kindOf(changed(KW, (b) => (b.primaryOutputs.notes = [])))).toBe(BAD);
+    expect(
+      kindOf(
+        changed(MW, (b) => {
+          const r = b.primaryOutputs;
+          r.groups[0].n = 6;
+          r.groups[1].n = 6;
+          r.n = 12;
+          r.groups[0].rankSum = 39;
+          r.groups[1].rankSum = 39;
+          r.groups[0].meanRank = 6.5;
+          r.groups[1].meanRank = 6.5;
+          mw(b).u1 = 18;
+          mw(b).u2 = 18;
+          mw(b).rankBiserial = 0;
+          b.manifest.rowsUsed = 12;
+          b.manifest.rowsRead = 12 + r.exclusions.reduce((s: number, e: O) => s + e.count, 0);
+        })
+      )
+    ).toBe(BAD);
+  });
+
+  it("refuses a manifest's rowsUsed other than n, and rowsRead other than rowsUsed and the exclusions", () => {
+    expect(kindOf(changed(KW, (b) => (b.manifest.rowsUsed += 1)))).toBe(BAD);
+    expect(kindOf(changed(KW, (b) => (b.manifest.rowsRead += 1)))).toBe(BAD);
+  });
+
+  it('refuses an exclusion naming a column other than the one Rust names for its code', () => {
+    const on = (list: O[]) =>
+      changed(
+        MW,
+        (b) => {
+          b.primaryOutputs.exclusions = list;
+          b.manifest.exclusions = list;
+          b.manifest.rowsRead = b.manifest.rowsUsed + list.length;
+        },
+        (p) => (p.missingCodes = [-99])
+      );
+    expect(kindOf(on([exc('missing_group', 2), exc('missing_outcome', 1)]))).toBe(OK);
+    expect(kindOf(on([exc('missing_group', 1)]))).toBe(BAD);
+    expect(kindOf(on([exc('other_level', 3)]))).toBe(BAD);
+    expect(kindOf(on([exc('missing_outcome', 2)]))).toBe(BAD);
+    expect(kindOf(on([exc('missing_code', 2)]))).toBe(BAD);
+  });
+
+  it('refuses missing_code when the spec has no missing codes', () => {
+    expect(kindOf(changed(MW, () => undefined, (p) => (p.missingCodes = [])))).toBe(BAD);
+  });
+
+  it("takes levels the spec gives, in any order Rust accepts, and refuses groups that are not the spec's", () => {
+    expect(kindOf(changed(MW, () => undefined, (p) => (p.levels = [1, 0])))).toBe(OK);
+    expect(kindOf(changed(MW, () => undefined, (p) => (p.levels = [0, 2])))).toBe(BAD);
+    expect(kindOf(changed(MW, () => undefined, (p) => (p.levels = [0])))).toBe(BAD);
+    expect(kindOf(changed(KW, () => undefined, (p) => (p.levels = null)))).toBe(OK);
+  });
+
+  it('refuses other_level when every level was included, which split cannot leave out', () => {
+    expect(kindOf(changed(MW, () => undefined, (p) => (p.levels = null)))).toBe(BAD);
+  });
+
+  it('refuses an outcome that is also the group, which Rust refuses as same_column', () => {
+    expect(kindOf(changed(KW, () => undefined, (p) => (p.group = p.outcome)))).toBe(BAD);
+  });
+
+  it('refuses a spec whose parameters lack a field the checker reads, or name no column', () => {
+    // On the fixture with no exclusion, so these rules alone can refuse them (a missing code
+    // would otherwise throw, and a named column fail to match).
+    for (const k of ['outcome', 'group', 'levels', 'missingCodes']) {
+      expect(kindOf(changed(KW, () => undefined, (p) => delete p[k])), k).toBe(BAD);
+    }
+    expect(kindOf(changed(KW, () => undefined, (p) => (p.outcome = 'score')))).toBe(BAD);
+    expect(kindOf(changed(KW, () => undefined, (p) => (p.levels = 'all')))).toBe(BAD);
+    expect(kindOf(changed(KW, () => undefined, (p) => (p.missingCodes = 'none')))).toBe(BAD);
+  });
+
+  it('each repeated or unordered exclusion is refused for that reason, its rows read being right', () => {
+    const set = (list: O[]) =>
+      changed(KW, (b) => {
+        b.primaryOutputs.exclusions = list;
+        b.manifest.exclusions = list;
+        b.manifest.rowsRead = b.manifest.rowsUsed + list.length;
+      });
+    expect(kindOf(set([exc('missing_group', 2), exc('missing_group', 2)]))).toBe(BAD);
+    expect(kindOf(set([exc('other_level', 2), exc('missing_group', 2)]))).toBe(BAD);
   });
 });

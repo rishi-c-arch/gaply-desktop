@@ -61,6 +61,29 @@ const specs = (bridge: ReturnType<typeof makeMockOneSampleBridge>, cmd: string) 
 const run = () => screen.getByTestId('os-run') as HTMLButtonElement;
 const typeValue = (text: string) => fireEvent.change(screen.getByTestId('os-test-value'), { target: { value: text } });
 
+describe('the ticked codes (decision 652)', () => {
+  it('clears a ticked code when the outcome changes, so a code two columns offer starts unticked and is not sent', async () => {
+    const two: DatasetView = {
+      ...view,
+      profile: {
+        rows: 10,
+        columns: ['C1', 'C2'].map((alias) => ({ alias, header: alias, kind: 'numeric' as const, n: 10, missing: 0, distinct: 9, levels: null, suspectMissingCodes: [{ code: -99, cells: 2 }], nonFinite: 0 })),
+      },
+    };
+    const { bridge } = setup({ stats_onesample_validate: report('valid') }, { v: two });
+    fireEvent.change(screen.getByTestId('os-outcome'), { target: { value: 'C1' } });
+    const box = () => screen.getByTestId('os-code--99') as HTMLInputElement;
+    fireEvent.click(box());
+    expect(box().checked).toBe(true);
+    fireEvent.change(screen.getByTestId('os-outcome'), { target: { value: 'C2' } });
+    expect(box().checked).toBe(false);
+    typeValue('5');
+    fireEvent.click(run());
+    await waitFor(() => expect(specs(bridge, 'stats_onesample_validate')).toHaveLength(1));
+    expect(specs(bridge, 'stats_onesample_validate')[0].parameters.missingCodes).toEqual([]);
+  });
+});
+
 describe('the twins of OneSampleFlow.vitest.tsx', () => {
   it('leaves the test value empty, sends null, and says Rust’s test_value_not_chosen in its own words', async () => {
     const { bridge, onStarted } = setup({

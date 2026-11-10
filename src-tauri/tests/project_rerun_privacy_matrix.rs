@@ -85,6 +85,7 @@ use gaply_core::stats_desc::{self, Alias, ColumnRequest, DescribeParams, TreatAs
 use gaply_core::stats_l1::dataset::ColumnAlias;
 use gaply_core::stats_prep::{self, MissingRule, Recipe, RecipeStep, ScaleScoreStep, Statistic};
 use gaply_core::stats_ranks::{self, IndependentRanksParams};
+use gaply_core::stats_related_ranks::{self, RelatedRanksParams};
 use gaply_core::stats_xtab::{self, CrosstabsParams};
 use gaply_core::Database;
 use project_support::World;
@@ -141,6 +142,21 @@ fn xtab_table() -> Vec<u8> {
             };
             vec![cell, C::T(second[i])]
         })
+        .collect();
+    delimited(&headers, &rows, ",", "\n")
+}
+
+/// The Friedman test's table (Research OS, Phase 8Z-2, decision 655): three numeric
+/// columns, the first headed by the header sentinel, and a fourth, not chosen, holding
+/// the unselected number. Its own table, since `table()` has two numeric columns.
+fn friedman_table() -> Vec<u8> {
+    let headers = [HDR, "two", "three", "aux"];
+    let first = ["1.5", "9.25", "3", "7.5", "5", "2.75"];
+    let second = ["4.5", "2", "8.25", "6", "1", "9"];
+    let third = ["7", "6.5", "4", "2.5", "10.25", "3.5"];
+    let aux = ["1", "2", UNSEL_NUM, "4", "5", "6"];
+    let rows: Vec<Vec<C>> = (0..6)
+        .map(|i| vec![C::N(first[i]), C::N(second[i]), C::N(third[i]), C::N(aux[i])])
         .collect();
     delimited(&headers, &rows, ",", "\n")
 }
@@ -752,6 +768,114 @@ fn a_rerun_puts_no_sentinel_anywhere_but_the_projects_artifacts_and_its_title() 
         "run 17 succeeded"
     );
 
+    // Phase 8Z-2 (decision 655): the related rank tests. After the rank tests', so no
+    // stored run id above moves. Run 18, a Wilcoxon test of table()'s C1 and C4, through the
+    // slot the rank tests used, and run 19 its rerun.
+    let held = e.datasets.get(opened.slot).unwrap();
+    let wilcoxon_spec = stats_related_ranks::spec(
+        OperationId(18),
+        held.dataset(),
+        RelatedRanksParams {
+            columns: vec![Alias(ColumnAlias(1)), Alias(ColumnAlias(4))],
+            missing_codes: vec![],
+        },
+    );
+    drop(held);
+    let wilcoxon_run =
+        app_lib::stats_related_ranks_commands::run(&e.runs, &e.datasets, opened.slot, wilcoxon_spec)
+            .unwrap()
+            .run_id;
+    w.wait_new_kind(wilcoxon_run);
+    let saved_wilcoxon = pc::save_run(
+        &app,
+        &w.ws,
+        wilcoxon_run,
+        SaveTarget::OpenProject {
+            project_id: id.clone(),
+        },
+    )
+    .expect("the Wilcoxon test saved");
+    assert_eq!(saved_wilcoxon.stored_run_id, 18);
+    responses.push((
+        "save (Wilcoxon)".into(),
+        serde_json::to_string(&saved_wilcoxon).unwrap(),
+    ));
+    responses.push(("rerun (Wilcoxon)".into(), rerun_saved(&w, &app, 18)));
+
+    // Run 20, a Friedman test on a table of its own, named and placed as the first file
+    // is, and run 21 its rerun.
+    let friedman_data = folder.join(format!("{FILE}_friedman.csv"));
+    std::fs::write(&friedman_data, friedman_table()).unwrap();
+    let friedman_open = desc::open(&e.datasets, &friedman_data).expect("open");
+    let held = e.datasets.get(friedman_open.slot).unwrap();
+    let friedman_spec = stats_related_ranks::spec(
+        OperationId(20),
+        held.dataset(),
+        RelatedRanksParams {
+            columns: vec![Alias(ColumnAlias(1)), Alias(ColumnAlias(2)), Alias(ColumnAlias(3))],
+            missing_codes: vec![],
+        },
+    );
+    drop(held);
+    let friedman_run = app_lib::stats_related_ranks_commands::run(
+        &e.runs,
+        &e.datasets,
+        friedman_open.slot,
+        friedman_spec,
+    )
+    .unwrap()
+    .run_id;
+    w.wait_new_kind(friedman_run);
+    let saved_friedman = pc::save_run(
+        &app,
+        &w.ws,
+        friedman_run,
+        SaveTarget::OpenProject {
+            project_id: id.clone(),
+        },
+    )
+    .expect("the Friedman test saved");
+    assert_eq!(saved_friedman.stored_run_id, 20);
+    responses.push((
+        "save (Friedman)".into(),
+        serde_json::to_string(&saved_friedman).unwrap(),
+    ));
+    responses.push(("rerun (Friedman)".into(), rerun_saved(&w, &app, 20)));
+    // Positive controls: each ran, and each is the test it should be.
+    let read_18 = pc::run_result(&app, &w.ws, &id, 18).unwrap();
+    assert_eq!(read_18.state, RunState::Succeeded, "run 18 succeeded");
+    let bundle_18: serde_json::Value =
+        serde_json::from_str(read_18.bundle_json.as_deref().expect("a result")).unwrap();
+    assert!(
+        bundle_18["primaryOutputs"]["test"]["wilcoxon"].is_object(),
+        "run 18 is a Wilcoxon result"
+    );
+    assert_eq!(
+        bundle_18["primaryOutputs"]["columns"].as_array().unwrap().len(),
+        2,
+        "run 18 compares two columns"
+    );
+    let read_20 = pc::run_result(&app, &w.ws, &id, 20).unwrap();
+    assert_eq!(read_20.state, RunState::Succeeded, "run 20 succeeded");
+    let bundle_20: serde_json::Value =
+        serde_json::from_str(read_20.bundle_json.as_deref().expect("a result")).unwrap();
+    assert!(
+        bundle_20["primaryOutputs"]["test"]["friedman"].is_object(),
+        "run 20 is a Friedman result"
+    );
+    assert_eq!(
+        bundle_20["primaryOutputs"]["columns"].as_array().unwrap().len(),
+        3,
+        "run 20 compares three columns"
+    );
+    for n in [19, 21] {
+        assert_eq!(
+            pc::run_result(&app, &w.ws, &id, n).unwrap().state,
+            RunState::Succeeded,
+            "run {n} succeeded"
+        );
+    }
+
     let runs_response = serde_json::to_string(&pc::runs(&app, &w.ws, &id).unwrap()).unwrap();
     responses.push(("runs".into(), runs_response.clone()));
     // Phase 8U-3 (decision 553): project_runs holds no name, nor any other of
@@ -759,8 +883,9 @@ fn a_rerun_puts_no_sentinel_anywhere_but_the_projects_artifacts_and_its_title() 
     prepared_surfaces.push(("runs".into(), runs_response));
     let mut results = String::new();
     // Phase 8X-2 (decision 590): the crosstab and its rerun, 14 and 15; Phase
-    // 8Y-2 (decision 621): the rank test and its rerun, 16 and 17.
-    for n in [1, 2, 3, 4, 5, 6, 7, 8, 14, 15, 16, 17] {
+    // 8Y-2 (decision 621): the rank test and its rerun, 16 and 17; Phase 8Z-2 (decision
+    // 655): the related rank tests and their reruns, 18 to 21.
+    for n in [1, 2, 3, 4, 5, 6, 7, 8, 14, 15, 16, 17, 18, 19, 20, 21] {
         results.push_str(
             &serde_json::to_string(&pc::run_result(&app, &w.ws, &id, n).unwrap()).unwrap(),
         );
@@ -799,6 +924,16 @@ fn a_rerun_puts_no_sentinel_anywhere_but_the_projects_artifacts_and_its_title() 
         report.contains("Repeats run 16."),
         "the rank test and its rerun are in the report"
     );
+    // Phase 8Z-2 (decision 655): the related rank tests and their reruns, each's columns
+    // by position in the order chosen.
+    assert!(report.contains("Repeats run 18."), "the Wilcoxon test's rerun is in the report");
+    assert!(report.contains("Repeats run 20."), "the Friedman test's rerun is in the report");
+    for line in [
+        "- Columns compared: columns 1, 4, by position, in the order chosen",
+        "- Columns compared: columns 1, 2, 3, by position, in the order chosen",
+    ] {
+        assert_eq!(report.matches(line).count(), 2, "{line}");
+    }
     assert!(prov.contains("wasInformedBy"), "and in the provenance");
 
     // Phase 8M-4 (decision 437): the prepared run is in both exports, by

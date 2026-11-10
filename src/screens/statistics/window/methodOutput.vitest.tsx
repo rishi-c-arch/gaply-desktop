@@ -25,6 +25,8 @@ import { makeMockProjectBridge } from '../projects/projectBridge';
 import { makeMockTTestBridge } from '../ttestBridge';
 import { makeMockXtabBridge } from '../xtabBridge';
 import { makeMockRanksBridge } from '../ranksBridge';
+import { relatedRanksResultView } from '../fixtures/relatedRanksFixtures';
+import { makeMockRelatedRanksBridge } from '../relatedRanksBridge';
 import { METHOD_OUTPUT } from './methodOutput';
 import { Output, OutputWatchers } from './Output';
 import { statisticsSession, type NewOutputEntry, type OutputEntry } from './statisticsSession';
@@ -68,6 +70,8 @@ const KINDS = [
   { kind: 'crosstabs', key: 'xtab', prefix: 'stats_xtab', result: xtabResultView, run: { ...common, stepsDone: 0, stepsTotal: 1 }, card: 'xt-result-card', progress: null },
   // Research OS, Phase 8Y-2 (decision 622): one check point, so no steps sentence.
   { kind: 'independent_ranks', key: 'ranks', prefix: 'stats_ranks', result: ranksResultView, run: { ...common, stepsDone: 0, stepsTotal: 1 }, card: 'rk-result-card', progress: null },
+  // Research OS, Phase 8Z-2 (decision 656): one check point, so no steps sentence.
+  { kind: 'related_ranks', key: 'relatedRanks', prefix: 'stats_related_ranks', result: relatedRanksResultView, run: { ...common, stepsDone: 0, stepsTotal: 1 }, card: 'rr-result-card', progress: null },
 ] as const;
 
 function bridgesWith(prefix: string, responses: Record<string, unknown>) {
@@ -82,6 +86,7 @@ function bridgesWith(prefix: string, responses: Record<string, unknown>) {
     alpha: makeMockAlphaBridge(prefix === 'stats_alpha' ? scoped : {}),
     xtab: makeMockXtabBridge(prefix === 'stats_xtab' ? scoped : {}),
     ranks: makeMockRanksBridge(prefix === 'stats_ranks' ? scoped : {}),
+    relatedRanks: makeMockRelatedRanksBridge(prefix === 'stats_related_ranks' ? scoped : {}),
   };
 }
 

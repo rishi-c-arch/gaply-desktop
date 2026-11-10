@@ -1558,6 +1558,60 @@ fn stored_ranks_results_have_the_layout_of_their_fixtures() {
     );
 }
 
+/// The related rank tests' saved results (Research OS, Phase 8Z-2, decision 656): a
+/// Wilcoxon result with its exact p and an exclusion of each reason, and a Friedman
+/// result of three columns. Each on a file's own table, never a prepared slot, laid out
+/// as their fixtures, for the webview's shape check.
+#[test]
+fn stored_related_ranks_results_have_the_layout_of_their_fixtures() {
+    let w = World::new("stored-related-ranks");
+    let wil = w.open(
+        "w.csv",
+        b"a,b\n1,1.5\n2,3\n3,4.25\n4,2.875\n5,8\n6,9.5\n7,\n-99,8\n",
+    );
+    let first = w.related_ranks(wil, &[1, 2], vec![-99.0]);
+    let id = pc::save_run(&w.root(), &w.ws, first, new_project("Stored related"))
+        .unwrap()
+        .project_id;
+    let fri = w.open(
+        "f.csv",
+        b"x,y,z\n1,2.5,3\n4,5,1\n7,2,2\n8,8,1\n3,9,4\n5,6,7\n",
+    );
+    let second = w.related_ranks(fri, &[1, 2, 3], vec![]);
+    pc::save_run(&w.root(), &w.ws, second, into_open(&id)).unwrap();
+    for (n, name, form, columns, exclusions) in [
+        (1, "related_ranks_w.json", "wilcoxon", 2, 2),
+        (2, "related_ranks_f.json", "friedman", 3, 0),
+    ] {
+        let back = pc::run_result(&w.root(), &w.ws, &id, n).expect("read back");
+        assert_eq!(back.state, RunState::Succeeded, "{name}");
+        assert_eq!(back.capability_id, "stats.analyze.related_ranks", "{name}");
+        let bundle: Value = serde_json::from_str(back.bundle_json.as_deref().unwrap()).unwrap();
+        let r = &bundle["primaryOutputs"];
+        assert_eq!(r["columns"].as_array().unwrap().len(), columns, "{name}");
+        assert_eq!(r["exclusions"].as_array().unwrap().len(), exclusions, "{name}");
+        assert!(r["test"][form].is_object(), "{name}: {form}");
+        assert_eq!(
+            bundle["diagnostics"].as_array().unwrap().len(),
+            0,
+            "{name}: no warning, so every parameter the checker reads is pinned"
+        );
+        assert_stored_fixture(name, &back);
+    }
+    let bundle: Value = serde_json::from_str(
+        pc::run_result(&w.root(), &w.ws, &id, 1)
+            .unwrap()
+            .bundle_json
+            .as_deref()
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(
+        bundle["primaryOutputs"]["test"]["wilcoxon"]["exactP"].is_number(),
+        "the Wilcoxon fixture has its exact p"
+    );
+}
+
 /// The correlations' saved results (Research OS, Phase 8H-2, decision 357):
 /// one pairwise with all three coefficients and a ticked missing code, and
 /// one listwise with Pearson only, laid out as their fixtures, for the

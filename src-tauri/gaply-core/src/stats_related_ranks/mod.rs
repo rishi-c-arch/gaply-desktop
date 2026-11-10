@@ -49,7 +49,10 @@
 //! overflows from two finite values is ranked by its size, an infinity above
 //! every finite difference, as R ranks it; any statistic it makes non-finite is
 //! not computable with `overflow`, statistic by statistic, never a refusal of
-//! the run.
+//! the run. The exact p is an `Option` with no not-computable form: a tail that
+//! is not finite, or a v its table does not hold, refuses the run. No input
+//! reaches either, since the notes gate gives n from 1 to 49 and a whole v in
+//! range (decision 652, as the rank tests' decision 618).
 //!
 //! **Pure** (`tests/contracts_are_pure.rs`): no file, network, process, clock or
 //! model. The run's one check point is the caller's, before the arithmetic.
@@ -70,11 +73,11 @@ use crate::contracts::{
     ValidationReport, WorkspaceId,
 };
 use crate::stats_anova::median;
-use crate::stats_corr::runs;
+use crate::stats_corr::{runs, tie_cube_sum};
 use crate::stats_desc::{
     input_ref, preparation_holds, score_code_count, suspect_codes_unless_score, Alias,
 };
-use crate::stats_dist::{chi_square_upper, normal_two_tailed, signed_rank_exact_tails};
+use crate::stats_dist::{chi_square_upper, exact_two_sided, normal_two_tailed, signed_rank_exact_tails};
 use crate::stats_l1::dataset::{Cell, Dataset};
 use crate::stats_ttest::{column, non_finite_cells};
 use crate::stats_verify::average_ranks;
@@ -675,7 +678,7 @@ fn stat(v: f64) -> Stat {
 
 /// The sum of the sizes' t³ − t, in u128, converted to a double once.
 fn tie_sum(sizes: &[u128]) -> f64 {
-    sizes.iter().map(|t| t * t * t - t).sum::<u128>() as f64
+    tie_cube_sum(sizes) as f64
 }
 
 /// One sign's ranks: its count, its sum and its mean, absent when it has none.
@@ -703,13 +706,10 @@ fn z_and_p(n: f64, ties: f64, v: f64) -> (Stat, Stat) {
     (z, p)
 }
 
-/// The exact two-sided p from its tails, each checked first, since `f64::min`
-/// turns a NaN into the other operand (decision 635).
-fn exact_two_sided(lower: f64, upper: f64) -> Result<f64, RelatedRanksCode> {
-    if !(lower.is_finite() && upper.is_finite()) {
-        return Err(RelatedRanksCode::Overflow);
-    }
-    Ok((2.0 * lower.min(upper)).min(1.0))
+/// The exact two-sided p from its tails, a tail that is not finite this module's
+/// `overflow` (decisions 635 and 652).
+fn exact_or_overflow(lower: f64, upper: f64) -> Result<f64, RelatedRanksCode> {
+    exact_two_sided(lower, upper).ok_or(RelatedRanksCode::Overflow)
 }
 
 /// The Wilcoxon signed-rank test of `a` less `b`, row by row, and its notes.
@@ -758,7 +758,7 @@ fn wilcoxon(
     let exact_p = if notes.is_empty() {
         let tails = signed_rank_exact_tails(v as u64, n)
             .ok_or(RelatedRanksCode::DistributionOutOfRange)?;
-        Some(exact_two_sided(tails.lower, tails.upper)?)
+        Some(exact_or_overflow(tails.lower, tails.upper)?)
     } else {
         None
     };
@@ -823,7 +823,7 @@ fn friedman(columns: &[Alias], values: &[Vec<f64>]) -> Friedman {
         sorted.sort_by(f64::total_cmp);
         let sizes = runs(&sorted);
         all_tied &= sizes.len() == 1;
-        ties += sizes.iter().map(|t| t * t * t - t).sum::<u128>();
+        ties += tie_cube_sum(&sizes);
     }
     let (n, width) = (rows as f64, k as f64);
     let df = width - 1.0;
@@ -899,10 +899,10 @@ mod tests {
 
     #[test]
     fn a_tail_that_is_not_finite_gives_no_exact_p() {
-        assert_eq!(exact_two_sided(f64::NAN, 0.25), Err(RelatedRanksCode::Overflow));
-        assert_eq!(exact_two_sided(0.25, f64::INFINITY), Err(RelatedRanksCode::Overflow));
-        assert_eq!(exact_two_sided(0.25, 0.75), Ok(0.5));
-        assert_eq!(exact_two_sided(0.75, 0.75), Ok(1.0));
+        assert_eq!(exact_or_overflow(f64::NAN, 0.25), Err(RelatedRanksCode::Overflow));
+        assert_eq!(exact_or_overflow(0.25, f64::INFINITY), Err(RelatedRanksCode::Overflow));
+        assert_eq!(exact_or_overflow(0.25, 0.75), Ok(0.5));
+        assert_eq!(exact_or_overflow(0.75, 0.75), Ok(1.0));
     }
 
     #[test]

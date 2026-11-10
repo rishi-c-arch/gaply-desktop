@@ -19,6 +19,7 @@ import { corrBridge, type CorrBridge } from '../statistics/corrBridge';
 import { alphaBridge, type AlphaBridge } from '../statistics/alphaBridge';
 import { xtabBridge, type XtabBridge } from '../statistics/xtabBridge';
 import { ranksBridge, type RanksBridge } from '../statistics/ranksBridge';
+import { relatedRanksBridge, type RelatedRanksBridge } from '../statistics/relatedRanksBridge';
 import { byKind } from '../statistics/methods';
 import { openProjectStore } from '../statistics/projects/projectSession';
 import { AskFirst } from '../statistics/window/MethodDialog';
@@ -42,9 +43,10 @@ export interface JobView {
   kind: RunEntry['kind'];
 }
 
-/** The nine methods' bridges: each kind's run is read and cancelled through
+/** The ten methods' bridges: each kind's run is read and cancelled through
  *  its own (decision 80); crosstabs' since Research OS Phase 8X-2 (decision 591),
- *  the rank tests' since 8Y-2 (decision 622). */
+ *  the rank tests' since 8Y-2 (decision 622), the related rank tests' since 8Z-2
+ *  (decision 656). */
 export interface RunBridges {
   describe: DescribeBridge;
   ttest: TTestBridge;
@@ -55,6 +57,7 @@ export interface RunBridges {
   alpha: AlphaBridge;
   xtab: XtabBridge;
   ranks: RanksBridge;
+  relatedRanks: RelatedRanksBridge;
 }
 
 /** The bridges the app uses, for any a caller does not give. */
@@ -69,6 +72,7 @@ export function defaultRunBridges(given: Partial<RunBridges> = {}): RunBridges {
     alpha: given.alpha ?? alphaBridge(),
     xtab: given.xtab ?? xtabBridge(),
     ranks: given.ranks ?? ranksBridge(),
+    relatedRanks: given.relatedRanks ?? relatedRanksBridge(),
   };
 }
 
@@ -96,7 +100,7 @@ export function jobSentence(run: JobView): string {
 }
 
 /** Each kind's status and cancel, from the bridges given (Phase 8C). */
-export function runKinds({ describe: runs, ttest, oneSample, paired, anova, corr, alpha, xtab, ranks }: RunBridges): Record<RunEntry['kind'], KindCommands> {
+export function runKinds({ describe: runs, ttest, oneSample, paired, anova, corr, alpha, xtab, ranks, relatedRanks }: RunBridges): Record<RunEntry['kind'], KindCommands> {
   return {
     describe: {
       status: async (runId) => {
@@ -192,6 +196,13 @@ export function runKinds({ describe: runs, ttest, oneSample, paired, anova, corr
         return r && { runId: r.runId, state: r.state, terminal: r.terminal, progress: null, kind: 'independent_ranks' };
       },
       cancel: (runId) => ranks.cancel(runId).catch(() => null),
+    },
+    related_ranks: {
+      status: async (runId) => {
+        const r = await relatedRanks.status(runId).catch(() => null);
+        return r && { runId: r.runId, state: r.state, terminal: r.terminal, progress: null, kind: 'related_ranks' };
+      },
+      cancel: (runId) => relatedRanks.cancel(runId).catch(() => null),
     },
   };
 }

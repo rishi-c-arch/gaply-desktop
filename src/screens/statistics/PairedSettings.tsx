@@ -37,8 +37,8 @@ export function buildPairedSpec(view: DatasetView, first: string, second: string
 }
 
 export function usePairedSettings(view: DatasetView | null) {
-  const [first, setFirst] = useState('');
-  const [second, setSecond] = useState('');
+  const [first, setFirstAlias] = useState('');
+  const [second, setSecondAlias] = useState('');
   const [ticked, setTicked] = useState<number[]>([]);
 
   const firstColumn = useMemo(() => view?.profile.columns.find((c) => c.alias === first), [view, first]);
@@ -62,10 +62,20 @@ export function usePairedSettings(view: DatasetView | null) {
   const spec = useCallback((operationId: number) => buildPairedSpec(view as DatasetView, first, second, missingCodes, operationId), [view, first, second, missingCodes]);
 
   const reset = useCallback(() => {
-    setFirst('');
-    setSecond('');
+    setFirstAlias('');
+    setSecondAlias('');
     setTicked([]);
   }, []);
+
+  // The codes are the pair's: another pair that offers the same code starts unticked (decision 652).
+  const setFirst = (alias: string) => {
+    setFirstAlias(alias);
+    setTicked([]);
+  };
+  const setSecond = (alias: string) => {
+    setSecondAlias(alias);
+    setTicked([]);
+  };
 
   return {
     first,

@@ -287,6 +287,8 @@ const LIFECYCLES: &[(&str, Lifecycle)] = &[
     // Planned in 8Y-1's Part 2 (decision 605); Beta at the start of its Part 3
     // (decision 607), so its commands and runs can run.
     (RANKS_ID, Lifecycle::Beta),
+    // Planned in 8Z-1's Part 2 (decision 639); Beta at the start of its Part 3
+    // (decision 641), so its commands and runs can run.
     (RELATED_RANKS_ID, Lifecycle::Beta),
     // Planned in 8M (decision 411); Beta at the start of 8M-2's Part 2
     // (decision 416), so 8M-3's commands can run in both builds.

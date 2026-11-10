@@ -38,6 +38,16 @@ import { PairedDialog } from './PairedDialog';
 import { TTestDialog } from './TTestDialog';
 import { XtabDialog } from './XtabDialog';
 import { RanksDialog } from './RanksDialog';
+import { RelatedRanksDialog } from './RelatedRanksDialog';
+import { RelatedRanksCard } from '../RelatedRanksCard';
+import {
+  RELATED_RANKS_EXPORT_CHOICES,
+  RELATED_RANKS_EXPORT_HEADING,
+  RELATED_RANKS_EXPORT_TEXT,
+  relatedRanksRefusalSentence,
+  relatedRanksRunEndedSentence,
+  relatedRanksSentence,
+} from '../relatedRanksWording';
 import { columnNames } from './windowWording';
 
 /** What an entry may do with its run: no open, no close, no validate, no run. */
@@ -173,6 +183,19 @@ export const METHOD_OUTPUT: { [K in MethodKind]: OutputRow<K> } = {
     exportText: RANKS_EXPORT_TEXT,
     exportChoices: RANKS_EXPORT_CHOICES,
   },
+  // Research OS, Phase 8Z-2 (decision 656): its own card, as no page has one; one check
+  // point, so no steps sentence; a column named by the name the user sees.
+  related_ranks: {
+    bridge: (b) => b.relatedRanks,
+    refusal: relatedRanksRefusalSentence,
+    runEnded: relatedRanksRunEndedSentence,
+    progress: () => null,
+    sentence: (d, view) => relatedRanksSentence(d, { column: columnNames(view) }),
+    card: (result, view) => <RelatedRanksCard result={result} names={{ column: columnNames(view) }} />,
+    exportHeading: RELATED_RANKS_EXPORT_HEADING,
+    exportText: RELATED_RANKS_EXPORT_TEXT,
+    exportChoices: RELATED_RANKS_EXPORT_CHOICES,
+  },
 };
 
 /** An entry's row. Its kind and its run and result were stored together, so the
@@ -209,4 +232,5 @@ export const METHOD_DIALOGS: Record<MethodKind, React.FC<MethodDialogRowProps>> 
   cronbach_alpha: ({ bridges, ...p }) => <AlphaDialog {...p} bridge={bridges.alpha} />,
   crosstabs: ({ bridges, ...p }) => <XtabDialog {...p} bridge={bridges.xtab} />,
   independent_ranks: ({ bridges, ...p }) => <RanksDialog {...p} bridge={bridges.ranks} />,
+  related_ranks: ({ bridges, ...p }) => <RelatedRanksDialog {...p} bridge={bridges.relatedRanks} />,
 };

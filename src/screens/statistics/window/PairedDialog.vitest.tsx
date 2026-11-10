@@ -159,6 +159,24 @@ describe('the twins of PairedFlow.vitest.tsx', () => {
     expect(specs(bridge, 'stats_paired_validate').map((s) => s.parameters.missingCodes)).toEqual([[77, -99]]);
   });
 
+  it('clears a ticked code when either column changes, so a code two columns offer starts unticked and is not sent (decision 652)', async () => {
+    const { bridge } = setup({ stats_paired_validate: report('valid') });
+    pick('first', 'C1');
+    pick('second', 'C2');
+    const box = () => screen.getByTestId('pt-code--99') as HTMLInputElement;
+    fireEvent.click(box());
+    expect(box().checked).toBe(true);
+    pick('first', 'C2');
+    expect(box().checked).toBe(false);
+    fireEvent.click(box());
+    expect(box().checked).toBe(true);
+    pick('second', 'C1');
+    expect(box().checked).toBe(false);
+    fireEvent.click(run());
+    await waitFor(() => expect(specs(bridge, 'stats_paired_validate')).toHaveLength(1));
+    expect(specs(bridge, 'stats_paired_validate')[0].parameters.missingCodes).toEqual([]);
+  });
+
   it('words a refusal from Rust and keeps the dialog open', async () => {
     const refusal = Object.assign(new Error(JSON.stringify({ code: 'run.wrong_kind' })), { code: 'validation' });
     const { onStarted } = setup({

@@ -111,6 +111,7 @@ use gaply_core::stats_prep::{
 use gaply_core::stats_registry;
 use gaply_core::stats_ttest::{self, TTestCode, TTestParams, Variant};
 use gaply_core::stats_ranks::{self, IndependentRanksParams, RanksCode};
+use gaply_core::stats_related_ranks::{self, RelatedRanksCode, RelatedRanksParams};
 use gaply_core::stats_xtab::{self, CrosstabsParams, XtabCode};
 use gaply_core::GaplyError;
 
@@ -1227,6 +1228,13 @@ const METHODS: &[MethodRow] = &[
         read_back: read_back::<OperationSpec<IndependentRanksParams>>,
         export: export_with::<OperationSpec<IndependentRanksParams>>,
     },
+    // Research OS, Phase 8Z-2 (decision 655).
+    MethodRow {
+        capability: stats_related_ranks::CAPABILITY_ID,
+        kind: RunKind::RelatedRanks,
+        read_back: read_back::<OperationSpec<RelatedRanksParams>>,
+        export: export_with::<OperationSpec<RelatedRanksParams>>,
+    },
 ];
 
 /// The row of a capability, if a method has one.
@@ -1533,6 +1541,37 @@ impl SavedSpec for OperationSpec<IndependentRanksParams> {
 
     fn parameters(&self) -> Vec<ExportParameter> {
         ranks_parameters(self)
+    }
+}
+
+// Research OS, Phase 8Z-2 (decision 655): the related rank tests, checked through their
+// façade, never stats_related_ranks itself (verifier_facade_guards.rs).
+impl Rerun for OperationSpec<RelatedRanksParams> {
+    fn valid_on(&self, build: Build, dataset: &Dataset) -> bool {
+        check_spec(
+            WorkspaceId::Statistics,
+            self.workspace_id,
+            &self.capability_id,
+        )
+        .is_ok()
+            && passes(stats_adapters::related_ranks_validate(self, build, dataset).status)
+    }
+
+    fn launch(
+        self: Box<Self>,
+        runs: &Arc<Runs>,
+        slot: Arc<Slot>,
+        end: EndHook,
+    ) -> Result<RunId, NotStarted> {
+        runs.start_related_ranks_then(slot, *self, end)
+    }
+}
+
+impl SavedSpec for OperationSpec<RelatedRanksParams> {
+    type Code = RelatedRanksCode;
+
+    fn parameters(&self) -> Vec<ExportParameter> {
+        related_ranks_parameters(self)
     }
 }
 
@@ -2516,6 +2555,11 @@ pub const SPEC_FIELDS: &[(&str, SpecFieldShown)] = &[
     // summary's `parameters.columns[].alias`.
     ("parameters.rows", SpecFieldShown::Reported),
     ("parameters.columns", SpecFieldShown::Reported),
+    // Research OS, Phase 8Z-2 (decision 655): the related rank tests' columns, by
+    // position in the order chosen, through `ExportParameter::ComparedColumns`. A list
+    // of strings, distinct from crosstabs' `parameters.columns` and the summary's
+    // `parameters.columns[].alias`.
+    ("parameters.columns[]", SpecFieldShown::Reported),
     // Research OS, Phase 8M-4 (decision 435): what made a prepared input,
     // hashes and numbers. Its two hashes are the data file's and the recipe's
     // rows in the report's inputs table; its columns and versions are the lines
@@ -2814,6 +2858,22 @@ fn ranks_parameters(spec: &OperationSpec<IndependentRanksParams>) -> Vec<ExportP
         role: ColumnRole::Group,
     });
     out.push(ExportParameter::IncludedLevels(p.levels.clone()));
+    out.push(ExportParameter::MissingCodes {
+        count: p.missing_codes.len() as u64,
+    });
+    out.push(ExportParameter::Seed(spec.random_seed));
+    out
+}
+
+/// The related rank tests' settings, by the allow-list (Research OS, Phase 8Z-2, decision
+/// 655): the columns' positions in the spec's order, never sorted, and how many missing
+/// codes. No label and no value is named.
+fn related_ranks_parameters(spec: &OperationSpec<RelatedRanksParams>) -> Vec<ExportParameter> {
+    let p = &spec.parameters;
+    let mut out = shape(&spec.inputs);
+    out.push(ExportParameter::ComparedColumns(
+        p.columns.iter().map(|a| a.0 .0).collect(),
+    ));
     out.push(ExportParameter::MissingCodes {
         count: p.missing_codes.len() as u64,
     });
@@ -3430,6 +3490,42 @@ mod tests {
         }
     }
 
+    /// Research OS, Phase 8Z-2 (decision 655): two columns and one code, so neither of
+    /// `paths`' traps hides a path: a null gives a leaf and an empty array gives none.
+    fn related_ranks_spec() -> OperationSpec<RelatedRanksParams> {
+        OperationSpec {
+            schema_version: SchemaVersion,
+            operation_id: OperationId(14),
+            workspace_id: WorkspaceId::Statistics,
+            capability_id: stats_related_ranks::capability_id(),
+            capability_version: 1,
+            inputs: vec![input()],
+            parameters: RelatedRanksParams {
+                columns: vec![Alias(ColumnAlias(4)), Alias(ColumnAlias(1))],
+                missing_codes: vec![-99.0],
+            },
+            random_seed: None,
+            confirmation_refs: Vec::new(),
+            preparation: None,
+        }
+    }
+
+    #[test]
+    fn the_related_rank_tests_settings_are_positions_in_the_chosen_order_and_counts() {
+        assert_eq!(
+            related_ranks_parameters(&related_ranks_spec()),
+            [
+                ExportParameter::InputShape {
+                    rows: 12,
+                    columns: 3
+                },
+                ExportParameter::ComparedColumns(vec![4, 1]),
+                ExportParameter::MissingCodes { count: 1 },
+                ExportParameter::Seed(None),
+            ]
+        );
+    }
+
     #[test]
     fn the_rank_tests_settings_are_positions_roles_indexes_and_counts() {
         assert_eq!(
@@ -3676,6 +3772,9 @@ mod tests {
         paths(&serde_json::to_value(xtab_spec()).unwrap(), "", &mut seen);
         // The rank tests (decision 621): the ANOVA's fields, levels `Some`.
         paths(&serde_json::to_value(ranks_spec()).unwrap(), "", &mut seen);
+        // The related rank tests (decision 655): `columns[]`, a list of strings,
+        // distinct from crosstabs' `columns` and the summary's `columns[].alias`.
+        paths(&serde_json::to_value(related_ranks_spec()).unwrap(), "", &mut seen);
         // A run on prepared data (decision 435).
         paths(
             &serde_json::to_value(prepared_spec()).unwrap(),
@@ -4519,6 +4618,8 @@ mod tests {
             stats_xtab::CAPABILITY_ID,
             // Research OS, Phase 8Y-2 (decision 621).
             stats_ranks::CAPABILITY_ID,
+            // Research OS, Phase 8Z-2 (decision 655).
+            stats_related_ranks::CAPABILITY_ID,
         ] {
             assert_eq!(
                 METHODS.iter().filter(|m| m.capability == id).count(),

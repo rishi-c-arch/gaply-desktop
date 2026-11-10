@@ -9,7 +9,7 @@
 //! * a crosstab on two file columns of a prepared slot (a slot with a scale
 //!   score made), its spec carrying the slot's preparation as a screen's does
 //!   (decision 490), saved and run again `Identical`. Crosstabs refuses a score
-//!   as a column, so it does not join `prep_project.rs`'s EIGHT.
+//!   as a column, so it does not join `prep_project.rs`'s NINE.
 //!
 //! Every file is synthetic and in a folder the test creates and removes.
 

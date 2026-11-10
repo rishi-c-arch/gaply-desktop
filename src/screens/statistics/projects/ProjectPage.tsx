@@ -73,6 +73,7 @@ import { corrBridge, type CorrBridge } from '../corrBridge';
 import { alphaBridge, type AlphaBridge } from '../alphaBridge';
 import { xtabBridge, type XtabBridge } from '../xtabBridge';
 import { ranksBridge, type RanksBridge } from '../ranksBridge';
+import { relatedRanksBridge, type RelatedRanksBridge } from '../relatedRanksBridge';
 import { projectBridge, type ProjectBridge } from './projectBridge';
 import { EXPORTS, type ExportKind, type SaveFile } from './projectExport';
 import { projectsShown } from './projectGate';
@@ -138,6 +139,8 @@ export interface ProjectPageProps {
   crosstabs?: XtabBridge;
   /** Research OS, Phase 8Y-2 (decision 622). */
   independentRanks?: RanksBridge;
+  /** Research OS, Phase 8Z-2 (decision 656). */
+  relatedRanks?: RelatedRanksBridge;
   /** How often project_current is read while a rerun is going. */
   pollMs?: number;
 }
@@ -216,6 +219,7 @@ const ProjectPageShown: React.FC<ProjectPageProps> = ({
   cronbachAlpha: givenAlpha,
   crosstabs: givenXtab,
   independentRanks: givenRanks,
+  relatedRanks: givenRelatedRanks,
   pollMs = 250,
 }) => {
   const bridge = useMemo(() => given ?? projectBridge(), [given]);
@@ -229,6 +233,7 @@ const ProjectPageShown: React.FC<ProjectPageProps> = ({
   const cronbachAlpha = useMemo(() => givenAlpha ?? alphaBridge(), [givenAlpha]);
   const crosstabs = useMemo(() => givenXtab ?? xtabBridge(), [givenXtab]);
   const independentRanks = useMemo(() => givenRanks ?? ranksBridge(), [givenRanks]);
+  const relatedRanks = useMemo(() => givenRelatedRanks ?? relatedRanksBridge(), [givenRelatedRanks]);
   // Each kind's cancel, from the bridges given (Phase 8C).
   const cancels = useMemo<Record<RerunKind, (runId: number) => Promise<unknown>>>(
     () => ({
@@ -241,8 +246,9 @@ const ProjectPageShown: React.FC<ProjectPageProps> = ({
       cronbach_alpha: (runId) => cronbachAlpha.cancel(runId),
       crosstabs: (runId) => crosstabs.cancel(runId),
       independent_ranks: (runId) => independentRanks.cancel(runId),
+      related_ranks: (runId) => relatedRanks.cancel(runId),
     }),
-    [describe, ttest, oneSample, paired, anova, correlations, cronbachAlpha, crosstabs, independentRanks]
+    [describe, ttest, oneSample, paired, anova, correlations, cronbachAlpha, crosstabs, independentRanks, relatedRanks]
   );
   const gen = useGeneration();
   const [view, setView] = useState<View>({ kind: 'loading' });

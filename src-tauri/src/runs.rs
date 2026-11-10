@@ -109,8 +109,9 @@
 //! tests, the Wilcoxon signed-rank and Friedman tests, started with
 //! [`Runs::start_related_ranks`]. Its one check point is
 //! `stats_related_ranks::run`'s, before the arithmetic, and the record's
-//! `columns_total` is `stats_related_ranks::check_points`, one. No window
-//! starts it yet, and a saved run's report refuses it, until 8Z-2.
+//! `columns_total` is `stats_related_ranks::check_points`, one. Since Phase 8Z-2
+//! (decision 656) the Statistics window's Related samples… dialog starts it, and a
+//! project reruns it.
 //!
 //! Phase 3: the run manager and the slots belong to the Statistics workspace
 //! (`crate::workspace`), built when it is activated and dropped when it is
@@ -2506,7 +2507,7 @@ impl Runs {
     }
 
     /// [`Runs::start_related_ranks`], with an end hook, for the project rerun
-    /// 8Z-2 adds (decision 641).
+    /// (decision 655).
     pub fn start_related_ranks_then(
         self: &Arc<Self>,
         slot: Arc<Slot>,

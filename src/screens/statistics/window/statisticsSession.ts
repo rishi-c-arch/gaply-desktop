@@ -15,12 +15,14 @@ import type { AlphaResultView, AlphaRunStateView } from '../alphaTypes';
 import type { AnovaResultView, AnovaRunStateView } from '../anovaTypes';
 import type { CorrResultView, CorrRunStateView } from '../corrTypes';
 import type { DatasetView, ExportFormat, ResultBundleView, RunStateView } from '../describeTypes';
+import { forgetRunning } from '../flowHooks';
 import type { MethodKind } from '../methods';
 import type { OneSampleResultView, OneSampleRunStateView, PairedResultView } from '../onesampleTypes';
 import { savableOnScreen } from '../projects/SaveToProject';
 import type { TTestResultView, TTestRunStateView } from '../ttestTypes';
 import type { XtabResultView, XtabRunStateView } from '../xtabTypes';
 import type { RanksResultView, RanksRunStateView } from '../ranksTypes';
+import type { RelatedRanksResultView, RelatedRanksRunStateView } from '../relatedRanksTypes';
 import type { GridCell } from './gridRange';
 
 /** The sentence for a slot the window finds gone (ADR-012 Part 2). */
@@ -42,6 +44,8 @@ export interface MethodRuns {
   crosstabs: XtabRunStateView;
   /** Research OS, Phase 8Y-2 (decision 622). */
   independent_ranks: RanksRunStateView;
+  /** Research OS, Phase 8Z-2 (decision 656). */
+  related_ranks: RelatedRanksRunStateView;
 }
 
 /** Each kind's result, as its result command reads it (decision 479). */
@@ -57,6 +61,8 @@ export interface MethodResults {
   crosstabs: XtabResultView;
   /** Research OS, Phase 8Y-2 (decision 622). */
   independent_ranks: RanksResultView;
+  /** Research OS, Phase 8Z-2 (decision 656). */
+  related_ranks: RelatedRanksResultView;
 }
 
 /** What every entry holds, whatever its method (decision 471). */
@@ -165,12 +171,18 @@ export const statisticsSession = {
   slotGone() {
     replace({ slot: null, view: null, notice: SLOT_GONE, gridPlace: null });
   },
-  /** Statistics is not active, or the switch has left it. */
+  /** Statistics is not active, or the switch has left it. Whatever was running on the
+   *  session's setBusy is forgotten and busy ends here, since an open that never settles
+   *  would otherwise leave the window unable to start anything (decision 652). */
   clear() {
     cleared += 1;
     numbered = 0;
-    if (current.slot === null && current.view === null && current.output.length === 0 && current.notice === null) return;
-    replace({ slot: null, view: null, output: [], selected: null, gridPlace: null, notice: null });
+    forgetRunning(statisticsSession.setBusy);
+    if (current.slot === null && current.view === null && current.output.length === 0 && current.notice === null) {
+      statisticsSession.setBusy(false);
+      return;
+    }
+    replace({ slot: null, view: null, output: [], selected: null, gridPlace: null, notice: null, busy: false });
   },
   setBusy(busy: boolean) {
     if (current.busy !== busy) replace({ busy });

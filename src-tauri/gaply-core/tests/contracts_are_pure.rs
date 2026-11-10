@@ -586,11 +586,11 @@ const STATS_RANKS_CRATE_PATHS: &[&str] = &[
 /// (Spearman's), `stats_corr::runs` and `stats_anova::median`.
 const RANKS_ITEMS: &[(&str, &[&str])] = &[
     ("crate::stats_verify", &["average_ranks"]),
-    ("crate::stats_corr", &["runs"]),
+    ("crate::stats_corr", &["runs", "tie_cube_sum"]),
     ("crate::stats_anova", &["median"]),
     (
         "crate::stats_dist",
-        &["chi_square_upper", "normal_two_tailed", "rank_sum_exact_tails"],
+        &["chi_square_upper", "exact_two_sided", "normal_two_tailed", "rank_sum_exact_tails"],
     ),
     ("crate::stats_l1::dataset", &["Cell", "Dataset"]),
     (
@@ -630,11 +630,11 @@ const STATS_RELATED_RANKS_CRATE_PATHS: &[&str] = &[
 /// implementation each.
 const RELATED_RANKS_ITEMS: &[(&str, &[&str])] = &[
     ("crate::stats_verify", &["average_ranks"]),
-    ("crate::stats_corr", &["runs"]),
+    ("crate::stats_corr", &["runs", "tie_cube_sum"]),
     ("crate::stats_anova", &["median"]),
     (
         "crate::stats_dist",
-        &["chi_square_upper", "normal_two_tailed", "signed_rank_exact_tails"],
+        &["chi_square_upper", "exact_two_sided", "normal_two_tailed", "signed_rank_exact_tails"],
     ),
     ("crate::stats_l1::dataset", &["Cell", "Dataset"]),
     ("crate::stats_ttest", &["column", "non_finite_cells"]),

@@ -395,6 +395,9 @@ fn two_finite_values_whose_difference_overflows_are_ranked_by_size_and_nothing_i
     assert_eq!(wilcoxon(&r).tie_runs, 1, "two infinities tie, as R's ranks have them");
 }
 
+/// Values near both ends of the doubles, whose differences all stay finite (decision
+/// 652): the overflow's own test is
+/// `two_finite_values_whose_difference_overflows_are_ranked_by_size_and_nothing_is_refused`.
 #[test]
 fn every_number_is_finite_at_both_ends_of_the_doubles() {
     let d = numbers(&[(1.7976931348623157e308, 1.5e308), (1e308, 1.7976931348623157e308), (5e-324, 1e-320), (1e-300, 2e-300), (-1e308, -1.5e308)]);

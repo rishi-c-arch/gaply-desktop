@@ -109,7 +109,7 @@ function withStored(name: string, field: 'bundleJson' | 'failureJson' | 'specJso
 /* ---- the shape check ----------------------------------------------------------- */
 
 describe('the shape check', () => {
-  it('has the eighteen snapshots Rust wrote, and accepts every one', () => {
+  it('has the twenty snapshots Rust wrote, and accepts every one', () => {
     expect(SNAPSHOTS).toEqual([
       'alpha.json',
       'alpha_reversed.json',
@@ -124,6 +124,9 @@ describe('the shape check', () => {
       // Research OS, Phase 8Y-2 (decision 622).
       'ranks_kw.json',
       'ranks_mw.json',
+      // Research OS, Phase 8Z-2 (decision 656).
+      'related_ranks_f.json',
+      'related_ranks_w.json',
       'summary.json',
       'summary_prepared.json',
       'ttest.json',
@@ -137,6 +140,8 @@ describe('the shape check', () => {
     expect(checkStored(stored('xtab_3x3.json')).kind).toBe('crosstabs');
     expect(checkStored(stored('ranks_mw.json')).kind).toBe('independent_ranks');
     expect(checkStored(stored('ranks_kw.json')).kind).toBe('independent_ranks');
+    expect(checkStored(stored('related_ranks_w.json')).kind).toBe('related_ranks');
+    expect(checkStored(stored('related_ranks_f.json')).kind).toBe('related_ranks');
     expect(checkStored(stored('ttest.json')).kind).toBe('ttest');
     const failed = checkStored(stored('ttest_failed.json'));
     expect(failed.kind).toBe('failed');
@@ -164,6 +169,9 @@ describe('the shape check', () => {
     // is in this list only, and not in the nulled-number list below.
     ['ranks_kw.json', 'bundleJson'],
     ['ranks_mw.json', 'bundleJson'],
+    // Research OS, Phase 8Z-2 (decision 656).
+    ['related_ranks_w.json', 'bundleJson'],
+    ['related_ranks_f.json', 'bundleJson'],
   ] as const)('%s: rejects it with any one field of its %s removed', (name, field) => {
     const all = paths(JSON.parse(stored(name)[field] as string)).filter((p) => typeof p[p.length - 1] === 'string');
     expect(all.length).toBeGreaterThan(5);
@@ -184,6 +192,9 @@ describe('the shape check', () => {
     ['xtab_2x2.json', 'bundleJson'],
     ['xtab_3x3.json', 'bundleJson'],
     ['ranks_kw.json', 'bundleJson'],
+    // Research OS, Phase 8Z-2 (decision 656).
+    ['related_ranks_w.json', 'bundleJson'],
+    ['related_ranks_f.json', 'bundleJson'],
   ] as const)('%s: rejects it with any one number in its %s made null, or made a string', (name, field) => {
     const v0 = JSON.parse(stored(name)[field] as string);
     const numbers = paths(v0).filter((p) => typeof getAt(v0, p) === 'number');

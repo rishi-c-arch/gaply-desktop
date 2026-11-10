@@ -38,7 +38,7 @@ export function buildOneSampleSpec(view: DatasetView, outcome: string, testValue
 }
 
 export function useOneSampleSettings(view: DatasetView | null) {
-  const [outcome, setOutcome] = useState('');
+  const [outcome, setOutcomeAlias] = useState('');
   /** The test value as typed; empty at first. */
   const [testValueText, setTestValueText] = useState('');
   const [ticked, setTicked] = useState<number[]>([]);
@@ -54,10 +54,16 @@ export function useOneSampleSettings(view: DatasetView | null) {
   );
 
   const reset = useCallback(() => {
-    setOutcome('');
+    setOutcomeAlias('');
     setTestValueText('');
     setTicked([]);
   }, []);
+
+  // A code is ticked for one outcome: another that offers the same code starts unticked (decision 652).
+  const setOutcome = (alias: string) => {
+    setOutcomeAlias(alias);
+    setTicked([]);
+  };
 
   return {
     outcome,

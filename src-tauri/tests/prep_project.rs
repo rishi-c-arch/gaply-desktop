@@ -26,6 +26,7 @@ use app_lib::stats_desc_commands as desc;
 use app_lib::stats_onesample_commands as onesample;
 use app_lib::stats_prep_commands as prep;
 use app_lib::stats_ranks_commands as ranks;
+use app_lib::stats_related_ranks_commands as related_ranks;
 use app_lib::stats_ttest_commands as ttest;
 use gaply_core::contracts::{CapabilityId, ContentHash, OperationId, RunState};
 use gaply_core::research_project::{ArtifactHash, ArtifactKind, DataFormat, ProjectCode, UsedRole};
@@ -37,6 +38,7 @@ use gaply_core::stats_l1::dataset::ColumnAlias;
 use gaply_core::stats_onesample::{self, OneSampleParams, PairedParams};
 use gaply_core::stats_prep::{self, MissingRule, Recipe, RecipeStep, ScaleScoreStep, Statistic};
 use gaply_core::stats_ranks::{self, IndependentRanksParams};
+use gaply_core::stats_related_ranks::{self, RelatedRanksParams};
 use gaply_core::stats_ttest::{self, TTestParams, Variant};
 
 use project_support::*;
@@ -91,8 +93,8 @@ fn make(w: &World, slot: u64, recipe: &Recipe) {
     assert!(v.dataset.is_some(), "{:?}", v.errors);
 }
 
-/// The eight methods, each with a score in it, as `prep_support::eight`.
-const EIGHT: [&str; 8] = [
+/// The nine methods, each with a score in it, as `prep_support::nine`.
+const NINE: [&str; 9] = [
     "summary",
     "t-test",
     "one-sample",
@@ -101,6 +103,7 @@ const EIGHT: [&str; 8] = [
     "correlations",
     "alpha",
     "rank tests",
+    "related rank tests",
 ];
 
 /// Runs method `which` on the score, column 8 of [`TABLE`], to its end, its
@@ -225,6 +228,20 @@ fn run_method(w: &World, slot: u64, which: &str) -> u64 {
                 &e.datasets,
                 slot,
                 on_prepared!(stats_ranks::spec(op, d, params)),
+            )
+        }
+        // Research OS, Phase 8Z-2 (decision 655): the score among three columns, in that
+        // order and not in column order.
+        "related rank tests" => {
+            let params = RelatedRanksParams {
+                columns: vec![alias(4), alias(7), score],
+                missing_codes: no_codes(),
+            };
+            related_ranks::run(
+                &e.runs,
+                &e.datasets,
+                slot,
+                on_prepared!(stats_related_ranks::spec(op, d, params)),
             )
         }
         other => panic!("no method {other}"),
@@ -508,8 +525,8 @@ fn a_run_with_two_recipe_edges_is_refused_as_an_unknown_artifact() {
 /// Every method's run on a score saves, with its recipe, whatever its result.
 #[test]
 fn a_run_of_each_method_on_a_score_saves_with_its_recipe() {
-    for which in EIGHT {
-        let w = World::new("save-eight");
+    for which in NINE {
+        let w = World::new("save-nine");
         let slot = w.open("items.csv", TABLE);
         make(&w, slot, &mean_recipe());
         let run = run_method(&w, slot, which);
@@ -725,14 +742,14 @@ fn new_artifacts(
         .collect()
 }
 
-/// For each of the eight methods: a run on a score, saved, reopened and run
+/// For each of the nine methods: a run on a score, saved, reopened and run
 /// again, is identical, with the recipe reused and nothing else written but the
 /// new bundle and manifest.
 #[test]
 fn each_method_on_a_score_saved_reopened_and_rerun_is_identical_and_reuses_the_recipe() {
     use gaply_core::research_project::RerunComparison::Identical;
-    for which in EIGHT {
-        let w = World::new("rerun-eight");
+    for which in NINE {
+        let w = World::new("rerun-nine");
         let slot = w.open("items.csv", TABLE);
         make(&w, slot, &mean_recipe());
         let run = run_method(&w, slot, which);

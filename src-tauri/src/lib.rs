@@ -445,6 +445,9 @@ pub fn run() {
             stats_ranks_commands::stats_ranks_cancel,
             stats_ranks_commands::stats_ranks_export,
             stats_ranks_commands::stats_ranks_group_levels,
+            // Research OS, Phase 8Z-1 (decision 641): the related rank tests, behind the
+            // workspace check. Since 8Z-2 (decision 656) the window's Related samples…
+            // dialog starts them.
             stats_related_ranks_commands::stats_related_ranks_validate,
             stats_related_ranks_commands::stats_related_ranks_run,
             stats_related_ranks_commands::stats_related_ranks_status,

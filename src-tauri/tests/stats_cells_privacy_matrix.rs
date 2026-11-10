@@ -38,7 +38,7 @@ use serde_json::{json, Value};
 
 use desc_support::{call, delimited, TempDir, C};
 use gaply_core::Database;
-use prep_support::{app_with, recipe, eight, start, until_terminal};
+use prep_support::{app_with, recipe, nine, start, until_terminal};
 
 const TEXT: &str = "CELL_SENTINEL_t83";
 const HDR: &str = "HDR_SENTINEL_k22";
@@ -227,7 +227,7 @@ fn no_cell_reaches_a_surface_it_is_not_allowed_on() {
     }
 
     // Every run after scrolling: its spec, manifest, result and exports.
-    for m in &eight(&view, "C9") {
+    for m in &nine(&view, "C9") {
         push("spec", json_of(&m.spec));
         let v = call(
             &w,

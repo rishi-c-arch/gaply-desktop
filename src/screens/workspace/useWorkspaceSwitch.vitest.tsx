@@ -12,6 +12,7 @@ import { WorkspaceShell } from './WorkspaceShell';
 import { defaultRunBridges, jobSentence, runKinds } from './useWorkspaceSwitch';
 import { makeMockXtabBridge } from '../statistics/xtabBridge';
 import { makeMockRanksBridge } from '../statistics/ranksBridge';
+import { makeMockRelatedRanksBridge } from '../statistics/relatedRanksBridge';
 import { makeMockWorkspaceBridge } from './workspaceBridge';
 import { makeMockDescribeBridge } from '../statistics/describeBridge';
 import type { DatasetView, RunStateView } from '../statistics/describeTypes';
@@ -128,6 +129,27 @@ describe("a crosstab, through the switch's own kinds", () => {
     expect(xtab.calls).toEqual([
       ['stats_xtab_status', { runId: 12 }],
       ['stats_xtab_cancel', { runId: 12 }],
+    ]);
+    expect(summary.calls).toEqual([]);
+  });
+});
+
+// Research OS, Phase 8Z-2 (decision 656): a related-samples rank test is read and cancelled
+// through its own commands, never the summary's (D317's departure, closed).
+describe("a related-samples rank test, through the switch's own kinds", () => {
+  it('is polled and cancelled through stats_related_ranks_status and stats_related_ranks_cancel, and the summary is never asked', async () => {
+    const rr = { runId: 14, state: 'running' as const, terminal: false, elapsedMs: 40, cancelRequested: false, stepsDone: 0, stepsTotal: 1, diagnostics: [] };
+    const relatedRanks = makeMockRelatedRanksBridge({ stats_related_ranks_status: rr, stats_related_ranks_cancel: { ...rr, cancelRequested: true } });
+    const summary = makeMockDescribeBridge({});
+    const kinds = runKinds(defaultRunBridges({ relatedRanks, describe: summary }));
+    expect(Object.keys(kinds)).toContain('related_ranks');
+    const job = await kinds.related_ranks.status(14);
+    expect(job).toEqual({ runId: 14, state: 'running', terminal: false, progress: null, kind: 'related_ranks' });
+    expect(jobSentence(job as NonNullable<typeof job>)).toBe('Run 14 (related-samples rank test): Running.');
+    await kinds.related_ranks.cancel(14);
+    expect(relatedRanks.calls).toEqual([
+      ['stats_related_ranks_status', { runId: 14 }],
+      ['stats_related_ranks_cancel', { runId: 14 }],
     ]);
     expect(summary.calls).toEqual([]);
   });

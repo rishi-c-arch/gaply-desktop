@@ -45,6 +45,32 @@ const run = () => screen.getByTestId('xt-run') as HTMLButtonElement;
 const pick = (id: string, value: string) => fireEvent.change(screen.getByTestId(id), { target: { value } });
 
 describe('the crosstabs dialog', () => {
+  it('clears a ticked code when either column changes, so a code two columns offer starts unticked and is not sent (decision 652)', async () => {
+    const shared: DatasetView = {
+      ...view,
+      profile: {
+        rows: 16,
+        columns: ['C1', 'C2', 'C3', 'C4'].map((alias) => ({ alias, header: alias, kind: 'categorical' as const, n: 16, missing: 0, distinct: 2, levels: null, suspectMissingCodes: [{ code: 99, cells: 2 }], nonFinite: 0 })),
+      },
+    };
+    const bridge = makeMockXtabBridge({ stats_xtab_run: { runId: 5 }, stats_xtab_status: running, stats_xtab_validate: report('valid') });
+    render(<XtabDialog view={shared} slot={3} bridge={bridge} outputFull={false} onStarted={vi.fn()} onCancel={vi.fn()} />);
+    pick('xt-rows', 'C1');
+    pick('xt-columns', 'C2');
+    const box = () => screen.getByTestId('xt-code-99') as HTMLInputElement;
+    fireEvent.click(box());
+    expect(box().checked).toBe(true);
+    pick('xt-rows', 'C3');
+    expect(box().checked).toBe(false);
+    fireEvent.click(box());
+    expect(box().checked).toBe(true);
+    pick('xt-columns', 'C4');
+    expect(box().checked).toBe(false);
+    fireEvent.click(run());
+    await waitFor(() => expect(specs(bridge, 'stats_xtab_validate')).toHaveLength(1));
+    expect(specs(bridge, 'stats_xtab_validate')[0].parameters.missingCodes).toEqual([]);
+  });
+
   it("carries decision 589's title", () => {
     setup({});
     expect(XTAB_DIALOG_TITLE).toBe('Descriptive statistics: Crosstabs');

@@ -2,7 +2,7 @@
 // OS, Phase 8C; decision 249). Pure data, one row per method: the run
 // manager's word for its runs (Rust's RunKind), its capability id, its name,
 // the shell's job name (none for the summary, whose sentence has no
-// parenthesis), its screen's route (null for crosstabs and the rank tests, which have none), and its place in the Statistics window's
+// parenthesis), its screen's route (null for crosstabs and the two rank tests, which have none), and its place in the Statistics window's
 // Analyze menu (Research OS, Phase 8P, decision 451).
 //
 // RunKind, the capability names, the shell's job names and the Statistics
@@ -106,6 +106,17 @@ export const METHODS = [
     path: null,
     menuGroup: 'Nonparametric tests',
     menuLabel: 'Independent samples…',
+  },
+  // Research OS, Phase 8Z-2 (decisions 654, 656 and 659). No page and no route
+  // (ADR-012:233-241); analyzeGroups puts it in the group the rank tests opened.
+  {
+    kind: 'related_ranks',
+    capabilityId: 'stats.analyze.related_ranks',
+    name: 'Wilcoxon signed-rank and Friedman',
+    jobName: 'related-samples rank test',
+    path: null,
+    menuGroup: 'Nonparametric tests',
+    menuLabel: 'Related samples…',
   },
 ] as const;
 

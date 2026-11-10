@@ -1,8 +1,8 @@
 //! **The related rank tests' wire contract, from the Rust side (Research OS,
-//! Phase 8Z-1, decision 641), in the pattern of `stats_related_ranks_wire.rs`.** Each
+//! Phase 8Z-1, decision 641), in the pattern of `stats_ranks_wire.rs`.** Each
 //! view serialises to exactly the bytes of its fixture in
 //! `src/screens/statistics/fixtures/` (pretty JSON, two-space indent, a final
-//! newline), which 8Z-2's screen types will be tested against. Each fixture
+//! newline), which `relatedRanksTypes.vitest.ts` tests the screen's types against. Each fixture
 //! fills every field, and between them every variant of every enum the result
 //! carries: a value and a code, the Wilcoxon test with its exact p and the
 //! Friedman test with a value not computable. The values are a wire shape, not
@@ -65,6 +65,20 @@ fn assert_bytes<T: serde::Serialize>(name: &str, view: &T) {
     let want = std::fs::read_to_string(fixture(name))
         .unwrap_or_else(|e| panic!("{name}: {e}; the view is:\n{got}"));
     assert_eq!(got, want, "{name}: the view and its fixture differ");
+}
+
+/// Decision 653: the screen's column limit is the core's one constant, written with the
+/// other fixtures and compared on every run, as `ttestLimits.json` is for the rank tests'.
+#[test]
+fn the_screens_column_limit_is_the_cores() {
+    let want = json!({ "maxColumns": gaply_core::stats_related_ranks::MAX_RELATED_COLUMNS });
+    let path = screens().join("fixtures/relatedRanksLimits.json");
+    if std::env::var_os("GAPLY_WRITE_RELATED_RANKS_WIRE").is_some() {
+        std::fs::write(&path, serde_json::to_string_pretty(&want).unwrap() + "\n").unwrap();
+    }
+    let file: Value = serde_json::from_str(&std::fs::read_to_string(&path).expect("relatedRanksLimits.json")).unwrap();
+    assert_eq!(file, want, "relatedRanksLimits.json and stats_related_ranks::MAX_RELATED_COLUMNS differ");
+    assert_eq!(gaply_core::stats_related_ranks::MAX_RELATED_COLUMNS, 50, "decision 640");
 }
 
 fn hash(hex: &str) -> ContentHash {

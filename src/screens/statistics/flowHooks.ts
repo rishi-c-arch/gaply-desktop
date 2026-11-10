@@ -63,10 +63,18 @@ export function useRunPolling<V extends { runId: number; terminal: boolean }>(
   }, [runView, setRunView, bridge, setError, refusalSentence, pollMs]);
 }
 
-/** How many actions are running for each setBusy (Research OS, Phase 8Z-1, decision
- *  635). Keyed by the setter, which is stable, since a screen calls actWith on every
- *  render and two overlapping actions can come from two closures. */
-const running = new WeakMap<(busy: boolean) => void, number>();
+/** How many actions are running for each setBusy, in its current generation (Research OS,
+ *  Phase 8Z-1, decision 635; the generation, Phase 8Z-2, decision 652). Keyed by the
+ *  setter, which is stable, since a screen calls actWith on every render and two
+ *  overlapping actions can come from two closures. */
+const running = new WeakMap<(busy: boolean) => void, { generation: number; count: number }>();
+
+/** Forgets the actions running on `setBusy`: a new generation with a count of 0. An action
+ *  of an earlier generation, when it ends, changes neither the count nor busy, and its
+ *  refusal is not shown (decision 652). Its caller sets busy itself. */
+export function forgetRunning(setBusy: (busy: boolean) => void): void {
+  running.set(setBusy, { generation: (running.get(setBusy)?.generation ?? 0) + 1, count: 0 });
+}
 
 /** An action of the screen: busy while it runs, and until the last of any overlapping
  *  actions ends; its refusal shown in the method's own words. */
@@ -76,17 +84,21 @@ export function actWith(
   refusalSentence: (e: unknown) => string
 ): (f: () => Promise<void>) => Promise<void> {
   return async (f) => {
-    running.set(setBusy, (running.get(setBusy) ?? 0) + 1);
+    const mine = running.get(setBusy) ?? { generation: 0, count: 0 };
+    running.set(setBusy, { generation: mine.generation, count: mine.count + 1 });
+    const current = () => running.get(setBusy)?.generation === mine.generation;
     setBusy(true);
     setError(null);
     try {
       await f();
     } catch (e) {
-      setError(refusalSentence(e));
+      if (current()) setError(refusalSentence(e));
     } finally {
-      const left = (running.get(setBusy) ?? 1) - 1;
-      running.set(setBusy, left);
-      if (left === 0) setBusy(false);
+      if (current()) {
+        const left = (running.get(setBusy)?.count ?? 1) - 1;
+        running.set(setBusy, { generation: mine.generation, count: left });
+        if (left === 0) setBusy(false);
+      }
     }
   };
 }

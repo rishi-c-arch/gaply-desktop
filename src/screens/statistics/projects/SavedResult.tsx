@@ -45,6 +45,9 @@ import type { XtabDiagnostic } from '../xtabTypes';
 import { RanksCard } from '../RanksCard';
 import { ranksSentence, type RanksNames } from '../ranksWording';
 import type { RanksDiagnostic, RanksResultView } from '../ranksTypes';
+import { RelatedRanksCard } from '../RelatedRanksCard';
+import { relatedRanksSentence } from '../relatedRanksWording';
+import type { RelatedRanksDiagnostic } from '../relatedRanksTypes';
 import { diagnosticSentence } from '../describeWording';
 import { ttestSentence, type TTestNames } from '../ttestWording';
 import { oneSampleSentence } from '../onesampleWording';
@@ -62,7 +65,7 @@ import {
   checkStored,
   ONE_SAMPLE_CAPABILITY,
   PAIRED_CAPABILITY,
-  RANKS_CAPABILITY,
+  RANKS_CAPABILITY, RELATED_RANKS_CAPABILITY,
   SUMMARY_CAPABILITY,
   TTEST_CAPABILITY,
   XTAB_CAPABILITY,
@@ -248,6 +251,14 @@ export const SAVED_RENDERERS: Record<string, SavedRenderer> = {
       ranksSentence(failure as RanksDiagnostic, { column: n.column, level: (i) => `level ${i + 1}` }),
     result: (checked, n = BY_POSITION_ONLY) =>
       checked.kind === 'independent_ranks' ? <RanksCard result={checked.result} names={ranksNames(checked.result, n.column)} /> : null,
+    hidden: () => false,
+  },
+  // Research OS, Phase 8Z-2 (decision 656): through the Output's own card, a score's name
+  // through savedNaming, as the rank tests' outcome is; not behind a flag.
+  [RELATED_RANKS_CAPABILITY]: {
+    failedSentence: (failure, n = BY_POSITION_ONLY) => relatedRanksSentence(failure as RelatedRanksDiagnostic, { column: n.column }),
+    result: (checked, n = BY_POSITION_ONLY) =>
+      checked.kind === 'related_ranks' ? <RelatedRanksCard result={checked.result} names={{ column: n.column }} /> : null,
     hidden: () => false,
   },
 };

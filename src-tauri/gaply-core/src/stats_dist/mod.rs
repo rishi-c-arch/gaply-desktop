@@ -565,6 +565,17 @@ pub struct SignedRankTails {
     pub upper: f64,
 }
 
+/// An exact test's two-sided p from its two tails: twice the smaller, at most 1, and
+/// `None` unless both are finite, each checked first, since `f64::min` turns a NaN into
+/// the other operand (Phase 8Z-2, decision 652: the one home of the formula the rank
+/// tests each wrote). A caller maps `None` to its own code.
+pub fn exact_two_sided(lower: f64, upper: f64) -> Option<f64> {
+    if !(lower.is_finite() && upper.is_finite()) {
+        return None;
+    }
+    Some((2.0 * lower.min(upper)).min(1.0))
+}
+
 /// The tails of the Wilcoxon signed-rank statistic V, the sum of the ranks of
 /// the positive differences among `n` non-zero differences with no ties, at
 /// `v`. Each of the 2^n sign arrangements is equally likely, and the counts of
@@ -627,4 +638,30 @@ fn rank_sum_counts(n1: usize, n2: usize) -> Vec<f64> {
         }
     }
     f.swap_remove(n1)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::exact_two_sided;
+
+    /// Decision 652: the one home of the exact two-sided p. Twice the smaller tail, at most
+    /// 1; none unless both tails are finite, checked first, since `f64::min` turns a NaN
+    /// into the other operand.
+    #[test]
+    fn the_exact_two_sided_p_is_twice_the_smaller_tail_and_at_most_one() {
+        assert_eq!(exact_two_sided(0.25, 0.75), Some(0.5));
+        assert_eq!(exact_two_sided(0.75, 0.25), Some(0.5));
+        assert_eq!(exact_two_sided(0.75, 0.75), Some(1.0));
+        assert_eq!(exact_two_sided(0.5000000000000001, 0.75), Some(1.0));
+        assert_eq!(exact_two_sided(0.0, 1.0), Some(0.0));
+    }
+
+    #[test]
+    fn a_tail_that_is_not_finite_gives_no_exact_two_sided_p() {
+        for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            assert_eq!(exact_two_sided(bad, 0.25), None, "{bad} first");
+            assert_eq!(exact_two_sided(0.25, bad), None, "{bad} second");
+            assert_eq!(exact_two_sided(bad, bad), None, "{bad} both");
+        }
+    }
 }

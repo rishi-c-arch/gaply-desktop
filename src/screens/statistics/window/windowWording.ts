@@ -286,6 +286,13 @@ export function ranksSettingsLine(
   ].join(' ');
 }
 
+/** The related rank tests' dialog (Research OS, Phase 8Z-2, decision 654): here because
+ *  namedColumn and codesWords are private to this file. */
+export const RELATED_RANKS_DIALOG_TITLE = 'Nonparametric tests: Related samples';
+export function relatedRanksSettingsLine(p: { columns: string[]; missingCodes: number[] }, view: LineView): string {
+  return `Columns, in this order: ${p.columns.map((c) => namedColumn(c, view)).join(', ')}. ${codesWords(p.missingCodes)}`;
+}
+
 /** The scale score's dialog (decisions 504 to 507). Its form's words, Make's
  *  sentence, the scores it lists and the questions before a deletion. A score's
  *  name is the user's own, shown on their own screen. "Delete", never "Remove",
