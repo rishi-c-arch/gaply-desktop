@@ -14,9 +14,11 @@ import { FILE_BUSY, LATER_STEP, MENU_WORDS, NOT_RUNNABLE, NO_FILE, NO_PROJECT_OP
 export const SCALE_SCORE_CAPABILITY = 'stats.prepare.scale_score';
 
 /** Research OS, Phase 8X-2 (decision 591; ADR-012:482-483): "Crosstabs and
- *  chi-square" left this list as Crosstabs… went live, in one change. */
+ *  chi-square" left this list as Crosstabs… went live, in one change. Phase 8Y-2
+ *  (decisions 620 and 624): "Nonparametric tests" became the related-samples test,
+ *  which is not built, as Independent samples… went live, in one change. */
 export const COMING_LATER = {
-  analyze: ['Regression', 'Factor analysis', 'Nonparametric tests', 'CFA and SEM'],
+  analyze: ['Regression', 'Factor analysis', 'Related-samples nonparametric tests', 'CFA and SEM'],
   transform: ['Recode values…', 'Compute from a formula…', 'Select cases…'],
 };
 
@@ -97,7 +99,7 @@ function capabilityItem(c: WindowMenuContext, id: string, label: string, capabil
 }
 
 /** The methods with a dialog (decisions 473 and 485), each still reading Rust's list. */
-export const LIVE_METHODS: readonly string[] = ['describe', 'ttest', 'one_sample', 'paired', 'anova', 'correlations', 'cronbach_alpha', 'crosstabs'];
+export const LIVE_METHODS: readonly string[] = ['describe', 'ttest', 'one_sample', 'paired', 'anova', 'correlations', 'cronbach_alpha', 'crosstabs', 'independent_ranks'];
 
 /** A method's item: Rust's word first, then whether this build has its dialog,
  *  then why it cannot be pressed now (decision 471). */

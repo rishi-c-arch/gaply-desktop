@@ -16,6 +16,7 @@ import { makeMockAnovaBridge } from '../statistics/anovaBridge';
 import { makeMockCorrBridge } from '../statistics/corrBridge';
 import { makeMockAlphaBridge } from '../statistics/alphaBridge';
 import { makeMockXtabBridge } from '../statistics/xtabBridge';
+import { makeMockRanksBridge } from '../statistics/ranksBridge';
 import type { TTestRunStateView } from '../statistics/ttestTypes';
 import type { RunKind, WorkspaceStateView } from './workspaceTypes';
 import type { RunStateView } from '../statistics/describeTypes';
@@ -665,5 +666,51 @@ describe('a crosstab run in the shell', () => {
     expect(anova.calls).toEqual([]);
     expect(corr.calls).toEqual([]);
     expect(alpha.calls).toEqual([]);
+  });
+});
+
+// Research OS, Phase 8Y-2 (decision 622): a rank test's run, read and cancelled through
+// its own bridge, named by the methods table's job name, with no steps sentence.
+describe('a rank test run in the shell', () => {
+  it('shows it, reads it through its own status, and Cancel cancels it through its own command', async () => {
+    let ended = false;
+    const ws = makeMockWorkspaceBridge({
+      workspace_state: () => ACTIVE(ended ? null : 12, 'independent_ranks'),
+      workspace_deactivate: () => {
+        if (!ended) {
+          throw Object.assign(
+            new Error(JSON.stringify({ code: 'workspace.run_active', params: { workspace: 'statistics', run: 12 }, severity: 'error' })),
+            { code: 'validation' }
+          );
+        }
+        return NONE;
+      },
+    });
+    const desc = makeMockDescribeBridge({});
+    const xtab = makeMockXtabBridge({});
+    const view = (state: 'running' | 'cancelled', terminal: boolean) => ({ runId: 12, state, terminal, elapsedMs: 80, cancelRequested: false, stepsDone: 0, stepsTotal: 1, diagnostics: [] });
+    const ranks = makeMockRanksBridge({
+      stats_ranks_status: () => (ended ? view('cancelled', true) : view('running', false)),
+      stats_ranks_cancel: () => {
+        ended = true;
+        return view('running', false);
+      },
+    });
+    render(
+      <MemoryRouter initialEntries={['/app/workspaces/statistics']}>
+        <Routes>
+          <Route path="/app/workspaces/statistics" element={<WorkspaceShell bridge={ws} runs={desc} xtabRuns={xtab} ranksRuns={ranks} pollMs={20} />} />
+          <Route path="/app/workspaces" element={<div data-testid="chooser-here" />} />
+        </Routes>
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(screen.getByTestId('ws-job').textContent).toBe('Run 12 (rank test): Running.'));
+    fireEvent.click(screen.getByTestId('ws-switch'));
+    await screen.findByTestId('ws-switch-dialog');
+    fireEvent.click(screen.getByTestId('ws-switch-cancel'));
+    await screen.findByTestId('chooser-here');
+    expect(ranks.calls.filter(([c]) => c === 'stats_ranks_cancel')).toEqual([['stats_ranks_cancel', { runId: 12 }]]);
+    expect(desc.calls).toEqual([]);
+    expect(xtab.calls).toEqual([]);
   });
 });

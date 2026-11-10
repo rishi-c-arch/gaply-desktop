@@ -1,8 +1,8 @@
 //! Shared by scale scores' command tests (Research OS, Phase 8M-3, decisions
-//! 424 to 427): an app over Tauri's mock runtime with every command the seven
+//! 424 to 427): an app over Tauri's mock runtime with every command the eight
 //! methods and the prepared slot use, so a test calls them through IPC with
 //! the webview's argument names and reads the JSON the webview reads; a table
-//! and recipes that fit all seven; and a run that waits for a test. Folders,
+//! and recipes that fit all eight; and a run that waits for a test. Folders,
 //! tables and the IPC call itself are `desc_support`'s, unchanged.
 #![allow(dead_code)]
 
@@ -111,6 +111,11 @@ pub fn app_with(
             anova::stats_anova_export,
             anova::stats_anova_group_levels,
             ranks::stats_ranks_group_levels,
+            ranks::stats_ranks_validate,
+            ranks::stats_ranks_run,
+            ranks::stats_ranks_status,
+            ranks::stats_ranks_result,
+            ranks::stats_ranks_export,
             corr::stats_corr_validate,
             corr::stats_corr_run,
             corr::stats_corr_status,
@@ -236,8 +241,9 @@ pub struct Method {
     pub spec: Value,
 }
 
-/// All seven methods on `score`.
-pub fn seven(view: &Value, score: &str) -> Vec<Method> {
+/// All eight methods on `score`. The rank tests are last, so no method's index
+/// moves.
+pub fn eight(view: &Value, score: &str) -> Vec<Method> {
     vec![
         Method {
             prefix: "stats_desc",
@@ -316,6 +322,20 @@ pub fn seven(view: &Value, score: &str) -> Vec<Method> {
                     "items": in_column_order(&["C4", "C7", score]),
                     "reversed": [],
                     "scale": null,
+                    "missingCodes": [],
+                }),
+            ),
+        },
+        // Research OS, Phase 8Y-2 (decision 621).
+        Method {
+            prefix: "stats_ranks",
+            spec: spec(
+                view,
+                "stats.analyze.independent_ranks",
+                json!({
+                    "outcome": score,
+                    "group": "C5",
+                    "levels": null,
                     "missingCodes": [],
                 }),
             ),

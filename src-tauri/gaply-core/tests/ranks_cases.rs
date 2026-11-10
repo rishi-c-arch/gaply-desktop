@@ -563,3 +563,173 @@ fn the_spec_is_camel_case_and_refuses_unknown_fields() {
         "missingCodes is required"
     );
 }
+
+/* ---- decision 618: the review's fixes ---------------------------------------- */
+
+/// A file's outcome, group, and repeat count lines, as the golden test expands
+/// them: y, g, n.
+fn counts_kw_large() -> Vec<(i128, String, i128)> {
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/stats_ranks/counts_kw_large.csv"
+    );
+    let text = std::fs::read_to_string(path).expect("counts_kw_large.csv");
+    let mut lines = text.lines().filter(|l| !l.starts_with('#'));
+    assert_eq!(lines.next(), Some("y,g,n"));
+    lines
+        .map(|l| {
+            let f: Vec<&str> = l.split(',').collect();
+            (f[0].parse().unwrap(), f[1].to_string(), f[2].parse().unwrap())
+        })
+        .collect()
+}
+
+/// kw_large's H computed exactly from its data file, in i128: doubled ranks
+/// are integers, so H = 3 (N - 1) sum (a_i^2 / n_i) / (N^3 - N - T), with
+/// a_i = 2 R_i - n_i (N + 1) and T the tie sum, the sum of fractions over the
+/// product of the n_i.
+#[test]
+fn kw_large_h_agrees_with_its_exact_rational_value_within_1e_15() {
+    let lines = counts_kw_large();
+    let mut rows: Vec<(String, String)> = Vec::new();
+    for (y, g, n) in &lines {
+        for _ in 0..*n {
+            rows.push((y.to_string(), g.clone()));
+        }
+    }
+    let r = compute(&dataset(&rows), &all()).unwrap();
+    let got = match kruskal_wallis(&r).h {
+        Stat::Value(h) => h,
+        Stat::NotComputable(c) => panic!("not computable: {c:?}"),
+    };
+
+    use std::collections::BTreeMap;
+    let mut by_value: BTreeMap<i128, BTreeMap<&str, i128>> = BTreeMap::new();
+    for (y, g, n) in &lines {
+        *by_value.entry(*y).or_default().entry(g.as_str()).or_default() += n;
+    }
+    let (mut seen, mut tie_sum) = (0i128, 0i128);
+    let mut doubled: BTreeMap<&str, i128> = BTreeMap::new();
+    let mut sizes: BTreeMap<&str, i128> = BTreeMap::new();
+    for per_group in by_value.values() {
+        let t: i128 = per_group.values().sum();
+        let doubled_rank = 2 * seen + t + 1;
+        for (g, c) in per_group {
+            *doubled.entry(g).or_default() += c * doubled_rank;
+            *sizes.entry(g).or_default() += c;
+        }
+        tie_sum += t * t * t - t;
+        seen += t;
+    }
+    let big_n = seen;
+    assert_eq!(big_n, rows.len() as i128);
+    let ns: Vec<i128> = sizes.values().copied().collect();
+    let a: Vec<i128> = doubled
+        .iter()
+        .map(|(g, d)| d - sizes[g] * (big_n + 1))
+        .collect();
+    let product: i128 = ns.iter().product();
+    let sum: i128 = a
+        .iter()
+        .zip(&ns)
+        .map(|(a, n)| a.checked_mul(*a).unwrap().checked_mul(product / n).unwrap())
+        .sum();
+    let numerator = sum.checked_mul(3 * (big_n - 1)).expect("i128 holds it");
+    let denominator = (big_n * big_n * big_n - big_n - tie_sum)
+        .checked_mul(product)
+        .expect("i128 holds it");
+    let exact = numerator as f64 / denominator as f64;
+    let error = (got - exact).abs() / exact;
+    println!("kw_large H: gaply {got:e}, exact rational {exact:e}, relative error {error:e}");
+    assert!(error <= 1e-15, "H {got:e}, exact {exact:e}, relative error {error:e}");
+}
+
+#[test]
+fn values_near_the_largest_double_give_a_finite_median_and_no_null() {
+    let d = dataset(&rows(&[
+        ("1e308", "a"),
+        ("1.5e308", "a"),
+        ("1", "b"),
+        ("2", "b"),
+    ]));
+    let r = compute(&d, &all()).unwrap();
+    assert_eq!(r.groups[0].label, "a");
+    assert_eq!(r.groups[0].median, 1.25e308);
+    assert_eq!(r.groups[1].median, 1.5);
+    let t = mann_whitney(&r);
+    assert_eq!((t.u1, t.u2), (4.0, 0.0));
+    let bytes = String::from_utf8(r.canonical_bytes()).unwrap();
+    assert!(!bytes.contains("null"), "{bytes}");
+    // Every number in the result is finite.
+    let v: serde_json::Value = serde_json::from_str(&bytes).unwrap();
+    assert_every_number_is_finite(&v);
+}
+
+#[test]
+fn every_number_is_finite_at_both_ends_of_the_doubles() {
+    let mut three = rows(&[
+        ("1.7976931348623157e308", "a"),
+        ("1.7976931348623155e308", "a"),
+        ("-1.7976931348623157e308", "b"),
+        ("-1.7976931348623155e308", "b"),
+        ("-1e308", "b"),
+        ("-1.5e308", "b"),
+        ("5e-324", "c"),
+        ("1e-320", "c"),
+    ]);
+    let r = compute(&dataset(&three), &all()).unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&r.canonical_bytes()).unwrap();
+    assert_every_number_is_finite(&v);
+    // The middle two are -1.7976931348623155e308 and -1.5e308: halved first.
+    assert_eq!(r.groups[1].median, -1.7976931348623155e308 / 2.0 + -1.5e308 / 2.0);
+    three.truncate(4);
+    let r = compute(&dataset(&three), &all()).unwrap();
+    assert_eq!(r.groups[0].median, 1.7976931348623157e308 / 2.0 + 1.7976931348623155e308 / 2.0);
+    assert_eq!(r.groups[1].median, -1.7976931348623157e308 / 2.0 - 1.7976931348623155e308 / 2.0);
+}
+
+/// serde_json writes an infinity or a NaN as `null`, so a null here is one (the
+/// callers' results have no absent exact p).
+fn assert_every_number_is_finite(v: &serde_json::Value) {
+    match v {
+        serde_json::Value::Null => panic!("a null where a number belongs"),
+        serde_json::Value::Number(n) => {
+            assert!(n.as_f64().is_some_and(f64::is_finite), "{n}")
+        }
+        serde_json::Value::Array(a) => a.iter().for_each(assert_every_number_is_finite),
+        serde_json::Value::Object(o) => o.values().for_each(assert_every_number_is_finite),
+        _ => {}
+    }
+}
+
+/// Decision 618: as R's `%in%`, -0 as a code leaves out both 0 and -0, and so
+/// does 0.
+#[test]
+fn minus_zero_as_a_missing_code_leaves_out_zero_and_minus_zero() {
+    let cells = rows(&[
+        ("0", "a"),
+        ("-0", "a"),
+        ("1", "a"),
+        ("2", "a"),
+        ("3", "b"),
+        ("0.0", "b"),
+        ("4", "b"),
+    ]);
+    for code in [-0.0, 0.0] {
+        let r = compute(&dataset(&cells), &params(None, &[code])).unwrap();
+        assert_eq!(r.groups.iter().map(|g| g.n).collect::<Vec<_>>(), [2, 2], "code {code:?}");
+        assert_eq!(r.exclusions.len(), 1, "code {code:?}");
+        assert_eq!((r.exclusions[0].code, r.exclusions[0].count), (RanksCode::MissingCode, 3));
+        assert_eq!(r.n, 4);
+    }
+}
+
+/// The edge cases Prompt 0 names that are not pinned above: a table of no rows
+/// and of one row have no second level.
+#[test]
+fn a_table_of_no_rows_or_one_row_is_refused_as_one_level() {
+    let e = refusal(&dataset(&[]), all());
+    assert_eq!((e.code, int(&e, ParamKey::Count)), (RanksCode::GroupOneLevel, Some(0)));
+    let e = refusal(&dataset(&rows(&[("1", "a")])), all());
+    assert_eq!((e.code, int(&e, ParamKey::Count)), (RanksCode::GroupOneLevel, Some(1)));
+}

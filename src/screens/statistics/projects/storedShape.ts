@@ -25,6 +25,7 @@ import type { AnovaDiagnostic, AnovaResultView } from '../anovaTypes';
 import type { CorrDiagnostic, CorrResultView } from '../corrTypes';
 import type { AlphaDiagnostic, AlphaResultView } from '../alphaTypes';
 import type { XtabDiagnostic, XtabResultView } from '../xtabTypes';
+import type { RanksDiagnostic, RanksResultView } from '../ranksTypes';
 import DESCRIBE_CODES from '../describeCodes.json';
 import TTEST_CODES from '../ttestCodes.json';
 import ONESAMPLE_CODES from '../onesampleCodes.json';
@@ -32,6 +33,7 @@ import ANOVA_CODES from '../anovaCodes.json';
 import CORR_CODES from '../corrCodes.json';
 import ALPHA_CODES from '../alphaCodes.json';
 import XTAB_CODES from '../xtabCodes.json';
+import RANKS_CODES from '../ranksCodes.json';
 import { capabilityOfKind } from '../methods';
 
 /** The schema version this app reads, for every stored part. */
@@ -46,15 +48,16 @@ export const ANOVA_CAPABILITY = capabilityOfKind('anova');
 export const CORR_CAPABILITY = capabilityOfKind('correlations');
 export const ALPHA_CAPABILITY = capabilityOfKind('cronbach_alpha');
 export const XTAB_CAPABILITY = capabilityOfKind('crosstabs');
+export const RANKS_CAPABILITY = capabilityOfKind('independent_ranks');
 
 /** A data file's formats: the ingest's (DataFormat in Rust, without json). */
 const DATA_FORMATS = ['csv', 'tsv', 'xlsx', 'xlsm', 'xlsb', 'xls', 'ods', 'sav', 'mat'];
 
 /** The case a method's checked results are shown as. */
-export type CaseKind = 'summary' | 'ttest' | 'one_sample' | 'paired' | 'anova' | 'correlations' | 'cronbach_alpha' | 'crosstabs';
+export type CaseKind = 'summary' | 'ttest' | 'one_sample' | 'paired' | 'anova' | 'correlations' | 'cronbach_alpha' | 'crosstabs' | 'independent_ranks';
 
 /** A failed run's stored diagnostic, in its method's codes. */
-export type StoredFailure = Diagnostic | TTestDiagnostic | OneSampleDiagnostic | AnovaDiagnostic | CorrDiagnostic | AlphaDiagnostic | XtabDiagnostic;
+export type StoredFailure = Diagnostic | TTestDiagnostic | OneSampleDiagnostic | AnovaDiagnostic | CorrDiagnostic | AlphaDiagnostic | XtabDiagnostic | RanksDiagnostic;
 
 /** What a saved result is, once checked: what to show, or why not. */
 export type Checked =
@@ -66,6 +69,7 @@ export type Checked =
   | { kind: 'correlations'; result: CorrResultView; dataFile: DataFileFacts }
   | { kind: 'cronbach_alpha'; result: AlphaResultView; dataFile: DataFileFacts }
   | { kind: 'crosstabs'; result: XtabResultView; dataFile: DataFileFacts }
+  | { kind: 'independent_ranks'; result: RanksResultView; dataFile: DataFileFacts }
   | { kind: 'failed'; capability: CaseKind; failure: StoredFailure; dataFile: DataFileFacts }
   | { kind: 'unknownCapability' }
   | { kind: 'unknownSchema' }
@@ -96,6 +100,7 @@ const AN_CODES = (ANOVA_CODES as string[]).filter((c) => c.indexOf('stats.anova.
 const CR_CODES = (CORR_CODES as string[]).filter((c) => c.indexOf('stats.corr.') === 0);
 const AL_CODES = (ALPHA_CODES as string[]).filter((c) => c.indexOf('stats.alpha.') === 0);
 const XT_CODES = (XTAB_CODES as string[]).filter((c) => c.indexOf('stats.xtab.') === 0);
+const RK_CODES = (RANKS_CODES as string[]).filter((c) => c.indexOf('stats.ranks.') === 0);
 const SEVERITIES = ['error', 'warning', 'note'];
 const DESC_PARAM_KEYS = ['column', 'count', 'index', 'value', 'limit', 'expected', 'found', 'from', 'event'];
 const T_PARAM_KEYS = ['column', 'count', 'index', 'value', 'limit', 'expected', 'found'];
@@ -104,6 +109,7 @@ const AN_PARAM_KEYS = ['column', 'count', 'index', 'value', 'limit', 'expected',
 const CR_PARAM_KEYS = ['column', 'count', 'index', 'value', 'limit', 'expected', 'found'];
 const AL_PARAM_KEYS = ['column', 'count', 'index', 'value', 'expected', 'found'];
 const XT_PARAM_KEYS = ['column', 'count', 'index', 'value', 'limit', 'expected', 'found'];
+const RK_PARAM_KEYS = ['column', 'count', 'index', 'value', 'limit', 'expected', 'found'];
 const RUN_STATES = [
   'draft',
   'validating',
@@ -689,6 +695,117 @@ function xtabBundle(v: O): XtabResultView | null {
   };
 }
 
+/* ---- the rank tests (Phase 8Y-2, decision 622) --------------------------------- */
+
+/** The codes stats_ranks writes where a number would be: every value equal, an
+ *  overflow, or a df past the chi-square's measured range. */
+const RK_NC = ['all_values_tied', 'overflow', 'distribution_out_of_range'].map((c) => `stats.ranks.${c}`);
+const rkNc = (x: unknown) => oneOf(x, RK_NC);
+const rkStat = (v: unknown) => oneKey(v, { value: isNum, not_computable: rkNc });
+const rankGroup = (v: unknown) =>
+  isObject(v) &&
+  Object.keys(v).length === 6 &&
+  isCount(v.level) &&
+  isStr(v.label) &&
+  isCount(v.n) &&
+  [v.median, v.rankSum, v.meanRank].every(isNum);
+
+/** The Mann-Whitney form: its eight keys, every one always written; exactP a number
+ *  or null. */
+const mannWhitney = (v: unknown) =>
+  isObject(v) &&
+  Object.keys(v).length === 8 &&
+  isCount(v.first) &&
+  isCount(v.second) &&
+  [v.u1, v.u2, v.rankBiserial].every(isNum) &&
+  rkStat(v.z) &&
+  rkStat(v.p) &&
+  'exactP' in v &&
+  (v.exactP === null || isNum(v.exactP));
+
+/** The Kruskal-Wallis form: its four keys, every one always written. */
+const kruskalWallis = (v: unknown) =>
+  isObject(v) && Object.keys(v).length === 4 && isNum(v.df) && rkStat(v.h) && rkStat(v.p) && rkStat(v.epsilonSquared);
+
+/** The test the count of groups chose: Mann-Whitney's form for two, Kruskal-Wallis's
+ *  for three or more, as stats_ranks chooses. */
+const rankTest = (test: unknown, groups: unknown) =>
+  Array.isArray(groups) &&
+  (groups.length === 2 ? oneKey(test, { mann_whitney: mannWhitney }) : groups.length >= 3 && oneKey(test, { kruskal_wallis: kruskalWallis }));
+
+/** An exclusion, exactly as stats_ranks writes it: one of its four reasons, naming
+ *  its column and nothing else. */
+const RK_EXCLUDED = ['missing_group', 'other_level', 'missing_outcome', 'missing_code'].map((c) => `stats.ranks.${c}`);
+const rkExclusion = (e: unknown) =>
+  isObject(e) &&
+  oneOf(e.code, RK_EXCLUDED) &&
+  isCount(e.count) &&
+  isObject(e.params) &&
+  Object.keys(e.params).length === 1 &&
+  isCount(e.params.column);
+
+/** A diagnostic as stats_ranks writes it: as every method's, and the suspect-code
+ *  warning always names its column, value and count. */
+const rkDiagnostic = (v: unknown) =>
+  diagnostic(RK_CODES, RK_PARAM_KEYS, false)(v) &&
+  isObject(v) &&
+  (v.code !== 'stats.ranks.suspect_missing_code' || (isObject(v.params) && ['column', 'value', 'count'].every((k) => isNum((v.params as O)[k]))));
+
+/** The notes stats_ranks writes, in its order. */
+const RK_NOTES = ['exact_not_given_ties', 'exact_not_given_size', 'group_below_five'].map((c) => `stats.ranks.${c}`);
+const rkNotes = (v: unknown) => Array.isArray(v) && JSON.stringify(v) === JSON.stringify(RK_NOTES.filter((c) => v.indexOf(c) >= 0));
+
+/** What stats_ranks always writes together: for two groups, the first and second
+ *  the groups' own two levels in order, and an absent exact p exactly when a note
+ *  says why; for three or more, no note about an exact p. */
+const rkConsistent = (r: O) => {
+  const groups = r.groups as O[];
+  const noted = (r.notes as string[]).some((c) => RK_NOTES.slice(0, 2).indexOf(c) >= 0);
+  const test = r.test as O;
+  if (!isObject(test.mann_whitney)) return !noted;
+  const t = test.mann_whitney;
+  return t.first === groups[0].level && t.second === groups[1].level && (t.exactP === null) === noted;
+};
+
+/** Every result's limitations, in stats_ranks' order (its LIMITATIONS). */
+const RANKS_LIMITATIONS = ['no_pairwise_comparisons', 'two_sided_only', 'no_location_shift_estimate', 'exact_without_ties_only', 'no_further_k_sample_tests', 'no_weights', 'code_point_order'].map(
+  (c) => `stats.ranks.${c}`
+);
+
+/** IndependentRanksOutcome's keys, every one always written. */
+const RANKS_RESULT_KEYS = ['groups', 'n', 'tieRuns', 'test', 'exclusions', 'notes', 'limitations'];
+
+function ranksBundle(v: O): RanksResultView | null {
+  const r = v.primaryOutputs;
+  const ok =
+    isCount(v.runId) &&
+    v.status === 'succeeded' &&
+    isObject(r) &&
+    Object.keys(r).length === RANKS_RESULT_KEYS.length &&
+    RANKS_RESULT_KEYS.every((k) => k in r) &&
+    arrayOf(r.groups, rankGroup) &&
+    isCount(r.n) &&
+    isCount(r.tieRuns) &&
+    rankTest(r.test, r.groups) &&
+    arrayOf(r.exclusions, rkExclusion) &&
+    rkNotes(r.notes) &&
+    rkConsistent(r) &&
+    Array.isArray(r.limitations) &&
+    JSON.stringify(r.limitations) === JSON.stringify(RANKS_LIMITATIONS) &&
+    arrayOf(v.diagnostics, rkDiagnostic) &&
+    arrayOf(v.limitations, rkDiagnostic) &&
+    manifest(v.manifest, RANKS_CAPABILITY, rkExclusion);
+  if (!ok) return null;
+  // As Rust's stats_ranks_commands::result makes the live view.
+  return {
+    runId: v.runId as number,
+    status: 'succeeded',
+    result: r as unknown as RanksResultView['result'],
+    diagnostics: v.diagnostics as RanksDiagnostic[],
+    manifest: v.manifest as RanksResultView['manifest'],
+  };
+}
+
 /* ---- the checkers, one per method (Phase 8C; decision 249) ------------------- */
 
 /** How one method's saved result is checked: the case it is shown as, its
@@ -783,6 +900,17 @@ export const STORED_CHECKERS: Record<string, StoredChecker> = {
     bundle: (v, dataFile) => {
       const result = xtabBundle(v);
       return result ? { kind: 'crosstabs', result, dataFile } : null;
+    },
+  },
+  // Research OS, Phase 8Y-2 (decision 622).
+  [RANKS_CAPABILITY]: {
+    which: 'independent_ranks',
+    codes: RK_CODES,
+    keys: RK_PARAM_KEYS,
+    strings: false,
+    bundle: (v, dataFile) => {
+      const result = ranksBundle(v);
+      return result ? { kind: 'independent_ranks', result, dataFile } : null;
     },
   },
 };

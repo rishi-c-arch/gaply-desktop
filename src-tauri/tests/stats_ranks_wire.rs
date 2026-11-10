@@ -2,7 +2,7 @@
 //! 8Y-1, decision 607), in the pattern of `stats_xtab_wire.rs`.** Each view
 //! serialises to exactly the bytes of its fixture in
 //! `src/screens/statistics/fixtures/` (pretty JSON, two-space indent, a final
-//! newline), which 8Y-2's screen types will be tested against. Each fixture
+//! newline), which the screen's types (`ranksTypes.vitest.ts`, 8Y-2) are tested against. Each fixture
 //! fills every field, and between them every variant of every enum the
 //! result carries: a value and a code, the Mann-Whitney test with its exact
 //! p and the Kruskal-Wallis test with a value not computable. The values are

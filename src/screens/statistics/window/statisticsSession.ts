@@ -20,6 +20,7 @@ import type { OneSampleResultView, OneSampleRunStateView, PairedResultView } fro
 import { savableOnScreen } from '../projects/SaveToProject';
 import type { TTestResultView, TTestRunStateView } from '../ttestTypes';
 import type { XtabResultView, XtabRunStateView } from '../xtabTypes';
+import type { RanksResultView, RanksRunStateView } from '../ranksTypes';
 import type { GridCell } from './gridRange';
 
 /** The sentence for a slot the window finds gone (ADR-012 Part 2). */
@@ -39,6 +40,8 @@ export interface MethodRuns {
   cronbach_alpha: AlphaRunStateView;
   /** Research OS, Phase 8X-2 (decision 591). */
   crosstabs: XtabRunStateView;
+  /** Research OS, Phase 8Y-2 (decision 622). */
+  independent_ranks: RanksRunStateView;
 }
 
 /** Each kind's result, as its result command reads it (decision 479). */
@@ -52,6 +55,8 @@ export interface MethodResults {
   cronbach_alpha: AlphaResultView;
   /** Research OS, Phase 8X-2 (decision 591). */
   crosstabs: XtabResultView;
+  /** Research OS, Phase 8Y-2 (decision 622). */
+  independent_ranks: RanksResultView;
 }
 
 /** What every entry holds, whatever its method (decision 471). */

@@ -25,6 +25,7 @@ use app_lib::stats_corr_commands as corr;
 use app_lib::stats_desc_commands as desc;
 use app_lib::stats_onesample_commands as onesample;
 use app_lib::stats_prep_commands as prep;
+use app_lib::stats_ranks_commands as ranks;
 use app_lib::stats_ttest_commands as ttest;
 use gaply_core::contracts::{CapabilityId, ContentHash, OperationId, RunState};
 use gaply_core::research_project::{ArtifactHash, ArtifactKind, DataFormat, ProjectCode, UsedRole};
@@ -35,6 +36,7 @@ use gaply_core::stats_desc::{self, Alias, ColumnRequest, DescribeParams, TreatAs
 use gaply_core::stats_l1::dataset::ColumnAlias;
 use gaply_core::stats_onesample::{self, OneSampleParams, PairedParams};
 use gaply_core::stats_prep::{self, MissingRule, Recipe, RecipeStep, ScaleScoreStep, Statistic};
+use gaply_core::stats_ranks::{self, IndependentRanksParams};
 use gaply_core::stats_ttest::{self, TTestParams, Variant};
 
 use project_support::*;
@@ -89,8 +91,8 @@ fn make(w: &World, slot: u64, recipe: &Recipe) {
     assert!(v.dataset.is_some(), "{:?}", v.errors);
 }
 
-/// The seven methods, each with a score in it, as `prep_support::seven`.
-const SEVEN: [&str; 7] = [
+/// The eight methods, each with a score in it, as `prep_support::eight`.
+const EIGHT: [&str; 8] = [
     "summary",
     "t-test",
     "one-sample",
@@ -98,6 +100,7 @@ const SEVEN: [&str; 7] = [
     "ANOVA",
     "correlations",
     "alpha",
+    "rank tests",
 ];
 
 /// Runs method `which` on the score, column 8 of [`TABLE`], to its end, its
@@ -206,6 +209,22 @@ fn run_method(w: &World, slot: u64, which: &str) -> u64 {
                 &e.datasets,
                 slot,
                 on_prepared!(stats_alpha::spec(op, d, params)),
+            )
+        }
+        // Research OS, Phase 8Y-2 (decision 621): the score as the outcome, the
+        // file's two-level arm as the group.
+        "rank tests" => {
+            let params = IndependentRanksParams {
+                outcome: score,
+                group: alias(5),
+                levels: None,
+                missing_codes: no_codes(),
+            };
+            ranks::run(
+                &e.runs,
+                &e.datasets,
+                slot,
+                on_prepared!(stats_ranks::spec(op, d, params)),
             )
         }
         other => panic!("no method {other}"),
@@ -489,12 +508,12 @@ fn a_run_with_two_recipe_edges_is_refused_as_an_unknown_artifact() {
 /// Every method's run on a score saves, with its recipe, whatever its result.
 #[test]
 fn a_run_of_each_method_on_a_score_saves_with_its_recipe() {
-    for which in SEVEN {
-        let w = World::new("save-seven");
+    for which in EIGHT {
+        let w = World::new("save-eight");
         let slot = w.open("items.csv", TABLE);
         make(&w, slot, &mean_recipe());
         let run = run_method(&w, slot, which);
-        let saved = pc::save_run(&w.root(), &w.ws, run, new_project("Seven")).expect(which);
+        let saved = pc::save_run(&w.root(), &w.ws, run, new_project("Eight")).expect(which);
         let id = saved.project_id;
         assert_eq!(
             column(&w, &id, "SELECT hash FROM used WHERE role = 'recipe'"),
@@ -706,18 +725,18 @@ fn new_artifacts(
         .collect()
 }
 
-/// For each of the seven methods: a run on a score, saved, reopened and run
+/// For each of the eight methods: a run on a score, saved, reopened and run
 /// again, is identical, with the recipe reused and nothing else written but the
 /// new bundle and manifest.
 #[test]
 fn each_method_on_a_score_saved_reopened_and_rerun_is_identical_and_reuses_the_recipe() {
     use gaply_core::research_project::RerunComparison::Identical;
-    for which in SEVEN {
-        let w = World::new("rerun-seven");
+    for which in EIGHT {
+        let w = World::new("rerun-eight");
         let slot = w.open("items.csv", TABLE);
         make(&w, slot, &mean_recipe());
         let run = run_method(&w, slot, which);
-        let id = pc::save_run(&w.root(), &w.ws, run, new_project("Seven"))
+        let id = pc::save_run(&w.root(), &w.ws, run, new_project("Eight"))
             .expect(which)
             .project_id;
         pc::close(&w.root(), &w.ws).unwrap();

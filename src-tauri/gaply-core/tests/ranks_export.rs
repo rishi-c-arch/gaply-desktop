@@ -11,14 +11,14 @@
 //!   header, label or path (sentinels, with positive controls).
 //! * A Kruskal-Wallis result has no Mann-Whitney lines, and a value that is
 //!   not computable is an empty field with its code.
-//! * The bytes are pinned on macOS aarch64 (captured 10 Nov 2026): a golden
-//!   CSV and the manifest's JSON for a Mann-Whitney test over 16 rows, with
-//!   its exact p, one row left out by each of the four reasons and a group
-//!   below five values. Every other platform, Linux x86_64 included, checks
-//!   that pin's layout (decision 346's check, `pin_support`, unchanged), as
-//!   crosstabs' did at 8X-1, until a Linux run measures it (decision 604):
-//!   the normal p comes from the platform's maths library through statrs, so
-//!   another platform's last digits may differ. It never passes by skipping.
+//! * The bytes are pinned on macOS aarch64 (captured 10 Nov 2026) and, since a
+//!   Linux run measured the same bytes (decisions 612, 615 and 618), on Linux
+//!   x86_64: a golden CSV and the manifest's JSON for a Mann-Whitney test over
+//!   16 rows, with its exact p, one row left out by each of the four reasons
+//!   and a group below five values. Every other platform checks that pin's
+//!   layout (decision 346's check, `pin_support`, unchanged): the normal p
+//!   comes from the platform's maths library through statrs, so another
+//!   platform's last digits may differ. It never passes by skipping.
 //! * Ten runs give byte-identical CSV and manifest bytes.
 
 use gaply_core::contracts::{Arch, OperationId, Os, Platform, RunManifest};
@@ -326,19 +326,19 @@ enum PinCheck {
 /// name the `target_os` and `target_arch` this test was built for.
 fn pin_check(os: &str, arch: &str) -> PinCheck {
     match (os, arch) {
-        ("macos", "aarch64") => PinCheck::Exact,
+        ("macos", "aarch64") | ("linux", "x86_64") => PinCheck::Exact,
         _ => PinCheck::Layout,
     }
 }
 
-/// Decision 604, run on every platform: exact bytes on macOS aarch64, the
-/// layout check everywhere else, Linux x86_64 included until it is
-/// measured, never a skip, as crosstabs' pin was first made (8X-1).
+/// Decisions 604 and 618, run on every platform: exact bytes on macOS aarch64
+/// and Linux x86_64, the layout check everywhere else, never a skip, as
+/// crosstabs' pin is.
 #[test]
-fn the_pin_is_checked_exactly_on_macos_aarch64_and_by_its_layout_elsewhere() {
+fn the_pin_is_checked_exactly_on_macos_aarch64_and_linux_x86_64() {
     for (os, arch, want) in [
         ("macos", "aarch64", PinCheck::Exact),
-        ("linux", "x86_64", PinCheck::Layout),
+        ("linux", "x86_64", PinCheck::Exact),
         ("windows", "x86_64", PinCheck::Layout),
         ("macos", "x86_64", PinCheck::Layout),
         ("linux", "aarch64", PinCheck::Layout),
@@ -415,4 +415,40 @@ fn the_layout_check_allows_a_few_ulps_and_nothing_else() {
         csv_layout_matches(&altered(&format!("{word}\r\n"), ""), &pin).is_err(),
         "a missing line"
     );
+}
+
+/// Decision 618: values near the largest double, through the whole method and
+/// its export: no infinity, no NaN and no null in either file.
+#[test]
+fn values_near_the_largest_double_export_no_inf_no_null_and_no_nan() {
+    let d = dataset(
+        ["outcome", "group"],
+        &[("1e308", "a"), ("1.5e308", "a"), ("1", "b"), ("2", "b")],
+    );
+    let params = IndependentRanksParams {
+        outcome: Alias(ColumnAlias(1)),
+        group: Alias(ColumnAlias(2)),
+        levels: None,
+        missing_codes: vec![],
+    };
+    let result = compute(&d, &params).unwrap();
+    let s = spec(OperationId(1), &d, params);
+    let m = manifest(&s, &d, &result, 1, platform());
+    let csv = String::from_utf8(result_csv(&result, &m)).unwrap();
+    let json = String::from_utf8(manifest_json(&m)).unwrap();
+    // The manifest's one null is its `seed`, as the pin's is.
+    let json = json.replace("\"seed\": null", "\"seed\": 0");
+    for (name, text) in [("csv", &csv), ("manifest", &json)] {
+        let lower = text.to_lowercase();
+        for bad in ["inf", "nan", "null"] {
+            // `limitation` words and hex hashes aside, a bad token stands alone
+            // between delimiters.
+            let hit = lower
+                .split(|c: char| !c.is_ascii_alphanumeric())
+                .any(|t| t == bad);
+            assert!(!hit, "{name} holds {bad}:\n{text}");
+        }
+    }
+    assert!(csv.contains("\"groups\",\"median\""), "{csv}");
+    assert!(csv.contains(",125"), "the median written out: {csv}");
 }

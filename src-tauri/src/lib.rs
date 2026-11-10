@@ -435,8 +435,8 @@ pub fn run() {
             stats_xtab_commands::stats_xtab_cancel,
             stats_xtab_commands::stats_xtab_export,
             // Research OS, Phase 8Y-1 (decision 607): the Mann-Whitney and
-            // Kruskal-Wallis tests, behind the workspace check; no screen starts
-            // them until 8Y-2.
+            // Kruskal-Wallis tests, behind the workspace check; since 8Y-2
+            // (decision 622) the window's Independent samples… dialog starts them.
             stats_ranks_commands::stats_ranks_validate,
             stats_ranks_commands::stats_ranks_run,
             stats_ranks_commands::stats_ranks_status,

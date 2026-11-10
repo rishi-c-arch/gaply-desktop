@@ -20,6 +20,7 @@ import onesampleResult from '../fixtures/onesampleResultView.json';
 import pairedResult from '../fixtures/pairedResultView.json';
 import { ttestResultView } from '../fixtures/ttestFixtures';
 import { xtabResultView } from '../fixtures/xtabFixtures';
+import { ranksResultView } from '../fixtures/ranksFixtures';
 import { METHODS } from '../methods';
 import { makeMockOneSampleBridge, makeMockPairedBridge } from '../onesampleBridge';
 import { makeMockProjectBridge, PROJECT_COMMANDS as C } from '../projects/projectBridge';
@@ -27,6 +28,7 @@ import { openProjectStore } from '../projects/projectSession';
 import { makeMockCapabilityBridge, makeMockTTestBridge } from '../ttestBridge';
 import type { CapabilityView } from '../ttestTypes';
 import { makeMockXtabBridge } from '../xtabBridge';
+import { makeMockRanksBridge } from '../ranksBridge';
 import { METHOD_DIALOGS, METHOD_OUTPUT } from './methodOutput';
 import { statisticsSession } from './statisticsSession';
 import { StatisticsWindow } from './StatisticsWindow';
@@ -154,6 +156,19 @@ const ROWS = [
     },
     line: 'Rows: C3 Arm. Columns: C1 Height. Missing codes: none.',
   },
+  // Research OS, Phase 8Y-2 (decision 622).
+  {
+    kind: 'independent_ranks',
+    run: 'rk-run',
+    card: 'rk-result-card',
+    prefix: 'stats_ranks',
+    choose: async () => {
+      select('rk-outcome', 'C1');
+      select('rk-group', 'C3');
+      await screen.findByTestId('rk-level-1');
+    },
+    line: 'Outcome: C1 Height. Group: C3 Arm. Levels: all. Missing codes: none.',
+  },
 ] as const;
 
 function setUp() {
@@ -168,6 +183,7 @@ function setUp() {
     corr: makeMockCorrBridge(fill('stats_corr', corrResultView)),
     alpha: makeMockAlphaBridge(fill('stats_alpha', alphaResultView)),
     xtab: makeMockXtabBridge(fill('stats_xtab', xtabResultView)),
+    ranks: makeMockRanksBridge({ stats_ranks_group_levels: levels, ...fill('stats_ranks', ranksResultView) }),
   };
   const capabilities: CapabilityView[] = METHODS.map((m) => ({ id: m.capabilityId, version: 1, lifecycle: 'beta', titleCode: 'stats.capability.describe.title', descriptionCode: 'stats.capability.describe.description', licenseNotes: [], knownLimitations: [], runnable: true }));
   const save = vi.fn().mockResolvedValue('/chosen/out.csv');

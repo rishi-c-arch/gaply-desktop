@@ -101,7 +101,9 @@
 //! the Mann-Whitney and Kruskal-Wallis tests, started with
 //! [`Runs::start_ranks`]. Its one check point is `stats_ranks::run`'s, before
 //! the arithmetic, and the record's `columns_total` is
-//! `stats_ranks::check_points`, one. No screen starts it until 8Y-2.
+//! `stats_ranks::check_points`, one. Since Phase 8Y-2 (decision 622) the
+//! Statistics window's Independent samples… dialog starts it, and a project
+//! reruns it.
 //!
 //! Phase 3: the run manager and the slots belong to the Statistics workspace
 //! (`crate::workspace`), built when it is activated and dropped when it is
@@ -2354,8 +2356,8 @@ impl Runs {
         self.begin::<IndependentRanks>(slot, spec, None)
     }
 
-    /// [`Runs::start_ranks`], with an end hook, for a project's rerun when
-    /// 8Y-2 wires it (decision 607).
+    /// [`Runs::start_ranks`], with an end hook, for a project's rerun (decisions
+    /// 607 and 621).
     pub fn start_ranks_then(
         self: &Arc<Self>,
         slot: Arc<Slot>,

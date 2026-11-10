@@ -14,11 +14,12 @@
 //! mean rank), `median`, `table` (the tie runs), `wilcox.test(exact = FALSE,
 //! correct = FALSE)` (U1 as W, and the asymptotic p), `wilcox.test(exact =
 //! TRUE)` (the exact p, asked for only without ties), `kruskal.test` (df and
-//! p). z, the rank-biserial correlation, H's deviation form and
+//! p). z, the rank-biserial correlation, H in the form decision 618 fixes and
 //! epsilon-squared have no base function: the same formulas are written
 //! twice, in the generator and in `stats_ranks`. Gaply's H is compared with
-//! the deviation form, its p with `kruskal.test`'s; the largest difference
-//! between R's two H values is printed. Counts, df, levels, labels, the
+//! that form, its p with `kruskal.test`'s, and with `kruskal.test`'s H at its
+//! own gate in every case but `kw_large`, where `kruskal.test`'s form loses
+//! digits and the difference is printed. Counts, df, levels, labels, the
 //! first and second groups, exclusions and notes are compared exactly. Every
 //! p value is compared by a pure relative error, as
 //! `tests/stats_dist_reference.rs` does; every other number relative below a
@@ -55,7 +56,8 @@ const GATES: &[(&str, f64)] = &[
     ("u", 1e-15),      // 0 measured: U1 and U2 bit for bit
     ("z", 1e-15),      // 0 measured: the formula written twice, bit for bit
     ("p", 9e-10),      // 8.833e-11, mw_large mann_whitney.p, pure relative (statrs's erfc against R's pnorm, as corr_r_golden.rs's 9.958e-11)
-    ("h", 1e-15),      // 0 measured: the deviation form written twice, bit for bit
+    ("h", 1e-15),      // 0 measured: H's form written twice, bit for bit
+    ("h_kruskal", 1.2e-14), // 1.151e-15, kw_small: Gaply's H against kruskal.test's, every case but kw_large
     ("effect", 1e-15), // 0 measured: the rank-biserial correlation and epsilon-squared bit for bit
 ];
 
@@ -350,14 +352,25 @@ fn every_number_of_every_case_is_within_its_gate_of_r() {
         let got = keys(&r);
         for (key, w) in want {
             if key == "kruskal_wallis.h_kruskal_test" {
-                // R's other form: printed against R's deviation form, not
-                // compared with Gaply's.
-                let dev: f64 = want["kruskal_wallis.h"].parse().unwrap();
+                // R's own form: gated, but in kw_large, where its form cancels
+                // and the difference is printed (decision 618).
+                let Some(Got::Number(gaply)) = got.get("kruskal_wallis.h") else {
+                    panic!("{}: no H beside kruskal.test's", case.name);
+                };
                 let other: f64 = w.parse().unwrap();
-                let diff = (dev - other).abs() / dev.abs();
-                println!("{}: R's H, deviation form {dev:e}, kruskal.test {other:e}, relative difference {diff:.3e}", case.name);
-                if diff >= h_forms.0 {
+                let diff = (gaply - other).abs() / other.abs();
+                println!("{}: H, gaply {gaply:e}, kruskal.test {other:e}, relative difference {diff:.3e}", case.name);
+                if case.name == "kw_large" {
                     h_forms = Worst(diff, case.name.clone());
+                    continue;
+                }
+                let gate = GATES.iter().find(|(f, _)| *f == "h_kruskal").unwrap().1;
+                if diff > gate {
+                    over.push(format!("{} {key}: gaply {gaply:e} R {other:e} error {diff:e} gate {gate:e}", case.name));
+                }
+                let w = worst.entry("h_kruskal").or_default();
+                if diff >= w.0 {
+                    *w = Worst(diff, format!("{} {key}", case.name));
                 }
                 continue;
             }
@@ -405,7 +418,8 @@ fn every_number_of_every_case_is_within_its_gate_of_r() {
         let w = worst.get(fam).map(|w| (w.0, w.1.as_str())).unwrap_or((0.0, "none"));
         println!("{fam:<7} largest error {:.3e} ({})  gate {gate:e}", w.0, w.1);
     }
-    println!("R's two H forms: the largest relative difference {:.3e} ({})", h_forms.0, h_forms.1);
+    println!("kw_large: Gaply's H against kruskal.test's, relative difference {:.3e} (printed, not gated)", h_forms.0);
+    assert_eq!(h_forms.1, "kw_large", "kw_large's difference was read");
     println!("{results} results, {refusals} refusals, {compared} numbers compared, {not_computable} not computable, {absent} exact p absent");
     assert_eq!((results, refusals), (19, 11));
     assert_eq!(not_computable, 5, "all_equal_two's z and p, all_equal_three's H, p and epsilon-squared");

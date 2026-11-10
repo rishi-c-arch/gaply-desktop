@@ -110,6 +110,7 @@ use gaply_core::stats_prep::{
 };
 use gaply_core::stats_registry;
 use gaply_core::stats_ttest::{self, TTestCode, TTestParams, Variant};
+use gaply_core::stats_ranks::{self, IndependentRanksParams, RanksCode};
 use gaply_core::stats_xtab::{self, CrosstabsParams, XtabCode};
 use gaply_core::GaplyError;
 
@@ -1219,6 +1220,13 @@ const METHODS: &[MethodRow] = &[
         read_back: read_back::<OperationSpec<CrosstabsParams>>,
         export: export_with::<OperationSpec<CrosstabsParams>>,
     },
+    // Research OS, Phase 8Y-2 (decision 621).
+    MethodRow {
+        capability: stats_ranks::CAPABILITY_ID,
+        kind: RunKind::IndependentRanks,
+        read_back: read_back::<OperationSpec<IndependentRanksParams>>,
+        export: export_with::<OperationSpec<IndependentRanksParams>>,
+    },
 ];
 
 /// The row of a capability, if a method has one.
@@ -1494,6 +1502,37 @@ impl SavedSpec for OperationSpec<CrosstabsParams> {
 
     fn parameters(&self) -> Vec<ExportParameter> {
         xtab_parameters(self)
+    }
+}
+
+// Research OS, Phase 8Y-2 (decision 621): the rank tests, checked through their
+// façade, never stats_ranks itself (verifier_facade_guards.rs).
+impl Rerun for OperationSpec<IndependentRanksParams> {
+    fn valid_on(&self, build: Build, dataset: &Dataset) -> bool {
+        check_spec(
+            WorkspaceId::Statistics,
+            self.workspace_id,
+            &self.capability_id,
+        )
+        .is_ok()
+            && passes(stats_adapters::ranks_validate(self, build, dataset).status)
+    }
+
+    fn launch(
+        self: Box<Self>,
+        runs: &Arc<Runs>,
+        slot: Arc<Slot>,
+        end: EndHook,
+    ) -> Result<RunId, NotStarted> {
+        runs.start_ranks_then(slot, *self, end)
+    }
+}
+
+impl SavedSpec for OperationSpec<IndependentRanksParams> {
+    type Code = RanksCode;
+
+    fn parameters(&self) -> Vec<ExportParameter> {
+        ranks_parameters(self)
     }
 }
 
@@ -2413,7 +2452,9 @@ pub enum SpecFieldShown {
 /// `coefficients[]` and `missing` (decision 357); Cronbach's alpha shares
 /// `missingCodes[]` and adds `items[]`, `reversed[]` and `scale`, null or its
 /// `min` and `max` (decision 382); crosstabs shares `missingCodes[]` and adds
-/// `rows` and `columns` (decision 590).
+/// `rows` and `columns` (decision 590); the rank tests share the ANOVA's
+/// `outcome`, `group`, `levels[]` and `missingCodes[]` and add nothing (decision
+/// 621).
 pub const SPEC_FIELDS: &[(&str, SpecFieldShown)] = &[
     (
         "schemaVersion",
@@ -2751,6 +2792,28 @@ fn xtab_parameters(spec: &OperationSpec<CrosstabsParams>) -> Vec<ExportParameter
         position: p.columns.0 .0,
         role: ColumnRole::TableColumns,
     });
+    out.push(ExportParameter::MissingCodes {
+        count: p.missing_codes.len() as u64,
+    });
+    out.push(ExportParameter::Seed(spec.random_seed));
+    out
+}
+
+/// The rank tests' settings, by the allow-list (Research OS, Phase 8Y-2, decision
+/// 621), on `anova_parameters`: the outcome and the group by position and role,
+/// the included levels by index, and how many missing codes. No level is named.
+fn ranks_parameters(spec: &OperationSpec<IndependentRanksParams>) -> Vec<ExportParameter> {
+    let p = &spec.parameters;
+    let mut out = shape(&spec.inputs);
+    out.push(ExportParameter::Column {
+        position: p.outcome.0 .0,
+        role: ColumnRole::Outcome,
+    });
+    out.push(ExportParameter::Column {
+        position: p.group.0 .0,
+        role: ColumnRole::Group,
+    });
+    out.push(ExportParameter::IncludedLevels(p.levels.clone()));
     out.push(ExportParameter::MissingCodes {
         count: p.missing_codes.len() as u64,
     });
@@ -3345,6 +3408,52 @@ mod tests {
         }
     }
 
+    /// Research OS, Phase 8Y-2 (decision 621): the rank tests' spec, a level
+    /// left out and two codes, its levels `Some` as the ANOVA's are.
+    fn ranks_spec() -> OperationSpec<IndependentRanksParams> {
+        OperationSpec {
+            schema_version: SchemaVersion,
+            operation_id: OperationId(13),
+            workspace_id: WorkspaceId::Statistics,
+            capability_id: stats_ranks::capability_id(),
+            capability_version: 1,
+            inputs: vec![input()],
+            parameters: IndependentRanksParams {
+                outcome: Alias(ColumnAlias(1)),
+                group: Alias(ColumnAlias(2)),
+                levels: Some(vec![0, 2]),
+                missing_codes: vec![-99.0, 99.0],
+            },
+            random_seed: None,
+            confirmation_refs: Vec::new(),
+            preparation: None,
+        }
+    }
+
+    #[test]
+    fn the_rank_tests_settings_are_positions_roles_indexes_and_counts() {
+        assert_eq!(
+            ranks_parameters(&ranks_spec()),
+            [
+                ExportParameter::InputShape {
+                    rows: 12,
+                    columns: 3
+                },
+                ExportParameter::Column {
+                    position: 1,
+                    role: ColumnRole::Outcome
+                },
+                ExportParameter::Column {
+                    position: 2,
+                    role: ColumnRole::Group
+                },
+                ExportParameter::IncludedLevels(Some(vec![0, 2])),
+                ExportParameter::MissingCodes { count: 2 },
+                ExportParameter::Seed(None),
+            ]
+        );
+    }
+
     #[test]
     fn the_crosstabs_settings_are_positions_roles_and_counts() {
         assert_eq!(
@@ -3565,6 +3674,8 @@ mod tests {
         // Crosstabs (decision 590): its `rows` and `columns`, a string each,
         // distinct from the summary's `columns[].alias`.
         paths(&serde_json::to_value(xtab_spec()).unwrap(), "", &mut seen);
+        // The rank tests (decision 621): the ANOVA's fields, levels `Some`.
+        paths(&serde_json::to_value(ranks_spec()).unwrap(), "", &mut seen);
         // A run on prepared data (decision 435).
         paths(
             &serde_json::to_value(prepared_spec()).unwrap(),
@@ -4406,6 +4517,8 @@ mod tests {
             stats_onesample::PAIRED_ID,
             // Research OS, Phase 8X-2 (decision 590).
             stats_xtab::CAPABILITY_ID,
+            // Research OS, Phase 8Y-2 (decision 621).
+            stats_ranks::CAPABILITY_ID,
         ] {
             assert_eq!(
                 METHODS.iter().filter(|m| m.capability == id).count(),

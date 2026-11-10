@@ -42,6 +42,9 @@ import type { AlphaDiagnostic } from '../alphaTypes';
 import { XtabCard } from '../XtabCard';
 import { xtabSentence, type XtabNames } from '../xtabWording';
 import type { XtabDiagnostic } from '../xtabTypes';
+import { RanksCard } from '../RanksCard';
+import { ranksSentence, type RanksNames } from '../ranksWording';
+import type { RanksDiagnostic, RanksResultView } from '../ranksTypes';
 import { diagnosticSentence } from '../describeWording';
 import { ttestSentence, type TTestNames } from '../ttestWording';
 import { oneSampleSentence } from '../onesampleWording';
@@ -59,6 +62,7 @@ import {
   checkStored,
   ONE_SAMPLE_CAPABILITY,
   PAIRED_CAPABILITY,
+  RANKS_CAPABILITY,
   SUMMARY_CAPABILITY,
   TTEST_CAPABILITY,
   XTAB_CAPABILITY,
@@ -130,6 +134,16 @@ export function anovaNames(result: AnovaResultView, column: (alias: number) => s
  *  draws each level's label from the result as text. */
 export function xtabNames(column: (alias: number) => string = BY_POSITION): XtabNames {
   return { column };
+}
+
+/** The rank tests' names (Research OS, Phase 8Y-2, decision 622), on anovaNames':
+ *  columns by position, or a score's C{n} "name" given the run's scores (decision
+ *  554), levels by the result's own groups. */
+export function ranksNames(result: RanksResultView, column: (alias: number) => string = BY_POSITION): RanksNames {
+  return {
+    column,
+    level: (index: number) => result.result.groups.find((g) => g.level === index)?.label ?? `level ${index + 1}`,
+  };
 }
 
 interface BoundaryProps {
@@ -225,6 +239,15 @@ export const SAVED_RENDERERS: Record<string, SavedRenderer> = {
     failedSentence: (failure, n = BY_POSITION_ONLY) => xtabSentence(failure as XtabDiagnostic, xtabNames(n.column)),
     result: (checked, n = BY_POSITION_ONLY) =>
       checked.kind === 'crosstabs' ? <XtabCard result={checked.result} names={xtabNames(n.column)} /> : null,
+    hidden: () => false,
+  },
+  // Research OS, Phase 8Y-2 (decision 622): through the Output's own card, RanksCard,
+  // its names as the ANOVA's are; not behind a flag.
+  [RANKS_CAPABILITY]: {
+    failedSentence: (failure, n = BY_POSITION_ONLY) =>
+      ranksSentence(failure as RanksDiagnostic, { column: n.column, level: (i) => `level ${i + 1}` }),
+    result: (checked, n = BY_POSITION_ONLY) =>
+      checked.kind === 'independent_ranks' ? <RanksCard result={checked.result} names={ranksNames(checked.result, n.column)} /> : null,
     hidden: () => false,
   },
 };

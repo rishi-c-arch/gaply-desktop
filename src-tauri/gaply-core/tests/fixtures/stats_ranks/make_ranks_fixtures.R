@@ -57,12 +57,13 @@
 #   * three or more groups, the Kruskal-Wallis test: kruskal.test's statistic,
 #     df and p.value, the statistic as h_kruskal_test (R's form, 12 / (N (N +
 #     1)) sum R_i^2 / n_i - 3 (N + 1), over its tie correction). Gaply's H is
-#     the deviation form, (12 / (N (N + 1))) sum n_i (Rbar_i - (N + 1) / 2)^2
-#     / C, C = 1 - sum(t^3 - t) / (N^3 - N), which no base function gives: THE
-#     SAME FORMULA IS WRITTEN TWICE, and written as h; epsilon-squared,
+#     (12 / (N (N + 1))) sum (D_i^2 / n_i) / C, D_i = R_i - n_i (N + 1) / 2,
+#     C = 1 - sum(t^3 - t) / (N^3 - N), which no base function gives: THE SAME
+#     FORMULA IS WRITTEN TWICE, and written as h (decision 618: the mean rank
+#     less (N + 1) / 2 cancels near the null, D_i does not); epsilon-squared,
 #     H / (N - 1), written twice too. The golden test compares Gaply's H with
-#     h and its p with kruskal.test's, and prints the largest difference
-#     between h and h_kruskal_test;
+#     h and its p with kruskal.test's, gates h_kruskal_test but in kw_large,
+#     and prints kw_large's difference;
 #   * every included value equal: sigma and C are 0, so z and its p, and H,
 #     its p and epsilon-squared, are "nc stats.ranks.all_values_tied".
 #
@@ -154,10 +155,10 @@ analyse <- function(case, d, codes = numeric(), levels = NULL, refusal = FALSE) 
   T <- sum(tt^3 - tt)
   all_tied <- length(tt) == 1
   emit(case, "n", N); emit(case, "groups", k); emit(case, "tie_runs", sum(tt >= 2))
-  ns <- numeric(k); rbar <- numeric(k)
+  ns <- numeric(k); rs <- numeric(k)
   for (j in seq_len(k)) {
     at <- gk == inc[j]
-    ns[j] <- sum(at); rbar[j] <- sum(r[at]) / ns[j]
+    ns[j] <- sum(at); rs[j] <- sum(r[at])
     key <- function(s) sprintf("group.%d.%s", idx[j], s)
     emit(case, key("label"), inc[j])
     emit(case, key("n"), ns[j])
@@ -200,7 +201,8 @@ analyse <- function(case, d, codes = numeric(), levels = NULL, refusal = FALSE) 
       kt <- kruskal.test(yk, factor(gk, levels = inc))
       stopifnot(unname(kt$parameter) == k - 1)
       C <- 1 - T / (N^3 - N)
-      H <- (12 / (N * (N + 1))) * sum(ns * (rbar - (N + 1) / 2)^2) / C
+      D <- rs - ns * (N + 1) / 2
+      H <- (12 / (N * (N + 1))) * sum(D^2 / ns) / C
       emit(case, "kruskal_wallis.h", H)
       emit(case, "kruskal_wallis.h_kruskal_test", unname(kt$statistic))
       emit(case, "kruskal_wallis.p", kt$p.value)

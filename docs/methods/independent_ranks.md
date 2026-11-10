@@ -1,8 +1,8 @@
 # The Mann-Whitney and Kruskal-Wallis tests, as an analysis
 
 Capability `stats.analyze.independent_ranks`, version 1, **Beta**, in the
-Statistics workspace (Research OS, Phase 8Y-1; decisions 600 to 609, 10 Nov
-2026; D315). This page is the capability's `documentation_id`
+Statistics workspace (Research OS, Phase 8Y-1, decisions 600 to 609, 10 Nov
+2026, D315; and Phase 8Y-2, decisions 615 to 625, D316). This page is the capability's `documentation_id`
 (`methods/independent_ranks`).
 
 It compares a numeric column of the user's own data across two or more
@@ -19,13 +19,18 @@ reaches it through seven `stats_ranks_*` commands, a levels command among
 them, and the run manager's `independent_ranks` kind. Planned in 8Y-1's Part
 2 (decision 605), Beta since its Part 3 (decision 607).
 
-**What a user sees at 8Y-1** (decision 607's departure): no screen starts the
-method. The old Statistics home shows its card, as for a method with no
-screen of its own, and Help lists it; the window's Analyze menu still lists
-"Nonparametric tests" under Coming later. A run started through IPC could be
-saved to a project, whose report would refuse it, and a workspace switch would
-poll it through the summary's commands and get `run.wrong_kind`. 8Y-2 adds the
-window's dialog and Output, saved results and reruns, and closes both.
+Since 8Y-2 (decisions 619 to 622) a user runs it from the Statistics window:
+Analyze, a new group **Nonparametric tests** after Scale, **Independent
+samples…**, as SPSS places it and as its dialog chooses the test by the number
+of groups; Coming later's "Nonparametric tests" became "Related-samples
+nonparametric tests", since the Wilcoxon signed-rank test is not built
+(decision 624). There is no page and no route (ADR-012:233-241): the old home
+shows the card of a method with no screen of its own, the window's dialog is
+its one screen, and the Output's card is drawn by `RanksCard.tsx`. A result can
+be saved to a project, read back, and run again `Identical`, its report naming
+the outcome and the group by role, the included levels by index and the
+missing codes by count; a workspace switch polls and cancels a run through the
+method's own commands.
 
 ## 1. Inputs and the spec
 
@@ -73,7 +78,9 @@ tied, `stats_ranks`' unit test). The tie runs' sizes t come from
 `stats_corr::runs` over the sorted values, Σ(t³ − t) summed in u128 and
 converted to a double once; a tie run is a run of two or more. Each group's
 median is `stats_anova::median` (the middle value, or the mean of the two
-middle ones), its rank sum R the sum of its ranks, its mean rank R / n. N is
+middle ones, summed first, and halved first only where that sum overflows, so
+it is finite for every two finite values and every other median keeps its bits;
+decision 618), its rank sum R the sum of its ranks, its mean rank R / n. N is
 the number of included values.
 
 **Two groups, the Mann-Whitney test** (H. B. Mann and D. R. Whitney, 1947).
@@ -109,19 +116,21 @@ The first group is the included level with the lower index (§3):
 **Three or more groups, the Kruskal-Wallis test** (W. H. Kruskal and W. A.
 Wallis, 1952):
 
-- H = (12 / (N (N + 1))) Σ nᵢ (R̄ᵢ − (N + 1) / 2)² / C with C = 1 − Σ(t³ − t)
-  / (N³ − N), the tie correction. This **deviation form** has none of the
-  cancellation of 12 / (N (N + 1)) Σ Rᵢ² / nᵢ − 3 (N + 1), the form R's
-  `kruskal.test` computes. They agree in exact arithmetic; in doubles they
-  differed by up to **1.047e-3 relative**, on the 99,917 rows of the
-  near-null case `kw_large` (H ≈ 1.83e-8), and by 1.4e-16 to 8.6e-16 in the
-  six other cases (`independent_ranks_r_golden.rs` prints every case's
-  difference).
+- H = (12 / (N (N + 1))) Σ (Dᵢ² / nᵢ) / C with Dᵢ = Rᵢ − nᵢ (N + 1) / 2 and
+  C = 1 − Σ(t³ − t) / (N³ − N), the tie correction. Dᵢ is a difference of two
+  half-integers below 2⁵², so it is exact (decision 618), and this form has
+  neither the cancellation of 12 / (N (N + 1)) Σ Rᵢ² / nᵢ − 3 (N + 1), the form
+  R's `kruskal.test` computes, nor that of the mean rank less (N + 1) / 2,
+  8Y-1's form, which lost digits on the near-null case. On `kw_large`, the 99,917
+  rows of that case, H is **1.8318061856922257e-8**, equal to its exact rational
+  value (computed from the data in i128 by `ranks_cases.rs`) within 1e-15; 8Y-1's
+  form gave 1.8318061857470532e-8, 2.99e-11 relative from it, and
+  `kruskal.test`'s form gives 1.833724711306231e-8, 1.047e-3 relative from it.
 - df = k − 1, at most 49; its p, `stats_dist::chi_square_upper(H, df)`.
 - Epsilon-squared, H / (N − 1) (M. Tomczak and E. Tomczak, 2014).
 
-No base R function gives z, the rank-biserial correlation, H's deviation form
-or epsilon-squared: **the same formulas are written twice**, in
+No base R function gives z, the rank-biserial correlation, H in this form or
+epsilon-squared: **the same formulas are written twice**, in
 `make_ranks_fixtures.R` and in `stats_ranks`, a check of the arithmetic, and
 z is checked against R's p within 1e-9.
 
@@ -150,10 +159,16 @@ outcome a listed code). N plus the rows left out is the data's rows.
   number. U1, U2, the rank-biserial correlation (0), the rank sums and the
   mean ranks are given, and the exact p is absent with `exact_not_given_ties`.
   This is decided from the values (one tie run of N), not from a zero.
-- Any other value a double cannot hold is not computable with its own code:
-  `overflow`, `distribution_out_of_range` (none is reachable through the
-  checks; the wire fixture carries the shape), `arithmetic_refused` (no
-  producer: kept as the ANOVA's code list has it).
+- Any other value a double cannot hold is not computable with its own code,
+  statistic by statistic, never a refusal of the run (decision 618): `overflow`
+  for z, its p, H, its p or epsilon-squared, `distribution_out_of_range` for the
+  Kruskal-Wallis p (none is reachable through the checks; unit tests reach each
+  with a crafted tie sum or 2,403 crafted groups, and the wire fixture carries
+  the shape),
+  `arithmetic_refused` (no producer: kept as the ANOVA's code list has it). The
+  rank-biserial correlation and the exact p have no not-computable form in the
+  wire shape, so `overflow` there and `distribution_out_of_range` for the exact p
+  remain a refusal, unreachable.
 - A group of fewer than 5 values is noted (`group_below_five`): the normal
   or chi-square approximation is rougher there. A group of one value is a
   group.
@@ -186,11 +201,27 @@ relative error; every other number relative below a floor of 1e-12):
 | U1, U2 | 1e-15 (a floor) | 0 |
 | z | 1e-15 (a floor) | 0 |
 | every p (asymptotic, exact, Kruskal-Wallis) | 9e-10 | 8.833e-11 (`mw_large`'s asymptotic p: statrs's `erfc` against R's `pnorm`, as `corr_r_golden.rs` measured 9.958e-11) |
-| H (against R's deviation form) | 1e-15 (a floor) | 0 |
+| H (against the form written twice in R) | 1e-15 (a floor) | 0 |
+| H against `kruskal.test`'s, every case but `kw_large` | 1.2e-14 | 1.151e-15 (`kw_small`) |
 | rank-biserial correlation, epsilon-squared | 1e-15 (a floor) | 0 |
 
-R's two forms of H differ by up to 1.047e-3 relative (§2), at `kw_large`.
-Gaply's p there is compared with `kruskal.test`'s p, within the p gate.
+`kruskal.test`'s H differs from Gaply's by 1.047e-3 relative at `kw_large`
+(§2), printed and not gated; `ranks_cases.rs` holds Gaply's H there to its exact
+value. Gaply's p there is compared with `kruskal.test`'s p, within the p gate.
+
+**The bug hunt** (decisions 616 and 618; `~/gaply-corpus/os/phase8/8y2/hunt/`, not
+committed): 240 seeded synthetic datasets, two to fifty groups, sizes 1 to 300,
+every kind of tie, missing codes and empty cells, magnitudes 1e-300 to 1e300 and
+middle values above 9e307, labels outside ASCII and numbers as levels, compared
+number by number with R's `wilcox.test`, `kruskal.test`, `median` and `rank` and
+with the formulas written twice, and H with its exact value in integers. No
+failure in Gaply's numbers (Gaply's H within 4.368e-16 of the exact value on all
+92 datasets with an H). `kruskal.test`'s H and p are R's and were compared apart:
+its H differed from Gaply's beyond the 1.2e-14 gate on 61 datasets. On 59 of them
+that is its own form's cancellation, up to 3.476e-13 from the exact value, with its
+p within 6.336e-13 of Gaply's. On the other 2, `table()` merges doubles that agree
+to 15 digits while `rank()` does not, so its tie sum is wrong: its H is up to
+1.329e-8 from the exact value and its p up to 7.072e-8 from Gaply's.
 
 **The oracles** (ADR-008, for fixtures only, nothing copied): base R 4.6.1's
 `rank(ties.method = "average")`, `median`, `table`, `wilcox.test(exact =
@@ -238,9 +269,10 @@ a value not computable is empty with its code in `word`, and an absent exact
 p carries the note that says why. The descriptive summary's field writer
 gives the one formula-injection rule (a label `=lo` is written `'=lo`).
 Pinned by `tests/ranks_export.rs`: read back field by field, a golden CSV
-and manifest exact on macOS aarch64, and every other platform, Linux x86_64
-included, checking that pin's layout within 4 ulps until a Linux run
-measures it (decision 604); ten runs byte-identical. The CSV pin is `-text`
+and manifest on macOS aarch64 and, since 8Y-2 (decisions 615 and 618), Linux
+x86_64 checked exactly against the same pin, measured outside this Mac at
+46772148 to give the same bytes; every other platform checks that pin's layout
+within 4 ulps (decision 604); ten runs byte-identical. The CSV pin is `-text`
 in `.gitattributes`, so its CRLF line ends are committed as written.
 
 ## 8. What is not assessed, and the limitations
@@ -266,8 +298,53 @@ computer's memory ([large_samples.md](large_samples.md) §8): 100,000 data
 rows and 128 columns on every computer.
 
 The wording is neutral: no verdict word, no stars (decision 66). Every p
-value and statistic is a number, never called significant. The method's own
-sentences for its result, notes and refusals are 8Y-2's.
+value and statistic is a number, never called significant.
+
+The screen's sentence for each of the method's 37 codes (`ranksWording.ts`, 8Y-2),
+word for word; {column} is the column's name as the user sees it, {level} a
+level's label, and {count}, {value}, {limit}, {found}, {expected}, {n} and {k} the
+code's numbers. A count of 1 reads in the singular (1 cell, 1 row, 1 level, and
+"was left out"):
+
+| code | sentence |
+|---|---|
+| all_values_tied | Not computable: every included value is equal, so the ranks do not differ between groups. |
+| arithmetic_refused | Not computable: the arithmetic refused to give a value. |
+| capability_version_mismatch | These settings were made for version {found} of the rank tests, and this is version {expected}. |
+| code_equals_score | Column {column} is a score, and it holds a missing code you ticked in {count} cells. Untick the code, or leave this score out. |
+| code_point_order | Groups are listed in the order Gaply reads them, so a group column of numbers lists 10 before 2; which group is first, and the signs of the Mann-Whitney z and of the rank-biserial correlation, follow that order. |
+| distribution_out_of_range | Not computable: this needs the chi-square distribution at more than 2,401 degrees of freedom, where Gaply has not measured its accuracy. |
+| exact_not_given_size | The exact p value is not given, because a group has 50 values or more; the p value above comes from the normal approximation. |
+| exact_not_given_ties | The exact p value is not given, because two or more included values are tied; the p value above comes from the normal approximation. |
+| exact_without_ties_only | The Mann-Whitney test's exact p value is given only when no two values are tied and each group has fewer than 50 values; otherwise only the normal approximation's p value is given. |
+| group_below_five | A group has fewer than 5 values, where the normal and chi-square approximations are rougher. |
+| group_empty | The group "{level}" has no value after the exclusions. Leave it out, or choose another group. |
+| group_one_level | The group {column} has {count} levels, and a rank test needs at least two. |
+| input_count | These settings name {count} files, and a rank test reads exactly one. |
+| input_mismatch | These settings were made for a different file from the one open. Open the file again. |
+| level_out_of_range | Level {n} is not one of the group's levels: it has {k}. |
+| level_repeated | Level {n} is included twice. |
+| missing_code | {count} rows held a missing code you ticked in the outcome, and were left out. |
+| missing_code_not_finite | Missing code {n} is not a finite number. |
+| missing_group | {count} rows had no group (an empty cell or a missing-value token), and were left out. |
+| missing_outcome | {count} rows had no outcome (an empty cell or a missing-value token), and were left out. |
+| no_further_k_sample_tests | The median test and the Jonckheere-Terpstra test are not given. |
+| no_location_shift_estimate | No estimate of the shift between two groups, such as the Hodges-Lehmann estimate, and no interval for it, is given. |
+| no_pairwise_comparisons | Pairwise comparisons after a Kruskal-Wallis test, such as Dunn's test, are not given. |
+| no_weights | Each row is counted once; weighting rows by a column is not offered. |
+| other_level | {count} rows were in levels left out, and were left out. |
+| outcome_holds_text | The outcome {column} holds text in {count} cells, so it cannot be used as a numeric outcome. |
+| outcome_non_finite | The outcome {column} holds an infinity or "not a number" in {count} cells, so it cannot be used as a numeric outcome. |
+| overflow | Not computable: the arithmetic went past the largest number a double can hold. |
+| preparation_mismatch | These settings do not match how the open data was prepared. Choose the settings again. |
+| same_column | The outcome and the group are the same column. Choose two different columns. |
+| score_as_group | Column {column} is a score, so it cannot be the group. Choose a column from your file. |
+| suspect_missing_code | The outcome {column} holds {value} in {count} cells, which may be a code for a missing value. It is counted as a number unless you tick it in Settings. |
+| too_few_levels | {count} levels included, and a rank test needs at least two. |
+| too_many_levels | This column has {count} distinct values, more than the {limit} a group may have, so its values are not listed. |
+| two_sided_only | Each Mann-Whitney p value is two-sided; one-sided tests are not offered. |
+| unknown_capability | These settings name a capability Gaply does not have here. |
+| unknown_column | Column {column} is not in this file. |
 
 ## 9. What SPSS documents, and where it differs
 
@@ -300,7 +377,7 @@ https://community.ibm.com/community/user/discussion/post-hoc-comparisons-after-k
 | Formula/method and variant documented | §2, §3; `stats_ranks/mod.rs` and `stats_dist/mod.rs` headers | done |
 | Golden fixtures and edge cases pass | `independent_ranks_r_golden` (30 cases), `ranks_cases` (19), `ranks_export` (7), `stats_dist_reference` | done |
 | Missing values, ties, weights, precision and sample size handled | §1, §2, §4, §5, §6; weights not supported, stated | done |
-| Diagnostic meanings and limitations documented | §4, §8; `RanksCode` docs; `ranksCodes.json` pinned to Rust by `stats_ranks_wire.rs`; the screen's sentences are 8Y-2's | partly: 8Y-2 writes the result's sentences |
+| Diagnostic meanings and limitations documented | §4, §8; `RanksCode` docs; `ranksCodes.json` pinned to Rust by `stats_ranks_wire.rs`; the 37 sentences in `ranksWording.ts` and §8, with every code covered by `ranksWording.vitest.ts` | done |
 | Independent reference comparison completed | R, §5 | done |
 | Unsupported designs return explicit reasons | §1, §4; each refusal's code through IPC (`stats_ranks_commands.rs`) | done |
-| Result manifest and export verified | §7; through IPC the CSV equals the module's export of the run's result and manifest; the privacy matrix (`stats_ranks_privacy_matrix.rs`) | done; saving and rerunning are 8Y-2's |
+| Result manifest and export verified | §7; through IPC the CSV equals the module's export of the run's result and manifest; the privacy matrices (`stats_ranks_privacy_matrix.rs`, `project_rerun_privacy_matrix.rs`); saved and rerun Identical (`project_ranks.rs`) | done |

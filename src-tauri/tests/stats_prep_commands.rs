@@ -1,6 +1,6 @@
 //! **Scale scores through IPC (Research OS, Phase 8M-3, decisions 425 to 427),
 //! with the webview's argument names and the JSON it reads.** The four commands
-//! and their refusals; all seven methods on a prepared slot, each spec copying
+//! and their refusals; all eight methods on a prepared slot, each spec copying
 //! the view's inputRef and preparation; every way a spec can be for another
 //! table; a score refused as a group; and making, replacing and clearing refused
 //! while a run is going, as a second run is. Every file is synthetic and in a
@@ -216,13 +216,13 @@ fn every_command_checks_the_workspace_the_capability_and_the_slot() {
     }
 }
 
-/* ---- all seven methods on a prepared slot ------------------------------------------ */
+/* ---- all eight methods on a prepared slot ------------------------------------------ */
 
 #[test]
-fn all_seven_methods_run_on_a_score_through_ipc_naming_it_by_its_alias_alone() {
-    let (w, o, view) = prepared("seven");
-    let methods = seven(&view, SCORE);
-    assert_eq!(methods.len(), 7);
+fn all_eight_methods_run_on_a_score_through_ipc_naming_it_by_its_alias_alone() {
+    let (w, o, view) = prepared("eight");
+    let methods = eight(&view, SCORE);
+    assert_eq!(methods.len(), 8);
     for m in &methods {
         let report = call(
             &w.w,
@@ -317,13 +317,13 @@ fn a_spec_with_a_forged_preparation_is_refused_by_every_method() {
         ("sourceColumns", json!(6)),
     ];
     for (field, value) in forgeries {
-        for mut m in seven(&view, SCORE) {
+        for mut m in eight(&view, SCORE) {
             m.spec["preparation"][field] = value.clone();
             assert_refused(&w, &o["slot"], &m, field);
         }
     }
     // None at all, on a prepared slot.
-    for mut m in seven(&view, SCORE) {
+    for mut m in eight(&view, SCORE) {
         m.spec.as_object_mut().unwrap().remove("preparation");
         assert_refused(&w, &o["slot"], &m, "absent");
     }
@@ -332,14 +332,14 @@ fn a_spec_with_a_forged_preparation_is_refused_by_every_method() {
 #[test]
 fn two_recipes_of_one_width_are_refused_for_each_other() {
     let (w, o, first) = prepared("two-recipes");
-    let on_first = seven(&first, SCORE);
+    let on_first = eight(&first, SCORE);
     let second = make(&w.w, &o["slot"], &sum_recipe("total"));
     assert_eq!(first["inputRef"]["columns"], second["inputRef"]["columns"]);
     assert_ne!(first["inputRef"], second["inputRef"]);
     for m in &on_first {
         assert_refused(&w, &o["slot"], m, "the first recipe's spec");
     }
-    let on_second = seven(&second, SCORE);
+    let on_second = eight(&second, SCORE);
     make(&w.w, &o["slot"], &mean_recipe(NAME));
     for m in &on_second {
         assert_refused(&w, &o["slot"], m, "the second recipe's spec");
@@ -351,7 +351,7 @@ fn a_spec_made_on_the_original_is_refused_on_the_prepared_slot_and_the_reverse()
     let w = world("carried", TABLE, None);
     let o = open(&w);
     // On the file's table, on a file's column, so only the table differs.
-    let on_original = seven(&o, "C3");
+    let on_original = eight(&o, "C3");
     for m in &on_original {
         let report = call(
             &w.w,
@@ -365,7 +365,7 @@ fn a_spec_made_on_the_original_is_refused_on_the_prepared_slot_and_the_reverse()
     for m in &on_original {
         assert_refused(&w, &o["slot"], m, "made on the original");
     }
-    let on_prepared = seven(&view, "C3");
+    let on_prepared = eight(&view, "C3");
     call(&w.w, "stats_prep_clear", json!({ "slot": o["slot"] })).unwrap();
     for m in &on_prepared {
         assert_refused(&w, &o["slot"], m, "made on the prepared table");
@@ -388,7 +388,7 @@ fn a_spec_made_on_the_original_is_refused_on_the_prepared_slot_and_the_reverse()
 fn a_score_as_a_group_is_refused_by_the_ttest_and_the_anova_through_ipc() {
     let (w, o, view) = prepared("group");
     for (prefix, word, position) in [("stats_ttest", "ttest", 1), ("stats_anova", "anova", 4)] {
-        let mut m = seven(&view, "C3").remove(position);
+        let mut m = eight(&view, "C3").remove(position);
         assert_eq!(m.prefix, prefix);
         m.spec["parameters"]["group"] = json!(SCORE);
         let report = call(
@@ -414,7 +414,7 @@ fn making_replacing_and_clearing_are_refused_while_a_run_is_going() {
     let slot = &o["slot"];
 
     // A make while a run goes on the file's table.
-    let on_file = seven(&o, "C3").remove(0);
+    let on_file = eight(&o, "C3").remove(0);
     let run = start(&w.w, slot, &on_file).unwrap();
     gate.wait_reached();
     assert_eq!(
@@ -445,7 +445,7 @@ fn making_replacing_and_clearing_are_refused_while_a_run_is_going() {
     let o = open(&w);
     let slot = &o["slot"];
     let view = make(&w.w, slot, &mean_recipe(NAME));
-    let m = seven(&view, SCORE).remove(0);
+    let m = eight(&view, SCORE).remove(0);
     let run = start(&w.w, slot, &m).unwrap();
     gate.wait_reached();
     assert_eq!(

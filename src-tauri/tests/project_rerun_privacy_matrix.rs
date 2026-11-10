@@ -84,6 +84,7 @@ use gaply_core::stats_corr::{self, Coefficient, CorrParams, MissingHandling};
 use gaply_core::stats_desc::{self, Alias, ColumnRequest, DescribeParams, TreatAs};
 use gaply_core::stats_l1::dataset::ColumnAlias;
 use gaply_core::stats_prep::{self, MissingRule, Recipe, RecipeStep, ScaleScoreStep, Statistic};
+use gaply_core::stats_ranks::{self, IndependentRanksParams};
 use gaply_core::stats_xtab::{self, CrosstabsParams};
 use gaply_core::Database;
 use project_support::World;
@@ -696,14 +697,51 @@ fn a_rerun_puts_no_sentinel_anywhere_but_the_projects_artifacts_and_its_title() 
     ));
     responses.push(("rerun (crosstabs)".into(), rerun_saved(&w, &app, 14)));
 
+    // Phase 8Y-2 (decision 621): the rank tests on table(), through the slot
+    // the ANOVA used, saved into the open project as run 16 and run again as
+    // 17. After crosstabs', so no stored run id above moves.
+    let held = e.datasets.get(opened.slot).unwrap();
+    let ranks_spec = stats_ranks::spec(
+        OperationId(8),
+        held.dataset(),
+        IndependentRanksParams {
+            outcome: Alias(ColumnAlias(1)),
+            group: Alias(ColumnAlias(2)),
+            levels: None,
+            missing_codes: vec![],
+        },
+    );
+    drop(held);
+    let ranks_run =
+        app_lib::stats_ranks_commands::run(&e.runs, &e.datasets, opened.slot, ranks_spec)
+            .unwrap()
+            .run_id;
+    w.wait_new_kind(ranks_run);
+    let saved_ranks = pc::save_run(
+        &app,
+        &w.ws,
+        ranks_run,
+        SaveTarget::OpenProject {
+            project_id: id.clone(),
+        },
+    )
+    .expect("the rank test saved");
+    assert_eq!(saved_ranks.stored_run_id, 16);
+    responses.push((
+        "save (rank tests)".into(),
+        serde_json::to_string(&saved_ranks).unwrap(),
+    ));
+    responses.push(("rerun (rank tests)".into(), rerun_saved(&w, &app, 16)));
+
     let runs_response = serde_json::to_string(&pc::runs(&app, &w.ws, &id).unwrap()).unwrap();
     responses.push(("runs".into(), runs_response.clone()));
     // Phase 8U-3 (decision 553): project_runs holds no name, nor any other of
     // the prepared run's sentinels.
     prepared_surfaces.push(("runs".into(), runs_response));
     let mut results = String::new();
-    // Phase 8X-2 (decision 590): the crosstab and its rerun, 14 and 15.
-    for n in [1, 2, 3, 4, 5, 6, 7, 8, 14, 15] {
+    // Phase 8X-2 (decision 590): the crosstab and its rerun, 14 and 15; Phase
+    // 8Y-2 (decision 621): the rank test and its rerun, 16 and 17.
+    for n in [1, 2, 3, 4, 5, 6, 7, 8, 14, 15, 16, 17] {
         results.push_str(
             &serde_json::to_string(&pc::run_result(&app, &w.ws, &id, n).unwrap()).unwrap(),
         );
@@ -736,6 +774,11 @@ fn a_rerun_puts_no_sentinel_anywhere_but_the_projects_artifacts_and_its_title() 
             && report.matches("- Column 1: table_rows").count() == 2
             && report.matches("- Column 2: table_columns").count() == 2,
         "the crosstab and its rerun are in the report"
+    );
+    // Phase 8Y-2 (decision 621): the rank test and its rerun.
+    assert!(
+        report.contains("Repeats run 16."),
+        "the rank test and its rerun are in the report"
     );
     assert!(prov.contains("wasInformedBy"), "and in the provenance");
 

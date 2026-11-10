@@ -25,10 +25,12 @@
 //! * three or more, the Kruskal-Wallis H test, W. H. Kruskal and W. A.
 //!   Wallis, "Use of ranks in one-criterion variance analysis", JASA
 //!   47(260), 583–621, 1952, <https://doi.org/10.1080/01621459.1952.10483441>:
-//!   H = (12 / (N (N + 1))) Σ nᵢ (R̄ᵢ − (N + 1) / 2)² / C with
-//!   C = 1 − Σ(t³ − t) / (N³ − N), the deviation form, which has none of the
-//!   cancellation of 12 / (N (N + 1)) Σ Rᵢ² / nᵢ − 3 (N + 1) when N is large
-//!   and H small; df = k − 1; its p, `stats_dist::chi_square_upper`;
+//!   H = (12 / (N (N + 1))) Σ (Dᵢ² / nᵢ) / C with
+//!   Dᵢ = Rᵢ − nᵢ (N + 1) / 2 and C = 1 − Σ(t³ − t) / (N³ − N). Dᵢ is a
+//!   difference of two half-integers below 2⁵², so it is exact, and neither
+//!   12 / (N (N + 1)) Σ Rᵢ² / nᵢ − 3 (N + 1)'s cancellation nor that of the
+//!   mean rank less (N + 1) / 2 (decision 618) touches it when N is large and
+//!   H small; df = k − 1; its p, `stats_dist::chi_square_upper`;
 //!   epsilon-squared, H / (N − 1) (M. Tomczak and E. Tomczak, "The need to
 //!   report effect size estimates revisited", Trends in Sport Sciences
 //!   21(1), 19–25, 2014).
@@ -54,7 +56,13 @@
 //! Every included value equal leaves σ and C at 0: z and its p, and H, its p
 //! and epsilon-squared, are not computable (`all_values_tied`), while U1, U2,
 //! the rank-biserial correlation, the rank sums and the mean ranks are
-//! given.
+//! given. An overflow in z, its p, H, its p or epsilon-squared is not
+//! computable with `overflow`, statistic by statistic, never a refusal of the
+//! run (decisions 602 and 618); no input reaches it, since σ² ≥ n1 n2 / 4 and
+//! C ≥ 3 / (N + 1) when the values are not all tied. The rank-biserial
+//! correlation and the exact p have no not-computable form in the wire shape,
+//! so `overflow` and `distribution_out_of_range` there remain a refusal, as
+//! unreachable.
 //!
 //! **Pure** (`tests/contracts_are_pure.rs`): no file, network, process,
 //! clock or model. The run's one check point is the caller's, before the
@@ -709,7 +717,7 @@ pub fn run<B>(
         notes.extend(exact_notes);
         RankTest::MannWhitney(t)
     } else {
-        RankTest::KruskalWallis(kruskal_wallis(&groups, &ranked).map_err(refuse)?)
+        RankTest::KruskalWallis(kruskal_wallis(&groups, &ranked))
     };
     if groups.iter().any(|g| g.n < GROUP_NOTE_BELOW) {
         notes.push(RanksCode::GroupBelowFive);
@@ -751,6 +759,15 @@ fn finite(v: f64) -> Result<f64, RanksCode> {
         Ok(v)
     } else {
         Err(RanksCode::Overflow)
+    }
+}
+
+/// `v`, or not computable with `overflow` when it is infinite or NaN.
+fn stat(v: f64) -> Stat {
+    if v.is_finite() {
+        Stat::Value(v)
+    } else {
+        Stat::NotComputable(RanksCode::Overflow)
     }
 }
 
@@ -811,8 +828,12 @@ fn mann_whitney(
     } else {
         let variance =
             (n1 * n2 / 12.0) * ((big_n + 1.0) - ranked.tie_sum / (big_n * (big_n - 1.0)));
-        let z = finite((u1 - n1 * n2 / 2.0) / finite(variance.sqrt())?)?;
-        (Stat::Value(z), Stat::Value(normal_two_tailed(z)))
+        let z = stat((u1 - n1 * n2 / 2.0) / variance.sqrt());
+        let p = match z {
+            Stat::Value(z) => stat(normal_two_tailed(z)),
+            not_computable => not_computable,
+        };
+        (z, p)
     };
     let mut notes = Vec::new();
     if ranked.tie_runs > 0 {
@@ -843,38 +864,46 @@ fn mann_whitney(
     ))
 }
 
-/// The Kruskal-Wallis test of three or more groups, H in its deviation
-/// form.
-fn kruskal_wallis(groups: &[RankGroup], ranked: &Ranked) -> Result<KruskalWallis, RanksCode> {
+/// The Kruskal-Wallis test of three or more groups, H from the exact
+/// differences Dᵢ = Rᵢ − nᵢ (N + 1) / 2 (decision 618).
+fn kruskal_wallis(groups: &[RankGroup], ranked: &Ranked) -> KruskalWallis {
     let df = (groups.len() - 1) as f64;
     if ranked.all_tied {
         let nc = Stat::NotComputable(RanksCode::AllValuesTied);
-        return Ok(KruskalWallis {
+        return KruskalWallis {
             h: nc,
             df,
             p: nc,
             epsilon_squared: nc,
-        });
+        };
     }
     let big_n = ranked.n as f64;
-    let centre = (big_n + 1.0) / 2.0;
     let spread: f64 = groups
         .iter()
-        .map(|g| g.n as f64 * (g.mean_rank - centre).powi(2))
+        .map(|g| {
+            let d = g.rank_sum - g.n as f64 * (big_n + 1.0) / 2.0;
+            d * d / g.n as f64
+        })
         .sum();
     let cube = (u128::from(ranked.n).pow(3) - u128::from(ranked.n)) as f64;
     let correction = 1.0 - ranked.tie_sum / cube;
-    let h = finite((12.0 / (big_n * (big_n + 1.0))) * spread / correction)?;
-    let p = match chi_square_upper(h, df) {
-        Some(p) => Stat::Value(p),
-        None => Stat::NotComputable(RanksCode::DistributionOutOfRange),
+    let h = stat((12.0 / (big_n * (big_n + 1.0))) * spread / correction);
+    let (p, epsilon_squared) = match h {
+        Stat::Value(h) => (
+            match chi_square_upper(h, df) {
+                Some(p) => stat(p),
+                None => Stat::NotComputable(RanksCode::DistributionOutOfRange),
+            },
+            stat(h / (big_n - 1.0)),
+        ),
+        not_computable => (not_computable, not_computable),
     };
-    Ok(KruskalWallis {
-        h: Stat::Value(h),
+    KruskalWallis {
+        h,
         df,
         p,
-        epsilon_squared: Stat::Value(finite(h / (big_n - 1.0))?),
-    })
+        epsilon_squared,
+    }
 }
 
 /* ------------------------------------------------------------------------ *
@@ -945,5 +974,99 @@ mod tests {
         assert_eq!(median(&[1.0, 2.0, 3.0, 4.0]), 2.5);
         assert_eq!(median(&[1.0, 3.0, 5.0]), 3.0);
         assert_eq!(median(&[4.0]), 4.0);
+    }
+
+    fn crafted_group(level: u32, n: u64, rank_sum: f64) -> RankGroup {
+        RankGroup {
+            level,
+            label: String::new(),
+            n,
+            median: 0.0,
+            rank_sum,
+            mean_rank: rank_sum / n as f64,
+        }
+    }
+
+    fn kw(groups: &[RankGroup], ranked: &Ranked) -> KruskalWallis {
+        kruskal_wallis(groups, ranked)
+    }
+
+    /// Decision 618. No input reaches these: σ² ≥ n1 n2 / 4 and
+    /// C ≥ 3 / (N + 1) when the values are not all tied. So a `Ranked` is
+    /// crafted whose tie sum makes σ² or C vanish while `all_tied` is false.
+    const OVERFLOWED: Stat = Stat::NotComputable(RanksCode::Overflow);
+
+    #[test]
+    fn an_overflow_in_z_or_its_p_is_not_computable_and_never_a_refusal() {
+        // N = 6, n1 = n2 = 3: Σ(t³ − t) = N³ − N makes σ² exactly 0.
+        let groups = [crafted_group(0, 3, 6.0), crafted_group(1, 3, 15.0)];
+        let ranked = Ranked {
+            n: 6,
+            rank_sums: vec![6.0, 15.0],
+            tie_runs: 1,
+            tie_sum: 210.0,
+            all_tied: false,
+        };
+        let (t, _) = mann_whitney(&groups, &ranked).expect("not a refusal");
+        assert_eq!((t.z, t.p), (OVERFLOWED, OVERFLOWED));
+        assert_eq!((t.u1, t.u2), (0.0, 9.0), "the U values are still given");
+        // U1 at its centre, so the quotient is 0 / 0.
+        let groups = [crafted_group(0, 3, 10.5), crafted_group(1, 3, 10.5)];
+        let (t, _) = mann_whitney(&groups, &ranked).expect("not a refusal");
+        assert_eq!((t.z, t.p), (OVERFLOWED, OVERFLOWED));
+    }
+
+    #[test]
+    fn an_overflow_in_h_its_p_or_epsilon_squared_is_not_computable_and_never_a_refusal() {
+        let groups = [
+            crafted_group(0, 2, 3.0),
+            crafted_group(1, 2, 7.0),
+            crafted_group(2, 2, 11.0),
+        ];
+        // N = 6: Σ(t³ − t) = N³ − N makes C exactly 0.
+        let ranked = Ranked {
+            n: 6,
+            rank_sums: vec![3.0, 7.0, 11.0],
+            tie_runs: 1,
+            tie_sum: 210.0,
+            all_tied: false,
+        };
+        let t = kw(&groups, &ranked);
+        assert_eq!((t.h, t.p, t.epsilon_squared), (OVERFLOWED, OVERFLOWED, OVERFLOWED));
+        assert_eq!(t.df, 2.0);
+        // H finite and N − 1 = 0, so epsilon-squared alone overflows: with
+        // N = 1 the cube is 0, a negative tie sum drives C to infinity and H
+        // to 0.
+        let ranked = Ranked {
+            n: 1,
+            rank_sums: vec![3.0, 7.0, 11.0],
+            tie_runs: 0,
+            tie_sum: -1.0,
+            all_tied: false,
+        };
+        let t = kw(&groups, &ranked);
+        assert_eq!(t.h, Stat::Value(0.0));
+        assert_eq!(t.p, Stat::Value(1.0));
+        assert_eq!(t.epsilon_squared, OVERFLOWED);
+    }
+
+    /// Past the chi-square's measured df, its p alone is not computable, with its
+    /// own code, and H and epsilon-squared stand. No input reaches it: at most 50
+    /// groups.
+    #[test]
+    fn a_df_past_the_chi_squares_range_leaves_its_p_not_computable_with_its_own_code() {
+        let groups: Vec<RankGroup> = (0..2403).map(|l| crafted_group(l, 1, f64::from(l) + 1.0)).collect();
+        let ranked = Ranked {
+            n: 2403,
+            rank_sums: groups.iter().map(|g| g.rank_sum).collect(),
+            tie_runs: 0,
+            tie_sum: 0.0,
+            all_tied: false,
+        };
+        let t = kw(&groups, &ranked);
+        assert_eq!(t.df, 2402.0);
+        assert!(matches!(t.h, Stat::Value(_)), "{:?}", t.h);
+        assert_eq!(t.p, Stat::NotComputable(RanksCode::DistributionOutOfRange));
+        assert!(matches!(t.epsilon_squared, Stat::Value(_)));
     }
 }

@@ -1,8 +1,9 @@
 // Gaply — every method's spec carries the view's preparation (Research OS,
 // Phase 8T-1a, decision 490). Rust refuses a spec on a prepared table without
 // one, and a spec on a file's own table with one (stats_desc/mod.rs:574-586),
-// so each of the eight builders (crosstabs' since 8X-2, decision 588; Rust's
-// own refusal at stats_xtab/mod.rs:606-608) copies the view's preparation exactly when the
+// so each of the nine builders (crosstabs' since 8X-2, decision 588, Rust's
+// own refusal at stats_xtab/mod.rs:606-608; the rank tests' since 8Y-2, decision 619)
+// copies the view's preparation exactly when the
 // view has one. On a file's own table the key is ABSENT, never null: Rust reads
 // a null as none (contracts/mod.rs:237-258), so only this test can catch it, and
 // an absent key keeps every spec on a file's own table byte for byte today's.
@@ -15,6 +16,7 @@ import type { DatasetView } from './describeTypes';
 import { datasetView, datasetViewPrepared } from './fixtures/describeFixtures';
 import { buildOneSampleSpec } from './OneSampleSettings';
 import { buildPairedSpec } from './PairedSettings';
+import { buildRanksSpec } from './RanksSettings';
 import { buildTTestSpec } from './TTestSettings';
 import { buildXtabSpec } from './XtabSettings';
 
@@ -27,6 +29,7 @@ const BUILDERS: Array<[string, (view: DatasetView) => object]> = [
   ['paired', (v) => buildPairedSpec(v, 'C1', 'C2', [], 1)],
   ['ttest', (v) => buildTTestSpec(v, 'C2', 'C1', [0, 1], null, [], 1)],
   ['xtab', (v) => buildXtabSpec(v, 'C1', 'C2', [], 1)],
+  ['ranks', (v) => buildRanksSpec(v, 'C2', 'C1', [], [], [], 1)],
 ];
 
 describe('every spec carries the view\'s preparation (decision 490)', () => {

@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WorkspaceShell } from './WorkspaceShell';
 import { defaultRunBridges, jobSentence, runKinds } from './useWorkspaceSwitch';
 import { makeMockXtabBridge } from '../statistics/xtabBridge';
+import { makeMockRanksBridge } from '../statistics/ranksBridge';
 import { makeMockWorkspaceBridge } from './workspaceBridge';
 import { makeMockDescribeBridge } from '../statistics/describeBridge';
 import type { DatasetView, RunStateView } from '../statistics/describeTypes';
@@ -127,6 +128,28 @@ describe("a crosstab, through the switch's own kinds", () => {
     expect(xtab.calls).toEqual([
       ['stats_xtab_status', { runId: 12 }],
       ['stats_xtab_cancel', { runId: 12 }],
+    ]);
+    expect(summary.calls).toEqual([]);
+  });
+});
+
+// Research OS, Phase 8Y-2 (decision 622): a rank test is read and cancelled through its
+// own commands, never the summary's (D315's departure, closed). With no steps sentence:
+// a run has one check point.
+describe("a rank test, through the switch's own kinds", () => {
+  it('is polled and cancelled through stats_ranks_status and stats_ranks_cancel, and the summary is never asked', async () => {
+    const rk = { runId: 12, state: 'running' as const, terminal: false, elapsedMs: 40, cancelRequested: false, stepsDone: 0, stepsTotal: 1, diagnostics: [] };
+    const ranks = makeMockRanksBridge({ stats_ranks_status: rk, stats_ranks_cancel: { ...rk, cancelRequested: true } });
+    const summary = makeMockDescribeBridge({});
+    const kinds = runKinds(defaultRunBridges({ ranks, describe: summary }));
+    expect(Object.keys(kinds)).toContain('independent_ranks');
+    const job = await kinds.independent_ranks.status(12);
+    expect(job).toEqual({ runId: 12, state: 'running', terminal: false, progress: null, kind: 'independent_ranks' });
+    expect(jobSentence(job as NonNullable<typeof job>)).toBe('Run 12 (rank test): Running.');
+    await kinds.independent_ranks.cancel(12);
+    expect(ranks.calls).toEqual([
+      ['stats_ranks_status', { runId: 12 }],
+      ['stats_ranks_cancel', { runId: 12 }],
     ]);
     expect(summary.calls).toEqual([]);
   });

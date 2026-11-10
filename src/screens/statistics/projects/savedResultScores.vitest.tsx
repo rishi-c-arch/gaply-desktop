@@ -99,6 +99,19 @@ describe("a saved result's score columns", () => {
     expect(screen.getByTestId('an-result-notes').textContent).toContain(`The outcome ${scoreColumn(4, 'Total')} holds -99`);
   });
 
+  // Research OS, Phase 8Y-2 (decision 622): a score as the rank tests' outcome is named
+  // as the ANOVA's is.
+  it("a rank test's sentence that names the column", () => {
+    const v = edited('ranks_mw.json', (b) => {
+      b.diagnostics = [{ code: 'stats.ranks.suspect_missing_code', params: { column: 4, value: -99, count: 2 }, severity: 'warning' }];
+    });
+    body(v, [score(4, 'Total')]);
+    expect(screen.getByTestId('rk-result-notes').textContent).toContain(`The outcome ${scoreColumn(4, 'Total')} holds -99`);
+    cleanup();
+    body(v, null);
+    expect(screen.getByTestId('rk-result-notes').textContent).toContain('The outcome C4 holds -99');
+  });
+
   it('a score at no column of the result changes nothing', () => {
     const { container } = body(view('corr_pairwise.json'), [score(40, 'Elsewhere')]);
     const withScores = container.innerHTML;

@@ -67,8 +67,16 @@ const AT_8X2: Record<string, string> = {
   'xtab_3x3.json': '49b8837842bda6892741d30d1e01cc791a261452d8a2148d16f084dd4b125e82',
 };
 
-/** Each file's record: 8eb00b7c's, or 8X-2's for a file it added. */
-const RECORDED: Record<string, string> = { ...AT_8EB00B7C, ...AT_8X2 };
+/** Research OS, Phase 8Y-2 (decision 622): the stored fixtures 8Y-2 added, captured
+ *  from 8Y-2's own render, the record a later step keeps its own result against;
+ *  AT_8EB00B7C and AT_8X2 are unchanged. */
+const AT_8Y2: Record<string, string> = {
+  'ranks_kw.json': '6b89c3bb900b06b8e9f8fd0720bea255fdd2db719e53e905253623f8dd8a9ab8',
+  'ranks_mw.json': 'a33969b70729d288bb4a3c453f059b4607d32ae4139cd37ca8b603c37118926e',
+};
+
+/** Each file's record: 8eb00b7c's, or that of the step that added the file. */
+const RECORDED: Record<string, string> = { ...AT_8EB00B7C, ...AT_8X2, ...AT_8Y2 };
 
 const sha = (s: string) => createHash('sha256').update(s).digest('hex');
 
@@ -136,10 +144,11 @@ describe('a project page with no prepared run, byte for byte as at 8eb00b7c', ()
 
 describe('a saved result with no scores, byte for byte as at 8eb00b7c', () => {
   it('covers every stored fixture', () => {
-    expect(FILES.length).toBeGreaterThanOrEqual(16);
-    // The two records name disjoint files, and together the whole directory.
-    expect(Object.keys(AT_8EB00B7C).filter((k) => k in AT_8X2)).toEqual([]);
-    expect([...Object.keys(AT_8EB00B7C), ...Object.keys(AT_8X2)].sort()).toEqual(FILES);
+    expect(FILES.length).toBeGreaterThanOrEqual(18);
+    // The three records name disjoint files, and together the whole directory.
+    expect(Object.keys(AT_8EB00B7C).filter((k) => k in AT_8X2 || k in AT_8Y2)).toEqual([]);
+    expect(Object.keys(AT_8X2).filter((k) => k in AT_8Y2)).toEqual([]);
+    expect([...Object.keys(AT_8EB00B7C), ...Object.keys(AT_8X2), ...Object.keys(AT_8Y2)].sort()).toEqual(FILES);
   });
 
   it.each(FILES)('%s', (f) => {

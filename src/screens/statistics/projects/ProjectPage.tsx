@@ -72,6 +72,7 @@ import { anovaBridge, type AnovaBridge } from '../anovaBridge';
 import { corrBridge, type CorrBridge } from '../corrBridge';
 import { alphaBridge, type AlphaBridge } from '../alphaBridge';
 import { xtabBridge, type XtabBridge } from '../xtabBridge';
+import { ranksBridge, type RanksBridge } from '../ranksBridge';
 import { projectBridge, type ProjectBridge } from './projectBridge';
 import { EXPORTS, type ExportKind, type SaveFile } from './projectExport';
 import { projectsShown } from './projectGate';
@@ -135,6 +136,8 @@ export interface ProjectPageProps {
   cronbachAlpha?: AlphaBridge;
   /** Research OS, Phase 8X-2 (decision 591). */
   crosstabs?: XtabBridge;
+  /** Research OS, Phase 8Y-2 (decision 622). */
+  independentRanks?: RanksBridge;
   /** How often project_current is read while a rerun is going. */
   pollMs?: number;
 }
@@ -212,6 +215,7 @@ const ProjectPageShown: React.FC<ProjectPageProps> = ({
   correlations: givenCorr,
   cronbachAlpha: givenAlpha,
   crosstabs: givenXtab,
+  independentRanks: givenRanks,
   pollMs = 250,
 }) => {
   const bridge = useMemo(() => given ?? projectBridge(), [given]);
@@ -224,6 +228,7 @@ const ProjectPageShown: React.FC<ProjectPageProps> = ({
   const correlations = useMemo(() => givenCorr ?? corrBridge(), [givenCorr]);
   const cronbachAlpha = useMemo(() => givenAlpha ?? alphaBridge(), [givenAlpha]);
   const crosstabs = useMemo(() => givenXtab ?? xtabBridge(), [givenXtab]);
+  const independentRanks = useMemo(() => givenRanks ?? ranksBridge(), [givenRanks]);
   // Each kind's cancel, from the bridges given (Phase 8C).
   const cancels = useMemo<Record<RerunKind, (runId: number) => Promise<unknown>>>(
     () => ({
@@ -235,8 +240,9 @@ const ProjectPageShown: React.FC<ProjectPageProps> = ({
       correlations: (runId) => correlations.cancel(runId),
       cronbach_alpha: (runId) => cronbachAlpha.cancel(runId),
       crosstabs: (runId) => crosstabs.cancel(runId),
+      independent_ranks: (runId) => independentRanks.cancel(runId),
     }),
-    [describe, ttest, oneSample, paired, anova, correlations, cronbachAlpha, crosstabs]
+    [describe, ttest, oneSample, paired, anova, correlations, cronbachAlpha, crosstabs, independentRanks]
   );
   const gen = useGeneration();
   const [view, setView] = useState<View>({ kind: 'loading' });

@@ -1503,6 +1503,61 @@ a,m,z,high\nb,f,x,low\n",
     }
 }
 
+/// The rank tests' saved results (Research OS, Phase 8Y-2, decision 622): a
+/// Mann-Whitney result with its exact p, one row left out by each of the four
+/// reasons, and a Kruskal-Wallis result of three tied groups. Each on a file's
+/// own table, never a prepared slot (`SavedResult.vitest.tsx`'s rule), laid out
+/// as their fixtures, for the webview's shape check.
+#[test]
+fn stored_ranks_results_have_the_layout_of_their_fixtures() {
+    let w = World::new("stored-ranks");
+    let mw = w.open(
+        "mw.csv",
+        b"y,g\n1.5,a\n3.5,a\n5.5,a\n2.25,a\n7.5,b\n2.5,b\n8.25,b\n9,b\n4.5,b\n3,c\n6,\n,a\n-99,b\n",
+    );
+    let first = w.ranks(mw, 1, 2, Some(vec![0, 1]), vec![-99.0]);
+    let id = pc::save_run(&w.root(), &w.ws, first, new_project("Stored ranks"))
+        .unwrap()
+        .project_id;
+    let kw = w.open(
+        "kw.csv",
+        b"y,g\n1,p\n2,p\n2,p\n3,p\n3,q\n4,q\n5,q\n5,q\n6,r\n7,r\n8,r\n8,r\n",
+    );
+    let second = w.ranks(kw, 1, 2, None, vec![]);
+    pc::save_run(&w.root(), &w.ws, second, into_open(&id)).unwrap();
+    for (n, name, form, groups, exclusions) in [
+        (1, "ranks_mw.json", "mann_whitney", 2, 4),
+        (2, "ranks_kw.json", "kruskal_wallis", 3, 0),
+    ] {
+        let back = pc::run_result(&w.root(), &w.ws, &id, n).expect("read back");
+        assert_eq!(back.state, RunState::Succeeded, "{name}");
+        assert_eq!(back.capability_id, "stats.analyze.independent_ranks", "{name}");
+        let bundle: Value = serde_json::from_str(back.bundle_json.as_deref().unwrap()).unwrap();
+        let r = &bundle["primaryOutputs"];
+        assert_eq!(r["groups"].as_array().unwrap().len(), groups, "{name}");
+        assert_eq!(r["exclusions"].as_array().unwrap().len(), exclusions, "{name}");
+        assert!(r["test"][form].is_object(), "{name}: {form}");
+        assert_eq!(
+            bundle["diagnostics"].as_array().unwrap().len(),
+            0,
+            "{name}: no warning, so every parameter the checker reads is pinned"
+        );
+        assert_stored_fixture(name, &back);
+    }
+    let bundle: Value = serde_json::from_str(
+        pc::run_result(&w.root(), &w.ws, &id, 1)
+            .unwrap()
+            .bundle_json
+            .as_deref()
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(
+        bundle["primaryOutputs"]["test"]["mann_whitney"]["exactP"].is_number(),
+        "the Mann-Whitney fixture has its exact p"
+    );
+}
+
 /// The correlations' saved results (Research OS, Phase 8H-2, decision 357):
 /// one pairwise with all three coefficients and a ticked missing code, and
 /// one listwise with Pearson only, laid out as their fixtures, for the

@@ -342,6 +342,37 @@ impl World {
         id
     }
 
+    /// The rank tests of column `outcome` by column `group` (Research OS, Phase
+    /// 8Y-2, decision 621), the spec carrying the slot's preparation exactly when
+    /// it has one, as a screen's does (decision 490), run to its end.
+    pub fn ranks(
+        &self,
+        slot: u64,
+        outcome: u32,
+        group: u32,
+        levels: Option<Vec<u32>>,
+        missing_codes: Vec<f64>,
+    ) -> u64 {
+        let e = self.engine();
+        let held = e.datasets.get(slot).expect("the slot");
+        let mut spec = gaply_core::stats_ranks::spec(
+            OperationId(13),
+            held.dataset(),
+            gaply_core::stats_ranks::IndependentRanksParams {
+                outcome: Alias(ColumnAlias(outcome)),
+                group: Alias(ColumnAlias(group)),
+                levels,
+                missing_codes,
+            },
+        );
+        spec.preparation = held.preparation();
+        let id = app_lib::stats_ranks_commands::run(&e.runs, &e.datasets, slot, spec)
+            .expect("the run starts")
+            .run_id;
+        self.wait_new_kind(id);
+        id
+    }
+
     pub fn wait_new_kind(&self, run: u64) -> RunState {
         let e = self.engine();
         let start = Instant::now();
@@ -355,6 +386,7 @@ impl World {
                 .or_else(|_| e.runs.corr_snapshot(RunId(run)).map(|s| s.record.state))
                 .or_else(|_| e.runs.alpha_snapshot(RunId(run)).map(|s| s.record.state))
                 .or_else(|_| e.runs.xtab_snapshot(RunId(run)).map(|s| s.record.state))
+                .or_else(|_| e.runs.ranks_snapshot(RunId(run)).map(|s| s.record.state))
                 .expect("the run is held");
             if state.is_terminal() {
                 return state;

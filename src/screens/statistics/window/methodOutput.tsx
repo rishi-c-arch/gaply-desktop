@@ -24,6 +24,8 @@ import { anovaNames, ttestNames } from '../projects/SavedResult';
 import { ResultCard } from '../TTestFlow';
 import { TTEST_EXPORT_CHOICES, TTEST_EXPORT_TEXT, TTEST_STAGE_HEADINGS, ttestRefusalSentence, ttestRunEndedSentence, ttestSentence } from '../ttestWording';
 import { XtabCard } from '../XtabCard';
+import { RanksCard } from '../RanksCard';
+import { RANKS_EXPORT_CHOICES, RANKS_EXPORT_HEADING, RANKS_EXPORT_TEXT, ranksRefusalSentence, ranksRunEndedSentence, ranksSentence } from '../ranksWording';
 import { XTAB_EXPORT_CHOICES, XTAB_EXPORT_HEADING, XTAB_EXPORT_TEXT, xtabRefusalSentence, xtabRunEndedSentence, xtabSentence } from '../xtabWording';
 import type { RunBridges } from '../../workspace/useWorkspaceSwitch';
 import type { MethodResults, MethodRuns } from './statisticsSession';
@@ -35,6 +37,7 @@ import { OneSampleDialog } from './OneSampleDialog';
 import { PairedDialog } from './PairedDialog';
 import { TTestDialog } from './TTestDialog';
 import { XtabDialog } from './XtabDialog';
+import { RanksDialog } from './RanksDialog';
 import { columnNames } from './windowWording';
 
 /** What an entry may do with its run: no open, no close, no validate, no run. */
@@ -154,6 +157,22 @@ export const METHOD_OUTPUT: { [K in MethodKind]: OutputRow<K> } = {
     exportText: XTAB_EXPORT_TEXT,
     exportChoices: XTAB_EXPORT_CHOICES,
   },
+  // Research OS, Phase 8Y-2 (decisions 619 and 622): its own card, as no page has one; one
+  // check point, so no steps sentence; a level named by the result's own labels once
+  // there is a result, by its position before.
+  independent_ranks: {
+    bridge: (b) => b.ranks,
+    refusal: ranksRefusalSentence,
+    runEnded: ranksRunEndedSentence,
+    progress: () => null,
+    sentence: (d, view) => ranksSentence(d, { column: columnNames(view), level: levelByPosition }),
+    card: (result, view) => (
+      <RanksCard result={result} names={{ column: columnNames(view), level: (i) => result.result.groups.find((g) => g.level === i)?.label ?? levelByPosition(i) }} />
+    ),
+    exportHeading: RANKS_EXPORT_HEADING,
+    exportText: RANKS_EXPORT_TEXT,
+    exportChoices: RANKS_EXPORT_CHOICES,
+  },
 };
 
 /** An entry's row. Its kind and its run and result were stored together, so the
@@ -189,4 +208,5 @@ export const METHOD_DIALOGS: Record<MethodKind, React.FC<MethodDialogRowProps>> 
   correlations: ({ bridges, ...p }) => <CorrDialog {...p} bridge={bridges.corr} />,
   cronbach_alpha: ({ bridges, ...p }) => <AlphaDialog {...p} bridge={bridges.alpha} />,
   crosstabs: ({ bridges, ...p }) => <XtabDialog {...p} bridge={bridges.xtab} />,
+  independent_ranks: ({ bridges, ...p }) => <RanksDialog {...p} bridge={bridges.ranks} />,
 };

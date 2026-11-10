@@ -1091,13 +1091,21 @@ enum Centre {
 
 /// The median of ascending values: the middle one, or the mean of the two
 /// middle ones (decision 313). pub(crate) since Research OS 8Y-1 (decision
-/// 602): the rank tests' group medians come from here.
+/// 602): the rank tests' group medians come from here. Finite for every two
+/// finite values (decision 618): the sum first, as always, so every bit is as
+/// before wherever it is finite; halved first only where it overflows.
 pub(crate) fn median(v: &[f64]) -> f64 {
     let n = v.len();
     if n % 2 == 1 {
         v[n / 2]
     } else {
-        (v[n / 2 - 1] + v[n / 2]) / 2.0
+        let (a, b) = (v[n / 2 - 1], v[n / 2]);
+        let mean = (a + b) / 2.0;
+        if mean.is_finite() {
+            mean
+        } else {
+            a / 2.0 + b / 2.0
+        }
     }
 }
 
@@ -1275,5 +1283,133 @@ pub fn manifest(
         output_hash: ContentHash::of_bytes(&result.canonical_bytes()),
         reproducibility: Reproducibility::Bitwise,
         preparation: spec.preparation.clone(),
+    }
+}
+
+/// The median's two branches (Research OS, Phase 8Y-2, decision 618), and the
+/// ANOVA's refusal of values whose sum overflows, which keeps it from ever
+/// reaching the median's new branch. The generator is written by hand, since a
+/// test module in `src` may name no crate but std, serde, serde_json and sha2
+/// (`tests/contracts_are_pure.rs`).
+#[cfg(test)]
+mod median_tests {
+    use super::*;
+    use crate::contracts::codes::Closed;
+    use crate::stats_desc::Alias;
+    use crate::stats_l1::dataset::{
+        build_dataset, ColumnAlias, DataFingerprint, Dataset, RawTable, TableRef,
+    };
+
+    /// A 64-bit generator (SplitMix64), seeded by the test.
+    struct Rng(u64);
+
+    impl Rng {
+        fn next(&mut self) -> u64 {
+            self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
+            let mut z = self.0;
+            z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+            z ^ (z >> 31)
+        }
+
+        /// A finite double: any sign, any exponent, any mantissa.
+        fn finite(&mut self) -> f64 {
+            loop {
+                let v = f64::from_bits(self.next());
+                if v.is_finite() {
+                    return v;
+                }
+            }
+        }
+
+        /// Any sign, any mantissa, an exponent field of 0 (subnormal) or 1 (the
+        /// lowest binade), where halving each value first is what differs.
+        fn lowest_binades(&mut self) -> f64 {
+            let bits = self.next();
+            let exponent = (bits >> 11) & 1;
+            f64::from_bits((bits & 0x800F_FFFF_FFFF_FFFF) | (exponent << 52))
+        }
+    }
+
+    fn two_middle(a: f64, b: f64) -> f64 {
+        median(&[a, b])
+    }
+
+    #[test]
+    fn the_median_keeps_every_bit_wherever_the_sum_is_finite() {
+        let mut rng = Rng(0x8_0602_0618);
+        let (mut checked, mut lowest, mut half_first_differs) = (0u32, 0u32, 0u32);
+        while checked < 10_000 {
+            // Every fifth pair from the lowest binades, the rest from the whole
+            // range, whose sums may overflow and are then skipped.
+            let (a, b) = if checked % 5 == 0 {
+                lowest += 1;
+                (rng.lowest_binades(), rng.lowest_binades())
+            } else {
+                (rng.finite(), rng.finite())
+            };
+            let sum = a + b;
+            if !sum.is_finite() {
+                continue;
+            }
+            checked += 1;
+            let want = sum / 2.0;
+            assert_eq!(two_middle(a, b).to_bits(), want.to_bits(), "{a:e} {b:e}");
+            if (a / 2.0 + b / 2.0).to_bits() != want.to_bits() {
+                half_first_differs += 1;
+            }
+        }
+        assert_eq!(lowest, 2_000);
+        // The pairs must include some where only the sum's branch is right.
+        assert!(half_first_differs > 100, "{half_first_differs}");
+        // The review's case, written out: halving each first gives 0.
+        let tiny = f64::from_bits(1);
+        assert_eq!(two_middle(tiny, tiny).to_bits(), tiny.to_bits());
+        assert_eq!(two_middle(-tiny, -tiny).to_bits(), (-tiny).to_bits());
+    }
+
+    #[test]
+    fn the_median_of_two_values_whose_sum_overflows_is_finite() {
+        assert_eq!(two_middle(1e308, 1.5e308), 1.25e308);
+        assert_eq!(two_middle(-1e308, -1.5e308), -1.25e308);
+        assert_eq!(two_middle(f64::MAX, f64::MAX), f64::MAX);
+        assert_eq!(two_middle(f64::MIN, f64::MIN), f64::MIN);
+        // Odd lengths and a sum that does not overflow are unchanged.
+        assert_eq!(median(&[1e308, 1.5e308, 1.7e308]), 1.5e308);
+        assert_eq!(median(&[-1.7e308, 1e308, 1.5e308, 1.7e308]), 1.25e308);
+    }
+
+    fn dataset(rows: &[(&str, &str)]) -> Dataset {
+        build_dataset(
+            RawTable::from_rows(
+                vec!["y".into(), "g".into()],
+                rows.iter()
+                    .map(|(y, g)| vec![y.to_string(), g.to_string()])
+                    .collect(),
+            ),
+            DataFingerprint::of_bytes(b"median tests", "median tests", TableRef::FirstTable),
+        )
+        .expect("dataset")
+    }
+
+    #[test]
+    fn the_anova_refuses_values_whose_sum_overflows_before_it_reaches_a_median() {
+        let d = dataset(&[
+            ("1e308", "a"),
+            ("1.5e308", "a"),
+            ("1", "b"),
+            ("2", "b"),
+            ("3", "c"),
+            ("4", "c"),
+        ]);
+        let params = AnovaParams {
+            outcome: Alias(ColumnAlias(1)),
+            group: Alias(ColumnAlias(2)),
+            levels: None,
+            missing_codes: Vec::new(),
+            post_hoc: Vec::new(),
+        };
+        let e = compute(&d, &params).expect_err("refused");
+        assert_eq!(e.code.wire(), "stats.anova.overflow");
     }
 }
