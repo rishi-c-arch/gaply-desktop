@@ -85,8 +85,13 @@ pub mod stats_chat;
 pub mod stats_corr;
 pub mod stats_desc;
 pub mod stats_dist;
+// Research OS Phase 9B-1: exploratory factor analysis, the pure core.
+pub mod stats_factor;
 pub mod stats_l0;
 pub mod stats_l1;
+// Research OS Phase 9B-1 (decision 699): the dense linear algebra of the
+// factor analysis, arithmetic for the statistics modules, not an interface.
+pub(crate) mod stats_linalg;
 // Research OS Phase 9A-1: ordinary least squares linear regression, the pure
 // core.
 pub mod stats_linear_regression;

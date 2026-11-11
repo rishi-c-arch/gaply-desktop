@@ -106,10 +106,21 @@ function withStored(name: string, field: 'bundleJson' | 'failureJson' | 'specJso
   return { ...s, [field]: JSON.stringify(v) };
 }
 
+/** Research OS, Phase 9B-1 (decision 698): the regression's edge cases saved. */
+const EDGES_9B1 = [
+  'linear_regression_tiny_perfect.json',
+  'linear_regression_mss_zero.json',
+  'linear_regression_offset_no_spread.json',
+  'linear_regression_between_factors.json',
+  'linear_regression_sigma2_subnormal.json',
+  'linear_regression_ms_subnormal.json',
+  'linear_regression_split_se.json',
+] as const;
+
 /* ---- the shape check ----------------------------------------------------------- */
 
 describe('the shape check', () => {
-  it('has the twenty-three snapshots Rust wrote, and accepts every one', () => {
+  it('has the thirty snapshots Rust wrote, and accepts every one', () => {
     expect(SNAPSHOTS).toEqual([
       'alpha.json',
       'alpha_reversed.json',
@@ -119,8 +130,16 @@ describe('the shape check', () => {
       'corr_pairwise.json',
       // Research OS, Phase 9A-2 (decision 687).
       'linear_regression.json',
+      // Research OS, Phase 9B-1 (decision 698).
+      'linear_regression_between_factors.json',
       'linear_regression_failed.json',
+      'linear_regression_ms_subnormal.json',
+      'linear_regression_mss_zero.json',
+      'linear_regression_offset_no_spread.json',
       'linear_regression_perfect.json',
+      'linear_regression_sigma2_subnormal.json',
+      'linear_regression_split_se.json',
+      'linear_regression_tiny_perfect.json',
       'one_sample.json',
       'one_sample_failed.json',
       'paired.json',
@@ -149,6 +168,7 @@ describe('the shape check', () => {
     expect(checkStored(stored('linear_regression.json')).kind).toBe('linear_regression');
     expect(checkStored(stored('linear_regression_perfect.json')).kind).toBe('linear_regression');
     expect(checkStored(stored('linear_regression_failed.json')).kind).toBe('failed');
+    for (const f of EDGES_9B1) expect(checkStored(stored(f)).kind, f).toBe('linear_regression');
     expect(checkStored(stored('ttest.json')).kind).toBe('ttest');
     const failed = checkStored(stored('ttest_failed.json'));
     expect(failed.kind).toBe('failed');
@@ -183,6 +203,8 @@ describe('the shape check', () => {
     ['linear_regression.json', 'bundleJson'],
     ['linear_regression_perfect.json', 'bundleJson'],
     ['linear_regression_failed.json', 'failureJson'],
+    // Research OS, Phase 9B-1 (decision 698).
+    ...EDGES_9B1.map((f) => [f, 'bundleJson'] as const),
   ] as const)('%s: rejects it with any one field of its %s removed', (name, field) => {
     const all = paths(JSON.parse(stored(name)[field] as string)).filter((p) => typeof p[p.length - 1] === 'string');
     expect(all.length).toBeGreaterThan(5);
@@ -210,6 +232,8 @@ describe('the shape check', () => {
     ['linear_regression.json', 'bundleJson'],
     ['linear_regression_perfect.json', 'bundleJson'],
     ['linear_regression_failed.json', 'failureJson'],
+    // Research OS, Phase 9B-1 (decision 698).
+    ...EDGES_9B1.map((f) => [f, 'bundleJson'] as const),
   ] as const)('%s: rejects it with any one number in its %s made null, or made a string', (name, field) => {
     const v0 = JSON.parse(stored(name)[field] as string);
     const numbers = paths(v0).filter((p) => typeof getAt(v0, p) === 'number');

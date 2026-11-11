@@ -146,6 +146,26 @@ export const CAPABILITY_WORDS: Record<string, string> = {
   'stats.capability.limit.analyze.durbin_watson_row_order':
     "The Durbin-Watson statistic takes the rows in the file's order, so it describes serial correlation only when that order means something, such as time.",
   'stats.capability.limit.analyze.regression_intervals_95_only': 'Confidence intervals are at 95%; other levels are not offered.',
+  // Phase 9B-1 (decisions 700, 702 and 703): exploratory factor analysis, Planned in
+  // Part 2 and Beta from Part 3 (decision 704).
+  'stats.capability.analyze.factor.title': 'Exploratory factor analysis on your data',
+  'stats.capability.analyze.factor.description':
+    "Finds the factors behind three or more numeric columns of your own data file, by principal components or principal axis factoring, with KMO and each item's sampling adequacy, Bartlett's test of sphericity, the eigenvalues and variance explained, the communalities, and the loadings, rotated by varimax or promax when you ask.",
+  'stats.capability.limit.analyze.factor_extraction_two_methods':
+    'Principal components and principal axis factoring are offered; maximum likelihood, least squares, alpha and image extraction are not.',
+  'stats.capability.limit.analyze.factor_rotation_varimax_promax':
+    'Varimax and promax rotations are offered; oblimin, quartimax and equamax are not.',
+  'stats.capability.limit.analyze.factor_promax_kappa_four':
+    "Promax uses a power of 4, SPSS's default; another power is not offered.",
+  'stats.capability.limit.analyze.factor_no_scores': 'Factor scores are not computed or saved as columns.',
+  'stats.capability.limit.analyze.factor_matrices_not_shown':
+    "The correlation, anti-image, reproduced and residual matrices are not shown; the determinant, KMO and each item's sampling adequacy are.",
+  'stats.capability.limit.analyze.factor_pearson_only':
+    "Correlations are Pearson's; polychoric correlations for ordinal items are not offered.",
+  'stats.capability.limit.analyze.factor_listwise_only':
+    'A row is used only when every item has a value; pairwise deletion and mean substitution are not offered.',
+  'stats.capability.limit.analyze.factor_no_scree_plot':
+    'The scree plot is not drawn; the eigenvalues it would show are listed.',
   // Phase 8M (decision 411): scale scores, Planned in 8M and Beta since 8M-2's
   // Part 2 (decision 416), with no route yet.
   'stats.capability.prepare.scale_score.title': 'Scale scores',

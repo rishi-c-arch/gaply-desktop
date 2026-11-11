@@ -58,6 +58,25 @@ describe("the linear regression's saved results (decision 687)", () => {
   });
 });
 
+/** Research OS, Phase 9B-1 (decision 698): results Rust writes at the checker's edge
+ *  branches, each a one-line mutant of 9A-2's checker refused (the review of 9e4b7ad9,
+ *  finding 2), and finding 1's perfect fit near 2e-147, which 9A-2's checker refused. */
+const EDGES = [
+  'linear_regression_tiny_perfect.json',
+  'linear_regression_mss_zero.json',
+  'linear_regression_offset_no_spread.json',
+  'linear_regression_between_factors.json',
+  'linear_regression_sigma2_subnormal.json',
+  'linear_regression_ms_subnormal.json',
+  'linear_regression_split_se.json',
+];
+
+describe("the linear regression's edge cases saved (decision 698)", () => {
+  it.each(EDGES)('opens %s as the regression', (f) => {
+    expect(kindOf(snapshot(f))).toBe(OK);
+  });
+});
+
 describe('what stats_linear_regression never writes (decision 688)', () => {
   const refused: Array<[string, () => O]> = [
     // Shape.
@@ -187,6 +206,43 @@ describe('what stats_linear_regression never writes (decision 688)', () => {
       })],
     ['rows read other than rows used and the exclusions', () => changed(MODEL, (b) => (b.manifest.rowsRead += 1))],
     ["manifest exclusions unlike the result's", () => changed(MODEL, (b) => (b.manifest.exclusions = []))],
+    // Shapes Rust never writes that 9A-2's checker accepted (the review of 9e4b7ad9, finding 3,
+    // and decision 693's item 3; decision 698). The snapshot's df is 5, far below 1e7.
+    ['interval ends too_small beside a numeric t and p', () =>
+      changed(MODEL, (b) => {
+        r(b).intercept.lower = nc('too_small');
+        r(b).intercept.upper = nc('too_small');
+      })],
+    ['p distribution_out_of_range beside numeric interval ends at a df below 1e7', () =>
+      changed(MODEL, (b) => (r(b).intercept.p = nc('distribution_out_of_range')))],
+    ['interval ends distribution_out_of_range beside a numeric p at a df below 1e7', () =>
+      changed(MODEL, (b) => {
+        r(b).intercept.lower = nc('distribution_out_of_range');
+        r(b).intercept.upper = nc('distribution_out_of_range');
+      })],
+    ['p overflow beside a numeric t', () => changed(MODEL, (b) => (r(b).intercept.p = nc('overflow')))],
+    ['a Durbin-Watson statistic above 4', () => changed(MODEL, (b) => (r(b).model.durbinWatson = { value: 99 }))],
+    ['VIF and tolerance too_small beside a numeric SE', () =>
+      changed(MODEL, (b) => {
+        pred(b, 0).vif = nc('too_small');
+        pred(b, 0).tolerance = nc('too_small');
+      })],
+    ['a VIF below 1 with its tolerance above 1', () =>
+      changed(MODEL, (b) => {
+        pred(b, 0).vif = { value: 0.5 };
+        pred(b, 0).tolerance = { value: 2 };
+      })],
+    ['a standard error stored as a subnormal value', () =>
+      changed(MODEL, (b) => {
+        // t = b / SE overflows, so t, p and the interval are overflow, as Rust would write
+        // them were the SE a value; Rust writes a subnormal SE as too_small (:808-810).
+        const c = r(b).intercept;
+        c.standardError = { value: 1e-310 };
+        c.t = nc('overflow');
+        c.p = nc('overflow');
+        c.lower = nc('overflow');
+        c.upper = nc('overflow');
+      })],
     // A failed run.
     ['a failure that is not one of the run\'s two refusals', () => failed((f) => (f.code = code('no_predictors')))],
     ["a collinear predictor that is not one of the spec's", () => failed((f) => (f.params.column = 1))],

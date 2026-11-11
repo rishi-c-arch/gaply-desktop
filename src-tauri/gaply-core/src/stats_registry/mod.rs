@@ -68,6 +68,7 @@ use crate::stats_alpha::{CAPABILITY_ID as ALPHA_ID, CAPABILITY_VERSION as ALPHA_
 use crate::stats_anova::{CAPABILITY_ID as ANOVA_ID, CAPABILITY_VERSION as ANOVA_VERSION};
 use crate::stats_corr::{CAPABILITY_ID as CORR_ID, CAPABILITY_VERSION as CORR_VERSION};
 use crate::stats_desc::{CAPABILITY_ID, CAPABILITY_VERSION};
+use crate::stats_factor::{CAPABILITY_ID as FACTOR_ID, CAPABILITY_VERSION as FACTOR_VERSION};
 use crate::stats_l1::catalogue::{L1MethodId, MethodCatalogue};
 use crate::stats_l1::compute::L1Registry;
 use crate::stats_linear_regression::{
@@ -240,6 +241,24 @@ closed! {
         LimitAnalyzeDurbinWatsonRowOrder => "limit.analyze.durbin_watson_row_order",
         /// Intervals at 95% only (decision 673).
         LimitAnalyzeRegressionIntervals95Only => "limit.analyze.regression_intervals_95_only",
+        AnalyzeFactorTitle => "analyze.factor.title",
+        AnalyzeFactorDescription => "analyze.factor.description",
+        /// Principal components and principal axis factoring only (decision 703).
+        LimitAnalyzeFactorExtractionTwoMethods => "limit.analyze.factor_extraction_two_methods",
+        /// Varimax and promax only (decision 703).
+        LimitAnalyzeFactorRotationVarimaxPromax => "limit.analyze.factor_rotation_varimax_promax",
+        /// Promax at a power of 4 only (decision 703).
+        LimitAnalyzeFactorPromaxKappaFour => "limit.analyze.factor_promax_kappa_four",
+        /// No factor scores (decision 703).
+        LimitAnalyzeFactorNoScores => "limit.analyze.factor_no_scores",
+        /// The item-by-item matrices are not shown (decision 703).
+        LimitAnalyzeFactorMatricesNotShown => "limit.analyze.factor_matrices_not_shown",
+        /// Pearson's correlations only (decision 703).
+        LimitAnalyzeFactorPearsonOnly => "limit.analyze.factor_pearson_only",
+        /// Listwise deletion only (decision 703).
+        LimitAnalyzeFactorListwiseOnly => "limit.analyze.factor_listwise_only",
+        /// No scree plot (decision 703).
+        LimitAnalyzeFactorNoScreePlot => "limit.analyze.factor_no_scree_plot",
         PrepareScaleScoreTitle => "prepare.scale_score.title",
         PrepareScaleScoreDescription => "prepare.scale_score.description",
         /// A score's items are the file's columns (ADR-011 question 13).
@@ -279,6 +298,8 @@ pub enum Kind {
     AnalyzeRelatedRanks,
     /// `stats.analyze.linear_regression` (Phase 9A-1).
     AnalyzeLinearRegression,
+    /// `stats.analyze.factor` (Phase 9B-1).
+    AnalyzeFactor,
     /// `stats.prepare.scale_score` (Phase 8M). Not a method: no run kind.
     PrepareScaleScore,
 }
@@ -319,6 +340,9 @@ const LIFECYCLES: &[(&str, Lifecycle)] = &[
     // Planned in 9A-1's Part 2 (decision 672); Beta at the start of its Part 3
     // (decision 674), so its commands and runs can run.
     (LINEAR_REGRESSION_ID, Lifecycle::Beta),
+    // Planned in 9B-1's Part 2 (decision 702); Beta at the start of its Part 3
+    // (decision 704), so its commands and runs can run.
+    (FACTOR_ID, Lifecycle::Beta),
     // Planned in 8M (decision 411); Beta at the start of 8M-2's Part 2
     // (decision 416), so 8M-3's commands can run in both builds.
     (PREP_ID, Lifecycle::Beta),
@@ -970,6 +994,56 @@ fn analyze_linear_regression() -> Entry {
     }
 }
 
+/// Exploratory factor analysis on the user's data (Phase 9B-1, decisions 700,
+/// 702 and 703): the other methods' profile, formats and licence; the table
+/// capabilities' two limitations, the methods' weights, and its own eight.
+fn analyze_factor() -> Entry {
+    Entry {
+        kind: Kind::AnalyzeFactor,
+        descriptor: StatsDescriptor {
+            id: id(FACTOR_ID),
+            version: FACTOR_VERSION,
+            workspace_id: WorkspaceId::Statistics,
+            title_code: StatsWording::AnalyzeFactorTitle,
+            description_code: StatsWording::AnalyzeFactorDescription,
+            lifecycle: lifecycle_of(FACTOR_ID),
+            input_schema_version: 1,
+            output_schema_version: 1,
+            method_schema_version: 1,
+            supported_formats: TABLE_FORMATS.to_vec(),
+            dependency_ids: Vec::new(),
+            license_notes: vec![StatsWording::LicenseStatrsMit],
+            resource_profile: ResourceProfile {
+                ram_class: RamClass::Gb8,
+                max_rows: Some(METHOD_MAX_ROWS),
+                max_columns: Some(METHOD_MAX_COLUMNS),
+                max_input_bytes: None,
+                ceiling_ms: Some(DESCRIBE_CEILING_MS),
+                cancel: Cancel::Cooperative,
+                uses_gpu: false,
+                temp_disk: false,
+            },
+            offline_behavior: OfflineBehavior::RunsOffline,
+            validation_suite_id: SuiteId("factor_r_golden"),
+            known_limitation_codes: vec![
+                StatsWording::LimitTableTextFilesUtf8Only,
+                StatsWording::LimitTableLimitsByMemory,
+                StatsWording::LimitAnalyzeNoWeights,
+                StatsWording::LimitAnalyzeFactorExtractionTwoMethods,
+                StatsWording::LimitAnalyzeFactorRotationVarimaxPromax,
+                StatsWording::LimitAnalyzeFactorPromaxKappaFour,
+                StatsWording::LimitAnalyzeFactorNoScores,
+                StatsWording::LimitAnalyzeFactorMatricesNotShown,
+                StatsWording::LimitAnalyzeFactorPearsonOnly,
+                StatsWording::LimitAnalyzeFactorListwiseOnly,
+                StatsWording::LimitAnalyzeFactorNoScreePlot,
+            ],
+            export_kinds: vec![ExportKind::Csv, ExportKind::Json],
+            documentation_id: DocId("methods/factor_analysis"),
+        },
+    }
+}
+
 /// Scale scores (Phase 8M, decisions 408 and 411): the methods' rows, columns,
 /// formats and table limitations, with no ceiling and no cancel (ADR-011 Part
 /// 12): one fast call, measured at 0.18 s at 100,000 × 128 (decision 410), never
@@ -1044,6 +1118,7 @@ impl Registry {
         entries.push(analyze_independent_ranks());
         entries.push(analyze_related_ranks());
         entries.push(analyze_linear_regression());
+        entries.push(analyze_factor());
         entries.push(prepare_scale_score());
         Registry { entries }
     }
@@ -1215,7 +1290,7 @@ mod tests {
                 checked += 1;
             }
         }
-        assert_eq!(checked, 2 * 20, "twenty capabilities, two builds");
+        assert_eq!(checked, 2 * 21, "twenty-one capabilities, two builds");
     }
 
     /// Phase 8D-1 (decision 253), made Beta in 8D-2a (decision 265): the
@@ -1268,7 +1343,7 @@ mod tests {
         }
         let ids: Vec<String> = t.ids().iter().map(|i| i.as_str().to_string()).collect();
         assert_eq!(
-            &ids[ids.len() - 11..ids.len() - 8],
+            &ids[ids.len() - 12..ids.len() - 9],
             [TTEST_ID, ONE_SAMPLE_ID, PAIRED_ID],
             "appended after the independent t-test, one-sample first"
         );
@@ -1297,6 +1372,7 @@ mod tests {
                 | Kind::AnalyzeIndependentRanks
                 | Kind::AnalyzeRelatedRanks
                 | Kind::AnalyzeLinearRegression
+                | Kind::AnalyzeFactor
                 | Kind::PrepareScaleScore => {
                     methods += 1;
                     assert!(
@@ -1334,7 +1410,7 @@ mod tests {
                 }
             }
         }
-        assert_eq!((methods, verify), (12, 7));
+        assert_eq!((methods, verify), (13, 7));
         assert_eq!((METHOD_MAX_ROWS, METHOD_MAX_COLUMNS), (100_000, 128));
     }
 
@@ -1379,7 +1455,7 @@ mod tests {
         }
         let ids: Vec<String> = t.ids().iter().map(|i| i.as_str().to_string()).collect();
         assert_eq!(
-            &ids[ids.len() - 8..ids.len() - 6],
+            &ids[ids.len() - 9..ids.len() - 7],
             [ANOVA_ID, CORR_ID],
             "appended after the paired t-test, the correlations after it"
         );
@@ -1424,7 +1500,7 @@ mod tests {
         }
         let ids: Vec<String> = t.ids().iter().map(|i| i.as_str().to_string()).collect();
         assert_eq!(
-            &ids[ids.len() - 7..ids.len() - 5],
+            &ids[ids.len() - 8..ids.len() - 6],
             [CORR_ID, ALPHA_ID],
             "appended after the one-way ANOVA, Cronbach's alpha after it"
         );
@@ -1469,7 +1545,7 @@ mod tests {
         }
         let ids: Vec<String> = t.ids().iter().map(|i| i.as_str().to_string()).collect();
         assert_eq!(
-            &ids[ids.len() - 6..ids.len() - 4],
+            &ids[ids.len() - 7..ids.len() - 5],
             [ALPHA_ID, XTAB_ID],
             "appended after the correlations, crosstabs after it (decision 578)"
         );
@@ -1523,7 +1599,7 @@ mod tests {
         }
         let ids: Vec<String> = t.ids().iter().map(|i| i.as_str().to_string()).collect();
         assert_eq!(
-            &ids[ids.len() - 5..ids.len() - 3],
+            &ids[ids.len() - 6..ids.len() - 4],
             [XTAB_ID, RANKS_ID],
             "appended after Cronbach's alpha, the rank tests after it (decision 605)"
         );
@@ -1582,7 +1658,7 @@ mod tests {
         }
         let ids: Vec<String> = t.ids().iter().map(|i| i.as_str().to_string()).collect();
         assert_eq!(
-            &ids[ids.len() - 4..ids.len() - 2],
+            &ids[ids.len() - 5..ids.len() - 3],
             [RANKS_ID, RELATED_RANKS_ID],
             "appended after crosstabs, the related rank tests after it"
         );
@@ -1634,7 +1710,7 @@ mod tests {
         }
         let ids: Vec<String> = t.ids().iter().map(|i| i.as_str().to_string()).collect();
         assert_eq!(
-            &ids[ids.len() - 3..ids.len() - 1],
+            &ids[ids.len() - 4..ids.len() - 2],
             [RELATED_RANKS_ID, LINEAR_REGRESSION_ID],
             "appended after the rank tests, the linear regression after it"
         );
@@ -1688,9 +1764,56 @@ mod tests {
         }
         let ids: Vec<String> = t.ids().iter().map(|i| i.as_str().to_string()).collect();
         assert_eq!(
+            &ids[ids.len() - 4..ids.len() - 1],
+            [RELATED_RANKS_ID, LINEAR_REGRESSION_ID, FACTOR_ID],
+            "appended after the related rank tests, the factor analysis after it"
+        );
+    }
+
+    /// Phase 9B-1 (decision 702): the factor analysis is listed after the linear
+    /// regression and before scale scores, with its own title, description and
+    /// limitations and its validation suite and page named. Beta since Part 3
+    /// (decision 704), so runnable in both builds.
+    #[test]
+    fn the_factor_analysis_is_listed_and_named() {
+        let t = Registry::statistics();
+        let id = CapabilityId::parse(FACTOR_ID).unwrap();
+        let e = t.lookup(&id).expect("listed");
+        let d = &e.descriptor;
+        assert_eq!(e.kind, Kind::AnalyzeFactor);
+        assert_eq!((d.version, d.lifecycle), (1, Lifecycle::Beta));
+        assert_eq!(
+            (d.title_code, d.description_code),
+            (StatsWording::AnalyzeFactorTitle, StatsWording::AnalyzeFactorDescription)
+        );
+        assert_eq!(
+            d.known_limitation_codes,
+            [
+                StatsWording::LimitTableTextFilesUtf8Only,
+                StatsWording::LimitTableLimitsByMemory,
+                StatsWording::LimitAnalyzeNoWeights,
+                StatsWording::LimitAnalyzeFactorExtractionTwoMethods,
+                StatsWording::LimitAnalyzeFactorRotationVarimaxPromax,
+                StatsWording::LimitAnalyzeFactorPromaxKappaFour,
+                StatsWording::LimitAnalyzeFactorNoScores,
+                StatsWording::LimitAnalyzeFactorMatricesNotShown,
+                StatsWording::LimitAnalyzeFactorPearsonOnly,
+                StatsWording::LimitAnalyzeFactorListwiseOnly,
+                StatsWording::LimitAnalyzeFactorNoScreePlot,
+            ]
+        );
+        assert_eq!(
+            (d.validation_suite_id, d.documentation_id),
+            (SuiteId("factor_r_golden"), DocId("methods/factor_analysis"))
+        );
+        for build in [Build::Standard, Build::Devtools] {
+            assert!(t.require_runnable(&id, 1, build).is_ok(), "Beta runs in {build:?}");
+        }
+        let ids: Vec<String> = t.ids().iter().map(|i| i.as_str().to_string()).collect();
+        assert_eq!(
             &ids[ids.len() - 3..],
-            [RELATED_RANKS_ID, LINEAR_REGRESSION_ID, PREP_ID],
-            "appended after the related rank tests, scale scores after it"
+            [LINEAR_REGRESSION_ID, FACTOR_ID, PREP_ID],
+            "appended after the linear regression, scale scores after it"
         );
     }
 

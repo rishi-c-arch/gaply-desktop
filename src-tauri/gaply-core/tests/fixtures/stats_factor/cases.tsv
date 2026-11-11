@@ -1,0 +1,36 @@
+# Written by /usr/local/bin/Rscript make_factor_fixtures.R (decision 701).
+# R version 4.6.1 (2026-06-24); seed 20260701; base R only.
+case	data	extraction	factors	rotation	iterations	convergence	codes	expect	condition	note
+two_factor_6_pc_kaiser_varimax	data_two_factor_6.csv	principal_components	kaiser	varimax	25	0.001		ok	4.2307190939539936	
+two_factor_6_pc_kaiser_promax	data_two_factor_6.csv	principal_components	kaiser	promax	25	0.001		ok	4.2307190939539936	
+two_factor_6_pc_fixed_none	data_two_factor_6.csv	principal_components	2	none	25	0.001		ok	4.2307190939539936	
+two_factor_6_pa_kaiser_varimax	data_two_factor_6.csv	principal_axis	kaiser	varimax	25	0.001		ok	4.2307190939539936	
+two_factor_6_pa_kaiser_promax	data_two_factor_6.csv	principal_axis	kaiser	promax	25	0.001		ok	4.2307190939539936	
+two_factor_6_pa_fixed_none	data_two_factor_6.csv	principal_axis	2	none	25	0.001		ok	4.2307190939539936	
+three_factor_12_pc_kaiser_varimax	data_three_factor_12.csv	principal_components	kaiser	varimax	25	0.001		ok	7.0084486621912188	
+three_factor_12_pc_kaiser_promax	data_three_factor_12.csv	principal_components	kaiser	promax	25	0.001		ok	7.0084486621912188	
+three_factor_12_pc_fixed_none	data_three_factor_12.csv	principal_components	2	none	25	0.001		ok	7.0084486621912188	
+three_factor_12_pa_kaiser_varimax	data_three_factor_12.csv	principal_axis	kaiser	varimax	25	0.001		ok	7.0084486621912188	
+three_factor_12_pa_kaiser_promax	data_three_factor_12.csv	principal_axis	kaiser	promax	25	0.001		ok	7.0084486621912188	
+three_factor_12_pa_fixed_none	data_three_factor_12.csv	principal_axis	2	none	25	0.001		ok	7.0084486621912188	
+two_factor_20_pc_kaiser_varimax	data_two_factor_20.csv	principal_components	kaiser	varimax	25	0.001		ok	9.912415244059023	
+two_factor_20_pc_kaiser_promax	data_two_factor_20.csv	principal_components	kaiser	promax	25	0.001		ok	9.912415244059023	
+two_factor_20_pc_fixed_none	data_two_factor_20.csv	principal_components	2	none	25	0.001		ok	9.912415244059023	
+two_factor_20_pa_kaiser_varimax	data_two_factor_20.csv	principal_axis	kaiser	varimax	25	0.001		ok	9.912415244059023	
+two_factor_20_pa_kaiser_promax	data_two_factor_20.csv	principal_axis	kaiser	promax	25	0.001		ok	9.912415244059023	
+two_factor_20_pa_fixed_none	data_two_factor_20.csv	principal_axis	2	none	25	0.001		ok	9.912415244059023	
+three_items_pc	data_three_items_pc.csv	principal_components	kaiser	none	25	0.001		ok	11.96234837930014	
+three_items_pa	data_three_items_pc.csv	principal_axis	1	none	25	0.001		ok	11.96234837930014	
+items_50	formula:2000:50:5	principal_components	5	varimax	25	0.001		ok	136.77875365988311	
+items_128	formula:1000:128:8	principal_axis	8	promax	25	0.001		ok	728.48094483171531	
+near_singular_pa	data_near_singular_pa.csv	principal_axis	2	varimax	100	0.001		ok	10373483.646477949	
+sum_item_pc	data_sum_item_pc.csv	principal_components	2	none	25	0.001		ok	938142936519403.5	
+sum_item_pa	data_sum_item_pc.csv	principal_axis	2	none	25	0.001		correlations_singular:4	938142936519403.5	
+uncorrelated_kaiser	data_uncorrelated_kaiser.csv	principal_components	kaiser	none	25	0.001		no_eigenvalue_over_one	1	
+uncorrelated_tied_note	data_uncorrelated_kaiser.csv	principal_components	1	none	25	0.001		ok	1	
+uncorrelated_item_varimax	data_uncorrelated_item_varimax.csv	principal_components	2	varimax	25	0.001		rotation_item_without_loadings:5	102.15651532042156	
+heywood_pa	data_heywood_pa.csv	principal_axis	2	none	25	0.001		ok	247.299556484324	seed 1
+one_factor_rotation	data_two_factor_6.csv	principal_components	1	varimax	25	0.001		ok	4.2307190939539936	
+missing_and_codes	data_missing_and_codes.csv	principal_axis	kaiser	promax	25	0.001	-99	ok	6.9562665491120113	
+items_out_of_order	data_two_factor_6.csv	principal_components	kaiser	none	25	0.001		items_out_of_order	NA	
+not_converged_pa	data_three_factor_12.csv	principal_axis	3	none	2	9.9999999999999998e-13		extraction_not_converged:2	7.0084486621912188	

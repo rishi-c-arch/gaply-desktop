@@ -10,7 +10,7 @@
 //
 // The spec keeps the predictors in the list's order, never sorted, and the codes ascending
 // and once each. What is held here is the user's choices, in this component's state only.
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button } from '../../design-system';
 import type { DatasetView } from './describeTypes';
 import type { LinearRegressionSpec } from './linearRegressionTypes';
@@ -95,6 +95,14 @@ export function useLinearRegressionSettings(view: DatasetView | null): LinearReg
   const columns = useMemo(() => (outcome ? [outcome, ...predictors] : predictors), [outcome, predictors]);
   const offered = useMemo(() => offeredBy(view, columns), [view, columns]);
   const missingCodes = useMemo(() => ticked.filter((t) => offered.some((s) => s.code === t)), [ticked, offered]);
+  // Decision 698 (the review of 9e4b7ad9, finding 6): a view change prunes the ticks to the
+  // codes then offered, so a tick whose code the view took away never returns by itself.
+  useEffect(() => {
+    setTicked((t) => {
+      const kept = t.filter((c) => offered.some((s) => s.code === c));
+      return kept.length === t.length ? t : kept;
+    });
+  }, [offered]);
   const names: LinearRegressionNames = useMemo(() => ({ column: columnNames(view) }), [view]);
 
   const spec = useCallback(

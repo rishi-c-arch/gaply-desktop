@@ -92,8 +92,21 @@ const AT_9A2: Record<string, string> = {
   'linear_regression_perfect.json': '9f67d0a5a516850099d2d6cc4f5f9bb08f964f51ffa56d46dc0187d2e131bf4a',
 };
 
+/** Research OS, Phase 9B-1 (decision 698): the regression's edge cases saved, captured from
+ *  9B-1's own render, the record a later step keeps its own result against; AT_8EB00B7C,
+ *  AT_8X2, AT_8Y2, AT_8Z2 and AT_9A2 are unchanged. */
+const AT_9B1: Record<string, string> = {
+  'linear_regression_between_factors.json': '1fe8e48b3fb5ec62f3ecab503a304a5ddf657061f3686c7a4940ddb30af00bab',
+  'linear_regression_ms_subnormal.json': '1b838563410774cc3d17438fac4c2d828082c2c2b45f4712c69716cee490493c',
+  'linear_regression_mss_zero.json': '61c1822d25c1ef3747e4f9a5a895fb6027085866d5f1913bdc4da120eab87ed6',
+  'linear_regression_offset_no_spread.json': '60bc55de5a0aa8ea4c562e297c5c3e00aeef388e832c1c5d785b411d1dee14e6',
+  'linear_regression_sigma2_subnormal.json': '0113284e6464fa0ef1d6af1458797651ab9ee4981bdf4eb9b1588a9ccdcbf1a0',
+  'linear_regression_split_se.json': '26f65a45c72fb5616843697ab9eda94c5692af498878ed50152af2e335a66595',
+  'linear_regression_tiny_perfect.json': '0795dcb1b546a9e2fb7e39a141d605c3152712099f7c55cc3601b324d72c4d51',
+};
+
 /** Each file's record: 8eb00b7c's, or that of the step that added the file. */
-const RECORDED: Record<string, string> = { ...AT_8EB00B7C, ...AT_8X2, ...AT_8Y2, ...AT_8Z2, ...AT_9A2 };
+const RECORDED: Record<string, string> = { ...AT_8EB00B7C, ...AT_8X2, ...AT_8Y2, ...AT_8Z2, ...AT_9A2, ...AT_9B1 };
 
 const sha = (s: string) => createHash('sha256').update(s).digest('hex');
 
@@ -162,12 +175,13 @@ describe('a project page with no prepared run, byte for byte as at 8eb00b7c', ()
 describe('a saved result with no scores, byte for byte as at 8eb00b7c', () => {
   it('covers every stored fixture', () => {
     expect(FILES.length).toBeGreaterThanOrEqual(20);
-    // The five records name disjoint files, and together the whole directory.
-    expect(Object.keys(AT_8EB00B7C).filter((k) => k in AT_8X2 || k in AT_8Y2 || k in AT_8Z2 || k in AT_9A2)).toEqual([]);
-    expect(Object.keys(AT_8X2).filter((k) => k in AT_8Y2 || k in AT_8Z2 || k in AT_9A2)).toEqual([]);
-    expect(Object.keys(AT_8Y2).filter((k) => k in AT_8Z2 || k in AT_9A2)).toEqual([]);
-    expect(Object.keys(AT_8Z2).filter((k) => k in AT_9A2)).toEqual([]);
-    expect([...Object.keys(AT_8EB00B7C), ...Object.keys(AT_8X2), ...Object.keys(AT_8Y2), ...Object.keys(AT_8Z2), ...Object.keys(AT_9A2)].sort()).toEqual(FILES);
+    // The six records name disjoint files, and together the whole directory.
+    expect(Object.keys(AT_8EB00B7C).filter((k) => k in AT_8X2 || k in AT_8Y2 || k in AT_8Z2 || k in AT_9A2 || k in AT_9B1)).toEqual([]);
+    expect(Object.keys(AT_8X2).filter((k) => k in AT_8Y2 || k in AT_8Z2 || k in AT_9A2 || k in AT_9B1)).toEqual([]);
+    expect(Object.keys(AT_8Y2).filter((k) => k in AT_8Z2 || k in AT_9A2 || k in AT_9B1)).toEqual([]);
+    expect(Object.keys(AT_8Z2).filter((k) => k in AT_9A2 || k in AT_9B1)).toEqual([]);
+    expect(Object.keys(AT_9A2).filter((k) => k in AT_9B1)).toEqual([]);
+    expect([...Object.keys(AT_8EB00B7C), ...Object.keys(AT_8X2), ...Object.keys(AT_8Y2), ...Object.keys(AT_8Z2), ...Object.keys(AT_9A2), ...Object.keys(AT_9B1)].sort()).toEqual(FILES);
   });
 
   it.each(FILES)('%s', (f) => {

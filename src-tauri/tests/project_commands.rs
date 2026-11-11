@@ -1661,6 +1661,84 @@ fn stored_linear_regression_results_have_the_layout_of_their_fixtures() {
     assert_stored_fixture("linear_regression_failed.json", &back);
 }
 
+/// The linear regression's edge cases saved (Research OS, Phase 9B-1, decision 698): the
+/// accepted side of the stored checker, each a result Rust writes that a one-line mutant of
+/// 9A-2's checker refused (the review of 9e4b7ad9, finding 2), and finding 1's perfect fit
+/// near 2e-147. Each on a file's own table, never a prepared slot; each premise asserted on
+/// the saved bundle, so a fixture cannot drift into an ordinary result.
+#[test]
+fn stored_linear_regression_edge_cases_have_the_layout_of_their_fixtures() {
+    let w = World::new("stored-linear-regression-edges");
+    let csv = |cols: &[Vec<f64>]| -> Vec<u8> {
+        let mut s = (1..=cols.len()).map(|i| format!("c{i}")).collect::<Vec<_>>().join(",");
+        for r in 0..cols[0].len() {
+            s.push('\n');
+            s.push_str(&cols.iter().map(|c| format!("{:?}", c[r])).collect::<Vec<_>>().join(","));
+        }
+        s.push('\n');
+        s.into_bytes()
+    };
+    // linear_regression_cases.rs's base_columns, its twelve rows.
+    let x1 = vec![1.2, 2.5, 3.1, 4.8, 5.0, 6.3, 7.7, 8.1, 9.4, 10.2, 11.9, 12.5];
+    let x2 = vec![0.5, -1.25, 2.0, 0.75, -0.5, 1.5, -2.0, 0.25, 1.0, -0.75, 2.5, -1.5];
+    let x3 = vec![10.0, 12.0, 9.5, 14.0, 11.0, 13.5, 15.0, 10.5, 16.0, 12.5, 17.5, 14.5];
+    let noise = [0.4, -0.3, 0.1, -0.6, 0.2, 0.5, -0.1, -0.4, 0.3, 0.6, -0.5, 0.2];
+    let y: Vec<f64> = (0..12).map(|i| 3.0 + 0.8 * x1[i] - 1.5 * x2[i] + 0.3 * x3[i] + noise[i]).collect();
+    let weak = vec![4.9, 5.2, 5.1, 4.7, 5.3, 5.0, 4.8, 5.2, 5.0, 4.6, 5.1, 5.3];
+    let scale = |v: &[f64], e: i32| v.iter().map(|x| x * 2f64.powi(e)).collect::<Vec<f64>>();
+    let tiny = vec![4.1545078199342785e-147, 2.0772539099671393e-147, -2.0772539099671393e-147, 2.0772539099671393e-147, -3.115880864950709e-147];
+    let between_y = [100000004.0, 100000036.0, 100000001.0, 100000009.0];
+    let between_x = [2.0, 6.0, 1.0, 3.0, -2.0, -6.0, -1.0, -3.0];
+    let cases: Vec<(&str, Vec<Vec<f64>>)> = vec![
+        ("linear_regression_tiny_perfect.json", vec![tiny.iter().map(|x| 0.5 * x).collect(), tiny.clone()]),
+        ("linear_regression_mss_zero.json", vec![vec![1000005.0, 1000002.0, 1000001.0, 1000002.0, 1000005.0], vec![4.0, 5.0, 3.0, 1.0, 2.0]]),
+        ("linear_regression_offset_no_spread.json", vec![vec![5.0, 2.0, 1.0, 2.0, 5.0], vec![1004.0, 1005.0, 1003.0, 1001.0, 1002.0]]),
+        ("linear_regression_between_factors.json", vec![between_y.iter().chain(between_y.iter()).copied().collect(), between_x.to_vec()]),
+        ("linear_regression_sigma2_subnormal.json", vec![scale(&y, -511), x1.clone(), x2.clone(), x3.clone()]),
+        ("linear_regression_ms_subnormal.json", vec![scale(&weak, -508), x1.clone(), x2.clone(), x3.clone()]),
+        ("linear_regression_split_se.json", vec![scale(&y, -239), scale(&x1, 282)]),
+    ];
+    let mut id: Option<String> = None;
+    for (name, cols) in &cases {
+        let slot = w.open(&name.replace(".json", ".csv"), &csv(cols));
+        let predictors: Vec<u32> = (2..=cols.len() as u32).collect();
+        let run = w.linear_regression(slot, 1, &predictors, vec![]);
+        let to = match &id {
+            None => new_project("Stored regression edges"),
+            Some(id) => into_open(id.as_str()),
+        };
+        let saved = pc::save_run(&w.root(), &w.ws, run, to).unwrap().project_id;
+        id.get_or_insert(saved);
+    }
+    let id = id.unwrap();
+    let nc = |c: &str| json!({ "not_computable": format!("stats.linear_regression.{c}") });
+    for (n, (name, _)) in cases.iter().enumerate() {
+        let back = pc::run_result(&w.root(), &w.ws, &id, n as u64 + 1).expect("read back");
+        assert_eq!(back.state, RunState::Succeeded, "{name}");
+        let bundle: Value = serde_json::from_str(back.bundle_json.as_deref().unwrap()).unwrap();
+        let r = &bundle["primaryOutputs"];
+        assert_eq!(bundle["diagnostics"].as_array().unwrap().len(), 0, "{name}");
+        let sp = &r["residuals"]["standardizedPredicted"];
+        let premise = match *name {
+            // Finding 1: RSS exactly 0 and no note, as Rust's threshold rounds to 0.
+            "linear_regression_tiny_perfect.json" => {
+                r["anova"]["residual"]["sumOfSquares"] == json!({ "value": 0.0 }) && r["notes"] == json!([])
+            }
+            "linear_regression_mss_zero.json" => {
+                r["anova"]["regression"]["sumOfSquares"] == json!({ "value": 0.0 }) && sp["maximum"] == nc("predicted_no_spread")
+            }
+            "linear_regression_offset_no_spread.json" | "linear_regression_between_factors.json" => {
+                r["anova"]["regression"]["sumOfSquares"] != json!({ "value": 0.0 }) && sp["minimum"] == nc("predicted_no_spread")
+            }
+            "linear_regression_sigma2_subnormal.json" => r["anova"]["residual"]["meanSquare"] == nc("too_small"),
+            "linear_regression_ms_subnormal.json" => r["anova"]["regression"]["meanSquare"] == nc("too_small"),
+            _ => r["predictors"][0]["standardError"]["value"].is_number() && r["predictors"][0]["t"]["value"].is_number(),
+        };
+        assert!(premise, "{name}: the premise does not hold: {r}");
+        assert_stored_fixture(name, &back);
+    }
+}
+
 /// The correlations' saved results (Research OS, Phase 8H-2, decision 357):
 /// one pairwise with all three coefficients and a ticked missing code, and
 /// one listwise with Pearson only, laid out as their fixtures, for the

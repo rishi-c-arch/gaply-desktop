@@ -640,3 +640,58 @@ fn a_code_equal_to_a_scores_value_comes_after_the_column_errors() {
     let score = got.iter().position(|c| *c == C::CodeEqualsScore.wire()).expect("the score's code");
     assert!(text < score, "{got:?}");
 }
+
+/// The data of decision 698's two cases (the review of 9e4b7ad9, finding 5), i = 1 to
+/// 100,000, by the same integer formulas as make_linear_regression_sd_exact.R: u_i = (7919 i)
+/// mod 1000 times 2^-527, whose sum of squares about its mean is 1.94 times the smallest
+/// normal double, so its variance is subnormal; w_i = (7907 i) mod 1013; y_i = (104729 i) mod
+/// 997. Every value is an exact double.
+fn subnormal_variance_columns() -> [Vec<f64>; 3] {
+    let n = 100_000u64;
+    let small = (1..=n).map(|i| ((7919 * i) % 1000) as f64 * 2f64.powi(-527)).collect();
+    let w = (1..=n).map(|i| ((7907 * i) % 1013) as f64).collect();
+    let y = (1..=n).map(|i| ((104729 * i) % 997) as f64).collect();
+    [y, w, small]
+}
+
+/// gmp's exact values (make_linear_regression_sd_exact.R, 11 Nov 2026), each the double
+/// nearest the exact rational: the small column's SD, and its VIF beside w.
+const SD_SMALL_EXACT: f64 = 6.5705786229769822e-157;
+const VIF_SMALL_EXACT: f64 = 1.000000077691136;
+
+/// Decision 698's gate for the two cases below: ten times the larger error measured over
+/// them, 3.597e-14 (the VIF; 2.383e-14 for the SD; macOS aarch64, 11 Nov 2026), rounded up.
+/// 9A-1's root of the variance errs by 1.131e-12 on the SD, about three times the gate.
+const SUBNORMAL_VARIANCE_GATE: f64 = 4e-13;
+
+/// Decision 698 (finding 5): a model column whose variance is subnormal takes its SD from
+/// sd_from's scaled sum, not the root of that variance (9A-1's form), which has lost digits.
+#[test]
+fn a_model_columns_sd_with_a_subnormal_variance_comes_from_its_scaled_sum() {
+    let [y, _, small] = subnormal_variance_columns();
+    let rows: Vec<Vec<String>> = (0..y.len()).map(|r| vec![format!("{:?}", y[r]), format!("{:?}", small[r])]).collect();
+    let r = compute(&dataset(&["y", "x"], &rows), &params(1, &[2], vec![])).unwrap();
+    let m = small.iter().sum::<f64>() / small.len() as f64;
+    let variance = small.iter().map(|x| (x - m) * (x - m)).sum::<f64>() / (small.len() as f64 - 1.0);
+    assert!(variance > 0.0 && variance < f64::MIN_POSITIVE, "the premise: the variance {variance:e} is subnormal");
+    let got = v(r.columns[1].sd);
+    let error = ((got - SD_SMALL_EXACT) / SD_SMALL_EXACT).abs();
+    let old = ((variance.sqrt() - SD_SMALL_EXACT) / SD_SMALL_EXACT).abs();
+    println!("the small column's SD: this form {error:e}, 9A-1's root of the variance {old:e}, against gmp");
+    assert!(error <= SUBNORMAL_VARIANCE_GATE, "{error:e} over {SUBNORMAL_VARIANCE_GATE:e}");
+}
+
+/// Decision 698 (finding 5): a predictor whose variance is subnormal, placed last, takes its
+/// VIF from its SD so computed, (sd √s_j)² (n − 1), not from (n − 1) var s_j (9A-1's form).
+#[test]
+fn a_vif_with_a_subnormal_variance_comes_from_the_scaled_sd() {
+    let [y, w, small] = subnormal_variance_columns();
+    let rows: Vec<Vec<String>> =
+        (0..y.len()).map(|r| vec![format!("{:?}", y[r]), format!("{:?}", w[r]), format!("{:?}", small[r])]).collect();
+    let r = compute(&dataset(&["y", "w", "x"], &rows), &params(1, &[2, 3], vec![])).unwrap();
+    let got = v(r.predictors[1].vif);
+    let error = ((got - VIF_SMALL_EXACT) / VIF_SMALL_EXACT).abs();
+    println!("the small predictor's VIF: {got:?}, error {error:e} against gmp");
+    assert!(matches!(r.predictors[1].tolerance, Stat::Value(_)));
+    assert!(error <= SUBNORMAL_VARIANCE_GATE, "{error:e} over {SUBNORMAL_VARIANCE_GATE:e}");
+}

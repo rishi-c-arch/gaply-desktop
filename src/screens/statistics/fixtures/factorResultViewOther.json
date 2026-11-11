@@ -1,0 +1,403 @@
+{
+  "runId": 5,
+  "status": "succeeded",
+  "result": {
+    "items": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "rowsUsed": 8,
+    "descriptives": [
+      {
+        "item": "C1",
+        "mean": {
+          "value": 0.0
+        },
+        "sd": {
+          "value": 1.0690449676496976
+        }
+      },
+      {
+        "item": "C2",
+        "mean": {
+          "value": 0.0
+        },
+        "sd": {
+          "value": 1.0690449676496976
+        }
+      },
+      {
+        "item": "C3",
+        "mean": {
+          "value": 0.0
+        },
+        "sd": {
+          "value": 1.0690449676496976
+        }
+      },
+      {
+        "item": "C4",
+        "mean": {
+          "value": 0.0
+        },
+        "sd": {
+          "value": 1.8516401995451028
+        }
+      }
+    ],
+    "determinant": {
+      "value": {
+        "not_computable": "stats.factor.correlations_singular"
+      },
+      "log": {
+        "not_computable": "stats.factor.correlations_singular"
+      }
+    },
+    "kmo": {
+      "overall": {
+        "not_computable": "stats.factor.correlations_singular"
+      },
+      "items": [
+        {
+          "item": "C1",
+          "msa": {
+            "not_computable": "stats.factor.correlations_singular"
+          }
+        },
+        {
+          "item": "C2",
+          "msa": {
+            "not_computable": "stats.factor.correlations_singular"
+          }
+        },
+        {
+          "item": "C3",
+          "msa": {
+            "not_computable": "stats.factor.correlations_singular"
+          }
+        },
+        {
+          "item": "C4",
+          "msa": {
+            "not_computable": "stats.factor.correlations_singular"
+          }
+        }
+      ]
+    },
+    "bartlett": {
+      "chiSquare": {
+        "not_computable": "stats.factor.correlations_singular"
+      },
+      "df": 6,
+      "p": {
+        "not_computable": "stats.factor.correlations_singular"
+      }
+    },
+    "eigenvalues": [
+      {
+        "total": {
+          "value": 2.0
+        },
+        "percent": {
+          "value": 50.0
+        },
+        "cumulative": {
+          "value": 50.0
+        }
+      },
+      {
+        "total": {
+          "value": 0.9999999999999999
+        },
+        "percent": {
+          "value": 24.999999999999996
+        },
+        "cumulative": {
+          "value": 75.0
+        }
+      },
+      {
+        "total": {
+          "value": 0.9999999999999998
+        },
+        "percent": {
+          "value": 24.999999999999993
+        },
+        "cumulative": {
+          "value": 100.0
+        }
+      },
+      {
+        "total": {
+          "value": -3.8622341641530597e-17
+        },
+        "percent": {
+          "value": -9.65558541038265e-16
+        },
+        "cumulative": {
+          "value": 100.0
+        }
+      }
+    ],
+    "extraction": {
+      "method": "principal_components",
+      "factors": 2,
+      "iterations": 0,
+      "communalities": [
+        {
+          "item": "C1",
+          "initial": {
+            "value": 1.0
+          },
+          "extraction": {
+            "value": 0.409885723228967
+          }
+        },
+        {
+          "item": "C2",
+          "initial": {
+            "value": 1.0
+          },
+          "extraction": {
+            "value": 0.9791250433792091
+          }
+        },
+        {
+          "item": "C3",
+          "initial": {
+            "value": 1.0
+          },
+          "extraction": {
+            "value": 0.610989233391824
+          }
+        },
+        {
+          "item": "C4",
+          "initial": {
+            "value": 1.0
+          },
+          "extraction": {
+            "value": 1.0
+          }
+        }
+      ],
+      "sums": [
+        {
+          "total": {
+            "value": 2.0
+          },
+          "percent": {
+            "value": 50.0
+          },
+          "cumulative": {
+            "value": 50.0
+          }
+        },
+        {
+          "total": {
+            "value": 1.0
+          },
+          "percent": {
+            "value": 25.0
+          },
+          "cumulative": {
+            "value": 75.0
+          }
+        }
+      ],
+      "loadings": [
+        [
+          {
+            "value": 0.5773502691896257
+          },
+          {
+            "value": 0.27668102554319424
+          }
+        ],
+        [
+          {
+            "value": 0.5773502691896258
+          },
+          {
+            "value": -0.803611666195729
+          }
+        ],
+        [
+          {
+            "value": 0.5773502691896258
+          },
+          {
+            "value": 0.5269306406525346
+          }
+        ],
+        [
+          {
+            "value": 1.0
+          },
+          {
+            "value": 2.2352242212375036e-17
+          }
+        ]
+      ]
+    },
+    "rotation": {
+      "method": "varimax",
+      "iterations": 7,
+      "loadings": [
+        [
+          {
+            "value": 0.6325724718833017
+          },
+          {
+            "value": 0.0986802464752513
+          }
+        ],
+        [
+          {
+            "value": 0.021130635849856177
+          },
+          {
+            "value": 0.9892818302222021
+          }
+        ],
+        [
+          {
+            "value": 0.7742128673976105
+          },
+          {
+            "value": -0.10762745629157021
+          }
+        ],
+        [
+          {
+            "value": 0.824407672621916
+          },
+          {
+            "value": 0.5659964569872461
+          }
+        ]
+      ],
+      "transformation": [
+        [
+          {
+            "value": 0.824407672621916
+          },
+          {
+            "value": 0.5659964569872461
+          }
+        ],
+        [
+          {
+            "value": 0.565996456987246
+          },
+          {
+            "value": -0.824407672621916
+          }
+        ]
+      ],
+      "sums": [
+        {
+          "total": {
+            "value": 1.6796480106778842
+          },
+          "percent": {
+            "value": 41.991200266947104
+          },
+          "cumulative": {
+            "value": 41.991200266947104
+          }
+        },
+        {
+          "total": {
+            "value": 1.3203519893221154
+          },
+          "percent": {
+            "value": 33.00879973305288
+          },
+          "cumulative": {
+            "value": 74.99999999999999
+          }
+        }
+      ],
+      "structure": null,
+      "factorCorrelations": null
+    },
+    "exclusions": [
+      {
+        "code": "stats.factor.missing_code",
+        "count": 1,
+        "params": {
+          "column": 1
+        }
+      },
+      {
+        "code": "stats.factor.missing_value",
+        "count": 1,
+        "params": {
+          "column": 2
+        }
+      }
+    ],
+    "notes": [
+      "stats.factor.eigenvalues_not_distinct"
+    ],
+    "limitations": [
+      "stats.factor.no_ml_or_other_extraction",
+      "stats.factor.no_oblique_other_than_promax",
+      "stats.factor.promax_kappa_four",
+      "stats.factor.no_factor_scores",
+      "stats.factor.no_matrices_shown",
+      "stats.factor.pearson_only",
+      "stats.factor.listwise_only",
+      "stats.factor.no_scree_plot",
+      "stats.factor.no_weights"
+    ]
+  },
+  "diagnostics": [
+    {
+      "code": "stats.factor.suspect_missing_code",
+      "params": {
+        "column": 1,
+        "count": 3,
+        "value": 99
+      },
+      "severity": "warning"
+    },
+    {
+      "code": "stats.factor.no_ml_or_other_extraction",
+      "params": {},
+      "severity": "note"
+    }
+  ],
+  "manifest": {
+    "schemaVersion": 1,
+    "capabilityId": "stats.analyze.factor",
+    "capabilityVersion": 1,
+    "engineVersion": 1,
+    "inputs": [
+      "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    ],
+    "parametersHash": "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+    "seed": 7,
+    "rowsRead": 41,
+    "rowsUsed": 40,
+    "exclusions": [
+      {
+        "code": "stats.factor.missing_value",
+        "count": 1,
+        "params": {
+          "column": 2
+        }
+      }
+    ],
+    "platform": {
+      "os": "macos",
+      "arch": "aarch64"
+    },
+    "elapsedMs": 3,
+    "outputHash": "6ad1bf5daee4d8dfcb466411096e7f26e513bf2cadfb0e1605ff085026fe5c5b",
+    "reproducibility": "bitwise"
+  }
+}

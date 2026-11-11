@@ -985,7 +985,7 @@ fn sum_of<'a>(
 
 /// `stats_verify::pearson_clamped`'s r, ±1 within `RHO_ONE_ULPS` units in
 /// the last place of it (decision 352's test).
-fn correlation(x: &[f64], y: &[f64]) -> Stat {
+pub(crate) fn correlation(x: &[f64], y: &[f64]) -> Stat {
     match pearson_clamped(x, y) {
         Ok(r) if 1.0 - r.coefficient.abs() <= RHO_ONE_ULPS * f64::EPSILON / 2.0 => {
             Stat::Value(r.coefficient.signum())

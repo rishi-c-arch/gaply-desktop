@@ -1397,3 +1397,63 @@ fn every_linear_regression_command_checks_the_workspace_first() {
         failures.join("\n")
     );
 }
+
+/// Phase 9B-1 (decision 704): the factor analysis's six commands, each checking
+/// the workspace first, in the same form; none is exempt. (registered path) No
+/// other family's prefix starts `stats_factor_`, and it starts no other's: the
+/// families are FIND FIRST of 9B-1's thirteen, `stats_ai_key` to `stats_xtab`.
+const FACTOR_OPERATIONS: &[&str] = &[
+    "stats_factor_commands::stats_factor_validate",
+    "stats_factor_commands::stats_factor_run",
+    "stats_factor_commands::stats_factor_status",
+    "stats_factor_commands::stats_factor_result",
+    "stats_factor_commands::stats_factor_cancel",
+    "stats_factor_commands::stats_factor_export",
+];
+
+#[test]
+fn every_factor_command_checks_the_workspace_first() {
+    let all = registered();
+    assert!(all.len() > 100, "the handler parse is inert");
+    let mut family: Vec<&str> = all
+        .iter()
+        .map(|p| p.as_str())
+        .filter(|p| p.starts_with("stats_factor_commands::"))
+        .collect();
+    family.sort_unstable();
+    let mut listed: Vec<&str> = FACTOR_OPERATIONS.to_vec();
+    listed.sort_unstable();
+    assert_eq!(
+        family, listed,
+        "every registered stats_factor_commands command is listed, and every listed one is registered"
+    );
+    // Nothing registers a stats_factor_* command from another module.
+    for p in &all {
+        if p.rsplit("::")
+            .next()
+            .is_some_and(|n| n.starts_with("stats_factor_"))
+        {
+            assert!(p.starts_with("stats_factor_commands::"), "{p}");
+        }
+    }
+
+    let src = without_line_comments(&read(&root().join("src/stats_factor_commands.rs")));
+    let mut failures = Vec::new();
+    for path in FACTOR_OPERATIONS {
+        let name = path.rsplit("::").next().unwrap();
+        match fn_body(&src, name) {
+            Some(body) if checks_first(body) => {}
+            Some(body) => failures.push(format!(
+                "{path}: first statement is `{}`",
+                body.split(';').next().unwrap_or("").trim()
+            )),
+            None => failures.push(format!("{path}: no body found")),
+        }
+    }
+    println!("gated {} factor analysis commands", FACTOR_OPERATIONS.len());
+    assert!(
+        failures.is_empty(),
+        "decision 704:\n{}",
+        failures.join("\n")
+    );
+}

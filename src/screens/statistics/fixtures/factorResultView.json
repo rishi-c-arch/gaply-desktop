@@ -1,0 +1,524 @@
+{
+  "runId": 5,
+  "status": "succeeded",
+  "result": {
+    "items": [
+      "C1",
+      "C2",
+      "C3",
+      "C4",
+      "C5",
+      "C6"
+    ],
+    "rowsUsed": 40,
+    "descriptives": [
+      {
+        "item": "C1",
+        "mean": {
+          "value": 38.424999999999955
+        },
+        "sd": {
+          "value": 651.5430555267457
+        }
+      },
+      {
+        "item": "C2",
+        "mean": {
+          "value": 29.475000000000023
+        },
+        "sd": {
+          "value": 681.782279237332
+        }
+      },
+      {
+        "item": "C3",
+        "mean": {
+          "value": 23.949999999999964
+        },
+        "sd": {
+          "value": 649.5162677341361
+        }
+      },
+      {
+        "item": "C4",
+        "mean": {
+          "value": 64.85000000000002
+        },
+        "sd": {
+          "value": 648.1152378539341
+        }
+      },
+      {
+        "item": "C5",
+        "mean": {
+          "value": 34.4
+        },
+        "sd": {
+          "value": 645.2448869247737
+        }
+      },
+      {
+        "item": "C6",
+        "mean": {
+          "value": 50.375
+        },
+        "sd": {
+          "value": 574.3786246781643
+        }
+      }
+    ],
+    "determinant": {
+      "value": {
+        "value": 0.005652229349015525
+      },
+      "log": {
+        "value": -5.175705236601054
+      }
+    },
+    "kmo": {
+      "overall": {
+        "value": 0.7206346004950582
+      },
+      "items": [
+        {
+          "item": "C1",
+          "msa": {
+            "value": 0.7170694260054213
+          }
+        },
+        {
+          "item": "C2",
+          "msa": {
+            "value": 0.7967188799955066
+          }
+        },
+        {
+          "item": "C3",
+          "msa": {
+            "value": 0.7924554559229509
+          }
+        },
+        {
+          "item": "C4",
+          "msa": {
+            "value": 0.7498212219774575
+          }
+        },
+        {
+          "item": "C5",
+          "msa": {
+            "value": 0.5954395999245529
+          }
+        },
+        {
+          "item": "C6",
+          "msa": {
+            "value": 0.6889048070401917
+          }
+        }
+      ]
+    },
+    "bartlett": {
+      "chiSquare": {
+        "value": 187.18800605707145
+      },
+      "df": 15,
+      "p": {
+        "value": 8.404597011389804e-32
+      }
+    },
+    "eigenvalues": [
+      {
+        "total": {
+          "value": 3.279995914839406
+        },
+        "percent": {
+          "value": 54.66659858065677
+        },
+        "cumulative": {
+          "value": 54.66659858065677
+        }
+      },
+      {
+        "total": {
+          "value": 1.9879644958741403
+        },
+        "percent": {
+          "value": 33.13274159790234
+        },
+        "cumulative": {
+          "value": 87.7993401785591
+        }
+      },
+      {
+        "total": {
+          "value": 0.27520708768112107
+        },
+        "percent": {
+          "value": 4.586784794685351
+        },
+        "cumulative": {
+          "value": 92.38612497324446
+        }
+      },
+      {
+        "total": {
+          "value": 0.1928079099831362
+        },
+        "percent": {
+          "value": 3.2134651663856033
+        },
+        "cumulative": {
+          "value": 95.59959013963007
+        }
+      },
+      {
+        "total": {
+          "value": 0.1650419491770402
+        },
+        "percent": {
+          "value": 2.75069915295067
+        },
+        "cumulative": {
+          "value": 98.35028929258074
+        }
+      },
+      {
+        "total": {
+          "value": 0.0989826424451557
+        },
+        "percent": {
+          "value": 1.6497107074192618
+        },
+        "cumulative": {
+          "value": 100.0
+        }
+      }
+    ],
+    "extraction": {
+      "method": "principal_axis",
+      "factors": 2,
+      "iterations": 11,
+      "communalities": [
+        {
+          "item": "C1",
+          "initial": {
+            "value": 0.754345652411321
+          },
+          "extraction": {
+            "value": 0.7587732473960601
+          }
+        },
+        {
+          "item": "C2",
+          "initial": {
+            "value": 0.7375677482868201
+          },
+          "extraction": {
+            "value": 0.8134600595179463
+          }
+        },
+        {
+          "item": "C3",
+          "initial": {
+            "value": 0.7601278893158581
+          },
+          "extraction": {
+            "value": 0.8083468530250082
+          }
+        },
+        {
+          "item": "C4",
+          "initial": {
+            "value": 0.7461257425398923
+          },
+          "extraction": {
+            "value": 0.7996830666383519
+          }
+        },
+        {
+          "item": "C5",
+          "initial": {
+            "value": 0.8082028905023271
+          },
+          "extraction": {
+            "value": 0.9138332076312995
+          }
+        },
+        {
+          "item": "C6",
+          "initial": {
+            "value": 0.7819893790668069
+          },
+          "extraction": {
+            "value": 0.8215618682339232
+          }
+        }
+      ],
+      "sums": [
+        {
+          "total": {
+            "value": 3.0926849381622032
+          },
+          "percent": {
+            "value": 51.544748969370055
+          },
+          "cumulative": {
+            "value": 51.544748969370055
+          }
+        },
+        {
+          "total": {
+            "value": 1.8229733642803858
+          },
+          "percent": {
+            "value": 30.382889404673097
+          },
+          "cumulative": {
+            "value": 81.92763837404316
+          }
+        }
+      ],
+      "loadings": [
+        [
+          {
+            "value": 0.7235274313576412
+          },
+          {
+            "value": 0.48505804134049146
+          }
+        ],
+        [
+          {
+            "value": 0.7223957156521852
+          },
+          {
+            "value": -0.5400041569518826
+          }
+        ],
+        [
+          {
+            "value": 0.7761409487487749
+          },
+          {
+            "value": 0.45381943623026966
+          }
+        ],
+        [
+          {
+            "value": 0.734622320948299
+          },
+          {
+            "value": -0.5099148087699416
+          }
+        ],
+        [
+          {
+            "value": 0.5805074599092479
+          },
+          {
+            "value": 0.7595026639986278
+          }
+        ],
+        [
+          {
+            "value": 0.7538459965219574
+          },
+          {
+            "value": -0.5032674058209414
+          }
+        ]
+      ]
+    },
+    "rotation": {
+      "method": "promax",
+      "iterations": 27,
+      "loadings": [
+        [
+          {
+            "value": 0.0999023950034738
+          },
+          {
+            "value": 0.8382185649516833
+          }
+        ],
+        [
+          {
+            "value": 0.9140512786885412
+          },
+          {
+            "value": -0.04833607779506911
+          }
+        ],
+        [
+          {
+            "value": 0.16004237293041562
+          },
+          {
+            "value": 0.8416906899195088
+          }
+        ],
+        [
+          {
+            "value": 0.8983352627079605
+          },
+          {
+            "value": -0.015250951602359952
+          }
+        ],
+        [
+          {
+            "value": -0.2142488918233783
+          },
+          {
+            "value": 0.9925781206159768
+          }
+        ],
+        [
+          {
+            "value": 0.9059505387080641
+          },
+          {
+            "value": 0.0016268923798377355
+          }
+        ]
+      ],
+      "transformation": null,
+      "sums": null,
+      "structure": [
+        [
+          {
+            "value": 0.33103997802820917
+          },
+          {
+            "value": 0.8657665089903797
+          }
+        ],
+        [
+          {
+            "value": 0.9007226736425628
+          },
+          {
+            "value": 0.20371226872290188
+          }
+        ],
+        [
+          {
+            "value": 0.39213738950122057
+          },
+          {
+            "value": 0.8858221477604741
+          }
+        ],
+        [
+          {
+            "value": 0.8941298343870071
+          },
+          {
+            "value": 0.23246372575053004
+          }
+        ],
+        [
+          {
+            "value": 0.05945312022360555
+          },
+          {
+            "value": 0.9334992919042336
+          }
+        ],
+        [
+          {
+            "value": 0.9063991519793995
+          },
+          {
+            "value": 0.2514414713124925
+          }
+        ]
+      ],
+      "factorCorrelations": [
+        [
+          {
+            "value": 1.0
+          },
+          {
+            "value": 0.27574858478356257
+          }
+        ],
+        [
+          {
+            "value": 0.27574858478356257
+          },
+          {
+            "value": 1.0
+          }
+        ]
+      ]
+    },
+    "exclusions": [
+      {
+        "code": "stats.factor.missing_value",
+        "count": 1,
+        "params": {
+          "column": 2
+        }
+      }
+    ],
+    "notes": [],
+    "limitations": [
+      "stats.factor.no_ml_or_other_extraction",
+      "stats.factor.no_oblique_other_than_promax",
+      "stats.factor.promax_kappa_four",
+      "stats.factor.no_factor_scores",
+      "stats.factor.no_matrices_shown",
+      "stats.factor.pearson_only",
+      "stats.factor.listwise_only",
+      "stats.factor.no_scree_plot",
+      "stats.factor.no_weights"
+    ]
+  },
+  "diagnostics": [
+    {
+      "code": "stats.factor.suspect_missing_code",
+      "params": {
+        "column": 1,
+        "count": 3,
+        "value": 99
+      },
+      "severity": "warning"
+    },
+    {
+      "code": "stats.factor.no_ml_or_other_extraction",
+      "params": {},
+      "severity": "note"
+    }
+  ],
+  "manifest": {
+    "schemaVersion": 1,
+    "capabilityId": "stats.analyze.factor",
+    "capabilityVersion": 1,
+    "engineVersion": 1,
+    "inputs": [
+      "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    ],
+    "parametersHash": "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+    "seed": 7,
+    "rowsRead": 41,
+    "rowsUsed": 40,
+    "exclusions": [
+      {
+        "code": "stats.factor.missing_value",
+        "count": 1,
+        "params": {
+          "column": 2
+        }
+      }
+    ],
+    "platform": {
+      "os": "macos",
+      "arch": "aarch64"
+    },
+    "elapsedMs": 3,
+    "outputHash": "6ad1bf5daee4d8dfcb466411096e7f26e513bf2cadfb0e1605ff085026fe5c5b",
+    "reproducibility": "bitwise"
+  }
+}

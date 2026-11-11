@@ -1,0 +1,33 @@
+# Written by /usr/local/bin/Rscript make_linalg_fixtures.R (decision 699).
+# R version 4.6.1 (2026-06-24); seed 20260699; base R only.
+# case	family	n	condition	note
+cor_3	symmetric	3	1.2047126384819895	correlation of random data
+cor_5	symmetric	5	3.5172451165649772	correlation of random data
+cor_8	symmetric	8	9.7667698700141692	correlation of random data
+cor_12	symmetric	12	19.069342695904393	correlation of random data
+cor_20	symmetric	20	47.316428079929722	correlation of random data
+cor_50	symmetric	50	77.134297389470305	correlation of random data
+cor_128	symmetric	128	240.3930788744706	correlation of random data
+cond_1e2_6	symmetric	6	99.999999999999531	spectral, geometric eigenvalues
+cond_1e6_10	symmetric	10	1000000.0000011799	spectral, geometric eigenvalues
+cond_1e10_8	symmetric	8	9999994170.5350323	spectral, geometric eigenvalues
+near_tie_5	symmetric	5	6.0000000000000044	two eigenvalues 1e-9 apart
+equicorrelation_6	symmetric	6	3.571428571428573	eigenvalue 0.7 five times
+identity_4	symmetric	4	1	every off-diagonal 0
+zero_pair_3	symmetric	3	5.8284271247461668	a_12 = 0 and a_11 = a_22
+contrast_4	symmetric	4	12.499999999999739	eigenvectors summing to 0 exactly
+contrast_6	symmetric	6	12.499999999999851	eigenvectors summing to 0 exactly
+hilbert_6	symmetric	6	14951058.641445737	Hilbert
+hilbert_8	symmetric	8	15257576450.289389	Hilbert
+singular_5	symmetric	5	688736338813135.75	column 5 = column 1 + column 2
+near_singular_4	symmetric	4	8587995.3720436078	column 4 nearly column 1 + column 2
+polar_2	polar	2	2.7904943920554399	random normal
+polar_3	polar	3	51.316535290447	random normal
+polar_5	polar	5	115.84805462237333	random normal
+polar_8	polar	8	34.115610291011521	random normal
+polar_16	polar	16	21.683232409088738	random normal
+polar_negdet_3	polar	3	2.9999999999999978	negative determinant
+ls_10x3	least_squares	10	2.1145171148162731	promax-like target
+ls_50x5	least_squares	50	1.684659849692951	promax-like target
+ls_128x8	least_squares	128	1.4820685842712658	promax-like target
+ls_illcond_20x4	least_squares	20	352145.83773592464	column 4 nearly 1 + 2

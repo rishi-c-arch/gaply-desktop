@@ -855,3 +855,90 @@ fn f_upper_is_within_its_gate_of_r_pf_at_the_regressions_degrees_of_freedom() {
     assert!(stopped.is_empty(), "above decision 316's stop {LINREG_STOP:e}; the method waits for a decision:\n{}", stopped.join("\n"));
     assert!(over.is_empty(), "over the gate {F_REGRESSION_GATE:e}:\n{}", over.join("\n"));
 }
+
+/* ------------------------------------------------------------------------ *
+ *  The chi-square beyond df 2,401 (Research OS, Phase 9B-1, decision 699):
+ *  make_factor_dist_fixtures.R's chi_p_factor.tsv. The earlier scripts are
+ *  not run; their files stay byte for byte.
+ * ------------------------------------------------------------------------ */
+
+/// The sixth script: `chi_p_factor.tsv`.
+const PROVENANCE_FACTOR: &str = "/usr/local/bin/Rscript make_factor_dist_fixtures.R";
+/// Decision 699's stop: a row above this stops the step at the end of Part 1,
+/// and Bartlett's p waits for a decision; the gate is not widened to admit it.
+const FACTOR_STOP: f64 = 1e-8;
+/// Ten times the largest relative error measured over chi_p_factor.tsv
+/// (decision 699): 8.965e-12, at df 8,000 and an upper tail of 0.05 (macOS
+/// aarch64, 11 Nov 2026), printed by the test below; rounded up.
+const CHI_WIDE_GATE: f64 = 9e-11;
+
+/// The rows of `chi_p_factor.tsv`: x, df, tail, p.
+fn factor_rows() -> Vec<[f64; 4]> {
+    let name = "chi_p_factor.tsv";
+    let text = std::fs::read_to_string(format!("{DIR}/{name}")).unwrap_or_else(|e| panic!("{name}: {e}"));
+    let provenance: Vec<&str> = text.lines().take_while(|l| l.starts_with('#')).collect();
+    assert!(provenance.iter().any(|h| h.contains(PROVENANCE_FACTOR)), "{name}: not written by {PROVENANCE_FACTOR}");
+    assert!(provenance.iter().any(|h| h.contains(R_VERSION)), "{name}: not written with {R_VERSION}");
+    let mut lines = text.lines().filter(|l| !l.starts_with('#'));
+    assert_eq!(lines.next(), Some("x\tdf\ttail\tp"), "{name}: the column header");
+    lines
+        .map(|l| {
+            let v: Vec<f64> = l.split('\t').map(|f| f.parse().unwrap_or_else(|e| panic!("{name}: `{f}`: {e}"))).collect();
+            assert_eq!(v.len(), 4, "{name}: `{l}`");
+            [v[0], v[1], v[2], v[3]]
+        })
+        .collect()
+}
+
+#[test]
+fn chi_square_upper_wide_is_within_its_gate_of_r_pchisq_to_df_8128() {
+    use gaply_core::stats_dist::chi_square_upper_wide;
+    let rows = factor_rows();
+    let mut worst = Worst::default();
+    let (mut over, mut stopped) = (Vec::new(), Vec::new());
+    let mut dfs = std::collections::BTreeSet::new();
+    for [x, df, tail, want] in &rows {
+        dfs.insert(*df as u64);
+        let got = chi_square_upper_wide(*x, *df).unwrap_or_else(|| panic!("df {df} tail {tail}: refused"));
+        assert_eq!(
+            Some(got.to_bits()),
+            pvalue::chi_square_upper(*x, *df).map(f64::to_bits),
+            "df {df} tail {tail}: not stats_l0's value, bit for bit"
+        );
+        let ratio = relative(got, *want);
+        let row = format!("df {df} tail {tail:e} (x {x:e}, R {want:e}, gaply {got:e})");
+        println!("chi wide {row}: relative {ratio:.3e}");
+        if ratio > FACTOR_STOP {
+            stopped.push(format!("{row}: relative {ratio:e}"));
+        }
+        if ratio > CHI_WIDE_GATE {
+            over.push(format!("{row}: relative {ratio:e}"));
+        }
+        worst.see(ratio, row);
+    }
+    println!("chi_square_upper_wide: {} rows; the largest |gaply - R| / R is {:.3e} ({}); gate {CHI_WIDE_GATE:e}", rows.len(), worst.0, worst.1);
+    assert_eq!(rows.len(), 88, "8 df x 11 tails, none skipped");
+    assert_eq!(dfs.into_iter().collect::<Vec<_>>(), vec![1225, 2346, 2415, 3000, 4000, 6000, 8000, 8128]);
+    assert!(stopped.is_empty(), "above decision 699's stop {FACTOR_STOP:e}; Bartlett's p waits for a decision:\n{}", stopped.join("\n"));
+    assert!(over.is_empty(), "over the gate {CHI_WIDE_GATE:e}:\n{}", over.join("\n"));
+}
+
+/// Decision 699: the wide chi-square answers to df 8,128 and refuses above;
+/// at or below df 2,401 it is chi_square_upper, bit for bit, and
+/// CHI_SQUARE_MAX_DF is unchanged.
+#[test]
+fn chi_square_upper_wide_answers_to_df_8128_is_the_narrow_one_below_2401_and_refuses_above() {
+    use gaply_core::stats_dist::{chi_square_upper_wide, CHI_SQUARE_WIDE_MAX_DF};
+    assert_eq!((CHI_SQUARE_WIDE_MAX_DF, CHI_SQUARE_MAX_DF), (8128.0, 2401.0));
+    assert!(chi_square_upper_wide(8128.0, CHI_SQUARE_WIDE_MAX_DF).is_some());
+    assert!(chi_square_upper_wide(3000.0, 2402.0).is_some(), "the narrow one refuses 2,402; the wide one answers");
+    for df in [just_above(CHI_SQUARE_WIDE_MAX_DF), 8129.0, 1e7, f64::INFINITY, f64::NAN, 0.0, -1.0] {
+        assert_eq!(chi_square_upper_wide(1.0, df), None, "df {df}");
+    }
+    for x in [f64::NAN, f64::INFINITY, -1.0] {
+        assert_eq!(chi_square_upper_wide(x, 4000.0), None, "x {x}");
+    }
+    for (x, df) in [(0.5, 1.0), (3.0, 4.0), (2401.0, 2401.0), (0.0, 25.0), (1e4, 2000.0)] {
+        assert_eq!(chi_square_upper_wide(x, df).map(f64::to_bits), chi_square_upper(x, df).map(f64::to_bits), "x {x} df {df}");
+    }
+}

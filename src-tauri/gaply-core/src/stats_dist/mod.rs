@@ -425,6 +425,27 @@ pub fn chi_square_upper(x: f64, df: f64) -> Option<f64> {
     l0_chi_square_upper(x, df)
 }
 
+/// The largest df [`chi_square_upper_wide`] answers for: 128 · 127 / 2,
+/// Bartlett's test of sphericity over the factor analysis's 128 items, and
+/// the largest df measured against R's `pchisq`
+/// (`tests/stats_dist_reference.rs` over `make_factor_dist_fixtures.R`'s
+/// `chi_p_factor.tsv`; Research OS, Phase 9B-1, decision 699). A range of its
+/// own beside [`CHI_SQUARE_MAX_DF`], which keeps crosstabs' 2,401.
+pub const CHI_SQUARE_WIDE_MAX_DF: f64 = 8128.0;
+
+/// [`chi_square_upper`] over the wider range: the upper-tail p of a
+/// chi-square statistic `x` with `df` degrees of freedom,
+/// `stats_l0::pvalue::chi_square_upper`'s value, bit for bit, for a df from
+/// above 0 to [`CHI_SQUARE_WIDE_MAX_DF`] (decision 699). `None` above that
+/// df, for a df that is not finite and above 0, and for an `x` that is
+/// negative, NaN or infinite; `x` = 0 is 1.
+pub fn chi_square_upper_wide(x: f64, df: f64) -> Option<f64> {
+    if !(df.is_finite() && df > 0.0 && df <= CHI_SQUARE_WIDE_MAX_DF) {
+        return None;
+    }
+    l0_chi_square_upper(x, df)
+}
+
 /// Fisher's exact test's three p values for a 2 x 2 table.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Fisher2x2 {

@@ -231,6 +231,22 @@ describe('a chosen column that leaves the view', () => {
     expect(spec().parameters.missingCodes).toEqual([]);
   });
 
+  // Research OS, Phase 9B-1 (decision 698; the review of 9e4b7ad9, finding 6).
+  it('drops a tick when it goes, and the code returns unticked when the view brings the column back', () => {
+    const { rerender } = render(<Harness v={view} />);
+    tick('C2');
+    tick('C3');
+    tick('C4');
+    fireEvent.click(codeBox(99) as HTMLInputElement);
+    expect(spec().parameters.missingCodes).toEqual([99]);
+    rerender(<Harness v={without('C3')} />);
+    expect(codeBox(99)).toBeNull();
+    rerender(<Harness v={view} />);
+    expect(list()).toEqual(['C2', 'C3', 'C4']);
+    expect((codeBox(99) as HTMLInputElement).checked).toBe(false);
+    expect(spec().parameters.missingCodes).toEqual([]);
+  });
+
   it('moves over the drawn list, never swapping with a column that is not shown', () => {
     const { rerender } = render(<Harness v={view} />);
     tick('C2');

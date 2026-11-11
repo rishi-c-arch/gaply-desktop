@@ -43,12 +43,15 @@ use gaply_core::stats_registry::{self, Kind, Registry};
 /// (decision 607), and since 10 Nov 2026 `stats.analyze.related_ranks`, Beta
 /// since Phase 8Z-1's Part 3 (decisions 639 and 641), and since 11 Nov 2026
 /// `stats.analyze.linear_regression`, Planned in Phase 9A-1's Part 2 (decision
-/// 672) and Beta since its Part 3 (decision 674):
+/// 672) and Beta since its Part 3 (decision 674), and since 11 Nov 2026
+/// `stats.analyze.factor`, Planned in Phase 9B-1's Part 2 (decision 702) and Beta
+/// since its Part 3 (decision 704):
 ///
 /// ```text
 /// stats.analyze.correlations 1 beta
 /// stats.analyze.cronbach_alpha 1 beta
 /// stats.analyze.crosstabs 1 beta
+/// stats.analyze.factor 1 beta
 /// stats.analyze.independent_ranks 1 beta
 /// stats.analyze.independent_t 1 beta
 /// stats.analyze.linear_regression 1 beta
@@ -67,7 +70,7 @@ use gaply_core::stats_registry::{self, Kind, Registry};
 /// stats.verify.pearson 1 beta
 /// stats.verify.spearman 1 beta
 /// ```
-const PIN: &str = "e1bbb7b14c0845cdc64196bfaa2d7c68e249e6b1556370b680b9f5885e005d6c";
+const PIN: &str = "5706c3da4a26fdca98c25351d8cc1c64211595bdc23133069d2c833c90e5747c";
 
 fn listing() -> String {
     let mut lines: Vec<String> = Registry::statistics()

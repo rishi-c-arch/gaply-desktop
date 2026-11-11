@@ -77,6 +77,8 @@ const SCANNED: &[&str] = &[
     // Phase 9A-1 (decision 674): the linear regression's commands and operations.
     "src/stats_linear_regression_commands.rs",
     "gaply-core/src/stats_linear_regression",
+    "src/stats_factor_commands.rs",
+    "gaply-core/src/stats_factor",
 ];
 
 /// The one Research OS module allowed to write (Phase 5B-1, ADR-009): the

@@ -231,6 +231,23 @@ describe('the codes', () => {
     expect(spec().parameters.missingCodes).toEqual([-99]);
   });
 
+  // Research OS, Phase 9B-1 (decision 698; the review of 9e4b7ad9, finding 6).
+  it('drops a tick when a view change takes its code away, and the code returns unticked', () => {
+    const without = (alias: string): DatasetView => ({ ...view, profile: { ...view.profile, columns: view.profile.columns.filter((c) => c.alias !== alias) } });
+    const { rerender } = render(<Harness v={view} />);
+    outcome('C5');
+    tick('C4');
+    tick('C2');
+    fireEvent.click(codeBox(77) as HTMLInputElement);
+    expect(spec().parameters.missingCodes).toEqual([77]);
+    rerender(<Harness v={without('C4')} />);
+    expect(codeBox(77)).toBeNull();
+    rerender(<Harness v={view} />);
+    expect(list()).toEqual(['C4', 'C2']);
+    expect((codeBox(77) as HTMLInputElement).checked).toBe(false);
+    expect(spec().parameters.missingCodes).toEqual([]);
+  });
+
   it('sends the ticked codes ascending and once each', () => {
     render(<Harness />);
     outcome('C5');

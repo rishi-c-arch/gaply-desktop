@@ -1,0 +1,43 @@
+{
+  "status": "invalid",
+  "errors": [
+    {
+      "code": "stats.factor.item_repeated",
+      "params": {
+        "column": 1
+      },
+      "severity": "error"
+    },
+    {
+      "code": "stats.factor.too_few_rows",
+      "params": {
+        "count": 2,
+        "limit": 3
+      },
+      "severity": "error"
+    }
+  ],
+  "warnings": [
+    {
+      "code": "stats.factor.suspect_missing_code",
+      "params": {
+        "column": 1,
+        "count": 3,
+        "value": 99
+      },
+      "severity": "warning"
+    }
+  ],
+  "missingInformation": [
+    {
+      "code": "stats.factor.no_complete_rows",
+      "params": {},
+      "severity": "error"
+    }
+  ],
+  "estimatedResources": {
+    "rows": 41,
+    "columns": 6,
+    "cells": 246
+  }
+}

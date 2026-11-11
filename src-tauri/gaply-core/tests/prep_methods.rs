@@ -3,10 +3,11 @@
 //!
 //! Prepared tables here are built by `stats_prep::build`, never by hand.
 //!
-//! * All ten methods run on a score (the rank tests the eighth since Phase
+//! * All eleven methods run on a score (the rank tests the eighth since Phase
 //!   8Y-1, decision 604; the related rank tests the ninth since 8Z-1, decision
 //!   638, a score one of their columns; the linear regression the tenth since
-//!   9A-1, decision 671, scores two of its predictors): each manifest carries the preparation,
+//!   9A-1, decision 671, scores two of its predictors; the factor analysis the
+//!   eleventh since 9B-1, decision 701, a score one of its three items): each manifest carries the preparation,
 //!   each result names the score by its alias alone, and each method's numbers
 //!   equal its numbers on the same values given as a file's column. That last
 //!   comparison is byte for byte on the result, so no gate is involved: the
@@ -29,6 +30,7 @@ use gaply_core::stats_alpha::{self, AlphaParams};
 use gaply_core::stats_anova::{self, AnovaParams};
 use gaply_core::stats_corr::{self, Coefficient, CorrParams, MissingHandling};
 use gaply_core::stats_desc::{self, Alias, ColumnRequest, DescribeParams, TreatAs};
+use gaply_core::stats_factor::{self, Extraction, FactorParams, Rotation};
 use gaply_core::stats_linear_regression::{self, LinearRegressionParams};
 use gaply_core::stats_l1::dataset::{
     build_dataset, Cell, ColumnAlias, DataFingerprint, Dataset, RawTable, TableRef,
@@ -334,6 +336,22 @@ fn regression_params(codes: &[f64]) -> LinearRegressionParams {
         missing_codes: codes.to_vec(),
     }
 }
+/// Principal components of q2, q4 and the sum score (Research OS, Phase 9B-1,
+/// decision 701). The sum is q1 + q2 + q3, so it is no combination of q2 and q4:
+/// over the twelve complete rows R 4.6.1 gives the correlation matrix a
+/// determinant of 0.69636722132003526 and one eigenvalue, 1.656, above 1
+/// (~/gaply-corpus/os/phase9/9b1/logs/prep_det_*.log).
+fn factor_params(codes: &[f64]) -> FactorParams {
+    FactorParams {
+        items: vec![a(Q2), a(7), a(SUM)],
+        extraction: Extraction::PrincipalComponents,
+        factors: None,
+        rotation: Rotation::None,
+        iterations: 25,
+        convergence: 0.001,
+        missing_codes: codes.to_vec(),
+    }
+}
 fn alpha_params(codes: &[f64]) -> AlphaParams {
     AlphaParams {
         items: vec![a(Q2), a(SUM), a(MEAN)],
@@ -377,7 +395,7 @@ macro_rules! method {
     };
 }
 
-fn methods() -> [Method; 10] {
+fn methods() -> [Method; 11] {
     [
         method!(
             "summary",
@@ -469,6 +487,15 @@ fn methods() -> [Method; 10] {
             stats_linear_regression::compute,
             stats_linear_regression::manifest
         ),
+        method!(
+            "factor analysis",
+            "stats.factor.",
+            factor_params,
+            stats_factor::spec,
+            stats_factor::validate,
+            stats_factor::compute,
+            stats_factor::manifest
+        ),
     ]
 }
 
@@ -476,7 +503,7 @@ fn words(errors: &[(String, Option<i64>, Option<i64>)]) -> Vec<&str> {
     errors.iter().map(|e| e.0.as_str()).collect()
 }
 
-/* ---- all ten on a score --------------------------------------------------- */
+/* ---- all eleven on a score --------------------------------------------------- */
 
 #[test]
 fn the_fixture_has_the_score_values_the_tests_below_rely_on() {
@@ -494,7 +521,7 @@ fn the_fixture_has_the_score_values_the_tests_below_rely_on() {
 }
 
 #[test]
-fn all_ten_methods_run_on_a_score_and_their_manifests_carry_the_preparation() {
+fn all_eleven_methods_run_on_a_score_and_their_manifests_carry_the_preparation() {
     let d = prepared();
     let hash = ContentHash::from_hex(d.schema.fingerprint.sha256_hex()).unwrap();
     for m in methods() {

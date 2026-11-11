@@ -1256,8 +1256,13 @@ const lrExclusionsAgree = (list: O[], columns: string[], codes: unknown[]) => {
   return codes.length > 0 || list.every((e) => e.code !== LR_EXCLUDED[1]);
 };
 
-/** One coefficient's five, as `estimate` writes them (:787-822). */
-const lrEstimate = (c: O, perfect: boolean) => {
+/** stats_dist::MEASURED_MAX_DF (stats_dist/mod.rs:135): above it t_quantile_975 and
+ *  t_two_tailed refuse (their `measured`, :162-164), so interval_95 and two_sided_p give
+ *  distribution_out_of_range (stats_ttest :856, :873-875); at or below it neither does. */
+const MEASURED_MAX_DF = 1e7;
+
+/** One coefficient's five, as `estimate` writes them (:787-822), at the residual df. */
+const lrEstimate = (c: O, perfect: boolean, df: number) => {
   if (!lrStat(c.b, [])) return false;
   const fields = [c.standardError, c.t, c.p, c.lower, c.upper];
   if (!lrStat(c.standardError, LR_ESTIMATE_CODES) || !lrStat(c.t, LR_ESTIMATE_CODES) || !lrStat(c.p, LR_P_CODES)) return false;
@@ -1272,17 +1277,26 @@ const lrEstimate = (c: O, perfect: boolean) => {
   const se = ncCode(c.standardError);
   // An s_j or an SE that cannot be held: all five the same code (:791-805).
   if (se !== undefined) return [c.t, c.p, c.lower, c.upper].every((f) => ncCode(f) === se);
-  if (!(num(c.standardError) > 0)) return false;
+  // An SE Rust writes as a value is normal: a subnormal one is too_small (:808-810; decision 698).
+  if (!(num(c.standardError) >= MIN_NORMAL)) return false;
   const t = ncCode(c.t);
   const ratio = b / num(c.standardError);
   // t overflows: p and the interval too (:810-813); t too small: p too (:814-816).
   if (t === LR_OVERFLOW) return !Number.isFinite(ratio) && [c.p, c.lower, c.upper].every((f) => ncCode(f) === LR_OVERFLOW);
+  // The interval otherwise (decision 698): interval_95 gives two values, overflow, or
+  // distribution_out_of_range exactly when df is above 1e7, and never too_small (stats_ttest
+  // :848-859).
+  const big = df > MEASURED_MAX_DF;
+  const ends = ncCode(c.lower);
+  if (big ? ends !== LR_RANGE : ends === LR_RANGE || ends === LR_SMALL) return false;
   if (t === LR_SMALL) return subnormalOf(ratio) && ncCode(c.p) === LR_SMALL;
   if (t !== undefined) return false;
   if (num(c.t) !== ratio || subnormalOf(ratio)) return false;
-  // two_sided_p: a p, or distribution_out_of_range, or overflow for its refusal (:817-820).
-  if (ncCode(c.p) === LR_SMALL) return false;
-  return !has(c.p) || (num(c.p) >= 0 && num(c.p) <= 1);
+  // two_sided_p beside a numeric t (:817-820; decision 698): distribution_out_of_range exactly
+  // when df is above 1e7; otherwise a p in [0, 1], since t_two_tailed answers every finite t at
+  // a measured df (stats_dist :188-198, stats_l0/pvalue.rs:51-66), so overflow needs a t code.
+  if (big) return ncCode(c.p) === LR_RANGE;
+  return has(c.p) && num(c.p) >= 0 && num(c.p) <= 1;
 };
 
 /** Rust's no_spread rule (:863-904), from the stored fields, in its order. */
@@ -1382,7 +1396,8 @@ function linearRegressionBundle(v: O, spec: O): LinearRegressionResultView | nul
   // σ: √σ² in the normal range, √RSS / √df where σ² is subnormal (:922, :949).
   const sigma = sigma2 >= MIN_NORMAL ? Math.sqrt(sigma2) : Math.sqrt(rss) / Math.sqrt(df);
   if (!lrIs(m.standardErrorOfEstimate, perfect ? { code: LR_PERFECT } : lrStatOf(sigma))) return null;
-  if (perfect ? ncCode(m.durbinWatson) !== LR_PERFECT : !(num(m.durbinWatson) >= 0)) return null;
+  // The Durbin-Watson statistic lies in [0, 4] (decision 698; the largest over 20,009 replica fits was 3.99992).
+  if (perfect ? ncCode(m.durbinWatson) !== LR_PERFECT : !(num(m.durbinWatson) >= 0 && num(m.durbinWatson) <= 4)) return null;
 
   // F and its p (:953-971).
   if (perfect) {
@@ -1401,12 +1416,12 @@ function linearRegressionBundle(v: O, spec: O): LinearRegressionResultView | nul
   }
 
   // Each coefficient (:991-1049).
-  if (!lrEstimate(c0, perfect)) return null;
+  if (!lrEstimate(c0, perfect, df)) return null;
   const sdY = num(columns[0].sd);
   const unexplained = rss / (mss + rss);
   for (let j = 0; j < k; j += 1) {
     const q = r.predictors[j];
-    if (!isObject(q) || !hasExactly(q, LR_PREDICTOR_KEYS) || q.column !== predictorsSpec[j] || !lrEstimate(q, perfect)) return null;
+    if (!isObject(q) || !hasExactly(q, LR_PREDICTOR_KEYS) || q.column !== predictorsSpec[j] || !lrEstimate(q, perfect, df)) return null;
     if (!lrStat(q.beta, [LR_SMALL, LR_OVERFLOW]) || !lrStat(q.zeroOrder, [])) return null;
     if (!lrStat(q.partial, LR_ESTIMATE_CODES) || !lrStat(q.part, LR_ESTIMATE_CODES)) return null;
     if (!lrStat(q.tolerance, [LR_SMALL, LR_OVERFLOW]) || !lrStat(q.vif, [LR_SMALL, LR_OVERFLOW])) return null;
@@ -1427,10 +1442,17 @@ function linearRegressionBundle(v: O, spec: O): LinearRegressionResultView | nul
     if (k === 1) {
       if (statValue(q.tolerance) !== 1 || statValue(q.vif) !== 1) return null;
     } else if (ncCode(q.vif) === LR_SMALL) {
+      // A subnormal s_j (:1024-1026), which gives the SE too_small, or perfect_fit in a perfect
+      // fit (:793-797); never beside a numeric SE (decision 698).
       if (ncCode(q.tolerance) !== LR_SMALL) return null;
+      if (ncCode(q.standardError) !== LR_SMALL && ncCode(q.standardError) !== LR_PERFECT) return null;
     } else {
       const vif = has(q.vif) ? num(q.vif) : Infinity;
       if (!lrIs(q.tolerance, lrStatOf(1 / vif))) return null;
+      // A VIF is at least 1 and a tolerance at most 1, but for rounding: Rust's reaches 1 -
+      // 6,373 ε on ten rows with a year-like predictor uncorrelated with the others, so the
+      // bound is 1e-6, not a multiple of ε (decision 698).
+      if (!(vif >= 0.999999) || (has(q.tolerance) && !(num(q.tolerance) <= 1.000001))) return null;
     }
   }
 
@@ -1455,12 +1477,14 @@ function linearRegressionBundle(v: O, spec: O): LinearRegressionResultView | nul
 
   // The note (:1053-1060): σ² below (mean ŷ² + var ŷ) × 1e-30. The fitted values' variance
   // is held only as its root, so the rule is exact away from its threshold T, and either
-  // answer is taken where |σ² - T| ≤ 4 ε T (decision 688).
+  // answer is taken where |σ² - T| ≤ max(4 ε T, 4 × 5e-324) (decisions 688 and 698): below the
+  // normal range one subnormal step is wider than 4 ε T, and Rust's threshold may round to 0
+  // where this one is 5e-324 (the review of 9e4b7ad9, finding 1).
   const fm = num(pr.mean);
   const fs = num(pr.standardDeviation);
   const threshold = (fm * fm + fs * fs) * ESSENTIALLY_PERFECT_FACTOR;
   const noted = r.notes.length === 1;
-  if (!(Math.abs(sigma2 - threshold) <= 4 * Number.EPSILON * threshold) && noted !== (Number.isFinite(sigma2) && sigma2 < threshold)) return null;
+  if (!(Math.abs(sigma2 - threshold) <= Math.max(4 * Number.EPSILON * threshold, 4 * Number.MIN_VALUE)) && noted !== (Number.isFinite(sigma2) && sigma2 < threshold)) return null;
 
   // Exclusions and the manifest, as the related rank tests' (decision 652).
   if (!arrayOf(r.exclusions, lrExclusion) || !lrExclusionsAgree(r.exclusions as O[], columnsSpec, p.missingCodes)) return null;

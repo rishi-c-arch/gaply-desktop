@@ -48,6 +48,8 @@ pub mod stats_l1_commands;
 pub mod stats_l1_ingest;
 pub mod stats_legacy;
 pub mod stats_linear_regression_commands;
+// Research OS Phase 9B-1 (decision 704): the factor analysis's commands.
+pub mod stats_factor_commands;
 pub mod stats_onesample_commands;
 pub mod stats_prep_commands;
 pub mod stats_ranks_commands;
@@ -464,6 +466,12 @@ pub fn run() {
             stats_linear_regression_commands::stats_linear_regression_result,
             stats_linear_regression_commands::stats_linear_regression_cancel,
             stats_linear_regression_commands::stats_linear_regression_export,
+            stats_factor_commands::stats_factor_validate,
+            stats_factor_commands::stats_factor_run,
+            stats_factor_commands::stats_factor_status,
+            stats_factor_commands::stats_factor_result,
+            stats_factor_commands::stats_factor_cancel,
+            stats_factor_commands::stats_factor_export,
             // Research OS, Phase 8M-3 (decision 425): scale scores, behind the
             // workspace check. In memory only; the screen comes with the layout.
             stats_prep_commands::stats_prep_make,

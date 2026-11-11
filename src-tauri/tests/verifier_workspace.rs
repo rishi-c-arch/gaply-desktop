@@ -185,8 +185,9 @@ fn workspace_list_carries_the_registrys_capability_ids() {
     // `stats.analyze.independent_ranks` after crosstabs (decision 605); Phase
     // 8Z-1: nineteen, with `stats.analyze.related_ranks` after it (decision 639);
     // Phase 9A-1: twenty, with `stats.analyze.linear_regression` after it
-    // (decision 672).
-    assert_eq!(ids.len(), 20);
+    // (decision 672); Phase 9B-1: twenty-one, with `stats.analyze.factor` after
+    // it (decision 702).
+    assert_eq!(ids.len(), 21);
 }
 
 #[test]

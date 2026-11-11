@@ -793,8 +793,11 @@ fn estimate(b: f64, unscaled: f64, sigma2: f64, sigma: f64, df: f64, perfect: bo
     if perfect {
         return [PERFECT; 5];
     }
+    // A NaN, 0 or subnormal s_j. An infinite s_j passes this test and is `overflow` below,
+    // where σ √s_j is infinite; 9A-2's arm for it here could never run (the review of
+    // 9e4b7ad9, finding 4; decision 698).
     if !(unscaled >= f64::MIN_POSITIVE) {
-        return if unscaled.is_nan() { [TOO_SMALL; 5] } else if unscaled.is_infinite() { [OVERFLOWED; 5] } else { [TOO_SMALL; 5] };
+        return [TOO_SMALL; 5];
     }
     let product = sigma2 * unscaled;
     let se = if sigma2 >= f64::MIN_POSITIVE && product >= f64::MIN_POSITIVE && product.is_finite() {
@@ -813,6 +816,11 @@ fn estimate(b: f64, unscaled: f64, sigma2: f64, sigma: f64, df: f64, perfect: bo
         Err(c) => [Stat::NotComputable(c); 2],
     };
     let t = b / se;
+    // An infinite t replaces even a finite interval with `overflow`. No data reach it: a
+    // residual that is not 0 carries the fitted values' rounding, about ε times their size,
+    // so t² is near MSS / RSS times df, at most about n / ε², far below 1.8e308; RSS of
+    // exactly 0 is a perfect fit, coded above. Kept so the five stay one set if it is ever
+    // reached (the review of 9e4b7ad9, finding 4; decision 698).
     if !t.is_finite() {
         return [Stat::Value(se), OVERFLOWED, OVERFLOWED, OVERFLOWED, OVERFLOWED];
     }

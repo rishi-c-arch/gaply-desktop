@@ -120,6 +120,14 @@
 //! Since Phase 9A-2 (decision 687) the Statistics window's Regression, Linear…
 //! dialog starts it, and a project reruns it.
 //!
+//! Research OS, Phase 9B-1 (decision 704): a record may hold the factor
+//! analysis, started with [`Runs::start_factor`]. Its check points are
+//! `stats_factor::run`'s: before the arithmetic, before each item's row, before
+//! each correlation, before the extraction and before the rotation, every
+//! extraction and rotation iteration calling its point again at the same count,
+//! so a cancel or the ceiling stops a long one; the record's `columns_total` is
+//! `stats_factor::check_points`. No window starts it until 9B-2.
+//!
 //! Phase 3: the run manager and the slots belong to the Statistics workspace
 //! (`crate::workspace`), built when it is activated and dropped when it is
 //! left. [`Runs::seal`] is how it is left: under the records' lock it either
@@ -168,6 +176,7 @@ use gaply_core::stats_ranks::{
 use gaply_core::stats_related_ranks::{
     self, RelatedRanksCode, RelatedRanksOutcome, RelatedRanksParams,
 };
+use gaply_core::stats_factor::{self, FactorCode, FactorOutcome, FactorParams};
 use gaply_core::stats_linear_regression::{
     self, LinearRegressionCode, LinearRegressionOutcome, LinearRegressionParams,
 };
@@ -749,6 +758,9 @@ pub enum RunKind {
     /// `stats_linear_regression_*` commands (Research OS, Phase 9A-1, decision
     /// 674).
     LinearRegression,
+    /// `stats.analyze.factor`, through the `stats_factor_*` commands (Research
+    /// OS, Phase 9B-1, decision 704).
+    Factor,
 }
 
 /// The data a run read: its slot, and the SHA-256 of the original bytes the
@@ -880,6 +892,7 @@ enum Held {
     IndependentRanks(Outputs<IndependentRanksOutcome, RanksCode>),
     RelatedRanks(Outputs<RelatedRanksOutcome, RelatedRanksCode>),
     LinearRegression(Outputs<LinearRegressionOutcome, LinearRegressionCode>),
+    Factor(Outputs<FactorOutcome, FactorCode>),
 }
 
 impl Held {
@@ -949,6 +962,7 @@ enum Job {
     IndependentRanks(OperationSpec<IndependentRanksParams>),
     RelatedRanks(OperationSpec<RelatedRanksParams>),
     LinearRegression(OperationSpec<LinearRegressionParams>),
+    Factor(OperationSpec<FactorParams>),
 }
 
 impl Job {
@@ -980,6 +994,7 @@ enum Report {
     IndependentRanks(ValidationReport<RanksCode>),
     RelatedRanks(ValidationReport<RelatedRanksCode>),
     LinearRegression(ValidationReport<LinearRegressionCode>),
+    Factor(ValidationReport<FactorCode>),
 }
 
 impl Report {
@@ -1002,6 +1017,7 @@ enum Done {
     IndependentRanks(Finished<IndependentRanks>),
     RelatedRanks(Finished<RelatedRanks>),
     LinearRegression(Finished<LinearRegression>),
+    Factor(Finished<Factor>),
 }
 
 /* ------------------------------------------------------------------------ *
@@ -1059,6 +1075,10 @@ macro_rules! by_method {
             }
             $enum::LinearRegression($x) => {
                 type $m = LinearRegression;
+                $body
+            }
+            $enum::Factor($x) => {
+                type $m = Factor;
                 $body
             }
         }
@@ -2298,6 +2318,108 @@ impl Method for LinearRegression {
     }
 }
 
+/// `stats.analyze.factor`, through the `stats_factor_*` commands (Research OS,
+/// Phase 9B-1, decision 704).
+struct Factor;
+
+impl Method for Factor {
+    const KIND: RunKind = RunKind::Factor;
+    type Params = FactorParams;
+    type Result = FactorOutcome;
+    type Code = FactorCode;
+    type Halt = stats_factor::Halt<Stop>;
+
+    /// `stats_factor::check_points` (decision 700): one before the arithmetic,
+    /// one before each item's row and each correlation, one before the
+    /// extraction and one before the rotation.
+    fn columns_total(spec: &OperationSpec<FactorParams>, _: &Dataset) -> usize {
+        stats_factor::check_points(&spec.parameters)
+    }
+
+    fn validate(spec: &OperationSpec<FactorParams>, dataset: &Dataset) -> ValidationReport<FactorCode> {
+        // Through `stats.analyze.factor`'s façade: the registry first, then
+        // `stats_factor::validate`, unchanged.
+        stats_adapters::factor_validate(spec, crate::workspace::build(), dataset)
+    }
+
+    fn compute(
+        spec: &OperationSpec<FactorParams>,
+        build: Build,
+        dataset: &Dataset,
+        checkpoint: impl FnMut(usize) -> ControlFlow<Stop>,
+    ) -> Result<FactorOutcome, stats_factor::Halt<Stop>> {
+        // Every check point, the iterations' included: the manager's reads
+        // the cancel flag and the clock at each call, whatever its count.
+        stats_adapters::factor_run(spec, build, dataset, checkpoint)
+    }
+
+    fn manifest(
+        spec: &OperationSpec<FactorParams>,
+        dataset: &Dataset,
+        result: &FactorOutcome,
+        elapsed: u64,
+    ) -> RunManifest<FactorCode> {
+        stats_factor::manifest(spec, dataset, result, elapsed, Platform::current())
+    }
+
+    /// The result's own limitations, as notes.
+    fn limitations(result: &FactorOutcome) -> Vec<Diagnostic<FactorCode>> {
+        result.limitations.iter().map(|c| Diagnostic::note(*c)).collect()
+    }
+
+    /// Every check point on a result; a stop leaves the count the check point
+    /// set.
+    fn columns_done(total: usize, outcome: &Outcome<Self>) -> Option<usize> {
+        match outcome {
+            Ok(Ok(_)) => Some(total),
+            Ok(Err(_)) | Err(_) => None,
+        }
+    }
+
+    fn halted(halt: stats_factor::Halt<Stop>) -> Halted<FactorCode> {
+        match halt {
+            stats_factor::Halt::Stopped { reason } => Halted::Stopped(reason),
+            stats_factor::Halt::Refused(d) => Halted::Refused(d),
+        }
+    }
+
+    fn panicked() {
+        tracing::warn!("stats_desc: the factor analysis panicked");
+    }
+
+    fn outputs(held: &Held) -> Option<&Outputs<FactorOutcome, FactorCode>> {
+        if let Held::Factor(o) = held {
+            Some(o)
+        } else {
+            None
+        }
+    }
+
+    fn outputs_mut(held: &mut Held) -> Option<&mut Outputs<FactorOutcome, FactorCode>> {
+        if let Held::Factor(o) = held {
+            Some(o)
+        } else {
+            None
+        }
+    }
+
+    fn held(outputs: Outputs<FactorOutcome, FactorCode>) -> Held {
+        Held::Factor(outputs)
+    }
+
+    fn job(spec: OperationSpec<FactorParams>) -> Job {
+        Job::Factor(spec)
+    }
+
+    fn report(report: ValidationReport<FactorCode>) -> Report {
+        Report::Factor(report)
+    }
+
+    fn done(finished: Finished<Self>) -> Done {
+        Done::Factor(finished)
+    }
+}
+
 /// An end hook that is due, with what it is called with: called only once
 /// the records' lock is released (Phase 5C-1a).
 struct Due {
@@ -2665,6 +2787,13 @@ impl Runs {
         end: EndHook,
     ) -> Result<RunId, NotStarted> {
         self.begin::<LinearRegression>(slot, spec, Some(end))
+    }
+
+    /// Starts the factor analysis (Research OS, Phase 9B-1, decision 704): its
+    /// check points, the iterations' among them, the manager's ceiling and
+    /// cancel, as every kind's.
+    pub fn start_factor(self: &Arc<Self>, slot: Arc<Slot>, spec: OperationSpec<FactorParams>) -> Result<RunId, NotStarted> {
+        self.begin::<Factor>(slot, spec, None)
     }
 
     /// Every start, of any method (Research OS, Phase 8C): the record, then
@@ -3074,6 +3203,11 @@ impl Runs {
         self.snapshot_as::<LinearRegression>(run)
     }
 
+    /// [`Runs::snapshot`] for a factor analysis run (Phase 9B-1).
+    pub fn factor_snapshot(&self, run: RunId) -> Result<RunSnapshot<FactorCode>, RunCode> {
+        self.snapshot_as::<Factor>(run)
+    }
+
     /// Asks the run to stop. Queued: cancelled now. Running: the flag is set,
     /// and the next check point, or the worker's last step if no check point
     /// is left, ends it `Cancelled`. Finished: unchanged.
@@ -3164,6 +3298,11 @@ impl Runs {
         run: RunId,
     ) -> Result<RunSnapshot<LinearRegressionCode>, RunCode> {
         self.cancel_as::<LinearRegression>(run)
+    }
+
+    /// [`Runs::cancel`] for a factor analysis run (Phase 9B-1).
+    pub fn factor_cancel(&self, run: RunId) -> Result<RunSnapshot<FactorCode>, RunCode> {
+        self.cancel_as::<Factor>(run)
     }
 
     /// The result of a run of `M`'s kind that succeeded. Otherwise the closed
@@ -3266,6 +3405,11 @@ impl Runs {
         run: RunId,
     ) -> Result<ResultBundle<LinearRegressionOutcome, LinearRegressionCode>, RunCode> {
         self.result_as::<LinearRegression>(run)
+    }
+
+    /// The result of a factor analysis run that succeeded (Phase 9B-1).
+    pub fn factor_result(&self, run: RunId) -> Result<ResultBundle<FactorOutcome, FactorCode>, RunCode> {
+        self.result_as::<Factor>(run)
     }
 
     /// A copy of `run` for a project Save (Phase 5B-2), of either kind:
