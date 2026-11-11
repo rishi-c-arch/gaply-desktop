@@ -49,6 +49,12 @@ fn v(s: Stat) -> f64 {
     }
 }
 
+/// The split forms' gate against gmp's exact values (decision 683): ten times the
+/// largest relative error measured over the split-form tests, 1.595e-15 (the
+/// subnormal σ² test; 6.18e-16 for the split SE, 1.394e-15 for F's split form;
+/// macOS aarch64, 11 Nov 2026), rounded up.
+const SPLIT_GATE: f64 = 1.6e-14;
+
 fn close(got: f64, want: f64, gate: f64) -> bool {
     (got - want).abs() <= gate * want.abs().max(1.0)
 }
@@ -390,30 +396,44 @@ fn every_wording_this_module_holds_is_a_code_and_none_is_a_verdict() {
     }
 }
 
-/// The hunt's h204 (decision 671): a coefficient's σ² · s_j below the smallest
-/// normal double holds only a few significant bits, so its √ is a finite, wrong
-/// standard error, and R's lm printed t −8.70 where the exact t is −12.31. Gaply
-/// gives `overflow` there, never the subnormal's number; a control at a scale
-/// where the product is normal keeps the scale-free t.
+/// The hunt's h204 (decisions 671 and 683): when σ² s_j is subnormal, or overflows,
+/// while the standard error itself is an ordinary double, the SE is σ √s_j, whose
+/// intermediates stay normal, and t, the interval, partial and part follow from it.
+/// 9A-1 withheld these as `overflow`; the review of d04199c4 showed the split form
+/// gives the exact t (R's lm printed −8.70 for h204's predictor, where the exact t
+/// is −12.31). The data are the base model's first predictor, scaled by powers of
+/// two, so every exact value is the base value (gmp, `make_exact_cases.R`) times an
+/// exact power of two; each is compared by relative error.
 #[test]
-fn a_standard_error_from_a_subnormal_product_is_not_computable_never_a_wrong_number() {
+fn a_standard_error_whose_product_is_subnormal_or_overflows_is_computed_in_its_split_form() {
     let cols = base_columns();
-    let at = |sx: f64, sy: f64| {
-        let scaled = vec![cols[0].iter().map(|v| v * sy).collect::<Vec<f64>>(), cols[1].iter().map(|v| v * sx).collect()];
+    let at = |sx: i32, sy: i32| {
+        let (fx, fy) = (2f64.powi(sx), 2f64.powi(sy));
+        let scaled = vec![cols[0].iter().map(|v| v * fy).collect::<Vec<f64>>(), cols[1].iter().map(|v| v * fx).collect()];
         compute(&dataset(&["y", "x1"], &rows_of(&scaled)), &params(1, &[2], vec![])).unwrap()
     };
-    let plain = at(1.0, 1.0);
-    let t_plain = v(plain.predictors[0].t);
-    // Control: σ² near 1e-120 and s_j near 1e-150, a product near 1e-270, normal.
-    let normal = at(1e75, 1e-60);
-    assert!(close(v(normal.predictors[0].t), t_plain, 1e-12), "{:?} {t_plain}", normal.predictors[0].t);
-    // σ² near 1e-144 and s_j near 1e-172: a product near 1e-316, subnormal.
-    let subnormal = at(1e85, 1e-72);
-    let p = &subnormal.predictors[0];
-    let o = Stat::NotComputable(C::Overflow);
-    assert_eq!([p.standard_error, p.t, p.p, p.lower, p.upper, p.partial, p.part], [o; 7], "t {:?} where the scale-free t is {t_plain}", p.t);
-    // The coefficient itself is computed, and the intercept's SE is normal.
-    assert!(matches!(p.b, Stat::Value(_)) && matches!(subnormal.intercept.standard_error, Stat::Value(_)));
+    // gmp's exact base values (one predictor).
+    let (se1, t1, partial1, se0, b1) = (0.18550453958047611, 5.2792024780743061, 0.85786863213105091, 1.4371015649294858, 0.97931602504728266);
+    let mut worst = 0.0f64;
+    for (sx, sy, product) in [(282, -239, "subnormal"), (-332, 332, "infinite")] {
+        let r = at(sx, sy);
+        let p = &r.predictors[0];
+        let scale_se = 2f64.powi(sy - sx);
+        for (got, exact) in [
+            (v(p.standard_error), se1 * scale_se),
+            (v(p.t), t1),
+            (v(p.partial), partial1),
+            (v(p.part), partial1),
+            (v(p.b), b1 * scale_se),
+            (v(r.intercept.standard_error), se0 * 2f64.powi(sy)),
+        ] {
+            worst = worst.max(((got - exact) / exact).abs());
+        }
+        assert!(matches!(p.p, Stat::Value(_)) && matches!(p.lower, Stat::Value(_)) && matches!(p.upper, Stat::Value(_)), "{product}: {:?}", p);
+        assert!(v(p.lower) <= v(p.b) && v(p.b) <= v(p.upper), "{product}");
+    }
+    println!("split SE: the largest relative error against gmp is {worst:e}");
+    assert!(worst <= SPLIT_GATE, "{worst:e} over {SPLIT_GATE:e}");
 }
 
 /// The note's threshold is R's (decision 669): R 4.6.1's summary.lm does not warn
@@ -440,35 +460,44 @@ fn a_near_perfect_fit_above_rs_threshold_has_no_note() {
     assert!(matches!(r.model.standard_error_of_estimate, Stat::Value(s) if s > 0.0));
 }
 
-/// The review of 9A-1 (finding 1): a σ² = RSS / df below the smallest normal
-/// double, with RSS itself normal, keeps a few significant bits, so σ, the
-/// residual mean square, F, every SE and the standardized residuals built on it
-/// would be finite and imprecise. Each is `overflow`; so is the residuals' SD,
-/// whose variance RSS / (n − 1) is subnormal too. The coefficients, R² and the
-/// predicted values stay numbers.
+/// Decision 683: σ² = RSS / df below the smallest normal double, with RSS itself
+/// normal. The residual mean square is σ² itself, a subnormal, so it is
+/// `too_small`; σ is √RSS / √df, an ordinary double, and every SE, t, F, the
+/// standardized residuals and the residuals' SD (by a scaled sum) are numbers. 9A-1
+/// withheld all of them as `overflow`, though σ² = 1.11e-308 holds 51 significant
+/// bits (the review of d04199c4). The outcome is the base model's scaled by 2^-511,
+/// so RSS is 1.61 times the smallest normal double; each value is compared with
+/// gmp's exact base value times its exact power of two, by relative error.
 #[test]
-fn a_subnormal_residual_variance_is_not_computable_never_a_wrong_number() {
+fn a_subnormal_residual_variance_is_too_small_and_sigma_is_split() {
     let cols = base_columns();
-    let base = compute(&base(), &params(1, &[2, 3, 4], vec![])).unwrap();
-    let rss = v(base.anova.residual.sum_of_squares);
-    // Scaled so RSS is about 4 times the smallest normal double: σ² = RSS / 8 is subnormal.
-    let c = (4.0 * f64::MIN_POSITIVE / rss).sqrt();
     let mut scaled = cols.clone();
-    scaled[0] = cols[0].iter().map(|y| y * c).collect();
+    let fy = 2f64.powi(-511);
+    scaled[0] = cols[0].iter().map(|y| y * fy).collect();
     let r = compute(&dataset(&["y", "x1", "x2", "x3"], &rows_of(&scaled)), &params(1, &[2, 3, 4], vec![])).unwrap();
-    let held = v(r.anova.residual.sum_of_squares);
-    assert!(held >= f64::MIN_POSITIVE && held / 8.0 < f64::MIN_POSITIVE, "the premise: RSS {held:e} normal, σ² subnormal");
-    let o = Stat::NotComputable(C::Overflow);
-    assert_eq!(r.model.standard_error_of_estimate, o);
-    assert_eq!((r.anova.residual.mean_square, r.anova.f, r.anova.p), (o, o, o));
-    assert_eq!([r.intercept.standard_error, r.intercept.t, r.intercept.p], [o; 3]);
-    for p in &r.predictors {
-        assert_eq!([p.standard_error, p.t, p.p, p.lower, p.upper, p.partial, p.part], [o; 7], "{:?}", p.column);
-        assert!(matches!(p.b, Stat::Value(_)));
+    let rss = v(r.anova.residual.sum_of_squares);
+    assert!(rss >= f64::MIN_POSITIVE && rss / 8.0 < f64::MIN_POSITIVE, "the premise: RSS {rss:e} normal, σ² subnormal");
+    assert_eq!(r.anova.residual.mean_square, Stat::NotComputable(C::TooSmall));
+    // gmp's exact base values (three predictors).
+    let sigma = 0.44926285760588763;
+    let ses = [0.79156070219473562, 0.052025911757214015, 0.096308914108251681, 0.076566612208272142];
+    let ts = [4.6998071882941348, 16.015874901052829, -15.749083436615184, 3.0014724298618742];
+    let mut worst = 0.0f64;
+    let mut see = |got: f64, exact: f64| worst = worst.max(((got - exact) / exact).abs());
+    see(v(r.model.standard_error_of_estimate), sigma * fy);
+    see(v(r.anova.f), 320.69901932087345);
+    see(v(r.residuals.residual.standard_deviation), 0.38313265229417542 * fy);
+    see(v(r.residuals.standardized_residual.maximum), 1.2088649527904383);
+    see(v(r.residuals.standardized_residual.minimum), -1.4429602488778805);
+    see(v(r.intercept.standard_error), ses[0] * fy);
+    see(v(r.intercept.t), ts[0]);
+    for (j, p) in r.predictors.iter().enumerate() {
+        see(v(p.standard_error), ses[j + 1] * fy);
+        see(v(p.t), ts[j + 1]);
+        assert!(matches!(p.p, Stat::Value(_)) && matches!(p.partial, Stat::Value(_)) && matches!(p.part, Stat::Value(_)));
     }
-    assert_eq!((r.residuals.standardized_residual.minimum, r.residuals.standardized_residual.maximum), (o, o));
-    assert_eq!(r.residuals.residual.standard_deviation, o);
-    assert!(matches!(r.model.r_squared, Stat::Value(_)) && matches!(r.residuals.predicted.mean, Stat::Value(_)));
+    println!("subnormal σ²: the largest relative error against gmp is {worst:e}");
+    assert!(worst <= SPLIT_GATE, "{worst:e} over {SPLIT_GATE:e}");
 }
 
 /// The review of 9A-1 (finding 5): the outcome's column error comes before a
@@ -483,4 +512,131 @@ fn the_outcomes_column_error_comes_before_a_predictors() {
     assert_eq!(codes(&report.errors), vec![C::ColumnHoldsText.wire(), C::ColumnNonFinite.wire()]);
     assert_eq!(report.errors[0].params.get(&ParamKey::Column), Some(&ParamValue::Int(1)));
     assert_eq!(report.errors[1].params.get(&ParamKey::Column), Some(&ParamValue::Int(2)));
+}
+
+/// Decision 683: the regression mean square MSS / k subnormal while MSS is normal:
+/// it is `too_small`, and F is (MSS / RSS)(df / k), an ordinary double; the
+/// predicted values' SD, whose variance is subnormal, comes from a scaled sum. The
+/// outcome is a weak one (R² 0.063) scaled by 2^-508, so MSS is 2.32 times the
+/// smallest normal double; exact values from gmp (`make_exact_cases.R`).
+#[test]
+fn a_subnormal_regression_mean_square_is_too_small_and_f_is_split() {
+    let cols = base_columns();
+    let weak = [4.9, 5.2, 5.1, 4.7, 5.3, 5.0, 4.8, 5.2, 5.0, 4.6, 5.1, 5.3];
+    let fy = 2f64.powi(-508);
+    let scaled = vec![weak.iter().map(|y| y * fy).collect::<Vec<f64>>(), cols[1].clone(), cols[2].clone(), cols[3].clone()];
+    let r = compute(&dataset(&["y", "x1", "x2", "x3"], &rows_of(&scaled)), &params(1, &[2, 3, 4], vec![])).unwrap();
+    let mss = v(r.anova.regression.sum_of_squares);
+    assert!(mss >= f64::MIN_POSITIVE && mss / 3.0 < f64::MIN_POSITIVE, "the premise: MSS {mss:e} normal, MSS / 3 subnormal");
+    assert_eq!(r.anova.regression.mean_square, Stat::NotComputable(C::TooSmall));
+    let mut worst = 0.0f64;
+    let mut see = |got: f64, exact: f64| worst = worst.max(((got - exact) / exact).abs());
+    see(v(r.anova.f), 0.17923123498756452);
+    see(v(r.residuals.predicted.standard_deviation), 0.057459689198772659 * fy);
+    see(v(r.model.standard_error_of_estimate), 0.25989153794315129 * fy);
+    assert!(matches!(r.anova.p, Stat::Value(p) if (0.0..=1.0).contains(&p)));
+    println!("subnormal MSS / k: the largest relative error against gmp is {worst:e}");
+    assert!(worst <= SPLIT_GATE, "{worst:e} over {SPLIT_GATE:e}");
+}
+
+/// Decision 683: predicted values with no spread. Each outcome here has an exact
+/// covariance of 0 with its predictor (rows in mirrored pairs, checked with gmp by
+/// `make_nospread.R`, seed 20260683, ids 241 and 237). In the first MSS is exactly
+/// 0, where 9A-1 gave 0/0 as `overflow`; in the second the fitted values' spread is
+/// rounding, where 9A-1 gave a standardized predicted maximum of 1.278. Both now
+/// give `predicted_no_spread`; b, beta, F and p stay numbers, as R gives them.
+#[test]
+fn predicted_values_with_no_spread_give_their_own_code() {
+    let no_spread = Stat::NotComputable(C::PredictedNoSpread);
+    for (y, x, mss_zero) in [
+        (["1000005", "1000002", "1000001", "1000002", "1000005"], ["4", "5", "3", "1", "2"], true),
+        (["5", "2", "1", "2", "5"], ["1004", "1005", "1003", "1001", "1002"], false),
+    ] {
+        let rows: Vec<Vec<String>> = (0..5).map(|i| vec![y[i].to_string(), x[i].to_string()]).collect();
+        let r = compute(&dataset(&["y", "x"], &rows), &params(1, &[2], vec![])).unwrap();
+        assert_eq!(v(r.anova.regression.sum_of_squares) == 0.0, mss_zero, "the premise");
+        assert_eq!((r.residuals.standardized_predicted.minimum, r.residuals.standardized_predicted.maximum), (no_spread, no_spread), "{y:?}");
+        for s in [r.predictors[0].b, r.predictors[0].beta, r.anova.f, r.anova.p, r.residuals.predicted.standard_deviation] {
+            assert!(matches!(s, Stat::Value(_)), "{s:?}");
+        }
+    }
+}
+
+/// Decision 683(b): the measured set's closest signal case (id 17766: two
+/// predictors, 20 rows, an outcome near 1e8, gmp's exact R² 1.04e-12, S = 45.9
+/// against the constant 8) keeps its standardized predicted values.
+#[test]
+fn a_signal_at_the_measured_edge_keeps_its_standardized_predicted_values() {
+    let y = "100000003.9999993,100000003.99999858,100000002.00000142,100000004.0000007,100000002.00000142,100000002.0000007,100000002.0000007,100000002,100000001.9999993,100000004.00000142,100000003.99999858,100000001.99999858,100000002,100000004.00000142,100000001.99999858,100000002,100000004.0000007,100000001.9999993,100000002,100000003.9999993";
+    let x1 = "1000002,1000001,1000005,1000004,1000005,1000004,1000004,1000003,1000002,1000005,1000001,1000001,1000003,1000005,1000001,1000003,1000004,1000002,1000003,1000002";
+    let x2 = "1000003,1000004,1000005,1000003,1000001,1000002,1000004,1000002,1000004,1000004,1000002,1000005,1000004,1000002,1000001,1000004,1000003,1000002,1000002,1000003";
+    let cols: Vec<Vec<&str>> = [y, x1, x2].iter().map(|c| c.split(',').collect()).collect();
+    let rows: Vec<Vec<String>> = (0..20).map(|i| cols.iter().map(|c| c[i].to_string()).collect()).collect();
+    let r = compute(&dataset(&["y", "x1", "x2"], &rows), &params(1, &[2, 3], vec![])).unwrap();
+    assert!(matches!(r.residuals.standardized_predicted.minimum, Stat::Value(_)));
+    assert!(matches!(r.residuals.standardized_predicted.maximum, Stat::Value(_)));
+}
+
+/// The note's rule, pinned at both sides of R's threshold (decision 683, the review's
+/// finding 4). y = 1e6 + 0.37x + 0.1 for x = 1 to 12 is an exact fit on paper with an
+/// outcome mean of 1e6: R 4.6.1's summary.lm warns (ratio 2.33e-31, its own fit);
+/// dropping mean² from the rule would miss it. The same with ±2e-9 alternating is just
+/// above 1e-30 (R's ratio 5.31e-30, from R's own fit of y as R builds it; the review of
+/// d04199c4 quoted 1.28e-33 and 4.39e-30, measured another way): R does not warn, and a factor of 1e-28 would. y is
+/// built here with R's operations and checked against R's doubles first.
+#[test]
+fn the_note_is_rs_on_an_offset_exact_fit_and_just_above_its_threshold() {
+    let offset: Vec<f64> = (1..=12).map(|x| 1e6 + 0.37 * x as f64 + 0.1).collect();
+    let above: Vec<f64> = offset.iter().enumerate().map(|(i, y)| y + 2e-9 * if i % 2 == 0 { 1.0 } else { -1.0 }).collect();
+    let r_offset = ["1000000.47", "1000000.84", "1000001.21", "1000001.58", "1000001.95", "1000002.3199999999", "1000002.6899999999", "1000003.0599999999", "1000003.4299999999", "1000003.7999999999", "1000004.1699999999", "1000004.5399999999"];
+    let r_above = ["1000000.470000002", "1000000.839999998", "1000001.2100000019", "1000001.579999998", "1000001.9500000019", "1000002.319999998", "1000002.6900000019", "1000003.059999998", "1000003.4300000019", "1000003.799999998", "1000004.1700000019", "1000004.5399999979"];
+    for (built, r) in [(&offset, r_offset), (&above, r_above)] {
+        for (b, s) in built.iter().zip(r) {
+            assert_eq!(*b, s.parse::<f64>().unwrap(), "the premise: R's doubles");
+        }
+    }
+    let fit = |y: &[f64]| {
+        let rows: Vec<Vec<String>> = y.iter().enumerate().map(|(i, v)| vec![format!("{v:?}"), (i + 1).to_string()]).collect();
+        compute(&dataset(&["y", "x"], &rows), &params(1, &[2], vec![])).unwrap()
+    };
+    assert_eq!(fit(&offset).notes, vec![C::EssentiallyPerfectFit], "R warns");
+    assert!(fit(&above).notes.is_empty(), "R does not warn");
+}
+
+/// 9A-1's leftover (decision 683): a ticked code equal to a score's value is checked
+/// after every column error, here after the outcome's text.
+#[test]
+fn a_code_equal_to_a_scores_value_comes_after_the_column_errors() {
+    use gaply_core::contracts::CapabilityId;
+    use gaply_core::stats_prep::{build, MissingRule, Recipe, RecipeStep, ScaleScoreStep, Statistic, CAPABILITY_ID, CAPABILITY_VERSION, ENGINE_VERSION, RECIPE_SCHEMA_VERSION};
+    let mut rows = rows_of(&base_columns());
+    rows[3][0] = "abc".into();
+    let source = dataset(&["y", "x1", "x2", "x3"], &rows);
+    let recipe = Recipe {
+        schema_version: RECIPE_SCHEMA_VERSION,
+        capability_id: CapabilityId::parse(CAPABILITY_ID).unwrap(),
+        capability_version: CAPABILITY_VERSION,
+        engine_version: ENGINE_VERSION,
+        source_columns: 4,
+        steps: vec![RecipeStep::ScaleScore(ScaleScoreStep {
+            alias: a(5),
+            name: "sum".into(),
+            items: vec![a(2), a(3)],
+            reversed: Vec::new(),
+            scale: None,
+            statistic: Some(Statistic::Sum),
+            rule: Some(MissingRule::EveryItem),
+            missing_codes: Vec::new(),
+        })],
+    };
+    let d = build(&source, &recipe, 1_000_000).expect("prepared").dataset;
+    let score_value = match &d.column_cells(ColumnAlias(5)).expect("the score")[0] {
+        gaply_core::stats_l1::dataset::Cell::Number(v) => *v,
+        other => panic!("{other:?}"),
+    };
+    let report = validate(&d, &spec(OperationId(1), &d, params(1, &[5], vec![score_value])));
+    let got = codes(&report.errors);
+    let text = got.iter().position(|c| *c == C::ColumnHoldsText.wire()).expect("the outcome's text");
+    let score = got.iter().position(|c| *c == C::CodeEqualsScore.wire()).expect("the score's code");
+    assert!(text < score, "{got:?}");
 }

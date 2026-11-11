@@ -31,6 +31,8 @@ import { makeMockXtabBridge } from '../xtabBridge';
 import { makeMockRanksBridge } from '../ranksBridge';
 import { relatedRanksResultView } from '../fixtures/relatedRanksFixtures';
 import { makeMockRelatedRanksBridge } from '../relatedRanksBridge';
+import { linearRegressionResultView } from '../fixtures/linearRegressionFixtures';
+import { makeMockLinearRegressionBridge } from '../linearRegressionBridge';
 import { METHOD_DIALOGS, METHOD_OUTPUT } from './methodOutput';
 import { statisticsSession } from './statisticsSession';
 import { StatisticsWindow } from './StatisticsWindow';
@@ -183,6 +185,18 @@ const ROWS = [
     },
     line: 'Columns, in this order: C1 Height, C2 Weight. Missing codes: none.',
   },
+  // Research OS, Phase 9A-2 (decision 687): C1 on [C2].
+  {
+    kind: 'linear_regression',
+    run: 'lr-run',
+    card: 'lr-result-card',
+    prefix: 'stats_linear_regression',
+    choose: async () => {
+      select('lr-outcome', 'C1');
+      fireEvent.click(screen.getByTestId('lr-column-C2'));
+    },
+    line: 'Outcome: C1 Height. Predictors, in this order: C2 Weight. Missing codes: none.',
+  },
 ] as const;
 
 function setUp() {
@@ -199,6 +213,7 @@ function setUp() {
     xtab: makeMockXtabBridge(fill('stats_xtab', xtabResultView)),
     ranks: makeMockRanksBridge({ stats_ranks_group_levels: levels, ...fill('stats_ranks', ranksResultView) }),
     relatedRanks: makeMockRelatedRanksBridge(fill('stats_related_ranks', relatedRanksResultView)),
+    linearRegression: makeMockLinearRegressionBridge(fill('stats_linear_regression', linearRegressionResultView)),
   };
   const capabilities: CapabilityView[] = METHODS.map((m) => ({ id: m.capabilityId, version: 1, lifecycle: 'beta', titleCode: 'stats.capability.describe.title', descriptionCode: 'stats.capability.describe.description', licenseNotes: [], knownLimitations: [], runnable: true }));
   const save = vi.fn().mockResolvedValue('/chosen/out.csv');

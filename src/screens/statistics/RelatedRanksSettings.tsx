@@ -11,6 +11,7 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { Button } from '../../design-system';
 import type { DatasetView } from './describeTypes';
+import { addColumn, moveColumnDown, moveColumnUp, offeredBy, removeColumn } from './orderedColumns';
 import type { RelatedRanksSpec } from './relatedRanksTypes';
 import {
   MAX_RELATED_COLUMNS,
@@ -48,41 +49,9 @@ export function buildRelatedRanksSpec(view: DatasetView, columns: string[], miss
   };
 }
 
-/* The list's changes (decision 668), pure: each returns a new list and leaves its argument as it was. */
-
-/** `alias` at the end, or the list unchanged when it is already in it. */
-export const addColumn = (list: readonly string[], alias: string): string[] => (list.includes(alias) ? [...list] : [...list, alias]);
-
-/** The list without `alias`. */
-export const removeColumn = (list: readonly string[], alias: string): string[] => list.filter((c) => c !== alias);
-
-/** `alias` swapped with its neighbour `by` places away in `shown` (the list as drawn), or the
- *  list unchanged at either end or when `alias` is not shown. */
-function moveColumn(list: readonly string[], alias: string, by: -1 | 1, shown: readonly string[]): string[] {
-  const at = shown.indexOf(alias);
-  const to = at + by;
-  const next = [...list];
-  if (at < 0 || to < 0 || to >= shown.length) return next;
-  const [i, j] = [list.indexOf(alias), list.indexOf(shown[to])];
-  if (i < 0 || j < 0) return next;
-  next[i] = shown[to];
-  next[j] = alias;
-  return next;
-}
-export const moveColumnUp = (list: readonly string[], alias: string, shown: readonly string[] = list): string[] => moveColumn(list, alias, -1, shown);
-export const moveColumnDown = (list: readonly string[], alias: string, shown: readonly string[] = list): string[] => moveColumn(list, alias, 1, shown);
-
-/** The candidate codes of `columns`, ascending, with where each appears. */
-function offeredBy(view: DatasetView | null, columns: readonly string[]) {
-  const where = new Map<number, Array<{ header: string; cells: number }>>();
-  for (const c of view?.profile.columns ?? []) {
-    if (!columns.includes(c.alias)) continue;
-    for (const s of c.suspectMissingCodes) where.set(s.code, [...(where.get(s.code) ?? []), { header: columnLabel(c), cells: s.cells }]);
-  }
-  return Array.from(where.keys())
-    .sort((a, b) => a - b)
-    .map((code) => ({ code, where: where.get(code) ?? [] }));
-}
+// The list's changes (decision 668) live in orderedColumns.ts (decision 684); re-exported here so
+// this file's imports and tests are unchanged.
+export { addColumn, removeColumn, moveColumnUp, moveColumnDown } from './orderedColumns';
 
 export interface RelatedRanksSettingsState {
   /** The chosen aliases as drawn: those still among the view's numeric columns, in the list's

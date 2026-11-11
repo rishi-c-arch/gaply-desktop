@@ -1612,6 +1612,55 @@ fn stored_related_ranks_results_have_the_layout_of_their_fixtures() {
     );
 }
 
+/// The linear regression's saved results (Research OS, Phase 9A-2, decision 687): three
+/// predictors with an exclusion and no diagnostics, a perfect fit of one predictor with its
+/// note, and a collinear model's failed run. Each on a file's own table, never a prepared
+/// slot, laid out as their fixtures, for the webview's shape check.
+#[test]
+fn stored_linear_regression_results_have_the_layout_of_their_fixtures() {
+    let w = World::new("stored-linear-regression");
+    let data = w.open(
+        "r.csv",
+        b"y,x1,x2,x3,copy\n3.1,1,2.5,7,3.5\n4.7,2,1.25,3,3.25\n6.2,3,4,8,7\n5.9,4,,6,\n\
+8.4,5,3.5,2,8.5\n7.7,6,0.75,9,6.75\n10.3,7,5,4,12\n9.8,8,2.25,1,10.25\n12.6,9,3,5,12\n11.9,10,4.5,10,14.5\n",
+    );
+    let three = w.linear_regression(data, 1, &[2, 3, 4], vec![]);
+    let id = pc::save_run(&w.root(), &w.ws, three, new_project("Stored regression"))
+        .unwrap()
+        .project_id;
+    let exact = w.open("p.csv", b"x,y\n0,2\n3,11\n4,14\n");
+    let perfect = w.linear_regression(exact, 2, &[1], vec![]);
+    pc::save_run(&w.root(), &w.ws, perfect, into_open(&id)).unwrap();
+    let collinear = w.linear_regression(data, 1, &[2, 3, 5], vec![]);
+    assert_eq!(w.wait_new_kind(collinear), RunState::Failed);
+    pc::save_run(&w.root(), &w.ws, collinear, into_open(&id)).unwrap();
+    for (n, name, predictors, exclusions, notes) in [
+        (1, "linear_regression.json", 3, 1, 0),
+        (2, "linear_regression_perfect.json", 1, 0, 1),
+    ] {
+        let back = pc::run_result(&w.root(), &w.ws, &id, n).expect("read back");
+        assert_eq!(back.state, RunState::Succeeded, "{name}");
+        assert_eq!(back.capability_id, "stats.analyze.linear_regression", "{name}");
+        let bundle: Value = serde_json::from_str(back.bundle_json.as_deref().unwrap()).unwrap();
+        let r = &bundle["primaryOutputs"];
+        assert_eq!(r["predictors"].as_array().unwrap().len(), predictors, "{name}");
+        assert_eq!(r["exclusions"].as_array().unwrap().len(), exclusions, "{name}");
+        assert_eq!(r["notes"].as_array().unwrap().len(), notes, "{name}");
+        assert_eq!(
+            bundle["diagnostics"].as_array().unwrap().len(),
+            0,
+            "{name}: no warning, so every parameter the checker reads is pinned"
+        );
+        assert_stored_fixture(name, &back);
+    }
+    let back = pc::run_result(&w.root(), &w.ws, &id, 3).expect("read back");
+    assert_eq!(back.state, RunState::Failed);
+    let failure: Value = serde_json::from_str(back.failure_json.as_deref().unwrap()).unwrap();
+    assert_eq!(failure["failure"]["code"], "stats.linear_regression.predictors_collinear");
+    assert_eq!(failure["failure"]["params"]["column"], 5);
+    assert_stored_fixture("linear_regression_failed.json", &back);
+}
+
 /// The correlations' saved results (Research OS, Phase 8H-2, decision 357):
 /// one pairwise with all three coefficients and a ticked missing code, and
 /// one listwise with Pearson only, laid out as their fixtures, for the

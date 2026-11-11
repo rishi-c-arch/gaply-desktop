@@ -395,6 +395,29 @@ impl World {
         id
     }
 
+    /// The linear regression of column `outcome` on `predictors`, in that order (Research
+    /// OS, Phase 9A-2, decision 686), the spec carrying the slot's preparation exactly when it
+    /// has one, as a screen's does (decision 490), run to its end.
+    pub fn linear_regression(&self, slot: u64, outcome: u32, predictors: &[u32], missing_codes: Vec<f64>) -> u64 {
+        let e = self.engine();
+        let held = e.datasets.get(slot).expect("the slot");
+        let mut spec = gaply_core::stats_linear_regression::spec(
+            OperationId(15),
+            held.dataset(),
+            gaply_core::stats_linear_regression::LinearRegressionParams {
+                outcome: Alias(ColumnAlias(outcome)),
+                predictors: predictors.iter().map(|c| Alias(ColumnAlias(*c))).collect(),
+                missing_codes,
+            },
+        );
+        spec.preparation = held.preparation();
+        let id = app_lib::stats_linear_regression_commands::run(&e.runs, &e.datasets, slot, spec)
+            .expect("the run starts")
+            .run_id;
+        self.wait_new_kind(id);
+        id
+    }
+
     pub fn wait_new_kind(&self, run: u64) -> RunState {
         let e = self.engine();
         let start = Instant::now();
@@ -410,6 +433,7 @@ impl World {
                 .or_else(|_| e.runs.xtab_snapshot(RunId(run)).map(|s| s.record.state))
                 .or_else(|_| e.runs.ranks_snapshot(RunId(run)).map(|s| s.record.state))
                 .or_else(|_| e.runs.related_ranks_snapshot(RunId(run)).map(|s| s.record.state))
+                .or_else(|_| e.runs.linear_regression_snapshot(RunId(run)).map(|s| s.record.state))
                 .expect("the run is held");
             if state.is_terminal() {
                 return state;

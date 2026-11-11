@@ -74,6 +74,7 @@ import { alphaBridge, type AlphaBridge } from '../alphaBridge';
 import { xtabBridge, type XtabBridge } from '../xtabBridge';
 import { ranksBridge, type RanksBridge } from '../ranksBridge';
 import { relatedRanksBridge, type RelatedRanksBridge } from '../relatedRanksBridge';
+import { linearRegressionBridge, type LinearRegressionBridge } from '../linearRegressionBridge';
 import { projectBridge, type ProjectBridge } from './projectBridge';
 import { EXPORTS, type ExportKind, type SaveFile } from './projectExport';
 import { projectsShown } from './projectGate';
@@ -141,6 +142,8 @@ export interface ProjectPageProps {
   independentRanks?: RanksBridge;
   /** Research OS, Phase 8Z-2 (decision 656). */
   relatedRanks?: RelatedRanksBridge;
+  /** Research OS, Phase 9A-2 (decision 687). */
+  linearRegression?: LinearRegressionBridge;
   /** How often project_current is read while a rerun is going. */
   pollMs?: number;
 }
@@ -220,6 +223,7 @@ const ProjectPageShown: React.FC<ProjectPageProps> = ({
   crosstabs: givenXtab,
   independentRanks: givenRanks,
   relatedRanks: givenRelatedRanks,
+  linearRegression: givenLinearRegression,
   pollMs = 250,
 }) => {
   const bridge = useMemo(() => given ?? projectBridge(), [given]);
@@ -234,6 +238,7 @@ const ProjectPageShown: React.FC<ProjectPageProps> = ({
   const crosstabs = useMemo(() => givenXtab ?? xtabBridge(), [givenXtab]);
   const independentRanks = useMemo(() => givenRanks ?? ranksBridge(), [givenRanks]);
   const relatedRanks = useMemo(() => givenRelatedRanks ?? relatedRanksBridge(), [givenRelatedRanks]);
+  const linearRegression = useMemo(() => givenLinearRegression ?? linearRegressionBridge(), [givenLinearRegression]);
   // Each kind's cancel, from the bridges given (Phase 8C).
   const cancels = useMemo<Record<RerunKind, (runId: number) => Promise<unknown>>>(
     () => ({
@@ -247,8 +252,9 @@ const ProjectPageShown: React.FC<ProjectPageProps> = ({
       crosstabs: (runId) => crosstabs.cancel(runId),
       independent_ranks: (runId) => independentRanks.cancel(runId),
       related_ranks: (runId) => relatedRanks.cancel(runId),
+      linear_regression: (runId) => linearRegression.cancel(runId),
     }),
-    [describe, ttest, oneSample, paired, anova, correlations, cronbachAlpha, crosstabs, independentRanks, relatedRanks]
+    [describe, ttest, oneSample, paired, anova, correlations, cronbachAlpha, crosstabs, independentRanks, relatedRanks, linearRegression]
   );
   const gen = useGeneration();
   const [view, setView] = useState<View>({ kind: 'loading' });

@@ -83,8 +83,17 @@ const AT_8Z2: Record<string, string> = {
   'related_ranks_w.json': '042d1a8da0c8422c171ebf3bea7f7c8df17e10c0ed3bce2710cc141303637c3f',
 };
 
+/** Research OS, Phase 9A-2 (decision 687): the stored fixtures 9A-2 added, captured from
+ *  9A-2's own render, the record a later step keeps its own result against; AT_8EB00B7C,
+ *  AT_8X2, AT_8Y2 and AT_8Z2 are unchanged. */
+const AT_9A2: Record<string, string> = {
+  'linear_regression.json': '0b8f6199d942731d03f5286f18ef70564058e9ca3f37c7d28b7396908fdaa12a',
+  'linear_regression_failed.json': '11568990c75972feb761f316cee1b71173dce6103e167cd382fe618e715a5607',
+  'linear_regression_perfect.json': '9f67d0a5a516850099d2d6cc4f5f9bb08f964f51ffa56d46dc0187d2e131bf4a',
+};
+
 /** Each file's record: 8eb00b7c's, or that of the step that added the file. */
-const RECORDED: Record<string, string> = { ...AT_8EB00B7C, ...AT_8X2, ...AT_8Y2, ...AT_8Z2 };
+const RECORDED: Record<string, string> = { ...AT_8EB00B7C, ...AT_8X2, ...AT_8Y2, ...AT_8Z2, ...AT_9A2 };
 
 const sha = (s: string) => createHash('sha256').update(s).digest('hex');
 
@@ -153,11 +162,12 @@ describe('a project page with no prepared run, byte for byte as at 8eb00b7c', ()
 describe('a saved result with no scores, byte for byte as at 8eb00b7c', () => {
   it('covers every stored fixture', () => {
     expect(FILES.length).toBeGreaterThanOrEqual(20);
-    // The four records name disjoint files, and together the whole directory.
-    expect(Object.keys(AT_8EB00B7C).filter((k) => k in AT_8X2 || k in AT_8Y2 || k in AT_8Z2)).toEqual([]);
-    expect(Object.keys(AT_8X2).filter((k) => k in AT_8Y2 || k in AT_8Z2)).toEqual([]);
-    expect(Object.keys(AT_8Y2).filter((k) => k in AT_8Z2)).toEqual([]);
-    expect([...Object.keys(AT_8EB00B7C), ...Object.keys(AT_8X2), ...Object.keys(AT_8Y2), ...Object.keys(AT_8Z2)].sort()).toEqual(FILES);
+    // The five records name disjoint files, and together the whole directory.
+    expect(Object.keys(AT_8EB00B7C).filter((k) => k in AT_8X2 || k in AT_8Y2 || k in AT_8Z2 || k in AT_9A2)).toEqual([]);
+    expect(Object.keys(AT_8X2).filter((k) => k in AT_8Y2 || k in AT_8Z2 || k in AT_9A2)).toEqual([]);
+    expect(Object.keys(AT_8Y2).filter((k) => k in AT_8Z2 || k in AT_9A2)).toEqual([]);
+    expect(Object.keys(AT_8Z2).filter((k) => k in AT_9A2)).toEqual([]);
+    expect([...Object.keys(AT_8EB00B7C), ...Object.keys(AT_8X2), ...Object.keys(AT_8Y2), ...Object.keys(AT_8Z2), ...Object.keys(AT_9A2)].sort()).toEqual(FILES);
   });
 
   it.each(FILES)('%s', (f) => {

@@ -48,6 +48,16 @@ import {
   relatedRanksRunEndedSentence,
   relatedRanksSentence,
 } from '../relatedRanksWording';
+import { LinearRegressionDialog } from './LinearRegressionDialog';
+import { LinearRegressionCard } from '../LinearRegressionCard';
+import {
+  LINEAR_REGRESSION_EXPORT_CHOICES,
+  LINEAR_REGRESSION_EXPORT_HEADING,
+  LINEAR_REGRESSION_EXPORT_TEXT,
+  linearRegressionRefusalSentence,
+  linearRegressionRunEndedSentence,
+  linearRegressionSentence,
+} from '../linearRegressionWording';
 import { columnNames } from './windowWording';
 
 /** What an entry may do with its run: no open, no close, no validate, no run. */
@@ -196,6 +206,19 @@ export const METHOD_OUTPUT: { [K in MethodKind]: OutputRow<K> } = {
     exportText: RELATED_RANKS_EXPORT_TEXT,
     exportChoices: RELATED_RANKS_EXPORT_CHOICES,
   },
+  // Research OS, Phase 9A-2 (decision 687): its own card, as no page has one; one check
+  // point, so no steps sentence; a column named by the name the user sees.
+  linear_regression: {
+    bridge: (b) => b.linearRegression,
+    refusal: linearRegressionRefusalSentence,
+    runEnded: linearRegressionRunEndedSentence,
+    progress: () => null,
+    sentence: (d, view) => linearRegressionSentence(d, { column: columnNames(view) }),
+    card: (result, view) => <LinearRegressionCard result={result} names={{ column: columnNames(view) }} />,
+    exportHeading: LINEAR_REGRESSION_EXPORT_HEADING,
+    exportText: LINEAR_REGRESSION_EXPORT_TEXT,
+    exportChoices: LINEAR_REGRESSION_EXPORT_CHOICES,
+  },
 };
 
 /** An entry's row. Its kind and its run and result were stored together, so the
@@ -233,4 +256,5 @@ export const METHOD_DIALOGS: Record<MethodKind, React.FC<MethodDialogRowProps>> 
   crosstabs: ({ bridges, ...p }) => <XtabDialog {...p} bridge={bridges.xtab} />,
   independent_ranks: ({ bridges, ...p }) => <RanksDialog {...p} bridge={bridges.ranks} />,
   related_ranks: ({ bridges, ...p }) => <RelatedRanksDialog {...p} bridge={bridges.relatedRanks} />,
+  linear_regression: ({ bridges, ...p }) => <LinearRegressionDialog {...p} bridge={bridges.linearRegression} />,
 };

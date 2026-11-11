@@ -37,6 +37,8 @@ describe('the methods table', () => {
       manifestId('ranksResultView.json'),
       // Research OS, Phase 8Z-2 (decision 656).
       manifestId('relatedRanksResultView.json'),
+      // Research OS, Phase 9A-2 (decision 687).
+      manifestId('linearRegressionResultView.json'),
     ]);
     expect(fromViews).toEqual([
       'stats.analyze.correlations',
@@ -44,6 +46,7 @@ describe('the methods table', () => {
       'stats.analyze.crosstabs',
       'stats.analyze.independent_ranks',
       'stats.analyze.independent_t',
+      'stats.analyze.linear_regression',
       'stats.analyze.one_sample_t',
       'stats.analyze.one_way_anova',
       'stats.analyze.paired_t',
@@ -55,8 +58,8 @@ describe('the methods table', () => {
     expect(sorted(Object.keys(SAVED_RENDERERS))).toEqual(fromViews);
   });
 
-  it('keeps the ten kinds, their words, names and job names', () => {
-    expect(METHODS.map((m) => m.kind)).toEqual(['describe', 'ttest', 'one_sample', 'paired', 'anova', 'correlations', 'cronbach_alpha', 'crosstabs', 'independent_ranks', 'related_ranks']);
+  it('keeps the eleven kinds, their words, names and job names', () => {
+    expect(METHODS.map((m) => m.kind)).toEqual(['describe', 'ttest', 'one_sample', 'paired', 'anova', 'correlations', 'linear_regression', 'cronbach_alpha', 'crosstabs', 'independent_ranks', 'related_ranks']);
     expect(byKind((m) => m.jobName)).toEqual({
       describe: null,
       ttest: 'independent-samples t-test',
@@ -64,6 +67,7 @@ describe('the methods table', () => {
       paired: 'paired-samples t-test',
       anova: 'one-way ANOVA',
       correlations: 'correlations',
+      linear_regression: 'linear regression',
       cronbach_alpha: "Cronbach's alpha",
       crosstabs: 'crosstabs',
       independent_ranks: 'rank test',
@@ -79,6 +83,7 @@ describe('the methods table', () => {
     expect(capabilityOfKind('crosstabs')).toBe(manifestId('xtabResultView.json'));
     expect(capabilityOfKind('independent_ranks')).toBe(manifestId('ranksResultView.json'));
     expect(capabilityOfKind('related_ranks')).toBe(manifestId('relatedRanksResultView.json'));
+    expect(capabilityOfKind('linear_regression')).toBe(manifestId('linearRegressionResultView.json'));
     expect(capabilityName(manifestId('resultBundleView.json'))).toBe('Descriptive summary');
     expect(capabilityName(manifestId('ttestResultView.json'))).toBe('Independent-samples t-test');
     expect(capabilityName(manifestId('onesampleResultView.json'))).toBe('One-sample t-test');
@@ -89,6 +94,7 @@ describe('the methods table', () => {
     expect(capabilityName(manifestId('xtabResultView.json'))).toBe('Crosstabs');
     expect(capabilityName(manifestId('ranksResultView.json'))).toBe('Mann-Whitney and Kruskal-Wallis');
     expect(capabilityName(manifestId('relatedRanksResultView.json'))).toBe('Wilcoxon signed-rank and Friedman');
+    expect(capabilityName(manifestId('linearRegressionResultView.json'))).toBe('Linear regression');
     expect(METHODS.map((m) => m.path)).toEqual([
       '/app/statistics/describe',
       '/app/statistics/ttest',
@@ -96,6 +102,8 @@ describe('the methods table', () => {
       '/app/statistics/paired',
       '/app/statistics/anova',
       '/app/statistics/correlations',
+      // The linear regression has no page or route (decision 687).
+      null,
       '/app/statistics/alpha',
       // Crosstabs has no page or route (ADR-012:233-241; decision 591).
       null,
@@ -116,6 +124,7 @@ describe('the methods table', () => {
       ['Compare means', 'Paired t-test…'],
       ['Compare means', 'One-way ANOVA…'],
       ['Correlate', 'Correlations…'],
+      ['Regression', 'Linear…'],
       ['Scale', "Reliability (Cronbach's alpha)…"],
       ['Descriptive statistics', 'Crosstabs…'],
       ['Nonparametric tests', 'Independent samples…'],

@@ -455,7 +455,9 @@ pub fn run() {
             stats_related_ranks_commands::stats_related_ranks_result,
             stats_related_ranks_commands::stats_related_ranks_cancel,
             stats_related_ranks_commands::stats_related_ranks_export,
-            // Research OS, Phase 9A-1 (decision 674): the linear regression.
+            // Research OS, Phase 9A-1 (decision 674): the linear regression, behind the
+            // workspace check. Since 9A-2 (decision 687) the window's Regression, Linear…
+            // dialog starts it.
             stats_linear_regression_commands::stats_linear_regression_validate,
             stats_linear_regression_commands::stats_linear_regression_run,
             stats_linear_regression_commands::stats_linear_regression_status,

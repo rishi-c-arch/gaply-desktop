@@ -1,0 +1,15 @@
+{
+  "bundleJson": null,
+  "capabilityId": "stats.analyze.linear_regression",
+  "dataFile": {
+    "bytes": 173,
+    "format": "csv",
+    "kind": "data_file",
+    "sha256": "7934ded1a737c6cdd1ba6f6d4b8a4a827643beeb12c65fb7a89477e3b600bf92"
+  },
+  "failureJson": "{\"failure\":{\"code\":\"stats.linear_regression.predictors_collinear\",\"params\":{\"column\":5},\"severity\":\"error\"},\"schemaVersion\":1,\"status\":\"failed\"}",
+  "manifestJson": null,
+  "specJson": "{\"schemaVersion\":1,\"operationId\":15,\"workspaceId\":\"statistics\",\"capabilityId\":\"stats.analyze.linear_regression\",\"capabilityVersion\":1,\"inputs\":[{\"contentHash\":\"7934ded1a737c6cdd1ba6f6d4b8a4a827643beeb12c65fb7a89477e3b600bf92\",\"rows\":10,\"columns\":5,\"semanticRole\":\"table\"}],\"parameters\":{\"outcome\":\"C1\",\"predictors\":[\"C2\",\"C3\",\"C5\"],\"missingCodes\":[]},\"randomSeed\":null,\"confirmationRefs\":[]}",
+  "state": "failed",
+  "storedRunId": 3
+}

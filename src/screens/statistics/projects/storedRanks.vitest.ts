@@ -83,6 +83,26 @@ const everyValueEqualMw = (b: O) => {
   mw(b).z = nc('all_values_tied');
   mw(b).p = nc('all_values_tied');
 };
+/** An untied Kruskal-Wallis result as Rust writes it (stats_ranks::kruskal_wallis :886-903): no
+ *  tie runs, so the correction is exactly 1, and H from the exact differences in the groups' order.
+ *  Its p is any value in [0, 1], which the checker does not recompute. */
+const untiedKw = (b: O) => {
+  const r = b.primaryOutputs;
+  r.tieRuns = 0;
+  const sums = [11, 25, 42];
+  r.groups.forEach((g: O, i: number) => {
+    g.rankSum = sums[i];
+    g.meanRank = g.rankSum / g.n;
+  });
+  const big = r.n;
+  const spread = r.groups.reduce((s: number, g: O) => {
+    const d = g.rankSum - (g.n * (big + 1)) / 2;
+    return s + (d * d) / g.n;
+  }, 0);
+  const h = ((12 / (big * (big + 1))) * spread) / (1 - 0 / (big * big * big - big));
+  kw(b).h = { value: h };
+  kw(b).epsilonSquared = { value: h / (big - 1) };
+};
 /** The same for three or more groups (stats_ranks::kruskal_wallis). */
 const everyValueEqualKw = (b: O) => {
   ranksOfOneRun(b);
@@ -726,6 +746,22 @@ describe('what stats_ranks never writes (decision 668)', () => {
     expect(kindOf(changed(MW, (b) => {
       mw(b).z = nc('overflow');
       mw(b).p = nc('overflow');
+    }))).toBe(BAD);
+  });
+
+  // Decision 683 (finding 5): no committed Kruskal-Wallis snapshot has tieRuns 0, so the untied
+  // base is built here from ranks 1 to 12 split {1, 2, 3, 5}, {4, 6, 7, 8}, {9, 10, 11, 12}.
+  it("takes, with no tie runs, Rust's H, and refuses a doubled H and an H of 0.001", () => {
+    expect(kindOf(changed(KW, untiedKw))).toBe(OK);
+    expect(kindOf(changed(KW, (b) => {
+      untiedKw(b);
+      kw(b).h = { value: kw(b).h.value * 2 };
+      kw(b).epsilonSquared = { value: kw(b).h.value / 11 };
+    }))).toBe(BAD);
+    expect(kindOf(changed(KW, (b) => {
+      untiedKw(b);
+      kw(b).h = { value: 0.001 };
+      kw(b).epsilonSquared = { value: 0.001 / 11 };
     }))).toBe(BAD);
   });
 

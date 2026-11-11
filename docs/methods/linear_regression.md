@@ -3,11 +3,16 @@
 `stats.analyze.linear_regression`, version 1, engine version 1. Research OS,
 Phase 9A-1 (decisions 669 to 676), `src-tauri/gaply-core/src/stats_linear_regression/`.
 
-**Status: Beta, with no screen.** 9A-1 built the core, its registration, its six
-commands and its run kind; 9A-2 adds the dialog, the card, saving and rerun. Until
-then the old home lists it on its roadmap, Help lists its limitations, and the
-Statistics window's Coming later still says "Regression" (decision 674's
-departure).
+**Status: Beta.** 9A-1 built the core, its registration, its six commands and its
+run kind; 9A-2 (decisions 683 to 690) made it usable. In the Statistics window,
+Analyze, Regression, Linear… opens a dialog: the outcome from a list of the numeric
+columns, scores included, and the predictors in two panes, in the order the user
+chooses, each movable. Run adds a card to the Output with six tables (model summary,
+analysis of variance, coefficients, correlations and collinearity, descriptive
+statistics, residuals statistics), the note, the rows left out and the limitations.
+A result can be exported, saved into a project, read back and run again; the report
+names the outcome's column and the predictors by position in the order chosen.
+Coming later no longer lists "Regression".
 
 Ordinary least squares regression of one numeric outcome on one to 50 numeric
 predictors, entered together and listwise, as SPSS's REGRESSION does with method
@@ -97,7 +102,7 @@ a ticked code. A row left out is counted once, under the first column without
 one, the outcome first, as `missing_value` or `missing_code` with its column.
 Suspect missing codes are warned of per column, a score's skipped.
 
-Not computable, statistic by statistic, never a refusal of the run:
+Not computable, statistic by statistic, never a refusal of the run (decision 683):
 
 * `perfect_fit`, RSS exactly 0 (an exact integer fit such as x = 0, 3, 4 and
   y = 2, 11, 14): σ, the residual mean square, every SE, t, p and interval, F
@@ -107,12 +112,40 @@ Not computable, statistic by statistic, never a refusal of the run:
   "essentially perfect fit" there, so the note is given too.
 * `distribution_out_of_range`, where `stats_dist` returns no value (a df above
   its measured 1e7).
-* `overflow`, where a value is not finite, **and where σ² s_j or s_j falls below
-  the smallest normal double**: a subnormal keeps a few significant bits, so its
-  root is a finite, wrong SE. The bug hunt found this (§5): on a predictor
-  scaled to 1e93 with a small outcome, R's `lm` printed t −8.70 where the exact t
-  is −12.31; Gaply gives `overflow` there, and the partial and part correlations
-  built on t with it. The same guard applies to VIF's s_j.
+* `overflow` means too large only: a value along the way is not finite. Since
+  9A-2 a value too small has its own code.
+* `too_small`, where a statistic's own value is below the smallest normal double,
+  so it cannot hold its precision: the residual and regression mean squares, an
+  SE, F and its p, t and its p, VIF and tolerance where s_j is subnormal, and beta.
+  Never b, a mean, a minimum or a maximum, which stay values. Where a product or
+  quotient would be subnormal but its result is a normal double, it is computed in
+  a form whose intermediates stay normal: σ as √RSS / √df, an SE as σ √s_j, F as
+  (MSS / RSS)(df / k), each standard deviation from deviations scaled by the largest
+  before squaring, the Durbin-Watson statistic from scaled residuals where its
+  numerator overflows, and the partial correlation as sign(t) / √(1 + df / t²) where
+  t² overflows. Two exceptions: an s_j that is itself subnormal withholds its
+  coefficient's SE, t, p and interval and its VIF and tolerance as `too_small`, though
+  σ √s_j could be normal (one predictor whose centred sum of squares lies between about
+  4.5e307 and 1.8e308); and the split F's quotient MSS / RSS is not itself guarded,
+  judged unreachable. In the normal range 9A-1's order is kept, so no golden moved.
+  9A-1's hunt, rerun, has no withheld cell left: the 189 cells in 12 datasets where
+  9A-1 gave `overflow` (and R's own SE is Inf, 0 or subnormal, the 189 rows D319 names)
+  are now numbers within 5.022e-13 of gmp's exact values
+  (`~/gaply-corpus/os/phase9/9a2/hunt/hunt_summary.md`).
+* `predicted_no_spread`, for both standardized predicted values, where the predicted
+  values' spread is at the level of their own rounding: MSS exactly 0, or
+  s_ŷ ≤ 8 ε (m + κ s_y), with m the larger of |min ŷ| and |max ŷ|, s_y the outcome's
+  SD and κ the largest over the predictors of √VIF_j √(1 + (n / (n − 1))(mean_j / sd_j)²).
+  The constant 8 was measured: over 19,800 datasets whose exact covariance with every
+  predictor is 0 the largest ratio was 3.635, and over 18,156 whose exact R² is 1e-12
+  to 1e-10 with |mean y| at most 1e8 sd y the smallest was 45.86. b, beta, F and p stay
+  numbers there, as R and SPSS give them.
+
+Refused as `fit_out_of_range`, the run's own refusal: a fit whose sums of squares or
+Householder norms underflow or overflow, at scales near 1e-140 or 1e-155 (the review of
+9A-1, finding 3). `ols_qr` is shared with Level 1 and is not changed (decision 683, finding
+3), so the regression cannot be computed at those scales; rescaling the data is the way
+round it.
 
 ## 5. Precision, the gates and the oracles
 
@@ -182,9 +215,10 @@ column is its index in the model's list (the outcome 0, the predictors 1 to k)
 and its alias, never a header; the related rank tests' export numbers its
 columns by the user's list the same way. **The intercept's lines leave both
 column fields empty.** A value not computable is an empty field with its code.
-Pinned on macOS aarch64 (`linear_regression_export.rs`, `export_golden.csv`,
-98 records, CRLF); every other platform checks the pin's layout until a Linux run
-measures it.
+An exclusion's `column` parameter, in the result, the manifest and the CSV's exclusion
+lines, is the alias's number (C3 is 3), not the model's column index. Pinned exactly on
+macOS aarch64 and on Linux x86_64 (`linear_regression_export.rs`, `export_golden.csv`,
+98 records, CRLF; decision 681); every other platform checks the pin's layout.
 
 ## 8. What is not assessed, and the limitations
 
@@ -194,8 +228,58 @@ blocks); no indicator coding of categorical predictors; no interaction or
 polynomial terms; the intercept always; listwise deletion only; no
 heteroscedasticity-consistent standard errors; no casewise diagnostics, plots or
 saved columns; the Durbin-Watson statistic takes the file's row order; intervals
-at 95% only; no weights. Not assessed: linearity, normality of the residuals,
+at 95% only; no weights. A fit at a scale whose sums of squares or Householder norms a
+double cannot hold, near 1e-140 or 1e-155, is refused as `fit_out_of_range` (§4). Not assessed: linearity, normality of the residuals,
 equal variance, independence, influence.
+
+Every code's sentence, word for word, as `linearRegressionWording.ts` writes it (a
+column is shown here as {column n}; the screen names it as the user sees it):
+
+| code | sentence |
+|---|---|
+| `capability_version_mismatch` | These settings were made for version 2 of the linear regression, and this is version 1. |
+| `code_equals_score` | Column {column 2} is a score, and it holds a missing code you ticked in 3 cells. Untick the code, or leave this score out. |
+| `column_holds_text` | Column {column 2} holds text in 3 cells, so it cannot be used in the regression. |
+| `column_non_finite` | Column {column 2} holds an infinity or "not a number" in 3 cells, so it cannot be used in the regression. |
+| `column_repeated` | Column {column 2} is chosen more than once, as the outcome or among the predictors. Choose each column once. |
+| `distribution_out_of_range` | Not computable: this needs a distribution at more than 10,000,000 degrees of freedom, where Gaply has not measured its accuracy. |
+| `durbin_watson_row_order` | The Durbin-Watson statistic takes the rows in the file's order, so it describes serial correlation only when that order means something, such as time. |
+| `enter_only` | Every chosen predictor is entered at once; stepwise, forward and backward methods, and blocks of predictors, are not offered. |
+| `essentially_perfect_fit` | The residuals are at the level of rounding error, the case R's summary.lm calls an essentially perfect fit, so the standard errors, t, p and intervals, where they are given, rest on rounding. |
+| `fit_out_of_range` | The values are too large or too small for the regression's sums of squares to be held, so it cannot be computed at this scale. |
+| `input_count` | These settings name 3 files, and a linear regression reads exactly one. |
+| `input_mismatch` | These settings were made for a different file from the one open. Open the file again. |
+| `intercept_always` | The model always has an intercept; regression through the origin is not offered. |
+| `intervals_95_only` | Confidence intervals are at 95%; other levels are not offered. |
+| `listwise_only` | A row is used only when the outcome and every predictor have a value; pairwise deletion and mean substitution are not offered. |
+| `missing_code` | 3 rows held a missing code you ticked in {column 2}, and were left out. |
+| `missing_code_not_finite` | Missing code 1 is not a finite number. |
+| `missing_value` | 3 rows had no value in {column 2} (an empty cell or a missing-value token), and were left out. |
+| `no_casewise_diagnostics` | Casewise diagnostics, residual plots, influence statistics, and predicted values or residuals saved as columns are not given. |
+| `no_categorical_predictors` | Each predictor is taken as a number; a categorical predictor is not coded into indicator columns for you. |
+| `no_complete_rows` | No row has a value in the outcome and in every predictor, so there is nothing to fit. |
+| `no_interaction_terms` | No interaction or polynomial terms are formed; only the columns you choose enter the model. |
+| `no_predictors` | No predictor is chosen, and a linear regression needs at least one. |
+| `no_robust_standard_errors` | Standard errors assume the residuals have equal variance; heteroscedasticity-consistent standard errors are not given. |
+| `no_weights` | Each row is counted once; weighting rows by a column is not offered. |
+| `outcome_constant` | The outcome takes one value in every complete row, so there is no variation to explain. |
+| `overflow` | Not computable: a value along the way is too large for the arithmetic. |
+| `perfect_fit` | Not computable: the model fits every row exactly, so there is no residual variation. |
+| `predicted_no_spread` | Not computable: the predicted values do not vary, so they cannot be standardized. |
+| `predictor_constant` | Column {column 2} takes one value in every complete row, so its effect cannot be estimated. Take it out of the predictors. |
+| `predictors_collinear` | {column 2} is, within R's tolerance, a linear combination of the intercept and the predictors before it, so its effect cannot be separated from theirs. Take it out of the predictors. |
+| `preparation_mismatch` | These settings do not match how the open data was prepared. Choose the settings again. |
+| `suspect_missing_code` | Column {column 2} holds -99 in 3 cells, which may be a code for a missing value. It is counted as a number unless you tick it in Settings. |
+| `too_few_rows` | 3 rows have a value in every chosen column, and a model with these predictors needs at least 5: the predictors, the intercept and one more. |
+| `too_many_predictors` | 3 predictors chosen, and a linear regression takes at most 5. |
+| `too_small` | Not computable: a value along the way is too small for the arithmetic to keep its precision. |
+| `unknown_capability` | These settings name a capability Gaply does not have here. |
+| `unknown_column` | Column {column 2} is not in this file. |
+
+The run's two sentences that name the method: "This run is no longer held. Gaply keeps
+the last 40 runs in memory only; run the linear regression again." and "This run is not
+a linear regression, so this screen cannot read it." The run's other, the registry's and
+the workspace's sentences are the related rank tests'.
 
 ## 9. What SPSS documents, and where it differs
 
@@ -230,4 +314,4 @@ The `?topic=` subcommand pages returned only a title.
 | Golden fixtures and edge cases pass | `linear_regression_r_golden` (2 tests: 29 cases, and the exact tier), `linear_regression_cases`, `linear_regression_export`, `stats_dist_reference` | done |
 | Missing values, ties, weights, precision and sample size handled | §1, §4, §5, §6; weights not supported, stated | done |
 | Result manifest and export verified | §7; through IPC the CSV equals the module's export (`stats_linear_regression_commands.rs`); `stats_linear_regression_privacy_matrix.rs` | done |
-| A screen, saving and rerun | 9A-2 | not yet |
+| A screen, saving and rerun | 9A-2: the dialog, the card, the stored checker, `project_linear_regression.rs`, the rerun privacy matrix's runs 22 to 25 | done |

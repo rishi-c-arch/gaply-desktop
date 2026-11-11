@@ -23,6 +23,7 @@ use app_lib::stats_alpha_commands as alpha;
 use app_lib::stats_anova_commands as anova;
 use app_lib::stats_corr_commands as corr;
 use app_lib::stats_desc_commands as desc;
+use app_lib::stats_linear_regression_commands as linear_regression;
 use app_lib::stats_onesample_commands as onesample;
 use app_lib::stats_prep_commands as prep;
 use app_lib::stats_ranks_commands as ranks;
@@ -35,6 +36,7 @@ use gaply_core::stats_anova::{self, AnovaParams, PostHoc};
 use gaply_core::stats_corr::{self, Coefficient, CorrParams, MissingHandling};
 use gaply_core::stats_desc::{self, Alias, ColumnRequest, DescribeParams, TreatAs};
 use gaply_core::stats_l1::dataset::ColumnAlias;
+use gaply_core::stats_linear_regression::{self, LinearRegressionParams};
 use gaply_core::stats_onesample::{self, OneSampleParams, PairedParams};
 use gaply_core::stats_prep::{self, MissingRule, Recipe, RecipeStep, ScaleScoreStep, Statistic};
 use gaply_core::stats_ranks::{self, IndependentRanksParams};
@@ -93,8 +95,8 @@ fn make(w: &World, slot: u64, recipe: &Recipe) {
     assert!(v.dataset.is_some(), "{:?}", v.errors);
 }
 
-/// The nine methods, each with a score in it, as `prep_support::nine`.
-const NINE: [&str; 9] = [
+/// The ten methods, each with a score in it, as `prep_support::ten`.
+const TEN: [&str; 10] = [
     "summary",
     "t-test",
     "one-sample",
@@ -104,6 +106,7 @@ const NINE: [&str; 9] = [
     "alpha",
     "rank tests",
     "related rank tests",
+    "linear regression",
 ];
 
 /// Runs method `which` on the score, column 8 of [`TABLE`], to its end, its
@@ -230,8 +233,9 @@ fn run_method(w: &World, slot: u64, which: &str) -> u64 {
                 on_prepared!(stats_ranks::spec(op, d, params)),
             )
         }
-        // Research OS, Phase 8Z-2 (decision 655): the score among three columns, in that
-        // order and not in column order.
+        // Research OS, Phase 8Z-2 (decision 655): the score, C8, after C4 and C7. Here that
+        // is column order; prep_support's list is out of column order when the score is C3
+        // (decision 683).
         "related rank tests" => {
             let params = RelatedRanksParams {
                 columns: vec![alias(4), alias(7), score],
@@ -242,6 +246,20 @@ fn run_method(w: &World, slot: u64, which: &str) -> u64 {
                 &e.datasets,
                 slot,
                 on_prepared!(stats_related_ranks::spec(op, d, params)),
+            )
+        }
+        // Research OS, Phase 9A-2 (decision 686): C7 on the score and then C4.
+        "linear regression" => {
+            let params = LinearRegressionParams {
+                outcome: alias(7),
+                predictors: vec![score, alias(4)],
+                missing_codes: no_codes(),
+            };
+            linear_regression::run(
+                &e.runs,
+                &e.datasets,
+                slot,
+                on_prepared!(stats_linear_regression::spec(op, d, params)),
             )
         }
         other => panic!("no method {other}"),
@@ -525,8 +543,8 @@ fn a_run_with_two_recipe_edges_is_refused_as_an_unknown_artifact() {
 /// Every method's run on a score saves, with its recipe, whatever its result.
 #[test]
 fn a_run_of_each_method_on_a_score_saves_with_its_recipe() {
-    for which in NINE {
-        let w = World::new("save-nine");
+    for which in TEN {
+        let w = World::new("save-ten");
         let slot = w.open("items.csv", TABLE);
         make(&w, slot, &mean_recipe());
         let run = run_method(&w, slot, which);
@@ -742,14 +760,14 @@ fn new_artifacts(
         .collect()
 }
 
-/// For each of the nine methods: a run on a score, saved, reopened and run
+/// For each of the ten methods: a run on a score, saved, reopened and run
 /// again, is identical, with the recipe reused and nothing else written but the
 /// new bundle and manifest.
 #[test]
 fn each_method_on_a_score_saved_reopened_and_rerun_is_identical_and_reuses_the_recipe() {
     use gaply_core::research_project::RerunComparison::Identical;
-    for which in NINE {
-        let w = World::new("rerun-nine");
+    for which in TEN {
+        let w = World::new("rerun-ten");
         let slot = w.open("items.csv", TABLE);
         make(&w, slot, &mean_recipe());
         let run = run_method(&w, slot, which);

@@ -178,6 +178,9 @@ pub enum ExportParameter {
     /// chose them: the Wilcoxon differences are the first less the second (Research OS,
     /// Phase 8Z-2, decision 655).
     ComparedColumns(Vec<u32>),
+    /// The linear regression's predictors, by their 1-based positions, in the order the user
+    /// chose them (Research OS, Phase 9A-2, decision 686).
+    Predictors(Vec<u32>),
     /// Alpha's scale ends as the bits of their doubles, the lowest first, as
     /// `TestValue` keeps its value: settings the user typed, not their data.
     /// `None` when nothing is reverse-scored.
@@ -574,6 +577,17 @@ fn parameter_line(p: &ExportParameter) -> String {
         ExportParameter::Items(positions) => {
             let list: Vec<String> = positions.iter().map(u32::to_string).collect();
             format!("Items: columns {}, by position", list.join(", "))
+        }
+        // Decision 686: singular for one, as ReverseScored's.
+        ExportParameter::Predictors(positions) if positions.len() == 1 => {
+            format!("Predictors: column {}, by position", positions[0])
+        }
+        ExportParameter::Predictors(positions) => {
+            let list: Vec<String> = positions.iter().map(u32::to_string).collect();
+            format!(
+                "Predictors: columns {}, by position, in the order chosen",
+                list.join(", ")
+            )
         }
         ExportParameter::ReverseScored(positions) if positions.is_empty() => {
             "Reverse-scored: none".into()
@@ -1163,6 +1177,24 @@ mod tests {
         assert_eq!(
             parameter_line(&ExportParameter::ComparedColumns(vec![7, 2, 9])),
             "Columns compared: columns 7, 2, 9, by position, in the order chosen"
+        );
+    }
+
+    /// Research OS, Phase 9A-2 (decision 686): the regression's predictors in the order
+    /// chosen, out of ascending order, and singular for one.
+    #[test]
+    fn the_linear_regressions_predictors_have_a_line_of_their_own_in_the_order_chosen() {
+        assert_eq!(
+            parameter_line(&ExportParameter::Predictors(vec![4, 2])),
+            "Predictors: columns 4, 2, by position, in the order chosen"
+        );
+        assert_eq!(
+            parameter_line(&ExportParameter::Predictors(vec![9, 3, 7])),
+            "Predictors: columns 9, 3, 7, by position, in the order chosen"
+        );
+        assert_eq!(
+            parameter_line(&ExportParameter::Predictors(vec![5])),
+            "Predictors: column 5, by position"
         );
     }
 

@@ -1,9 +1,10 @@
 // Gaply — every method's spec carries the view's preparation (Research OS,
 // Phase 8T-1a, decision 490). Rust refuses a spec on a prepared table without
 // one, and a spec on a file's own table with one (stats_desc/mod.rs:574-586),
-// so each of the ten builders (crosstabs' since 8X-2, decision 588, Rust's
+// so each of the eleven builders (crosstabs' since 8X-2, decision 588, Rust's
 // own refusal at stats_xtab/mod.rs:606-608; the rank tests' since 8Y-2, decision 619;
-// the related rank tests' since 8Z-2, decision 653)
+// the related rank tests' since 8Z-2, decision 653; the linear regression's since 9A-2,
+// decision 684)
 // copies the view's preparation exactly when the
 // view has one. On a file's own table the key is ABSENT, never null: Rust reads
 // a null as none (contracts/mod.rs:237-258), so only this test can catch it, and
@@ -21,6 +22,7 @@ import { buildRanksSpec } from './RanksSettings';
 import { buildRelatedRanksSpec } from './RelatedRanksSettings';
 import { buildTTestSpec } from './TTestSettings';
 import { buildXtabSpec } from './XtabSettings';
+import { buildLinearRegressionSpec } from './LinearRegressionSettings';
 
 const BUILDERS: Array<[string, (view: DatasetView) => object]> = [
   ['alpha', (v) => buildAlphaSpec(v, ['C1', 'C2'], [], null, [], 1)],
@@ -33,6 +35,8 @@ const BUILDERS: Array<[string, (view: DatasetView) => object]> = [
   ['xtab', (v) => buildXtabSpec(v, 'C1', 'C2', [], 1)],
   ['ranks', (v) => buildRanksSpec(v, 'C2', 'C1', [], [], [], 1)],
   ['related ranks', (v) => buildRelatedRanksSpec(v, ['C2', 'C1'], [], 1)],
+  // Research OS, Phase 9A-2 (decision 684).
+  ['linear regression', (v) => buildLinearRegressionSpec(v, 'C1', ['C2'], [], 1)],
 ];
 
 describe('every spec carries the view\'s preparation (decision 490)', () => {

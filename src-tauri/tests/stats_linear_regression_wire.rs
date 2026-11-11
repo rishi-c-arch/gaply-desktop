@@ -2,7 +2,8 @@
 //! Phase 9A-1, decision 674), in the pattern of `stats_related_ranks_wire.rs`.**
 //! Each view serialises to exactly the bytes of its fixture in
 //! `src/screens/statistics/fixtures/` (pretty JSON, two-space indent, a final
-//! newline), which 9A-2's screen types will be tested against. Each fixture
+//! newline), which the screen's types are tested against (linearRegressionTypes.vitest.ts,
+//! Phase 9A-2, decision 684). Each fixture
 //! fills every field, and between them every variant of every enum the result
 //! carries: a value and a not-computable code. Both result fixtures are real
 //! results of `compute` on synthetic data (the review of 9A-1, finding 3), so a
@@ -377,7 +378,7 @@ fn sorted(mut v: Vec<String>) -> Vec<String> {
 fn the_linear_regression_code_list_is_exactly_the_closed_sets() {
     let path = screens().join("linearRegressionCodes.json");
     let mut rust: Vec<String> = LinearRegressionCode::ALL.iter().map(|c| c.wire().to_string()).collect();
-    assert_eq!(rust.len(), 36, "the linear regression's 36 codes");
+    assert_eq!(rust.len(), 38, "the linear regression's 38 codes (36, and decision 683's too_small and predicted_no_spread)");
     rust.extend(RunCode::ALL.iter().map(|c| c.wire().to_string()));
     rust.extend(WorkspaceCode::ALL.iter().map(|c| c.wire().to_string()));
     rust.extend(CapabilityCode::ALL.iter().map(|c| c.wire().to_string()));

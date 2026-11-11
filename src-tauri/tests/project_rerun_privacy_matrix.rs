@@ -83,6 +83,7 @@ use gaply_core::stats_anova::{self, AnovaParams, PostHoc};
 use gaply_core::stats_corr::{self, Coefficient, CorrParams, MissingHandling};
 use gaply_core::stats_desc::{self, Alias, ColumnRequest, DescribeParams, TreatAs};
 use gaply_core::stats_l1::dataset::ColumnAlias;
+use gaply_core::stats_linear_regression::{self, LinearRegressionParams};
 use gaply_core::stats_prep::{self, MissingRule, Recipe, RecipeStep, ScaleScoreStep, Statistic};
 use gaply_core::stats_ranks::{self, IndependentRanksParams};
 use gaply_core::stats_related_ranks::{self, RelatedRanksParams};
@@ -876,6 +877,67 @@ fn a_rerun_puts_no_sentinel_anywhere_but_the_projects_artifacts_and_its_title() 
         );
     }
 
+    // Phase 9A-2 (decision 686): the linear regression. After the related rank tests', so no
+    // stored run id above moves. Run 22, C1 on [C4] of table(), through the slot the rank
+    // tests used, and run 23 its rerun; run 24, C1 on [C3, C2] of friedman_table(), through
+    // the Friedman test's slot, still held from runs 20 and 21, and run 25 its rerun. The
+    // phase's report computes both models by hand: no number either holds, as JSON prints
+    // it, contains a sentinel's text.
+    for (n, slot, outcome, predictors) in [
+        (22u64, opened.slot, 1u32, vec![4u32]),
+        (24, friedman_open.slot, 1, vec![3, 2]),
+    ] {
+        let held = e.datasets.get(slot).unwrap();
+        let spec = stats_linear_regression::spec(
+            OperationId(n),
+            held.dataset(),
+            LinearRegressionParams {
+                outcome: Alias(ColumnAlias(outcome)),
+                predictors: predictors.iter().map(|c| Alias(ColumnAlias(*c))).collect(),
+                missing_codes: vec![],
+            },
+        );
+        drop(held);
+        let run = app_lib::stats_linear_regression_commands::run(&e.runs, &e.datasets, slot, spec)
+            .unwrap()
+            .run_id;
+        w.wait_new_kind(run);
+        let saved = pc::save_run(
+            &app,
+            &w.ws,
+            run,
+            SaveTarget::OpenProject {
+                project_id: id.clone(),
+            },
+        )
+        .expect("the regression saved");
+        assert_eq!(saved.stored_run_id, n);
+        responses.push((
+            format!("save (regression {n})"),
+            serde_json::to_string(&saved).unwrap(),
+        ));
+        responses.push((format!("rerun (regression {n})"), rerun_saved(&w, &app, n)));
+    }
+    // Positive controls: each ran, with one and two predictors respectively, and each
+    // rerun ran.
+    for (n, k) in [(22, 1), (24, 2)] {
+        let read = pc::run_result(&app, &w.ws, &id, n).unwrap();
+        assert_eq!(read.state, RunState::Succeeded, "run {n} succeeded");
+        let bundle: serde_json::Value =
+            serde_json::from_str(read.bundle_json.as_deref().expect("a result")).unwrap();
+        assert_eq!(
+            bundle["primaryOutputs"]["predictors"].as_array().unwrap().len(),
+            k,
+            "run {n} has {k} predictor(s)"
+        );
+        assert_eq!(
+            pc::run_result(&app, &w.ws, &id, n + 1).unwrap().state,
+            RunState::Succeeded,
+            "run {} succeeded",
+            n + 1
+        );
+    }
+
     let runs_response = serde_json::to_string(&pc::runs(&app, &w.ws, &id).unwrap()).unwrap();
     responses.push(("runs".into(), runs_response.clone()));
     // Phase 8U-3 (decision 553): project_runs holds no name, nor any other of
@@ -884,8 +946,9 @@ fn a_rerun_puts_no_sentinel_anywhere_but_the_projects_artifacts_and_its_title() 
     let mut results = String::new();
     // Phase 8X-2 (decision 590): the crosstab and its rerun, 14 and 15; Phase
     // 8Y-2 (decision 621): the rank test and its rerun, 16 and 17; Phase 8Z-2 (decision
-    // 655): the related rank tests and their reruns, 18 to 21.
-    for n in [1, 2, 3, 4, 5, 6, 7, 8, 14, 15, 16, 17, 18, 19, 20, 21] {
+    // 655): the related rank tests and their reruns, 18 to 21; Phase 9A-2 (decision 686): the
+    // regressions and their reruns, 22 to 25.
+    for n in [1, 2, 3, 4, 5, 6, 7, 8, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25] {
         results.push_str(
             &serde_json::to_string(&pc::run_result(&app, &w.ws, &id, n).unwrap()).unwrap(),
         );
@@ -931,6 +994,17 @@ fn a_rerun_puts_no_sentinel_anywhere_but_the_projects_artifacts_and_its_title() 
     for line in [
         "- Columns compared: columns 1, 4, by position, in the order chosen",
         "- Columns compared: columns 1, 2, 3, by position, in the order chosen",
+    ] {
+        assert_eq!(report.matches(line).count(), 2, "{line}");
+    }
+    // Phase 9A-2 (decision 686): the regressions and their reruns, counted by their
+    // Predictors lines, which no other method writes ("- Column 1: outcome" is the t-test's
+    // and the rank tests' too).
+    assert!(report.contains("Repeats run 22."), "the first regression's rerun is in the report");
+    assert!(report.contains("Repeats run 24."), "the second regression's rerun is in the report");
+    for line in [
+        "- Predictors: column 4, by position",
+        "- Predictors: columns 3, 2, by position, in the order chosen",
     ] {
         assert_eq!(report.matches(line).count(), 2, "{line}");
     }

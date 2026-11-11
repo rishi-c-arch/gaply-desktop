@@ -112,6 +112,24 @@ describe("a saved result's score columns", () => {
     expect(screen.getByTestId('rk-result-notes').textContent).toContain('The outcome C4 holds -99');
   });
 
+  // Research OS, Phase 9A-2 (decision 687): a score among the regression's predictors is named
+  // as the related rank tests' scores are, in a sentence, in the coefficients' row, in the
+  // correlations' row and in the descriptive statistics.
+  it("a regression's predictor and sentence that name a score", () => {
+    const v = edited('linear_regression.json', (b) => {
+      b.diagnostics = [{ code: 'stats.linear_regression.suspect_missing_code', params: { column: 3, value: -99, count: 2 }, severity: 'warning' }];
+    });
+    body(v, [score(3, 'Total')]);
+    expect(screen.getByTestId('lr-result-notes').textContent).toContain(`Column ${scoreColumn(3, 'Total')} holds -99`);
+    for (const row of ['lr-coef-C3', 'lr-corr-C3', 'lr-desc-C3']) {
+      expect(screen.getByTestId(row).querySelector('th')?.textContent, row).toBe(scoreColumn(3, 'Total'));
+    }
+    cleanup();
+    body(v, null);
+    expect(screen.getByTestId('lr-result-notes').textContent).toContain('Column C3 holds -99');
+    expect(screen.getByTestId('lr-coef-C3').querySelector('th')?.textContent).toBe('C3');
+  });
+
   // Research OS, Phase 8Z-2 (decision 656): a score among the related rank tests' columns
   // is named as the rank tests' score outcome is, in a sentence and in the columns' table.
   it("a related rank test's column and sentence that name a score", () => {

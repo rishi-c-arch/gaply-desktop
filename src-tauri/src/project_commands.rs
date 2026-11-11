@@ -104,6 +104,7 @@ use gaply_core::stats_anova::{self, AnovaCode, AnovaParams, PostHoc};
 use gaply_core::stats_corr::{self, Coefficient, CorrCode, CorrParams, MissingHandling};
 use gaply_core::stats_desc::{self, DescCode, DescribeParams, TreatAs};
 use gaply_core::stats_l1::dataset::Dataset;
+use gaply_core::stats_linear_regression::{self, LinearRegressionCode, LinearRegressionParams};
 use gaply_core::stats_onesample::{self, OneSampleCode, OneSampleParams, PairedParams};
 use gaply_core::stats_prep::{
     MissingRule, PrepCode, PrepRefusal, Prepared, Recipe, RecipeStep, ScaleScoreStep, Statistic,
@@ -1235,6 +1236,13 @@ const METHODS: &[MethodRow] = &[
         read_back: read_back::<OperationSpec<RelatedRanksParams>>,
         export: export_with::<OperationSpec<RelatedRanksParams>>,
     },
+    // Research OS, Phase 9A-2 (decision 686).
+    MethodRow {
+        capability: stats_linear_regression::CAPABILITY_ID,
+        kind: RunKind::LinearRegression,
+        read_back: read_back::<OperationSpec<LinearRegressionParams>>,
+        export: export_with::<OperationSpec<LinearRegressionParams>>,
+    },
 ];
 
 /// The row of a capability, if a method has one.
@@ -1572,6 +1580,37 @@ impl SavedSpec for OperationSpec<RelatedRanksParams> {
 
     fn parameters(&self) -> Vec<ExportParameter> {
         related_ranks_parameters(self)
+    }
+}
+
+// Research OS, Phase 9A-2 (decision 686): the linear regression, checked through its
+// façade, never stats_linear_regression itself (verifier_facade_guards.rs).
+impl Rerun for OperationSpec<LinearRegressionParams> {
+    fn valid_on(&self, build: Build, dataset: &Dataset) -> bool {
+        check_spec(
+            WorkspaceId::Statistics,
+            self.workspace_id,
+            &self.capability_id,
+        )
+        .is_ok()
+            && passes(stats_adapters::linear_regression_validate(self, build, dataset).status)
+    }
+
+    fn launch(
+        self: Box<Self>,
+        runs: &Arc<Runs>,
+        slot: Arc<Slot>,
+        end: EndHook,
+    ) -> Result<RunId, NotStarted> {
+        runs.start_linear_regression_then(slot, *self, end)
+    }
+}
+
+impl SavedSpec for OperationSpec<LinearRegressionParams> {
+    type Code = LinearRegressionCode;
+
+    fn parameters(&self) -> Vec<ExportParameter> {
+        linear_regression_parameters(self)
     }
 }
 
@@ -2484,7 +2523,8 @@ pub enum SpecFieldShown {
 }
 
 /// Every field of a saved describe, t-test, one-sample, paired, one-way
-/// ANOVA, correlations or Cronbach's alpha spec, by JSON path (`[]` for each element of an
+/// ANOVA, correlations, Cronbach's alpha, crosstabs, rank tests, related rank
+/// tests or linear regression spec, by JSON path (`[]` for each element of an
 /// array). The ANOVA shares `outcome`, `group`, `levels[]` and
 /// `missingCodes[]` with the t-test's rows, and adds `postHoc[]` (decision
 /// 330); the correlations share `missingCodes[]` and add `variables[]`,
@@ -2493,7 +2533,9 @@ pub enum SpecFieldShown {
 /// `min` and `max` (decision 382); crosstabs shares `missingCodes[]` and adds
 /// `rows` and `columns` (decision 590); the rank tests share the ANOVA's
 /// `outcome`, `group`, `levels[]` and `missingCodes[]` and add nothing (decision
-/// 621).
+/// 621); the related rank tests share `missingCodes[]` and add `columns[]` (decision
+/// 655); the linear regression shares the t-test's `outcome` and `missingCodes[]` and
+/// adds `predictors[]` (decision 686).
 pub const SPEC_FIELDS: &[(&str, SpecFieldShown)] = &[
     (
         "schemaVersion",
@@ -2560,6 +2602,10 @@ pub const SPEC_FIELDS: &[(&str, SpecFieldShown)] = &[
     // of strings, distinct from crosstabs' `parameters.columns` and the summary's
     // `parameters.columns[].alias`.
     ("parameters.columns[]", SpecFieldShown::Reported),
+    // Research OS, Phase 9A-2 (decision 686): the linear regression's predictors, by
+    // position in the order chosen, through `ExportParameter::Predictors`. Its outcome is
+    // the t-test's `parameters.outcome`, already listed.
+    ("parameters.predictors[]", SpecFieldShown::Reported),
     // Research OS, Phase 8M-4 (decision 435): what made a prepared input,
     // hashes and numbers. Its two hashes are the data file's and the recipe's
     // rows in the report's inputs table; its columns and versions are the lines
@@ -2873,6 +2919,26 @@ fn related_ranks_parameters(spec: &OperationSpec<RelatedRanksParams>) -> Vec<Exp
     let mut out = shape(&spec.inputs);
     out.push(ExportParameter::ComparedColumns(
         p.columns.iter().map(|a| a.0 .0).collect(),
+    ));
+    out.push(ExportParameter::MissingCodes {
+        count: p.missing_codes.len() as u64,
+    });
+    out.push(ExportParameter::Seed(spec.random_seed));
+    out
+}
+
+/// The linear regression's settings, by the allow-list (Research OS, Phase 9A-2, decision
+/// 686): the outcome's position, the predictors' positions in the spec's order, never
+/// sorted, and how many missing codes. No label and no value is named.
+fn linear_regression_parameters(spec: &OperationSpec<LinearRegressionParams>) -> Vec<ExportParameter> {
+    let p = &spec.parameters;
+    let mut out = shape(&spec.inputs);
+    out.push(ExportParameter::Column {
+        position: p.outcome.0 .0,
+        role: ColumnRole::Outcome,
+    });
+    out.push(ExportParameter::Predictors(
+        p.predictors.iter().map(|a| a.0 .0).collect(),
     ));
     out.push(ExportParameter::MissingCodes {
         count: p.missing_codes.len() as u64,
@@ -3510,6 +3576,47 @@ mod tests {
         }
     }
 
+    /// Research OS, Phase 9A-2 (decision 686): an outcome, two predictors out of
+    /// ascending order and one missing code.
+    fn linear_regression_spec() -> OperationSpec<LinearRegressionParams> {
+        OperationSpec {
+            schema_version: SchemaVersion,
+            operation_id: OperationId(15),
+            workspace_id: WorkspaceId::Statistics,
+            capability_id: stats_linear_regression::capability_id(),
+            capability_version: 1,
+            inputs: vec![input()],
+            parameters: LinearRegressionParams {
+                outcome: Alias(ColumnAlias(1)),
+                predictors: vec![Alias(ColumnAlias(4)), Alias(ColumnAlias(2))],
+                missing_codes: vec![-99.0],
+            },
+            random_seed: None,
+            confirmation_refs: Vec::new(),
+            preparation: None,
+        }
+    }
+
+    #[test]
+    fn the_linear_regressions_settings_are_the_outcome_and_the_predictors_in_the_chosen_order() {
+        assert_eq!(
+            linear_regression_parameters(&linear_regression_spec()),
+            [
+                ExportParameter::InputShape {
+                    rows: 12,
+                    columns: 3
+                },
+                ExportParameter::Column {
+                    position: 1,
+                    role: ColumnRole::Outcome
+                },
+                ExportParameter::Predictors(vec![4, 2]),
+                ExportParameter::MissingCodes { count: 1 },
+                ExportParameter::Seed(None),
+            ]
+        );
+    }
+
     #[test]
     fn the_related_rank_tests_settings_are_positions_in_the_chosen_order_and_counts() {
         assert_eq!(
@@ -3775,6 +3882,9 @@ mod tests {
         // The related rank tests (decision 655): `columns[]`, a list of strings,
         // distinct from crosstabs' `columns` and the summary's `columns[].alias`.
         paths(&serde_json::to_value(related_ranks_spec()).unwrap(), "", &mut seen);
+        // The linear regression (decision 686): `predictors[]`, two of them, beside the
+        // t-test's `outcome`, with one missing code.
+        paths(&serde_json::to_value(linear_regression_spec()).unwrap(), "", &mut seen);
         // A run on prepared data (decision 435).
         paths(
             &serde_json::to_value(prepared_spec()).unwrap(),
@@ -4620,6 +4730,8 @@ mod tests {
             stats_ranks::CAPABILITY_ID,
             // Research OS, Phase 8Z-2 (decision 655).
             stats_related_ranks::CAPABILITY_ID,
+            // Research OS, Phase 9A-2 (decision 686).
+            stats_linear_regression::CAPABILITY_ID,
         ] {
             assert_eq!(
                 METHODS.iter().filter(|m| m.capability == id).count(),

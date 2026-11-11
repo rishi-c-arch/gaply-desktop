@@ -117,7 +117,8 @@
 //! regression, started with [`Runs::start_linear_regression`]. Its one check
 //! point is `stats_linear_regression::run`'s, before the arithmetic, and the
 //! record's `columns_total` is `stats_linear_regression::check_points`, one.
-//! No window starts it until 9A-2.
+//! Since Phase 9A-2 (decision 687) the Statistics window's Regression, Linear…
+//! dialog starts it, and a project reruns it.
 //!
 //! Phase 3: the run manager and the slots belong to the Statistics workspace
 //! (`crate::workspace`), built when it is activated and dropped when it is
@@ -2656,7 +2657,7 @@ impl Runs {
     }
 
     /// [`Runs::start_linear_regression`], with an end hook, for a project rerun
-    /// (9A-2's).
+    /// (Research OS, Phase 9A-2, decision 686).
     pub fn start_linear_regression_then(
         self: &Arc<Self>,
         slot: Arc<Slot>,

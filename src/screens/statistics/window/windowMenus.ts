@@ -17,9 +17,11 @@ export const SCALE_SCORE_CAPABILITY = 'stats.prepare.scale_score';
  *  chi-square" left this list as Crosstabs… went live, in one change. Phase 8Y-2
  *  (decisions 620 and 624): "Nonparametric tests" became the related-samples test,
  *  as Independent samples… went live, in one change. Phase 8Z-2 (decisions 654, 656 and
- *  659): it left as Related samples… went live, in one change. */
+ *  659): it left as Related samples… went live, in one change. Phase 9A-2 (decisions 685
+ *  and 687): "Regression" left as Regression's Linear… went live, in one change
+ *  (ADR-012:482-483). */
 export const COMING_LATER = {
-  analyze: ['Regression', 'Factor analysis', 'CFA and SEM'],
+  analyze: ['Factor analysis', 'CFA and SEM'],
   transform: ['Recode values…', 'Compute from a formula…', 'Select cases…'],
 };
 
@@ -100,7 +102,7 @@ function capabilityItem(c: WindowMenuContext, id: string, label: string, capabil
 }
 
 /** The methods with a dialog (decisions 473 and 485), each still reading Rust's list. */
-export const LIVE_METHODS: readonly string[] = ['describe', 'ttest', 'one_sample', 'paired', 'anova', 'correlations', 'cronbach_alpha', 'crosstabs', 'independent_ranks', 'related_ranks'];
+export const LIVE_METHODS: readonly string[] = ['describe', 'ttest', 'one_sample', 'paired', 'anova', 'correlations', 'cronbach_alpha', 'crosstabs', 'independent_ranks', 'related_ranks', 'linear_regression'];
 
 /** A method's item: Rust's word first, then whether this build has its dialog,
  *  then why it cannot be pressed now (decision 471). */

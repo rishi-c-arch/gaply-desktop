@@ -293,6 +293,13 @@ export function relatedRanksSettingsLine(p: { columns: string[]; missingCodes: n
   return `Columns, in this order: ${p.columns.map((c) => namedColumn(c, view)).join(', ')}. ${codesWords(p.missingCodes)}`;
 }
 
+/** The linear regression's dialog (Research OS, Phase 9A-2, decision 685): here because
+ *  namedColumn and codesWords are private to this file. */
+export const LINEAR_REGRESSION_DIALOG_TITLE = 'Regression: Linear';
+export function linearRegressionSettingsLine(p: { outcome: string; predictors: string[]; missingCodes: number[] }, view: LineView): string {
+  return `Outcome: ${namedColumn(p.outcome, view)}. Predictors, in this order: ${p.predictors.map((c) => namedColumn(c, view)).join(', ')}. ${codesWords(p.missingCodes)}`;
+}
+
 /** The scale score's dialog (decisions 504 to 507). Its form's words, Make's
  *  sentence, the scores it lists and the questions before a deletion. A score's
  *  name is the user's own, shown on their own screen. "Delete", never "Remove",

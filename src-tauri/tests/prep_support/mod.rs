@@ -1,8 +1,8 @@
 //! Shared by scale scores' command tests (Research OS, Phase 8M-3, decisions
-//! 424 to 427): an app over Tauri's mock runtime with every command the eight
+//! 424 to 427): an app over Tauri's mock runtime with every command the ten
 //! methods and the prepared slot use, so a test calls them through IPC with
 //! the webview's argument names and reads the JSON the webview reads; a table
-//! and recipes that fit all eight; and a run that waits for a test. Folders,
+//! and recipes that fit all ten; and a run that waits for a test. Folders,
 //! tables and the IPC call itself are `desc_support`'s, unchanged.
 #![allow(dead_code)]
 
@@ -21,6 +21,7 @@ use app_lib::stats_alpha_commands as alpha;
 use app_lib::stats_anova_commands as anova;
 use app_lib::stats_corr_commands as corr;
 use app_lib::stats_desc_commands as desc;
+use app_lib::stats_linear_regression_commands as linear_regression;
 use app_lib::stats_onesample_commands as onesample;
 use app_lib::stats_prep_commands as prep;
 use app_lib::stats_ranks_commands as ranks;
@@ -123,6 +124,13 @@ pub fn app_with(
             related_ranks::stats_related_ranks_result,
             related_ranks::stats_related_ranks_cancel,
             related_ranks::stats_related_ranks_export,
+            // Research OS, Phase 9A-2 (decision 686).
+            linear_regression::stats_linear_regression_validate,
+            linear_regression::stats_linear_regression_run,
+            linear_regression::stats_linear_regression_status,
+            linear_regression::stats_linear_regression_result,
+            linear_regression::stats_linear_regression_cancel,
+            linear_regression::stats_linear_regression_export,
             corr::stats_corr_validate,
             corr::stats_corr_run,
             corr::stats_corr_status,
@@ -248,9 +256,9 @@ pub struct Method {
     pub spec: Value,
 }
 
-/// All nine methods on `score`. The rank tests and then the related rank tests are
-/// last, so no method's index moves.
-pub fn nine(view: &Value, score: &str) -> Vec<Method> {
+/// All ten methods on `score`. The rank tests, the related rank tests and then the
+/// linear regression are last, so no method's index moves.
+pub fn ten(view: &Value, score: &str) -> Vec<Method> {
     vec![
         Method {
             prefix: "stats_desc",
@@ -347,14 +355,25 @@ pub fn nine(view: &Value, score: &str) -> Vec<Method> {
                 }),
             ),
         },
-        // Research OS, Phase 8Z-2 (decision 655): the columns in this order, not in
-        // column order, as a screen's list may be.
+        // Research OS, Phase 8Z-2 (decision 655): C4, C7 and the score, in this order. With
+        // the score C8 that is column order; with stats_prep_commands.rs's C3 (ten(&o, "C3"))
+        // it is C4, C7, C3, out of column order, as a screen's list may be (decision 683).
         Method {
             prefix: "stats_related_ranks",
             spec: spec(
                 view,
                 "stats.analyze.related_ranks",
                 json!({ "columns": ["C4", "C7", score], "missingCodes": [] }),
+            ),
+        },
+        // Research OS, Phase 9A-2 (decision 686): C7 on the score and then C4, in this
+        // order. With stats_prep_commands.rs's C3 (ten(&o, "C3")) it is C7 on C3 and C4.
+        Method {
+            prefix: "stats_linear_regression",
+            spec: spec(
+                view,
+                "stats.analyze.linear_regression",
+                json!({ "outcome": "C7", "predictors": [score, "C4"], "missingCodes": [] }),
             ),
         },
     ]

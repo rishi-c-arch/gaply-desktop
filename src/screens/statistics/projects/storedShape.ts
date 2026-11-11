@@ -27,6 +27,7 @@ import type { AlphaDiagnostic, AlphaResultView } from '../alphaTypes';
 import type { XtabDiagnostic, XtabResultView } from '../xtabTypes';
 import type { RanksDiagnostic, RanksResultView } from '../ranksTypes';
 import type { RelatedRanksDiagnostic, RelatedRanksResultView } from '../relatedRanksTypes';
+import type { LinearRegressionDiagnostic, LinearRegressionResultView } from '../linearRegressionTypes';
 import DESCRIBE_CODES from '../describeCodes.json';
 import TTEST_CODES from '../ttestCodes.json';
 import ONESAMPLE_CODES from '../onesampleCodes.json';
@@ -37,6 +38,8 @@ import XTAB_CODES from '../xtabCodes.json';
 import RANKS_CODES from '../ranksCodes.json';
 import RELATED_RANKS_CODES from '../relatedRanksCodes.json';
 import RELATED_LIMITS from '../fixtures/relatedRanksLimits.json';
+import LINEAR_REGRESSION_CODES from '../linearRegressionCodes.json';
+import LR_LIMITS from '../fixtures/linearRegressionLimits.json';
 import { capabilityOfKind } from '../methods';
 import TTEST_LIMITS from '../ttestLimits.json';
 
@@ -54,15 +57,37 @@ export const ALPHA_CAPABILITY = capabilityOfKind('cronbach_alpha');
 export const XTAB_CAPABILITY = capabilityOfKind('crosstabs');
 export const RANKS_CAPABILITY = capabilityOfKind('independent_ranks');
 export const RELATED_RANKS_CAPABILITY = capabilityOfKind('related_ranks');
+export const LINEAR_REGRESSION_CAPABILITY = capabilityOfKind('linear_regression');
 
 /** A data file's formats: the ingest's (DataFormat in Rust, without json). */
 const DATA_FORMATS = ['csv', 'tsv', 'xlsx', 'xlsm', 'xlsb', 'xls', 'ods', 'sav', 'mat'];
 
 /** The case a method's checked results are shown as. */
-export type CaseKind = 'summary' | 'ttest' | 'one_sample' | 'paired' | 'anova' | 'correlations' | 'cronbach_alpha' | 'crosstabs' | 'independent_ranks' | 'related_ranks';
+export type CaseKind =
+  | 'summary'
+  | 'ttest'
+  | 'one_sample'
+  | 'paired'
+  | 'anova'
+  | 'correlations'
+  | 'cronbach_alpha'
+  | 'crosstabs'
+  | 'independent_ranks'
+  | 'related_ranks'
+  | 'linear_regression';
 
 /** A failed run's stored diagnostic, in its method's codes. */
-export type StoredFailure = Diagnostic | TTestDiagnostic | OneSampleDiagnostic | AnovaDiagnostic | CorrDiagnostic | AlphaDiagnostic | XtabDiagnostic | RanksDiagnostic | RelatedRanksDiagnostic;
+export type StoredFailure =
+  | Diagnostic
+  | TTestDiagnostic
+  | OneSampleDiagnostic
+  | AnovaDiagnostic
+  | CorrDiagnostic
+  | AlphaDiagnostic
+  | XtabDiagnostic
+  | RanksDiagnostic
+  | RelatedRanksDiagnostic
+  | LinearRegressionDiagnostic;
 
 /** What a saved result is, once checked: what to show, or why not. */
 export type Checked =
@@ -76,6 +101,7 @@ export type Checked =
   | { kind: 'crosstabs'; result: XtabResultView; dataFile: DataFileFacts }
   | { kind: 'independent_ranks'; result: RanksResultView; dataFile: DataFileFacts }
   | { kind: 'related_ranks'; result: RelatedRanksResultView; dataFile: DataFileFacts }
+  | { kind: 'linear_regression'; result: LinearRegressionResultView; dataFile: DataFileFacts }
   | { kind: 'failed'; capability: CaseKind; failure: StoredFailure; dataFile: DataFileFacts }
   | { kind: 'unknownCapability' }
   | { kind: 'unknownSchema' }
@@ -108,6 +134,7 @@ const AL_CODES = (ALPHA_CODES as string[]).filter((c) => c.indexOf('stats.alpha.
 const XT_CODES = (XTAB_CODES as string[]).filter((c) => c.indexOf('stats.xtab.') === 0);
 const RK_CODES = (RANKS_CODES as string[]).filter((c) => c.indexOf('stats.ranks.') === 0);
 const RR_CODES = (RELATED_RANKS_CODES as string[]).filter((c) => c.indexOf('stats.related_ranks.') === 0);
+const LR_CODES = (LINEAR_REGRESSION_CODES as string[]).filter((c) => c.indexOf('stats.linear_regression.') === 0);
 const SEVERITIES = ['error', 'warning', 'note'];
 const DESC_PARAM_KEYS = ['column', 'count', 'index', 'value', 'limit', 'expected', 'found', 'from', 'event'];
 const T_PARAM_KEYS = ['column', 'count', 'index', 'value', 'limit', 'expected', 'found'];
@@ -118,6 +145,7 @@ const AL_PARAM_KEYS = ['column', 'count', 'index', 'value', 'expected', 'found']
 const XT_PARAM_KEYS = ['column', 'count', 'index', 'value', 'limit', 'expected', 'found'];
 const RK_PARAM_KEYS = ['column', 'count', 'index', 'value', 'limit', 'expected', 'found'];
 const RR_PARAM_KEYS = ['column', 'count', 'index', 'value', 'limit', 'expected', 'found'];
+const LR_PARAM_KEYS = ['column', 'count', 'index', 'value', 'limit', 'expected', 'found'];
 const RUN_STATES = [
   'draft',
   'validating',
@@ -808,6 +836,16 @@ const rkConsistent = (r: O) => {
       const big = r.n as number;
       const centred = groups.every((g) => g.rankSum - (g.n * (big + 1)) / 2 === 0);
       if (value < 0 || (value === 0) !== centred) return false;
+      // Decision 683 (finding 5): with no tie runs the tie sum is 0, so the correction is exactly
+      // 1 (:895) and H is Rust's value, the spread summed in the groups' order (:888-894, :896).
+      if (tieRuns === 0) {
+        const spread = groups.reduce((s, g) => {
+          const d = g.rankSum - (g.n * (big + 1)) / 2;
+          return s + (d * d) / g.n;
+        }, 0);
+        const correction = 1 - 0 / (big * big * big - big);
+        if (value !== ((12 / (big * (big + 1))) * spread) / correction) return false;
+      }
       const p = statValue(t.p);
       if (p !== undefined && ((p as number) < 0 || (p as number) > 1)) return false;
       if (statValue(t.epsilonSquared) !== value / (big - 1)) return false;
@@ -1121,6 +1159,338 @@ function relatedRanksBundle(v: O, spec: O): RelatedRanksResultView | null {
   };
 }
 
+/* ---- the linear regression (Research OS, Phase 9A-2, decision 688) ------------------ */
+
+/* Every rule below is stats_linear_regression::model's (mod.rs), cited by line, and
+ * equality is as doubles in Rust's order. Rust writes every result through `stat`
+ * (:722-730: a finite value, NaN too_small, an infinity overflow) or `own` (:739-745:
+ * a subnormal value too_small); lrStatOf and lrOwnOf are those two, so a field Rust
+ * computes from stored fields is compared with what Rust would have written. */
+
+const lrCode = (c: string) => `stats.linear_regression.${c}`;
+const LR_PERFECT = lrCode('perfect_fit');
+const LR_OVERFLOW = lrCode('overflow');
+const LR_SMALL = lrCode('too_small');
+const LR_RANGE = lrCode('distribution_out_of_range');
+const LR_NO_SPREAD = lrCode('predicted_no_spread');
+const LR_NOTE = lrCode('essentially_perfect_fit');
+/** f64::MIN_POSITIVE, the smallest normal double. */
+const MIN_NORMAL = 2.2250738585072014e-308;
+/** stats_linear_regression::NO_SPREAD_FACTOR (:758) and ESSENTIALLY_PERFECT_FACTOR (:104). */
+const NO_SPREAD_FACTOR = 8;
+const ESSENTIALLY_PERFECT_FACTOR = 1e-30;
+
+const lrStat = (v: unknown, codes: readonly string[]) => oneKey(v, { value: isNum, not_computable: (x) => oneOf(x, codes) });
+const subnormalOf = (x: number) => x !== 0 && Math.abs(x) < MIN_NORMAL;
+type Expected = { value: number } | { code: string };
+/** Rust's `stat` (:722-730). */
+const lrStatOf = (x: number): Expected => (Number.isFinite(x) ? { value: x } : Number.isNaN(x) ? { code: LR_SMALL } : { code: LR_OVERFLOW });
+/** Rust's `own` (:739-745). */
+const lrOwnOf = (x: number): Expected => (subnormalOf(x) ? { code: LR_SMALL } : lrStatOf(x));
+/** A stored statistic is what Rust would have written. */
+const lrIs = (stored: unknown, e: Expected) => ('value' in e ? statValue(stored) === e.value : ncCode(stored) === e.code);
+const num = (v: unknown) => statValue(v) as number;
+const has = (v: unknown) => statValue(v) !== undefined;
+
+/** LinearRegressionOutcome's keys and each object's, every one always written. */
+const LR_RESULT_KEYS = ['outcome', 'rowsUsed', 'columns', 'model', 'anova', 'intercept', 'predictors', 'residuals', 'exclusions', 'notes', 'limitations'];
+const LR_COLUMN_KEYS = ['column', 'mean', 'sd'];
+const LR_MODEL_KEYS = ['r', 'rSquared', 'adjustedRSquared', 'standardErrorOfEstimate', 'durbinWatson'];
+const LR_ANOVA_KEYS = ['regression', 'residual', 'total', 'f', 'p'];
+const LR_SOURCE_KEYS = ['sumOfSquares', 'df', 'meanSquare'];
+const LR_TOTAL_KEYS = ['sumOfSquares', 'df'];
+const LR_ESTIMATE_KEYS = ['b', 'standardError', 't', 'p', 'lower', 'upper'];
+const LR_PREDICTOR_KEYS = ['column', 'b', 'standardError', 'beta', 't', 'p', 'lower', 'upper', 'zeroOrder', 'partial', 'part', 'tolerance', 'vif'];
+const LR_RESIDUAL_KEYS = ['predicted', 'residual', 'standardizedPredicted', 'standardizedResidual'];
+const LR_SPREAD_KEYS = ['minimum', 'maximum', 'mean', 'standardDeviation'];
+const LR_EXTREMES_KEYS = ['minimum', 'maximum'];
+
+/** Every result's limitations, in stats_linear_regression's order (its LIMITATIONS, :367-378). */
+const LINEAR_REGRESSION_LIMITATIONS = [
+  'enter_only',
+  'no_categorical_predictors',
+  'no_interaction_terms',
+  'intercept_always',
+  'listwise_only',
+  'no_robust_standard_errors',
+  'no_casewise_diagnostics',
+  'durbin_watson_row_order',
+  'intervals_95_only',
+  'no_weights',
+].map(lrCode);
+
+/** The codes Rust can write in each field after Part 0 (FIND FIRST of 9A-2): an estimate's
+ *  five from `estimate` (:787-822), interval_95's two codes and two_sided_p's (stats_ttest
+ *  :848-877); F and its p from :954-970; partial and part t's code or perfect_fit (:1010-1014);
+ *  tolerance and VIF too_small, or a VIF that overflows (:1015-1033); beta `own` (:1038). */
+const LR_ESTIMATE_CODES = [LR_PERFECT, LR_OVERFLOW, LR_SMALL];
+const LR_P_CODES = [LR_PERFECT, LR_OVERFLOW, LR_SMALL, LR_RANGE];
+
+/** A diagnostic as stats_linear_regression writes it: as every method's, and the suspect-code
+ *  warning always names its column, value and count. */
+const lrDiagnostic = (v: unknown) =>
+  diagnostic(LR_CODES, LR_PARAM_KEYS, false)(v) &&
+  isObject(v) &&
+  (v.code !== lrCode('suspect_missing_code') || (isObject(v.params) && ['column', 'value', 'count'].every((k) => isNum((v.params as O)[k]))));
+
+/** An exclusion, exactly as stats_linear_regression writes it (:1062-1076). */
+const LR_EXCLUDED = [lrCode('missing_value'), lrCode('missing_code')];
+const lrExclusion = (e: unknown) =>
+  isObject(e) &&
+  Object.keys(e).length === 3 &&
+  oneOf(e.code, LR_EXCLUDED) &&
+  isCount(e.count) &&
+  e.count >= 1 &&
+  isObject(e.params) &&
+  Object.keys(e.params).length === 1 &&
+  isCount(e.params.column);
+
+/** The exclusions in the model's column order, the outcome first (:1063, model_columns),
+ *  missing_value before missing_code for one column, each pair once, each column one of the
+ *  model's, and missing_code only with missing codes. */
+const lrExclusionsAgree = (list: O[], columns: string[], codes: unknown[]) => {
+  const numbers = columns.map(aliasNumber);
+  const order = list.map((e) => numbers.indexOf(((e.params as O).column as number) ?? -1) * 2 + (e.code === LR_EXCLUDED[1] ? 1 : 0));
+  if (order.some((o) => o < 0)) return false;
+  if (order.some((o, i) => i > 0 && o <= order[i - 1])) return false;
+  return codes.length > 0 || list.every((e) => e.code !== LR_EXCLUDED[1]);
+};
+
+/** One coefficient's five, as `estimate` writes them (:787-822). */
+const lrEstimate = (c: O, perfect: boolean) => {
+  if (!lrStat(c.b, [])) return false;
+  const fields = [c.standardError, c.t, c.p, c.lower, c.upper];
+  if (!lrStat(c.standardError, LR_ESTIMATE_CODES) || !lrStat(c.t, LR_ESTIMATE_CODES) || !lrStat(c.p, LR_P_CODES)) return false;
+  if (!lrStat(c.lower, LR_P_CODES) || !lrStat(c.upper, LR_P_CODES)) return false;
+  // The perfect-fit set, both ways (:788-790).
+  if (perfect) return fields.every((f) => ncCode(f) === LR_PERFECT);
+  if (fields.some((f) => ncCode(f) === LR_PERFECT)) return false;
+  // interval_95 gives two finite ends or one code for both (stats_ttest :848-859).
+  if (has(c.lower) ? !has(c.upper) : ncCode(c.lower) !== ncCode(c.upper)) return false;
+  const b = num(c.b);
+  if (has(c.lower) && !(num(c.lower) <= b && b <= num(c.upper))) return false;
+  const se = ncCode(c.standardError);
+  // An s_j or an SE that cannot be held: all five the same code (:791-805).
+  if (se !== undefined) return [c.t, c.p, c.lower, c.upper].every((f) => ncCode(f) === se);
+  if (!(num(c.standardError) > 0)) return false;
+  const t = ncCode(c.t);
+  const ratio = b / num(c.standardError);
+  // t overflows: p and the interval too (:810-813); t too small: p too (:814-816).
+  if (t === LR_OVERFLOW) return !Number.isFinite(ratio) && [c.p, c.lower, c.upper].every((f) => ncCode(f) === LR_OVERFLOW);
+  if (t === LR_SMALL) return subnormalOf(ratio) && ncCode(c.p) === LR_SMALL;
+  if (t !== undefined) return false;
+  if (num(c.t) !== ratio || subnormalOf(ratio)) return false;
+  // two_sided_p: a p, or distribution_out_of_range, or overflow for its refusal (:817-820).
+  if (ncCode(c.p) === LR_SMALL) return false;
+  return !has(c.p) || (num(c.p) >= 0 && num(c.p) <= 1);
+};
+
+/** Rust's no_spread rule (:863-904), from the stored fields, in its order. */
+const lrNoSpread = (r: O): boolean => {
+  const anova = r.anova as O;
+  const mss = num((anova.regression as O).sumOfSquares);
+  if (mss === 0) return true;
+  const predicted = (r.residuals as O).predicted as O;
+  const columns = r.columns as O[];
+  const predictors = r.predictors as O[];
+  if (![predicted.standardDeviation, predicted.minimum, predicted.maximum, columns[0].sd].every(has)) return false;
+  const [sHat, min, max, sY] = [num(predicted.standardDeviation), num(predicted.minimum), num(predicted.maximum), num(columns[0].sd)];
+  const m = Math.max(Math.abs(min), Math.abs(max));
+  const n = r.rowsUsed as number;
+  const one = predictors.length === 1;
+  let kappa = 0;
+  for (let j = 0; j < predictors.length; j += 1) {
+    const vif = one ? 1 : has(predictors[j].vif) ? num(predictors[j].vif) : undefined;
+    const c = columns[j + 1];
+    if (vif === undefined || !has(c.mean) || !has(c.sd)) {
+      kappa = 0;
+      break;
+    }
+    const ratio = num(c.mean) / num(c.sd);
+    const g = Math.sqrt(vif) * Math.sqrt(1 + (n / (n - 1)) * (ratio * ratio));
+    kappa = Math.max(kappa, g);
+  }
+  return sHat <= NO_SPREAD_FACTOR * Number.EPSILON * (m + kappa * sY);
+};
+
+function linearRegressionBundle(v: O, spec: O): LinearRegressionResultView | null {
+  const p = spec.parameters;
+  const r = v.primaryOutputs;
+  if (!isObject(p) || !Array.isArray(p.predictors) || !Array.isArray(p.missingCodes)) return null;
+  const predictorsSpec = p.predictors as unknown[];
+  const k = predictorsSpec.length;
+  if (aliasNumber(p.outcome) === null || k < 1 || k > LR_LIMITS.maxPredictors || predictorsSpec.some((c) => aliasNumber(c) === null)) return null;
+  const columnsSpec = [p.outcome, ...predictorsSpec] as string[];
+  if (columnsSpec.some((c, i) => columnsSpec.indexOf(c) !== i)) return null;
+  if (!isObject(r) || !hasExactly(r, LR_RESULT_KEYS)) return null;
+  if (!isCount(v.runId) || v.status !== 'succeeded') return null;
+
+  // Shape: the outcome and the columns as the spec names them, in its order (:930-940, :1004).
+  if (r.outcome !== p.outcome) return null;
+  if (!isCount(r.rowsUsed) || r.rowsUsed < k + 2) return null;
+  const n = r.rowsUsed;
+  if (!Array.isArray(r.columns) || r.columns.length !== k + 1 || !Array.isArray(r.predictors) || r.predictors.length !== k) return null;
+  for (let i = 0; i <= k; i += 1) {
+    const c = r.columns[i];
+    if (!isObject(c) || !hasExactly(c, LR_COLUMN_KEYS) || c.column !== columnsSpec[i] || !lrStat(c.mean, []) || !lrStat(c.sd, [])) return null;
+  }
+  const columns = r.columns as O[];
+  const m = r.model;
+  const a = r.anova;
+  const c0 = r.intercept;
+  const res = r.residuals;
+  if (!isObject(m) || !hasExactly(m, LR_MODEL_KEYS) || !isObject(a) || !hasExactly(a, LR_ANOVA_KEYS)) return null;
+  if (!isObject(c0) || !hasExactly(c0, LR_ESTIMATE_KEYS) || !isObject(res) || !hasExactly(res, LR_RESIDUAL_KEYS)) return null;
+  const [reg, rsd, tot] = [a.regression, a.residual, a.total];
+  if (!isObject(reg) || !hasExactly(reg, LR_SOURCE_KEYS) || !isObject(rsd) || !hasExactly(rsd, LR_SOURCE_KEYS) || !isObject(tot) || !hasExactly(tot, LR_TOTAL_KEYS)) return null;
+  const [pr, re, sp, sr] = [res.predicted, res.residual, res.standardizedPredicted, res.standardizedResidual];
+  if (!isObject(pr) || !hasExactly(pr, LR_SPREAD_KEYS) || !isObject(re) || !hasExactly(re, LR_SPREAD_KEYS)) return null;
+  if (!isObject(sp) || !hasExactly(sp, LR_EXTREMES_KEYS) || !isObject(sr) || !hasExactly(sr, LR_EXTREMES_KEYS)) return null;
+  if (!Array.isArray(r.limitations) || JSON.stringify(r.limitations) !== JSON.stringify(LINEAR_REGRESSION_LIMITATIONS)) return null;
+  if (!Array.isArray(r.notes) || !(r.notes.length === 0 || (r.notes.length === 1 && r.notes[0] === LR_NOTE))) return null;
+
+  // Degrees of freedom (:975, :980, :985; df_residual is n - k - 1).
+  const df = n - k - 1;
+  if (reg.df !== k || rsd.df !== df || tot.df !== n - 1) return null;
+
+  // Each field holds a value or a code Rust can write there.
+  if (!lrStat(reg.sumOfSquares, []) || !lrStat(rsd.sumOfSquares, []) || !lrStat(tot.sumOfSquares, [LR_OVERFLOW])) return null;
+  if (!lrStat(reg.meanSquare, [LR_SMALL]) || !lrStat(rsd.meanSquare, [LR_SMALL, LR_PERFECT])) return null;
+  if (!lrStat(a.f, LR_ESTIMATE_CODES) || !lrStat(a.p, LR_P_CODES)) return null;
+  if (!lrStat(m.r, []) || !lrStat(m.rSquared, []) || !lrStat(m.adjustedRSquared, [])) return null;
+  if (!lrStat(m.standardErrorOfEstimate, [LR_PERFECT]) || !lrStat(m.durbinWatson, [LR_PERFECT])) return null;
+  for (const s of [pr.minimum, pr.maximum, pr.mean, pr.standardDeviation, re.minimum, re.maximum, re.mean, re.standardDeviation]) if (!lrStat(s, [])) return null;
+  if (!lrStat(sp.minimum, [LR_NO_SPREAD, LR_OVERFLOW, LR_SMALL]) || !lrStat(sp.maximum, [LR_NO_SPREAD, LR_OVERFLOW, LR_SMALL])) return null;
+  if (!lrStat(sr.minimum, [LR_PERFECT, LR_OVERFLOW, LR_SMALL]) || !lrStat(sr.maximum, [LR_PERFECT, LR_OVERFLOW, LR_SMALL])) return null;
+
+  const mss = num(reg.sumOfSquares);
+  const rss = num(rsd.sumOfSquares);
+  if (mss < 0 || rss < 0) return null;
+  // resSS = 0 if and only if the perfect-fit set holds perfect_fit (:918).
+  const perfect = rss === 0;
+  const sigma2 = rss / df;
+
+  // Sums and squares (:953, :976, :981, :984).
+  if (!lrIs(reg.meanSquare, lrOwnOf(mss / k))) return null;
+  if (!lrIs(rsd.meanSquare, perfect ? { code: LR_PERFECT } : lrOwnOf(sigma2))) return null;
+  if (!lrIs(tot.sumOfSquares, lrStatOf(mss + rss))) return null;
+
+  // The model (:942-951): R², R and adjusted R² in Rust's order, exactly 1 in a perfect fit.
+  const r2 = mss / (mss + rss);
+  if (!lrIs(m.rSquared, lrStatOf(r2)) || !lrIs(m.r, lrStatOf(Math.sqrt(r2)))) return null;
+  if (!lrIs(m.adjustedRSquared, lrStatOf(1 - ((1 - r2) * (n - 1)) / df))) return null;
+  // σ: √σ² in the normal range, √RSS / √df where σ² is subnormal (:922, :949).
+  const sigma = sigma2 >= MIN_NORMAL ? Math.sqrt(sigma2) : Math.sqrt(rss) / Math.sqrt(df);
+  if (!lrIs(m.standardErrorOfEstimate, perfect ? { code: LR_PERFECT } : lrStatOf(sigma))) return null;
+  if (perfect ? ncCode(m.durbinWatson) !== LR_PERFECT : !(num(m.durbinWatson) >= 0)) return null;
+
+  // F and its p (:953-971).
+  if (perfect) {
+    if (ncCode(a.f) !== LR_PERFECT || ncCode(a.p) !== LR_PERFECT) return null;
+  } else {
+    const ms = mss / k;
+    const f = sigma2 >= MIN_NORMAL && !subnormalOf(ms) ? ms / sigma2 : (mss / rss) * (df / k);
+    if (!Number.isFinite(f)) {
+      if (ncCode(a.f) !== LR_OVERFLOW || ncCode(a.p) !== LR_OVERFLOW) return null;
+    } else if (subnormalOf(f)) {
+      if (ncCode(a.f) !== LR_SMALL || ncCode(a.p) !== LR_SMALL) return null;
+    } else {
+      if (statValue(a.f) !== f) return null;
+      if (!(has(a.p) ? num(a.p) >= 0 && num(a.p) <= 1 : ncCode(a.p) === LR_RANGE)) return null;
+    }
+  }
+
+  // Each coefficient (:991-1049).
+  if (!lrEstimate(c0, perfect)) return null;
+  const sdY = num(columns[0].sd);
+  const unexplained = rss / (mss + rss);
+  for (let j = 0; j < k; j += 1) {
+    const q = r.predictors[j];
+    if (!isObject(q) || !hasExactly(q, LR_PREDICTOR_KEYS) || q.column !== predictorsSpec[j] || !lrEstimate(q, perfect)) return null;
+    if (!lrStat(q.beta, [LR_SMALL, LR_OVERFLOW]) || !lrStat(q.zeroOrder, [])) return null;
+    if (!lrStat(q.partial, LR_ESTIMATE_CODES) || !lrStat(q.part, LR_ESTIMATE_CODES)) return null;
+    if (!lrStat(q.tolerance, [LR_SMALL, LR_OVERFLOW]) || !lrStat(q.vif, [LR_SMALL, LR_OVERFLOW])) return null;
+    // Beta (:1038), from the stored SDs, which are the SDs Rust used (:932-938).
+    if (!lrIs(q.beta, lrOwnOf((num(q.b) * num(columns[j + 1].sd)) / sdY))) return null;
+    // Zero-order, clamped (:1009).
+    if (!(num(q.zeroOrder) >= -1 && num(q.zeroOrder) <= 1)) return null;
+    // Partial and part from t, or t's code, or perfect_fit (:1010-1014, partial_of :826-833).
+    if (perfect) {
+      if (ncCode(q.partial) !== LR_PERFECT || ncCode(q.part) !== LR_PERFECT) return null;
+    } else if (has(q.t)) {
+      const t = num(q.t);
+      const t2 = t * t;
+      const partial = Number.isFinite(t2) ? t / Math.sqrt(t2 + df) : Math.sign(t) / Math.sqrt(1 + df / t2);
+      if (!lrIs(q.partial, lrStatOf(partial)) || !lrIs(q.part, lrStatOf(t * Math.sqrt(unexplained / df)))) return null;
+    } else if (ncCode(q.partial) !== ncCode(q.t) || ncCode(q.part) !== ncCode(q.t)) return null;
+    // Tolerance and VIF (:1015-1033): exactly 1 with one predictor; otherwise 1 / VIF.
+    if (k === 1) {
+      if (statValue(q.tolerance) !== 1 || statValue(q.vif) !== 1) return null;
+    } else if (ncCode(q.vif) === LR_SMALL) {
+      if (ncCode(q.tolerance) !== LR_SMALL) return null;
+    } else {
+      const vif = has(q.vif) ? num(q.vif) : Infinity;
+      if (!lrIs(q.tolerance, lrStatOf(1 / vif))) return null;
+    }
+  }
+
+  // The residuals (:1094-1151): each spread's minimum, mean and maximum in order; the
+  // standardized predicted values by Rust's expression or predicted_no_spread exactly where
+  // its rule gives it; the standardized residuals over σ, or perfect_fit.
+  for (const s of [pr, re]) {
+    if (!(num(s.minimum) <= num(s.mean) && num(s.mean) <= num(s.maximum)) || !(num(s.standardDeviation) >= 0)) return null;
+  }
+  if (lrNoSpread(r)) {
+    if (ncCode(sp.minimum) !== LR_NO_SPREAD || ncCode(sp.maximum) !== LR_NO_SPREAD) return null;
+  } else {
+    const [mean, sd] = [num(pr.mean), num(pr.standardDeviation)];
+    if (!lrIs(sp.minimum, lrStatOf((num(pr.minimum) - mean) / sd)) || !lrIs(sp.maximum, lrStatOf((num(pr.maximum) - mean) / sd))) return null;
+  }
+  if (perfect) {
+    if (ncCode(sr.minimum) !== LR_PERFECT || ncCode(sr.maximum) !== LR_PERFECT) return null;
+  } else {
+    const s = num(m.standardErrorOfEstimate);
+    if (!lrIs(sr.minimum, lrStatOf(num(re.minimum) / s)) || !lrIs(sr.maximum, lrStatOf(num(re.maximum) / s))) return null;
+  }
+
+  // The note (:1053-1060): σ² below (mean ŷ² + var ŷ) × 1e-30. The fitted values' variance
+  // is held only as its root, so the rule is exact away from its threshold T, and either
+  // answer is taken where |σ² - T| ≤ 4 ε T (decision 688).
+  const fm = num(pr.mean);
+  const fs = num(pr.standardDeviation);
+  const threshold = (fm * fm + fs * fs) * ESSENTIALLY_PERFECT_FACTOR;
+  const noted = r.notes.length === 1;
+  if (!(Math.abs(sigma2 - threshold) <= 4 * Number.EPSILON * threshold) && noted !== (Number.isFinite(sigma2) && sigma2 < threshold)) return null;
+
+  // Exclusions and the manifest, as the related rank tests' (decision 652).
+  if (!arrayOf(r.exclusions, lrExclusion) || !lrExclusionsAgree(r.exclusions as O[], columnsSpec, p.missingCodes)) return null;
+  if (!arrayOf(v.diagnostics, lrDiagnostic) || !arrayOf(v.limitations, lrDiagnostic)) return null;
+  if (!manifest(v.manifest, LINEAR_REGRESSION_CAPABILITY, lrExclusion)) return null;
+  const mf = v.manifest as O;
+  if (mf.rowsUsed !== n) return null;
+  if (mf.rowsRead !== n + (r.exclusions as Array<{ count: number }>).reduce((s, e) => s + e.count, 0)) return null;
+  if (JSON.stringify(mf.exclusions) !== JSON.stringify(r.exclusions)) return null;
+  // As Rust's stats_linear_regression_commands::result makes the live view.
+  return {
+    runId: v.runId as number,
+    status: 'succeeded',
+    result: r as unknown as LinearRegressionResultView['result'],
+    diagnostics: v.diagnostics as LinearRegressionDiagnostic[],
+    manifest: v.manifest as LinearRegressionResultView['manifest'],
+  };
+}
+
+/** A failed run's diagnostic (decision 688): one of the run's own two refusals, which only
+ *  compute reaches (:700-715), the collinear one naming one of the spec's predictors. */
+function linearRegressionFailure(failure: unknown, spec: O): boolean {
+  if (!isObject(failure) || failure.severity !== 'error' || !isObject(failure.params)) return false;
+  const p = spec.parameters;
+  if (failure.code === lrCode('fit_out_of_range')) return Object.keys(failure.params).length === 0;
+  if (failure.code !== lrCode('predictors_collinear') || !isObject(p) || !Array.isArray(p.predictors)) return false;
+  const column = failure.params.column;
+  return Object.keys(failure.params).length === 1 && isCount(column) && p.predictors.some((a) => aliasNumber(a) === column);
+}
+
 /* ---- the checkers, one per method (Phase 8C; decision 249) ------------------- */
 
 /** How one method's saved result is checked: the case it is shown as, its
@@ -1134,6 +1504,10 @@ interface StoredChecker {
   /** `spec` is the stored spec, already parsed (decision 652): a checker that reads it
    *  answers null when a field it reads is absent. */
   bundle: (v: O, dataFile: DataFileFacts, spec: O) => Checked | null;
+  /** A failed run's diagnostic beyond its code and keys, given the stored spec (decision
+   *  688). Only the linear regression's checker sets it; every other failed run is checked
+   *  by its code and keys alone, as before. */
+  failure?: (failure: unknown, spec: O) => boolean;
 }
 
 /** The checkers, keyed by capability id. A new method adds one entry. */
@@ -1241,6 +1615,18 @@ export const STORED_CHECKERS: Record<string, StoredChecker> = {
       return result ? { kind: 'related_ranks', result, dataFile } : null;
     },
   },
+  // Research OS, Phase 9A-2 (decision 688).
+  [LINEAR_REGRESSION_CAPABILITY]: {
+    which: 'linear_regression',
+    codes: LR_CODES,
+    keys: LR_PARAM_KEYS,
+    strings: false,
+    bundle: (v, dataFile, spec) => {
+      const result = linearRegressionBundle(v, spec);
+      return result ? { kind: 'linear_regression', result, dataFile } : null;
+    },
+    failure: linearRegressionFailure,
+  },
 };
 
 /** A capability's checker, or undefined for one no method has. An own key
@@ -1319,6 +1705,7 @@ function check(view: unknown): Checked {
     if (!isObject(record) || record.status !== 'failed') return { kind: 'badShape' };
     const ok = diagnostic(checker.codes, checker.keys, checker.strings);
     if (!ok(record.failure)) return { kind: 'badShape' };
+    if (checker.failure && !checker.failure(record.failure, spec)) return { kind: 'badShape' };
     return { kind: 'failed', capability: which, failure: record.failure as StoredFailure, dataFile };
   }
   if (!isObject(bundle)) return { kind: 'badShape' };

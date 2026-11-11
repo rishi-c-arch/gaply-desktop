@@ -11,10 +11,11 @@
 //! * A value that is not computable is an empty field with its code.
 //! * The bytes are pinned on macOS aarch64 (captured 11 Nov 2026): a golden CSV and
 //!   the manifest's JSON for three predictors with rows left out by each reason.
-//!   Every other platform, Linux x86_64 included, checks that pin's layout
-//!   (decision 346's check, `pin_support`, unchanged) until a Linux run measures
-//!   it: the p values come from the platform's maths library through statrs, so
-//!   another platform's last digits may differ. It never passes by skipping.
+//!   Linux x86_64 checks it exactly too, since the user's run gave its bytes
+//!   (decision 681); every other platform checks that pin's layout (decision 346's
+//!   check, `pin_support`, unchanged): the p values come from the platform's maths
+//!   library through statrs, so another platform's last digits may differ. It never
+//!   passes by skipping.
 //! * Ten runs give byte-identical CSV and manifest bytes.
 
 use gaply_core::contracts::{Arch, OperationId, Os, Platform, RunManifest};
@@ -211,20 +212,20 @@ enum PinCheck {
 }
 
 /// The check for a platform, by `std::env::consts::OS` and `ARCH`: exact on macOS
-/// aarch64, where the pin was captured, until the user's Linux run measures Linux
-/// x86_64 (decision 671).
+/// aarch64, where the pin was captured, and on Linux x86_64, where the user's run
+/// gave its bytes exactly (decision 681); the layout check everywhere else.
 fn pin_check(os: &str, arch: &str) -> PinCheck {
     match (os, arch) {
-        ("macos", "aarch64") => PinCheck::Exact,
+        ("macos", "aarch64") | ("linux", "x86_64") => PinCheck::Exact,
         _ => PinCheck::Layout,
     }
 }
 
 #[test]
-fn the_pin_is_checked_exactly_on_macos_aarch64_and_by_layout_elsewhere() {
+fn the_pin_is_checked_exactly_on_macos_aarch64_and_linux_x86_64() {
     for (os, arch, want) in [
         ("macos", "aarch64", PinCheck::Exact),
-        ("linux", "x86_64", PinCheck::Layout),
+        ("linux", "x86_64", PinCheck::Exact),
         ("windows", "x86_64", PinCheck::Layout),
         ("macos", "x86_64", PinCheck::Layout),
         ("linux", "aarch64", PinCheck::Layout),

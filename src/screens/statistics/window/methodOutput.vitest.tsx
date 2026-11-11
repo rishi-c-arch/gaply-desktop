@@ -27,6 +27,8 @@ import { makeMockXtabBridge } from '../xtabBridge';
 import { makeMockRanksBridge } from '../ranksBridge';
 import { relatedRanksResultView } from '../fixtures/relatedRanksFixtures';
 import { makeMockRelatedRanksBridge } from '../relatedRanksBridge';
+import { linearRegressionResultView } from '../fixtures/linearRegressionFixtures';
+import { makeMockLinearRegressionBridge } from '../linearRegressionBridge';
 import { METHOD_OUTPUT } from './methodOutput';
 import { Output, OutputWatchers } from './Output';
 import { statisticsSession, type NewOutputEntry, type OutputEntry } from './statisticsSession';
@@ -72,6 +74,8 @@ const KINDS = [
   { kind: 'independent_ranks', key: 'ranks', prefix: 'stats_ranks', result: ranksResultView, run: { ...common, stepsDone: 0, stepsTotal: 1 }, card: 'rk-result-card', progress: null },
   // Research OS, Phase 8Z-2 (decision 656): one check point, so no steps sentence.
   { kind: 'related_ranks', key: 'relatedRanks', prefix: 'stats_related_ranks', result: relatedRanksResultView, run: { ...common, stepsDone: 0, stepsTotal: 1 }, card: 'rr-result-card', progress: null },
+  // Research OS, Phase 9A-2 (decision 687): one check point, so no steps sentence.
+  { kind: 'linear_regression', key: 'linearRegression', prefix: 'stats_linear_regression', result: linearRegressionResultView, run: { ...common, stepsDone: 0, stepsTotal: 1 }, card: 'lr-result-card', progress: null },
 ] as const;
 
 function bridgesWith(prefix: string, responses: Record<string, unknown>) {
@@ -87,6 +91,7 @@ function bridgesWith(prefix: string, responses: Record<string, unknown>) {
     xtab: makeMockXtabBridge(prefix === 'stats_xtab' ? scoped : {}),
     ranks: makeMockRanksBridge(prefix === 'stats_ranks' ? scoped : {}),
     relatedRanks: makeMockRelatedRanksBridge(prefix === 'stats_related_ranks' ? scoped : {}),
+    linearRegression: makeMockLinearRegressionBridge(prefix === 'stats_linear_regression' ? scoped : {}),
   };
 }
 

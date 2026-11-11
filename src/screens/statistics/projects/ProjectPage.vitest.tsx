@@ -23,6 +23,7 @@ import { makeMockDescribeBridge } from '../describeBridge';
 import { makeMockXtabBridge } from '../xtabBridge';
 import { makeMockRanksBridge } from '../ranksBridge';
 import { makeMockRelatedRanksBridge } from '../relatedRanksBridge';
+import { makeMockLinearRegressionBridge } from '../linearRegressionBridge';
 import { makeMockProjectBridge } from './projectBridge';
 import { openProjectStore } from './projectSession';
 import type { ProjectListEntryView, StoredRunView } from './projectTypes';
@@ -499,6 +500,24 @@ describe('a going rerun of a saved rank test', () => {
     await waitFor(() => expect((screen.getByTestId('project-rerun-cancel') as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(screen.getByTestId('project-rerun-cancel'));
     await waitFor(() => expect(independentRanks.calls).toEqual([['stats_ranks_cancel', { runId: 9 }]]));
+    expect(describe_.calls).toEqual([]);
+  });
+});
+
+// Research OS, Phase 9A-2 (decision 687): a going rerun of a saved regression is cancelled
+// through its own bridge, its kind read from the runs (9A-1's departure, closed).
+describe('a going rerun of a saved linear regression', () => {
+  it("Cancel calls stats_linear_regression_cancel through the page's regression bridge, and nothing else", async () => {
+    const regressionRun: StoredRunView = { ...RUNS[0], storedRunId: 4, capabilityId: 'stats.analyze.linear_regression' };
+    const { bridge, workspace } = pageBridges({
+      project_current: { projectId: A, rerun: { runId: 9, rerunOf: 4, status: 'going', storedRunId: null, code: null } },
+      project_runs: [...RUNS, regressionRun],
+    });
+    const describe_ = makeMockDescribeBridge({ stats_desc_cancel: { runId: 0 } });
+    const linearRegression = makeMockLinearRegressionBridge({ stats_linear_regression_cancel: { runId: 0 } });
+    render(<ProjectPage projectId={A} bridge={bridge} workspace={workspace} desktop describe={describe_} linearRegression={linearRegression} pollMs={5} onClosed={vi.fn()} onBack={vi.fn()} />);
+    fireEvent.click(await screen.findByTestId('project-rerun-cancel'));
+    await waitFor(() => expect(linearRegression.calls).toEqual([['stats_linear_regression_cancel', { runId: 9 }]]));
     expect(describe_.calls).toEqual([]);
   });
 });

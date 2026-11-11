@@ -40,8 +40,21 @@
 //! interval, F and its p, the partial and part correlations, the Durbin-Watson
 //! statistic and the standardized residuals are not computable (`perfect_fit`);
 //! R² and adjusted R² are 1. A p or quantile `stats_dist` does not measure is
-//! `distribution_out_of_range`; any other value a double cannot hold is
-//! `overflow`, statistic by statistic. The run is refused only by its checks and
+//! `distribution_out_of_range`. A value too large for a double is `overflow`; a
+//! statistic whose own value is below the smallest normal double, so that it
+//! cannot hold its precision (σ², a mean square, an SE, t, F), is `too_small`.
+//! Where only an intermediate would be subnormal or overflow while the statistic
+//! itself is an ordinary double, it is computed in a form whose intermediates stay
+//! normal: σ as √RSS / √df, an SE as σ √s_j, F as (MSS / RSS)(df / k), a standard
+//! deviation by a scaled sum (decision 683). Two exceptions, stated rather than handled:
+//! an s_j that is itself subnormal withholds its coefficient's five and its VIF and
+//! tolerance as `too_small`, though σ √s_j could be normal (reachable only with one
+//! predictor whose centred sum of squares lies between about 4.5e307 and 1.8e308); and
+//! the split F's quotient MSS / RSS is not itself guarded, which the review of 9A-2
+//! judged unreachable, since MSS is exactly 0 or far above RSS's rounding. Predicted values whose spread is at the
+//! level of their own rounding cannot be standardized: `predicted_no_spread`
+//! (decision 683's rule, `no_spread`). Each statistic by itself; never a refusal of
+//! the run. The run is refused only by its checks and
 //! by its two refusals: `predictors_collinear`, naming the first predictor the
 //! rank test stops at (where R's `lm` gives NA), and `fit_out_of_range`, when the
 //! fit's sums of squares, or any other `stats_verify` call of the run, cannot be
@@ -153,8 +166,15 @@ closed! {
         /// Not computable: the distribution is not measured at these degrees of
         /// freedom.
         DistributionOutOfRange => "distribution_out_of_range",
-        /// Not computable: a sum, product, quotient or root a double cannot hold.
+        /// Not computable: a value along the way too large for a double (decision
+        /// 683: too large only; a value too small is `too_small`).
         Overflow => "overflow",
+        /// Not computable: the statistic's own value is below the smallest normal
+        /// double, so it cannot hold its precision (decision 683).
+        TooSmall => "too_small",
+        /// Not computable: the predicted values' spread is at the level of their own
+        /// rounding, so they cannot be standardized (decision 683).
+        PredictedNoSpread => "predicted_no_spread",
         /// Note: the residual variance is below R's "essentially perfect fit"
         /// threshold, where the residual-scale numbers are rounding.
         EssentiallyPerfectFit => "essentially_perfect_fit",
@@ -699,18 +719,48 @@ fn fault<B>() -> Halt<B> {
     Halt::Refused(Diagnostic::error(LinearRegressionCode::FitOutOfRange))
 }
 
-/// `v`, or not computable with `overflow` when it is infinite or NaN.
+/// `v` as a value; an infinity is `overflow`, too large (decision 683). A NaN is
+/// `too_small`, never `overflow`: FIND FIRST of 9A-2 found every NaN this module can
+/// make with finite inputs to be a 0/0 of quantities that vanished, and the one it
+/// reached, the standardized predicted values' with no spread, has its own code
+/// before it gets here.
 fn stat(v: f64) -> Stat {
     if v.is_finite() {
         Stat::Value(v)
+    } else if v.is_nan() {
+        TOO_SMALL
     } else {
-        Stat::NotComputable(LinearRegressionCode::Overflow)
+        OVERFLOWED
+    }
+}
+
+/// Below the smallest normal double and not 0: it holds only some of its digits.
+fn subnormal(v: f64) -> bool {
+    v != 0.0 && v.abs() < f64::MIN_POSITIVE
+}
+
+/// A statistic's own value: `too_small` when it is subnormal (decision 683),
+/// otherwise as [`stat`].
+fn own(v: f64) -> Stat {
+    if subnormal(v) {
+        TOO_SMALL
+    } else {
+        stat(v)
     }
 }
 
 const PERFECT: Stat = Stat::NotComputable(LinearRegressionCode::PerfectFit);
 const OUT_OF_RANGE: Stat = Stat::NotComputable(LinearRegressionCode::DistributionOutOfRange);
 const OVERFLOWED: Stat = Stat::NotComputable(LinearRegressionCode::Overflow);
+const TOO_SMALL: Stat = Stat::NotComputable(LinearRegressionCode::TooSmall);
+const NO_SPREAD: Stat = Stat::NotComputable(LinearRegressionCode::PredictedNoSpread);
+
+/// `predicted_no_spread`'s constant c (decision 683), set by measurement in 9A-2:
+/// over 19,800 datasets whose exact covariance with every predictor is 0 (gmp), the
+/// largest S = s_ŷ / (ε (m + κ s_y)) was 3.635, so each gets the code; over 18,156
+/// whose exact R² is 1e-12 to 1e-10 with |mean y| / sd y at most 1e8, the smallest
+/// was 45.86, so none does (`~/gaply-corpus/os/phase9/9a2/nospread/`).
+pub const NO_SPREAD_FACTOR: f64 = 8.0;
 
 /// The sample variance (n − 1), refused as `fit_out_of_range` on a
 /// `stats_verify` range fault.
@@ -718,55 +768,87 @@ fn variance<B>(xs: &[f64]) -> Result<f64, Halt<B>> {
     sample_variance(xs).map_err(|_| fault())
 }
 
-/// Whether a variance holds its digits: 0, or a normal double. A subnormal one
-/// keeps only a few significant bits, so nothing is built on it (the review of
-/// 9A-1, after the hunt's h204).
-fn held(variance: f64) -> bool {
-    variance == 0.0 || variance >= f64::MIN_POSITIVE
-}
-
-/// The standard deviation from a variance, `overflow` when the variance does not
-/// hold its digits.
-fn sd_of(variance: f64) -> Stat {
-    if held(variance) {
-        stat(variance.sqrt())
-    } else {
-        OVERFLOWED
+/// The standard deviation from its variance (n − 1). When the variance is
+/// subnormal, the deviations from the mean are divided by the largest |deviation|
+/// before they are squared, so the sum stays normal (decision 683); otherwise the
+/// root of the variance, 9A-1's order.
+fn sd_from<B>(xs: &[f64]) -> Result<f64, Halt<B>> {
+    let v = variance(xs)?;
+    if !subnormal(v) {
+        return Ok(v.sqrt());
     }
+    let m = mean(xs);
+    let scale = xs.iter().fold(0.0f64, |a, x| a.max((x - m).abs()));
+    let sum: f64 = xs.iter().map(|x| ((x - m) / scale).powi(2)).sum();
+    Ok(scale * (sum / (xs.len() as f64 - 1.0)).sqrt())
 }
 
-/// A coefficient's standard error, t, p and interval, given the residual
-/// variance and the sum of the squares of its row of R⁻¹.
-fn estimate(b: f64, unscaled: f64, sigma2: f64, df: f64, perfect: bool) -> [Stat; 5] {
+/// A coefficient's standard error, t, p and interval, given σ², σ and the sum of
+/// the squares of its row of R⁻¹ (s_j). In the normal range the SE is √(σ² s_j), as
+/// `ols_qr` computes it; where σ² is subnormal, or σ² s_j is subnormal, 0 or
+/// infinite, it is σ √s_j, whose intermediates stay normal (decision 683; the
+/// review of d04199c4 found the split form gives h204's exact t). An s_j or an SE
+/// that is itself subnormal is `too_small`; an infinite SE or t `overflow`.
+fn estimate(b: f64, unscaled: f64, sigma2: f64, sigma: f64, df: f64, perfect: bool) -> [Stat; 5] {
     if perfect {
         return [PERFECT; 5];
     }
-    // As `ols_qr` computes it, √(σ² s_j). A product, or an s_j, below the
-    // smallest normal double keeps only a few significant bits, so its root is a
-    // finite, wrong SE (the hunt's h204: R's lm printed t −8.70 where the exact t
-    // is −12.31). A double cannot hold it: `overflow`, as for an infinite one.
-    let variance = sigma2 * unscaled;
-    if !(sigma2 >= f64::MIN_POSITIVE)
-        || !(unscaled >= f64::MIN_POSITIVE)
-        || !(variance >= f64::MIN_POSITIVE)
-        || !variance.is_finite()
-    {
+    if !(unscaled >= f64::MIN_POSITIVE) {
+        return if unscaled.is_nan() { [TOO_SMALL; 5] } else if unscaled.is_infinite() { [OVERFLOWED; 5] } else { [TOO_SMALL; 5] };
+    }
+    let product = sigma2 * unscaled;
+    let se = if sigma2 >= f64::MIN_POSITIVE && product >= f64::MIN_POSITIVE && product.is_finite() {
+        product.sqrt()
+    } else {
+        sigma * unscaled.sqrt()
+    };
+    if !se.is_finite() {
         return [OVERFLOWED; 5];
     }
-    let se = variance.sqrt();
+    if !(se >= f64::MIN_POSITIVE) {
+        return [TOO_SMALL; 5];
+    }
+    let [lower, upper] = match interval_95(b, se, df, LinearRegressionCode::DistributionOutOfRange, LinearRegressionCode::Overflow) {
+        Ok([l, u]) => [stat(l), stat(u)],
+        Err(c) => [Stat::NotComputable(c); 2],
+    };
     let t = b / se;
     if !t.is_finite() {
         return [Stat::Value(se), OVERFLOWED, OVERFLOWED, OVERFLOWED, OVERFLOWED];
+    }
+    if subnormal(t) {
+        return [Stat::Value(se), TOO_SMALL, TOO_SMALL, lower, upper];
     }
     let p = match two_sided_p(t, df, LinearRegressionCode::DistributionOutOfRange, LinearRegressionCode::Overflow) {
         Ok(p) => stat(p),
         Err(c) => Stat::NotComputable(c),
     };
-    let [lower, upper] = match interval_95(b, se, df, LinearRegressionCode::DistributionOutOfRange, LinearRegressionCode::Overflow) {
-        Ok([l, u]) => [stat(l), stat(u)],
-        Err(c) => [Stat::NotComputable(c); 2],
-    };
     [Stat::Value(se), Stat::Value(t), p, lower, upper]
+}
+
+/// The partial correlation t / √(t² + df), 9A-1's order; where t² overflows,
+/// sign(t) / √(1 + df / t²), which is ±1 there (decision 683, the review's finding 7).
+fn partial_of(t: f64, df: f64) -> f64 {
+    let t2 = t * t;
+    if t2.is_finite() {
+        t / (t2 + df).sqrt()
+    } else {
+        t.signum() / (1.0 + df / t2).sqrt()
+    }
+}
+
+/// The Durbin-Watson statistic, Σ (e_t − e_{t−1})² / RSS; where the numerator
+/// overflows (RSS above about 4.5e307), from the residuals scaled by the largest
+/// |residual| (decision 683), since the statistic is at most 4.
+fn durbin_watson(residuals: &[f64], rss: f64) -> f64 {
+    let numerator: f64 = residuals.windows(2).map(|w| (w[1] - w[0]).powi(2)).sum();
+    if numerator.is_finite() {
+        return numerator / rss;
+    }
+    let s = residuals.iter().fold(0.0f64, |a, e| a.max(e.abs()));
+    let num: f64 = residuals.windows(2).map(|w| ((w[1] - w[0]) / s).powi(2)).sum();
+    let den: f64 = residuals.iter().map(|e| (e / s).powi(2)).sum();
+    num / den
 }
 
 /// The minimum and maximum of finite values (`total_cmp`), as numbers.
@@ -774,6 +856,56 @@ fn extremes(xs: &[f64]) -> (f64, f64) {
     let min = xs.iter().copied().fold(f64::INFINITY, f64::min);
     let max = xs.iter().copied().fold(f64::NEG_INFINITY, f64::max);
     (min, max)
+}
+
+/// Whether the predicted values' spread is at the level of their own rounding
+/// (decision 683): MSS exactly 0, or s_ŷ ≤ c ε (m + κ s_y), with s_ŷ the predicted
+/// values' standard deviation, m the larger of |min ŷ| and |max ŷ|, s_y the outcome's
+/// standard deviation, and κ the largest over the predictors of
+/// √VIF_j √(1 + (n / (n − 1)) (mean_j / sd_j)²), VIF_j = 1 for one predictor, κ = 0
+/// when a value it needs is a code. Computed from the result's own fields, in this
+/// order, so the stored checker recomputes it exactly.
+fn no_spread(
+    mss: f64,
+    predicted: &Spread,
+    columns: &[RegressionColumn],
+    predictors: &[PredictorEstimate],
+    rows_used: u64,
+) -> bool {
+    if mss == 0.0 {
+        return true;
+    }
+    let value = |s: Stat| match s {
+        Stat::Value(v) => Some(v),
+        Stat::NotComputable(_) => None,
+    };
+    let (Some(s_hat), Some(min), Some(max), Some(s_y)) = (
+        value(predicted.standard_deviation),
+        value(predicted.minimum),
+        value(predicted.maximum),
+        value(columns[0].sd),
+    ) else {
+        return false;
+    };
+    let m = min.abs().max(max.abs());
+    let n = rows_used as f64;
+    let one = predictors.len() == 1;
+    let mut kappa = 0.0f64;
+    for (j, p) in predictors.iter().enumerate() {
+        let vif = if one { Some(1.0) } else { value(p.vif) };
+        match (vif, value(columns[j + 1].mean), value(columns[j + 1].sd)) {
+            (Some(vif), Some(mean_j), Some(sd_j)) => {
+                let ratio = mean_j / sd_j;
+                let g = vif.sqrt() * (1.0 + n / (n - 1.0) * (ratio * ratio)).sqrt();
+                kappa = kappa.max(g);
+            }
+            _ => {
+                kappa = 0.0;
+                break;
+            }
+        }
+    }
+    s_hat <= NO_SPREAD_FACTOR * f64::EPSILON * (m + kappa * s_y)
 }
 
 /// Everything after the fit.
@@ -790,8 +922,9 @@ fn model<B>(
     let (rss, mss) = (fit.rss, fit.mss);
     let perfect = rss == 0.0;
     let sigma2 = rss / df;
-    // σ² must hold its digits for anything built on it (the review of 9A-1).
-    let sigma_held = sigma2 >= f64::MIN_POSITIVE;
+    // σ: √σ² in the normal range, 9A-1's order; √RSS / √df when σ² is subnormal,
+    // whose terms stay normal (decision 683). RSS is 0 or normal (`sum_of_squares`).
+    let sigma = if sigma2 >= f64::MIN_POSITIVE { sigma2.sqrt() } else { rss.sqrt() / df.sqrt() };
     let unscaled = |i: usize| fit.r_inv[i][i..].iter().map(|x| x * x).sum::<f64>();
 
     // Each column's mean and standard deviation; the variance first, so a mean
@@ -801,68 +934,56 @@ fn model<B>(
     let mut columns = Vec::with_capacity(k + 1);
     for (alias, values) in model_columns(params).into_iter().zip(&rows.values) {
         let v = variance(values)?;
-        let s = v.sqrt();
+        let s = sd_from(values)?;
         variances.push(v);
         sds.push(s);
         columns.push(RegressionColumn {
             column: alias,
             mean: stat(mean(values)),
-            sd: sd_of(v),
+            sd: stat(s),
         });
     }
 
     let r_squared = mss / (mss + rss);
     let adjusted = 1.0 - (1.0 - r_squared) * (n as f64 - 1.0) / df;
     let fitted: Vec<f64> = y.iter().zip(&fit.residuals).map(|(y, e)| y - e).collect();
-    let durbin_watson = if perfect {
-        PERFECT
-    } else {
-        let numerator: f64 = fit.residuals.windows(2).map(|w| (w[1] - w[0]).powi(2)).sum();
-        stat(numerator / rss)
-    };
     let model = ModelSummary {
         r: stat(r_squared.sqrt()),
         r_squared: stat(r_squared),
         adjusted_r_squared: stat(adjusted),
-        standard_error_of_estimate: if perfect {
-            PERFECT
-        } else if sigma_held {
-            stat(sigma2.sqrt())
-        } else {
-            OVERFLOWED
-        },
-        durbin_watson,
+        standard_error_of_estimate: if perfect { PERFECT } else { stat(sigma) },
+        durbin_watson: if perfect { PERFECT } else { stat(durbin_watson(&fit.residuals, rss)) },
     };
 
     let regression_ms = mss / k as f64;
     let (f, f_p) = if perfect {
         (PERFECT, PERFECT)
-    } else if !sigma_held {
-        (OVERFLOWED, OVERFLOWED)
     } else {
-        let f = regression_ms / sigma2;
-        if f.is_finite() {
-            (Stat::Value(f), f_upper(f, k as f64, df).map_or(OUT_OF_RANGE, stat))
+        // 9A-1's order in the normal range; (MSS / RSS)(df / k) where σ² or MSS / k
+        // is subnormal (decision 683).
+        let f = if sigma2 >= f64::MIN_POSITIVE && !subnormal(regression_ms) {
+            regression_ms / sigma2
         } else {
+            (mss / rss) * (df / k as f64)
+        };
+        if !f.is_finite() {
             (OVERFLOWED, OVERFLOWED)
+        } else if subnormal(f) {
+            (TOO_SMALL, TOO_SMALL)
+        } else {
+            (Stat::Value(f), f_upper(f, k as f64, df).map_or(OUT_OF_RANGE, stat))
         }
     };
     let anova = RegressionAnova {
         regression: AnovaSource {
             sum_of_squares: stat(mss),
             df: k as u64,
-            mean_square: stat(regression_ms),
+            mean_square: own(regression_ms),
         },
         residual: AnovaSource {
             sum_of_squares: stat(rss),
             df: df as u64,
-            mean_square: if perfect {
-                PERFECT
-            } else if sigma_held {
-                stat(sigma2)
-            } else {
-                OVERFLOWED
-            },
+            mean_square: if perfect { PERFECT } else { own(sigma2) },
         },
         total: AnovaTotal {
             sum_of_squares: stat(mss + rss),
@@ -872,7 +993,7 @@ fn model<B>(
         p: f_p,
     };
 
-    let [se, t, p, lower, upper] = estimate(fit.coefficients[0], unscaled(0), sigma2, df, perfect);
+    let [se, t, p, lower, upper] = estimate(fit.coefficients[0], unscaled(0), sigma2, sigma, df, perfect);
     let intercept = InterceptEstimate {
         b: stat(fit.coefficients[0]),
         standard_error: se,
@@ -889,35 +1010,37 @@ fn model<B>(
         let i = j + 1;
         let b = fit.coefficients[i];
         let s_j = unscaled(i);
-        let [se, t, p, lower, upper] = estimate(b, s_j, sigma2, df, perfect);
+        let [se, t, p, lower, upper] = estimate(b, s_j, sigma2, sigma, df, perfect);
         let zero_order = pearson_clamped(&xs[j], y).map_err(|_| fault())?.coefficient;
         let (partial, part) = match t {
             _ if perfect => (PERFECT, PERFECT),
-            Stat::Value(t) => (stat(t / (t * t + df).sqrt()), stat(t * (unexplained / df).sqrt())),
+            Stat::Value(t) => (stat(partial_of(t, df)), stat(t * (unexplained / df).sqrt())),
             other => (other, other),
         };
         let (tolerance, vif) = if k == 1 {
             // With one predictor there is nothing to be collinear with: both
             // exactly 1, as SPSS prints them, never the arithmetic's rounding.
             (Stat::Value(1.0), Stat::Value(1.0))
-        } else if !(s_j >= f64::MIN_POSITIVE) || !held(variances[i]) {
-            // An s_j below the smallest normal double has lost its digits, as
-            // in `estimate`.
-            (OVERFLOWED, OVERFLOWED)
+        } else if !(s_j >= f64::MIN_POSITIVE) {
+            // An s_j that is subnormal has lost its digits (decision 683).
+            (TOO_SMALL, TOO_SMALL)
         } else {
-            let ss = (n as f64 - 1.0) * variances[i];
-            let vif = ss * s_j;
+            // (n − 1) var_j s_j, 9A-1's order; where var_j is subnormal, from the
+            // standard deviation so computed, (sd_j √s_j)² (n − 1) (decision 683).
+            let vif = if subnormal(variances[i]) {
+                let g = sds[i] * s_j.sqrt();
+                g * g * (n as f64 - 1.0)
+            } else {
+                let ss = (n as f64 - 1.0) * variances[i];
+                ss * s_j
+            };
             (stat(1.0 / vif), stat(vif))
         };
         predictors.push(PredictorEstimate {
             column: *alias,
             b: stat(b),
             standard_error: se,
-            beta: if held(variances[i]) && held(variances[0]) {
-                stat(b * sds[i] / sd_y)
-            } else {
-                OVERFLOWED
-            },
+            beta: own(b * sds[i] / sd_y),
             t,
             p,
             lower,
@@ -930,7 +1053,7 @@ fn model<B>(
         });
     }
 
-    let residuals = residual_summary(&fitted, &fit.residuals, sigma2, perfect, sigma_held)?;
+    let residuals = residual_summary(&fitted, &fit.residuals, sigma, perfect, mss, &columns, &predictors, n as u64)?;
 
     let mut notes = Vec::new();
     let fitted_variance = sample_variance(&fitted).map_err(|_| fault())?;
@@ -972,16 +1095,19 @@ fn model<B>(
 }
 
 /// The residuals' summary, as SPSS's Residuals Statistics table.
+#[allow(clippy::too_many_arguments)]
 fn residual_summary<B>(
     fitted: &[f64],
     residuals: &[f64],
-    sigma2: f64,
+    sigma: f64,
     perfect: bool,
-    sigma_held: bool,
+    mss: f64,
+    columns: &[RegressionColumn],
+    predictors: &[PredictorEstimate],
+    rows_used: u64,
 ) -> Result<ResidualSummary, Halt<B>> {
-    let spread = |xs: &[f64]| -> Result<(Spread, f64, f64, bool), Halt<B>> {
-        let v = variance(xs)?;
-        let s = v.sqrt();
+    let spread = |xs: &[f64]| -> Result<(Spread, f64, f64), Halt<B>> {
+        let s = sd_from(xs)?;
         let m = mean(xs);
         let (min, max) = extremes(xs);
         Ok((
@@ -989,25 +1115,24 @@ fn residual_summary<B>(
                 minimum: stat(min),
                 maximum: stat(max),
                 mean: stat(m),
-                standard_deviation: sd_of(v),
+                standard_deviation: stat(s),
             },
             m,
             s,
-            held(v),
         ))
     };
-    let (predicted, f_mean, f_sd, f_held) = spread(fitted)?;
-    let (residual, _, _, _) = spread(residuals)?;
+    let (predicted, f_mean, f_sd) = spread(fitted)?;
+    let (residual, _, _) = spread(residuals)?;
     let (f_min, f_max) = extremes(fitted);
-    let standardized_predicted = if f_held {
+    let standardized_predicted = if no_spread(mss, &predicted, columns, predictors, rows_used) {
         Extremes {
-            minimum: stat((f_min - f_mean) / f_sd),
-            maximum: stat((f_max - f_mean) / f_sd),
+            minimum: NO_SPREAD,
+            maximum: NO_SPREAD,
         }
     } else {
         Extremes {
-            minimum: OVERFLOWED,
-            maximum: OVERFLOWED,
+            minimum: stat((f_min - f_mean) / f_sd),
+            maximum: stat((f_max - f_mean) / f_sd),
         }
     };
     let standardized_residual = if perfect {
@@ -1015,13 +1140,7 @@ fn residual_summary<B>(
             minimum: PERFECT,
             maximum: PERFECT,
         }
-    } else if !sigma_held {
-        Extremes {
-            minimum: OVERFLOWED,
-            maximum: OVERFLOWED,
-        }
     } else {
-        let sigma = sigma2.sqrt();
         let (e_min, e_max) = extremes(residuals);
         Extremes {
             minimum: stat(e_min / sigma),
@@ -1077,29 +1196,64 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_coefficient_with_no_spread_left_in_its_se_is_overflow_and_a_perfect_fit_is_its_own_code() {
-        assert_eq!(estimate(1.0, 1.0, 0.0, 3.0, true), [PERFECT; 5]);
-        // σ² underflowing to 0 with RSS above 0: the SE is 0 and t would be infinite.
-        assert_eq!(estimate(1.0, 1.0, 0.0, 3.0, false), [OVERFLOWED; 5]);
-        assert_eq!(estimate(1.0, f64::INFINITY, 1.0, 3.0, false), [OVERFLOWED; 5]);
+    fn a_perfect_fit_is_its_own_code_and_an_se_that_overflows_or_vanishes_has_its_own() {
+        assert_eq!(estimate(1.0, 1.0, 0.0, 0.0, 3.0, true), [PERFECT; 5]);
+        // σ 0 off a perfect fit (no input reaches it): the SE is 0, too small.
+        assert_eq!(estimate(1.0, 1.0, 0.0, 0.0, 3.0, false), [TOO_SMALL; 5]);
+        assert_eq!(estimate(1.0, f64::INFINITY, 1.0, 1.0, 3.0, false), [OVERFLOWED; 5]);
         // A normal SE of 1e-10 and a t of 1e310.
-        let [se, t, ..] = estimate(1e300, 1e-10, 1e-10, 3.0, false);
+        let [se, t, ..] = estimate(1e300, 1e-10, 1e-10, 1e-5, 3.0, false);
         assert!(matches!(se, Stat::Value(_)), "{se:?}");
         assert_eq!(t, OVERFLOWED);
     }
 
     #[test]
-    fn a_subnormal_variance_or_s_j_is_overflow() {
-        assert_eq!(estimate(1.0, 1e-170, 1e-145, 3.0, false), [OVERFLOWED; 5]);
-        assert_eq!(estimate(1.0, 1e-310, 1e10, 3.0, false), [OVERFLOWED; 5]);
-        let [se, ..] = estimate(1.0, 1e-150, 1e-120, 3.0, false);
-        assert!(matches!(se, Stat::Value(_)), "{se:?}");
+    fn a_subnormal_product_takes_the_split_form_and_a_subnormal_s_j_is_too_small() {
+        // σ² 1e-145, s_j 1e-170: the product is subnormal, σ √s_j = 1e-72.5 · 1e-85 is normal.
+        let sigma2 = 1e-145;
+        let [se, ..] = estimate(1.0, 1e-170, sigma2, sigma2.sqrt(), 3.0, false);
+        let want = sigma2.sqrt() * 1e-170f64.sqrt();
+        assert_eq!(se, Stat::Value(want));
+        assert_eq!(estimate(1.0, 1e-310, 1e10, 1e5, 3.0, false), [TOO_SMALL; 5]);
+        // In the normal range the SE is √(σ² s_j), bit for bit.
+        let [se, ..] = estimate(1.0, 1e-150, 1e-120, 1e-60, 3.0, false);
+        assert_eq!(se, Stat::Value((1e-120f64 * 1e-150).sqrt()));
     }
 
     #[test]
     fn a_df_past_the_measured_range_gives_the_distribution_code() {
-        let [_, _, p, lower, upper] = estimate(1.0, 1.0, 1.0, 2e7, false);
+        let [_, _, p, lower, upper] = estimate(1.0, 1.0, 1.0, 1.0, 2e7, false);
         assert_eq!((p, lower, upper), (OUT_OF_RANGE, OUT_OF_RANGE, OUT_OF_RANGE));
+    }
+
+    /// Decision 683 (the review's finding 7): t² overflows above |t| 1.34e154, where
+    /// 9A-1's t / √(t² + df) gave 0; the overflow form gives ±1, and below it the
+    /// value is 9A-1's, bit for bit.
+    #[test]
+    fn partial_is_one_in_size_where_t_squared_overflows() {
+        assert_eq!(partial_of(1e200, 5.0), 1.0);
+        assert_eq!(partial_of(-1e200, 5.0), -1.0);
+        assert_eq!(partial_of(3.0, 5.0), 3.0 / (9.0f64 + 5.0).sqrt());
+    }
+
+    /// Decision 683: the numerator overflows while the statistic is at most 4.
+    #[test]
+    fn the_durbin_watson_statistic_is_computed_when_its_numerator_overflows() {
+        let e = [6e153, -6e153, 6e153, -6e153];
+        let rss: f64 = e.iter().map(|x| x * x).sum();
+        assert!(rss.is_finite() && e.windows(2).map(|w| (w[1] - w[0]).powi(2)).sum::<f64>().is_infinite(), "the premise");
+        assert_eq!(durbin_watson(&e, rss), 3.0);
+        let small = [1.0, -1.0, 2.0];
+        assert_eq!(durbin_watson(&small, 6.0), (4.0 + 9.0) / 6.0);
+    }
+
+    /// Decision 683: a NaN is never `overflow`; an infinity is.
+    #[test]
+    fn stat_keeps_overflow_for_too_large() {
+        assert_eq!(stat(f64::INFINITY), OVERFLOWED);
+        assert_eq!(stat(f64::NAN), TOO_SMALL);
+        assert_eq!(own(1e-310), TOO_SMALL);
+        assert_eq!(own(0.0), Stat::Value(0.0));
     }
 
     #[test]

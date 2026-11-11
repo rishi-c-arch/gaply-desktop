@@ -109,7 +109,7 @@ function withStored(name: string, field: 'bundleJson' | 'failureJson' | 'specJso
 /* ---- the shape check ----------------------------------------------------------- */
 
 describe('the shape check', () => {
-  it('has the twenty snapshots Rust wrote, and accepts every one', () => {
+  it('has the twenty-three snapshots Rust wrote, and accepts every one', () => {
     expect(SNAPSHOTS).toEqual([
       'alpha.json',
       'alpha_reversed.json',
@@ -117,6 +117,10 @@ describe('the shape check', () => {
       'anova_post_hoc.json',
       'corr_listwise.json',
       'corr_pairwise.json',
+      // Research OS, Phase 9A-2 (decision 687).
+      'linear_regression.json',
+      'linear_regression_failed.json',
+      'linear_regression_perfect.json',
       'one_sample.json',
       'one_sample_failed.json',
       'paired.json',
@@ -142,6 +146,9 @@ describe('the shape check', () => {
     expect(checkStored(stored('ranks_kw.json')).kind).toBe('independent_ranks');
     expect(checkStored(stored('related_ranks_w.json')).kind).toBe('related_ranks');
     expect(checkStored(stored('related_ranks_f.json')).kind).toBe('related_ranks');
+    expect(checkStored(stored('linear_regression.json')).kind).toBe('linear_regression');
+    expect(checkStored(stored('linear_regression_perfect.json')).kind).toBe('linear_regression');
+    expect(checkStored(stored('linear_regression_failed.json')).kind).toBe('failed');
     expect(checkStored(stored('ttest.json')).kind).toBe('ttest');
     const failed = checkStored(stored('ttest_failed.json'));
     expect(failed.kind).toBe('failed');
@@ -172,6 +179,10 @@ describe('the shape check', () => {
     // Research OS, Phase 8Z-2 (decision 656).
     ['related_ranks_w.json', 'bundleJson'],
     ['related_ranks_f.json', 'bundleJson'],
+    // Research OS, Phase 9A-2 (decision 687).
+    ['linear_regression.json', 'bundleJson'],
+    ['linear_regression_perfect.json', 'bundleJson'],
+    ['linear_regression_failed.json', 'failureJson'],
   ] as const)('%s: rejects it with any one field of its %s removed', (name, field) => {
     const all = paths(JSON.parse(stored(name)[field] as string)).filter((p) => typeof p[p.length - 1] === 'string');
     expect(all.length).toBeGreaterThan(5);
@@ -195,10 +206,16 @@ describe('the shape check', () => {
     // Research OS, Phase 8Z-2 (decision 656).
     ['related_ranks_w.json', 'bundleJson'],
     ['related_ranks_f.json', 'bundleJson'],
+    // Research OS, Phase 9A-2 (decision 687).
+    ['linear_regression.json', 'bundleJson'],
+    ['linear_regression_perfect.json', 'bundleJson'],
+    ['linear_regression_failed.json', 'failureJson'],
   ] as const)('%s: rejects it with any one number in its %s made null, or made a string', (name, field) => {
     const v0 = JSON.parse(stored(name)[field] as string);
     const numbers = paths(v0).filter((p) => typeof getAt(v0, p) === 'number');
-    if (name !== 'ttest_failed.json') expect(numbers.length).toBeGreaterThan(10);
+    // A failure record holds a code and its parameters only: ttest_failed.json's two numbers, and
+    // linear_regression_failed.json's two (its schema version and the collinear column).
+    if (name !== 'ttest_failed.json' && name !== 'linear_regression_failed.json') expect(numbers.length).toBeGreaterThan(10);
     for (const replacement of [null, '1']) {
       const accepted: string[] = [];
       for (const p of numbers) {

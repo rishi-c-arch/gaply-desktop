@@ -61,16 +61,25 @@ const GATES: &[(&str, f64)] = &[
     ("p_ill", 6.3e-8),     // 6.201e-9, tolerance predictor.1.p, pure relative
     ("coef_ill", 2.6e-9),  // 2.551e-10, offsets residuals.standardized_predicted.maximum
     ("resid_ill", 6.2e-9), // 6.123e-10, tolerance residuals.residual.maximum, against sd(residuals)
-    ("perfect", 5.6e-15),  // 5.551e-16, essentially_perfect predictor.0.b, against the largest |b|
+    ("perfect", 5.6e-15),  // 5.551e-16 in 9A-1 over its coefficients; 1.113e-15 since decision 683 compares every key not built on the residuals (anova.total.sum_of_squares); the gate is not raised
 ];
 
-/// The keys of `essentially_perfect` that are compared (decision 671); every other
-/// key is checked to exist and left out, as the module doc says. Its coefficients
-/// are measured against the case's largest |b|, since a coefficient whose value is
-/// 0 is rounding noise in both R and Gaply (measured 3.016e-6 relative below the
-/// 1e-12 floor, 5.551e-16 against the largest |b|), in a tier of their own.
-fn perfect_fit_compared(key: &str) -> bool {
-    key.ends_with(".b") || key == "model.r_squared" || key.starts_with("note.") || key == "rows_used"
+/// The keys of `essentially_perfect` left out (decision 683, the review of
+/// d04199c4's finding 6): those built on its residuals, which are rounding noise in
+/// R and in Gaply: σ, the residual SS and mean square, every SE, t, p and interval,
+/// F and its p, the partial and part correlations, the Durbin-Watson statistic and
+/// the residuals' and standardized residuals' summaries. Every other key is compared
+/// in the perfect tier. Its coefficients are measured against the case's largest
+/// |b| and its betas against the largest |beta|, since a coefficient whose value is
+/// 0 is rounding noise in both (measured 3.016e-6 relative below the 1e-12 floor in
+/// 9A-1, 5.551e-16 against the largest |b|).
+fn perfect_fit_left_out(key: &str) -> bool {
+    let tail = key.rsplit('.').next().unwrap_or("");
+    residual_scale(key).is_some()
+        || matches!(tail, "standard_error" | "t" | "p" | "lower" | "upper" | "partial" | "part")
+        || matches!(key, "anova.f" | "anova.residual.sum_of_squares" | "anova.residual.mean_square")
+        || key.starts_with("residuals.residual.")
+        || key.starts_with("residuals.standardized_residual.")
 }
 
 /// The keys compared exactly: whole numbers.
@@ -373,6 +382,11 @@ fn every_number_of_every_case_is_within_its_gate_of_r() {
         let perfect = case.name == "essentially_perfect";
         // The case's largest |coefficient|: the scale of a coefficient that is
         // rounding noise about 0, as the exact tier's is.
+        let largest_beta = want
+            .iter()
+            .filter(|(k, _)| k.ends_with(".beta"))
+            .map(|(_, v)| v.parse::<f64>().unwrap().abs())
+            .fold(0.0, f64::max);
         let largest_b = want
             .iter()
             .filter(|(k, _)| k.ends_with(".b"))
@@ -386,7 +400,7 @@ fn every_number_of_every_case_is_within_its_gate_of_r() {
                 assert_eq!(&format!("nc {c}"), w, "{} {key}: not computable", case.name);
                 continue;
             }
-            if case.name == "essentially_perfect" && !perfect_fit_compared(key) {
+            if case.name == "essentially_perfect" && perfect_fit_left_out(key) {
                 // A number R gives as a code would fail here, never silently pass.
                 assert!(!w.starts_with("nc "), "{} {key}: R gives {w}, gaply a number", case.name);
                 left_out.push(key.clone());
@@ -410,6 +424,7 @@ fn every_number_of_every_case_is_within_its_gate_of_r() {
                             (_, Some(Scale::Own)) => (v - wv).abs() / wv.abs(),
                             (_, Some(Scale::ResidualSd)) => (v - wv).abs() / scale_sd,
                             _ if perfect && key.ends_with(".b") => (v - wv).abs() / largest_b,
+                            _ if perfect && key.ends_with(".beta") => (v - wv).abs() / largest_beta,
                             _ => (v - wv).abs() / wv.abs().max(1e-12),
                         }
                     };
@@ -442,8 +457,8 @@ fn every_number_of_every_case_is_within_its_gate_of_r() {
     }
     println!("{results} results, {refusals} refusals, {compared} numbers compared, {} keys of essentially_perfect left out: {left_out:?}", left_out.len());
     assert_eq!((results, refusals), (14, 15));
-    assert_eq!(compared, 2497, "every number the generator wrote but the left-out keys");
-    assert_eq!(left_out.len(), 65, "essentially_perfect's left-out keys");
+    assert_eq!(compared, 2531, "every number the generator wrote but the left-out keys");
+    assert_eq!(left_out.len(), 31, "essentially_perfect's left-out keys, those built on its residuals (decision 683)");
     assert!(over.is_empty(), "over the gate:\n{}", over.join("\n"));
 }
 

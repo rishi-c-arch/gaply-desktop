@@ -2,7 +2,7 @@
 // OS, Phase 8C; decision 249). Pure data, one row per method: the run
 // manager's word for its runs (Rust's RunKind), its capability id, its name,
 // the shell's job name (none for the summary, whose sentence has no
-// parenthesis), its screen's route (null for crosstabs and the two rank tests, which have none), and its place in the Statistics window's
+// parenthesis), its screen's route (null for crosstabs, the two rank tests and the linear regression, which have none), and its place in the Statistics window's
 // Analyze menu (Research OS, Phase 8P, decision 451).
 //
 // RunKind, the capability names, the shell's job names and the Statistics
@@ -70,6 +70,18 @@ export const METHODS = [
     path: CORR_PATH,
     menuGroup: 'Correlate',
     menuLabel: 'Correlations…',
+  },
+  // Research OS, Phase 9A-2 (decisions 685 and 687). No page and no route
+  // (ADR-012:233-241). After the correlations' row, so Analyze's groups read in
+  // SPSS's order, Correlate then Regression.
+  {
+    kind: 'linear_regression',
+    capabilityId: 'stats.analyze.linear_regression',
+    name: 'Linear regression',
+    jobName: 'linear regression',
+    path: null,
+    menuGroup: 'Regression',
+    menuLabel: 'Linear…',
   },
   // Research OS, Phase 8I-2 (decision 384). The kind is Rust's RunKind word.
   {

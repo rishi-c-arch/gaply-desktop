@@ -13,6 +13,7 @@ import { defaultRunBridges, jobSentence, runKinds } from './useWorkspaceSwitch';
 import { makeMockXtabBridge } from '../statistics/xtabBridge';
 import { makeMockRanksBridge } from '../statistics/ranksBridge';
 import { makeMockRelatedRanksBridge } from '../statistics/relatedRanksBridge';
+import { makeMockLinearRegressionBridge } from '../statistics/linearRegressionBridge';
 import { makeMockWorkspaceBridge } from './workspaceBridge';
 import { makeMockDescribeBridge } from '../statistics/describeBridge';
 import type { DatasetView, RunStateView } from '../statistics/describeTypes';
@@ -172,6 +173,27 @@ describe("a rank test, through the switch's own kinds", () => {
     expect(ranks.calls).toEqual([
       ['stats_ranks_status', { runId: 12 }],
       ['stats_ranks_cancel', { runId: 12 }],
+    ]);
+    expect(summary.calls).toEqual([]);
+  });
+});
+
+// Research OS, Phase 9A-2 (decision 687): a linear regression is read and cancelled through its
+// own commands, never the summary's (9A-1's departure, closed).
+describe("a linear regression, through the switch's own kinds", () => {
+  it('is polled and cancelled through stats_linear_regression_status and stats_linear_regression_cancel, and the summary is never asked', async () => {
+    const lr = { runId: 15, state: 'running' as const, terminal: false, elapsedMs: 40, cancelRequested: false, stepsDone: 0, stepsTotal: 1, diagnostics: [] };
+    const linearRegression = makeMockLinearRegressionBridge({ stats_linear_regression_status: lr, stats_linear_regression_cancel: { ...lr, cancelRequested: true } });
+    const summary = makeMockDescribeBridge({});
+    const kinds = runKinds(defaultRunBridges({ linearRegression, describe: summary }));
+    expect(Object.keys(kinds)).toContain('linear_regression');
+    const job = await kinds.linear_regression.status(15);
+    expect(job).toEqual({ runId: 15, state: 'running', terminal: false, progress: null, kind: 'linear_regression' });
+    expect(jobSentence(job as NonNullable<typeof job>)).toBe('Run 15 (linear regression): Running.');
+    await kinds.linear_regression.cancel(15);
+    expect(linearRegression.calls).toEqual([
+      ['stats_linear_regression_status', { runId: 15 }],
+      ['stats_linear_regression_cancel', { runId: 15 }],
     ]);
     expect(summary.calls).toEqual([]);
   });

@@ -18,6 +18,7 @@ import { makeMockAlphaBridge } from '../statistics/alphaBridge';
 import { makeMockXtabBridge } from '../statistics/xtabBridge';
 import { makeMockRanksBridge } from '../statistics/ranksBridge';
 import { makeMockRelatedRanksBridge } from '../statistics/relatedRanksBridge';
+import { makeMockLinearRegressionBridge } from '../statistics/linearRegressionBridge';
 import type { TTestRunStateView } from '../statistics/ttestTypes';
 import type { RunKind, WorkspaceStateView } from './workspaceTypes';
 import type { RunStateView } from '../statistics/describeTypes';
@@ -759,5 +760,54 @@ describe('a rank test run in the shell', () => {
     expect(ranks.calls.filter(([c]) => c === 'stats_ranks_cancel')).toEqual([['stats_ranks_cancel', { runId: 12 }]]);
     expect(desc.calls).toEqual([]);
     expect(xtab.calls).toEqual([]);
+  });
+});
+
+// Research OS, Phase 9A-2 (decision 687): a linear regression's run, read and cancelled through
+// its own bridge, named by the methods table's job name, with no steps sentence.
+describe('a linear regression run in the shell', () => {
+  it('shows it, reads it through its own status, and Cancel cancels it through its own command', async () => {
+    let ended = false;
+    const ws = makeMockWorkspaceBridge({
+      workspace_state: () => ACTIVE(ended ? null : 15, 'linear_regression'),
+      workspace_deactivate: () => {
+        if (!ended) {
+          throw Object.assign(
+            new Error(JSON.stringify({ code: 'workspace.run_active', params: { workspace: 'statistics', run: 15 }, severity: 'error' })),
+            { code: 'validation' }
+          );
+        }
+        return NONE;
+      },
+    });
+    const desc = makeMockDescribeBridge({});
+    const relatedRanks = makeMockRelatedRanksBridge({});
+    const view = (state: 'running' | 'cancelled', terminal: boolean) => ({ runId: 15, state, terminal, elapsedMs: 80, cancelRequested: false, stepsDone: 0, stepsTotal: 1, diagnostics: [] });
+    const linearRegression = makeMockLinearRegressionBridge({
+      stats_linear_regression_status: () => (ended ? view('cancelled', true) : view('running', false)),
+      stats_linear_regression_cancel: () => {
+        ended = true;
+        return view('running', false);
+      },
+    });
+    render(
+      <MemoryRouter initialEntries={['/app/workspaces/statistics']}>
+        <Routes>
+          <Route
+            path="/app/workspaces/statistics"
+            element={<WorkspaceShell bridge={ws} runs={desc} relatedRanksRuns={relatedRanks} linearRegressionRuns={linearRegression} pollMs={20} />}
+          />
+          <Route path="/app/workspaces" element={<div data-testid="chooser-here" />} />
+        </Routes>
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(screen.getByTestId('ws-job').textContent).toBe('Run 15 (linear regression): Running.'));
+    fireEvent.click(screen.getByTestId('ws-switch'));
+    await screen.findByTestId('ws-switch-dialog');
+    fireEvent.click(screen.getByTestId('ws-switch-cancel'));
+    await screen.findByTestId('chooser-here');
+    expect(linearRegression.calls.filter(([c]) => c === 'stats_linear_regression_cancel')).toEqual([['stats_linear_regression_cancel', { runId: 15 }]]);
+    expect(desc.calls).toEqual([]);
+    expect(relatedRanks.calls).toEqual([]);
   });
 });
