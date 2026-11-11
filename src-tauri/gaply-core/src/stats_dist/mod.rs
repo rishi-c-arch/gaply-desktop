@@ -5,7 +5,10 @@
 //!
 //! Every p and quantile of the methods on the user's data comes from here:
 //! the three t-tests now (`stats_ttest`, `stats_onesample`), and the one-way
-//! ANOVA, the correlations and the regression when they come. Level 0 and
+//! ANOVA, the correlations and the linear regression, which uses
+//! [`t_two_tailed`], [`t_quantile_975`] and [`f_upper`] (Phase 9A-1, decision
+//! 670; `f_upper` measured at its df1 1 to 50 and df2 to 1e5 in
+//! `tests/stats_dist_reference.rs`, 1.096e-10 · R's `pf`). Level 0 and
 //! Level 1 keep `stats_l0::pvalue` as it is, and so does their own range
 //! (Level 0 gives Could not check above df 1e5, decision 90): this module
 //! names that engine's two functions under aliases, `l0_t_two_tailed` and

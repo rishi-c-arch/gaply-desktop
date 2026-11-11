@@ -47,6 +47,7 @@ use gaply_core::stats_anova::{self, AnovaParams, PostHoc};
 use gaply_core::stats_corr::{self, Coefficient, CorrParams, MissingHandling};
 use gaply_core::stats_desc::{self, Alias, DescribeParams};
 use gaply_core::stats_l1::dataset::ColumnAlias;
+use gaply_core::stats_linear_regression::{self, LinearRegressionParams};
 use gaply_core::stats_onesample::{self, OneSampleParams, PairedParams};
 use gaply_core::stats_ranks::{self, IndependentRanksParams};
 use gaply_core::stats_related_ranks::{self, RelatedRanksParams};
@@ -93,6 +94,7 @@ enum Kind {
     Crosstabs,
     IndependentRanks,
     RelatedRanks,
+    LinearRegression,
 }
 
 /// A manager whose hook panics at `Column(0)`, after cancelling the run
@@ -117,6 +119,7 @@ fn panicking(what: AtColumn0, kind: Kind) -> Arc<Runs> {
                 Kind::Crosstabs => drop(runs.xtab_cancel(run).expect("cancelled")),
                 Kind::IndependentRanks => drop(runs.ranks_cancel(run).expect("cancelled")),
                 Kind::RelatedRanks => drop(runs.related_ranks_cancel(run).expect("cancelled")),
+                Kind::LinearRegression => drop(runs.linear_regression_cancel(run).expect("cancelled")),
             }
         }
         panic!("the test's hook panics at column 0");
@@ -250,6 +253,16 @@ fn each_kind_says_its_own_panic_and_both_say_the_shared_lines() {
             missing_codes: vec![],
         },
     );
+    // Phase 9A-1 (decision 674): an outcome and a predictor on the PAIRS dataset.
+    let regression = stats_linear_regression::spec(
+        OperationId(11),
+        &pairs,
+        LinearRegressionParams {
+            outcome: Alias(ColumnAlias(1)),
+            predictors: vec![Alias(ColumnAlias(2))],
+            missing_codes: vec![],
+        },
+    );
     let pair_slot = slots
         .get(slots.insert("synthetic pairs".into(), pairs))
         .unwrap();
@@ -347,6 +360,19 @@ fn each_kind_says_its_own_panic_and_both_say_the_shared_lines() {
                 .is_terminal()
         });
         ends.push(runs.related_ranks_snapshot(run).unwrap().record.state);
+
+        let runs = panicking(what, Kind::LinearRegression);
+        let run = runs
+            .start_linear_regression(Arc::clone(&pair_slot), regression.clone())
+            .unwrap();
+        wait_for("the linear regression ended", || {
+            runs.linear_regression_snapshot(run)
+                .unwrap()
+                .record
+                .state
+                .is_terminal()
+        });
+        ends.push(runs.linear_regression_snapshot(run).unwrap().record.state);
     }
     let _ = std::panic::take_hook();
 
@@ -363,6 +389,8 @@ fn each_kind_says_its_own_panic_and_both_say_the_shared_lines() {
             RunState::Failed,
             RunState::Failed,
             RunState::Failed,
+            RunState::Failed,
+            RunState::Cancelled,
             RunState::Cancelled,
             RunState::Cancelled,
             RunState::Cancelled,
@@ -388,7 +416,8 @@ fn each_kind_says_its_own_panic_and_both_say_the_shared_lines() {
     assert_eq!(events(&lines, "stats_desc: crosstabs panicked"), 1);
     assert_eq!(events(&lines, "stats_desc: the rank tests panicked"), 1);
     assert_eq!(events(&lines, "stats_desc: the related rank tests panicked"), 1);
-    assert_eq!(events(&lines, "stats_desc: the run's work panicked"), 10);
-    assert_eq!(events(&lines, "stats_desc: run ended"), 20);
+    assert_eq!(events(&lines, "stats_desc: the linear regression panicked"), 1);
+    assert_eq!(events(&lines, "stats_desc: the run's work panicked"), 11);
+    assert_eq!(events(&lines, "stats_desc: run ended"), 22);
     assert_eq!(events(&lines, "stats_desc: a run event had no edge"), 0);
 }

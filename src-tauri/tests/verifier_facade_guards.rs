@@ -200,6 +200,17 @@ fn each_operation_path_calls_its_facade() {
             "admit",
             "stats_adapters::related_ranks_admit(",
         ),
+        // Research OS, Phase 9A-1 (decision 674).
+        (
+            "src/stats_linear_regression_commands.rs",
+            "validate",
+            "stats_adapters::linear_regression_validate(",
+        ),
+        (
+            "src/stats_linear_regression_commands.rs",
+            "admit",
+            "stats_adapters::linear_regression_admit(",
+        ),
         // Research OS, Phase 8M-3 (decision 425): no Method impl and no start,
         // so these and the direct-call scan below are what apply.
         (
@@ -305,6 +316,12 @@ fn each_operation_path_calls_its_facade() {
             "stats_adapters::related_ranks_validate(",
             "stats_adapters::related_ranks_run(",
         ),
+        // Phase 9A-1 (decision 674).
+        (
+            "LinearRegression",
+            "stats_adapters::linear_regression_validate(",
+            "stats_adapters::linear_regression_run(",
+        ),
     ] {
         let block = impl_block(&runs_src, &format!("impl Method for {method} {{"));
         for (f, facade) in [("validate", validate), ("compute", compute)] {
@@ -337,6 +354,8 @@ fn each_operation_path_calls_its_facade() {
         ("start_ranks_then", "self.begin::<IndependentRanks>("),
         ("start_related_ranks", "self.begin::<RelatedRanks>("),
         ("start_related_ranks_then", "self.begin::<RelatedRanks>("),
+        ("start_linear_regression", "self.begin::<LinearRegression>("),
+        ("start_linear_regression_then", "self.begin::<LinearRegression>("),
     ] {
         assert!(
             squash(fn_body(&runs_src, f)).contains(through),
@@ -396,6 +415,9 @@ fn each_operation_path_calls_its_facade() {
         "stats_related_ranks::validate(",
         "stats_related_ranks::run(",
         "stats_related_ranks::compute(",
+        "stats_linear_regression::validate(",
+        "stats_linear_regression::run(",
+        "stats_linear_regression::compute(",
     ] {
         assert!(
             !runs.contains(direct),

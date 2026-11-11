@@ -87,6 +87,9 @@ pub mod stats_desc;
 pub mod stats_dist;
 pub mod stats_l0;
 pub mod stats_l1;
+// Research OS Phase 9A-1: ordinary least squares linear regression, the pure
+// core.
+pub mod stats_linear_regression;
 // Research OS Phase 8D-1: the one-sample and paired t-tests, the pure core.
 pub mod stats_onesample;
 pub mod stats_prep;

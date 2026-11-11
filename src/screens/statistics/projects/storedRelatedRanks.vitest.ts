@@ -35,6 +35,13 @@ const nc = (c: string) => ({ not_computable: code(c) });
 const wil = (b: O) => b.primaryOutputs.test.wilcoxon;
 const fri = (b: O) => b.primaryOutputs.test.friedman;
 
+/** z as stats_related_ranks::z_and_p computes it with no tie runs (stats_related_ranks/mod.rs:700-701),
+ *  in Rust's operation order: the tie sum is 0 when no two sizes are tied (decision 668). */
+const wilcoxonZ = (v: number, n: number) => {
+  const variance = (n * (n + 1) * (2 * n + 1)) / 24 - 0 / 48;
+  return (v - (n * (n + 1)) / 4) / Math.sqrt(variance);
+};
+
 /** A Wilcoxon result as Rust would write it for these two sides and zero differences. */
 function setW(b: O, neg: [number, number], pos: [number, number], zero = 0, tieRuns = 0) {
   const r = b.primaryOutputs;
@@ -55,8 +62,11 @@ function setW(b: O, neg: [number, number], pos: [number, number], zero = 0, tieR
     t.z = nc('all_differences_zero');
     t.p = nc('all_differences_zero');
     t.rankBiserial = nc('all_differences_zero');
+    // Decision 668: every difference zero, so Rust's median difference is 0.
+    t.medianDifference = { value: 0 };
   } else {
-    t.z = { value: Math.sign(t.v - t.tMinus) * 0.5 };
+    // Decision 668: Rust's z when no two sizes are tied; a placeholder of the right sign otherwise.
+    t.z = { value: tieRuns === 0 ? wilcoxonZ(t.v, n) : Math.sign(t.v - t.tMinus) * 0.5 };
     t.p = { value: 0.5 };
     t.rankBiserial = { value: (t.v - t.tMinus) / top };
   }
@@ -107,11 +117,6 @@ describe('what Rust writes is opened (decision 657)', () => {
     ['one sign only', (b) => setW(b, [0, 0], [6, 21])],
     ['50 pairs', (b) => setW(b, [40, 1000], [10, 275])],
     ['fewer than 5 pairs', (b) => setW(b, [2, 7], [2, 3])],
-    ['overflow in z and p', (b) => {
-      setW(b, [3, 12], [3, 9]);
-      wil(b).z = nc('overflow');
-      wil(b).p = nc('overflow');
-    }],
     ['a numeric z beside a p that overflowed', (b) => {
       setW(b, [3, 12], [3, 9]);
       wil(b).p = nc('overflow');
@@ -366,7 +371,8 @@ describe('the Wilcoxon form (decision 657)', () => {
       wil(b).v = 11;
       wil(b).tMinus = 10;
       wil(b).negative = { count: 3, rankSum: 10, meanRank: 10 / 3 };
-      wil(b).z = { value: 0.5 };
+      // Decision 668: Rust's z for the edited V and n, so only the n rule refuses it.
+      wil(b).z = { value: wilcoxonZ(11, 6) };
       wil(b).rankBiserial = { value: (11 - 10) / 21 };
     }))).toBe(BAD);
   });
@@ -402,6 +408,7 @@ describe('the Wilcoxon form (decision 657)', () => {
       wil(b).tMinus = 18;
       wil(b).negative = { count: 3, rankSum: 18, meanRank: 6 };
       wil(b).rankBiserial = { value: (3 - 18) / 21 };
+      wil(b).z = { value: wilcoxonZ(3, 6) };
     }))).toBe(BAD);
   });
 
@@ -431,6 +438,7 @@ describe('the Wilcoxon form (decision 657)', () => {
       wil(b).tMinus = 11;
       wil(b).negative = { count: 3, rankSum: 11, meanRank: 11 / 3 };
       wil(b).rankBiserial = { value: (10 - 11) / 21 };
+      wil(b).z = { value: wilcoxonZ(10, 6) };
     }))).toBe(BAD);
   });
 
@@ -488,20 +496,22 @@ describe('the Wilcoxon form (decision 657)', () => {
     }))).toBe(BAD);
   });
 
+  // Decision 668: with a tie run, so the sign rule is the only one that can refuse these
+  // (with none, z must also be Rust's value, a rule of its own below).
   it('refuses a z whose sign is not that of V less T-', () => {
     expect(kindOf(changed(W, (b) => {
-      setW(b, [3, 12], [3, 9]);
+      setW(b, [3, 12], [3, 9], 0, 1);
       wil(b).z = { value: 0.5 };
     }))).toBe(BAD);
     expect(kindOf(changed(W, (b) => {
-      setW(b, [3, 12], [3, 9]);
+      setW(b, [3, 12], [3, 9], 0, 1);
       wil(b).z = { value: 0 };
     }))).toBe(BAD);
   });
 
   it('refuses a z not computable beside a p of another kind', () => {
     expect(kindOf(changed(W, (b) => {
-      setW(b, [3, 12], [3, 9]);
+      setW(b, [3, 12], [3, 9], 0, 1);
       wil(b).z = nc('overflow');
     }))).toBe(BAD);
   });
@@ -682,6 +692,65 @@ describe('the Friedman form (decision 657)', () => {
     expect(kindOf(changed(F, (b) => {
       setF(b, 6, [10, 12, 14]);
       b.primaryOutputs.notes = [code('exact_not_given_ties')];
+    }))).toBe(BAD);
+  });
+});
+
+/** Decision 668: what stats_related_ranks never writes, found by decision 667's review. Each
+ *  case its own rule, each rule's red a mutation (decision 502). */
+describe('what stats_related_ranks never writes (decision 668)', () => {
+  const zero = (b: O) => setW(b, [0, 0], [0, 0], 6, 0);
+
+  it('takes every difference zero as Rust writes it', () => {
+    expect(kindOf(changed(W, zero))).toBe(OK);
+  });
+
+  it('refuses an extra value beside all_differences_zero on z, p or the correlation', () => {
+    for (const k of ['z', 'p', 'rankBiserial']) {
+      expect(kindOf(changed(W, (b) => {
+        zero(b);
+        wil(b)[k] = { ...nc('all_differences_zero'), value: 1 };
+      })), k).toBe(BAD);
+    }
+  });
+
+  it('refuses an extra value that is not a number beside all_differences_zero', () => {
+    expect(kindOf(changed(W, (b) => {
+      zero(b);
+      wil(b).z = { ...nc('all_differences_zero'), value: 'x' };
+    }))).toBe(BAD);
+  });
+
+  it('refuses a median difference other than 0 when every difference is zero', () => {
+    expect(kindOf(changed(W, (b) => {
+      zero(b);
+      wil(b).medianDifference = { value: 7 };
+    }))).toBe(BAD);
+    expect(kindOf(changed(W, (b) => {
+      zero(b);
+      wil(b).medianDifference = nc('overflow');
+    }))).toBe(BAD);
+  });
+
+  it('takes a median difference of -0 when every difference is zero', () => {
+    expect(kindOf(changed(W, (b) => {
+      zero(b);
+      wil(b).medianDifference = { value: -0 };
+    }))).toBe(OK);
+  });
+
+  it("refuses, with no tie runs, a z other than Rust's from V and n, of the right sign", () => {
+    expect(kindOf(changed(W, (b) => {
+      setW(b, [3, 12], [3, 9]);
+      wil(b).z = { value: wilcoxonZ(9, 6) * 2 };
+    }))).toBe(BAD);
+  });
+
+  it('refuses, with no tie runs, z and p that overflowed, which Rust cannot write there', () => {
+    expect(kindOf(changed(W, (b) => {
+      setW(b, [3, 12], [3, 9]);
+      wil(b).z = nc('overflow');
+      wil(b).p = nc('overflow');
     }))).toBe(BAD);
   });
 });

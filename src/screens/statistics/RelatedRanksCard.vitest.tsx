@@ -150,7 +150,9 @@ describe('the rest of the card', () => {
     expect(screen.getByTestId('rr-exclusions').textContent).toContain('No row was left out.');
   });
 
-  it('puts a label sentinel in no attribute, key or test id', () => {
+  // Decision 668: this reads the DOM's attributes, test ids among them; React keys never reach
+  // the DOM, so it cannot see them. The keys were read instead (decision 667): aliases and codes.
+  it('puts a label sentinel in no attribute or test id', () => {
     const sentinel = 'LBL_SENTINEL_a';
     const { container } = render(<RelatedRanksCard result={w} names={{ column: () => sentinel }} />);
     expect(container.textContent).toContain(sentinel);

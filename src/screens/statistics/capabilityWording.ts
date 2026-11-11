@@ -124,6 +124,28 @@ export const CAPABILITY_WORDS: Record<string, string> = {
     "The sign test, the marginal homogeneity test and Cochran's Q test are not given.",
   'stats.capability.limit.analyze.related_columns_in_chosen_order':
     'Columns are taken in the order you choose them: the Wilcoxon differences are the first column less the second, and the signs of z and of the matched-pairs rank-biserial correlation follow that order.',
+  // Phase 9A-1 (decisions 669, 672 and 673): the linear regression, Planned in Part 2
+  // and Beta from Part 3 (decision 674).
+  'stats.capability.analyze.linear_regression.title': 'Linear regression on your data',
+  'stats.capability.analyze.linear_regression.description':
+    'Fits an ordinary least squares regression of one numeric column of your own data file on one or more others, entered together, with the model summary, the analysis of variance, each coefficient with its standard error, t, p and 95% confidence interval, the standardized coefficients, the zero-order, partial and part correlations, tolerance and VIF, the Durbin-Watson statistic and a summary of the residuals.',
+  'stats.capability.limit.analyze.regression_enter_only':
+    'Every chosen predictor is entered at once; stepwise, forward and backward methods, and blocks of predictors, are not offered.',
+  'stats.capability.limit.analyze.regression_no_categorical_predictors':
+    'Each predictor is taken as a number; a categorical predictor is not coded into indicator columns for you.',
+  'stats.capability.limit.analyze.regression_no_interaction_terms':
+    'No interaction or polynomial terms are formed; only the columns you choose enter the model.',
+  'stats.capability.limit.analyze.regression_intercept_always':
+    'The model always has an intercept; regression through the origin is not offered.',
+  'stats.capability.limit.analyze.regression_listwise_only':
+    'A row is used only when the outcome and every predictor have a value; pairwise deletion and mean substitution are not offered.',
+  'stats.capability.limit.analyze.regression_no_robust_errors':
+    'Standard errors assume the residuals have equal variance; heteroscedasticity-consistent standard errors are not given.',
+  'stats.capability.limit.analyze.regression_no_casewise_diagnostics':
+    'Casewise diagnostics, residual plots, influence statistics, and predicted values or residuals saved as columns are not given.',
+  'stats.capability.limit.analyze.durbin_watson_row_order':
+    "The Durbin-Watson statistic takes the rows in the file's order, so it describes serial correlation only when that order means something, such as time.",
+  'stats.capability.limit.analyze.regression_intervals_95_only': 'Confidence intervals are at 95%; other levels are not offered.',
   // Phase 8M (decision 411): scale scores, Planned in 8M and Beta since 8M-2's
   // Part 2 (decision 416), with no route yet.
   'stats.capability.prepare.scale_score.title': 'Scale scores',

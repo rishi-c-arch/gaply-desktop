@@ -1337,3 +1337,63 @@ fn every_related_ranks_command_checks_the_workspace_first() {
         failures.join("\n")
     );
 }
+
+/// Phase 9A-1 (decision 674): the linear regression's six commands, each
+/// checking the workspace first, in the same form; none is exempt. (registered
+/// path) No other family's prefix starts `stats_linear_regression_`, and it
+/// starts no other's: the nearest is `stats_l1_`.
+const LINEAR_REGRESSION_OPERATIONS: &[&str] = &[
+    "stats_linear_regression_commands::stats_linear_regression_validate",
+    "stats_linear_regression_commands::stats_linear_regression_run",
+    "stats_linear_regression_commands::stats_linear_regression_status",
+    "stats_linear_regression_commands::stats_linear_regression_result",
+    "stats_linear_regression_commands::stats_linear_regression_cancel",
+    "stats_linear_regression_commands::stats_linear_regression_export",
+];
+
+#[test]
+fn every_linear_regression_command_checks_the_workspace_first() {
+    let all = registered();
+    assert!(all.len() > 100, "the handler parse is inert");
+    let mut family: Vec<&str> = all
+        .iter()
+        .map(|p| p.as_str())
+        .filter(|p| p.starts_with("stats_linear_regression_commands::"))
+        .collect();
+    family.sort_unstable();
+    let mut listed: Vec<&str> = LINEAR_REGRESSION_OPERATIONS.to_vec();
+    listed.sort_unstable();
+    assert_eq!(
+        family, listed,
+        "every registered stats_linear_regression_commands command is listed, and every listed one is registered"
+    );
+    // Nothing registers a stats_linear_regression_* command from another module.
+    for p in &all {
+        if p.rsplit("::")
+            .next()
+            .is_some_and(|n| n.starts_with("stats_linear_regression_"))
+        {
+            assert!(p.starts_with("stats_linear_regression_commands::"), "{p}");
+        }
+    }
+
+    let src = without_line_comments(&read(&root().join("src/stats_linear_regression_commands.rs")));
+    let mut failures = Vec::new();
+    for path in LINEAR_REGRESSION_OPERATIONS {
+        let name = path.rsplit("::").next().unwrap();
+        match fn_body(&src, name) {
+            Some(body) if checks_first(body) => {}
+            Some(body) => failures.push(format!(
+                "{path}: first statement is `{}`",
+                body.split(';').next().unwrap_or("").trim()
+            )),
+            None => failures.push(format!("{path}: no body found")),
+        }
+    }
+    println!("gated {} linear regression commands", LINEAR_REGRESSION_OPERATIONS.len());
+    assert!(
+        failures.is_empty(),
+        "decision 674:\n{}",
+        failures.join("\n")
+    );
+}

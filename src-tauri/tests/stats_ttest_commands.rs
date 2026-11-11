@@ -967,6 +967,7 @@ fn run_ids_and_slot_numbers_stay_unique_across_both_kinds() {
             RunKind::Crosstabs => "stats_xtab_status",
             RunKind::IndependentRanks => "stats_ranks_status",
             RunKind::RelatedRanks => "stats_related_ranks_status",
+            RunKind::LinearRegression => "stats_linear_regression_status",
         };
         assert_eq!(
             code_of(&call(&w.w, cmd, json!({ "runId": run })).unwrap_err()),

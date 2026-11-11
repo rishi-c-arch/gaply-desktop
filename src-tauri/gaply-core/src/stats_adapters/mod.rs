@@ -68,6 +68,13 @@
 //!   same way, a registry refusal worded `stats.related_ranks.unknown_capability`
 //!   or `stats.related_ranks.capability_version_mismatch`. Beta since 8Z-1's Part
 //!   3 (decision 641).
+//! * [`linear_regression_admit`], [`linear_regression_validate`] and
+//!   [`linear_regression_run`] (`stats.analyze.linear_regression`, Phase 9A-1,
+//!   decision 672): `stats_linear_regression::validate` and
+//!   `stats_linear_regression::run`, the same way, a registry refusal worded
+//!   `stats.linear_regression.unknown_capability` or
+//!   `stats.linear_regression.capability_version_mismatch`. Beta since 9A-1's
+//!   Part 3 (decision 674).
 //! * [`prep_runnable`], [`prep_admit`], [`prep_validate`], [`prep_build`],
 //!   [`prep_original`] and [`prep_csv`] (`stats.prepare.scale_score`, Phase
 //!   8M-3, decision 425): `stats_prep::validate`, `build`, `original` and
@@ -104,6 +111,9 @@ use crate::stats_l1::dataset::{DataFingerprint, Dataset, L1IngestRefusal};
 use crate::stats_l1::reproduce::{reproduce, ReproductionOutcome};
 use crate::stats_l1::run_state::L1RunState;
 use crate::stats_l1::token::ConfirmationToken;
+use crate::stats_linear_regression::{
+    self, LinearRegressionCode, LinearRegressionOutcome, LinearRegressionParams,
+};
 use crate::stats_onesample::{
     self, OneSampleCode, OneSampleParams, OneSampleResult, PairedParams, PairedResult,
 };
@@ -1272,6 +1282,110 @@ pub(crate) fn related_ranks_run_in<B>(
     related_ranks_entry(registry, spec, build)
         .map_err(|r| stats_related_ranks::Halt::Refused(related_ranks_refusal(&r)))?;
     stats_related_ranks::run(dataset, &spec.parameters, checkpoint)
+}
+
+/* ------------------------------------------------------------------------ *
+ *  stats.analyze.linear_regression (Phase 9A-1)
+ * ------------------------------------------------------------------------ */
+
+/// A registry refusal in the linear regression's own codes, as [`xtab_refusal`] does.
+fn linear_regression_refusal(r: &Refusal) -> Diagnostic<LinearRegressionCode> {
+    match r.code {
+        CapabilityCode::VersionMismatch => {
+            let int = |k| match r.params.get(&k) {
+                Some(ParamValue::Int(n)) => *n,
+                _ => 0,
+            };
+            Diagnostic::error(LinearRegressionCode::CapabilityVersionMismatch)
+                .int(ParamKey::Expected, int(ParamKey::Expected))
+                .int(ParamKey::Found, int(ParamKey::Found))
+        }
+        _ => Diagnostic::error(LinearRegressionCode::UnknownCapability),
+    }
+}
+
+/// The registry's check for a linear regression spec, as [`xtab_entry`] does: a
+/// registered, runnable entry of the linear regression's kind, and no confirmation.
+fn linear_regression_entry(
+    registry: &Registry,
+    spec: &OperationSpec<LinearRegressionParams>,
+    build: Build,
+) -> Result<(), Refusal> {
+    let entry = runnable(registry, spec, build)?;
+    if entry.kind != Kind::AnalyzeLinearRegression {
+        return Err(refused(CapabilityCode::UnknownCapability));
+    }
+    no_confirmation(spec)
+}
+
+/// The registry's answer for a linear regression spec, as it gives it, for the
+/// app's `stats_linear_regression_*` commands, as [`xtab_admit`] is for crosstabs.
+pub fn linear_regression_admit(
+    spec: &OperationSpec<LinearRegressionParams>,
+    build: Build,
+) -> Result<(), Refusal> {
+    linear_regression_entry(&Registry::statistics(), spec, build)
+}
+
+/// `stats.analyze.linear_regression`'s validation: the registry first, so a spec
+/// the registry refuses is `Unsupported` before anything reads the dataset; then
+/// `stats_linear_regression::validate`, unchanged.
+pub fn linear_regression_validate(
+    spec: &OperationSpec<LinearRegressionParams>,
+    build: Build,
+    dataset: &Dataset,
+) -> ValidationReport<LinearRegressionCode> {
+    linear_regression_validate_in(&Registry::statistics(), spec, build, dataset)
+}
+
+pub(crate) fn linear_regression_validate_in(
+    registry: &Registry,
+    spec: &OperationSpec<LinearRegressionParams>,
+    build: Build,
+    dataset: &Dataset,
+) -> ValidationReport<LinearRegressionCode> {
+    match linear_regression_entry(registry, spec, build) {
+        Ok(()) => stats_linear_regression::validate(dataset, spec),
+        Err(r) => {
+            let rows = dataset.rows() as u64;
+            let columns = spec.parameters.predictors.len() as u64 + 1;
+            let estimate = ResourceEstimate {
+                rows,
+                columns,
+                cells: rows.saturating_mul(columns),
+            };
+            ValidationReport::new(
+                vec![linear_regression_refusal(&r)],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                estimate,
+            )
+        }
+    }
+}
+
+/// `stats.analyze.linear_regression`'s run: the registry again, then
+/// `stats_linear_regression::run`, unchanged, with its one check point.
+pub fn linear_regression_run<B>(
+    spec: &OperationSpec<LinearRegressionParams>,
+    build: Build,
+    dataset: &Dataset,
+    checkpoint: impl FnMut(usize) -> ControlFlow<B>,
+) -> Result<LinearRegressionOutcome, stats_linear_regression::Halt<B>> {
+    linear_regression_run_in(&Registry::statistics(), spec, build, dataset, checkpoint)
+}
+
+pub(crate) fn linear_regression_run_in<B>(
+    registry: &Registry,
+    spec: &OperationSpec<LinearRegressionParams>,
+    build: Build,
+    dataset: &Dataset,
+    checkpoint: impl FnMut(usize) -> ControlFlow<B>,
+) -> Result<LinearRegressionOutcome, stats_linear_regression::Halt<B>> {
+    linear_regression_entry(registry, spec, build)
+        .map_err(|r| stats_linear_regression::Halt::Refused(linear_regression_refusal(&r)))?;
+    stats_linear_regression::run(dataset, &spec.parameters, checkpoint)
 }
 
 /* ------------------------------------------------------------------------ *
@@ -2782,5 +2896,122 @@ mod related_ranks_facade_tests {
         assert_eq!(codes(&related_ranks_validate_in(&real, &c, b, &d)), [RelatedRanksCode::UnknownCapability]);
         assert_eq!(related_ranks_validate_in(&real, &good, b, &d), stats_related_ranks::validate(&d, &good));
         assert_eq!(related_ranks_run_in(&real, &good, b, &d, go).unwrap(), stats_related_ranks::compute(&d, &good.parameters).unwrap());
+    }
+}
+
+#[cfg(test)]
+mod linear_regression_facade_tests {
+    use super::*;
+    use crate::contracts::capability::Lifecycle;
+    use crate::stats_desc::Alias;
+    use crate::stats_l1::dataset::{
+        build_dataset, ColumnAlias, DataFingerprint, RawTable, TableRef,
+    };
+    use crate::stats_linear_regression::Halt;
+
+    fn data() -> Dataset {
+        let rows: Vec<Vec<String>> = [("1.5", "2.5"), ("3.5", "2.75"), ("4.5", "1.25"), ("7.5", "3.5"), ("8.5", "0.5")]
+            .iter()
+            .map(|(a, b)| vec![a.to_string(), b.to_string()])
+            .collect();
+        build_dataset(
+            RawTable::from_rows(vec!["y".into(), "x".into()], rows),
+            DataFingerprint::of_bytes(b"regression facade", "test", TableRef::FirstTable),
+        )
+        .expect("dataset")
+    }
+
+    fn forged(d: &Dataset, id: &str, version: u32) -> OperationSpec<LinearRegressionParams> {
+        let mut s = stats_linear_regression::spec(
+            OperationId(7),
+            d,
+            LinearRegressionParams {
+                outcome: Alias(ColumnAlias(1)),
+                predictors: vec![Alias(ColumnAlias(2))],
+                missing_codes: Vec::new(),
+            },
+        );
+        s.capability_id = CapabilityId::parse(id).unwrap();
+        s.capability_version = version;
+        s
+    }
+
+    fn go(_: usize) -> ControlFlow<()> {
+        ControlFlow::Continue(())
+    }
+
+    fn codes(r: &ValidationReport<LinearRegressionCode>) -> Vec<LinearRegressionCode> {
+        r.errors.iter().map(|e| e.code).collect()
+    }
+
+    fn unknown() -> Halt<()> {
+        Halt::Refused(Diagnostic::error(LinearRegressionCode::UnknownCapability))
+    }
+
+    /// Decision 674: Beta since Part 3, the real registry.
+    fn beta() -> Registry {
+        Registry::statistics()
+    }
+
+    #[test]
+    fn a_beta_registry_admits_the_linear_regression_and_runs_it_as_the_module_does() {
+        let d = data();
+        let s = forged(&d, stats_linear_regression::CAPABILITY_ID, 1);
+        for build in [Build::Standard, Build::Devtools] {
+            assert!(linear_regression_validate_in(&beta(), &s, build, &d).may_run(), "{build:?}");
+            assert_eq!(
+                linear_regression_run_in(&beta(), &s, build, &d, go).ok(),
+                stats_linear_regression::compute(&d, &s.parameters).ok(),
+                "{build:?}: the module's own result"
+            );
+        }
+    }
+
+    /// Decision 674: Beta since Part 3, so the real registry admits it and runs
+    /// it through the public façade; a Planned entry is refused.
+    #[test]
+    fn the_real_registry_admits_it_and_a_planned_entry_is_refused() {
+        let d = data();
+        let s = forged(&d, stats_linear_regression::CAPABILITY_ID, 1);
+        let planned = Registry::statistics().with_lifecycle(stats_linear_regression::CAPABILITY_ID, Lifecycle::Planned);
+        for build in [Build::Standard, Build::Devtools] {
+            assert!(linear_regression_admit(&s, build).is_ok(), "{build:?}");
+            assert!(linear_regression_validate(&s, build, &d).may_run(), "{build:?}");
+            assert_eq!(
+                linear_regression_run(&s, build, &d, go).ok(),
+                stats_linear_regression::compute(&d, &s.parameters).ok(),
+                "{build:?}: through the public façade"
+            );
+            assert_eq!(codes(&linear_regression_validate_in(&planned, &s, build, &d)), [LinearRegressionCode::UnknownCapability], "{build:?}");
+            assert_eq!(linear_regression_run_in(&planned, &s, build, &d, go).unwrap_err(), unknown(), "{build:?}");
+        }
+    }
+
+    #[test]
+    fn the_facade_refuses_forged_specs() {
+        let d = data();
+        let b = Build::Devtools;
+        let real = beta();
+        for id in [
+            "stats.analyze.linear_regression_robust",
+            "stats.describe",
+            "stats.verify.ols",
+            "stats.analyze.related_ranks",
+        ] {
+            let s = forged(&d, id, 1);
+            assert_eq!(codes(&linear_regression_validate_in(&real, &s, b, &d)), [LinearRegressionCode::UnknownCapability], "{id}");
+            assert!(!linear_regression_validate_in(&real, &s, b, &d).may_run(), "{id}");
+            assert_eq!(linear_regression_run_in(&real, &s, b, &d, go).unwrap_err(), unknown(), "{id}");
+        }
+        let v = linear_regression_validate_in(&real, &forged(&d, stats_linear_regression::CAPABILITY_ID, 2), b, &d);
+        assert_eq!(codes(&v), [LinearRegressionCode::CapabilityVersionMismatch]);
+        assert_eq!(v.errors[0].params.get(&ParamKey::Expected), Some(&ParamValue::Int(1)));
+        assert_eq!(v.errors[0].params.get(&ParamKey::Found), Some(&ParamValue::Int(2)));
+        let good = forged(&d, stats_linear_regression::CAPABILITY_ID, 1);
+        let mut c = good.clone();
+        c.confirmation_refs = vec![ConfirmationId::parse(&"ef".repeat(32)).unwrap()];
+        assert_eq!(codes(&linear_regression_validate_in(&real, &c, b, &d)), [LinearRegressionCode::UnknownCapability]);
+        assert_eq!(linear_regression_validate_in(&real, &good, b, &d), stats_linear_regression::validate(&d, &good));
+        assert_eq!(linear_regression_run_in(&real, &good, b, &d, go).unwrap(), stats_linear_regression::compute(&d, &good.parameters).unwrap());
     }
 }

@@ -113,6 +113,12 @@
 //! (decision 656) the Statistics window's Related samples… dialog starts it, and a
 //! project reruns it.
 //!
+//! Research OS, Phase 9A-1 (decision 674): a record may hold the linear
+//! regression, started with [`Runs::start_linear_regression`]. Its one check
+//! point is `stats_linear_regression::run`'s, before the arithmetic, and the
+//! record's `columns_total` is `stats_linear_regression::check_points`, one.
+//! No window starts it until 9A-2.
+//!
 //! Phase 3: the run manager and the slots belong to the Statistics workspace
 //! (`crate::workspace`), built when it is activated and dropped when it is
 //! left. [`Runs::seal`] is how it is left: under the records' lock it either
@@ -160,6 +166,9 @@ use gaply_core::stats_ranks::{
 };
 use gaply_core::stats_related_ranks::{
     self, RelatedRanksCode, RelatedRanksOutcome, RelatedRanksParams,
+};
+use gaply_core::stats_linear_regression::{
+    self, LinearRegressionCode, LinearRegressionOutcome, LinearRegressionParams,
 };
 use gaply_core::stats_xtab::{self, CrosstabsOutcome, CrosstabsParams, XtabCode};
 use gaply_core::stats_ttest::{self, TTestCode, TTestParams, TTestResult};
@@ -735,6 +744,10 @@ pub enum RunKind {
     /// `stats.analyze.related_ranks`, through the `stats_related_ranks_*`
     /// commands (Research OS, Phase 8Z-1, decision 641).
     RelatedRanks,
+    /// `stats.analyze.linear_regression`, through the
+    /// `stats_linear_regression_*` commands (Research OS, Phase 9A-1, decision
+    /// 674).
+    LinearRegression,
 }
 
 /// The data a run read: its slot, and the SHA-256 of the original bytes the
@@ -865,6 +878,7 @@ enum Held {
     Crosstabs(Outputs<CrosstabsOutcome, XtabCode>),
     IndependentRanks(Outputs<IndependentRanksOutcome, RanksCode>),
     RelatedRanks(Outputs<RelatedRanksOutcome, RelatedRanksCode>),
+    LinearRegression(Outputs<LinearRegressionOutcome, LinearRegressionCode>),
 }
 
 impl Held {
@@ -933,6 +947,7 @@ enum Job {
     Crosstabs(OperationSpec<CrosstabsParams>),
     IndependentRanks(OperationSpec<IndependentRanksParams>),
     RelatedRanks(OperationSpec<RelatedRanksParams>),
+    LinearRegression(OperationSpec<LinearRegressionParams>),
 }
 
 impl Job {
@@ -963,6 +978,7 @@ enum Report {
     Crosstabs(ValidationReport<XtabCode>),
     IndependentRanks(ValidationReport<RanksCode>),
     RelatedRanks(ValidationReport<RelatedRanksCode>),
+    LinearRegression(ValidationReport<LinearRegressionCode>),
 }
 
 impl Report {
@@ -984,6 +1000,7 @@ enum Done {
     Crosstabs(Finished<Crosstabs>),
     IndependentRanks(Finished<IndependentRanks>),
     RelatedRanks(Finished<RelatedRanks>),
+    LinearRegression(Finished<LinearRegression>),
 }
 
 /* ------------------------------------------------------------------------ *
@@ -1037,6 +1054,10 @@ macro_rules! by_method {
             }
             $enum::RelatedRanks($x) => {
                 type $m = RelatedRanks;
+                $body
+            }
+            $enum::LinearRegression($x) => {
+                type $m = LinearRegression;
                 $body
             }
         }
@@ -2170,6 +2191,112 @@ impl Method for RelatedRanks {
     }
 }
 
+/// `stats.analyze.linear_regression`, through the `stats_linear_regression_*`
+/// commands (Research OS, Phase 9A-1, decision 674).
+struct LinearRegression;
+
+impl Method for LinearRegression {
+    const KIND: RunKind = RunKind::LinearRegression;
+    type Params = LinearRegressionParams;
+    type Result = LinearRegressionOutcome;
+    type Code = LinearRegressionCode;
+    type Halt = stats_linear_regression::Halt<Stop>;
+
+    /// `stats_linear_regression::check_points`: one, before the arithmetic.
+    fn columns_total(_: &OperationSpec<LinearRegressionParams>, _: &Dataset) -> usize {
+        stats_linear_regression::check_points()
+    }
+
+    fn validate(
+        spec: &OperationSpec<LinearRegressionParams>,
+        dataset: &Dataset,
+    ) -> ValidationReport<LinearRegressionCode> {
+        // Through `stats.analyze.linear_regression`' façade: the registry
+        // first, then `stats_linear_regression::validate`, unchanged.
+        stats_adapters::linear_regression_validate(spec, crate::workspace::build(), dataset)
+    }
+
+    fn compute(
+        spec: &OperationSpec<LinearRegressionParams>,
+        build: Build,
+        dataset: &Dataset,
+        checkpoint: impl FnMut(usize) -> ControlFlow<Stop>,
+    ) -> Result<LinearRegressionOutcome, stats_linear_regression::Halt<Stop>> {
+        // One check point, before the arithmetic.
+        stats_adapters::linear_regression_run(spec, build, dataset, checkpoint)
+    }
+
+    fn manifest(
+        spec: &OperationSpec<LinearRegressionParams>,
+        dataset: &Dataset,
+        result: &LinearRegressionOutcome,
+        elapsed: u64,
+    ) -> RunManifest<LinearRegressionCode> {
+        stats_linear_regression::manifest(spec, dataset, result, elapsed, Platform::current())
+    }
+
+    /// The result's own limitations, as notes.
+    fn limitations(result: &LinearRegressionOutcome) -> Vec<Diagnostic<LinearRegressionCode>> {
+        result
+            .limitations
+            .iter()
+            .map(|c| Diagnostic::note(*c))
+            .collect()
+    }
+
+    /// Its one check point on a result; a stop leaves the count the check
+    /// point set.
+    fn columns_done(total: usize, outcome: &Outcome<Self>) -> Option<usize> {
+        match outcome {
+            Ok(Ok(_)) => Some(total),
+            Ok(Err(_)) | Err(_) => None,
+        }
+    }
+
+    fn halted(halt: stats_linear_regression::Halt<Stop>) -> Halted<LinearRegressionCode> {
+        match halt {
+            stats_linear_regression::Halt::Stopped { reason } => Halted::Stopped(reason),
+            stats_linear_regression::Halt::Refused(d) => Halted::Refused(d),
+        }
+    }
+
+    fn panicked() {
+        tracing::warn!("stats_desc: the linear regression panicked");
+    }
+
+    fn outputs(held: &Held) -> Option<&Outputs<LinearRegressionOutcome, LinearRegressionCode>> {
+        if let Held::LinearRegression(o) = held {
+            Some(o)
+        } else {
+            None
+        }
+    }
+
+    fn outputs_mut(held: &mut Held) -> Option<&mut Outputs<LinearRegressionOutcome, LinearRegressionCode>> {
+        if let Held::LinearRegression(o) = held {
+            Some(o)
+        } else {
+            None
+        }
+    }
+
+    fn held(outputs: Outputs<LinearRegressionOutcome, LinearRegressionCode>) -> Held {
+        Held::LinearRegression(outputs)
+    }
+
+    fn job(spec: OperationSpec<LinearRegressionParams>) -> Job {
+        Job::LinearRegression(spec)
+    }
+
+    fn report(report: ValidationReport<LinearRegressionCode>) -> Report {
+        Report::LinearRegression(report)
+    }
+
+    fn done(finished: Finished<Self>) -> Done {
+        Done::LinearRegression(finished)
+    }
+}
+
 /// An end hook that is due, with what it is called with: called only once
 /// the records' lock is released (Phase 5C-1a).
 struct Due {
@@ -2515,6 +2642,28 @@ impl Runs {
         end: EndHook,
     ) -> Result<RunId, NotStarted> {
         self.begin::<RelatedRanks>(slot, spec, Some(end))
+    }
+
+    /// Starts the linear regression (Research OS, Phase 9A-1, decision 674): its
+    /// one check point before the arithmetic, the manager's ceiling and cancel,
+    /// as every kind's.
+    pub fn start_linear_regression(
+        self: &Arc<Self>,
+        slot: Arc<Slot>,
+        spec: OperationSpec<LinearRegressionParams>,
+    ) -> Result<RunId, NotStarted> {
+        self.begin::<LinearRegression>(slot, spec, None)
+    }
+
+    /// [`Runs::start_linear_regression`], with an end hook, for a project rerun
+    /// (9A-2's).
+    pub fn start_linear_regression_then(
+        self: &Arc<Self>,
+        slot: Arc<Slot>,
+        spec: OperationSpec<LinearRegressionParams>,
+        end: EndHook,
+    ) -> Result<RunId, NotStarted> {
+        self.begin::<LinearRegression>(slot, spec, Some(end))
     }
 
     /// Every start, of any method (Research OS, Phase 8C): the record, then
@@ -2916,6 +3065,14 @@ impl Runs {
         self.snapshot_as::<RelatedRanks>(run)
     }
 
+    /// [`Runs::snapshot`] for a linear regression run (Phase 9A-1).
+    pub fn linear_regression_snapshot(
+        &self,
+        run: RunId,
+    ) -> Result<RunSnapshot<LinearRegressionCode>, RunCode> {
+        self.snapshot_as::<LinearRegression>(run)
+    }
+
     /// Asks the run to stop. Queued: cancelled now. Running: the flag is set,
     /// and the next check point, or the worker's last step if no check point
     /// is left, ends it `Cancelled`. Finished: unchanged.
@@ -2998,6 +3155,14 @@ impl Runs {
         run: RunId,
     ) -> Result<RunSnapshot<RelatedRanksCode>, RunCode> {
         self.cancel_as::<RelatedRanks>(run)
+    }
+
+    /// [`Runs::cancel`] for a linear regression run (Phase 9A-1).
+    pub fn linear_regression_cancel(
+        &self,
+        run: RunId,
+    ) -> Result<RunSnapshot<LinearRegressionCode>, RunCode> {
+        self.cancel_as::<LinearRegression>(run)
     }
 
     /// The result of a run of `M`'s kind that succeeded. Otherwise the closed
@@ -3092,6 +3257,14 @@ impl Runs {
         run: RunId,
     ) -> Result<ResultBundle<RelatedRanksOutcome, RelatedRanksCode>, RunCode> {
         self.result_as::<RelatedRanks>(run)
+    }
+
+    /// The result of a linear regression run that succeeded (Phase 9A-1).
+    pub fn linear_regression_result(
+        &self,
+        run: RunId,
+    ) -> Result<ResultBundle<LinearRegressionOutcome, LinearRegressionCode>, RunCode> {
+        self.result_as::<LinearRegression>(run)
     }
 
     /// A copy of `run` for a project Save (Phase 5B-2), of either kind:

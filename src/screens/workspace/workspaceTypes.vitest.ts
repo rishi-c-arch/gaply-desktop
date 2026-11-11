@@ -55,6 +55,7 @@ const list = [
       'stats.analyze.crosstabs',
       'stats.analyze.independent_ranks',
       'stats.analyze.related_ranks',
+      'stats.analyze.linear_regression',
       'stats.prepare.scale_score',
     ],
     supportsOffline: true,

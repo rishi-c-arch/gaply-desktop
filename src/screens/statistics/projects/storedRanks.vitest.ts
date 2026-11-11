@@ -49,6 +49,13 @@ const mw = (b: O) => b.primaryOutputs.test.mann_whitney;
 const kw = (b: O) => b.primaryOutputs.test.kruskal_wallis;
 const code = (c: string) => `stats.ranks.${c}`;
 const nc = (c: string) => ({ not_computable: code(c) });
+/** z as stats_ranks::mann_whitney computes it with no tie runs (stats_ranks/mod.rs:829-832), in
+ *  Rust's operation order: the tie sum is 0 when no two values are tied (decision 668). */
+const mannWhitneyZ = (u1: number, n1: number, n2: number) => {
+  const bigN = n1 + n2;
+  const variance = ((n1 * n2) / 12) * (bigN + 1 - 0 / (bigN * (bigN - 1)));
+  return (u1 - (n1 * n2) / 2) / Math.sqrt(variance);
+};
 /** What Rust writes for a Mann-Whitney result with ties: the tie runs, the note, no exact p. */
 const withTies = (b: O) => {
   b.primaryOutputs.tieRuns = 1;
@@ -124,17 +131,11 @@ describe("the rank tests' saved results (decision 622)", () => {
     expect(kindOf(changed(KW, everyValueEqualKw))).toBe(OK);
   });
 
-  it('takes overflow where Rust writes it, a Kruskal-Wallis p with its own distribution code', () => {
-    expect(
-      kindOf(
-        changed(MW, (b) => {
-          mw(b).z = nc('overflow');
-          mw(b).p = nc('overflow');
-        })
-      )
-    ).toBe(OK);
+  // Decision 668: z and p overflowed with no tie runs, and epsilon-squared overflowed beside a
+  // numeric H, were accepted here; Rust cannot write either (stats_ranks/mod.rs:829-831, :903),
+  // so both are now refusals, in "what stats_ranks never writes (decision 668)" below.
+  it('takes a Kruskal-Wallis p with its own distribution code', () => {
     expect(kindOf(changed(KW, (b) => (kw(b).p = nc('distribution_out_of_range'))))).toBe(OK);
-    expect(kindOf(changed(KW, (b) => (kw(b).epsilonSquared = nc('overflow'))))).toBe(OK);
   });
 
   it('refuses a code stats_ranks never writes there', () => {
@@ -253,11 +254,22 @@ describe("the rank tests' saved results (decision 622)", () => {
         })
       )
     ).toBe(BAD);
+    // Decision 668: a first group of 50 and a second of 5 as Rust would write them with no
+    // ties, u1 at n1 n2 / 2 so Rust's z is 0, and only the size note missing.
     expect(
       kindOf(
         changed(MW, (b) => {
-          b.primaryOutputs.groups[0].n = 50;
-          mw(b).u2 = 50 * b.primaryOutputs.groups[1].n - mw(b).u1;
+          const r = b.primaryOutputs;
+          r.n = 55;
+          Object.assign(r.groups[0], { n: 50, rankSum: 1400, meanRank: 1400 / 50 });
+          Object.assign(r.groups[1], { n: 5, rankSum: 140, meanRank: 140 / 5 });
+          mw(b).u1 = 1400 - (50 * 51) / 2;
+          mw(b).u2 = 50 * 5 - mw(b).u1;
+          mw(b).rankBiserial = (2 * mw(b).u1) / (50 * 5) - 1;
+          mw(b).z = { value: mannWhitneyZ(mw(b).u1, 50, 5) };
+          r.notes = [];
+          b.manifest.rowsUsed = 55;
+          b.manifest.rowsRead = 55 + r.exclusions.reduce((s: number, e: O) => s + e.count, 0);
         })
       )
     ).toBe(BAD);
@@ -375,6 +387,8 @@ describe("the rank tests' saved results (decision 622)", () => {
           mw(b).u1 = 1400 - (50 * 51) / 2;
           mw(b).u2 = 50 * 4 - mw(b).u1;
           mw(b).rankBiserial = (2 * mw(b).u1) / (50 * 4) - 1;
+          // Decision 668: u1 = 125 is above n1 n2 / 2 = 100, so Rust's z is positive.
+          mw(b).z = { value: 1.71 };
           b.manifest.rowsUsed = 54;
           b.manifest.rowsRead = 54 + b.primaryOutputs.exclusions.reduce((s: number, e: O) => s + e.count, 0);
           r.notes = notes(['exact_not_given_ties', 'exact_not_given_size', 'group_below_five']);
@@ -467,6 +481,8 @@ describe("what stats_ranks never writes (decisions 651, 652)", () => {
           mw(b).u1 += 1;
           mw(b).u2 -= 1;
           mw(b).rankBiserial = (2 * mw(b).u1) / (b.primaryOutputs.groups[0].n * b.primaryOutputs.groups[1].n) - 1;
+          // Decision 668: Rust's z for the edited u1, so only the u1 rule refuses it.
+          mw(b).z = { value: mannWhitneyZ(mw(b).u1, 4, 5) };
         })
       )
     ).toBe(BAD);
@@ -526,6 +542,8 @@ describe("what stats_ranks never writes (decisions 651, 652)", () => {
           mw(b).u1 = 18;
           mw(b).u2 = 18;
           mw(b).rankBiserial = 0;
+          // Decision 668: Rust's z for u1 = n1 n2 / 2, so only the note rule refuses it.
+          mw(b).z = { value: mannWhitneyZ(18, 6, 6) };
           b.manifest.rowsUsed = 12;
           b.manifest.rowsRead = 12 + r.exclusions.reduce((s: number, e: O) => s + e.count, 0);
         })
@@ -595,5 +613,124 @@ describe("what stats_ranks never writes (decisions 651, 652)", () => {
       });
     expect(kindOf(set([exc('missing_group', 2), exc('missing_group', 2)]))).toBe(BAD);
     expect(kindOf(set([exc('other_level', 2), exc('missing_group', 2)]))).toBe(BAD);
+  });
+});
+
+/** Decision 668: what stats_ranks never writes, found by decision 667's review. Each case its
+ *  own rule, each rule's red a mutation (decision 502). */
+describe('what stats_ranks never writes (decision 668)', () => {
+  /** 50 groups whose ranks balance, as "takes 50 groups" builds them, H set by `h`. */
+  const balanced50 = (b: O, h: number) => {
+    const g = b.primaryOutputs.groups[0];
+    const N = g.n * 50;
+    const rankSum = (g.n * (N + 1)) / 2;
+    b.primaryOutputs.groups = Array.from({ length: 50 }, (_, level) => ({ ...g, level, rankSum, meanRank: rankSum / g.n }));
+    b.primaryOutputs.n = N;
+    b.manifest.rowsUsed = N;
+    b.manifest.rowsRead = N;
+    kw(b).df = 49;
+    kw(b).h = { value: h };
+    kw(b).p = { value: 1 };
+    kw(b).epsilonSquared = { value: h / (N - 1) };
+  };
+  /** The Mann-Whitney snapshot's groups made 6 and 6 with u1 = n1 n2 / 2, tied, so only the
+   *  sign rule constrains z. */
+  const centredWithTies = (b: O) => {
+    withTies(b);
+    const r = b.primaryOutputs;
+    Object.assign(r.groups[0], { n: 6, rankSum: 39, meanRank: 6.5 });
+    Object.assign(r.groups[1], { n: 6, rankSum: 39, meanRank: 6.5 });
+    r.n = 12;
+    r.notes = [code('exact_not_given_ties')];
+    mw(b).u1 = 18;
+    mw(b).u2 = 18;
+    mw(b).rankBiserial = 0;
+    mw(b).z = { value: 0 };
+    mw(b).p = { value: 1 };
+    b.manifest.rowsUsed = 12;
+    b.manifest.rowsRead = 12 + r.exclusions.reduce((s: number, e: O) => s + e.count, 0);
+  };
+
+  it('takes a centred, tied Mann-Whitney result with z 0', () => {
+    expect(kindOf(changed(MW, centredWithTies))).toBe(OK);
+  });
+
+  it('refuses a negative H', () => {
+    expect(kindOf(changed(KW, (b) => {
+      kw(b).h = { value: -1 };
+      kw(b).epsilonSquared = { value: -1 / (b.primaryOutputs.n - 1) };
+    }))).toBe(BAD);
+  });
+
+  it('refuses an H of 0 while a rank sum is off its centre', () => {
+    expect(kindOf(changed(KW, (b) => {
+      kw(b).h = { value: 0 };
+      kw(b).epsilonSquared = { value: 0 };
+      kw(b).p = { value: 1 };
+    }))).toBe(BAD);
+  });
+
+  it('refuses an H above 0 while every rank sum is at its centre', () => {
+    expect(kindOf(changed(KW, (b) => balanced50(b, 0)))).toBe(OK);
+    expect(kindOf(changed(KW, (b) => balanced50(b, 2)))).toBe(BAD);
+  });
+
+  it('refuses an epsilon-squared other than H / (N - 1)', () => {
+    expect(kindOf(changed(KW, (b) => (kw(b).epsilonSquared = { value: 0.5 })))).toBe(BAD);
+  });
+
+  it('refuses an epsilon-squared that overflowed beside a numeric H, which Rust cannot write', () => {
+    expect(kindOf(changed(KW, (b) => (kw(b).epsilonSquared = nc('overflow'))))).toBe(BAD);
+  });
+
+  it('refuses a Kruskal-Wallis p outside 0 to 1', () => {
+    expect(kindOf(changed(KW, (b) => (kw(b).p = { value: 1.5 })))).toBe(BAD);
+    expect(kindOf(changed(KW, (b) => (kw(b).p = { value: -0.5 })))).toBe(BAD);
+  });
+
+  it('refuses a Mann-Whitney p outside 0 to 1', () => {
+    expect(kindOf(changed(MW, (b) => {
+      withTies(b);
+      mw(b).p = { value: 1.5 };
+    }))).toBe(BAD);
+    expect(kindOf(changed(MW, (b) => {
+      withTies(b);
+      mw(b).p = { value: -0.5 };
+    }))).toBe(BAD);
+  });
+
+  it('refuses a z of the wrong sign for u1 - n1 n2 / 2, with ties', () => {
+    expect(kindOf(changed(MW, (b) => {
+      withTies(b);
+      mw(b).z = { value: 1.7 };
+    }))).toBe(BAD);
+    expect(kindOf(changed(MW, (b) => {
+      withTies(b);
+      mw(b).z = { value: 0 };
+    }))).toBe(BAD);
+    expect(kindOf(changed(MW, (b) => {
+      centredWithTies(b);
+      mw(b).z = { value: 0.25 };
+    }))).toBe(BAD);
+  });
+
+  it('refuses an exact p of 0', () => {
+    expect(kindOf(changed(MW, (b) => (mw(b).exactP = 0)))).toBe(BAD);
+  });
+
+  it("refuses, with no tie runs, a z other than Rust's from u1, n1 and n2, of the right sign", () => {
+    expect(kindOf(changed(MW, (b) => (mw(b).z = { value: mannWhitneyZ(3, 4, 5) * 2 })))).toBe(BAD);
+  });
+
+  it('refuses, with no tie runs, z and p that overflowed, which Rust cannot write there', () => {
+    expect(kindOf(changed(MW, (b) => {
+      mw(b).z = nc('overflow');
+      mw(b).p = nc('overflow');
+    }))).toBe(BAD);
+  });
+
+  it("refuses, with the spec's levels null, groups at levels other than 0 to k - 1", () => {
+    expect(kindOf(changed(KW, (b) => (b.primaryOutputs.groups[2].level = 3)))).toBe(BAD);
+    expect(kindOf(changed(KW, (b) => b.primaryOutputs.groups.forEach((g: O) => (g.level += 1))))).toBe(BAD);
   });
 });

@@ -48,6 +48,30 @@ export function buildRelatedRanksSpec(view: DatasetView, columns: string[], miss
   };
 }
 
+/* The list's changes (decision 668), pure: each returns a new list and leaves its argument as it was. */
+
+/** `alias` at the end, or the list unchanged when it is already in it. */
+export const addColumn = (list: readonly string[], alias: string): string[] => (list.includes(alias) ? [...list] : [...list, alias]);
+
+/** The list without `alias`. */
+export const removeColumn = (list: readonly string[], alias: string): string[] => list.filter((c) => c !== alias);
+
+/** `alias` swapped with its neighbour `by` places away in `shown` (the list as drawn), or the
+ *  list unchanged at either end or when `alias` is not shown. */
+function moveColumn(list: readonly string[], alias: string, by: -1 | 1, shown: readonly string[]): string[] {
+  const at = shown.indexOf(alias);
+  const to = at + by;
+  const next = [...list];
+  if (at < 0 || to < 0 || to >= shown.length) return next;
+  const [i, j] = [list.indexOf(alias), list.indexOf(shown[to])];
+  if (i < 0 || j < 0) return next;
+  next[i] = shown[to];
+  next[j] = alias;
+  return next;
+}
+export const moveColumnUp = (list: readonly string[], alias: string, shown: readonly string[] = list): string[] => moveColumn(list, alias, -1, shown);
+export const moveColumnDown = (list: readonly string[], alias: string, shown: readonly string[] = list): string[] => moveColumn(list, alias, 1, shown);
+
 /** The candidate codes of `columns`, ascending, with where each appears. */
 function offeredBy(view: DatasetView | null, columns: readonly string[]) {
   const where = new Map<number, Array<{ header: string; cells: number }>>();
@@ -61,7 +85,8 @@ function offeredBy(view: DatasetView | null, columns: readonly string[]) {
 }
 
 export interface RelatedRanksSettingsState {
-  /** The chosen aliases, in the list's order. */
+  /** The chosen aliases as drawn: those still among the view's numeric columns, in the list's
+   *  order (decision 668). A chosen alias the view has lost stays chosen, undrawn and unsent. */
   columns: string[];
   ticked: number[];
   offered: Array<{ code: number; where: Array<{ header: string; cells: number }> }>;
@@ -80,9 +105,14 @@ export interface RelatedRanksSettingsState {
 
 /** The user's choices, over the open file's view. */
 export function useRelatedRanksSettings(view: DatasetView | null): RelatedRanksSettingsState {
-  const [columns, setColumns] = useState<string[]>([]);
+  const [chosen, setChosen] = useState<string[]>([]);
   const [ticked, setTicked] = useState<number[]>([]);
 
+  // Decision 668: everything below comes from the list as drawn.
+  const columns = useMemo(() => {
+    const shown = view ? numeric(view).map((c) => c.alias) : [];
+    return chosen.filter((a) => shown.includes(a));
+  }, [view, chosen]);
   const offered = useMemo(() => offeredBy(view, columns), [view, columns]);
   const missingCodes = useMemo(() => ticked.filter((t) => offered.some((s) => s.code === t)), [ticked, offered]);
   const names: RelatedRanksNames = useMemo(() => ({ column: columnNames(view) }), [view]);
@@ -90,13 +120,13 @@ export function useRelatedRanksSettings(view: DatasetView | null): RelatedRanksS
   const spec = useCallback((operationId: number) => buildRelatedRanksSpec(view as DatasetView, columns, missingCodes, operationId), [view, columns, missingCodes]);
 
   const reset = useCallback(() => {
-    setColumns([]);
+    setChosen([]);
     setTicked([]);
   }, []);
 
   /** The list after a change: a tick goes with the last chosen column that offered it. */
   const listIs = (next: string[]) => {
-    setColumns(next);
+    setChosen(next);
     const still = offeredBy(view, next);
     setTicked((t) => t.filter((c) => still.some((s) => s.code === c)));
   };
@@ -111,17 +141,9 @@ export function useRelatedRanksSettings(view: DatasetView | null): RelatedRanksS
     stillMissing,
     spec,
     reset,
-    toggleColumn: (alias, on) => listIs(on ? [...columns.filter((c) => c !== alias), alias] : columns.filter((c) => c !== alias)),
-    moveColumn: (alias, by) => {
-      const at = columns.indexOf(alias);
-      const to = at + by;
-      if (at < 0 || to < 0 || to >= columns.length) return;
-      const next = [...columns];
-      next[at] = next[to];
-      next[to] = alias;
-      setColumns(next);
-    },
-    addAll: () => listIs([...columns, ...numeric(view as DatasetView).map((c) => c.alias).filter((a) => !columns.includes(a))]),
+    toggleColumn: (alias, on) => listIs(on ? addColumn(chosen, alias) : removeColumn(chosen, alias)),
+    moveColumn: (alias, by) => setChosen(by < 0 ? moveColumnUp(chosen, alias, columns) : moveColumnDown(chosen, alias, columns)),
+    addAll: () => listIs(numeric(view as DatasetView).reduce((list, c) => addColumn(list, c.alias), chosen)),
     removeAll: () => listIs([]),
     toggleCode: (code, on) => setTicked((t) => (on ? [...t.filter((x) => x !== code), code] : t.filter((x) => x !== code))),
   };

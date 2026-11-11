@@ -160,6 +160,7 @@ const STATS_ANOVA: &str = "src/stats_anova";
 const STATS_XTAB: &str = "src/stats_xtab";
 const STATS_RANKS: &str = "src/stats_ranks";
 const STATS_RELATED_RANKS: &str = "src/stats_related_ranks";
+const STATS_LINEAR_REGRESSION: &str = "src/stats_linear_regression";
 const STATS_CORR: &str = "src/stats_corr";
 const STATS_ALPHA: &str = "src/stats_alpha";
 const STATS_PREP: &str = "src/stats_prep";
@@ -230,6 +231,7 @@ const STATS_REGISTRY_CRATE_PATHS: &[&str] = &[
     "crate::stats_xtab",
     "crate::stats_ranks",
     "crate::stats_related_ranks",
+    "crate::stats_linear_regression",
 ];
 /// What `stats_registry` may import from the catalogue, Level 1's registry
 /// and the descriptive summary, by exact name. The one-way ANOVA's id and
@@ -315,6 +317,14 @@ const REGISTRY_ITEMS: &[(&str, &[&str])] = &[
             "CAPABILITY_VERSION as RELATED_RANKS_VERSION",
         ],
     ),
+    // Phase 9A-1 (decision 672): the linear regression's id and version.
+    (
+        "crate::stats_linear_regression",
+        &[
+            "CAPABILITY_ID as LINEAR_REGRESSION_ID",
+            "CAPABILITY_VERSION as LINEAR_REGRESSION_VERSION",
+        ],
+    ),
 ];
 const STATS_ADAPTERS_CRATE_PATHS: &[&str] = &[
     "crate::contracts",
@@ -331,6 +341,7 @@ const STATS_ADAPTERS_CRATE_PATHS: &[&str] = &[
     "crate::stats_xtab",
     "crate::stats_ranks",
     "crate::stats_related_ranks",
+    "crate::stats_linear_regression",
     "crate::extract",
 ];
 /// The one module outside decision 46's list `stats_adapters` reads, by
@@ -356,6 +367,7 @@ const STATS_ADAPTERS_INLINE_PATHS: &[&str] = &[
     "crate::stats_xtab",
     "crate::stats_ranks",
     "crate::stats_related_ranks",
+    "crate::stats_linear_regression",
     "crate::extract::ExtractionResult",
     "crate::extract::SectionKind",
     "crate::extract::extract_from_text",
@@ -651,6 +663,42 @@ const RELATED_RANKS_ITEMS: &[(&str, &[&str])] = &[
     ),
 ];
 
+/// What `stats_linear_regression` may name inside the crate (Phase 9A-1,
+/// decision 671). The export's path comes before the descriptive summary's, so
+/// it is matched first.
+const STATS_LINEAR_REGRESSION_CRATE_PATHS: &[&str] = &[
+    "crate::contracts",
+    "crate::stats_desc::export",
+    "crate::stats_desc",
+    "crate::stats_dist",
+    "crate::stats_l1::dataset",
+    "crate::stats_ttest",
+    "crate::stats_verify",
+];
+/// The items `stats_linear_regression` may import, by exact name: only what it
+/// imports. The fit, the means, variances and correlations, the t family's p and
+/// interval and F's p come from their one implementation each.
+const LINEAR_REGRESSION_ITEMS: &[(&str, &[&str])] = &[
+    (
+        "crate::stats_verify",
+        &["mean", "ols_qr_parts", "pearson_clamped", "sample_variance", "QrFit", "QrRefusal"],
+    ),
+    ("crate::stats_dist", &["f_upper"]),
+    ("crate::stats_l1::dataset", &["Cell", "Dataset"]),
+    ("crate::stats_ttest", &["column", "interval_95", "non_finite_cells", "two_sided_p"]),
+    ("crate::stats_desc::export", &["text"]),
+    (
+        "crate::stats_desc",
+        &[
+            "input_ref",
+            "preparation_holds",
+            "score_code_count",
+            "suspect_codes_unless_score",
+            "Alias",
+        ],
+    ),
+];
+
 /// What `stats_corr` may name inside the crate (Phase 8H, decision 343).
 /// The export's path comes before the descriptive summary's, so it is
 /// matched first; Level 1's compute only for its one constant (8H-2,
@@ -802,6 +850,7 @@ const DOMAIN_MODULES: &[&str] = &[
     "stats_xtab",
     "stats_ranks",
     "stats_related_ranks",
+    "stats_linear_regression",
     "research_project",
 ];
 /// Where their types are declared, read to build the type list.
@@ -823,6 +872,7 @@ const DOMAIN_SOURCES: &[&str] = &[
     "src/stats_xtab",
     "src/stats_ranks",
     "src/stats_related_ranks",
+    "src/stats_linear_regression",
     "src/research_project",
 ];
 
@@ -948,6 +998,24 @@ const RELATED_RANKS_SERIALISED: &[&str] = &[
     "Friedman",
     "RelatedTest",
     "RelatedRanksOutcome",
+];
+
+/// `stats_linear_regression` types that derive `Serialize` (Phase 9A-1,
+/// decision 671). None holds text: the module holds no header, label or cell.
+const LINEAR_REGRESSION_SERIALISED: &[&str] = &[
+    "LinearRegressionParams",
+    "Stat",
+    "RegressionColumn",
+    "ModelSummary",
+    "AnovaSource",
+    "AnovaTotal",
+    "RegressionAnova",
+    "InterceptEstimate",
+    "PredictorEstimate",
+    "Spread",
+    "Extremes",
+    "ResidualSummary",
+    "LinearRegressionOutcome",
 ];
 
 /// `stats_alpha` types that derive `Serialize` (Phase 8I, decision 372).
@@ -1264,6 +1332,7 @@ fn contracts_and_stats_desc_reach_no_file_network_process_clock_model_or_log() {
         .chain(sources(STATS_XTAB, 2).iter())
         .chain(sources(STATS_RANKS, 2).iter())
         .chain(sources(STATS_RELATED_RANKS, 2).iter())
+        .chain(sources(STATS_LINEAR_REGRESSION, 2).iter())
         .chain(sources(RESEARCH_PROJECT, 2).iter())
     {
         found.extend(forbidden_in(path, code));
@@ -1355,6 +1424,13 @@ fn imports_are_std_serde_serde_json_sha2_and_the_named_crate_paths_only() {
             STATS_RELATED_RANKS_CRATE_PATHS,
             RELATED_RANKS_ITEMS,
             STATS_RELATED_RANKS_CRATE_PATHS,
+            EXTERNAL_ROOTS,
+        ),
+        (
+            STATS_LINEAR_REGRESSION,
+            STATS_LINEAR_REGRESSION_CRATE_PATHS,
+            LINEAR_REGRESSION_ITEMS,
+            STATS_LINEAR_REGRESSION_CRATE_PATHS,
             EXTERNAL_ROOTS,
         ),
         (
@@ -1573,6 +1649,24 @@ fn imports_are_std_serde_serde_json_sha2_and_the_named_crate_paths_only() {
             assert!(
                 imported.iter().any(|i| i == name),
                 "stats_related_ranks no longer imports {prefix}::{name}; update the list"
+            );
+        }
+    }
+    // And stats_linear_regression each item on its list (decision 671).
+    let regression: String = sources(STATS_LINEAR_REGRESSION, 2).into_iter().map(|(_, c)| c).collect();
+    for (prefix, names) in LINEAR_REGRESSION_ITEMS {
+        let imported: Vec<String> = use_statements(&regression)
+            .iter()
+            .filter(|s| {
+                s.starts_with(prefix)
+                    && STATS_LINEAR_REGRESSION_CRATE_PATHS.iter().find(|p| s.starts_with(*p)) == Some(prefix)
+            })
+            .flat_map(|s| imported_names(s, prefix))
+            .collect();
+        for name in *names {
+            assert!(
+                imported.iter().any(|i| i == name),
+                "stats_linear_regression no longer imports {prefix}::{name}; update the list"
             );
         }
     }
@@ -2217,6 +2311,67 @@ fn no_stats_related_ranks_type_holds_text() {
     assert!(texty.is_empty(), "these hold a String: {texty:?}");
 }
 
+/// Phase 9A-1 (decision 671): in `stats_linear_regression`, exactly the listed
+/// types derive `Serialize`, none names a cell or the dataset, and `Rows`,
+/// which holds the values, derives nothing.
+#[test]
+fn only_the_listed_stats_linear_regression_types_derive_serialize_and_none_holds_a_cell() {
+    let items: Vec<Item> = sources(STATS_LINEAR_REGRESSION, 2)
+        .iter()
+        .flat_map(|(_, c)| items(c))
+        .collect();
+    assert!(
+        items.len() >= 10,
+        "{} items found in {STATS_LINEAR_REGRESSION} — the scan is inert",
+        items.len()
+    );
+    let mut serialised: Vec<&str> = items
+        .iter()
+        .filter(|i| derives(i, "Serialize"))
+        .map(|i| i.name.as_str())
+        .collect();
+    serialised.sort_unstable();
+    let mut listed: Vec<&str> = LINEAR_REGRESSION_SERIALISED.to_vec();
+    listed.sort_unstable();
+    assert_eq!(
+        serialised, listed,
+        "the types deriving Serialize in {STATS_LINEAR_REGRESSION} are not the listed ones"
+    );
+    for item in items.iter().filter(|i| derives(i, "Serialize")) {
+        for cell in CELL_TYPES {
+            assert!(
+                !identifiers(&item.body).contains(cell),
+                "{} derives Serialize and names `{cell}`",
+                item.name
+            );
+        }
+    }
+    let rows = items.iter().find(|i| i.name == "Rows").expect("Rows exists");
+    assert!(!rows.attrs.contains("#[derive("), "Rows holds the values and derives nothing");
+}
+
+/// Phase 9A-1 (decision 671): no `stats_linear_regression` type holds a
+/// `String`. Its results are numbers, aliases and closed words, so its `Debug`
+/// can print nothing of the user's data.
+#[test]
+fn no_stats_linear_regression_type_holds_text() {
+    let items: Vec<Item> = sources(STATS_LINEAR_REGRESSION, 2)
+        .iter()
+        .flat_map(|(_, c)| items(c))
+        .collect();
+    assert!(
+        items.len() >= 10,
+        "{} items found in {STATS_LINEAR_REGRESSION} — the scan is inert",
+        items.len()
+    );
+    let texty: Vec<&str> = items
+        .iter()
+        .filter(|i| holds_string(&i.body))
+        .map(|i| i.name.as_str())
+        .collect();
+    assert!(texty.is_empty(), "these hold a String: {texty:?}");
+}
+
 /// Phase 8I (decision 372): in `stats_alpha`, exactly the listed types
 /// derive `Serialize`, none names a cell, the dataset or the rows, `Rows`
 /// and `Entry`, which hold the values, derive nothing, and no type holds a
@@ -2361,6 +2516,7 @@ fn every_deserialised_struct_refuses_unknown_fields_and_wire_structs_are_camel_c
         STATS_XTAB,
         STATS_RANKS,
         STATS_RELATED_RANKS,
+        STATS_LINEAR_REGRESSION,
         RESEARCH_PROJECT,
     ] {
         for (path, code) in sources(dir, 1) {

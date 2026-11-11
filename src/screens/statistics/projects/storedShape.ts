@@ -733,7 +733,8 @@ const mannWhitney = (v: unknown) =>
   rkNormalStat(v.z) &&
   rkNormalStat(v.p) &&
   'exactP' in v &&
-  (v.exactP === null || (isNum(v.exactP) && v.exactP >= 0 && v.exactP <= 1));
+  // Decision 668: an exact p, when present, is above 0 (stats_dist::exact_two_sided).
+  (v.exactP === null || (isNum(v.exactP) && v.exactP > 0 && v.exactP <= 1));
 
 /** The Kruskal-Wallis form: its four keys, every one always written. */
 const kruskalWallis = (v: unknown) =>
@@ -799,6 +800,18 @@ const rkConsistent = (r: O) => {
     if (h !== allTied && (ncCode(t.p) === allTied || ncCode(t.epsilonSquared) === allTied)) return false;
     if (h === allTied && tieRuns !== 1) return false;
     if (h === allTied && !rkOneRun(r)) return false;
+    // Decision 668, in stats_ranks::kruskal_wallis's order (:888-903): a numeric H is 0 or more, and 0
+    // exactly when every Dᵢ = Rᵢ − nᵢ (N + 1) / 2 is 0 (:891); then its p in [0, 1] (:899) and
+    // epsilon-squared H / (N − 1), always a number beside a numeric H (:903).
+    if (h === undefined) {
+      const value = statValue(t.h) as number;
+      const big = r.n as number;
+      const centred = groups.every((g) => g.rankSum - (g.n * (big + 1)) / 2 === 0);
+      if (value < 0 || (value === 0) !== centred) return false;
+      const p = statValue(t.p);
+      if (p !== undefined && ((p as number) < 0 || (p as number) > 1)) return false;
+      if (statValue(t.epsilonSquared) !== value / (big - 1)) return false;
+    }
     return t.df === groups.length - 1 && !tiesNote && !sizeNote;
   }
   const t = test.mann_whitney;
@@ -811,6 +824,19 @@ const rkConsistent = (r: O) => {
   if (t.u1 !== groups[0].rankSum - (n1 * (n1 + 1)) / 2) return false;
   if (t.u2 !== n1 * n2 - (t.u1 as number)) return false;
   if (t.rankBiserial !== (2 * (t.u1 as number)) / (n1 * n2) - 1) return false;
+  // Decision 668, in stats_ranks::mann_whitney's order (:829-835): z's sign that of u1 − n1 n2 / 2,
+  // 0 exactly when u1 = n1 n2 / 2 (:831); with no tie runs the tie sum is 0 and z is Rust's value
+  // (:829-831); then its p in [0, 1] (:833).
+  const u1 = t.u1 as number;
+  const zValue = statValue(t.z);
+  if (zValue !== undefined && Math.sign(zValue as number) !== Math.sign(u1 - (n1 * n2) / 2)) return false;
+  if (tieRuns === 0) {
+    const bigN = r.n as number;
+    const variance = ((n1 * n2) / 12) * (bigN + 1 - 0 / (bigN * (bigN - 1)));
+    if (zValue !== (u1 - (n1 * n2) / 2) / Math.sqrt(variance)) return false;
+  }
+  const pValue = statValue(t.p);
+  if (pValue !== undefined && ((pValue as number) < 0 || (pValue as number) > 1)) return false;
   return (
     t.first === groups[0].level &&
     t.second === groups[1].level &&
@@ -854,7 +880,9 @@ const rkAgreesWithSpec = (r: O, spec: O) => {
   if (exclusions.some((e) => e.params.column !== named(e.code))) return false;
   if (p.missingCodes.length === 0 && exclusions.some((e) => e.code === RK_EXCLUDED[3])) return false;
   if (p.levels === null && exclusions.some((e) => e.code === RK_EXCLUDED[1])) return false;
-  if (p.levels === null) return true;
+  // Decision 668: with no levels given, Rust includes every level, 0 to k − 1 (stats_ranks/mod.rs:529-530),
+  // and refuses an empty group, so the groups are exactly those.
+  if (p.levels === null) return (r.groups as Array<{ level: number }>).every((g, i) => g.level === i);
   const levels = (p.levels as number[]).slice().sort((a, b) => a - b);
   return JSON.stringify((r.groups as Array<{ level: number }>).map((g) => g.level)) === JSON.stringify(levels);
 };
@@ -965,11 +993,22 @@ const rrWilcoxon = (v: unknown, r: O, columns: string[]) => {
   if (v.tMinus !== top - (v.v as number)) return false;
   if (negative.rankSum !== v.tMinus) return false;
   if ((n === 0) !== (ncCode(v.z) === RR_ZERO && ncCode(v.p) === RR_ZERO && ncCode(v.rankBiserial) === RR_ZERO)) return false;
+  if (n === 0) {
+    // Decision 668: each of the three exactly {not_computable: all_differences_zero}, no other key,
+    // and the median of differences that are all zero a value equal to 0 (:722, :740-741).
+    if (!rrStat(v.z, [RR_ZERO]) || !rrStat(v.p, [RR_ZERO]) || !rrStat(v.rankBiserial, [RR_ZERO])) return false;
+    if (!rrStat(v.medianDifference, []) || statValue(v.medianDifference) !== 0) return false;
+  }
   if (n > 0) {
     if (!rrStat(v.z, [RR_OVERFLOW]) || !rrStat(v.p, [RR_OVERFLOW]) || !rrStat(v.rankBiserial, [RR_OVERFLOW])) return false;
     if (ncCode(v.z) !== undefined && ncCode(v.p) !== ncCode(v.z)) return false;
     if (statValue(v.p) !== undefined && ((statValue(v.p) as number) < 0 || (statValue(v.p) as number) > 1)) return false;
     if (statValue(v.z) !== undefined && Math.sign(statValue(v.z) as number) !== Math.sign((v.v as number) - (v.tMinus as number))) return false;
+    // Decision 668: with no tie runs the tie sum is 0, so z is z_and_p's value from V and n (:700-701).
+    if (v.tieRuns === 0) {
+      const variance = (n * (n + 1) * (2 * n + 1)) / 24 - 0 / 48;
+      if (statValue(v.z) !== ((v.v as number) - (n * (n + 1)) / 4) / Math.sqrt(variance)) return false;
+    }
     if (statValue(v.rankBiserial) !== undefined && statValue(v.rankBiserial) !== ((v.v as number) - (v.tMinus as number)) / top) return false;
   }
   if (!rrStat(v.medianDifference, [RR_OVERFLOW])) return false;

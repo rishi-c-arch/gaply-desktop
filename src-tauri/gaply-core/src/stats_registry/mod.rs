@@ -70,6 +70,9 @@ use crate::stats_corr::{CAPABILITY_ID as CORR_ID, CAPABILITY_VERSION as CORR_VER
 use crate::stats_desc::{CAPABILITY_ID, CAPABILITY_VERSION};
 use crate::stats_l1::catalogue::{L1MethodId, MethodCatalogue};
 use crate::stats_l1::compute::L1Registry;
+use crate::stats_linear_regression::{
+    CAPABILITY_ID as LINEAR_REGRESSION_ID, CAPABILITY_VERSION as LINEAR_REGRESSION_VERSION,
+};
 use crate::stats_onesample::{ONE_SAMPLE_ID, ONE_SAMPLE_VERSION, PAIRED_ID, PAIRED_VERSION};
 use crate::stats_prep::{CAPABILITY_ID as PREP_ID, CAPABILITY_VERSION as PREP_VERSION};
 use crate::stats_ranks::{CAPABILITY_ID as RANKS_ID, CAPABILITY_VERSION as RANKS_VERSION};
@@ -216,6 +219,27 @@ closed! {
         /// The columns in the order the user chose, which sets the differences
         /// and the signs (decision 640).
         LimitAnalyzeRelatedColumnsInChosenOrder => "limit.analyze.related_columns_in_chosen_order",
+        AnalyzeLinearRegressionTitle => "analyze.linear_regression.title",
+        AnalyzeLinearRegressionDescription => "analyze.linear_regression.description",
+        /// Every predictor entered at once; no stepwise methods or blocks
+        /// (decision 673).
+        LimitAnalyzeRegressionEnterOnly => "limit.analyze.regression_enter_only",
+        /// No indicator coding of a categorical predictor (decision 673).
+        LimitAnalyzeRegressionNoCategoricalPredictors => "limit.analyze.regression_no_categorical_predictors",
+        /// No interaction or polynomial terms (decision 673).
+        LimitAnalyzeRegressionNoInteractionTerms => "limit.analyze.regression_no_interaction_terms",
+        /// The model always has an intercept (decision 673).
+        LimitAnalyzeRegressionInterceptAlways => "limit.analyze.regression_intercept_always",
+        /// Listwise deletion only (decision 673).
+        LimitAnalyzeRegressionListwiseOnly => "limit.analyze.regression_listwise_only",
+        /// No heteroscedasticity-consistent standard errors (decision 673).
+        LimitAnalyzeRegressionNoRobustErrors => "limit.analyze.regression_no_robust_errors",
+        /// No casewise diagnostics, plots or saved columns (decision 673).
+        LimitAnalyzeRegressionNoCasewiseDiagnostics => "limit.analyze.regression_no_casewise_diagnostics",
+        /// The Durbin-Watson statistic takes the file's row order (decision 673).
+        LimitAnalyzeDurbinWatsonRowOrder => "limit.analyze.durbin_watson_row_order",
+        /// Intervals at 95% only (decision 673).
+        LimitAnalyzeRegressionIntervals95Only => "limit.analyze.regression_intervals_95_only",
         PrepareScaleScoreTitle => "prepare.scale_score.title",
         PrepareScaleScoreDescription => "prepare.scale_score.description",
         /// A score's items are the file's columns (ADR-011 question 13).
@@ -253,6 +277,8 @@ pub enum Kind {
     AnalyzeIndependentRanks,
     /// `stats.analyze.related_ranks` (Phase 8Z-1).
     AnalyzeRelatedRanks,
+    /// `stats.analyze.linear_regression` (Phase 9A-1).
+    AnalyzeLinearRegression,
     /// `stats.prepare.scale_score` (Phase 8M). Not a method: no run kind.
     PrepareScaleScore,
 }
@@ -290,6 +316,9 @@ const LIFECYCLES: &[(&str, Lifecycle)] = &[
     // Planned in 8Z-1's Part 2 (decision 639); Beta at the start of its Part 3
     // (decision 641), so its commands and runs can run.
     (RELATED_RANKS_ID, Lifecycle::Beta),
+    // Planned in 9A-1's Part 2 (decision 672); Beta at the start of its Part 3
+    // (decision 674), so its commands and runs can run.
+    (LINEAR_REGRESSION_ID, Lifecycle::Beta),
     // Planned in 8M (decision 411); Beta at the start of 8M-2's Part 2
     // (decision 416), so 8M-3's commands can run in both builds.
     (PREP_ID, Lifecycle::Beta),
@@ -890,6 +919,57 @@ fn analyze_related_ranks() -> Entry {
     }
 }
 
+/// Ordinary least squares linear regression on the user's data (Phase 9A-1,
+/// decisions 669, 672 and 673): the other methods' profile, formats and licence;
+/// the table capabilities' two limitations, crosstabs' weights, and its own nine.
+fn analyze_linear_regression() -> Entry {
+    Entry {
+        kind: Kind::AnalyzeLinearRegression,
+        descriptor: StatsDescriptor {
+            id: id(LINEAR_REGRESSION_ID),
+            version: LINEAR_REGRESSION_VERSION,
+            workspace_id: WorkspaceId::Statistics,
+            title_code: StatsWording::AnalyzeLinearRegressionTitle,
+            description_code: StatsWording::AnalyzeLinearRegressionDescription,
+            lifecycle: lifecycle_of(LINEAR_REGRESSION_ID),
+            input_schema_version: 1,
+            output_schema_version: 1,
+            method_schema_version: 1,
+            supported_formats: TABLE_FORMATS.to_vec(),
+            dependency_ids: Vec::new(),
+            license_notes: vec![StatsWording::LicenseStatrsMit],
+            resource_profile: ResourceProfile {
+                ram_class: RamClass::Gb8,
+                max_rows: Some(METHOD_MAX_ROWS),
+                max_columns: Some(METHOD_MAX_COLUMNS),
+                max_input_bytes: None,
+                ceiling_ms: Some(DESCRIBE_CEILING_MS),
+                cancel: Cancel::Cooperative,
+                uses_gpu: false,
+                temp_disk: false,
+            },
+            offline_behavior: OfflineBehavior::RunsOffline,
+            validation_suite_id: SuiteId("linear_regression_r_golden"),
+            known_limitation_codes: vec![
+                StatsWording::LimitTableTextFilesUtf8Only,
+                StatsWording::LimitTableLimitsByMemory,
+                StatsWording::LimitAnalyzeNoWeights,
+                StatsWording::LimitAnalyzeRegressionEnterOnly,
+                StatsWording::LimitAnalyzeRegressionNoCategoricalPredictors,
+                StatsWording::LimitAnalyzeRegressionNoInteractionTerms,
+                StatsWording::LimitAnalyzeRegressionInterceptAlways,
+                StatsWording::LimitAnalyzeRegressionListwiseOnly,
+                StatsWording::LimitAnalyzeRegressionNoRobustErrors,
+                StatsWording::LimitAnalyzeRegressionNoCasewiseDiagnostics,
+                StatsWording::LimitAnalyzeDurbinWatsonRowOrder,
+                StatsWording::LimitAnalyzeRegressionIntervals95Only,
+            ],
+            export_kinds: vec![ExportKind::Csv, ExportKind::Json],
+            documentation_id: DocId("methods/linear_regression"),
+        },
+    }
+}
+
 /// Scale scores (Phase 8M, decisions 408 and 411): the methods' rows, columns,
 /// formats and table limitations, with no ceiling and no cancel (ADR-011 Part
 /// 12): one fast call, measured at 0.18 s at 100,000 × 128 (decision 410), never
@@ -948,7 +1028,8 @@ impl Registry {
     /// `stats.analyze.paired_t`, `stats.analyze.one_way_anova`,
     /// `stats.analyze.correlations`, `stats.analyze.cronbach_alpha`,
     /// `stats.analyze.crosstabs`, `stats.analyze.independent_ranks`,
-    /// `stats.analyze.related_ranks` and `stats.prepare.scale_score`.
+    /// `stats.analyze.related_ranks`, `stats.analyze.linear_regression` and
+    /// `stats.prepare.scale_score`.
     pub fn statistics() -> Registry {
         let mut entries = vec![check()];
         entries.extend(MethodCatalogue::ENTRIES.iter().map(|e| verify(e.id)));
@@ -962,6 +1043,7 @@ impl Registry {
         entries.push(analyze_crosstabs());
         entries.push(analyze_independent_ranks());
         entries.push(analyze_related_ranks());
+        entries.push(analyze_linear_regression());
         entries.push(prepare_scale_score());
         Registry { entries }
     }
@@ -1133,7 +1215,7 @@ mod tests {
                 checked += 1;
             }
         }
-        assert_eq!(checked, 2 * 19, "nineteen capabilities, two builds");
+        assert_eq!(checked, 2 * 20, "twenty capabilities, two builds");
     }
 
     /// Phase 8D-1 (decision 253), made Beta in 8D-2a (decision 265): the
@@ -1186,7 +1268,7 @@ mod tests {
         }
         let ids: Vec<String> = t.ids().iter().map(|i| i.as_str().to_string()).collect();
         assert_eq!(
-            &ids[ids.len() - 10..ids.len() - 7],
+            &ids[ids.len() - 11..ids.len() - 8],
             [TTEST_ID, ONE_SAMPLE_ID, PAIRED_ID],
             "appended after the independent t-test, one-sample first"
         );
@@ -1214,6 +1296,7 @@ mod tests {
                 | Kind::AnalyzeCrosstabs
                 | Kind::AnalyzeIndependentRanks
                 | Kind::AnalyzeRelatedRanks
+                | Kind::AnalyzeLinearRegression
                 | Kind::PrepareScaleScore => {
                     methods += 1;
                     assert!(
@@ -1251,7 +1334,7 @@ mod tests {
                 }
             }
         }
-        assert_eq!((methods, verify), (11, 7));
+        assert_eq!((methods, verify), (12, 7));
         assert_eq!((METHOD_MAX_ROWS, METHOD_MAX_COLUMNS), (100_000, 128));
     }
 
@@ -1296,7 +1379,7 @@ mod tests {
         }
         let ids: Vec<String> = t.ids().iter().map(|i| i.as_str().to_string()).collect();
         assert_eq!(
-            &ids[ids.len() - 7..ids.len() - 5],
+            &ids[ids.len() - 8..ids.len() - 6],
             [ANOVA_ID, CORR_ID],
             "appended after the paired t-test, the correlations after it"
         );
@@ -1341,7 +1424,7 @@ mod tests {
         }
         let ids: Vec<String> = t.ids().iter().map(|i| i.as_str().to_string()).collect();
         assert_eq!(
-            &ids[ids.len() - 6..ids.len() - 4],
+            &ids[ids.len() - 7..ids.len() - 5],
             [CORR_ID, ALPHA_ID],
             "appended after the one-way ANOVA, Cronbach's alpha after it"
         );
@@ -1386,7 +1469,7 @@ mod tests {
         }
         let ids: Vec<String> = t.ids().iter().map(|i| i.as_str().to_string()).collect();
         assert_eq!(
-            &ids[ids.len() - 5..ids.len() - 3],
+            &ids[ids.len() - 6..ids.len() - 4],
             [ALPHA_ID, XTAB_ID],
             "appended after the correlations, crosstabs after it (decision 578)"
         );
@@ -1440,7 +1523,7 @@ mod tests {
         }
         let ids: Vec<String> = t.ids().iter().map(|i| i.as_str().to_string()).collect();
         assert_eq!(
-            &ids[ids.len() - 4..ids.len() - 2],
+            &ids[ids.len() - 5..ids.len() - 3],
             [XTAB_ID, RANKS_ID],
             "appended after Cronbach's alpha, the rank tests after it (decision 605)"
         );
@@ -1499,7 +1582,7 @@ mod tests {
         }
         let ids: Vec<String> = t.ids().iter().map(|i| i.as_str().to_string()).collect();
         assert_eq!(
-            &ids[ids.len() - 3..ids.len() - 1],
+            &ids[ids.len() - 4..ids.len() - 2],
             [RANKS_ID, RELATED_RANKS_ID],
             "appended after crosstabs, the related rank tests after it"
         );
@@ -1551,9 +1634,63 @@ mod tests {
         }
         let ids: Vec<String> = t.ids().iter().map(|i| i.as_str().to_string()).collect();
         assert_eq!(
-            &ids[ids.len() - 2..],
-            [RELATED_RANKS_ID, PREP_ID],
-            "appended after the rank tests, scale scores after it"
+            &ids[ids.len() - 3..ids.len() - 1],
+            [RELATED_RANKS_ID, LINEAR_REGRESSION_ID],
+            "appended after the rank tests, the linear regression after it"
+        );
+    }
+
+    /// Phase 9A-1 (decision 672): the linear regression is listed after the
+    /// related rank tests and before scale scores, with its own title,
+    /// description and limitations and its validation suite and page named.
+    /// Beta since Part 3 (decision 674), so runnable in both builds.
+    #[test]
+    fn the_linear_regression_is_listed_and_named() {
+        let t = Registry::statistics();
+        let id = CapabilityId::parse(LINEAR_REGRESSION_ID).unwrap();
+        let e = t.lookup(&id).expect("listed");
+        let d = &e.descriptor;
+        assert_eq!(e.kind, Kind::AnalyzeLinearRegression);
+        assert_eq!((d.version, d.lifecycle), (1, Lifecycle::Beta));
+        assert_eq!(
+            (d.title_code, d.description_code),
+            (
+                StatsWording::AnalyzeLinearRegressionTitle,
+                StatsWording::AnalyzeLinearRegressionDescription
+            )
+        );
+        assert_eq!(
+            d.known_limitation_codes,
+            [
+                StatsWording::LimitTableTextFilesUtf8Only,
+                StatsWording::LimitTableLimitsByMemory,
+                StatsWording::LimitAnalyzeNoWeights,
+                StatsWording::LimitAnalyzeRegressionEnterOnly,
+                StatsWording::LimitAnalyzeRegressionNoCategoricalPredictors,
+                StatsWording::LimitAnalyzeRegressionNoInteractionTerms,
+                StatsWording::LimitAnalyzeRegressionInterceptAlways,
+                StatsWording::LimitAnalyzeRegressionListwiseOnly,
+                StatsWording::LimitAnalyzeRegressionNoRobustErrors,
+                StatsWording::LimitAnalyzeRegressionNoCasewiseDiagnostics,
+                StatsWording::LimitAnalyzeDurbinWatsonRowOrder,
+                StatsWording::LimitAnalyzeRegressionIntervals95Only,
+            ]
+        );
+        assert_eq!(
+            (d.validation_suite_id, d.documentation_id),
+            (
+                SuiteId("linear_regression_r_golden"),
+                DocId("methods/linear_regression")
+            )
+        );
+        for build in [Build::Standard, Build::Devtools] {
+            assert!(t.require_runnable(&id, 1, build).is_ok(), "Beta runs in {build:?}");
+        }
+        let ids: Vec<String> = t.ids().iter().map(|i| i.as_str().to_string()).collect();
+        assert_eq!(
+            &ids[ids.len() - 3..],
+            [RELATED_RANKS_ID, LINEAR_REGRESSION_ID, PREP_ID],
+            "appended after the related rank tests, scale scores after it"
         );
     }
 

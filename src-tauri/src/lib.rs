@@ -47,6 +47,7 @@ pub mod stats_desc_commands;
 pub mod stats_l1_commands;
 pub mod stats_l1_ingest;
 pub mod stats_legacy;
+pub mod stats_linear_regression_commands;
 pub mod stats_onesample_commands;
 pub mod stats_prep_commands;
 pub mod stats_ranks_commands;
@@ -454,6 +455,13 @@ pub fn run() {
             stats_related_ranks_commands::stats_related_ranks_result,
             stats_related_ranks_commands::stats_related_ranks_cancel,
             stats_related_ranks_commands::stats_related_ranks_export,
+            // Research OS, Phase 9A-1 (decision 674): the linear regression.
+            stats_linear_regression_commands::stats_linear_regression_validate,
+            stats_linear_regression_commands::stats_linear_regression_run,
+            stats_linear_regression_commands::stats_linear_regression_status,
+            stats_linear_regression_commands::stats_linear_regression_result,
+            stats_linear_regression_commands::stats_linear_regression_cancel,
+            stats_linear_regression_commands::stats_linear_regression_export,
             // Research OS, Phase 8M-3 (decision 425): scale scores, behind the
             // workspace check. In memory only; the screen comes with the layout.
             stats_prep_commands::stats_prep_make,

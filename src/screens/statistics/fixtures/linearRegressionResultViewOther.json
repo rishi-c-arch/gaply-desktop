@@ -1,0 +1,253 @@
+{
+  "runId": 5,
+  "status": "succeeded",
+  "result": {
+    "outcome": "C2",
+    "rowsUsed": 3,
+    "columns": [
+      {
+        "column": "C2",
+        "mean": {
+          "value": 9.0
+        },
+        "sd": {
+          "value": 6.244997998398398
+        }
+      },
+      {
+        "column": "C1",
+        "mean": {
+          "value": 2.3333333333333335
+        },
+        "sd": {
+          "value": 2.081665999466133
+        }
+      }
+    ],
+    "model": {
+      "r": {
+        "value": 1.0
+      },
+      "rSquared": {
+        "value": 1.0
+      },
+      "adjustedRSquared": {
+        "value": 1.0
+      },
+      "standardErrorOfEstimate": {
+        "not_computable": "stats.linear_regression.perfect_fit"
+      },
+      "durbinWatson": {
+        "not_computable": "stats.linear_regression.perfect_fit"
+      }
+    },
+    "anova": {
+      "regression": {
+        "sumOfSquares": {
+          "value": 78.0
+        },
+        "df": 1,
+        "meanSquare": {
+          "value": 78.0
+        }
+      },
+      "residual": {
+        "sumOfSquares": {
+          "value": 0.0
+        },
+        "df": 1,
+        "meanSquare": {
+          "not_computable": "stats.linear_regression.perfect_fit"
+        }
+      },
+      "total": {
+        "sumOfSquares": {
+          "value": 78.0
+        },
+        "df": 2
+      },
+      "f": {
+        "not_computable": "stats.linear_regression.perfect_fit"
+      },
+      "p": {
+        "not_computable": "stats.linear_regression.perfect_fit"
+      }
+    },
+    "intercept": {
+      "b": {
+        "value": 2.0
+      },
+      "standardError": {
+        "not_computable": "stats.linear_regression.perfect_fit"
+      },
+      "t": {
+        "not_computable": "stats.linear_regression.perfect_fit"
+      },
+      "p": {
+        "not_computable": "stats.linear_regression.perfect_fit"
+      },
+      "lower": {
+        "not_computable": "stats.linear_regression.perfect_fit"
+      },
+      "upper": {
+        "not_computable": "stats.linear_regression.perfect_fit"
+      }
+    },
+    "predictors": [
+      {
+        "column": "C1",
+        "b": {
+          "value": 3.000000000000001
+        },
+        "standardError": {
+          "not_computable": "stats.linear_regression.perfect_fit"
+        },
+        "beta": {
+          "value": 1.0000000000000004
+        },
+        "t": {
+          "not_computable": "stats.linear_regression.perfect_fit"
+        },
+        "p": {
+          "not_computable": "stats.linear_regression.perfect_fit"
+        },
+        "lower": {
+          "not_computable": "stats.linear_regression.perfect_fit"
+        },
+        "upper": {
+          "not_computable": "stats.linear_regression.perfect_fit"
+        },
+        "zeroOrder": {
+          "value": 0.9999999999999999
+        },
+        "partial": {
+          "not_computable": "stats.linear_regression.perfect_fit"
+        },
+        "part": {
+          "not_computable": "stats.linear_regression.perfect_fit"
+        },
+        "tolerance": {
+          "value": 1.0
+        },
+        "vif": {
+          "value": 1.0
+        }
+      }
+    ],
+    "residuals": {
+      "predicted": {
+        "minimum": {
+          "value": 2.0
+        },
+        "maximum": {
+          "value": 14.0
+        },
+        "mean": {
+          "value": 9.0
+        },
+        "standardDeviation": {
+          "value": 6.244997998398398
+        }
+      },
+      "residual": {
+        "minimum": {
+          "value": 0.0
+        },
+        "maximum": {
+          "value": 0.0
+        },
+        "mean": {
+          "value": 0.0
+        },
+        "standardDeviation": {
+          "value": 0.0
+        }
+      },
+      "standardizedPredicted": {
+        "minimum": {
+          "value": -1.12089707663561
+        },
+        "maximum": {
+          "value": 0.8006407690254357
+        }
+      },
+      "standardizedResidual": {
+        "minimum": {
+          "not_computable": "stats.linear_regression.perfect_fit"
+        },
+        "maximum": {
+          "not_computable": "stats.linear_regression.perfect_fit"
+        }
+      }
+    },
+    "exclusions": [
+      {
+        "code": "stats.linear_regression.missing_code",
+        "count": 2,
+        "params": {
+          "column": 1
+        }
+      }
+    ],
+    "notes": [
+      "stats.linear_regression.essentially_perfect_fit"
+    ],
+    "limitations": [
+      "stats.linear_regression.enter_only",
+      "stats.linear_regression.no_categorical_predictors",
+      "stats.linear_regression.no_interaction_terms",
+      "stats.linear_regression.intercept_always",
+      "stats.linear_regression.listwise_only",
+      "stats.linear_regression.no_robust_standard_errors",
+      "stats.linear_regression.no_casewise_diagnostics",
+      "stats.linear_regression.durbin_watson_row_order",
+      "stats.linear_regression.intervals_95_only",
+      "stats.linear_regression.no_weights"
+    ]
+  },
+  "diagnostics": [
+    {
+      "code": "stats.linear_regression.suspect_missing_code",
+      "params": {
+        "column": 1,
+        "count": 3,
+        "value": 99
+      },
+      "severity": "warning"
+    },
+    {
+      "code": "stats.linear_regression.enter_only",
+      "params": {},
+      "severity": "note"
+    }
+  ],
+  "manifest": {
+    "schemaVersion": 1,
+    "capabilityId": "stats.analyze.linear_regression",
+    "capabilityVersion": 1,
+    "engineVersion": 1,
+    "inputs": [
+      "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    ],
+    "parametersHash": "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+    "seed": 7,
+    "rowsRead": 21,
+    "rowsUsed": 10,
+    "exclusions": [
+      {
+        "code": "stats.linear_regression.missing_value",
+        "count": 1,
+        "params": {
+          "column": 2
+        }
+      }
+    ],
+    "platform": {
+      "os": "macos",
+      "arch": "aarch64"
+    },
+    "elapsedMs": 3,
+    "outputHash": "6ad1bf5daee4d8dfcb466411096e7f26e513bf2cadfb0e1605ff085026fe5c5b",
+    "reproducibility": "bitwise"
+  }
+}

@@ -855,98 +855,8 @@ pub fn ols_qr(y: &[f64], predictors: &[Vec<f64>]) -> Result<RegressionResult, Ga
     let n = y.len();
     let k = predictors.len();
     let p = k + 1;
-    if n <= p {
-        return Err(GaplyError::Validation(format!(
-            "regression needs more observations ({n}) than parameters ({p})"
-        )));
-    }
-    for (i, col) in predictors.iter().enumerate() {
-        if col.len() != n {
-            return Err(GaplyError::Validation(format!(
-                "predictor {i} has length {} but y has length {n}",
-                col.len()
-            )));
-        }
-    }
-    // The design by columns, column 0 the intercept. Reduced in place to R
-    // (upper triangle) with the Householder vectors kept separately.
-    let mut a: Vec<Vec<f64>> = Vec::with_capacity(p);
-    a.push(vec![1.0; n]);
-    a.extend(predictors.iter().cloned());
-    let original_norm: Vec<f64> = a.iter().map(|c| norm2(c)).collect();
-    let mut effects = y.to_vec();
-    let mut reflectors: Vec<Vec<f64>> = Vec::with_capacity(p);
-    for j in 0..p {
-        let remaining = norm2(&a[j][j..]);
-        // dqrdc2 treats an all-zero column's original norm as 1.
-        let reference = if original_norm[j] == 0.0 { 1.0 } else { original_norm[j] };
-        if !(remaining >= QR_RANK_TOLERANCE * reference) {
-            return Err(GaplyError::Validation(
-                "the design matrix is rank-deficient at R's tolerance (collinear predictors or no variation) — regression is undefined".into(),
-            ));
-        }
-        // v = x - alpha e1, alpha = -sign(x0) |x|: no cancellation in v0.
-        let alpha = if a[j][j] >= 0.0 { -remaining } else { remaining };
-        let mut v = a[j][j..].to_vec();
-        v[0] -= alpha;
-        // The reflector's squared norm is a sum of squares: it overflows at
-        // cells near 1e200 and underflows at cells near 1e-200, although
-        // `norm2` (scaled) does neither.
-        let vv = sum_of_squares(v.iter().copied())?;
-        let reflect = |col: &mut [f64]| -> Result<(), GaplyError> {
-            let s = finite(v.iter().zip(col.iter()).map(|(a, b)| a * b).sum::<f64>() * 2.0 / vv)?;
-            for (c, vi) in col.iter_mut().zip(&v) {
-                *c = finite(*c - s * vi)?;
-            }
-            Ok(())
-        };
-        for col in a.iter_mut().skip(j + 1) {
-            reflect(&mut col[j..])?;
-        }
-        reflect(&mut effects[j..])?;
-        a[j][j] = alpha;
-        for x in a[j][j + 1..].iter_mut() {
-            *x = 0.0;
-        }
-        reflectors.push(v);
-    }
-    // R^-1 by back substitution (upper triangular, column j of `a` holds
-    // R[0..=j][j]).
-    let r = |i: usize, j: usize| a[j][i];
-    let mut r_inv = vec![vec![0.0; p]; p];
-    for col in 0..p {
-        for i in (0..=col).rev() {
-            let mut s = if i == col { 1.0 } else { 0.0 };
-            for m in (i + 1)..=col {
-                s -= r(i, m) * r_inv[m][col];
-            }
-            r_inv[i][col] = s / r(i, i);
-        }
-    }
-    for row in &r_inv {
-        for &v in row {
-            finite(v)?;
-        }
-    }
-    let beta: Vec<f64> = (0..p).map(|i| (i..p).map(|m| r_inv[i][m] * effects[m]).sum()).collect();
-    for &b in &beta {
-        finite(b)?;
-    }
-    // Residuals: Q (0, ..., 0, effects[p..]), applying the reflectors in reverse.
-    let mut resid = vec![0.0; n];
-    resid[p..].copy_from_slice(&effects[p..]);
-    for (j, v) in reflectors.iter().enumerate().rev() {
-        let vv = sum_of_squares(v.iter().copied())?;
-        let s = finite(v.iter().zip(&resid[j..]).map(|(a, b)| a * b).sum::<f64>() * 2.0 / vv)?;
-        for (c, vi) in resid[j..].iter_mut().zip(v) {
-            *c -= s * vi;
-        }
-    }
-    let fitted: Vec<f64> = y.iter().zip(&resid).map(|(y, e)| y - e).collect();
-    let rss = sum_of_squares(resid.iter().copied())?;
-    let fbar = checked_mean(&fitted)?;
-    let mss = sum_of_squares(fitted.iter().map(|f| f - fbar))?;
-    let df_res = (n - p) as f64;
+    let QrFit { coefficients: beta, r_inv, rss, mss, df_residual: df_res, .. } =
+        ols_qr_parts(y, predictors).map_err(QrRefusal::error)?;
     let sigma2 = rss / df_res;
     let coefficients = (0..p)
         .map(|i| {
@@ -968,6 +878,155 @@ pub fn ols_qr(y: &[f64], predictors: &[Vec<f64>]) -> Result<RegressionResult, Ga
         finite(f_statistic)?;
     }
     Ok(RegressionResult { coefficients, r_squared, adj_r_squared: adj, df_residual: df_res, f_statistic, df_model })
+}
+
+/// The QR fit [`ols_qr`] and the linear regression share (Research OS 9A-1,
+/// decision 670): the coefficients, the intercept first; R⁻¹ (p × p, upper
+/// triangular); the residuals in row order; RSS; MSS about the fitted values'
+/// mean; and the residual df, n − k − 1.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct QrFit {
+    pub(crate) coefficients: Vec<f64>,
+    pub(crate) r_inv: Vec<Vec<f64>>,
+    pub(crate) residuals: Vec<f64>,
+    pub(crate) rss: f64,
+    pub(crate) mss: f64,
+    pub(crate) df_residual: f64,
+}
+
+/// Why [`ols_qr_parts`] fitted nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum QrRefusal {
+    /// No more rows than parameters (predictors and the intercept).
+    TooFewRows { rows: usize, parameters: usize },
+    /// The 0-based predictor whose length is not y's.
+    LengthMismatch { predictor: usize, length: usize, rows: usize },
+    /// The rank test stopped at this column: 1-based among the predictors, 0
+    /// for the intercept. It is the first such column in the list's order,
+    /// where R's `lm` gives NA.
+    RankDeficient { predictor: usize },
+    /// A double could not hold a number of the fit.
+    Range(RangeFault),
+}
+
+impl QrRefusal {
+    /// The error [`ols_qr`] has always given for it, word for word.
+    fn error(self) -> GaplyError {
+        match self {
+            QrRefusal::TooFewRows { rows, parameters } => GaplyError::Validation(format!(
+                "regression needs more observations ({rows}) than parameters ({parameters})"
+            )),
+            QrRefusal::LengthMismatch { predictor, length, rows } => GaplyError::Validation(format!(
+                "predictor {predictor} has length {length} but y has length {rows}"
+            )),
+            QrRefusal::RankDeficient { .. } => GaplyError::Validation(
+                "the design matrix is rank-deficient at R's tolerance (collinear predictors or no variation) — regression is undefined".into(),
+            ),
+            QrRefusal::Range(fault) => fault.error(),
+        }
+    }
+
+    /// A range error from this module's checked helpers, which give no other.
+    fn range(e: GaplyError) -> QrRefusal {
+        let fault = RangeFault::of(&e);
+        debug_assert!(fault.is_some(), "a checked helper gave a non-range error: {e}");
+        QrRefusal::Range(fault.unwrap_or(RangeFault::Overflow))
+    }
+}
+
+/// The body of [`ols_qr`] up to and including RSS and MSS, unchanged, with
+/// its refusals typed (decision 670). [`ols_qr`] wraps it, so its bits and
+/// messages are what they were.
+pub(crate) fn ols_qr_parts(y: &[f64], predictors: &[Vec<f64>]) -> Result<QrFit, QrRefusal> {
+    let range = QrRefusal::range;
+    let n = y.len();
+    let k = predictors.len();
+    let p = k + 1;
+    if n <= p {
+        return Err(QrRefusal::TooFewRows { rows: n, parameters: p });
+    }
+    for (i, col) in predictors.iter().enumerate() {
+        if col.len() != n {
+            return Err(QrRefusal::LengthMismatch { predictor: i, length: col.len(), rows: n });
+        }
+    }
+    // The design by columns, column 0 the intercept. Reduced in place to R
+    // (upper triangle) with the Householder vectors kept separately.
+    let mut a: Vec<Vec<f64>> = Vec::with_capacity(p);
+    a.push(vec![1.0; n]);
+    a.extend(predictors.iter().cloned());
+    let original_norm: Vec<f64> = a.iter().map(|c| norm2(c)).collect();
+    let mut effects = y.to_vec();
+    let mut reflectors: Vec<Vec<f64>> = Vec::with_capacity(p);
+    for j in 0..p {
+        let remaining = norm2(&a[j][j..]);
+        // dqrdc2 treats an all-zero column's original norm as 1.
+        let reference = if original_norm[j] == 0.0 { 1.0 } else { original_norm[j] };
+        if !(remaining >= QR_RANK_TOLERANCE * reference) {
+            return Err(QrRefusal::RankDeficient { predictor: j });
+        }
+        // v = x - alpha e1, alpha = -sign(x0) |x|: no cancellation in v0.
+        let alpha = if a[j][j] >= 0.0 { -remaining } else { remaining };
+        let mut v = a[j][j..].to_vec();
+        v[0] -= alpha;
+        // The reflector's squared norm is a sum of squares: it overflows at
+        // cells near 1e200 and underflows at cells near 1e-200, although
+        // `norm2` (scaled) does neither.
+        let vv = sum_of_squares(v.iter().copied()).map_err(range)?;
+        let reflect = |col: &mut [f64]| -> Result<(), GaplyError> {
+            let s = finite(v.iter().zip(col.iter()).map(|(a, b)| a * b).sum::<f64>() * 2.0 / vv)?;
+            for (c, vi) in col.iter_mut().zip(&v) {
+                *c = finite(*c - s * vi)?;
+            }
+            Ok(())
+        };
+        for col in a.iter_mut().skip(j + 1) {
+            reflect(&mut col[j..]).map_err(range)?;
+        }
+        reflect(&mut effects[j..]).map_err(range)?;
+        a[j][j] = alpha;
+        for x in a[j][j + 1..].iter_mut() {
+            *x = 0.0;
+        }
+        reflectors.push(v);
+    }
+    // R^-1 by back substitution (upper triangular, column j of `a` holds
+    // R[0..=j][j]).
+    let r = |i: usize, j: usize| a[j][i];
+    let mut r_inv = vec![vec![0.0; p]; p];
+    for col in 0..p {
+        for i in (0..=col).rev() {
+            let mut s = if i == col { 1.0 } else { 0.0 };
+            for m in (i + 1)..=col {
+                s -= r(i, m) * r_inv[m][col];
+            }
+            r_inv[i][col] = s / r(i, i);
+        }
+    }
+    for row in &r_inv {
+        for &v in row {
+            finite(v).map_err(range)?;
+        }
+    }
+    let beta: Vec<f64> = (0..p).map(|i| (i..p).map(|m| r_inv[i][m] * effects[m]).sum()).collect();
+    for &b in &beta {
+        finite(b).map_err(range)?;
+    }
+    // Residuals: Q (0, ..., 0, effects[p..]), applying the reflectors in reverse.
+    let mut resid = vec![0.0; n];
+    resid[p..].copy_from_slice(&effects[p..]);
+    for (j, v) in reflectors.iter().enumerate().rev() {
+        let vv = sum_of_squares(v.iter().copied()).map_err(range)?;
+        let s = finite(v.iter().zip(&resid[j..]).map(|(a, b)| a * b).sum::<f64>() * 2.0 / vv).map_err(range)?;
+        for (c, vi) in resid[j..].iter_mut().zip(v) {
+            *c -= s * vi;
+        }
+    }
+    let fitted: Vec<f64> = y.iter().zip(&resid).map(|(y, e)| y - e).collect();
+    let rss = sum_of_squares(resid.iter().copied()).map_err(range)?;
+    let fbar = checked_mean(&fitted).map_err(range)?;
+    let mss = sum_of_squares(fitted.iter().map(|f| f - fbar)).map_err(range)?;
+    Ok(QrFit { coefficients: beta, r_inv, residuals: resid, rss, mss, df_residual: (n - p) as f64 })
 }
 
 /// The Euclidean norm, scaled so a column of large values cannot overflow
@@ -1258,6 +1317,77 @@ mod tests {
         let y = [3.1, 2.4, 3.6, 2.2, 3.3, 2.0, 3.4];
         let r = ols_qr(&y, &[big, small]).expect("a full-rank design is fitted");
         assert!(r.f_statistic.is_finite() && r.coefficients.iter().all(|c| c.t.is_finite()));
+    }
+
+    // ------------- ols_qr_parts (Research OS 9A-1, decision 670) -------------
+
+    #[test]
+    fn ols_qr_parts_refuses_too_few_rows_typed() {
+        let got = ols_qr_parts(&[1.0, 2.0], &[vec![1.0, 2.0]]);
+        assert_eq!(got.err(), Some(QrRefusal::TooFewRows { rows: 2, parameters: 2 }));
+    }
+
+    #[test]
+    fn ols_qr_parts_refuses_a_length_mismatch_typed() {
+        let got = ols_qr_parts(&[1.0, 2.0, 3.0, 4.0], &[vec![1.0, 2.0, 3.0, 5.0], vec![1.0, 2.0, 3.0]]);
+        assert_eq!(got.err(), Some(QrRefusal::LengthMismatch { predictor: 1, length: 3, rows: 4 }));
+    }
+
+    /// The third predictor is the sum of the first two: the rank test stops at
+    /// it, 1-based predictor 3, where R's `lm` gives NA.
+    #[test]
+    fn ols_qr_parts_names_the_first_deficient_predictor() {
+        let x1 = vec![1.0, 2.0, 4.0, 3.0, 5.0, 7.0, 6.0];
+        let x2 = vec![2.0, 1.0, 1.0, 3.0, 2.0, 5.0, 4.0];
+        let x3: Vec<f64> = x1.iter().zip(&x2).map(|(a, b)| a + b).collect();
+        let x4 = vec![0.5, 1.5, 0.25, 2.0, 1.0, 3.0, 2.5];
+        let y = [3.0, 4.5, 6.0, 7.5, 7.0, 13.0, 11.0];
+        let got = ols_qr_parts(&y, &[x1, x2, x3, x4]);
+        assert_eq!(got.err(), Some(QrRefusal::RankDeficient { predictor: 3 }));
+    }
+
+    #[test]
+    fn ols_qr_parts_refuses_overflow_and_underflow_typed() {
+        assert_eq!(ols_qr_parts(&k(&Y, OVER), &[k(&X, OVER)]).err(), Some(QrRefusal::Range(RangeFault::Overflow)));
+        assert_eq!(ols_qr_parts(&k(&Y, UNDER), &[k(&X, UNDER)]).err(), Some(QrRefusal::Range(RangeFault::Underflow)));
+    }
+
+    /// RSS is the sum of the squared residuals it returns, the residuals are
+    /// y less the fitted values from its coefficients, and the residual df is
+    /// n − k − 1.
+    #[test]
+    fn ols_qr_parts_rss_is_the_sum_of_its_squared_residuals() {
+        let y = [2.0, 4.0, 5.0, 4.0, 5.0, 7.0];
+        let x1 = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+        let x2 = vec![0.5, 0.25, 1.0, 2.0, 1.5, 0.75];
+        let fit = ols_qr_parts(&y, &[x1.clone(), x2.clone()]).expect("full rank");
+        assert_eq!(fit.coefficients.len(), 3);
+        assert_eq!(fit.residuals.len(), y.len());
+        assert_eq!(fit.df_residual, 3.0);
+        let rss: f64 = fit.residuals.iter().map(|e| e * e).sum();
+        assert!((fit.rss - rss).abs() <= 1e-15 * rss.max(1.0), "rss {} vs {}", fit.rss, rss);
+        for i in 0..y.len() {
+            let fitted = fit.coefficients[0] + fit.coefficients[1] * x1[i] + fit.coefficients[2] * x2[i];
+            assert!((y[i] - fitted - fit.residuals[i]).abs() <= 1e-13, "row {i}");
+        }
+        // R⁻¹ is upper triangular, p × p.
+        assert_eq!(fit.r_inv.len(), 3);
+        assert!(fit.r_inv.iter().enumerate().all(|(i, row)| row.len() == 3 && row[..i].iter().all(|v| *v == 0.0)));
+    }
+
+    /// The wrapper's messages are the parts' refusals, word for word as before.
+    #[test]
+    fn ols_qr_keeps_its_messages_over_the_parts() {
+        let msg = |r: Result<RegressionResult, GaplyError>| match r {
+            Err(GaplyError::Validation(m)) => m,
+            other => panic!("expected a validation error, got {other:?}"),
+        };
+        assert_eq!(msg(ols_qr(&[1.0, 2.0], &[vec![1.0, 2.0]])), "regression needs more observations (2) than parameters (2)");
+        assert_eq!(msg(ols_qr(&[1.0, 2.0, 3.0, 4.0], &[vec![1.0, 2.0, 3.0]])), "predictor 0 has length 3 but y has length 4");
+        assert_eq!(
+            msg(ols_qr(&[1.0, 2.0, 3.0, 4.0, 6.0], &[vec![3.0; 5]])),
+            "the design matrix is rank-deficient at R's tolerance (collinear predictors or no variation) — regression is undefined"
+        );
     }
 
     // ------------------- range: overflow and underflow ---------------------

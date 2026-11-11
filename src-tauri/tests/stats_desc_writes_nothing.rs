@@ -74,6 +74,9 @@ const SCANNED: &[&str] = &[
     // Phase 8Z-1 (decision 641): the related rank tests' commands and operations.
     "src/stats_related_ranks_commands.rs",
     "gaply-core/src/stats_related_ranks",
+    // Phase 9A-1 (decision 674): the linear regression's commands and operations.
+    "src/stats_linear_regression_commands.rs",
+    "gaply-core/src/stats_linear_regression",
 ];
 
 /// The one Research OS module allowed to write (Phase 5B-1, ADR-009): the

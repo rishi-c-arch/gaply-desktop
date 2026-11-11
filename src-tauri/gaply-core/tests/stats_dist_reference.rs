@@ -18,6 +18,7 @@
 //! | `fisher_2x2` (8X-1) | 197 tables × 3 p, `fisher_p.csv` | 4e-10 · R's `fisher.test`, ten times 3.351e-11 measured | a zero margin gives 1 three times |
 //! | `rank_sum_exact_tails` (8Y-1) | 1,063 (n1 and n2 among 1 to 49, u), `wilcox_p.csv` | 2e-13 · R's `pwilcox`, both tails, ten times 1.310e-14 measured | each tail its own sum; `None` above 49 |
 //! | `signed_rank_exact_tails` (8Z-1) | 2,010 (n 1 to 49, v), `signrank_p.csv` | 3.7e-14 · R's `psignrank`, both tails, ten times 3.650e-15 measured | `None` above 49, and for v above the top |
+//! | `f_upper`, the regression (9A-1) | 1,200 (df1 1 to 50 × df2 1 to 1e5 × 10 tails to 1e-100), `f_upper_regression.tsv` | 1.1e-9 · R's `pf`, ten times 1.096e-10 measured | decision 316's stop, 1e-8, asserted too |
 //!
 //! The two 8X-1 files are written by a second script,
 //! `make_xtab_dist_fixtures.R` (decision 576), and 8Y-1's by a third,
@@ -786,4 +787,71 @@ fn signed_rank_exact_tails_equal_a_count_of_every_arrangement() {
             assert_eq!(got.upper, upper as f64 / total, "n {n} v {v}");
         }
     }
+}
+
+/* ------------------------------------------------------------------------ *
+ *  F at the linear regression's degrees of freedom (Research OS, Phase 9A-1,
+ *  decision 670), written by a fifth script, `make_linreg_dist_fixtures.R`, so
+ *  the files above stay byte for byte.
+ * ------------------------------------------------------------------------ */
+
+/// The fifth script: `f_upper_regression.tsv`.
+const PROVENANCE_LINREG: &str = "/usr/local/bin/Rscript make_linreg_dist_fixtures.R";
+/// Decision 316's stop: a row above this stops the step, and the gate is not
+/// widened to admit it (decision 670).
+const LINREG_STOP: f64 = 1e-8;
+/// Ten times the largest relative error measured over f_upper_regression.tsv
+/// (decision 316): 1.096e-10, at df1 49, df2 1e5 and an upper tail of 1e-100
+/// (macOS aarch64, 11 Nov 2026), printed by the test below; rounded up.
+const F_REGRESSION_GATE: f64 = 1.1e-9;
+
+/// The rows of `f_upper_regression.tsv`: f, df1, df2, tail, pf.
+fn linreg_rows() -> Vec<[f64; 5]> {
+    let name = "f_upper_regression.tsv";
+    let text = std::fs::read_to_string(format!("{DIR}/{name}")).unwrap_or_else(|e| panic!("{name}: {e}"));
+    let provenance: Vec<&str> = text.lines().take_while(|l| l.starts_with('#')).collect();
+    assert!(provenance.iter().any(|h| h.contains(PROVENANCE_LINREG)), "{name}: not written by {PROVENANCE_LINREG}");
+    assert!(provenance.iter().any(|h| h.contains(R_VERSION)), "{name}: not written with {R_VERSION}");
+    let mut lines = text.lines().filter(|l| !l.starts_with('#'));
+    assert_eq!(lines.next(), Some("f\tdf1\tdf2\ttail\tpf"), "{name}: the column header");
+    lines
+        .map(|l| {
+            let v: Vec<f64> = l.split('\t').map(|f| f.parse().unwrap_or_else(|e| panic!("{name}: `{f}`: {e}"))).collect();
+            assert_eq!(v.len(), 5, "{name}: `{l}`");
+            [v[0], v[1], v[2], v[3], v[4]]
+        })
+        .collect()
+}
+
+#[test]
+fn f_upper_is_within_its_gate_of_r_pf_at_the_regressions_degrees_of_freedom() {
+    let rows = linreg_rows();
+    let mut worst = Worst::default();
+    let (mut over, mut stopped) = (Vec::new(), Vec::new());
+    let mut df1s = std::collections::BTreeSet::new();
+    let mut df2s = std::collections::BTreeSet::new();
+    let mut smallest = 1.0f64;
+    for [f, df1, df2, tail, want] in &rows {
+        df1s.insert(*df1 as u64);
+        df2s.insert(*df2 as u64);
+        smallest = smallest.min(*want);
+        let got = f_upper(*f, *df1, *df2).unwrap_or_else(|| panic!("df1 {df1} df2 {df2} tail {tail}: None"));
+        assert!((0.0..=1.0).contains(&got), "df1 {df1} df2 {df2} tail {tail}: {got}");
+        let ratio = relative(got, *want);
+        let row = format!("df1 {df1} df2 {df2} tail {tail:e} (F {f:e}, R {want:e}, gaply {got:e})");
+        if ratio > LINREG_STOP {
+            stopped.push(format!("{row}: relative {ratio:e}"));
+        }
+        if ratio > F_REGRESSION_GATE {
+            over.push(format!("{row}: relative {ratio:e}"));
+        }
+        worst.see(ratio, row);
+    }
+    println!("f_upper at the regression's df: the largest |gaply - R| / R is {:.3e} ({}); gate {F_REGRESSION_GATE:e}", worst.0, worst.1);
+    println!("f_upper at the regression's df: {} rows, R's smallest p {smallest:e}", rows.len());
+    assert_eq!(rows.len(), 1200, "12 df1 x 10 df2 x 10 tails, none skipped");
+    assert_eq!(df1s.into_iter().collect::<Vec<_>>(), vec![1, 2, 3, 5, 7, 10, 15, 20, 30, 40, 49, 50]);
+    assert_eq!(df2s.len(), 10);
+    assert!(stopped.is_empty(), "above decision 316's stop {LINREG_STOP:e}; the method waits for a decision:\n{}", stopped.join("\n"));
+    assert!(over.is_empty(), "over the gate {F_REGRESSION_GATE:e}:\n{}", over.join("\n"));
 }

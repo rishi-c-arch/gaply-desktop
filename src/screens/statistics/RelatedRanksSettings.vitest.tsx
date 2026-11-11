@@ -6,7 +6,7 @@ import { act, cleanup, fireEvent, render, screen, within } from '@testing-librar
 import { afterEach, describe, expect, it } from 'vitest';
 
 import type { ColumnProfile, DatasetView } from './describeTypes';
-import { RelatedRanksSettings, useRelatedRanksSettings, type RelatedRanksSettingsState } from './RelatedRanksSettings';
+import { addColumn, moveColumnDown, moveColumnUp, RelatedRanksSettings, removeColumn, useRelatedRanksSettings, type RelatedRanksSettingsState } from './RelatedRanksSettings';
 import { ALPHA_ADD_ALL, ALPHA_COLUMNS_HEADING, ALPHA_ITEMS_NONE, ALPHA_REMOVE_ALL, ALPHA_REMOVE_ITEM } from './window/windowWording';
 
 afterEach(cleanup);
@@ -146,6 +146,100 @@ describe('the two panes', () => {
     tick('C2');
     act(() => state?.toggleColumn('C2', true));
     expect(list()).toEqual(['C2']);
+  });
+
+  // Decision 668: with two chosen, adding the first again must not move it to the end.
+  it('adding a column already chosen changes nothing, its place kept', () => {
+    render(<Harness />);
+    tick('C2');
+    tick('C3');
+    act(() => state?.toggleColumn('C2', true));
+    expect(list()).toEqual(['C2', 'C3']);
+    expect(spec().parameters.columns).toEqual(['C2', 'C3']);
+  });
+});
+
+/** Decision 668: the list's changes, as pure functions, on three columns. */
+describe("the list's changes", () => {
+  const three = ['C2', 'C3', 'C4'];
+
+  it('adds a column at the end, and an alias already in the list changes nothing', () => {
+    expect(addColumn(three, 'C5')).toEqual(['C2', 'C3', 'C4', 'C5']);
+    expect(addColumn(three, 'C2')).toEqual(['C2', 'C3', 'C4']);
+    expect(addColumn(three, 'C3')).toEqual(['C2', 'C3', 'C4']);
+    expect(addColumn([], 'C3')).toEqual(['C3']);
+  });
+
+  it('removes a column, and one not in the list changes nothing', () => {
+    expect(removeColumn(three, 'C3')).toEqual(['C2', 'C4']);
+    expect(removeColumn(three, 'C9')).toEqual(['C2', 'C3', 'C4']);
+  });
+
+  it('moves a column up and down by one, and not past either end', () => {
+    expect(moveColumnUp(three, 'C3')).toEqual(['C3', 'C2', 'C4']);
+    expect(moveColumnDown(three, 'C3')).toEqual(['C2', 'C4', 'C3']);
+    expect(moveColumnUp(three, 'C2')).toEqual(three);
+    expect(moveColumnDown(three, 'C4')).toEqual(three);
+    expect(moveColumnUp(three, 'C9')).toEqual(three);
+  });
+
+  it('moves past a column that is not shown, swapping with the shown neighbour', () => {
+    expect(moveColumnUp(three, 'C4', ['C2', 'C4'])).toEqual(['C4', 'C3', 'C2']);
+    expect(moveColumnDown(three, 'C2', ['C2', 'C4'])).toEqual(['C4', 'C3', 'C2']);
+  });
+
+  it('leaves the list it is given as it was', () => {
+    const list = ['C2', 'C3', 'C4'];
+    addColumn(list, 'C5');
+    removeColumn(list, 'C2');
+    moveColumnUp(list, 'C3');
+    moveColumnDown(list, 'C3');
+    expect(list).toEqual(['C2', 'C3', 'C4']);
+  });
+});
+
+/** Decision 668: what is sent is what is drawn. */
+describe('a chosen column that leaves the view', () => {
+  const without = (alias: string): DatasetView => ({ ...view, profile: { ...view.profile, columns: view.profile.columns.filter((c) => c.alias !== alias) } });
+
+  it('is neither drawn nor sent, readiness counts without it, and it is drawn again when the view brings it back', () => {
+    const { rerender } = render(<Harness v={view} />);
+    tick('C2');
+    tick('C3');
+    expect(list()).toEqual(['C2', 'C3']);
+    expect(state?.stillMissing).toBeNull();
+    rerender(<Harness v={without('C3')} />);
+    expect(list()).toEqual(['C2']);
+    expect(state?.columns).toEqual(['C2']);
+    expect(state?.stillMissing).toBe('Choose at least two columns.');
+    expect(spec().parameters.columns).toEqual(['C2']);
+    expect(screen.queryByTestId('rr-difference-line')).toBeNull();
+    rerender(<Harness v={view} />);
+    expect(list()).toEqual(['C2', 'C3']);
+    expect(spec().parameters.columns).toEqual(['C2', 'C3']);
+  });
+
+  it('drops its codes from those offered and sent while it is gone', () => {
+    const { rerender } = render(<Harness v={view} />);
+    tick('C2');
+    tick('C3');
+    tick('C4');
+    fireEvent.click(codeBox(99) as HTMLInputElement);
+    expect(spec().parameters.missingCodes).toEqual([99]);
+    rerender(<Harness v={without('C3')} />);
+    expect(codeBox(99)).toBeNull();
+    expect(spec().parameters.missingCodes).toEqual([]);
+  });
+
+  it('moves over the drawn list, never swapping with a column that is not shown', () => {
+    const { rerender } = render(<Harness v={view} />);
+    tick('C2');
+    tick('C3');
+    tick('C4');
+    rerender(<Harness v={without('C3')} />);
+    fireEvent.click(up('C4'));
+    expect(list()).toEqual(['C4', 'C2']);
+    expect(spec().parameters.columns).toEqual(['C4', 'C2']);
   });
 });
 

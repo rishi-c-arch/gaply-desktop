@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "capabilityId": "stats.analyze.linear_regression",
+  "capabilityVersion": 1,
+  "engineVersion": 1,
+  "inputs": [
+    "3491c7a49af5c9b7b63e00fb0db78cacecfc2365748cba871c05746df48d9e44"
+  ],
+  "parametersHash": "e4f48a7945e1c72a29957b6ef8eacba8325e1554741fd44df55e4c8b1e87c902",
+  "seed": null,
+  "rowsRead": 14,
+  "rowsUsed": 11,
+  "exclusions": [
+    {
+      "code": "stats.linear_regression.missing_value",
+      "count": 1,
+      "params": {
+        "column": 1
+      }
+    },
+    {
+      "code": "stats.linear_regression.missing_code",
+      "count": 1,
+      "params": {
+        "column": 2
+      }
+    },
+    {
+      "code": "stats.linear_regression.missing_value",
+      "count": 1,
+      "params": {
+        "column": 4
+      }
+    }
+  ],
+  "platform": {
+    "os": "macos",
+    "arch": "aarch64"
+  },
+  "elapsedMs": 0,
+  "outputHash": "4167611e67f0d8397190e2c203e05c104f6c1e82bb0710a121f92e5eda6c1834",
+  "reproducibility": "bitwise"
+}

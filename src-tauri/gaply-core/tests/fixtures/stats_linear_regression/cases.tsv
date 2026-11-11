@@ -1,0 +1,32 @@
+# written by: /usr/local/bin/Rscript make_linear_regression_fixtures.R
+# R version 4.6.1 (2026-06-24), base R stats only
+case	file	outcome	predictors	missing_codes
+one_small	data_one_small.csv	y	x1	-
+three_small	data_three_small.csv	y	x1 x_üß x3	-
+three_permuted	data_three_permuted.csv	y	x3 x1 x_üß	-
+three_rows_reordered	data_three_rows_reordered.csv	y	x1 x_üß x3	-
+offsets	data_offsets.csv	y	x1 x2	-
+tolerance	data_tolerance.csv	y	x1 x2	-
+tiny	data_tiny.csv	y	x1 x2	-
+correlated_999	data_correlated_999.csv	y	x1 x2	-
+correlated_99999	data_correlated_99999.csv	y	x1 x2	-
+p50_n60	data_p50_n60.csv	y	x1 x2 x3 x4 x5 x6 x7 x8 x9 x10 x11 x12 x13 x14 x15 x16 x17 x18 x19 x20 x21 x22 x23 x24 x25 x26 x27 x28 x29 x30 x31 x32 x33 x34 x35 x36 x37 x38 x39 x40 x41 x42 x43 x44 x45 x46 x47 x48 x49 x50	-
+essentially_perfect	data_essentially_perfect.csv	y	x1 x2	-
+missing	data_missing.csv	y	x1 x2	-99
+big_3	-	y	x1 x2 x3	-
+big_49	-	y	x1 x2 x3 x4 x5 x6 x7 x8 x9 x10 x11 x12 x13 x14 x15 x16 x17 x18 x19 x20 x21 x22 x23 x24 x25 x26 x27 x28 x29 x30 x31 x32 x33 x34 x35 x36 x37 x38 x39 x40 x41 x42 x43 x44 x45 x46 x47 x48 x49	-
+refuse_code_not_finite	data_refuse_base.csv	y	x1 x2	NaN
+refuse_no_predictors	data_refuse_base.csv	y	-	-
+refuse_too_many_predictors	data_refuse_51.csv	y	x1 x2 x3 x4 x5 x6 x7 x8 x9 x10 x11 x12 x13 x14 x15 x16 x17 x18 x19 x20 x21 x22 x23 x24 x25 x26 x27 x28 x29 x30 x31 x32 x33 x34 x35 x36 x37 x38 x39 x40 x41 x42 x43 x44 x45 x46 x47 x48 x49 x50 x51	-
+refuse_predictor_repeated	data_refuse_base.csv	y	x1 x2 x1	-
+refuse_outcome_among_predictors	data_refuse_base.csv	y	x1 y	-
+refuse_unknown_column	data_refuse_base.csv	y	x1 nope	-
+refuse_column_non_finite	data_refuse_infinite.csv	y	x1 x2	-
+refuse_column_holds_text	data_refuse_text.csv	y	x1 x2	-
+refuse_no_complete_rows	data_refuse_no_rows.csv	y	x1 x2	-
+refuse_too_few_rows	data_refuse_few.csv	y	x1 x2 x3	-
+refuse_outcome_constant	data_refuse_outcome_constant.csv	y	x1 x2	-
+refuse_predictor_constant	data_refuse_predictor_constant.csv	y	x1 x3 x2	-
+refuse_collinear_sum	data_refuse_collinear_sum.csv	y	x1 x2 x4 x3	-
+refuse_collinear_multiple	data_refuse_collinear_multiple.csv	y	x1 x2 x3	-
+refuse_fit_out_of_range	data_refuse_overflow.csv	y	x1 x2	-
