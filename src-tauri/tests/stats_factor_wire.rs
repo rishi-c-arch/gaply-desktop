@@ -350,7 +350,12 @@ fn sorted(mut v: Vec<String>) -> Vec<String> {
 fn the_factor_code_list_is_exactly_the_closed_sets() {
     let path = screens().join("factorCodes.json");
     let mut rust: Vec<String> = FactorCode::ALL.iter().map(|c| c.wire().to_string()).collect();
-    assert_eq!(rust.len(), 48, "decision 700's codes: 39, and nine limitations");
+    assert_eq!(
+        rust.len(),
+        50,
+        "decision 700's codes: 39; decision 714's no_correlation; decision 717's rotation_singular and \
+         extraction_eigenvalue_negative, less rotation_item_without_loadings; and nine limitations"
+    );
     rust.extend(RunCode::ALL.iter().map(|c| c.wire().to_string()));
     rust.extend(WorkspaceCode::ALL.iter().map(|c| c.wire().to_string()));
     rust.extend(CapabilityCode::ALL.iter().map(|c| c.wire().to_string()));

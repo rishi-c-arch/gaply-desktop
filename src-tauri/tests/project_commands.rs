@@ -1872,3 +1872,50 @@ fn a_save_target_reads_from_the_webview_shape_and_nothing_else() {
         );
     }
 }
+
+/// A run of a method with no row in `METHODS` is refused at save time (Research OS, Phase
+/// 9B-2, decision 714; m2 of the review of 9B-1): `project.run_not_saveable`, nothing
+/// written. Saved, a factor analysis's project export would refuse as a whole with
+/// `project.db_unreadable`, whose words invite deleting the project. 9B-3 adds its row. A
+/// regression run, which has its row, is still saved beside it.
+#[test]
+fn a_run_of_a_method_this_build_cannot_yet_keep_is_refused_at_save_time() {
+    let w = World::new("not-yet-kept");
+    let slot = w.open(
+        "f.csv",
+        b"a,b,c,d\n1,2,3,1\n2,1,4,3\n3,4,2,2\n4,3,5,5\n5,6,4,4\n6,5,7,6\n7,8,6,8\n8,7,9,7\n",
+    );
+    let e = w.engine();
+    let held = e.datasets.get(slot).expect("the slot");
+    let mut spec = gaply_core::stats_factor::spec(
+        gaply_core::contracts::OperationId(16),
+        held.dataset(),
+        gaply_core::stats_factor::FactorParams {
+            items: (1..=4).map(|c| gaply_core::stats_desc::Alias(gaply_core::stats_l1::dataset::ColumnAlias(c))).collect(),
+            extraction: gaply_core::stats_factor::Extraction::PrincipalComponents,
+            factors: Some(2),
+            rotation: gaply_core::stats_factor::Rotation::Varimax,
+            iterations: 25,
+            convergence: 0.001,
+            missing_codes: vec![],
+        },
+    );
+    spec.preparation = held.preparation();
+    let run = app_lib::stats_factor_commands::run(&e.runs, &e.datasets, slot, spec)
+        .expect("the run starts")
+        .run_id;
+    let start = std::time::Instant::now();
+    while !e.runs.factor_snapshot(RunId(run)).expect("held").record.state.is_terminal() {
+        assert!(start.elapsed() < std::time::Duration::from_secs(20), "the run never ended");
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+    assert_eq!(e.runs.factor_snapshot(RunId(run)).unwrap().record.state, RunState::Succeeded);
+    let before = files(&w.root());
+    let refused = pc::save_run(&w.root(), &w.ws, run, new_project("Factor")).unwrap_err();
+    assert_eq!(code(&refused), "project.run_not_saveable");
+    assert_eq!(files(&w.root()), before, "nothing written");
+    // The regression, which has its row, is still saved.
+    let data = w.open("r.csv", b"y,x\n1,2\n3,3\n2,5\n5,4\n4,7\n");
+    let regression = w.linear_regression(data, 1, &[2], vec![]);
+    pc::save_run(&w.root(), &w.ws, regression, new_project("Regression")).expect("a regression is saved");
+}

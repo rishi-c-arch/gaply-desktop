@@ -7,20 +7,30 @@
 //! for a number of factors the user gives or for every eigenvalue above 1; and,
 //! with two factors or more, the loadings rotated by varimax or promax.
 //!
-//! **Each algorithm from its published statement** (decision 700; ADR-008), not
-//! from any tool's source: Kaiser's (1958) varimax with his row normalisation,
-//! iterated through the polar factor of the criterion's gradient; Hendrickson and
-//! White's (1964) promax at power 4; principal axis factoring as SPSS states it,
-//! from the squared multiple correlations until the largest change in a
-//! communality is below the spec's convergence. R 4.6.1's `varimax` and `promax`
-//! and psych 2.6.9 are the oracles (`tests/factor_r_golden.rs`,
-//! `tests/fixtures/stats_factor/`), run outside Gaply.
+//! **Each algorithm as SPSS computes it** (decisions 710, 715 to 717), from IBM's
+//! FACTOR algorithms document (SPSS 14.0) and SPSS's own solutions, not from any
+//! tool's source (ADR-008): varimax by Kaiser's pairwise rotations with his row
+//! normalisation, in cycles until the criterion changes by at most 1e-4, within
+//! the spec's iterations (SPSS's ITERATE limits the rotation too); promax at
+//! power 4 from a row-normalised target; principal axis factoring from the
+//! squared multiple correlations, with the absolute value of any eigenvalue
+//! below 0 among the m largest, until the largest change in a communality is
+//! below the spec's convergence. The oracles, run outside Gaply: EFAtools 1.1.0's
+//! SPSS route and a second route in base R (`tests/factor_r_golden.rs`), SPSS's
+//! own solutions as EFAtools ships them (`spss_tier.rs`), and psych 2.6.9 for
+//! KMO, Bartlett's test and principal axis.
 //!
-//! **Signs.** Every eigenvector's sign is set by `stats_linalg`'s rule (decision
-//! 699), so an unrotated factor's loadings sum to more than 0. After a rotation,
-//! each factor whose loadings' sum is below 0 is reversed by the same rule, its
-//! pattern, structure and transformation columns, and its row and column of the
-//! factor correlations, with it. No factor is reordered.
+//! **Signs and order.** Every eigenvector's sign is set by `stats_linalg`'s rule
+//! (decision 699), so an unrotated factor's loadings sum to more than 0. After
+//! varimax, each factor whose loadings' sum is below 0 is reversed by the same
+//! rule with its column of T, and the factors are sorted by their sums of
+//! squares, largest first (IBM, p. 12, steps f and g). Promax starts from that
+//! varimax and neither reflects nor sorts after its fit.
+//!
+//! **A rotation that cannot be given is a note** (decision 717): varimax not
+//! meeting its criterion within the iterations (`rotation_not_converged`), or
+//! promax's least squares or inverse refusing (`rotation_singular`). The result
+//! keeps everything else, its rotation `None`.
 //!
 //! **Not computable, statistic by statistic.** `correlations_singular` when the
 //! correlation matrix's Cholesky factor refuses (decision 699's rule): the
@@ -32,8 +42,9 @@
 //! **Pure** (`tests/contracts_are_pure.rs`): no file, network, process, clock or
 //! model. The run's check points are the caller's: before the arithmetic, before
 //! each item's row, before each correlation, before the extraction and before
-//! the rotation; every iteration of either calls the check point again at its
-//! unchanged count, so a cancel or the run's ceiling stops a long one.
+//! the rotation; every extraction iteration and every varimax cycle calls its
+//! check point again at its unchanged count, so a cancel or the run's ceiling
+//! stops a long one.
 //!
 //! **Privacy.** The result names items by alias only and holds no label, no cell
 //! and no matrix of the items by the items. The values never leave [`Rows`],
@@ -57,9 +68,7 @@ use crate::stats_desc::{
 };
 use crate::stats_dist::chi_square_upper_wide;
 use crate::stats_l1::dataset::{Cell, Dataset};
-use crate::stats_linalg::{
-    cholesky, eigen_symmetric, least_squares, log_det, polar_factor, sign_reversed, spd_inverse,
-};
+use crate::stats_linalg::{cholesky, eigen_symmetric, least_squares, log_det, sign_reversed, spd_inverse};
 use crate::stats_ttest::{column, non_finite_cells};
 use crate::stats_verify::{mean, sample_variance, RangeFault};
 
@@ -75,18 +84,26 @@ pub const ENGINE_VERSION: u32 = 1;
 pub const MIN_ITEMS: usize = 3;
 /// The most items a run takes (decision 700).
 pub const MAX_ITEMS: usize = 128;
-/// The most extraction iterations a spec may ask for (SPSS's ITERATE).
+/// The most iterations a spec may ask for (SPSS's ITERATE): principal axis's
+/// iterations and varimax's cycles alike (decision 715).
 pub const MAX_ITERATIONS: u32 = 1000;
 /// The convergence a spec may ask for, at least (SPSS's ECONVERGE).
 pub const MIN_CONVERGENCE: f64 = 1e-12;
 /// The convergence a spec may ask for, at most.
 pub const MAX_CONVERGENCE: f64 = 0.1;
-/// Varimax's iterations, always (decision 700): the spec's iterations limit the
-/// extraction only.
-pub const ROTATION_MAX_ITERATIONS: u64 = 1000;
-/// Varimax stops when the criterion grows by less than this fraction (R's
-/// `varimax` default, Kaiser's rule).
-pub const VARIMAX_EPS: f64 = 1e-5;
+/// Varimax stops at the first cycle whose criterion SV (not divided by p²)
+/// changes by at most this (decision 715): RCONVERGE's default in IBM's FACTOR
+/// syntax. Inferred, not documented as such: over EFAtools' 17 SPSS solutions
+/// SPSS stopped at the first cycle where it held, in every one, while IBM's
+/// algorithms document (14.0, p. 12) states 1e-5 on SV divided by p², which fits
+/// 3 of the 17. The cycles are limited by the spec's iterations, as SPSS's
+/// ITERATE limits the rotation too.
+pub const VARIMAX_CRITERION: f64 = 1e-4;
+/// A row whose Kaiser weight or promax target norm is below this is left
+/// unscaled (decision 715).
+pub const ROW_NORM_FLOOR: f64 = 1e-15;
+/// A pair of factors is not rotated when |sin P| is at most this (IBM, p. 11).
+pub const ROTATION_SINE_FLOOR: f64 = 1e-15;
 /// Two eigenvalues within this fraction of the larger are not distinct
 /// (decision 700's note).
 pub const DISTINCT_TOLERANCE: f64 = 1e-8;
@@ -143,8 +160,8 @@ closed! {
         /// An item has one value over the complete rows. Param `column`, the
         /// first such.
         ItemConstant => "item_constant",
-        /// A correlation cannot be held in a double. Param `column`, the pair's
-        /// first item.
+        /// A correlation cannot be held in a double. Param `column`, the first
+        /// item whose own variance cannot be given, else the pair's first item.
         CorrelationOutOfRange => "correlation_out_of_range",
         /// Factors by Kaiser's rule, and no eigenvalue is above 1.
         NoEigenvalueOverOne => "no_eigenvalue_over_one",
@@ -152,27 +169,34 @@ closed! {
         /// combination of the items before it. As a refusal (principal axis),
         /// param `column`, that item; as a statistic's code, no param.
         CorrelationsSingular => "correlations_singular",
-        /// An eigenvalue among the m largest is 0 or below, so its root cannot
-        /// be taken.
+        /// Principal components: an eigenvalue among the m largest is 0 or
+        /// below, so its root cannot be taken.
         ExtractionEigenvalueNotPositive => "extraction_eigenvalue_not_positive",
         /// Principal axis factoring did not converge within the iterations.
         /// Param `limit`.
         ExtractionNotConverged => "extraction_not_converged",
-        /// An item's extracted loadings are all exactly 0, so the rotation's
-        /// row normalisation cannot divide by its length. Param `column`.
-        RotationItemWithoutLoadings => "rotation_item_without_loadings",
-        /// Varimax did not converge within 1,000 iterations, or the rotation's
-        /// arithmetic could not be completed.
+        /// Note: varimax did not meet its criterion within the spec's
+        /// iterations (SPSS's ITERATE limits the rotation too), so no rotation
+        /// is given; everything else is (decision 717).
         RotationNotConverged => "rotation_not_converged",
+        /// Note: promax's least squares or an inverse of its could not be
+        /// given, so no rotation is given; everything else is (decision 717).
+        RotationSingular => "rotation_singular",
+        /// Note: an iteration of principal axis factoring used the absolute
+        /// value of an eigenvalue below 0 among the m largest, as SPSS does
+        /// (decision 717).
+        ExtractionEigenvalueNegative => "extraction_eigenvalue_negative",
         /// The eigenvalues could not be found.
         EigenNotConverged => "eigen_not_converged",
         /// A candidate missing code the rule found in an item and the user did
         /// not list. Params `column`, `value`, `count`.
         SuspectMissingCode => "suspect_missing_code",
         /// Not computable: the value is below the smallest normal double, or is
-        /// a 0/0 of quantities that vanished (KMO or an MSA with no correlation
-        /// at all, as R gives NaN).
+        /// a 0/0 of quantities that vanished.
         TooSmall => "too_small",
+        /// Not computable: a KMO or an item's MSA is 0/0, since no item it
+        /// counts is correlated with another at all (R gives NaN; decision 714).
+        NoCorrelation => "no_correlation",
         /// Not computable: the distribution is not measured at these degrees of
         /// freedom.
         DistributionOutOfRange => "distribution_out_of_range",
@@ -235,9 +259,10 @@ pub enum Rotation {
 
 /// The factor analysis's parameters (decision 700): the items in the dataset's
 /// column order; the extraction; the number of factors, or `None` for every
-/// eigenvalue of the correlation matrix above 1; the rotation; the extraction's
-/// iterations and convergence (SPSS's ITERATE and ECONVERGE); and the missing
-/// codes ascending, which apply to every item.
+/// eigenvalue of the correlation matrix above 1; the rotation; the iterations
+/// (SPSS's ITERATE, limiting principal axis's iterations and varimax's cycles
+/// alike, decision 715) and the extraction's convergence (ECONVERGE); and the
+/// missing codes ascending, which apply to every item.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct FactorParams {
@@ -338,10 +363,11 @@ pub struct ExtractedFactors {
     pub loadings: Vec<Vec<Stat>>,
 }
 
-/// The rotation: its method, varimax's iterations, and the loadings (for
-/// promax, the pattern), one row per item; for varimax the transformation and
-/// each factor's sums of squared loadings, for promax the structure and the
-/// factor correlations. A field the method does not give is `None`.
+/// The rotation: its method, varimax's cycles (promax's too, which starts from
+/// it), and the loadings (for promax, the pattern), one row per item; for varimax
+/// the transformation and each factor's sums of squared loadings, for promax the
+/// structure and the factor correlations. A field the method does not give is
+/// `None`.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RotatedFactors {
@@ -367,7 +393,8 @@ pub struct FactorOutcome {
     /// Every eigenvalue of the correlation matrix, descending.
     pub eigenvalues: Vec<FactorSums>,
     pub extraction: ExtractedFactors,
-    /// `None` with no rotation, or with one factor.
+    /// `None` with no rotation, with one factor, or when the rotation could not
+    /// be given (a note says why).
     pub rotation: Option<RotatedFactors>,
     /// The rows left out, by item and reason; none with no row is listed.
     pub exclusions: Vec<Exclusion<FactorCode>>,
@@ -688,8 +715,8 @@ pub enum Halt<B> {
 /// How many check points a run of `params` calls (decision 700): one before the
 /// arithmetic, one before each item's row, one before each of the p(p − 1)/2
 /// correlations, one before the extraction and one before the rotation. The
-/// iterations call the extraction's and the rotation's again, at an unchanged
-/// count. Only the spec is needed.
+/// extraction's iterations and varimax's cycles call theirs again, at an
+/// unchanged count. Only the spec is needed.
 pub fn check_points(params: &FactorParams) -> usize {
     let p = params.items.len();
     1 + p + p * p.saturating_sub(1) / 2 + 2
@@ -708,9 +735,9 @@ pub fn compute(dataset: &Dataset, params: &FactorParams) -> Result<FactorOutcome
 /// checked and before the arithmetic, `checkpoint(1..=p)` before each item's
 /// row, `checkpoint(p + 1..)` before each correlation in the order (1, 2), (1,
 /// 3), …, (p − 1, p), then once before the extraction and once before the
-/// rotation; every extraction and rotation iteration calls its check point
-/// again with the same count. A `Break` stops the run there. What a stop means
-/// is the caller's.
+/// rotation; every extraction iteration and every varimax cycle calls its
+/// check point again with the same count. A `Break` stops the run there. What a
+/// stop means is the caller's.
 pub fn run<B>(
     dataset: &Dataset,
     params: &FactorParams,
@@ -733,12 +760,18 @@ pub fn run<B>(
 
     // Each item's mean and SD.
     let mut descriptives = Vec::with_capacity(p);
+    // The first item whose own variance the arithmetic cannot give: the item a
+    // correlation's refusal names (decision 714).
+    let mut first_failing = None;
     for (i, values) in rows.values.iter().enumerate() {
         at(1 + i)?;
         let m = mean(values);
         let sd = match sample_variance(values) {
             Ok(v) => stat(v.sqrt()),
-            Err(e) => Stat::NotComputable(range_code(RangeFault::of(&e))),
+            Err(e) => {
+                first_failing.get_or_insert(i);
+                Stat::NotComputable(range_code(RangeFault::of(&e)))
+            }
         };
         descriptives.push(ItemDescriptive {
             item: items[i],
@@ -747,7 +780,11 @@ pub fn run<B>(
         });
     }
 
-    // The correlations, in alpha's pair order, each from stats_alpha's own.
+    // The correlations, in alpha's pair order, each from stats_alpha's own. A
+    // pair that cannot be given names the first item, in the dataset's order,
+    // whose own sum of squares or variance cannot be given (`pearson_r`'s checks
+    // of one item are `sample_variance`'s); when every item's can, the pair's
+    // first (decision 714).
     let mut r = vec![vec![0.0; p]; p];
     let mut point = 1 + p;
     for i in 0..p {
@@ -762,7 +799,8 @@ pub fn run<B>(
                 }
                 AlphaStat::NotComputable(_) => {
                     return Err(Halt::Refused(
-                        Diagnostic::error(FactorCode::CorrelationOutOfRange).with(ParamKey::Column, column_param(items[i])),
+                        Diagnostic::error(FactorCode::CorrelationOutOfRange)
+                            .with(ParamKey::Column, column_param(items[first_failing.unwrap_or(i)])),
                     ))
                 }
             }
@@ -836,7 +874,7 @@ pub fn run<B>(
     let mut notes = BTreeSet::new();
     let (loadings, communalities, iterations, final_values) = match params.extraction {
         Extraction::PrincipalComponents => {
-            let loadings = loadings_of(&values, &vectors, m)?;
+            let loadings = component_loadings(&values, &vectors, m)?;
             let extracted = row_sums_of_squares(&loadings);
             let communalities = items
                 .iter()
@@ -866,7 +904,10 @@ pub fn run<B>(
                     row[i] = h[i];
                 }
                 let (vals, vecs) = eigen_symmetric(&reduced).ok_or_else(|| refuse(FactorCode::EigenNotConverged))?;
-                let loadings = loadings_of(&vals, &vecs, m)?;
+                let (loadings, negative) = axis_loadings(&vals, &vecs, m);
+                if negative {
+                    notes.insert(FactorCode::ExtractionEigenvalueNegative);
+                }
                 let next = row_sums_of_squares(&loadings);
                 if next.iter().any(|x| *x > 1.0) {
                     notes.insert(FactorCode::CommunalityAboveOne);
@@ -917,18 +958,7 @@ pub fn run<B>(
             notes.insert(FactorCode::OneFactorNotRotated);
             None
         }
-        method => {
-            if let Some(i) = loadings.iter().position(|row| row.iter().all(|x| *x == 0.0)) {
-                return Err(Halt::Refused(
-                    Diagnostic::error(FactorCode::RotationItemWithoutLoadings).with(ParamKey::Column, column_param(items[i])),
-                ));
-            }
-            let (rotated, t, its) = varimax(&loadings, || at(rotation_point))?;
-            Some(match method {
-                Rotation::Varimax => varimax_result(rotated, t, its, p),
-                _ => promax_result(&rotated, &t, its)?,
-            })
-        }
+        method => rotate(method, &loadings, u64::from(params.iterations), p, &mut notes, || at(rotation_point))?,
     };
 
     let mut exclusions = Vec::new();
@@ -943,9 +973,16 @@ pub fn run<B>(
             }
         }
     }
-    // The notes in decision 700's order.
-    let notes = [FactorCode::CommunalityAboveOne, FactorCode::OneFactorNotRotated, FactorCode::EigenvaluesNotDistinct]
-        .into_iter()
+    // The notes in decision 717's order.
+    let notes = [
+        FactorCode::CommunalityAboveOne,
+        FactorCode::ExtractionEigenvalueNegative,
+        FactorCode::OneFactorNotRotated,
+        FactorCode::RotationNotConverged,
+        FactorCode::RotationSingular,
+        FactorCode::EigenvaluesNotDistinct,
+    ]
+    .into_iter()
         .filter(|c| notes.contains(c))
         .collect();
     Ok(FactorOutcome {
@@ -1006,14 +1043,29 @@ fn sums_of(totals: &[f64], p: usize) -> Vec<FactorSums> {
         .collect()
 }
 
-/// Loadings v_j √λ_j for the m largest eigenvalues, each above 0.
-fn loadings_of<B>(values: &[f64], vectors: &[Vec<f64>], m: usize) -> Result<Vec<Vec<f64>>, Halt<B>> {
+/// Loadings v_j r_j over the m largest eigenvalues, r_j each root.
+fn loadings_from(vectors: &[Vec<f64>], roots: &[f64]) -> Vec<Vec<f64>> {
     let p = vectors.len();
+    (0..p).map(|i| roots.iter().enumerate().map(|(j, r)| vectors[j][i] * r).collect()).collect()
+}
+
+/// Principal components: loadings v_j √λ_j for the m largest eigenvalues, each
+/// above 0, or the refusal (decision 717 keeps it).
+fn component_loadings<B>(values: &[f64], vectors: &[Vec<f64>], m: usize) -> Result<Vec<Vec<f64>>, Halt<B>> {
     if values[..m].iter().any(|v| !(*v > 0.0)) {
         return Err(refuse(FactorCode::ExtractionEigenvalueNotPositive));
     }
     let roots: Vec<f64> = values[..m].iter().map(|v| v.sqrt()).collect();
-    Ok((0..p).map(|i| (0..m).map(|j| vectors[j][i] * roots[j]).collect()).collect())
+    Ok(loadings_from(vectors, &roots))
+}
+
+/// Principal axis: loadings v_j √|λ_j| for the m largest eigenvalues by signed
+/// value, as SPSS takes them (IBM, pp. 1-2: Γ = diag(|γ_1|, …, |γ_m|); decision
+/// 717), and whether any of them was below 0.
+fn axis_loadings(values: &[f64], vectors: &[Vec<f64>], m: usize) -> (Vec<Vec<f64>>, bool) {
+    let negative = values[..m].iter().any(|v| *v < 0.0);
+    let roots: Vec<f64> = values[..m].iter().map(|v| v.abs().sqrt()).collect();
+    (loadings_from(vectors, &roots), negative)
 }
 
 fn row_sums_of_squares(m: &[Vec<f64>]) -> Vec<f64> {
@@ -1043,47 +1095,158 @@ fn sampling_adequacy(items: &[Alias], r: &[Vec<f64>], inv: &[Vec<f64>]) -> Sampl
         }
         r2 += ri;
         q2 += qi;
-        per_item.push(ItemAdequacy { item: items[i], msa: stat(ri / (ri + qi)) });
+        per_item.push(ItemAdequacy { item: items[i], msa: adequacy(ri, qi) });
     }
-    SamplingAdequacy { overall: stat(r2 / (r2 + q2)), items: per_item }
+    SamplingAdequacy { overall: adequacy(r2, q2), items: per_item }
 }
 
-/// Kaiser's varimax with his row normalisation (decision 700): each row over its
-/// length h_i; T from the identity; each iteration Z = X T, B = Xᵀ(Z³ − Z
-/// diag(1ᵀZ²)/p), T the polar factor of B and d the sum of B's singular values,
-/// until d < d_prev (1 + 1e-5), within 1,000 iterations; the loadings X T, each
-/// row times h_i. `tick` is the rotation's check point, called every iteration.
-#[allow(clippy::type_complexity)]
+/// Σ r² / (Σ r² + Σ q²); a 0/0, where no correlation is counted at all, is
+/// `no_correlation` (decision 714).
+fn adequacy(r2: f64, q2: f64) -> Stat {
+    if r2 + q2 == 0.0 {
+        Stat::NotComputable(FactorCode::NoCorrelation)
+    } else {
+        stat(r2 / (r2 + q2))
+    }
+}
+
+/// The cosine and sine of P = ¼ atan2(X, Y), Kaiser's angle (IBM, p. 10), with
+/// no atan2, sin or cos (decision 699's rule): `None` at X = Y = 0, of either
+/// sign, which gives no rotation (atan2 would give a 45° turn at (±0, −0)).
+/// With g = max(|X|, |Y|) nothing overflows or underflows; c and s are the
+/// cosine and sine of 4P; the half angle is taken twice, each branch dividing
+/// only by a number of size at least √2 (decision 715).
+fn quarter_angle(x: f64, y: f64) -> Option<(f64, f64)> {
+    if x == 0.0 && y == 0.0 {
+        return None;
+    }
+    let g = x.abs().max(y.abs());
+    let (xs, ys) = (x / g, y / g);
+    let r = (xs * xs + ys * ys).sqrt();
+    let (c, s) = (ys / r, xs / r);
+    let (cos_2p, sin_2p) = if c >= 0.0 {
+        let cos_2p = ((1.0 + c) / 2.0).sqrt();
+        (cos_2p, s / (2.0 * cos_2p))
+    } else {
+        // 4P in (π/2, π] or [−π, −π/2): sin 2P takes s's sign, or X's sign bit
+        // when s is 0, as atan2 gives ±π.
+        let negative = if s == 0.0 { x.is_sign_negative() } else { s < 0.0 };
+        let size = ((1.0 - c) / 2.0).sqrt();
+        let sin_2p = if negative { -size } else { size };
+        (s / (2.0 * sin_2p), sin_2p)
+    };
+    let cos_p = ((1.0 + cos_2p) / 2.0).sqrt();
+    Some((cos_p, sin_2p / (2.0 * cos_p)))
+}
+
+/// Varimax's criterion SV of the normalised loadings Z (IBM, p. 10, not divided
+/// by p²; decision 715): Σ_j (p Σ_i z_ij⁴ − (Σ_i z_ij²)²), every power a product.
+fn varimax_criterion(z: &[Vec<f64>], m: usize) -> f64 {
+    let p = z.len() as f64;
+    (0..m)
+        .map(|j| {
+            let (mut squares, mut fourths) = (0.0, 0.0);
+            for row in z {
+                let q = row[j] * row[j];
+                squares += q;
+                fourths += q * q;
+            }
+            p * fourths - squares * squares
+        })
+        .sum()
+}
+
+/// A varimax rotation as SPSS gives it: the loadings, reflected and sorted
+/// (steps f and g), the transformation T with them, and the cycles used.
+struct Varimax {
+    loadings: Vec<Vec<f64>>,
+    t: Vec<Vec<f64>>,
+    cycles: u64,
+}
+
+/// Varimax as SPSS computes it (IBM, pp. 10-12; decision 715). Kaiser's row
+/// normalisation, each row over w_i = √Σ_j λ_ij², a row with w_i below 1e-15 left
+/// unscaled; T the identity; SV before the first cycle. A cycle rotates every
+/// pair of factors (j, k), j < k, by Kaiser's angle P = ¼ atan2(X, Y), skipping a
+/// pair whose |sin P| is at most 1e-15, Z's and T's columns together; after
+/// each cycle SV again, and the rotation stops at the first cycle whose |ΔSV| is
+/// at most 1e-4. `None` when `limit` cycles (the spec's iterations, SPSS's
+/// ITERATE) pass without it. Then each row times w_i, each factor whose sum is
+/// below 0 reversed by `stats_linalg`'s sign rule (step f), and the factors
+/// sorted by their sums of squares, largest first, ties in order (step g), T's
+/// columns with them. `tick` is the rotation's check point, called every cycle.
 fn varimax<B>(
     loadings: &[Vec<f64>],
+    limit: u64,
     mut tick: impl FnMut() -> Result<(), Halt<B>>,
-) -> Result<(Vec<Vec<f64>>, Vec<Vec<f64>>, u64), Halt<B>> {
+) -> Result<Option<Varimax>, Halt<B>> {
     let p = loadings.len();
     let m = loadings[0].len();
-    let h: Vec<f64> = loadings.iter().map(|row| row.iter().map(|x| x * x).sum::<f64>().sqrt()).collect();
-    let x: Vec<Vec<f64>> = loadings.iter().zip(&h).map(|(row, hi)| row.iter().map(|v| v / hi).collect()).collect();
+    let n = p as f64;
+    let w: Vec<f64> = loadings
+        .iter()
+        .map(|row| {
+            let w = row.iter().map(|x| x * x).sum::<f64>().sqrt();
+            if w < ROW_NORM_FLOOR {
+                1.0
+            } else {
+                w
+            }
+        })
+        .collect();
+    let mut z: Vec<Vec<f64>> = loadings.iter().zip(&w).map(|(row, wi)| row.iter().map(|v| v / wi).collect()).collect();
     let mut t: Vec<Vec<f64>> = (0..m).map(|i| (0..m).map(|j| if i == j { 1.0 } else { 0.0 }).collect()).collect();
-    let mut d = 0.0f64;
-    for it in 1..=ROTATION_MAX_ITERATIONS {
+    let mut sv = varimax_criterion(&z, m);
+    for cycle in 1..=limit {
         tick()?;
-        let z = multiply(&x, &t);
-        let columns: Vec<f64> = (0..m).map(|k| z.iter().map(|row| row[k] * row[k]).sum()).collect();
-        let inner: Vec<Vec<f64>> = z
-            .iter()
-            .map(|row| (0..m).map(|k| row[k] * row[k] * row[k] - row[k] * columns[k] / p as f64).collect())
-            .collect();
-        // B = Xᵀ inner, m × m.
-        let b: Vec<Vec<f64>> = (0..m).map(|a| (0..m).map(|k| (0..p).map(|i| x[i][a] * inner[i][k]).sum()).collect()).collect();
-        let (next, sum) = polar_factor(&b).ok_or_else(|| refuse(FactorCode::RotationNotConverged))?;
-        t = next;
-        let previous = d;
-        d = sum;
-        if d < previous * (1.0 + VARIMAX_EPS) {
-            let rotated = multiply(&x, &t).into_iter().zip(&h).map(|(row, hi)| row.into_iter().map(|v| v * hi).collect()).collect();
-            return Ok((rotated, t, it));
+        for j in 0..m - 1 {
+            for k in j + 1..m {
+                let (mut a, mut b, mut c, mut d) = (0.0, 0.0, 0.0, 0.0);
+                for row in &z {
+                    let u = row[j] * row[j] - row[k] * row[k];
+                    let v = 2.0 * row[j] * row[k];
+                    a += u;
+                    b += v;
+                    c += u * u - v * v;
+                    d += 2.0 * u * v;
+                }
+                let x = d - 2.0 * a * b / n;
+                let y = c - (a * a - b * b) / n;
+                let Some((cos_p, sin_p)) = quarter_angle(x, y) else { continue };
+                if sin_p.abs() <= ROTATION_SINE_FLOOR {
+                    continue;
+                }
+                for row in z.iter_mut().chain(t.iter_mut()) {
+                    let (lj, lk) = (row[j], row[k]);
+                    row[j] = lj * cos_p + lk * sin_p;
+                    row[k] = -lj * sin_p + lk * cos_p;
+                }
+            }
         }
+        let next = varimax_criterion(&z, m);
+        if (next - sv).abs() <= VARIMAX_CRITERION {
+            let mut rotated: Vec<Vec<f64>> = z.into_iter().zip(&w).map(|(row, wi)| row.into_iter().map(|v| v * wi).collect()).collect();
+            // Step f: reflect each factor whose loadings sum below 0, with T.
+            let flip: Vec<bool> = transpose(&rotated).iter().map(|col| sign_reversed(col)).collect();
+            for row in rotated.iter_mut().chain(t.iter_mut()) {
+                for (x, f) in row.iter_mut().zip(&flip) {
+                    if *f {
+                        *x = -*x;
+                    }
+                }
+            }
+            // Step g: largest sum of squares first, ties in order, with T.
+            let sums = column_sums_of_squares(&rotated);
+            let mut order: Vec<usize> = (0..m).collect();
+            order.sort_by(|a, b| sums[*b].total_cmp(&sums[*a]));
+            let reorder = |rows: Vec<Vec<f64>>| -> Vec<Vec<f64>> {
+                rows.into_iter().map(|row| order.iter().map(|&k| row[k]).collect()).collect()
+            };
+            return Ok(Some(Varimax { loadings: reorder(rotated), t: reorder(t), cycles: cycle }));
+        }
+        sv = next;
     }
-    Err(refuse(FactorCode::RotationNotConverged))
+    Ok(None)
 }
 
 fn multiply(a: &[Vec<f64>], b: &[Vec<f64>]) -> Vec<Vec<f64>> {
@@ -1097,67 +1260,91 @@ fn transpose(a: &[Vec<f64>]) -> Vec<Vec<f64>> {
     (0..cols).map(|j| a.iter().map(|row| row[j]).collect()).collect()
 }
 
-/// The factors to reverse after a rotation: each whose loadings' sum is below 0,
-/// by `stats_linalg`'s rule.
-fn reversed_factors(loadings: &[Vec<f64>]) -> Vec<bool> {
-    transpose(loadings).iter().map(|col| sign_reversed(col)).collect()
-}
-
-fn reverse_columns(m: &mut [Vec<f64>], flip: &[bool]) {
-    for row in m.iter_mut() {
-        for (x, f) in row.iter_mut().zip(flip) {
-            if *f {
-                *x = -*x;
-            }
+/// The rotation `method` of the extracted loadings, within `limit` cycles. A
+/// rotation that cannot be given is a note, never a refusal: the run keeps
+/// everything else (decision 717). `None` with `rotation_not_converged` when
+/// varimax does not meet its criterion within the limit (promax starts from it),
+/// or with `rotation_singular` when promax's least squares or inverse refuses.
+fn rotate<B>(
+    method: Rotation,
+    loadings: &[Vec<f64>],
+    limit: u64,
+    p: usize,
+    notes: &mut BTreeSet<FactorCode>,
+    tick: impl FnMut() -> Result<(), Halt<B>>,
+) -> Result<Option<RotatedFactors>, Halt<B>> {
+    Ok(match varimax(loadings, limit, tick)? {
+        None => {
+            notes.insert(FactorCode::RotationNotConverged);
+            None
         }
-    }
+        Some(v) if method == Rotation::Varimax => Some(varimax_result(v, p)),
+        Some(v) => {
+            let rotated = promax_of(&v.loadings, v.cycles);
+            if rotated.is_none() {
+                notes.insert(FactorCode::RotationSingular);
+            }
+            rotated
+        }
+    })
 }
 
-fn varimax_result(mut loadings: Vec<Vec<f64>>, mut t: Vec<Vec<f64>>, iterations: u64, p: usize) -> RotatedFactors {
-    let flip = reversed_factors(&loadings);
-    reverse_columns(&mut loadings, &flip);
-    reverse_columns(&mut t, &flip);
+/// Varimax's result: the loadings, T, each factor's sums of squares with its
+/// percents, and the cycles as its iterations. A rotated row is the extracted row
+/// times T, in the final column order.
+fn varimax_result(v: Varimax, p: usize) -> RotatedFactors {
     RotatedFactors {
         method: Rotation::Varimax,
-        iterations,
-        sums: Some(sums_of(&column_sums_of_squares(&loadings), p)),
-        loadings: stats_of(&loadings),
-        transformation: Some(stats_of(&t)),
+        iterations: v.cycles,
+        sums: Some(sums_of(&column_sums_of_squares(&v.loadings), p)),
+        loadings: stats_of(&v.loadings),
+        transformation: Some(stats_of(&v.t)),
         structure: None,
         factor_correlations: None,
     }
 }
 
-/// Hendrickson and White's promax at power 4 (decision 700), from varimax's
-/// loadings A and transformation T: the target Q = A ∘ |A|³; U the least
-/// squares of A U = Q, no intercept; U scaled by √diag((UᵀU)⁻¹); the pattern
-/// A U, the whole transformation W = T U, the factor correlations Φ = (WᵀW)⁻¹
-/// and the structure the pattern times Φ.
-fn promax_result<B>(a: &[Vec<f64>], t: &[Vec<f64>], iterations: u64) -> Result<RotatedFactors, Halt<B>> {
-    let failed = || refuse(FactorCode::RotationNotConverged);
-    let q: Vec<Vec<f64>> = a.iter().map(|row| row.iter().map(|v| v * v.abs() * v.abs() * v.abs()).collect()).collect();
-    let u = least_squares(a, &q).ok_or_else(failed)?;
-    let utu = multiply(&transpose(&u), &u);
-    let d = spd_inverse(&cholesky(&utu).map_err(|_| failed())?);
-    let scale: Vec<f64> = (0..d.len()).map(|j| d[j][j].sqrt()).collect();
-    let u: Vec<Vec<f64>> = u.iter().map(|row| row.iter().zip(&scale).map(|(v, s)| v * s).collect()).collect();
-    let mut pattern = multiply(a, &u);
-    let mut w = multiply(t, &u);
-    let wtw = multiply(&transpose(&w), &w);
-    let mut phi = spd_inverse(&cholesky(&wtw).map_err(|_| failed())?);
-    let flip = reversed_factors(&pattern);
-    reverse_columns(&mut pattern, &flip);
-    reverse_columns(&mut w, &flip);
-    reverse_columns(&mut phi, &flip);
-    for (row, f) in phi.iter_mut().zip(&flip) {
-        if *f {
-            row.iter_mut().for_each(|x| *x = -*x);
-        }
+/// Promax as SPSS computes it (IBM, pp. 18-19; decision 716), at power 4, from
+/// varimax's loadings Λ_R, already reflected and sorted. The target P from the
+/// row-normalised loadings, p_ij = λ*_ij |λ*_ij|³ with λ*_ij = λ_ij / h_i (a row
+/// with h_i below 1e-15 left as it is); L the least squares of Λ_R L = P, no
+/// intercept; D = diag(LᵀL)^(-1/2) and Q = L D, columns of length 1; C =
+/// diag((QᵀQ)⁻¹)^(-1/2); the pattern Λ_R Q C⁻¹, the factor correlations Φ = C
+/// (QᵀQ)⁻¹ C and the structure the pattern times Φ. Neither reflected nor sorted
+/// after the fit. `None` when the least squares, a zero column of L or the
+/// Cholesky factor refuses: no rotation, the note rotation_singular. Its
+/// iterations are varimax's cycles.
+fn promax_of(a: &[Vec<f64>], cycles: u64) -> Option<RotatedFactors> {
+    let m = a.first().map_or(0, Vec::len);
+    let target: Vec<Vec<f64>> = a
+        .iter()
+        .map(|row| {
+            let h = row.iter().map(|x| x * x).sum::<f64>().sqrt();
+            let h = if h < ROW_NORM_FLOOR { 1.0 } else { h };
+            row.iter()
+                .map(|x| {
+                    let s = x / h;
+                    s * s.abs() * s.abs() * s.abs()
+                })
+                .collect()
+        })
+        .collect();
+    let l = least_squares(a, &target)?;
+    let lengths: Vec<f64> = (0..m).map(|j| l.iter().map(|row| row[j] * row[j]).sum::<f64>().sqrt()).collect();
+    if lengths.iter().any(|x| !(*x > 0.0) || !x.is_finite()) {
+        return None;
     }
+    let q: Vec<Vec<f64>> = l.iter().map(|row| row.iter().zip(&lengths).map(|(x, d)| x / d).collect()).collect();
+    let qtq_inverse = spd_inverse(&cholesky(&multiply(&transpose(&q), &q)).ok()?);
+    let c: Vec<f64> = (0..m).map(|j| 1.0 / qtq_inverse[j][j].sqrt()).collect();
+    // Q C⁻¹: each column of Q over its c_j.
+    let q_over_c: Vec<Vec<f64>> = q.iter().map(|row| row.iter().zip(&c).map(|(x, cj)| x / cj).collect()).collect();
+    let pattern = multiply(a, &q_over_c);
+    let phi: Vec<Vec<f64>> = (0..m).map(|j| (0..m).map(|k| c[j] * qtq_inverse[j][k] * c[k]).collect()).collect();
     let structure = multiply(&pattern, &phi);
-    Ok(RotatedFactors {
+    Some(RotatedFactors {
         method: Rotation::Promax,
-        iterations,
+        iterations: cycles,
         loadings: stats_of(&pattern),
         transformation: None,
         sums: None,
@@ -1200,21 +1387,153 @@ pub fn manifest(
     }
 }
 
+#[cfg(test)]
+mod spss_tier;
+
 /// What no dataset reaches, or a bound decision 700 states, with crafted
 /// numbers.
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// Decision 700: with n ≥ p + 1 rows, which a positive-definite R needs,
-    /// Bartlett's multiplier n − 1 − (2p + 5)/6 is at least (4p − 5)/6 > 0.
+    /// Seeded standard normal columns, `p` of `n` rows: splitmix64 and the
+    /// Box-Muller transform. Formula data are singular at p + 1 rows; these are not.
+    fn normal_table(p: usize, n: usize, seed: u64) -> Dataset {
+        let mut state = seed;
+        let mut uniform = || {
+            state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+            let mut z = state;
+            z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+            ((z ^ (z >> 31)) >> 11) as f64 / (1u64 << 53) as f64
+        };
+        let mut normal = || {
+            let (u1, u2) = (1.0 - uniform(), uniform());
+            (-2.0 * u1.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos()
+        };
+        let headers: Vec<String> = (1..=p).map(|j| format!("x{j}")).collect();
+        let rows: Vec<Vec<String>> = (0..n).map(|_| (0..p).map(|_| format!("{:?}", normal())).collect()).collect();
+        crate::stats_l1::dataset::build_dataset(
+            crate::stats_l1::dataset::RawTable::from_rows(headers, rows),
+            crate::stats_l1::dataset::DataFingerprint::of_bytes(
+                format!("normal {p} {n} {seed}").as_bytes(),
+                "bartlett",
+                crate::stats_l1::dataset::TableRef::FirstTable,
+            ),
+        )
+        .expect("a table")
+    }
+
+    /// Decision 700's premise, through `run` (decision 714, m3 of the review of
+    /// 9B-1): at the fewest rows a positive-definite R allows, n = p + 1, Bartlett's
+    /// multiplier n − 1 − (2p + 5)/6 = (4p − 5)/6 is above 0, so χ² is a value above
+    /// 0 and p a value in [0, 1], for p of 3, 10, 50 and the most items, 128.
     #[test]
     fn bartletts_multiplier_is_above_0_whenever_the_rows_are_more_than_the_items() {
-        for p in MIN_ITEMS..=MAX_ITEMS {
-            let n = p + 1;
-            let multiplier = n as f64 - 1.0 - (2.0 * p as f64 + 5.0) / 6.0;
-            assert!(multiplier >= (4.0 * p as f64 - 5.0) / 6.0 - 1e-12 && multiplier > 0.0, "p {p}: {multiplier}");
+        for (p, seed) in [(3usize, 20260714u64), (10, 20260715), (50, 20260716), (128, 20260717)] {
+            let d = normal_table(p, p + 1, seed);
+            let params = FactorParams {
+                items: (1..=p as u32).map(|c| Alias(crate::stats_l1::dataset::ColumnAlias(c))).collect(),
+                extraction: Extraction::PrincipalComponents,
+                factors: Some(1),
+                rotation: Rotation::None,
+                iterations: 25,
+                convergence: 0.001,
+                missing_codes: Vec::new(),
+            };
+            let r = compute(&d, &params).unwrap_or_else(|e| panic!("p {p}: refused {:?}", e.code));
+            match (r.bartlett.chi_square, r.bartlett.p) {
+                (Stat::Value(chi), Stat::Value(pv)) => {
+                    assert!(chi > 0.0 && (0.0..=1.0).contains(&pv), "p {p}: χ² {chi}, p {pv}");
+                }
+                other => panic!("p {p}: Bartlett's test not given: {other:?}"),
+            }
         }
+    }
+
+    /// Decision 715's cosine and sine of P = ¼ atan2(X, Y), against atan2, sin and
+    /// cos over at least 10,000 (X, Y): both axes, signed zeros, tiny angles and
+    /// |X|, |Y| from 1e-300 to 1e300. Gates 4.5e-16 on cos P and sin P, 1e-15
+    /// relative on sin P, and the same skip decision (|sin P| ≤ 1e-15) at every
+    /// point. X = Y = 0 gives no rotation, where atan2 gives a 45° turn at
+    /// (±0, −0): checked apart.
+    #[test]
+    fn the_quarter_angle_matches_atan2_sin_and_cos() {
+        let mut points: Vec<(f64, f64)> = Vec::new();
+        let edge = [0.0, -0.0, 1.0, -1.0, 1e-300, -1e-300, 1e300, -1e300, f64::MIN_POSITIVE, -f64::MIN_POSITIVE, 2.5, -0.75];
+        for &x in &edge {
+            for &y in &edge {
+                points.push((x, y));
+            }
+        }
+        // Magnitudes 1e-300 to 1e300, every sign.
+        for ex in (-300..=300).step_by(25) {
+            for ey in (-300..=300).step_by(25) {
+                let (mx, my) = (10f64.powi(ex) * 1.37, 10f64.powi(ey) * 0.83);
+                for (sx, sy) in [(1.0, 1.0), (1.0, -1.0), (-1.0, 1.0), (-1.0, -1.0)] {
+                    points.push((sx * mx, sy * my));
+                }
+            }
+        }
+        // The circle, at several scales.
+        for k in 0..4000 {
+            let theta = -std::f64::consts::PI + 2.0 * std::f64::consts::PI * (k as f64 + 0.5) / 4000.0;
+            for scale in [1e-200, 1.0, 1e150] {
+                points.push((scale * theta.sin(), scale * theta.cos()));
+            }
+        }
+        // Tiny angles either side of both axes, near the skip's edge too.
+        for e in 1..=320 {
+            let t = 10f64.powi(-e);
+            for (x, y) in [(t, 1.0), (-t, 1.0), (t, -1.0), (-t, -1.0), (1.0, t), (1.0, -t), (4.0e-15, 1.0), (-4.1e-15, 1.0)] {
+                points.push((x, y));
+            }
+        }
+        assert!(points.len() >= 10_000, "{}", points.len());
+        let (mut worst_c, mut worst_s, mut worst_rel) = (0.0f64, 0.0f64, 0.0f64);
+        for &(x, y) in &points {
+            let got = quarter_angle(x, y);
+            if x == 0.0 && y == 0.0 {
+                assert_eq!(got, None, "({x:?}, {y:?}): no rotation");
+                continue;
+            }
+            let p = 0.25 * x.atan2(y);
+            let (wc, ws) = (p.cos(), p.sin());
+            let (gc, gs) = got.unwrap_or_else(|| panic!("({x:e}, {y:e}): no angle"));
+            assert_eq!(gs.abs() > ROTATION_SINE_FLOOR, ws.abs() > ROTATION_SINE_FLOOR, "({x:e}, {y:e}): the skip, sin {gs:e} against {ws:e}");
+            worst_c = worst_c.max((gc - wc).abs());
+            worst_s = worst_s.max((gs - ws).abs());
+            if ws != 0.0 {
+                worst_rel = worst_rel.max(((gs - ws) / ws).abs());
+            }
+        }
+        assert!(worst_c <= 4.5e-16 && worst_s <= 4.5e-16 && worst_rel <= 1e-15, "cos {worst_c:e}, sin {worst_s:e}, sin relative {worst_rel:e} over {} points", points.len());
+    }
+
+    /// Decision 717: a varimax with a zero column leaves promax's least squares
+    /// rank deficient, so promax gives no rotation (the note rotation_singular),
+    /// never a refusal and never a NaN.
+    #[test]
+    fn promax_from_a_varimax_with_a_zero_column_gives_no_rotation() {
+        let a = vec![vec![0.8, 0.0], vec![0.7, 0.0], vec![0.6, 0.0], vec![0.5, 0.0]];
+        assert!(promax_of(&a, 3).is_none());
+    }
+
+    /// Decision 717, through the run's dispatch: loadings with a zero column keep it
+    /// under varimax (with z_k = 0, B = D = 0 and Y ≥ 0, so P = 0), so promax's
+    /// least squares refuses; the rotation is not given and the note
+    /// rotation_singular says so, never a refusal of the run. Varimax itself is
+    /// given.
+    #[test]
+    fn a_rotation_promax_cannot_give_is_a_note_not_a_refusal() {
+        let loadings = vec![vec![0.8, 0.0], vec![0.7, 0.0], vec![0.6, 0.0], vec![0.5, 0.0]];
+        let mut notes = BTreeSet::new();
+        let got = rotate::<Infallible>(Rotation::Promax, &loadings, 25, 4, &mut notes, || Ok(()));
+        assert!(matches!(got, Ok(None)), "{got:?}");
+        assert_eq!(notes.into_iter().collect::<Vec<_>>(), vec![FactorCode::RotationSingular]);
+        let mut notes = BTreeSet::new();
+        let got = rotate::<Infallible>(Rotation::Varimax, &loadings, 25, 4, &mut notes, || Ok(()));
+        assert!(matches!(got, Ok(Some(_))) && notes.is_empty(), "{got:?} {notes:?}");
     }
 
     #[test]

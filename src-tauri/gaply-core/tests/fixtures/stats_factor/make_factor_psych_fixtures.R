@@ -14,24 +14,16 @@
 # iterations:
 #   - psych::KMO: the overall MSA and each item's;
 #   - psych::cortest.bartlett: chi-square and p;
-#   - psych::fa(fm = "pa", rotate = "none" and "varimax", max.iter = 1000,
-#     min.err = 1e-13): the communalities and loadings. psych stops when the sum
-#     of the communalities changes by less than min.err, not SPSS's largest
-#     change; run tight, both reach the same fixed point. fa sorts factors by
-#     their variance and sets signs by column sums (psych:::fac, printed in
-#     this session); this script puts psych's factors back in stats::varimax's
-#     order, matching each by its largest absolute correlation, and applies
-#     decision 700's sign rule, before writing them.
-#   - psych::Promax on fa's unrotated loadings. FIND FIRST of 9B-1 printed
-#     psych::Promax: it sets GPA <- TRUE and calls GPArotation::Varimax(x),
-#     whose default is no Kaiser normalisation, and its own `normalize` is never
-#     passed on. So psych's Promax is promax without the row normalisation that
-#     R's promax, SPSS and decision 700 use. This script writes psych's pattern
-#     and factor correlations, and beside them the same steps in base R from
-#     stats::varimax(x, normalize = FALSE) ("unnormalised"), to show that the
-#     difference from Gaply is that normalisation and nothing else.
-# requireNamespace("GPArotation") is recorded in the header: decision 701
-# expected it absent; on this machine it is present.
+#   - psych::fa(fm = "pa", rotate = "none", max.iter = 1000, min.err = 1e-13):
+#     the communalities and the unrotated loadings, decision 699's sign rule
+#     applied. psych stops when the sum of the communalities changes by less
+#     than min.err, not SPSS's largest change; run tight, both reach the same
+#     fixed point.
+# psych's rotations follow R's varimax and an unnormalised promax, not SPSS's,
+# so since 9B-2 this tier has no rotation rows (decision 719); the rotations are
+# checked against EFAtools' SPSS route (make_factor_fixtures.R) and SPSS's own
+# solutions (src/stats_factor/spss_tier.rs). requireNamespace("GPArotation")
+# is still recorded in the header.
 
 here <- local({
   a <- commandArgs(trailingOnly = FALSE)
@@ -53,23 +45,6 @@ sign_flip <- function(v) {
   !is.na(k) && v[k] < 0
 }
 signed <- function(x) { for (k in seq_len(ncol(x))) if (sign_flip(x[, k])) x[, k] <- -x[, k]; x }
-# psych's columns put in the order of `reference`'s, each by its largest |r|.
-matched <- function(x, reference) {
-  m <- ncol(x); out <- x; used <- integer(0)
-  for (k in seq_len(m)) {
-    cand <- setdiff(seq_len(m), used)
-    best <- cand[which.max(abs(cor(reference[, k], x[, cand, drop = FALSE])))]
-    used <- c(used, best); out[, k] <- x[, best]
-  }
-  out
-}
-promax_steps <- function(a, t) {
-  q <- a * abs(a)^3
-  u <- lm.fit(a, q)$coefficients
-  u <- u %*% diag(sqrt(diag(solve(t(u) %*% u))))
-  w <- t %*% u
-  list(pattern = a %*% u, phi = solve(w) %*% t(solve(w)))
-}
 
 for (spec in list(c("two_factor_6", 2), c("three_factor_12", 3), c("two_factor_20", 2))) {
   case <- spec[1]; m <- as.integer(spec[2])
@@ -83,27 +58,10 @@ for (spec in list(c("two_factor_6", 2), c("three_factor_12", 3), c("two_factor_2
   f0 <- fa(r, nfactors = m, fm = "pa", rotate = "none", max.iter = 1000, min.err = 1e-13, n.obs = n, warnings = FALSE)
   l0 <- signed(unclass(f0$loadings))
   for (j in seq_len(p)) { put(case, "comm_ext", j - 1L, 0L, f0$communality[j]); for (kk in seq_len(m)) put(case, "loading", j - 1L, kk - 1L, l0[j, kk]) }
-  v <- varimax(l0)
-  fv <- fa(r, nfactors = m, fm = "pa", rotate = "varimax", max.iter = 1000, min.err = 1e-13, n.obs = n, warnings = FALSE)
-  lv <- signed(matched(unclass(fv$loadings), unclass(v$loadings)))
-  for (j in seq_len(p)) for (kk in seq_len(m)) put(case, "rot_loading", j - 1L, kk - 1L, lv[j, kk])
-  pm <- Promax(l0)
-  pp <- unclass(pm$loadings); phi <- pm$Phi
-  for (kk in seq_len(m)) if (sign_flip(pp[, kk])) { pp[, kk] <- -pp[, kk]; phi[kk, ] <- -phi[kk, ]; phi[, kk] <- -phi[, kk] }
-  vu <- varimax(l0, normalize = FALSE)
-  un <- promax_steps(unclass(vu$loadings), vu$rotmat)
-  upat <- un$pattern; uphi <- un$phi
-  for (kk in seq_len(m)) if (sign_flip(upat[, kk])) { upat[, kk] <- -upat[, kk]; uphi[kk, ] <- -uphi[kk, ]; uphi[, kk] <- -uphi[, kk] }
-  ord <- sapply(seq_len(m), function(kk) which.max(abs(cor(upat[, kk], pp))))
-  pp <- pp[, ord, drop = FALSE]; phi <- phi[ord, ord, drop = FALSE]
-  for (j in seq_len(p)) for (kk in seq_len(m)) { put(case, "psych_promax_pattern", j - 1L, kk - 1L, pp[j, kk]); put(case, "unnormalised_pattern", j - 1L, kk - 1L, upat[j, kk]) }
-  for (jj in seq_len(m)) for (kk in seq_len(m)) { put(case, "psych_promax_phi", jj - 1L, kk - 1L, phi[jj, kk]); put(case, "unnormalised_phi", jj - 1L, kk - 1L, uphi[jj, kk]) }
-  cat(sprintf("%s: psych Promax vs unnormalised base-R promax, largest |difference| %.3e (pattern), %.3e (phi)\n",
-              case, max(abs(pp - upat)), max(abs(phi - uphi))))
 }
 out <- do.call(rbind, rows)
 writeLines(c(
-  "# Written by /usr/local/bin/Rscript make_factor_psych_fixtures.R (decision 701).",
+  "# Written by /usr/local/bin/Rscript make_factor_psych_fixtures.R (decisions 701 and 719).",
   sprintf("# %s; psych %s; requireNamespace(\"GPArotation\") %s.", R.version.string, as.character(packageVersion("psych")), gpa),
   "case\tkey\ti\tj\tvalue", do.call(paste, c(out, sep = "\t"))), "psych_expected.tsv")
 cat("rows:", nrow(out), " GPArotation:", gpa, "\n")

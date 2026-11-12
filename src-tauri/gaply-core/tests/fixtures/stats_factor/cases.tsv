@@ -1,5 +1,5 @@
-# Written by /usr/local/bin/Rscript make_factor_fixtures.R (decision 701).
-# R version 4.6.1 (2026-06-24); seed 20260701; base R only.
+# Written by /usr/local/bin/Rscript make_factor_fixtures.R (decisions 701 and 719).
+# R version 4.6.1 (2026-06-24); seed 20260701; base R and EFAtools 1.1.0.
 case	data	extraction	factors	rotation	iterations	convergence	codes	expect	condition	note
 two_factor_6_pc_kaiser_varimax	data_two_factor_6.csv	principal_components	kaiser	varimax	25	0.001		ok	4.2307190939539936	
 two_factor_6_pc_kaiser_promax	data_two_factor_6.csv	principal_components	kaiser	promax	25	0.001		ok	4.2307190939539936	
@@ -28,9 +28,18 @@ sum_item_pc	data_sum_item_pc.csv	principal_components	2	none	25	0.001		ok	938142
 sum_item_pa	data_sum_item_pc.csv	principal_axis	2	none	25	0.001		correlations_singular:4	938142936519403.5	
 uncorrelated_kaiser	data_uncorrelated_kaiser.csv	principal_components	kaiser	none	25	0.001		no_eigenvalue_over_one	1	
 uncorrelated_tied_note	data_uncorrelated_kaiser.csv	principal_components	1	none	25	0.001		ok	1	
-uncorrelated_item_varimax	data_uncorrelated_item_varimax.csv	principal_components	2	varimax	25	0.001		rotation_item_without_loadings:5	102.15651532042156	
+uncorrelated_item_varimax	data_uncorrelated_item_varimax.csv	principal_components	2	varimax	25	0.001		ok	102.15651532042156	
 heywood_pa	data_heywood_pa.csv	principal_axis	2	none	25	0.001		ok	247.299556484324	seed 1
 one_factor_rotation	data_two_factor_6.csv	principal_components	1	varimax	25	0.001		ok	4.2307190939539936	
 missing_and_codes	data_missing_and_codes.csv	principal_axis	kaiser	promax	25	0.001	-99	ok	6.9562665491120113	
 items_out_of_order	data_two_factor_6.csv	principal_components	kaiser	none	25	0.001		items_out_of_order	NA	
 not_converged_pa	data_three_factor_12.csv	principal_axis	3	none	2	9.9999999999999998e-13		extraction_not_converged:2	7.0084486621912188	
+review_m1_pc_varimax	formula:2000:20:2	principal_components	3	varimax	25	0.001		ok	64.016329824594862	
+review_m1_pc_promax	formula:2000:20:2	principal_components	3	promax	25	0.001		ok	64.016329824594862	
+review_m1_pa_varimax	formula:2000:20:2	principal_axis	3	varimax	25	0.001		ok	64.016329824594862	
+review_m1_pa_promax	formula:2000:20:2	principal_axis	3	promax	25	0.001		ok	64.016329824594862	
+sorted_reflected_pc_varimax	data_sorted_reflected.csv	principal_components	4	varimax	25	0.001		ok	3.8224405839968831	
+sorted_reflected_pc_promax	data_sorted_reflected.csv	principal_components	4	promax	25	0.001		ok	3.8224405839968831	
+rotation_not_converged_pc	data_sorted_reflected.csv	principal_components	4	varimax	2	0.001		ok	3.8224405839968831	
+relative_rule_pc_varimax	data_relative_rule_pc_varimax.csv	principal_components	4	varimax	25	0.001		ok	5.8871296408657754	
+negative_eigenvalue_pa	data_negative_eigenvalue_pa.csv	principal_axis	5	none	25	0.001		ok	1.7596308079498963	

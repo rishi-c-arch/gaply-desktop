@@ -1,34 +1,95 @@
 # The R golden fixtures for gaply_core::stats_factor (Research OS, Phase 9B-1,
-# decision 701), compared by tests/factor_r_golden.rs.
+# decision 701; the rotations as SPSS computes them since Phase 9B-2, decisions
+# 715 to 719), compared by tests/factor_r_golden.rs.
 #
 # Run only as
 #
-#   /usr/local/bin/Rscript make_factor_fixtures.R
+#   R_LIBS=~/gaply-corpus/os/phase9/9b2/rlib /usr/local/bin/Rscript make_factor_fixtures.R
 #
 # from anywhere: it writes, next to itself, cases.tsv, expected.tsv and the
-# data_*.csv files. Base R only: cor, eigen, solve, chol, determinant(log =
-# TRUE), pchisq, varimax and promax, with promax's factor correlations as
-# solve(U) %*% t(solve(U)) on promax's rotmat. R is the reference, run outside
-# Gaply (ADR-008): nothing of it is copied into Gaply. Synthetic data only; no
-# manuscript or data of anyone's is read.
+# data_*.csv files. Base R (cor, eigen, solve, chol, determinant(log = TRUE),
+# pchisq, qr) and EFAtools 1.1.0 from CRAN, installed outside R's own library
+# (ADR-008; decision 718): its SPSS route, EFAtools:::.VARIMAX_SPSS,
+# .reflect_and_order and .rotate_promax with the arguments .rotate_model passes
+# for type = "SPSS", and .PAF with type = "SPSS". R and EFAtools are the
+# reference, run outside Gaply: nothing of them is copied into Gaply. Synthetic
+# data only; no manuscript or data of anyone's is read.
 #
 # Written by a different route from Rust's: the inverse by solve (LU), not a
 # Cholesky factor; KMO, the MSAs and Bartlett's test from it; principal axis
 # factoring by an R loop of its own on SPSS's rule (the largest change in a
-# communality below the convergence); the sums of squares and percents.
+# communality below the convergence, the absolute value of any of the m largest
+# eigenvalues below 0, decision 717), checked against EFAtools' .PAF within
+# 1e-10; the sums of squares and percents.
+#
+# The rotations' expected values are EFAtools' SPSS route, at precision 1e-4 / p^2,
+# which is decision 715's criterion of 1e-4 on SV not divided by p^2. Each case is
+# also rotated by a second route in base R written from IBM's FACTOR algorithms
+# (14.0, pp. 10-12, 18-19) with atan2, sin and cos, and the script stops unless the
+# two agree within 1e-12 with equal cycles; decision 716's promax (IBM's D and C)
+# must give EFAtools' pattern and factor correlations within 1e-13.
 #
 # The rules of decisions 699 and 700 are applied to R's results, as Gaply
 # applies them to its own:
 #   - each eigenvector's sign: its sum made positive when |sum| is above 1e-10
 #     times its 1-norm, otherwise its first entry above 1e-10 in size;
-#   - after a rotation, each factor whose loadings' sum is below 0 (the same
-#     rule) reversed, with its transformation and structure columns and its row
-#     and column of the factor correlations;
 #   - the Cholesky rule: the correlations are singular when R's chol stops, or
 #     when some L_jj^2 is at most 1e-9 (each a_jj is 1).
 #
-# Two cases are built by an integer formula identical in R and Rust
-# (formula_data below), so their data are not written: items_50 and items_128.
+# Three cases are built by an integer formula identical in R and Rust
+# (formula_data below), so their data are not written: items_50, items_128 and
+# the review's formula(2000, 20, 2).
+ef <- asNamespace("EFAtools")
+stopifnot(as.character(packageVersion("EFAtools")) == "1.1.0")
+
+# The second route (IBM, pp. 10-12): SV not divided by p^2; one cycle of
+# Kaiser's pairwise rotations with atan2, sin and cos; the stop at |dSV| <= 1e-4
+# within 1,000 cycles (Inf when not met); rows back by their weights; step f (a
+# sum below 0) and step g (largest sum of squares first, ties in order).
+ibm_sv <- function(z) { p <- nrow(z); s <- 0; for (j in seq_len(ncol(z))) { q <- z[, j] * z[, j]; s <- s + (p * sum(q * q) - sum(q) * sum(q)) }; s }
+ibm_cycle <- function(z, t) {
+  p <- nrow(z); m <- ncol(z)
+  for (j in 1:(m - 1)) for (k in (j + 1):m) {
+    u <- z[, j] * z[, j] - z[, k] * z[, k]; v <- 2 * z[, j] * z[, k]
+    A <- sum(u); B <- sum(v); C <- sum(u * u - v * v); D <- sum(2 * u * v)
+    P <- 0.25 * atan2(D - 2 * A * B / p, C - (A * A - B * B) / p)
+    if (abs(sin(P)) > 1e-15) {
+      cp <- cos(P); sp <- sin(P)
+      zj <- z[, j]; zk <- z[, k]; z[, j] <- zj * cp + zk * sp; z[, k] <- -zj * sp + zk * cp
+      tj <- t[, j]; tk <- t[, k]; t[, j] <- tj * cp + tk * sp; t[, k] <- -tj * sp + tk * cp
+    }
+  }
+  list(z = z, t = t)
+}
+ibm_varimax <- function(L) {
+  w <- sqrt(rowSums(L * L)); w[w < 1e-15] <- 1
+  z <- L / w; t <- diag(ncol(L)); s0 <- ibm_sv(z); cycles <- Inf
+  for (c in 1:1000) { r <- ibm_cycle(z, t); z <- r$z; t <- r$t; s1 <- ibm_sv(z)
+    if (abs(s1 - s0) <= 1e-4) { cycles <- c; break }; s0 <- s1 }
+  l <- z * w; s <- ifelse(colSums(l) < 0, -1, 1)
+  raw_reflect <- any(s < 0)
+  l <- sweep(l, 2, s, `*`); t <- sweep(t, 2, s, `*`)
+  o <- order(-colSums(l * l), seq_len(ncol(l)))
+  list(loadings = l[, o, drop = FALSE], t = t[, o, drop = FALSE], cycles = cycles,
+       reflected = raw_reflect, reordered = !identical(o, seq_len(ncol(l))))
+}
+# Decision 716 (IBM, pp. 18-19): the row-normalised target, L by least squares,
+# D, Q = L D, C = diag((Q'Q)^-1)^(-1/2), the pattern A Q C^-1, Phi = C (Q'Q)^-1 C.
+ibm_promax <- function(a) {
+  h <- sqrt(rowSums(a * a)); h[h < 1e-15] <- 1
+  s <- a / h; target <- s * abs(s) * abs(s) * abs(s)
+  L <- qr.coef(qr(a), target)
+  Q <- L %*% diag(1 / sqrt(colSums(L * L)), ncol(L))
+  QtQi <- solve(crossprod(Q))
+  C <- diag(1 / sqrt(diag(QtQi)), ncol(L))
+  pattern <- a %*% Q %*% solve(C); phi <- C %*% QtQi %*% C
+  list(pattern = pattern, phi = phi, structure = pattern %*% phi)
+}
+gap <- function(a, b) max(abs(unclass(a) - unclass(b)))
+# The worst gap of each check, printed at the end; and whether each rotated
+# case's raw varimax was reflected (step f) or reordered (step g).
+route_worst <- list(); route_gaps <- list()
+track <- function(k, v) { route_worst[[k]] <<- max(c(route_worst[[k]], v)); v }
 
 here <- local({
   a <- commandArgs(trailingOnly = FALSE)
@@ -160,9 +221,10 @@ run_case <- function(case, x, extraction, factors, rotation, iterations = 25L, c
     for (it in seq_len(iterations)) {
       rr <- r; diag(rr) <- h
       ee <- eigen(rr, symmetric = TRUE)
-      if (any(ee$values[1:m] <= 0)) { cases[[length(cases) + 1L]] <<- row("extraction_eigenvalue_not_positive", condition); return(invisible()) }
+      # Decision 717: the absolute value of any of the m largest below 0, as SPSS.
+      if (any(ee$values[1:m] < 0)) notes <- union(notes, "extraction_eigenvalue_negative")
       vv <- signed_vectors(ee$vectors)
-      loadings <- vv[, 1:m, drop = FALSE] %*% diag(sqrt(ee$values[1:m]), m)
+      loadings <- vv[, 1:m, drop = FALSE] %*% diag(sqrt(abs(ee$values[1:m])), m)
       nh <- rowSums(loadings^2)
       if (any(nh > 1)) notes <- union(notes, "communality_above_one")
       change <- max(abs(nh - h))
@@ -171,6 +233,13 @@ run_case <- function(case, x, extraction, factors, rotation, iterations = 25L, c
     }
     if (!done) { cases[[length(cases) + 1L]] <<- row(sprintf("extraction_not_converged:%d", iterations), condition); return(invisible()) }
     final_values <- ee$values
+    # EFAtools' SPSS route for principal axis (decision 719): its loadings, after
+    # the sign rule, and its communalities within 1e-10 of this loop's.
+    pf <- suppressWarnings(ef$.PAF(r, n_factors = m, max_iter = iterations, type = "SPSS", criterion = convergence))
+    lp <- signed_vectors(pf$L)
+    if (pf$iter != iterations_used || track("paf_loadings", gap(lp, loadings)) > 1e-10 || track("paf_communalities", gap(pf$h2, rowSums(loadings^2))) > 1e-10)
+      stop(sprintf("%s: EFAtools' .PAF differs: iterations %d against %d, loadings %.3e, communalities %.3e",
+                   case, pf$iter, iterations_used, gap(lp, loadings), gap(pf$h2, rowSums(loadings^2))))
   }
   if (m < p) {
     a <- final_values[m]; b <- final_values[m + 1]
@@ -188,17 +257,20 @@ run_case <- function(case, x, extraction, factors, rotation, iterations = 25L, c
   for (j in seq_len(p)) for (k in seq_len(m)) put(case, "loading", j - 1L, k - 1L, loadings[j, k])
   if (rotation != "none" && m == 1) notes <- union(notes, "one_factor_not_rotated")
   if (rotation != "none" && m >= 2) {
-    without <- which(apply(loadings, 1, function(v) all(v == 0)))
-    if (length(without)) {
-      got <- tryCatch({ v <- varimax(loadings); if (any(!is.finite(v$loadings))) "NaN" else "numbers" }, error = function(e) "error")
-      cases[[length(cases) + 1L]] <<- row(sprintf("rotation_item_without_loadings:%d", without[1]), condition)
-      put(case, "r_varimax_gives", 0L, 0L, got)
-      return(invisible())
-    }
-    v <- varimax(loadings)
-    if (rotation == "varimax") {
-      a <- unclass(v$loadings); t <- v$rotmat
-      for (k in seq_len(m)) if (sign_flip(a[, k])) { a[, k] <- -a[, k]; t[, k] <- -t[, k] }
+    # EFAtools' SPSS route (decision 719), at decision 715's criterion.
+    precision <- 1e-4 / p^2
+    vm <- suppressWarnings(ef$.VARIMAX_SPSS(loadings, normalize = TRUE, precision = precision))
+    second <- ibm_varimax(loadings)
+    if (is.finite(second$cycles) && second$cycles != vm$iter) stop(sprintf("%s: cycles %d (EFAtools) against %d (IBM's route)", case, vm$iter, second$cycles))
+    if (second$cycles > iterations) {
+      # Not met within the spec's iterations: a note, no rotation (decision 717).
+      notes <- union(notes, "rotation_not_converged")
+    } else if (rotation == "varimax") {
+      ro <- ef$.reflect_and_order(vm$loadings, rotmat = vm$rotmat, L_unrot = loadings, order_type = "ss_factors")
+      a <- unclass(ro$rot_loadings); t <- ro$rotmat
+      if (track("varimax_loadings", gap(a, second$loadings)) > 1e-12 || track("varimax_t", gap(t, second$t)) > 1e-12)
+        stop(sprintf("%s: varimax, EFAtools against IBM's route: loadings %.3e, T %.3e", case, gap(a, second$loadings), gap(t, second$t)))
+      put(case, "rot_iterations", 0L, 0L, vm$iter)
       for (j in seq_len(p)) for (k in seq_len(m)) put(case, "rot_loading", j - 1L, k - 1L, a[j, k])
       for (j in seq_len(m)) for (k in seq_len(m)) put(case, "rot_t", j - 1L, k - 1L, t[j, k])
       ss <- colSums(a^2); cum <- 0
@@ -207,16 +279,21 @@ run_case <- function(case, x, extraction, factors, rotation, iterations = 25L, c
         put(case, "rot_ss", 0L, k - 1L, ss[k]); put(case, "rot_pct", 0L, k - 1L, ss[k] / p * 100); put(case, "rot_cum", 0L, k - 1L, cum)
       }
     } else {
-      pm <- promax(loadings)
-      pattern <- unclass(pm$loadings); w <- pm$rotmat
-      phi <- solve(w) %*% t(solve(w))
-      for (k in seq_len(m)) if (sign_flip(pattern[, k])) {
-        pattern[, k] <- -pattern[, k]; w[, k] <- -w[, k]; phi[k, ] <- -phi[k, ]; phi[, k] <- -phi[, k]
-      }
-      structure <- pattern %*% phi
+      pm <- ef$.rotate_promax(loadings, TRUE, "norm", precision, "ss_factors", "kaiser", 4)
+      pattern <- unclass(pm$rot_loadings); phi <- unclass(pm$Phi); structure <- unclass(pm$Structure)
+      # Decision 716's D and C against EFAtools' scaling, on EFAtools' own varimax.
+      base <- ef$.reflect_and_order(vm$loadings, rotmat = vm$rotmat, L_unrot = loadings, order_type = "ss_factors")
+      dc <- ibm_promax(unclass(base$rot_loadings))
+      if (track("dc_pattern", gap(dc$pattern, pattern)) > 1e-13 || track("dc_phi", gap(dc$phi, phi)) > 1e-13)
+        stop(sprintf("%s: promax, IBM's D and C against EFAtools' scaling: pattern %.3e, phi %.3e", case, gap(dc$pattern, pattern), gap(dc$phi, phi)))
+      two <- ibm_promax(second$loadings)
+      if (track("promax_pattern", gap(two$pattern, pattern)) > 1e-12 || track("promax_phi", gap(two$phi, phi)) > 1e-12 || track("promax_structure", gap(two$structure, structure)) > 1e-12)
+        stop(sprintf("%s: promax, EFAtools against IBM's route: pattern %.3e, phi %.3e", case, gap(two$pattern, pattern), gap(two$phi, phi)))
+      put(case, "rot_iterations", 0L, 0L, vm$iter)
       for (j in seq_len(p)) for (k in seq_len(m)) { put(case, "rot_loading", j - 1L, k - 1L, pattern[j, k]); put(case, "structure", j - 1L, k - 1L, structure[j, k]) }
       for (j in seq_len(m)) for (k in seq_len(m)) put(case, "phi", j - 1L, k - 1L, phi[j, k])
     }
+    route_gaps[[case]] <<- c(reflected = second$reflected, reordered = second$reordered)
   }
   put(case, "notes", 0L, 0L, if (length(notes)) paste(sort(notes), collapse = ";") else "-")
   cases[[length(cases) + 1L]] <<- row("ok", condition)
@@ -299,10 +376,41 @@ run_case("items_out_of_order", two6, "principal_components", NA, "none", data = 
 # Extraction not converged at iterations 2.
 run_case("not_converged_pa", three12, "principal_axis", 3L, "none", iterations = 2L, convergence = 1e-12, data = "data_three_factor_12.csv")
 
+# Decision 719's cases, after every earlier one, each with its own seed so no
+# earlier case's draws move.
+# The review's dataset (decision 713, M1): formula(2000, 20, 2) at three factors.
+for (ex in c("principal_components", "principal_axis")) for (rot in c("varimax", "promax")) {
+  short <- if (ex == "principal_components") "pc" else "pa"
+  run_case(sprintf("review_m1_%s_%s", short, rot), formula_data(2000, 20, 2), ex, 3L, rot, data = "formula:2000:20:2")
+}
+# A structure whose SPSS varimax takes 3 cycles and whose raw factors are both
+# reflected (step f) and reordered (step g), from loadings under the sign rule:
+# seed 4 of ~/gaply-corpus/os/phase9/9b2/find_cases.R.
+set.seed(4)
+n1 <- sample(c(150, 300, 500), 1); p1 <- sample(6:16, 1); k1 <- sample(2:4, 1); l1 <- sample(c(0.5, 0.6, 0.7), 1)
+sorted <- structured(n1, p1, k1, l1)
+d_sorted <- "data_sorted_reflected.csv"; write_data(d_sorted, sorted)
+run_case("sorted_reflected_pc_varimax", sorted, "principal_components", k1, "varimax", data = d_sorted)
+run_case("sorted_reflected_pc_promax", sorted, "principal_components", k1, "promax", data = d_sorted)
+stopifnot(route_gaps$sorted_reflected_pc_varimax[["reflected"]], route_gaps$sorted_reflected_pc_varimax[["reordered"]])
+# The same structure at iterations 2: varimax not converged, a note (decision 717).
+run_case("rotation_not_converged_pc", sorted, "principal_components", k1, "varimax", iterations = 2L, data = d_sorted)
+# A structure whose cycles differ under a rule on SV's relative change: seed 3.
+set.seed(3)
+n3 <- sample(c(150, 300, 500), 1); p3 <- sample(6:16, 1); k3 <- sample(2:4, 1); l3 <- sample(c(0.5, 0.6, 0.7), 1)
+relative <- structured(n3, p3, k3, l3)
+run_case("relative_rule_pc_varimax", relative, "principal_components", k3, "varimax")
+# Principal axis using an eigenvalue below 0 (decision 717): factor_cases.rs's
+# six weakly related items, five factors.
+weak <- sapply(1:6, function(j) sapply(1:40, function(i) (i * 7919 + j * 104729 + i * j * 13) %% 101))
+run_case("negative_eigenvalue_pa", weak, "principal_axis", 5L, "none")
+printed <- function(x) paste(names(x), sprintf("%.3e", unlist(x)), collapse = " ")
+cat("routes, worst gaps:", printed(route_worst), "\n")
+
 ex <- do.call(rbind, expected)
 cs <- do.call(rbind, cases)
-hdr <- c("# Written by /usr/local/bin/Rscript make_factor_fixtures.R (decision 701).",
-         paste0("# ", R.version.string, "; seed 20260701; base R only."))
+hdr <- c("# Written by /usr/local/bin/Rscript make_factor_fixtures.R (decisions 701 and 719).",
+         paste0("# ", R.version.string, "; seed 20260701; base R and EFAtools ", packageVersion("EFAtools"), "."))
 writeLines(c(hdr, "case\tkey\ti\tj\tvalue", do.call(paste, c(ex, sep = "\t"))), "expected.tsv")
 writeLines(c(hdr, paste(names(cs), collapse = "\t"), do.call(paste, c(cs, sep = "\t"))), "cases.tsv")
 cat("cases:", nrow(cs), " expected rows:", nrow(ex), "\n")

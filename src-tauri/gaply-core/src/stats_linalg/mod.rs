@@ -1,8 +1,9 @@
 //! **`gaply_core::stats_linalg`: the dense linear algebra the exploratory factor
 //! analysis needs (Research OS, Phase 9B-1, decision 699).** A symmetric
-//! eigensolver, a Cholesky factor with its inverse and log-determinant, the
-//! orthogonal polar factor of a small square matrix, and least squares with
-//! several right-hand sides and no intercept.
+//! eigensolver, a Cholesky factor with its inverse and log-determinant, and
+//! least squares with several right-hand sides and no intercept. (9B-1's polar
+//! factor went in 9B-2, decision 719: SPSS's varimax rotates pairs of factors
+//! and needs no singular value decomposition.)
 //!
 //! Matrices are `Vec<Vec<f64>>`, row by row; an eigenvector or a column is a
 //! `Vec<f64>`. Every function is `pub(crate)`: this is arithmetic for the
@@ -16,7 +17,7 @@
 //! `stats_xtab` already uses it. No fused multiply-add is written, and Rust
 //! never contracts `a * b + c` into one by itself.
 //!
-//! R's `eigen`, `chol`, `chol2inv`, `determinant`, `svd` and `qr.solve` are the
+//! R's `eigen`, `chol`, `chol2inv`, `determinant` and `qr.solve` are the
 //! oracle (`tests/fixtures/stats_linalg/make_linalg_fixtures.R`, compared in
 //! `stats_linalg_r_golden.rs`); each algorithm here is written from its
 //! published description, not from any tool's source (ADR-008).
@@ -33,8 +34,6 @@ pub(crate) const CHOLESKY_TOLERANCE: f64 = 1e-9;
 /// 1-norm counts as 0, and an entry must be above it in size to set the sign.
 pub(crate) const SIGN_TOLERANCE: f64 = 1e-10;
 
-/// The sweeps [`polar_factor`]'s one-sided Jacobi makes before it refuses.
-pub(crate) const POLAR_MAX_SWEEPS: usize = 100;
 
 /// [`least_squares`] refuses a column whose norm left after the columns
 /// before it is at most this times its own norm: LINPACK's dqrdc2 test at R's
@@ -220,68 +219,6 @@ pub(crate) fn log_det(l: &[Vec<f64>]) -> f64 {
     2.0 * l.iter().enumerate().map(|(j, row)| row[j].ln()).sum::<f64>()
 }
 
-/// The orthogonal polar factor U Vᵀ of the square matrix `b` = U Σ Vᵀ, and the
-/// sum of its singular values, by one-sided Jacobi (Hestenes): the columns of
-/// B are rotated in pairs until each pair is orthogonal to within ε, the
-/// rotations gathered in V; then σ_j is column j's norm and U's column j is
-/// column j over σ_j. This is what varimax needs from a singular value
-/// decomposition, and U Vᵀ does not depend on the signs or order a
-/// decomposition chooses. `None` when an entry is not finite, a singular value
-/// is 0 (the polar factor is then not unique), or the columns are not
-/// orthogonal after [`POLAR_MAX_SWEEPS`] sweeps.
-pub(crate) fn polar_factor(b: &[Vec<f64>]) -> Option<(Vec<Vec<f64>>, f64)> {
-    let m = b.len();
-    if b.iter().any(|r| r.len() != m || r.iter().any(|x| !x.is_finite())) {
-        return None;
-    }
-    // Column j of B is w[j]; column j of V is v[j].
-    let mut w: Vec<Vec<f64>> = (0..m).map(|j| (0..m).map(|i| b[i][j]).collect()).collect();
-    let mut v = identity(m);
-    let dot = |x: &[f64], y: &[f64]| x.iter().zip(y).map(|(a, b)| a * b).sum::<f64>();
-    let mut sweeps = 0;
-    loop {
-        let mut rotated = false;
-        for p in 0..m {
-            for q in p + 1..m {
-                let alpha = dot(&w[p], &w[p]);
-                let beta = dot(&w[q], &w[q]);
-                let gamma = dot(&w[p], &w[q]);
-                if !(gamma.abs() > f64::EPSILON * alpha.sqrt() * beta.sqrt()) {
-                    continue;
-                }
-                rotated = true;
-                let zeta = (beta - alpha) / (2.0 * gamma);
-                let sign = if zeta >= 0.0 { 1.0 } else { -1.0 };
-                let t = sign / (zeta.abs() + (zeta * zeta + 1.0).sqrt());
-                let c = 1.0 / (t * t + 1.0).sqrt();
-                let s = c * t;
-                for cols in [&mut w, &mut v] {
-                    for i in 0..m {
-                        let (x, y) = (cols[p][i], cols[q][i]);
-                        cols[p][i] = c * x - s * y;
-                        cols[q][i] = s * x + c * y;
-                    }
-                }
-            }
-        }
-        if !rotated {
-            break;
-        }
-        sweeps += 1;
-        if sweeps == POLAR_MAX_SWEEPS {
-            return None;
-        }
-    }
-    let sigma: Vec<f64> = w.iter().map(|c| dot(c, c).sqrt()).collect();
-    if sigma.iter().any(|s| !(*s > 0.0) || !s.is_finite()) {
-        return None;
-    }
-    let u: Vec<Vec<f64>> = w.iter().zip(&sigma).map(|(c, s)| c.iter().map(|x| x / s).collect()).collect();
-    // (U Vᵀ)_ik = Σ_j U_ij V_kj, U_ij being u[j][i].
-    let polar = (0..m).map(|i| (0..m).map(|k| (0..m).map(|j| u[j][i] * v[j][k]).sum()).collect()).collect();
-    Some((polar, sigma.iter().sum()))
-}
-
 /// The least-squares solution B of X B = Y, X being n × m with n ≥ m and Y
 /// n × r, no intercept, by Householder QR on X with the same reflections
 /// applied to Y, then back substitution. `None` when n < m, an entry is not
@@ -464,7 +401,6 @@ mod tests {
     fn a_matrix_holding_a_nan_or_an_infinity_is_refused() {
         assert!(eigen_symmetric(&[vec![1.0, f64::NAN], vec![f64::NAN, 1.0]]).is_none());
         assert!(eigen_symmetric(&[vec![f64::INFINITY]]).is_none());
-        assert!(polar_factor(&[vec![f64::NAN]]).is_none());
         assert!(least_squares(&[vec![f64::NAN]], &[vec![1.0]]).is_none());
     }
 
@@ -485,9 +421,6 @@ mod tests {
         let l2 = cholesky(&a).unwrap();
         assert_eq!(l1, l2);
         assert_eq!(log_det(&l1).to_bits(), log_det(&l2).to_bits());
-        let (p1, s1) = polar_factor(&a).unwrap();
-        let (p2, s2) = polar_factor(&a).unwrap();
-        assert_eq!((p1, s1.to_bits()), (p2, s2.to_bits()));
     }
 
     /// [[1, r], [r, 1]]: the value left at row 2 is 1 − r², refused at or
@@ -518,26 +451,6 @@ mod tests {
                 assert!(close(inv[i][j], want[i][j], 4.0), "{inv:?}");
             }
         }
-    }
-
-    /// The polar factor of R(θ) diag(2, 1) is R(θ), and of diag(1, −2) is
-    /// diag(1, −1); the singular values sum to 3 in both.
-    #[test]
-    fn the_polar_factor_of_a_rotation_times_a_positive_diagonal_is_the_rotation() {
-        let (c, s) = (0.6, 0.8);
-        let b = vec![vec![2.0 * c, -s], vec![2.0 * s, c]];
-        let (p, sum) = polar_factor(&b).unwrap();
-        let want = [[c, -s], [s, c]];
-        for i in 0..2 {
-            for j in 0..2 {
-                assert!(close(p[i][j], want[i][j], 8.0), "{p:?}");
-            }
-        }
-        assert!(close(sum, 3.0, 8.0), "{sum}");
-        let (p, sum) = polar_factor(&[vec![1.0, 0.0], vec![0.0, -2.0]]).unwrap();
-        assert_eq!(p, vec![vec![1.0, 0.0], vec![0.0, -1.0]]);
-        assert_eq!(sum, 3.0);
-        assert!(polar_factor(&[vec![1.0, 1.0], vec![1.0, 1.0]]).is_none(), "a singular B");
     }
 
     /// No intercept: x = (1, 2, 3), y = (1, 1, 2) gives Σxy / Σx² = 9/14 (a

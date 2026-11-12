@@ -1,11 +1,13 @@
 //! **`gaply_core::stats_factor` against R (Research OS, Phase 9B-1, decision
-//! 701).** Every number of every case of
-//! `tests/fixtures/stats_factor/make_factor_fixtures.R`, written by R 4.6.1 by a
-//! different route from Rust's (solve for the inverse, R's own principal axis
-//! loop, R's `varimax` and `promax`), with decisions 699's and 700's sign and
-//! Cholesky rules applied to R's results. Each family's gate is ten times its
-//! measured error, tiered by the correlation matrix's condition number; every
-//! refusal is checked by its code and its parameter.
+//! 701; the rotations as SPSS computes them since 9B-2, decision 719).** Every
+//! number of every case of `tests/fixtures/stats_factor/make_factor_fixtures.R`,
+//! written by R 4.6.1 by a different route from Rust's (solve for the inverse,
+//! R's own principal axis loop checked against EFAtools' .PAF, and EFAtools
+//! 1.1.0's SPSS varimax and promax, themselves checked against a second route in
+//! base R written from IBM's document), with decision 699's sign and Cholesky
+//! rules applied to R's results. Each family's gate is ten times its measured
+//! error, tiered by the correlation matrix's condition number; every refusal is
+//! checked by its code and its parameter.
 //!
 //! ```text
 //! cargo test -p gaply_core --test factor_r_golden -- --nocapture
@@ -37,19 +39,34 @@ const PROVENANCE: &str = "/usr/local/bin/Rscript make_factor_fixtures.R";
 /// | communality | 1.465e-14 | 6.006e-14 | 2.109e-15 |
 /// | extraction_sums | 3.007e-14 | 2.970e-15 | 1.237e-15 |
 /// | loading | 4.596e-14 | 2.907e-15 | 1.554e-15 |
-/// | rotation | 6.772e-14 | 3.719e-15 | none |
-/// | structure | 7.550e-15 | none | none |
-/// | phi | 6.301e-15 | none | none |
+/// | rotation | 6.717e-14 | 3.164e-15 | none |
+/// | structure | 3.385e-14 | none | none |
+/// | phi | 2.530e-14 | none | none |
 ///
-/// The bug hunt (decision 701, 240 seeded datasets, seed 20260701,
-/// ~/gaply-corpus/os/phase9/9b1/hunt/) measured more in three families, and
-/// their gates are ten times its measurement: a standard deviation one ulp from
-/// R's (2.044e-16; R's `sd` and `stats_verify::sample_variance` round apart),
-/// and promax's structure (1.382e-13) and factor correlations (1.835e-13) on a
-/// case of four principal axis factors from five items, where R's own promax
-/// moves by 3.7e-13 under a 1e-13 change of its loadings
-/// (sensitivity_h143.log): the principal axis loadings' own rounding, carried
-/// through. Neither is a defect.
+/// The rotation families are against EFAtools 1.1.0's SPSS route since 9B-2
+/// (decision 719), measured 12 Nov 2026 with those gates at 0
+/// (~/gaply-corpus/os/phase9/9b2/logs/p2_golden_measure_1794457651.log); the
+/// other rows are 9B-1's, measured again there unchanged. `rot_iterations`,
+/// varimax's cycles, is compared exactly.
+///
+/// 9B-1's bug hunt (decision 701, seed 20260701) measured a standard deviation
+/// one ulp from R's (2.044e-16; R's `sd` and `stats_verify::sample_variance`
+/// round apart), and the descriptive gate is ten times that.
+///
+/// 9B-2's hunt (decision 719, 240 seeded datasets, seed 20260719,
+/// ~/gaply-corpus/os/phase9/9b2/hunt/) found two numbers above these gates (three
+/// failure lines: one Φ value at [0, 6] and its symmetric twin), each shown to be
+/// rounding and left as the hunt's own record, not raised here:
+/// - h215's factor correlations, 2.783e-13 against 2.6e-13 (nine principal axis
+///   factors from eleven items). Gaply's promax on its own loadings gives
+///   EFAtools' Φ within 7.494e-15; EFAtools' own Φ moves by 2.726e-13 between
+///   Gaply's and R's loadings, which differ by 2.916e-14 (hunt_attribution log).
+/// - h232's seventh eigenvalue's percent, 1.026e-13 against 5.7e-14 (seven items,
+///   fifty rows, a Heywood-prone structure). R disagrees with itself by 9.226e-14
+///   on the same matrix, `eigen` with vectors against values only (h232_modes
+///   log); Gaply's value, in five item orders, lies within 4.0e-15 of R's
+///   values-only one (h232_orders log). This module's eigenvalues are 9B-1's,
+///   unchanged.
 const GATES: &[(&str, [Option<f64>; 3])] = &[
     ("descriptive", [Some(2.1e-15), Some(2.1e-15), Some(2e-14)]),
     ("determinant", [Some(4.9e-14), Some(5.7e-9), None]),
@@ -59,9 +76,9 @@ const GATES: &[(&str, [Option<f64>; 3])] = &[
     ("communality", [Some(1.5e-13), Some(6.1e-13), Some(2.2e-14)]),
     ("extraction_sums", [Some(3.1e-13), Some(3e-14), Some(1.3e-14)]),
     ("loading", [Some(4.6e-13), Some(3e-14), Some(1.6e-14)]),
-    ("rotation", [Some(6.8e-13), Some(3.8e-14), None]),
-    ("structure", [Some(1.4e-12), None, None]),
-    ("phi", [Some(1.9e-12), None, None]),
+    ("rotation", [Some(6.8e-13), Some(3.2e-14), None]),
+    ("structure", [Some(3.4e-13), None, None]),
+    ("phi", [Some(2.6e-13), None, None]),
 ];
 
 fn tier(condition: f64) -> usize {
@@ -276,7 +293,7 @@ fn every_number_of_every_case_is_within_its_familys_gate_of_r() {
         // (the note says so): no number made from them is compared.
         let tied = exp[&case.name].iter().any(|(k, _, _, v)| k == "notes" && v.contains("eigenvalues_not_distinct"));
         for (key, i, j, value) in &exp[&case.name] {
-            if tied && matches!(key.as_str(), "loading" | "comm_ext" | "rot_loading" | "rot_t" | "structure" | "phi") {
+            if tied && matches!(key.as_str(), "loading" | "comm_ext" | "rot_loading" | "rot_t" | "rot_ss" | "rot_pct" | "rot_cum" | "structure" | "phi") {
                 skipped += 1;
                 continue;
             }
@@ -285,6 +302,12 @@ fn every_number_of_every_case_is_within_its_familys_gate_of_r() {
                 "bartlett_df" => assert_eq!(r.bartlett.df, value.parse::<u64>().unwrap(), "{}", case.name),
                 "m" => assert_eq!(r.extraction.factors, value.parse::<u64>().unwrap(), "{}", case.name),
                 "iterations" => assert_eq!(r.extraction.iterations, value.parse::<u64>().unwrap(), "{}: the iterations used", case.name),
+                "rot_iterations" => assert_eq!(
+                    r.rotation.as_ref().map(|x| x.iterations),
+                    Some(value.parse::<u64>().unwrap()),
+                    "{}: varimax's cycles, exactly (decision 719)",
+                    case.name
+                ),
                 "notes" => {
                     let mut got: Vec<&str> = r.notes.iter().map(|c| c.wire().trim_start_matches("stats.factor.")).collect();
                     got.sort();
@@ -299,7 +322,10 @@ fn every_number_of_every_case_is_within_its_familys_gate_of_r() {
                         continue;
                     }
                     if value == "NaN" {
-                        assert_eq!(g, Stat::NotComputable(gaply_core::stats_factor::FactorCode::TooSmall), "{} {key}: R's NaN", case.name);
+                        // R's NaN is a 0/0: a KMO or an MSA with no correlation is
+                        // no_correlation (decision 714); any other key too_small.
+                        let want = if matches!(key.as_str(), "kmo" | "msa") { "stats.factor.no_correlation" } else { "stats.factor.too_small" };
+                        assert!(matches!(g, Stat::NotComputable(c) if c.wire() == want), "{} {key}: R's NaN, Gaply {g:?}, want {want}", case.name);
                         continue;
                     }
                     let want: f64 = value.parse().unwrap();
@@ -330,26 +356,23 @@ fn every_number_of_every_case_is_within_its_familys_gate_of_r() {
             }
         }
     }
-    assert_eq!(all.len(), 33, "make_factor_fixtures.R's cases");
+    assert_eq!(all.len(), 42, "make_factor_fixtures.R's cases");
     assert!(compared > 8000, "{compared} numbers compared");
     assert!(over.is_empty(), "over the gate:\n{}", over.join("\n"));
 }
 
 /* ------------------------------------------------------------------------ *
  *  The psych tier (decision 701): make_factor_psych_fixtures.R's
- *  psych_expected.tsv, psych 2.6.9's KMO, cortest.bartlett, fa(fm = "pa") with
- *  rotate "none" and "varimax", and Promax, against Gaply at convergence 1e-10
- *  and 1,000 iterations. Gates of its own.
+ *  psych_expected.tsv, psych 2.6.9's KMO, cortest.bartlett and fa(fm = "pa")
+ *  unrotated, against Gaply at convergence 1e-10 and 1,000 iterations. Gates
+ *  of its own. psych's rotations follow R's, not SPSS's, so since 9B-2 the
+ *  tier holds none (decision 719).
  * ------------------------------------------------------------------------ */
 
 /// Each family's gate: ten times the largest difference measured (macOS
 /// aarch64, 11 Nov 2026), rounded up. psych's principal axis stops on the
 /// change in the communalities' sum (min.err 1e-13), Gaply on the largest
 /// change (1e-10), so the loadings differ by the two stopping points.
-/// psych's Promax is promax without Kaiser's normalisation (FIND FIRST of
-/// 9B-1: it calls GPArotation::Varimax, whose default normalize is FALSE), so
-/// its gate is the algorithms' difference, not rounding; the fixture's
-/// unnormalised base-R rows show that difference is the normalisation alone.
 ///
 /// | family | measured | where |
 /// |---|---|---|
@@ -357,24 +380,14 @@ fn every_number_of_every_case_is_within_its_familys_gate_of_r() {
 /// | bartlett (relative) | 1.339e-13 | three_factor_12, p |
 /// | communality (absolute) | 2.930e-10 | two_factor_6 |
 /// | loading (absolute) | 2.149e-10 | two_factor_6 |
-/// | varimax (absolute) | 2.134e-10 | two_factor_6 |
-/// | psych_promax (absolute) | 2.059e-4 | two_factor_6, pattern [5, 1] |
-/// | psych vs unnormalised base R | 7.900e-5 | two_factor_6, pattern [5, 1] (GPArotation's tolerance) |
 ///
 /// (~/gaply-corpus/os/phase9/9b1/logs/p2_psych_measure_1794412342.log, a run
-/// with every gate at 0.)
-const PSYCH_GATES: &[(&str, f64)] = &[
-    ("kmo", 3.4e-15),
-    ("bartlett", 1.4e-12),
-    ("communality", 3e-9),
-    ("loading", 2.2e-9),
-    ("varimax", 2.2e-9),
-    ("psych_promax", 2.1e-3),
-    ("psych_vs_unnormalised", 7.9e-4),
-];
+/// with every gate at 0; these rows of psych_expected.tsv are byte for byte as
+/// then, ~/gaply-corpus/os/phase9/9b2/fixtures_before/.)
+const PSYCH_GATES: &[(&str, f64)] = &[("kmo", 3.4e-15), ("bartlett", 1.4e-12), ("communality", 3e-9), ("loading", 2.2e-9)];
 
 #[test]
-fn psych_agrees_within_its_own_gates_and_its_promax_differs_by_the_normalisation_alone() {
+fn psych_agrees_within_its_own_gates() {
     let text = read("psych_expected.tsv");
     assert!(text.lines().any(|l| l.contains("/usr/local/bin/Rscript make_factor_psych_fixtures.R")));
     let mut rows: BTreeMap<String, Vec<(String, usize, usize, f64)>> = BTreeMap::new();
@@ -409,12 +422,11 @@ fn psych_agrees_within_its_own_gates_and_its_promax_differs_by_the_normalisation
             params.iterations = 1000;
             compute(&d, &params).unwrap()
         };
-        let (none, varimax, promax) = (run(Rotation::None), run(Rotation::Varimax), run(Rotation::Promax));
+        let none = run(Rotation::None);
         let val = |s: Stat| match s {
             Stat::Value(v) => v,
             other => panic!("{case}: {other:?}"),
         };
-        let pattern: Vec<(usize, usize, f64)> = list.iter().filter(|r| r.0 == "psych_promax_pattern").map(|r| (r.1, r.2, r.3)).collect();
         for (key, i, j, want) in list {
             let at = format!("{case} {key} [{i}, {j}]");
             match key.as_str() {
@@ -424,15 +436,7 @@ fn psych_agrees_within_its_own_gates_and_its_promax_differs_by_the_normalisation
                 "bartlett_p" => see("bartlett", (val(none.bartlett.p) - want).abs() / want.abs().max(f64::MIN_POSITIVE), at),
                 "comm_ext" => see("communality", (val(none.extraction.communalities[*i].extraction) - want).abs(), at),
                 "loading" => see("loading", (val(none.extraction.loadings[*i][*j]) - want).abs(), at),
-                "rot_loading" => see("varimax", (val(varimax.rotation.as_ref().unwrap().loadings[*i][*j]) - want).abs(), at),
-                "psych_promax_pattern" => see("psych_promax", (val(promax.rotation.as_ref().unwrap().loadings[*i][*j]) - want).abs(), at),
-                "psych_promax_phi" => see("psych_promax", (val(promax.rotation.as_ref().unwrap().factor_correlations.as_ref().unwrap()[*i][*j]) - want).abs(), at),
-                "unnormalised_pattern" => {
-                    let psych = pattern.iter().find(|(a, b, _)| a == i && b == j).unwrap().2;
-                    see("psych_vs_unnormalised", (psych - want).abs(), at);
-                }
-                "unnormalised_phi" => {}
-                other => panic!("{other}"),
+                other => panic!("{other}: the psych tier holds no rotation since 9B-2"),
             }
         }
     }

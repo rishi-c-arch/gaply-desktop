@@ -1,7 +1,7 @@
 //! stats_linalg against R (Research OS, Phase 9B-1, decision 699): R 4.6.1's
-//! `eigen`, `chol`, `chol2inv`, `determinant(log = TRUE)`, `svd` and
-//! `qr.solve` over `tests/fixtures/stats_linalg/make_linalg_fixtures.R`'s 30
-//! matrices, 3 to 128 rows, condition numbers from 1 to 1.5e10, near-ties and
+//! `eigen`, `chol`, `chol2inv`, `determinant(log = TRUE)` and `qr.solve` over
+//! `tests/fixtures/stats_linalg/make_linalg_fixtures.R`'s 24 matrices (30 in
+//! 9B-1, before the polar factor went), 3 to 128 rows, condition numbers from 1 to 1.5e10, near-ties and
 //! exact ties.
 //!
 //! A unit test inside the module rather than a file under `tests/`: the
@@ -19,7 +19,7 @@
 //! - Cholesky: where R's factor passes decision 699's rule, L, A⁻¹ and ln|A|;
 //!   where it does not, Rust must refuse at the same row; a case within a
 //!   factor of 2 of the rule is counted and not compared.
-//! - The polar factor U Vᵀ and the sum of the singular values; least squares.
+//! - Least squares. (The polar factor's arm went in 9B-2, decision 719.)
 //!
 //! Gates are tiered by the condition number, since the errors of an inverse,
 //! an eigenvector and a solution grow with it.
@@ -54,9 +54,11 @@ fn tier(condition: f64) -> usize {
 /// | cholesky (by the largest abs l) | 8.882e-16 | 8.123e-14 | 2.947e-12 |
 /// | inverse (by the largest abs entry) | 7.275e-15 | 2.377e-10 | 8.260e-8 |
 /// | log_det (by max(abs ln det, 1)) | 2.572e-16 | 3.384e-11 | 6.557e-10 |
-/// | polar | 1.332e-15 | none | none |
-/// | sigma_sum (relative) | 1.101e-15 | none | none |
 /// | least_squares (by the largest abs b) | 6.777e-16 | 8.614e-12 | none |
+///
+/// The polar factor's two families went with it in 9B-2 (decision 719); the
+/// fixture keeps its six cases' random draws, so the other 24 cases' rows are
+/// byte for byte as measured above.
 const GATES: &[(&str, [Option<f64>; 3])] = &[
     ("eigenvalue", [Some(1.8e-14), Some(1.9e-14), Some(3.2e-14)]),
     ("eigenvector", [Some(1.4e-12), Some(5.8e-11), Some(3e-10)]),
@@ -65,8 +67,6 @@ const GATES: &[(&str, [Option<f64>; 3])] = &[
     ("cholesky", [Some(8.9e-15), Some(8.2e-13), Some(3e-11)]),
     ("inverse", [Some(7.3e-14), Some(2.4e-9), Some(8.3e-7)]),
     ("log_det", [Some(2.6e-15), Some(3.4e-10), Some(6.6e-9)]),
-    ("polar", [Some(1.4e-14), None, None]),
-    ("sigma_sum", [Some(1.2e-14), None, None]),
     ("least_squares", [Some(6.8e-15), Some(8.7e-11), None]),
 ];
 
@@ -135,7 +135,7 @@ fn stats_linalg_agrees_with_r_within_each_familys_gate() {
     };
     let (mut vectors_compared, mut vectors_skipped, mut refusals, mut borderline, mut symmetric) = (0, 0, 0, 0, 0);
     let all = cases();
-    assert_eq!(all.len(), 30, "the fixture's cases");
+    assert_eq!(all.len(), 24, "the fixture's cases");
     for (name, case) in &all {
         let t = tier(case.condition);
         match case.family.as_str() {
@@ -188,13 +188,6 @@ fn stats_linalg_agrees_with_r_within_each_familys_gate() {
                     let r_logdet = matrix(case, "logdet", false).unwrap()[0][0];
                     see("log_det", t, (log_det(&l) - r_logdet).abs() / r_logdet.abs().max(1.0));
                 }
-            }
-            "polar" => {
-                let b = matrix(case, "B", false).unwrap();
-                let (p, sum) = polar_factor(&b).unwrap_or_else(|| panic!("{name}: polar refused"));
-                see("polar", t, largest_difference(&p, &matrix(case, "polar", false).unwrap()));
-                let r_sum = matrix(case, "sigma_sum", false).unwrap()[0][0];
-                see("sigma_sum", t, (sum - r_sum).abs() / r_sum);
             }
             "least_squares" => {
                 let x = matrix(case, "X", false).unwrap();

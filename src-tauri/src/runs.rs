@@ -126,7 +126,7 @@
 //! each correlation, before the extraction and before the rotation, every
 //! extraction and rotation iteration calling its point again at the same count,
 //! so a cancel or the ceiling stops a long one; the record's `columns_total` is
-//! `stats_factor::check_points`. No window starts it until 9B-2.
+//! `stats_factor::check_points`. No window starts it until 9B-3.
 //!
 //! Phase 3: the run manager and the slots belong to the Statistics workspace
 //! (`crate::workspace`), built when it is activated and dropped when it is

@@ -212,12 +212,30 @@ fn a_scale_score_may_be_an_item() {
 
 /* ---- the run's own refusals ------------------------------------------------- */
 
+/// Decision 714 (m1 of the review of 9B-1): a correlation that cannot be given
+/// names the first item, in the dataset's order, whose own variance alpha's
+/// arithmetic cannot give: here item 2, whose squares overflow, although the
+/// pair (1, 2) is the one that fails.
 #[test]
-fn a_correlation_a_double_cannot_hold_is_refused_naming_the_pairs_first_item() {
+fn a_correlation_a_double_cannot_hold_is_refused_naming_the_item_whose_arithmetic_fails() {
     let mut cols = structured(30, 4, 2);
     cols[1] = cols[1].iter().map(|x| x * 1e300).collect();
     let e = refusal(&table(&cols), &params(4, Extraction::PrincipalComponents, Some(1), Rotation::None));
-    assert_eq!((e.code, e.params.get(&ParamKey::Column)), (C::CorrelationOutOfRange, Some(&ParamValue::Int(1))));
+    assert_eq!((e.code, e.params.get(&ParamKey::Column)), (C::CorrelationOutOfRange, Some(&ParamValue::Int(2))));
+}
+
+/// The failing item first and last (decision 714): item 1 is named when it is
+/// the one, and item 4 when it is, though the pair (1, 4) fails first. Only the
+/// item-4 arm can tell the rule from 9B-1's (the pair's first item is item 1
+/// either way in the item-1 arm); the item-1 arm pins the boundary.
+#[test]
+fn the_failing_item_is_named_first_or_last() {
+    for (j, want) in [(0usize, 1i64), (3, 4)] {
+        let mut cols = structured(30, 4, 2);
+        cols[j] = cols[j].iter().map(|x| x * 1e300).collect();
+        let e = refusal(&table(&cols), &params(4, Extraction::PrincipalComponents, Some(1), Rotation::None));
+        assert_eq!((e.code, e.params.get(&ParamKey::Column)), (C::CorrelationOutOfRange, Some(&ParamValue::Int(want))), "item {}", j + 1);
+    }
 }
 
 /// Three columns of a Hadamard matrix of order 8: correlations exactly 0, so
@@ -259,12 +277,29 @@ fn an_item_exactly_the_sum_of_two_others_is_refused_even_where_its_residue_is_ab
     }
 }
 
+/// Decision 717: principal axis takes the absolute value of an eigenvalue below 0
+/// among the m largest, as SPSS does, and says so. On these weakly related items
+/// with p − 1 factors, decision 717's R loop used −0.1293 at iteration 1 and
+/// −0.0168 at iteration 2 and converged at iteration 19; EFAtools' SPSS route
+/// also took 19 (~/gaply-corpus/os/phase9/9b2/logs/find_part1_oracle_*.log).
 #[test]
-fn an_m_th_eigenvalue_of_0_or_below_is_refused() {
-    // Principal axis with p − 1 factors on weakly related items: the reduced
-    // matrix's smaller eigenvalues are below 0.
+fn principal_axis_takes_the_absolute_value_of_an_eigenvalue_below_0_and_says_so() {
     let cols: Vec<Vec<f64>> = (1..=6u64).map(|j| (1..=40u64).map(|i| ((i * 7919 + j * 104729 + i * j * 13) % 101) as f64).collect()).collect();
-    let e = refusal(&table(&cols), &params(6, Extraction::PrincipalAxis, Some(5), Rotation::None));
+    let r = compute(&table(&cols), &params(6, Extraction::PrincipalAxis, Some(5), Rotation::None))
+        .unwrap_or_else(|e| panic!("refused {}", e.code.wire()));
+    let notes: Vec<&str> = r.notes.iter().map(|c| c.wire()).collect();
+    assert!(notes.contains(&"stats.factor.extraction_eigenvalue_negative"), "{notes:?}");
+    assert_eq!(r.extraction.iterations, 19, "R's iterations");
+}
+
+/// Principal components keeps its refusal (decision 717): items 1 and 2 exactly
+/// uncorrelated and item 3 a copy of item 1, so R has eigenvalues 2, 1 and an
+/// exact 0, and three factors ask for the root of 0.
+#[test]
+fn principal_components_still_refuses_an_m_th_eigenvalue_of_0() {
+    let h1 = vec![1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0];
+    let h2 = vec![1.0, 1.0, -1.0, -1.0, 1.0, 1.0, -1.0, -1.0];
+    let e = refusal(&table(&[h1.clone(), h2, h1]), &params(3, Extraction::PrincipalComponents, Some(3), Rotation::None));
     assert_eq!(e.code, C::ExtractionEigenvalueNotPositive);
 }
 
@@ -301,13 +336,77 @@ fn isolated() -> Dataset {
     table(&cols)
 }
 
+/// Decision 717: a row of zeros stays zeros under Kaiser's weights (a weight
+/// below 1e-15 leaves the row unscaled), so the item is rotated and its rotated
+/// row, and promax's structure row, are 0.
 #[test]
-fn an_item_whose_extracted_loadings_are_all_0_is_refused_before_a_rotation() {
-    let e = refusal(&isolated(), &params(5, Extraction::PrincipalComponents, Some(2), Rotation::Varimax));
-    assert_eq!((e.code, e.params.get(&ParamKey::Column)), (C::RotationItemWithoutLoadings, Some(&ParamValue::Int(5))));
-    // Without a rotation the same extraction is given, the item's loadings 0.
+fn an_item_whose_extracted_loadings_are_all_0_is_rotated_and_stays_0() {
     let r = compute(&isolated(), &params(5, Extraction::PrincipalComponents, Some(2), Rotation::None)).unwrap();
     assert_eq!(r.extraction.loadings[4], vec![Stat::Value(0.0), Stat::Value(0.0)]);
+    for rotation in [Rotation::Varimax, Rotation::Promax] {
+        let r = compute(&isolated(), &params(5, Extraction::PrincipalComponents, Some(2), rotation))
+            .unwrap_or_else(|e| panic!("{rotation:?}: refused {}", e.code.wire()));
+        let rot = r.rotation.as_ref().expect("rotated");
+        assert!(rot.loadings[4].iter().all(|s| matches!(s, Stat::Value(x) if *x == 0.0)), "{rotation:?}: {:?}", rot.loadings[4]);
+        if let Some(s) = &rot.structure {
+            assert!(s[4].iter().all(|s| matches!(s, Stat::Value(x) if *x == 0.0)), "{:?}", s[4]);
+        }
+        assert!(rot.loadings[..4].iter().flatten().all(|s| matches!(s, Stat::Value(x) if x.is_finite())));
+    }
+}
+
+/// Decision 713's M1: formula(2000, 20, 2) asking for three factors. The review of
+/// 9B-1 found R's varimax meeting its rule only after 1,421 (principal components)
+/// and 2,779 (principal axis) iterations, so 9B-1 refused the whole run (this
+/// session's red run showed the refusal, logs/p1_red_1794456995.log). SPSS's rule takes 2 cycles for
+/// both extractions (EFAtools' SPSS route, ~/gaply-corpus/os/phase9/9b2/logs/
+/// find_part1_oracle_*.log), and both rotations are given.
+#[test]
+fn the_review_s_dataset_is_rotated_by_both_rotations_in_two_cycles() {
+    let d = table(&structured(2000, 20, 2));
+    for extraction in [Extraction::PrincipalComponents, Extraction::PrincipalAxis] {
+        for rotation in [Rotation::Varimax, Rotation::Promax] {
+            let r = compute(&d, &params(20, extraction, Some(3), rotation))
+                .unwrap_or_else(|e| panic!("{extraction:?} {rotation:?}: refused {}", e.code.wire()));
+            assert_eq!(r.rotation.as_ref().expect("rotated").iterations, 2, "{extraction:?} {rotation:?}");
+        }
+    }
+}
+
+/// Decision 717: a varimax that does not meet its criterion within the spec's
+/// iterations gives no rotation and a note, and everything else. The review's
+/// dataset needs 2 cycles, so 1 is not enough; principal components does not
+/// iterate, so the limit reaches the rotation only.
+#[test]
+fn a_rotation_not_converged_within_the_iterations_is_a_note_and_the_rest_is_given() {
+    let d = table(&structured(2000, 20, 2));
+    for rotation in [Rotation::Varimax, Rotation::Promax] {
+        let mut p = params(20, Extraction::PrincipalComponents, Some(3), rotation);
+        p.iterations = 1;
+        let r = compute(&d, &p).unwrap_or_else(|e| panic!("{rotation:?}: refused {}", e.code.wire()));
+        let notes: Vec<&str> = r.notes.iter().map(|c| c.wire()).collect();
+        assert_eq!(notes, vec!["stats.factor.rotation_not_converged"], "{rotation:?}");
+        assert!(r.rotation.is_none(), "{rotation:?}");
+        assert_eq!(r.extraction.loadings.len(), 20);
+        assert!(matches!(r.kmo.overall, Stat::Value(_)) && matches!(r.bartlett.p, Stat::Value(_)));
+    }
+}
+
+/// Step g (decision 715): varimax's factors come largest sum of squares first.
+/// On three_factor_12's data with three components, SPSS's pairwise route in base R
+/// stops after 3 cycles with sums of squares 2.4352, 2.4795, 2.4014 before step g,
+/// out of that order, and a first column summing to −2.924, so step f fires too
+/// (~/gaply-corpus/os/phase9/9b2/logs/stepg_check_1794486493.log; R's own
+/// `varimax` is out of order there as well, find_unsorted_*.log).
+#[test]
+fn varimax_factors_come_largest_sum_of_squares_first() {
+    let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/stats_factor/data_three_factor_12.csv")).unwrap();
+    let mut lines = text.lines();
+    let headers: Vec<String> = lines.next().unwrap().split(',').map(String::from).collect();
+    let rows: Vec<Vec<String>> = lines.map(|l| l.split(',').map(String::from).collect()).collect();
+    let r = compute(&dataset(&headers, &rows), &params(12, Extraction::PrincipalComponents, Some(3), Rotation::Varimax)).unwrap();
+    let sums: Vec<f64> = r.rotation.as_ref().unwrap().sums.as_ref().unwrap().iter().map(|s| v(s.total)).collect();
+    assert!(sums.windows(2).all(|w| w[0] >= w[1]), "{sums:?}");
 }
 
 /* ---- notes and not-computable values ---------------------------------------- */
@@ -320,10 +419,11 @@ fn one_factor_with_a_rotation_asked_is_not_rotated_and_says_so() {
 }
 
 #[test]
-fn tied_eigenvalues_at_the_m_th_place_are_noted_and_kmo_of_no_correlation_is_too_small() {
+fn tied_eigenvalues_at_the_m_th_place_are_noted_and_kmo_of_no_correlation_is_no_correlation() {
     let r = compute(&hadamard(), &params(3, Extraction::PrincipalComponents, Some(1), Rotation::Varimax)).unwrap();
     assert_eq!(r.notes, vec![C::OneFactorNotRotated, C::EigenvaluesNotDistinct], "in decision 700's order");
-    assert_eq!(r.kmo.overall, Stat::NotComputable(C::TooSmall), "0 / 0");
+    // 0 / 0: not computable as no_correlation (decision 714), not too_small.
+    assert!(matches!(r.kmo.overall, Stat::NotComputable(c) if c.wire() == "stats.factor.no_correlation"), "{:?}", r.kmo.overall);
     assert_eq!((v(r.determinant.value), v(r.determinant.log), v(r.bartlett.chi_square), v(r.bartlett.p)), (1.0, 0.0, 0.0, 1.0));
 }
 
@@ -609,7 +709,10 @@ fn widest(m: usize, extraction: Extraction) -> FactorOutcome {
                 })
             })
             .collect(),
-        notes: vec![C::CommunalityAboveOne, C::OneFactorNotRotated, C::EigenvaluesNotDistinct],
+        // The most notes one result can hold (decision 717): at most one of
+        // one_factor_not_rotated, rotation_not_converged and rotation_singular,
+        // the longest of them, with the three that can join it.
+        notes: vec![C::CommunalityAboveOne, C::ExtractionEigenvalueNegative, C::RotationNotConverged, C::EigenvaluesNotDistinct],
         limitations: compute(&table(&structured(30, 3, 1)), &params(3, Extraction::PrincipalComponents, Some(1), Rotation::None))
             .unwrap()
             .limitations,
@@ -655,11 +758,12 @@ fn validate_warns_of_a_suspect_code_and_not_once_it_is_ticked() {
     assert!(validate(&d, &spec(OperationId(1), &d, ticked)).warnings.is_empty());
 }
 
-/// An item exactly uncorrelated with every other: its MSA is 0/0, too_small.
+/// An item exactly uncorrelated with every other: its MSA is 0/0, no_correlation
+/// (decision 714).
 #[test]
-fn an_items_msa_with_no_correlation_is_too_small() {
+fn an_items_msa_with_no_correlation_is_no_correlation() {
     let r = compute(&isolated(), &params(5, Extraction::PrincipalComponents, Some(2), Rotation::None)).unwrap();
-    assert_eq!(r.kmo.items[4].msa, Stat::NotComputable(C::TooSmall));
+    assert!(matches!(r.kmo.items[4].msa, Stat::NotComputable(c) if c.wire() == "stats.factor.no_correlation"), "{:?}", r.kmo.items[4].msa);
     assert!(matches!(r.kmo.items[0].msa, Stat::Value(_)));
 }
 

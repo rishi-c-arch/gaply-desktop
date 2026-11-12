@@ -1,24 +1,30 @@
 # Exploratory factor analysis, as an analysis
 
 `stats.analyze.factor`, version 1, engine version 1. Research OS, Phase 9B-1
-(decisions 699 to 706), `src-tauri/gaply-core/src/stats_factor/`, with its linear
+(decisions 699 to 706), with its rotations made SPSS's in Phase 9B-2 (decisions
+710, 712 to 721), `src-tauri/gaply-core/src/stats_factor/`, with its linear
 algebra in `src-tauri/gaply-core/src/stats_linalg/`.
 
 **Status: Beta, with no window yet.** 9B-1 built the core, registered it (Planned
 at its Part 2's end, decision 702) and made it Beta with six commands and a run
-kind (decision 704). No window item reaches it until 9B-2: the old home lists its
+kind (decision 704). No window item reaches it until 9B-3: the old home lists its
 card, Help lists it with its limitations, Coming later still says "Factor
-analysis", and a saved run's report refuses it.
+analysis", and a run of it cannot be saved into a project (`project.run_not_saveable`,
+decision 714) until 9B-3 gives it a row in the project's methods.
 
 Exploratory factor analysis of three to 128 numeric items, as SPSS's FACTOR does
-it, with principal components or principal axis factoring, for a number of
-factors the user gives or for every eigenvalue of the correlation matrix above 1,
-and with two factors or more a varimax or promax rotation. R 4.6.1 is the oracle
-(base R's `cor`, `eigen`, `solve`, `chol`, `determinant`, `pchisq`, `varimax` and
-`promax`), with psych 2.6.9 as a second tier (§5). Each algorithm is written from
-its published statement, not from any tool's source (ADR-008): Kaiser's (1958)
-varimax with his row normalisation, Hendrickson and White's (1964) promax, and
-principal axis factoring as SPSS states it.
+it (decision 710), with principal components or principal axis factoring, for a
+number of factors the user gives or for every eigenvalue of the correlation
+matrix above 1, and with two factors or more a varimax or promax rotation as
+SPSS computes them: Kaiser's pairwise varimax with SPSS's stopping rule and
+iteration limit, its factors reflected and sorted, and promax from a
+row-normalised target (IBM's FACTOR algorithms, §9). The oracles: R 4.6.1 (base
+R's `cor`, `eigen`, `solve`, `chol`, `determinant`, `pchisq`, `qr`) for
+everything before the rotation; EFAtools 1.1.0's SPSS route, checked against a
+second route in base R written from IBM's document, for the rotations; SPSS's own
+solutions as EFAtools ships them; and psych 2.6.9 as a second tier for KMO,
+Bartlett's test and principal axis (§5). Each algorithm is written from its
+published statement, not from any tool's source (ADR-008).
 
 ## 1. Inputs and the spec
 
@@ -30,7 +36,7 @@ principal axis factoring as SPSS states it.
 | `extraction` | `principal_components` or `principal_axis` |
 | `factors` | `null` for every eigenvalue above 1 (Kaiser's rule, SPSS's default), or m from 1 to the items (components) or to one fewer (principal axis) |
 | `rotation` | `none`, `varimax` or `promax` |
-| `iterations` | 1 to 1,000, SPSS's ITERATE; the window will default to 25 |
+| `iterations` | 1 to 1,000, SPSS's ITERATE, limiting principal axis's iterations and varimax's cycles alike; the window will default to 25 |
 | `convergence` | 1e-12 to 0.1, SPSS's ECONVERGE; the window will default to 0.001 |
 | `missingCodes` | finite, ascending, once each, applied to every item |
 
@@ -49,7 +55,9 @@ a code; a row left out is counted once, under the first item without one.
 - **Descriptives:** each item's mean (`stats_verify::mean`) and SD (n − 1).
 - **Correlations:** Pearson's, each pair from `stats_alpha`'s own `correlation()`
   in alpha's pair order, bit for bit; one it cannot give refuses the run
-  (`correlation_out_of_range`, naming the pair's first item).
+  (`correlation_out_of_range`), naming the first item, in the dataset's order,
+  whose own variance the arithmetic cannot give, or the pair's first item when
+  every item's can (decision 714).
 - **The Cholesky factor** of R (`stats_linalg::cholesky`) refuses at the first
   row whose value left before its square root is at most 1e-9 (each a_jj is 1):
   that item's squared multiple correlation with the items before it is at least
@@ -59,7 +67,7 @@ a code; a row left out is counted once, under the first item without one.
 - **KMO and each MSA:** q_ij = −(R⁻¹)_ij / √((R⁻¹)_ii (R⁻¹)_jj), with R⁻¹ from the
   Cholesky factor; KMO = Σ_{i≠j} r² / (Σ_{i≠j} r² + Σ_{i≠j} q²), each MSA the same
   over its row. With no correlation at all both sums are 0 and the value is
-  `too_small` (R gives NaN).
+  `no_correlation` (R gives NaN; decision 714).
 - **Bartlett's test:** χ² = −(n − 1 − (2p + 5)/6) ln|R|, df = p(p − 1)/2, p from
   `stats_dist::chi_square_upper_wide` (Level 0's function, measured to df 8,128).
   ln|R| ≤ 0 for a correlation matrix (Hadamard's inequality); a log above 0 is
@@ -75,97 +83,156 @@ a code; a row left out is counted once, under the first item without one.
 - **Principal axis factoring:** initial communalities the squared multiple
   correlations 1 − 1/(R⁻¹)_ii (refused as `correlations_singular`, naming the item,
   where the Cholesky factor refuses); each iteration puts them on R's diagonal,
-  takes the m largest eigenvalues and vectors of that matrix, forms the loadings,
-  and takes the rows' sums of squares as the new communalities; it stops when the
-  largest change is below the convergence, or refuses as
+  takes the m largest eigenvalues (by signed value) and their vectors, forms the
+  loadings v_j √|λ_j|, as SPSS does (IBM, pp. 1 to 2: Γ = diag(|γ_1|, …, |γ_m|);
+  decision 717), noting `extraction_eigenvalue_negative` when any iteration used
+  one below 0, and takes the rows' sums of squares as the new communalities; it
+  stops when the largest change is below the convergence, or refuses as
   `extraction_not_converged` at the iterations' limit.
 - **Sums of squared loadings** per factor, with percent of p and cumulative.
-- **Varimax** (m ≥ 2): each row of the loadings divided by its length h_i; T from
-  the identity; each iteration Z = X T, B = Xᵀ(Z³ − Z diag(1ᵀZ²)/p), T the polar
-  factor U Vᵀ of B (`stats_linalg::polar_factor`, one-sided Jacobi) and d the sum
-  of B's singular values, until d < d_prev (1 + 1e-5), within 1,000 iterations;
-  the loadings X T times h_i. An item whose extracted loadings are all exactly 0
-  is refused first (`rotation_item_without_loadings`).
-- **Promax** at power 4: varimax's loadings A and T; the target Q = A ∘ |A|³; U the
-  least squares of A U = Q with no intercept (`stats_linalg::least_squares`); U
-  scaled by √diag((UᵀU)⁻¹); the pattern A U, W = T U, the factor correlations
-  Φ = (WᵀW)⁻¹ and the structure the pattern times Φ.
-- **Signs after a rotation:** a factor whose loadings sum below 0 (the same rule
-  as the eigenvectors') is reversed with its transformation and structure
-  columns and its row and column of Φ. No factor is reordered.
+- **Varimax** (m ≥ 2), as SPSS computes it (IBM, pp. 10 to 12; decision 715):
+  - Kaiser's row normalisation, each row over w_i = √Σ_j λ_ij², a row with w_i
+    below 1e-15 left unscaled (an item with no loadings stays 0 throughout);
+  - T from the identity; SV = Σ_j (p Σ_i z_ij⁴ − (Σ_i z_ij²)²), not divided by p²,
+    every power a product, before the first cycle;
+  - one cycle rotates every pair of factors (j, k), j < k: u_i = z_ij² − z_ik²,
+    v_i = 2 z_ij z_ik, A = Σu, B = Σv, C = Σ(u² − v²), D = Σ2uv, X = D − 2AB/p,
+    Y = C − (A² − B²)/p, and the angle P = ¼ atan2(X, Y), whose cosine and sine
+    are found by halving twice with no atan2, sin or cos; a pair with |sin P| at
+    most 1e-15 is not rotated; columns j and k of Z and of T become
+    z_j cos P + z_k sin P and −z_j sin P + z_k cos P;
+  - after each cycle SV again; the rotation stops at the first cycle whose |ΔSV|
+    is at most 1e-4 (§9 says where this comes from), within the spec's
+    iterations; past them, no rotation is given and the note
+    `rotation_not_converged` says so;
+  - each row times w_i; then each factor whose loadings sum below 0 is reversed
+    with its column of T (step f), by decision 699's sign rule: where |sum| is at
+    most 1e-10 of the column's 1-norm, the first entry above 1e-10 decides instead,
+    where SPSS (and EFAtools) reverse on the sign of the sum alone; and the factors are sorted by their sums of
+    squared loadings, largest first, ties in order, with T's columns (step g). A
+    rotated row is the extracted row times T. Its iterations are the cycles.
+- **Promax** at power 4 (IBM, pp. 18 to 19; decision 716), from that varimax's
+  loadings Λ_R: the target p_ij = λ*_ij |λ*_ij|³ with λ*_ij = λ_ij / h_i (each row
+  normalised, a row below 1e-15 left as it is); L the least squares of Λ_R L = P,
+  no intercept (`stats_linalg::least_squares`); D = diag(LᵀL)^(-1/2) and Q = L D;
+  C = diag((QᵀQ)⁻¹)^(-1/2); the pattern Λ_R Q C⁻¹, the factor correlations
+  Φ = C (QᵀQ)⁻¹ C and the structure the pattern times Φ. Promax neither reflects
+  nor sorts after its fit. Where the least squares or the Cholesky factor of QᵀQ
+  refuses, no rotation is given and the note `rotation_singular` says so. Its
+  iterations are varimax's cycles.
 
 ## 3. Notes and not-computable values
 
-Notes, as bare codes: `communality_above_one` (a principal axis iteration or the
-result holds one; principal components cannot, beyond rounding, and are not
-checked); `one_factor_not_rotated`; `eigenvalues_not_distinct` (the m-th and next
-eigenvalue of the final decomposition within 1e-8 of the larger).
+Notes, as bare codes, in this order: `communality_above_one` (a principal axis
+iteration or the result holds one; principal components cannot, beyond rounding,
+and are not checked); `extraction_eigenvalue_negative`; `one_factor_not_rotated`;
+`rotation_not_converged`; `rotation_singular`; `eigenvalues_not_distinct` (the
+m-th and next eigenvalue of the final decomposition within 1e-8 of the larger).
+A rotation that cannot be given is a note, never a refusal: the result keeps
+everything else and its rotation is null (decision 717).
 
 Not computable, statistic by statistic: `correlations_singular` for the
 determinant and its log, KMO, the MSAs and Bartlett's test where the Cholesky
-factor refuses; `too_small` for a determinant below the smallest normal double,
-and for a 0/0 (KMO with no correlation); `overflow` for a value too large;
-`distribution_out_of_range` where the chi-square refuses. With the Cholesky
-factor holding, ln|R| ≥ p ln(1e-9) is finite and df ≤ 8,128, so neither of the
-last two is reached for Bartlett's p by any dataset.
+factor refuses; `no_correlation` for a KMO or an MSA of 0/0; `too_small` for a
+determinant below the smallest normal double and for any other 0/0; `overflow`
+for a value too large; `distribution_out_of_range` where the chi-square refuses.
+With the Cholesky factor holding, ln|R| ≥ p ln(1e-9) is finite and df ≤ 8,128,
+so neither of the last two is reached for Bartlett's p by any dataset.
 
 ## 4. The check points
 
 One before the arithmetic, one before each item's row, one before each of the
 p(p − 1)/2 correlations, one before the extraction and one before the rotation.
-Every principal axis and varimax iteration calls its point again at an unchanged
-count, so a cancel or the run manager's 30 s ceiling stops the run at any
-iteration while the progress does not move (`factor_cases.rs`;
-`stats_factor_commands.rs`, on an injected clock).
+Every principal axis iteration and every varimax cycle calls its point again at
+an unchanged count, so a cancel or the run manager's 30 s ceiling stops the run
+at any iteration or cycle while the progress does not move (`factor_cases.rs`;
+`stats_factor_commands.rs`, on an injected clock and at the rotation point's
+second call).
 
 ## 5. Precision, the gates and the oracles
 
-**The linear algebra** (`stats_linalg_r_golden.rs`, 30 matrices of 3 to 128 rows,
-condition numbers 1 to 1.5e10, near-ties and exact ties, against R's `eigen`,
-`chol`, `chol2inv`, `determinant`, `svd` and `qr.solve`): each family's gate is
+**The linear algebra** (`stats_linalg_r_golden.rs`, 24 matrices of 3 to 128
+rows, condition numbers 1 to 1.5e10, near-ties and exact ties, against R's
+`eigen`, `chol`, `chol2inv`, `determinant` and `qr.solve`): each family's gate is
 ten times its measured error, tiered by condition number; the table is in the
-file. 284 eigenvectors compared, 17 skipped where an eigenvalue gap is below 1e-6
-of the largest. One matrix within a factor of 2 of the Cholesky rule is counted
-and not compared.
+file. The six polar factor matrices of 9B-1 went with the polar factor (decision
+719); the other 24 cases' rows are byte for byte as 9B-1 measured them.
 
 **The chi-square beyond df 2,401** (`make_factor_dist_fixtures.R`, 88 rows, df
 1,225 to 8,128, tails 0.9 to 1e-300): worst relative error 8.965e-12 (df 8,000,
 tail 0.05), gate 9e-11.
 
-**The method** (`factor_r_golden.rs` over `make_factor_fixtures.R`, 33 cases: 28
-results and 5 refusals, 8,756 numbers compared, 6 skipped within a tie). Gates by
-family and condition tier (≤ 1e3, ≤ 1e8, > 1e8), ten times the larger of the
-golden's and the bug hunt's measurement; the largest measured is 5.699e-10, a
-determinant at condition 1e7.
+**The method** (`factor_r_golden.rs` over `make_factor_fixtures.R`, 42 cases: 38
+results and 4 refusals, 11,049 numbers compared, 6 skipped within a tie). Gates
+by family and condition tier (≤ 1e3, ≤ 1e8, > 1e8), ten times the golden's
+measurement; the largest measured is 5.699e-10, a determinant at condition 1e7.
+The rotation families are against EFAtools' SPSS route since 9B-2: rotation
+6.717e-14, structure 3.385e-14, factor correlations 2.530e-14; varimax's cycles
+compared exactly. The script itself stops unless EFAtools' route and a second
+route in base R from IBM's document agree within 1e-12 with equal cycles (they
+agreed within 1.998e-15), IBM's D and C give EFAtools' pattern and Φ within
+1e-13 (1.443e-15), and its principal axis loop gives EFAtools' `.PAF` within
+1e-10 (5.029e-14). New cases: the review's dataset (formula(2000, 20, 2) at three
+factors, both extractions, both rotations, 2 cycles, where the review of 9B-1
+found R's varimax needing 1,421 and 2,779 iterations, decision 713); a varimax reflected by step f and reordered by step g; a
+varimax not converged at iterations 2; a structure whose cycles differ under a
+rule on SV's relative change; principal axis using a negative eigenvalue; and the
+uncorrelated item, now rotated, its row 0.
+
+**SPSS's own output** (`src/stats_factor/spss_tier.rs`, from EFAtools' data
+`SPSS_23` and `SPSS_27`, written by `make_factor_spss_fixtures.R`): SPSS's own
+unrotated principal axis loadings rotated by Gaply's varimax and promax. The eight
+solutions on EFAtools' four simulated models are committed: varimax within
+1.527e-15, promax pattern 1.887e-15, factor correlations 1.665e-15, every cycle
+count the one that reproduces SPSS's varimax. The other nine come from real
+studies (IDS-2, WJIV, DOSPERT, NEO-PI-R) and were checked in the session only:
+all 17 within 3.136e-15, every cycle count equal.
 
 **The psych tier** (`make_factor_psych_fixtures.R`, psych 2.6.9): KMO 3.331e-16,
 Bartlett 1.339e-13, principal axis communalities and loadings within 2.930e-10
 (psych stops on the change in the communalities' sum, Gaply on the largest
-change), varimax 2.134e-10. psych's `Promax` calls `GPArotation::Varimax`, which
-does not normalise rows, so it is promax without Kaiser's normalisation; it
-differs from Gaply's by up to 2.059e-4, and from the same steps in base R
-unnormalised by up to 7.900e-5 (GPArotation's own tolerance), so the difference
-is the normalisation.
+change). psych's rotations follow R's, not SPSS's, so the tier has held no
+rotation since 9B-2 (decision 719).
 
-**The bug hunt** (seed 20260701, 240 datasets, 3 to 128 items, headers outside
-ASCII on every third): 148 results and 68 refusals, each R's own by code and
-parameter; 43,515 numbers compared; 24 datasets within a factor of 100 of the
-Cholesky rule skipped; no failure after three gates were set from its own
-measurement (a standard deviation one ulp from R's; promax's structure and factor
-correlations on four principal axis factors from five items, where R's own
-promax moves by 3.7e-13 under a 1e-13 change of its loadings). The worst value an
-exactly singular item left at the Cholesky step, in R, was 1.554e-15 over the
-hunt's nine singular datasets, and 4.196e-14 over a separate search at 50,000 and
-100,000 rows (`factor_cases.rs` holds three of them, which a 1e-14 rule would not
-refuse); both far below the rule's 1e-9, the larger by a factor of 2.4e4.
+**The bug hunts.** 9B-1's (seed 20260701, 240 datasets) found no defect; its
+record is in its report. 9B-2's (seed 20260719, 240 datasets, 3 to 128 items, 1
+to 8 true factors, over-extraction by up to 4, near-singular, exactly singular,
+Heywood-prone, Likert, codes and missing values, headers outside ASCII on every
+third, both extractions, both rotations, iterations 25 and 1,000) against
+EFAtools' SPSS route: 157 results and 57 refusals, each R's own by code and
+parameter; 149 rotations with their cycles equal; 67,291 numbers compared; 24
+Cholesky borderlines and 2 datasets near the |ΔSV| criterion skipped. Two
+numbers were above the golden's gates (three failure lines, one being Φ's
+symmetric twin), each shown to be rounding (the golden's file says how): h215's
+factor correlations, 2.783e-13 (EFAtools' own Φ moves by 2.726e-13 between
+Gaply's and R's extracted loadings, which differ by 2.916e-14; Gaply's promax on
+its own loadings gives EFAtools' Φ within 7.494e-15), and h232's seventh
+eigenvalue's percent, 1.026e-13 (R's `eigen` disagrees with itself by 9.226e-14
+on that matrix, with vectors against values only, and Gaply lies within 4.0e-15
+of its values-only answer in five item orders). The hunt produced no
+`rotation_not_converged` and no `rotation_singular`; the first is reached by the
+golden's and the cases' datasets, the second only by unit tests of `rotate` and
+`promax_of` (no dataset found reaches it).
 
 ## 6. Speed and size
 
-Release, 100,000 rows, median of seven, principal axis with promax, an Apple M1
-with 8 GB: 10 items 36.00 ms (peak 148 MiB); 50 items 819.20 ms (682 MiB); 128
-items 4,783.98 ms (1.17 GiB); 128 items at 1,000 iterations and convergence
-1e-12, 5,178.91 ms (it used 11). The largest result the spec allows, every number
-at its widest, is 2.842 MiB, under the 4 MiB a saved result may be read at.
+Release, 100,000 rows, median of seven, an Apple M1 with 8 GB, 12 Nov 2026:
+principal axis with promax at iterations 25 (m = 3, 8 and 8; the data's eight
+true factors), 10 items 33.97 ms (peak footprint
+149 MB), 50 items 729.49 ms (718 MB), 128 items 4,654.06 ms (1.81 GB); 128 items
+with principal components and varimax at iterations 1,000, m = 64 4,541.28 ms
+(22 cycles) and m = 127 4,648.31 ms (21 cycles); on items with no common factor,
+m = 64 4,552.28 ms (38 cycles) and m = 127 4,698.94 ms (29 cycles), against
+4,527.00 ms with no rotation, so about 5.9 ms a cycle at m = 127. The 30 s
+ceiling is far off at every size; a rotation reaching its 1,000 cycles at m = 127
+would add about 6 s, and is stopped by its check point in any case.
+
+The largest result the spec allows, every number at its widest and four notes,
+is 2,982,612 bytes (2.844 MiB). A save stores more: the spec, the whole bundle
+(the result, its diagnostics, its limitations and its manifest) and the manifest
+again. Measured on a real 128-item run (`stats_factor_saved_size.rs`): the spec
+1,241 bytes, the bundle less the result 1,241, the manifest 482; with the widest
+result, 2,985,576 bytes, 1,208,728 under the 4 MiB a saved result may be read at.
 
 ## 7. The export
 
@@ -184,48 +251,64 @@ power 4 only; no factor scores; the correlation, anti-image, reproduced and
 residual matrices not shown; Pearson's correlations only; listwise only; no scree
 plot.
 
-## 9. What SPSS documents, and where it differs
+## 9. What follows SPSS, and how it was checked
 
-Read: IBM, "FACTOR" algorithms, SPSS Statistics 14.0
-(https://public.dhe.ibm.com/software/analytics/spss/support/Stats/Docs/Statistics/Algorithms/14.0/factor.pdf),
-read 11 Nov 2026. Nothing else of IBM's was read; SPSS's numbers were not
-compared.
+Read, each on 12 Nov 2026:
+- IBM, "FACTOR" algorithms, SPSS Statistics 14.0
+  (https://public.dhe.ibm.com/software/analytics/spss/support/Stats/Docs/Statistics/Algorithms/14.0/factor.pdf),
+  pp. 1 to 2, 10 to 13 and 18 to 19;
+- IBM, SPSS Statistics 23.0.0 Command Syntax Reference, FACTOR and its CRITERIA
+  subcommand (https://www.ibm.com/docs/en/SSLVMB_23.0.0/spss/base/syn_factor.html
+  and .../syn_factor_criteria.html);
+- EFAtools 1.1.0 from CRAN (Grieder and Steiner, Behavior Research Methods 54,
+  54 to 74, 2022): its SPSS presets and functions printed, and its
+  `src/paf_iter.cpp` read, as an oracle only. Nothing of it is in Gaply.
+IBM's current Algorithms guide's FACTOR chapter was not read: its pages returned
+no body; whether it exists is not checked.
 
-- Principal components: loadings Ω_m Γ_m^{1/2}, communalities their rows' sums of
-  squares (p. 1). Same.
-- Principal axis: the preceding communalities on R's diagonal; iterations
-  "continue until the maximum number (default 25) is reached or until the maximum
-  change in the communality estimates is less than the convergence criterion
-  (default 0.001)" (p. 2). Same rule. psych instead stops on the change in the
-  communalities' sum (§5).
-- Orthogonal rotations: pairwise planar rotations of the Kaiser-normalised
-  pattern, stopped when the criterion changes by at most 1e-5 or at the maximum
-  number of iterations (pp. 10 to 12). Gaply reaches varimax's optimum by R's
-  route (the polar factor of the gradient), always allowing 1,000 iterations; the
-  spec's iterations limit the extraction only. Whether SPSS's ITERATE also limits
-  the rotation is not stated there; not checked.
-- After an orthogonal rotation SPSS reflects factors whose loadings sum below 0,
-  as Gaply does, and then **rearranges the factors by their sums of squared
-  loadings, largest first** (p. 12, steps f and g). Gaply does not reorder, as R's
-  `varimax` does not (decision 700).
-- **Promax** (pp. 18 to 19): SPSS's target is p_ij = |λ_ij / h_i|^{k+1} h_i / λ_ij,
-  that is sign(λ_ij) |λ_ij / h_i|^k, from the varimax loadings divided by their
-  rows' lengths. Gaply's target is R's, A ∘ |A|³, unnormalised (decision 700).
-  The two targets differ wherever the items' communalities differ, so Gaply's
-  promax is R's and not SPSS's; not compared with SPSS's numbers. SPSS's factor
-  correlations C(Q′Q)⁻¹C′ and structure Λ R_ff are the same formulas as Gaply's
-  Φ and pattern Φ. The power's default (4) is not stated in this document.
-- The Rotation Sums of Squared Loadings for an oblique rotation are not given for
-  promax (decision 705); this document does not describe SPSS's.
-- Bartlett's test: χ² = −(W − 1 − (2p + 5)/6) log|R| with p(p − 1)/2 df, and KMO
-  and each MSA from the anti-image correlations (p. 20). Same.
-- Kaiser's rule (eigenvalues above 1, MINEIGEN) and SPSS's handling of a
-  communality above 1 in principal axis are not stated in this document; not
-  checked.
+- **What follows SPSS.** Principal components; principal axis with absolute
+  eigenvalues (p. 1's Γ, EFAtools' `abs_eigen` for SPSS); varimax's pairwise
+  rotations, its skip of a pair at |sin P| ≤ 1e-15, its reflection (but see the
+  sign rule below) and its sort (pp. 10 to 12); promax's row-normalised target, D, C, pattern, Φ and structure
+  (pp. 18 to 19); Bartlett's test and KMO (p. 20, as 9B-1 read it; not read
+  again in 9B-2).
+- **The stopping rule, which IBM's document does not give as SPSS runs it.**
+  p. 12 says iteration "is terminated when |SV(i) − SV(i−1)| ≤ 10⁻⁵" with SV
+  divided by n² (p. 10). That rule reproduces SPSS's own varimax in 3 of
+  EFAtools' 17 SPSS solutions. The rule Gaply uses, |ΔSV| ≤ 1e-4 on SV not
+  divided by p², is RCONVERGE's default in the syntax ("The default is 0.0001",
+  "Convergence criterion for rotation") and reproduces all 17: in each, exactly
+  one cycle count gives SPSS's varimax within 1e-13, and it is the first cycle
+  where the rule holds (the largest change where SPSS stopped 9.451e-5, the
+  smallest where it went on 1.908e-4). Inferred, not documented.
+- **The limit.** ITERATE "Maximum number of iterations for solutions in the
+  extraction or rotation phases", default 25 (syntax reference): the spec's
+  iterations limit varimax's cycles too.
+- **How it was checked against SPSS itself.** SPSS's own varimax, promax pattern
+  and factor correlations for 17 solutions (§5), from SPSS's own unrotated
+  loadings. Gaply's extraction was not compared with SPSS's own unrotated
+  loadings, and no dataset was run through SPSS in this program.
+- **Not given.** SPSS gives a Rotation Sums of Squared Loadings total for promax;
+  Gaply gives none (decision 705).
+- **Not documented.** SPSS's sign rule for its unrotated matrices: Gaply's is
+  decision 699's. The power's default (4) is not stated in IBM's document; Gaply
+  fixes it at 4. Kaiser's rule (MINEIGEN) and SPSS's handling of a communality
+  above 1 are not stated there; not checked.
+- **Step f's sign rule differs at the edge.** Where a factor's loadings sum to 0
+  within 1e-10 of their 1-norm, Gaply's reflection follows decision 699's rule
+  (the first entry above 1e-10), where SPSS and EFAtools reflect on the sign of
+  the sum alone. Not compared: the hunt found no such factor and skips them.
+- **X = Y = 0.** Gaply's angle gives no rotation there. atan2(±0, −0) would give
+  a 45° turn, but Y is a sum built from +0, never −0, so that case does not arise
+  from data (the review of this step).
+- **Principal axis's stop.** IBM's words are "less than the convergence
+  criterion", as Gaply's; EFAtools' SPSS route stops at "at most". They differ
+  only when the change equals the criterion exactly.
 
 ## 10. Blueprint §18.2 acceptance
 
 Inputs refused by closed code before any arithmetic; every number from a
 deterministic engine; aliases only in the result, the export and the manifest
 (`stats_factor_privacy_matrix.rs`); cancel and the ceiling cooperative at every
-iteration; Reproducibility::Bitwise (`factor_cases.rs`, `factor_export.rs`).
+iteration and cycle; Reproducibility::Bitwise (`factor_cases.rs`,
+`factor_export.rs`).

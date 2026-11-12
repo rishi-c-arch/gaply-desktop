@@ -250,7 +250,9 @@ fn each_refusal_has_its_code() {
     few_iterations["parameters"]["iterations"] = json!(1);
     few_iterations["parameters"]["convergence"] = json!(1e-12);
     for (spec, code, params) in [
-        (pc(12, &["C1", "C2", "C11"], json!(null)), "stats.factor.correlation_out_of_range", json!({ "column": 1 })),
+        // C11 is the item whose arithmetic overflows (decision 714), though the
+        // pair (C1, C11) is the one that fails first.
+        (pc(12, &["C1", "C2", "C11"], json!(null)), "stats.factor.correlation_out_of_range", json!({ "column": 11 })),
         (pc(13, &["C13", "C14", "C15"], json!(null)), "stats.factor.no_eigenvalue_over_one", json!({})),
         (fspec(&o, 14, &["C1", "C2", "C8"], "principal_axis", json!(1), "none", &[]), "stats.factor.correlations_singular", json!({ "column": 8 })),
         (few_iterations, "stats.factor.extraction_not_converged", json!({ "limit": 1 })),
@@ -453,6 +455,21 @@ fn cancel_at(when: impl Fn(Point) -> bool + Send + Sync + 'static, at: Point, st
 fn a_cancel_mid_correlations_stops_the_run_with_no_result() {
     // The fifth correlation's check point, 1 + 6 + 4.
     cancel_at(|p| p == Point::Column(11), Point::Column(11), 11);
+}
+
+/// Decision 715: every varimax cycle calls the rotation's check point at its
+/// unchanged count, so a cancel at the point's second call (the first cycle,
+/// after the call before the rotation) stops the run there with no result.
+#[test]
+fn a_cancel_during_the_rotations_cycles_stops_the_run_with_no_result() {
+    let rotation_point = EXTRACTION_POINT + 1;
+    let calls = Arc::new(AtomicU64::new(0));
+    let c = calls.clone();
+    cancel_at(
+        move |p| p == Point::Column(rotation_point) && c.fetch_add(1, Ordering::SeqCst) == 1,
+        Point::Column(rotation_point),
+        rotation_point as u64,
+    );
 }
 
 #[test]

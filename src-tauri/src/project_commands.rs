@@ -905,7 +905,16 @@ fn saveable(copy: &RunCopy) -> Result<(), ProjectCode> {
         s if !s.is_terminal() => return Err(ProjectCode::RunNotFinished),
         _ => return Err(ProjectCode::RunNotSaveable),
     }
-    if copy.spec_json.is_none() || copy.capability.is_none() {
+    let Some((capability, _)) = copy.capability.as_ref() else {
+        return Err(ProjectCode::RunNotSaveable);
+    };
+    if copy.spec_json.is_none() {
+        return Err(ProjectCode::RunNotSaveable);
+    }
+    // A method with no row in METHODS cannot be rerun or exported, so a project
+    // holding it would refuse its export as a whole (Research OS, Phase 9B-2,
+    // decision 714). The factor analysis is such a method until 9B-3 adds its row.
+    if method_for(capability.as_str()).is_none() {
         return Err(ProjectCode::RunNotSaveable);
     }
     Ok(())

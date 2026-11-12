@@ -734,7 +734,7 @@ const FACTOR_ITEMS: &[(&str, &[&str])] = &[
     ("crate::stats_l1::dataset", &["Cell", "Dataset"]),
     (
         "crate::stats_linalg",
-        &["cholesky", "eigen_symmetric", "least_squares", "log_det", "polar_factor", "sign_reversed", "spd_inverse"],
+        &["cholesky", "eigen_symmetric", "least_squares", "log_det", "sign_reversed", "spd_inverse"],
     ),
     ("crate::stats_ttest", &["column", "non_finite_cells"]),
     ("crate::stats_desc::export", &["text"]),

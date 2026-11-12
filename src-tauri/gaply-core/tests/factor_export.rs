@@ -173,7 +173,7 @@ fn a_not_computable_value_is_an_empty_field_with_its_code() {
     let (r, m) = run_of(&d, p);
     let csv = read_csv(&result_csv(&r, &m));
     let k = line(&csv, "kmo", "overall");
-    assert_eq!((k[6].as_str(), k[7].as_str()), ("", "stats.factor.too_small"));
+    assert_eq!((k[6].as_str(), k[7].as_str()), ("", "stats.factor.no_correlation"), "a KMO of 0/0 (decision 714)");
     assert_eq!(line(&csv, "note", "")[7], "stats.factor.eigenvalues_not_distinct");
 }
 

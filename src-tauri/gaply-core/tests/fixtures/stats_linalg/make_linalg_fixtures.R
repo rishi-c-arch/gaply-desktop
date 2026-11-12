@@ -1,5 +1,5 @@
 # The R reference for gaply_core::stats_linalg (Research OS, Phase 9B-1,
-# decision 699): R's eigen, chol, chol2inv, determinant(log = TRUE), svd and
+# decision 699): R's eigen, chol, chol2inv, determinant(log = TRUE) and
 # qr.solve on a fixed set of matrices, written for stats_linalg's golden test
 # (src/stats_linalg/stats_linalg_r_golden.rs).
 #
@@ -153,13 +153,13 @@ symmetric_case("singular_5", cor(cbind(x, x[, 1] + x[, 2])), "column 5 = column 
 x <- matrix(rnorm(300 * 3), 300, 3)
 symmetric_case("near_singular_4", cor(cbind(x, x[, 1] + x[, 2] + rnorm(300, sd = 1e-3))), "column 4 nearly column 1 + column 2")
 
-# Polar factors of square matrices, by svd: U V' and the sum of the singular values.
+# The six polar factor cases of 9B-1 write nothing since 9B-2 (decision 719:
+# stats_linalg's polar factor went), but their random draws are still made, and
+# forced (R evaluates an argument only when it is used), so the least-squares
+# cases below draw exactly what they drew before.
 polar_case <- function(case, b, note) {
-  s <- svd(b)
-  add_case(case, "polar", nrow(b), max(s$d) / min(s$d), note)
-  add_matrix(case, "B", b)
-  add_matrix(case, "polar", s$u %*% t(s$v))
-  add(case, "sigma_sum", 0L, 0L, sum(s$d))
+  force(b)
+  invisible(NULL)
 }
 for (m in c(2L, 3L, 5L, 8L, 16L)) polar_case(sprintf("polar_%d", m), matrix(rnorm(m * m), m, m), "random normal")
 polar_case("polar_negdet_3", diag(c(1, -2, 3)) %*% orth(3), "negative determinant")

@@ -695,3 +695,21 @@ fn a_vif_with_a_subnormal_variance_comes_from_the_scaled_sd() {
     assert!(matches!(r.predictors[1].tolerance, Stat::Value(_)));
     assert!(error <= SUBNORMAL_VARIANCE_GATE, "{error:e} over {SUBNORMAL_VARIANCE_GATE:e}");
 }
+
+/// Decision 714's premise for mutant m03 (decision 709's item 1): MSS and the predicted
+/// values' SD are sums over the same fitted values from the same bits, and
+/// `sum_of_squares` refuses rather than return 0 when any deviation is not 0. So on the
+/// stored fixture linear_regression_mss_zero.json's data, where MSS is exactly 0, the
+/// predicted SD is exactly 0 too, and the sHat rule codes it whatever `if (mss === 0)` in
+/// storedShape.ts does: m03 is an equivalent mutant on results Rust writes. Its red is a
+/// mutation (decision 502).
+#[test]
+fn an_mss_of_exactly_0_makes_the_predicted_sd_exactly_0() {
+    let d = dataset(
+        &["y", "x"],
+        &rows_of(&[vec![1000005.0, 1000002.0, 1000001.0, 1000002.0, 1000005.0], vec![4.0, 5.0, 3.0, 1.0, 2.0]]),
+    );
+    let r = compute(&d, &params(1, &[2], vec![])).unwrap();
+    assert_eq!(r.anova.regression.sum_of_squares, Stat::Value(0.0), "MSS exactly 0");
+    assert_eq!(r.residuals.predicted.standard_deviation, Stat::Value(0.0), "the predicted values' SD exactly 0");
+}

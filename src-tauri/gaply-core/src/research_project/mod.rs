@@ -138,7 +138,8 @@ closed! {
         /// The run was cancelled; a cancelled run is never saved.
         RunCancelled => "run_cancelled",
         /// The run ended in a state a project does not keep: refused,
-        /// waiting on the user, timed out or over a budget.
+        /// waiting on the user, timed out or over a budget; or a method this
+        /// build cannot yet keep.
         RunNotSaveable => "run_not_saveable",
         /// The run failed without a closed code to keep.
         RunFailedWithoutCode => "run_failed_without_code",

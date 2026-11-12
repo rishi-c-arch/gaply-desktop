@@ -21,12 +21,6 @@ hilbert_6	symmetric	6	14951058.641445737	Hilbert
 hilbert_8	symmetric	8	15257576450.289389	Hilbert
 singular_5	symmetric	5	688736338813135.75	column 5 = column 1 + column 2
 near_singular_4	symmetric	4	8587995.3720436078	column 4 nearly column 1 + column 2
-polar_2	polar	2	2.7904943920554399	random normal
-polar_3	polar	3	51.316535290447	random normal
-polar_5	polar	5	115.84805462237333	random normal
-polar_8	polar	8	34.115610291011521	random normal
-polar_16	polar	16	21.683232409088738	random normal
-polar_negdet_3	polar	3	2.9999999999999978	negative determinant
 ls_10x3	least_squares	10	2.1145171148162731	promax-like target
 ls_50x5	least_squares	50	1.684659849692951	promax-like target
 ls_128x8	least_squares	128	1.4820685842712658	promax-like target
