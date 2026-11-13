@@ -19,6 +19,7 @@ import { makeMockXtabBridge } from '../statistics/xtabBridge';
 import { makeMockRanksBridge } from '../statistics/ranksBridge';
 import { makeMockRelatedRanksBridge } from '../statistics/relatedRanksBridge';
 import { makeMockLinearRegressionBridge } from '../statistics/linearRegressionBridge';
+import { makeMockFactorBridge } from '../statistics/factorBridge';
 import type { TTestRunStateView } from '../statistics/ttestTypes';
 import type { RunKind, WorkspaceStateView } from './workspaceTypes';
 import type { RunStateView } from '../statistics/describeTypes';
@@ -809,5 +810,54 @@ describe('a linear regression run in the shell', () => {
     expect(linearRegression.calls.filter(([c]) => c === 'stats_linear_regression_cancel')).toEqual([['stats_linear_regression_cancel', { runId: 15 }]]);
     expect(desc.calls).toEqual([]);
     expect(relatedRanks.calls).toEqual([]);
+  });
+});
+
+// Research OS, Phase 9B-3 (decision 732): a factor analysis's run, read and cancelled through
+// its own bridge, named by the methods table's job name, with the steps sentence.
+describe('a factor analysis run in the shell', () => {
+  it('shows it, reads it through its own status, and Cancel cancels it through its own command', async () => {
+    let ended = false;
+    const ws = makeMockWorkspaceBridge({
+      workspace_state: () => ACTIVE(ended ? null : 16, 'factor'),
+      workspace_deactivate: () => {
+        if (!ended) {
+          throw Object.assign(
+            new Error(JSON.stringify({ code: 'workspace.run_active', params: { workspace: 'statistics', run: 16 }, severity: 'error' })),
+            { code: 'validation' }
+          );
+        }
+        return NONE;
+      },
+    });
+    const desc = makeMockDescribeBridge({});
+    const linearRegression = makeMockLinearRegressionBridge({});
+    const view = (state: 'running' | 'cancelled', terminal: boolean) => ({ runId: 16, state, terminal, elapsedMs: 80, cancelRequested: false, stepsDone: 3, stepsTotal: 12, diagnostics: [] });
+    const factor = makeMockFactorBridge({
+      stats_factor_status: () => (ended ? view('cancelled', true) : view('running', false)),
+      stats_factor_cancel: () => {
+        ended = true;
+        return view('running', false);
+      },
+    });
+    render(
+      <MemoryRouter initialEntries={['/app/workspaces/statistics']}>
+        <Routes>
+          <Route
+            path="/app/workspaces/statistics"
+            element={<WorkspaceShell bridge={ws} runs={desc} linearRegressionRuns={linearRegression} factorRuns={factor} pollMs={20} />}
+          />
+          <Route path="/app/workspaces" element={<div data-testid="chooser-here" />} />
+        </Routes>
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(screen.getByTestId('ws-job').textContent).toBe('Run 16 (factor analysis): Running. 3 of 12 steps.'));
+    fireEvent.click(screen.getByTestId('ws-switch'));
+    await screen.findByTestId('ws-switch-dialog');
+    fireEvent.click(screen.getByTestId('ws-switch-cancel'));
+    await screen.findByTestId('chooser-here');
+    expect(factor.calls.filter(([c]) => c === 'stats_factor_cancel')).toEqual([['stats_factor_cancel', { runId: 16 }]]);
+    expect(desc.calls).toEqual([]);
+    expect(linearRegression.calls).toEqual([]);
   });
 });

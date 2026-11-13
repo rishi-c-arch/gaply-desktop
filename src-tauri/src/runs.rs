@@ -126,7 +126,9 @@
 //! each correlation, before the extraction and before the rotation, every
 //! extraction and rotation iteration calling its point again at the same count,
 //! so a cancel or the ceiling stops a long one; the record's `columns_total` is
-//! `stats_factor::check_points`. No window starts it until 9B-3.
+//! `stats_factor::check_points`. Since Phase 9B-3 (decision 732) the Statistics
+//! window's Dimension reduction, Factor… dialog starts it, and a project reruns it
+//! through [`Runs::start_factor_then`].
 //!
 //! Phase 3: the run manager and the slots belong to the Statistics workspace
 //! (`crate::workspace`), built when it is activated and dropped when it is
@@ -2794,6 +2796,17 @@ impl Runs {
     /// cancel, as every kind's.
     pub fn start_factor(self: &Arc<Self>, slot: Arc<Slot>, spec: OperationSpec<FactorParams>) -> Result<RunId, NotStarted> {
         self.begin::<Factor>(slot, spec, None)
+    }
+
+    /// [`Runs::start_factor`], with an end hook, for a project rerun (Research OS,
+    /// Phase 9B-3, decision 728).
+    pub fn start_factor_then(
+        self: &Arc<Self>,
+        slot: Arc<Slot>,
+        spec: OperationSpec<FactorParams>,
+        end: EndHook,
+    ) -> Result<RunId, NotStarted> {
+        self.begin::<Factor>(slot, spec, Some(end))
     }
 
     /// Every start, of any method (Research OS, Phase 8C): the record, then

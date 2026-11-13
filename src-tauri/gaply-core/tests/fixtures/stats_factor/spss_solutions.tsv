@@ -1,5 +1,5 @@
 # Written by /usr/local/bin/Rscript make_factor_spss_fixtures.R (decisions 718 and 719).
-# R version 4.6.1 (2026-06-24); EFAtools 1.1.0's data SPSS_23 and SPSS_27 (SPSS 23 and 27 output; Grieder and Steiner, 2022).
+# R version 4.6.1 (2026-06-24); EFAtools 1.1.0's data SPSS_23 and SPSS_27 (SPSS 23 and 27 output; Grieder and Steiner, 2022; EFAtools 1.1.0, GPL-3).
 solution	key	i	j	value
 SPSS_23.baseline	cycles	0	0	5
 SPSS_23.baseline	paf_load	0	0	0.522975007120281

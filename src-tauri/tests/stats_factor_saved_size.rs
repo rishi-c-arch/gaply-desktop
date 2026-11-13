@@ -207,3 +207,141 @@ fn a_saved_factor_runs_bytes_with_the_widest_result_fit_the_read_limit() {
         "the pinned lengths"
     );
 }
+
+/// The pinned lengths of the widest spec, bundle rest and manifest (decision
+/// 728, m3 of the review of 9B-2), measured on macOS aarch64, 13 Nov 2026, in a
+/// run with every pin at 0 (~/gaply-corpus/os/phase9/9b3/logs/p0_green_1794520972.log):
+/// with the widest 128-component result, a total of 3,156,567 bytes, 1,037,737
+/// under the read limit.
+const WIDE_SPEC_BYTES: usize = 26517;
+const WIDE_MANIFEST_BYTES: usize = 23744;
+const WIDE_BUNDLE_REST_BYTES: usize = 123694;
+
+/// `n` distinct doubles, each written by serde_json at the widest a double's JSON
+/// takes (24 characters, `-1.2345678901234567e-123`), none of them a candidate
+/// code.
+fn widest_codes(n: usize) -> Vec<f64> {
+    let base = (-1.2345678901234567e-123f64).to_bits();
+    let mut out = Vec::new();
+    let mut k = 0u64;
+    while out.len() < n {
+        let x = f64::from_bits(base + k);
+        k += 1;
+        if serde_json::to_string(&x).unwrap().len() == 24 {
+            out.push(x);
+        }
+    }
+    out
+}
+
+/// Decision 728 (m3 of the review of 9B-2): the other test's spec, manifest and
+/// bundle rest come from a run with no codes, exclusions or warnings, so its total
+/// is not an upper bound. Here each is the widest a save can hold: 128 items; 1,000
+/// missing codes at the widest JSON a double takes (no method caps the codes; a
+/// later step's question), none a candidate; a preparation; 256 exclusion lines
+/// (missing_value and missing_code under each item, the most there can be, since a
+/// row is counted once under its first item), each count the widest; and 768
+/// suspect_missing_code warnings, each item times the six candidate codes (a
+/// ticked code is never warned of, and the window offers only those six). With the
+/// widest result, the total is under the read limit.
+#[test]
+fn the_widest_spec_manifest_and_warnings_with_the_widest_result_fit_the_read_limit() {
+    use gaply_core::contracts::{ContentHash, Diagnostic, Preparation, Severity};
+    use gaply_core::stats_l1::binding::MISSING_CODE_CANDIDATES;
+    let w = World::new("factor-size-wide");
+    let slot = w.open("wide.csv", structured_csv(400, MAX_ITEMS as u64, 8).as_bytes());
+    let e = w.engine();
+    let held = e.datasets.get(slot).expect("the slot");
+    let spec = gaply_core::stats_factor::spec(
+        OperationId(16),
+        held.dataset(),
+        FactorParams {
+            items: (1..=MAX_ITEMS as u32).map(a).collect(),
+            extraction: Extraction::PrincipalComponents,
+            factors: None,
+            rotation: Rotation::None,
+            iterations: 25,
+            convergence: 0.001,
+            missing_codes: vec![],
+        },
+    );
+    let run = app_lib::stats_factor_commands::run(&e.runs, &e.datasets, slot, spec).expect("the run starts").run_id;
+    let start = std::time::Instant::now();
+    while !e.runs.factor_snapshot(RunId(run)).expect("held").record.state.is_terminal() {
+        assert!(start.elapsed() < std::time::Duration::from_secs(60), "the run never ended");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert_eq!(e.runs.factor_snapshot(RunId(run)).unwrap().record.state, RunState::Succeeded);
+    let limitations = e.runs.factor_result(RunId(run)).unwrap().primary_outputs.limitations;
+    let copy = e.runs.copy_for_save(RunId(run)).expect("a copy");
+    let preparation = serde_json::to_value(Preparation {
+        source_hash: ContentHash::of_bytes(b"source"),
+        recipe_hash: ContentHash::of_bytes(b"recipe"),
+        source_columns: u32::MAX,
+        capability_version: u32::MAX,
+        engine_version: u32::MAX,
+    })
+    .unwrap();
+    let codes = widest_codes(1000);
+    assert!(codes.iter().all(|c| !MISSING_CODE_CANDIDATES.iter().any(|k| f64::from(*k) == *c)));
+    let mut spec: Value = serde_json::from_slice(&copy.spec_json.expect("spec")).unwrap();
+    spec["parameters"]["missingCodes"] = json!(codes);
+    spec["preparation"] = preparation.clone();
+    assert!(spec.get("randomSeed").is_some(), "the spec's seed key");
+    spec["randomSeed"] = json!(u64::MAX);
+    let exclusions: Vec<Exclusion<C>> = (1..=MAX_ITEMS as i64)
+        .flat_map(|j| {
+            [C::MissingValue, C::MissingCode].map(|code| Exclusion {
+                code,
+                count: u64::MAX,
+                params: std::collections::BTreeMap::from([(ParamKey::Column, ParamValue::Int(j))]),
+            })
+        })
+        .collect();
+    assert_eq!(exclusions.len(), 256);
+    let mut manifest: Value = serde_json::from_slice(&copy.manifest_json.expect("manifest")).unwrap();
+    // The preparation is skipped when absent, so a prepared slot's run adds it.
+    for key in ["exclusions", "rowsRead", "rowsUsed", "seed"] {
+        assert!(manifest.get(key).is_some(), "the manifest's key {key}");
+    }
+    manifest["exclusions"] = serde_json::to_value(&exclusions).unwrap();
+    manifest["rowsRead"] = json!(u64::MAX);
+    manifest["rowsUsed"] = json!(u64::MAX);
+    manifest["seed"] = json!(u64::MAX);
+    manifest["preparation"] = preparation;
+    let warnings: Vec<Diagnostic<C>> = (1..=MAX_ITEMS as i64)
+        .flat_map(|j| {
+            MISSING_CODE_CANDIDATES.map(|k| {
+                let mut d = Diagnostic::new(Severity::Warning, C::SuspectMissingCode);
+                d.params.insert(ParamKey::Column, ParamValue::Int(j));
+                d.params.insert(ParamKey::Value, ParamValue::Int(i64::from(k)));
+                d.params.insert(ParamKey::Count, ParamValue::Int(i64::MAX));
+                d
+            })
+        })
+        .collect();
+    assert_eq!(warnings.len(), 768);
+    let mut bundle: Value = serde_json::from_slice(&copy.bundle_json.expect("bundle")).unwrap();
+    bundle["primaryOutputs"] = json!(0);
+    bundle["diagnostics"] = serde_json::to_value(&warnings).unwrap();
+    bundle["manifest"] = manifest.clone();
+    let spec_len = serde_json::to_vec(&spec).unwrap().len();
+    let manifest_len = normalised_len(&serde_json::to_vec(&manifest).unwrap());
+    let rest = normalised_len(&serde_json::to_vec(&bundle).unwrap()) - 1;
+    println!("wide spec {spec_len} B, wide bundle rest {rest} B, wide manifest {manifest_len} B");
+    for (m, extraction) in [(128, Extraction::PrincipalComponents), (127, Extraction::PrincipalAxis)] {
+        let widest = serde_json::to_vec(&widest(m, extraction, limitations.clone())).unwrap().len();
+        let total = (spec_len + rest + manifest_len + widest) as u64;
+        println!(
+            "{m} factors: widest result {widest} B, total {total} B, limit {RESULT_READ_LIMIT_BYTES} B, margin {} B ({:.3} MiB)",
+            RESULT_READ_LIMIT_BYTES as i64 - total as i64,
+            (RESULT_READ_LIMIT_BYTES as i64 - total as i64) as f64 / 1048576.0
+        );
+        assert!(total < RESULT_READ_LIMIT_BYTES, "{m} factors: {total} B");
+    }
+    assert_eq!(
+        (spec_len, manifest_len, rest),
+        (WIDE_SPEC_BYTES, WIDE_MANIFEST_BYTES, WIDE_BUNDLE_REST_BYTES),
+        "the pinned lengths"
+    );
+}

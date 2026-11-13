@@ -227,20 +227,21 @@ enum PinCheck {
     Layout,
 }
 
-/// Exact on macOS aarch64, where the pin was captured; the layout check
-/// everywhere else until a Linux run gives its bytes (decision 701).
+/// Exact on macOS aarch64, where the pin was captured, and on Linux x86_64, where
+/// the user's run gave its bytes exactly (decisions 726 and 728); the layout
+/// check everywhere else.
 fn pin_check(os: &str, arch: &str) -> PinCheck {
     match (os, arch) {
-        ("macos", "aarch64") => PinCheck::Exact,
+        ("macos", "aarch64") | ("linux", "x86_64") => PinCheck::Exact,
         _ => PinCheck::Layout,
     }
 }
 
 #[test]
-fn the_pin_is_checked_exactly_on_macos_aarch64_only() {
+fn the_pin_is_checked_exactly_on_macos_aarch64_and_linux_x86_64() {
     for (os, arch, want) in [
         ("macos", "aarch64", PinCheck::Exact),
-        ("linux", "x86_64", PinCheck::Layout),
+        ("linux", "x86_64", PinCheck::Exact),
         ("windows", "x86_64", PinCheck::Layout),
         ("macos", "x86_64", PinCheck::Layout),
         ("linux", "aarch64", PinCheck::Layout),

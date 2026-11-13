@@ -29,6 +29,8 @@ import { relatedRanksResultView } from '../fixtures/relatedRanksFixtures';
 import { makeMockRelatedRanksBridge } from '../relatedRanksBridge';
 import { linearRegressionResultView } from '../fixtures/linearRegressionFixtures';
 import { makeMockLinearRegressionBridge } from '../linearRegressionBridge';
+import { factorResultView } from '../fixtures/factorFixtures';
+import { makeMockFactorBridge } from '../factorBridge';
 import { METHOD_OUTPUT } from './methodOutput';
 import { Output, OutputWatchers } from './Output';
 import { statisticsSession, type NewOutputEntry, type OutputEntry } from './statisticsSession';
@@ -76,6 +78,9 @@ const KINDS = [
   { kind: 'related_ranks', key: 'relatedRanks', prefix: 'stats_related_ranks', result: relatedRanksResultView, run: { ...common, stepsDone: 0, stepsTotal: 1 }, card: 'rr-result-card', progress: null },
   // Research OS, Phase 9A-2 (decision 687): one check point, so no steps sentence.
   { kind: 'linear_regression', key: 'linearRegression', prefix: 'stats_linear_regression', result: linearRegressionResultView, run: { ...common, stepsDone: 0, stepsTotal: 1 }, card: 'lr-result-card', progress: null },
+  // Research OS, Phase 9B-3 (decision 732): a check point per item, pair and iteration, so the
+  // steps sentence, as alpha's.
+  { kind: 'factor', key: 'factor', prefix: 'stats_factor', result: factorResultView, run: running, card: 'fa-result-card', progress: '3 of 7 steps' },
 ] as const;
 
 function bridgesWith(prefix: string, responses: Record<string, unknown>) {
@@ -92,6 +97,7 @@ function bridgesWith(prefix: string, responses: Record<string, unknown>) {
     ranks: makeMockRanksBridge(prefix === 'stats_ranks' ? scoped : {}),
     relatedRanks: makeMockRelatedRanksBridge(prefix === 'stats_related_ranks' ? scoped : {}),
     linearRegression: makeMockLinearRegressionBridge(prefix === 'stats_linear_regression' ? scoped : {}),
+    factor: makeMockFactorBridge(prefix === 'stats_factor' ? scoped : {}),
   };
 }
 

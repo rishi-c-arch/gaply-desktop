@@ -356,7 +356,8 @@ fn every_number_of_every_case_is_within_its_familys_gate_of_r() {
             }
         }
     }
-    assert_eq!(all.len(), 42, "make_factor_fixtures.R's cases");
+    // 43 since decision 728's appended case (uncorrelated_item_pa_promax).
+    assert_eq!(all.len(), 43, "make_factor_fixtures.R's cases");
     assert!(compared > 8000, "{compared} numbers compared");
     assert!(over.is_empty(), "over the gate:\n{}", over.join("\n"));
 }

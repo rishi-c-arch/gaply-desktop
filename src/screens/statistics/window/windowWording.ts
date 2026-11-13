@@ -300,6 +300,18 @@ export function linearRegressionSettingsLine(p: { outcome: string; predictors: s
   return `Outcome: ${namedColumn(p.outcome, view)}. Predictors, in this order: ${p.predictors.map((c) => namedColumn(c, view)).join(', ')}. ${codesWords(p.missingCodes)}`;
 }
 
+/** The factor analysis's dialog (Research OS, Phase 9B-3, decision 730): here because
+ *  namedColumn and codesWords are private to this file. */
+export const FACTOR_DIALOG_TITLE = 'Dimension reduction: Factor';
+export function factorSettingsLine(
+  p: { items: string[]; extraction: string; factors: number | null; rotation: string; iterations: number; convergence: number; missingCodes: number[] },
+  view: LineView
+): string {
+  const extraction = p.extraction === 'principal_axis' ? 'principal axis factoring' : 'principal components';
+  const factors = p.factors === null ? 'every eigenvalue above 1' : String(p.factors);
+  return `Items: ${p.items.map((c) => namedColumn(c, view)).join(', ')}. Extraction: ${extraction}. Factors: ${factors}. Rotation: ${p.rotation}. Iterations: ${p.iterations}. Convergence: ${p.convergence}. ${codesWords(p.missingCodes)}`;
+}
+
 /** The scale score's dialog (decisions 504 to 507). Its form's words, Make's
  *  sentence, the scores it lists and the questions before a deletion. A score's
  *  name is the user's own, shown on their own screen. "Delete", never "Remove",

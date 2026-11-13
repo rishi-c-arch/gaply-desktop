@@ -5,12 +5,17 @@
 710, 712 to 721), `src-tauri/gaply-core/src/stats_factor/`, with its linear
 algebra in `src-tauri/gaply-core/src/stats_linalg/`.
 
-**Status: Beta, with no window yet.** 9B-1 built the core, registered it (Planned
-at its Part 2's end, decision 702) and made it Beta with six commands and a run
-kind (decision 704). No window item reaches it until 9B-3: the old home lists its
-card, Help lists it with its limitations, Coming later still says "Factor
-analysis", and a run of it cannot be saved into a project (`project.run_not_saveable`,
-decision 714) until 9B-3 gives it a row in the project's methods.
+**Status: Beta, in the Statistics window since 9B-3.** 9B-1 built the core, registered it
+(Planned at its Part 2's end, decision 702) and made it Beta with six commands and a run
+kind (decision 704). Since Research OS, Phase 9B-3 (decisions 726 to 735) a user reaches it
+from Analyze, Dimension reduction, Factor…: the dialog draws the numeric columns on the left
+and the chosen items on the right in the file's order, with principal components, every
+factor whose eigenvalue is above 1, no rotation, 25 iterations and a convergence of 0.001
+chosen at the start, and Run off until 3 to 128 items are chosen. The result is a card of
+SPSS's tables, "Component" for principal components and "Factor" for principal axis (§8).
+A run is saved into a project with its own row, read back through the stored checker
+(`storedShape.ts`, decision 733), and run again Identical. Coming later no longer says
+"Factor analysis".
 
 Exploratory factor analysis of three to 128 numeric items, as SPSS's FACTOR does
 it (decision 710), with principal components or principal axis factoring, for a
@@ -36,8 +41,8 @@ published statement, not from any tool's source (ADR-008).
 | `extraction` | `principal_components` or `principal_axis` |
 | `factors` | `null` for every eigenvalue above 1 (Kaiser's rule, SPSS's default), or m from 1 to the items (components) or to one fewer (principal axis) |
 | `rotation` | `none`, `varimax` or `promax` |
-| `iterations` | 1 to 1,000, SPSS's ITERATE, limiting principal axis's iterations and varimax's cycles alike; the window will default to 25 |
-| `convergence` | 1e-12 to 0.1, SPSS's ECONVERGE; the window will default to 0.001 |
+| `iterations` | 1 to 1,000, SPSS's ITERATE, limiting principal axis's iterations and varimax's cycles alike; the window starts at 25 |
+| `convergence` | 1e-12 to 0.1, SPSS's ECONVERGE; the window starts at 0.001 |
 | `missingCodes` | finite, ascending, once each, applied to every item |
 
 The checks, in this order: the missing codes; the items' count; their order; a
@@ -129,7 +134,15 @@ and are not checked); `extraction_eigenvalue_negative`; `one_factor_not_rotated`
 `rotation_not_converged`; `rotation_singular`; `eigenvalues_not_distinct` (the
 m-th and next eigenvalue of the final decomposition within 1e-8 of the larger).
 A rotation that cannot be given is a note, never a refusal: the result keeps
-everything else and its rotation is null (decision 717).
+everything else and its rotation is null (decision 717). Since 9B-3 (decision 728) promax
+is `rotation_singular` too when any column of varimax's loadings has a length at most
+1e-7 times the longest's: such a factor is rounding noise, which least squares' own rank
+test (each column against its own norm) let through, and EFAtools' SPSS route refuses.
+Before it, the golden's `data_uncorrelated_item_varimax.csv` with principal axis, 4
+factors and promax gave `rotation_singular` unscaled but a Φ row of rounding noise times
+0.1 or divided by 10. Φ is computed on its upper triangle and mirrored, so it is exactly
+symmetric and the structure is exactly the pattern times it; its diagonal stays as
+computed, within 4.4e-16 of 1, as SPSS's own within 2.2e-16.
 
 Not computable, statistic by statistic: `correlations_singular` for the
 determinant and its log, KMO, the MSAs and Bartlett's test where the Cholesky
@@ -210,9 +223,14 @@ its own loadings gives EFAtools' Φ within 7.494e-15), and h232's seventh
 eigenvalue's percent, 1.026e-13 (R's `eigen` disagrees with itself by 9.226e-14
 on that matrix, with vectors against values only, and Gaply lies within 4.0e-15
 of its values-only answer in five item orders). The hunt produced no
-`rotation_not_converged` and no `rotation_singular`; the first is reached by the
-golden's and the cases' datasets, the second only by unit tests of `rotate` and
-`promax_of` (no dataset found reaches it).
+`rotation_not_converged` and no `rotation_singular`; both are reached by data: the first
+by the golden's and the cases' datasets, the second by the golden's
+`data_uncorrelated_item_varimax.csv` with principal axis, 4 factors and promax (the
+golden's case `uncorrelated_item_pa_promax` since 9B-3, decision 728; EFAtools refuses its
+promax, `lm.fit` rank 3 of 4), by the same data times 0.1 and divided by 10, and by
+`data_three_factor_12.csv` with a copy of item 4 and every component (`factor_cases.rs`).
+The review of 9B-2 said this page, 9B-2's report and D322 had it reached only by unit
+tests; that was wrong (the review's m1).
 
 ## 6. Speed and size
 
@@ -240,8 +258,10 @@ result, 2,985,576 bytes, 1,208,728 under the 4 MiB a saved result may be read at
 the spec's list and its alias; a factor, an eigenvalue or a component is its
 number from 1 in the second index field; a line of a factor by a factor (the
 transformation, the factor correlations) gives the first factor's number in the
-first index field. Pinned exactly on macOS aarch64 (`factor_export.rs`), checked
-by layout elsewhere until a Linux run gives its bytes.
+first index field. Pinned exactly on macOS aarch64 and on Linux x86_64 (`factor_export.rs`,
+since 9B-3: the user's Linux run gave the pin's bytes exactly, decisions 726 and 728),
+checked by layout elsewhere. The window offers it as `factor_analysis.csv` and the
+manifest as `factor_analysis_manifest.json`.
 
 ## 8. Limitations
 
@@ -250,6 +270,67 @@ principal components and principal axis only; varimax and promax only; promax at
 power 4 only; no factor scores; the correlation, anti-image, reproduced and
 residual matrices not shown; Pearson's correlations only; listwise only; no scree
 plot.
+
+What the window says for each code (`factorWording.ts`, Research OS, Phase 9B-3, decision
+730), word for word, an item named C4 and the counts as shown here. A limitation is the
+registry's sentence for its limit. The run's, the registry's and the workspace's 22 codes
+are the related rank tests' sentences, but `run.unknown_run` ("This run is no longer held.
+Gaply keeps the last 40 runs in memory only; run the factor analysis again.") and
+`run.wrong_kind` ("This run is not a factor analysis, so this screen cannot read it.").
+
+| code | sentence |
+|---|---|
+| `capability_version_mismatch` | These settings were made for version 2 of the factor analysis, and this is version 1. |
+| `code_equals_score` | Column C4 is a score, and it holds a missing code you ticked in 3 cells. Untick the code, or leave this score out. |
+| `column_holds_text` | Column C4 holds text in 3 cells, so it cannot be used as an item. |
+| `column_non_finite` | Column C4 holds an infinity or "not a number" in 3 cells, so it cannot be used as an item. |
+| `communality_above_one` | During principal axis factoring a communality went above 1 (a Heywood case). A communality is a share of an item's variance, so these loadings do not describe a possible factor model as they stand. SPSS gives the same warning. |
+| `convergence_out_of_range` | The convergence is outside 1e-12 to 0.1, or is not a number. |
+| `correlation_out_of_range` | C4's values are too large or too small for its correlations to be computed at this scale. |
+| `correlations_singular` | Not computable: the correlation matrix is singular, as when an item is a combination of other items or there are no more rows than items. |
+| `correlations_singular` (a refusal, naming C4) | C4 is a combination of the items before it, or within one part in a billion of its variance of being one, so the correlation matrix is singular and principal axis factoring cannot start. Take it out of the items, or use principal components. |
+| `distribution_out_of_range` | Not computable: this needs a chi-square distribution beyond the range where Gaply has measured its accuracy. |
+| `eigen_not_converged` | The eigenvalues of these data could not be found to the arithmetic's precision. |
+| `eigenvalues_not_distinct` | The last eigenvalue extracted and the next are equal within 1e-8 of the larger, so these loadings are one of many that fit equally well. |
+| `extraction_eigenvalue_negative` | At some iteration an eigenvalue among those extracted was below 0; as SPSS does, its absolute value was used for the loadings. |
+| `extraction_eigenvalue_not_positive` | A component asked for has an eigenvalue of 0 or below, so it has no loadings. Ask for fewer components. |
+| `extraction_not_converged` | Principal axis factoring did not converge within 25 iterations. Raise the maximum iterations, or ask for fewer factors. |
+| `factors_out_of_range` | 7 factors are asked for, and these items allow 1 to 5. |
+| `input_count` | These settings name 2 files, and a factor analysis reads exactly one. |
+| `input_mismatch` | These settings were made for a different file from the one open. Open the file again. |
+| `item_constant` | Column C4 takes one value in every complete row, so its correlations are not defined. Take it out of the items. |
+| `item_repeated` | Column C4 is chosen twice as an item. |
+| `items_out_of_order` | These settings list item C4 out of the file's column order, so Gaply refuses them rather than reorder them. |
+| `iterations_out_of_range` | 0 iterations are asked for, and a run takes 1 to 1000. |
+| `listwise_only` | A row is used only when every item has a value; pairwise deletion and mean substitution are not offered. |
+| `missing_code` | 3 rows held a missing code you ticked in C4, the first item without a value, and were left out. |
+| `missing_code_not_finite` | Missing code 1 is not a finite number. |
+| `missing_code_repeated` | Missing code 2 is listed twice. |
+| `missing_codes_out_of_order` | Missing code 2 is out of ascending order, so Gaply refuses these settings rather than reorder them. |
+| `missing_value` | 3 rows had no value (an empty cell or a missing-value token) in C4, the first item without one, and were left out. |
+| `no_complete_rows` | No row has a value in every chosen item, so there is nothing to analyse. |
+| `no_correlation` | Not computable: the items this measure covers correlate with no other item, so there is nothing for it to compare. |
+| `no_eigenvalue_over_one` | No eigenvalue of the correlation matrix is above 1, so that rule extracts no factor. Choose a fixed number of factors instead. |
+| `no_factor_scores` | Factor scores are not computed or saved as columns. |
+| `no_matrices_shown` | The correlation, anti-image, reproduced and residual matrices are not shown; the determinant, KMO and each item's sampling adequacy are. |
+| `no_ml_or_other_extraction` | Principal components and principal axis factoring are offered; maximum likelihood, least squares, alpha and image extraction are not. |
+| `no_oblique_other_than_promax` | Varimax and promax rotations are offered; oblimin, quartimax and equamax are not. |
+| `no_scree_plot` | The scree plot is not drawn; the eigenvalues it would show are listed. |
+| `no_weights` | Each row is counted once; weighting rows by a column is not offered. |
+| `one_factor_not_rotated` | One factor was extracted, so there is nothing to rotate. |
+| `overflow` | Not computable: a value along the way is too large for the arithmetic. |
+| `pearson_only` | Correlations are Pearson's; polychoric correlations for ordinal items are not offered. |
+| `preparation_mismatch` | These settings do not match how the open data was prepared. Choose the settings again. |
+| `promax_kappa_four` | Promax uses a power of 4, SPSS's default; another power is not offered. |
+| `rotation_not_converged` | The rotation did not converge within the maximum iterations, so no rotated solution is given. |
+| `rotation_singular` | Promax's fit cannot be computed for these loadings, so no rotated solution is given. |
+| `suspect_missing_code` | Column C4 holds -99 in 3 cells, which may be a code for a missing value. It is counted as a number unless you tick it in Settings. |
+| `too_few_items` | 2 items chosen, and a factor analysis needs at least 3. |
+| `too_few_rows` | 2 rows have a value in every chosen item, and a factor analysis needs at least 3. |
+| `too_many_items` | 129 items chosen, and a factor analysis takes at most 128. |
+| `too_small` | Not computable: a value along the way is too small for the arithmetic to keep its precision. |
+| `unknown_capability` | These settings name a capability Gaply does not have here. |
+| `unknown_column` | Column C4 is not in this file. |
 
 ## 9. What follows SPSS, and how it was checked
 
@@ -280,7 +361,14 @@ no body; whether it exists is not checked.
   "Convergence criterion for rotation") and reproduces all 17: in each, exactly
   one cycle count gives SPSS's varimax within 1e-13, and it is the first cycle
   where the rule holds (the largest change where SPSS stopped 9.451e-5, the
-  smallest where it went on 1.908e-4). Inferred, not documented.
+  smallest where it went on 1.908e-4). Inferred, not documented. The 17 also fit a
+  second rule, about 2.6e-5 on |ΔSV| / √p (the review of 9B-2, m5); the two part only
+  at large p, and the 17 have p of at most 47, so they cannot tell them apart. 1e-4 is
+  RCONVERGE's default and the natural reading.
+- **The licence of SPSS's numbers as Gaply holds them.** `spss_solutions.tsv` holds
+  numbers from EFAtools' data SPSS_23 and SPSS_27 (EFAtools 1.1.0, GPL-3), written
+  beside their provenance in its header since 9B-3 (decision 728). They are test data
+  only; nothing of EFAtools is in Gaply.
 - **The limit.** ITERATE "Maximum number of iterations for solutions in the
   extraction or rotation phases", default 25 (syntax reference): the spec's
   iterations limit varimax's cycles too.

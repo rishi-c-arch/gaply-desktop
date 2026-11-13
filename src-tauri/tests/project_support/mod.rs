@@ -418,6 +418,41 @@ impl World {
         id
     }
 
+    /// The factor analysis of `items` (Research OS, Phase 9B-3, decision 731), at 25
+    /// iterations and a convergence of 0.001, the spec carrying the slot's preparation
+    /// exactly when it has one, as a screen's does (decision 490), run to its end.
+    pub fn factor(
+        &self,
+        slot: u64,
+        items: &[u32],
+        extraction: gaply_core::stats_factor::Extraction,
+        factors: Option<u32>,
+        rotation: gaply_core::stats_factor::Rotation,
+        missing_codes: Vec<f64>,
+    ) -> u64 {
+        let e = self.engine();
+        let held = e.datasets.get(slot).expect("the slot");
+        let mut spec = gaply_core::stats_factor::spec(
+            OperationId(16),
+            held.dataset(),
+            gaply_core::stats_factor::FactorParams {
+                items: items.iter().map(|c| Alias(ColumnAlias(*c))).collect(),
+                extraction,
+                factors,
+                rotation,
+                iterations: 25,
+                convergence: 0.001,
+                missing_codes,
+            },
+        );
+        spec.preparation = held.preparation();
+        let id = app_lib::stats_factor_commands::run(&e.runs, &e.datasets, slot, spec)
+            .expect("the run starts")
+            .run_id;
+        self.wait_new_kind(id);
+        id
+    }
+
     pub fn wait_new_kind(&self, run: u64) -> RunState {
         let e = self.engine();
         let start = Instant::now();
@@ -434,6 +469,7 @@ impl World {
                 .or_else(|_| e.runs.ranks_snapshot(RunId(run)).map(|s| s.record.state))
                 .or_else(|_| e.runs.related_ranks_snapshot(RunId(run)).map(|s| s.record.state))
                 .or_else(|_| e.runs.linear_regression_snapshot(RunId(run)).map(|s| s.record.state))
+                .or_else(|_| e.runs.factor_snapshot(RunId(run)).map(|s| s.record.state))
                 .expect("the run is held");
             if state.is_terminal() {
                 return state;

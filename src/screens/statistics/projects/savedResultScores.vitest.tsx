@@ -130,6 +130,23 @@ describe("a saved result's score columns", () => {
     expect(screen.getByTestId('lr-coef-C3').querySelector('th')?.textContent).toBe('C3');
   });
 
+  // Research OS, Phase 9B-3 (decision 732): a score among the factor analysis's items is named as
+  // the regression's predictors are, in a sentence and in each table's row of that item.
+  it("a factor analysis's item and sentence that name a score", () => {
+    const v = edited('factor.json', (b) => {
+      b.diagnostics = [{ code: 'stats.factor.suspect_missing_code', params: { column: 3, value: -99, count: 2 }, severity: 'warning' }];
+    });
+    body(v, [score(3, 'Total')]);
+    expect(screen.getByTestId('fa-result-notes').textContent).toContain(`Column ${scoreColumn(3, 'Total')} holds -99`);
+    for (const row of ['fa-desc-C3', 'fa-msa-C3', 'fa-comm-C3', 'fa-matrix-C3', 'fa-pattern-C3', 'fa-structure-C3']) {
+      expect(screen.getByTestId(row).querySelector('th')?.textContent, row).toBe(scoreColumn(3, 'Total'));
+    }
+    cleanup();
+    body(v, null);
+    expect(screen.getByTestId('fa-result-notes').textContent).toContain('Column C3 holds -99');
+    expect(screen.getByTestId('fa-desc-C3').querySelector('th')?.textContent).toBe('C3');
+  });
+
   // Research OS, Phase 8Z-2 (decision 656): a score among the related rank tests' columns
   // is named as the rank tests' score outcome is, in a sentence and in the columns' table.
   it("a related rank test's column and sentence that name a score", () => {

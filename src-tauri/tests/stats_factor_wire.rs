@@ -2,7 +2,7 @@
 //! 9B-1, decision 704), in the pattern of `stats_linear_regression_wire.rs`.**
 //! Each view serialises to exactly the bytes of its fixture in
 //! `src/screens/statistics/fixtures/` (pretty JSON, two-space indent, a final
-//! newline), which 9B-2's screen types will be tested against. Between them the
+//! newline), which the screen's types (factorTypes.ts, since 9B-3) are tested against. Between them the
 //! fixtures fill every field, and every variant of every enum the result carries:
 //! a value and a not-computable code, both rotations' fields. Both result
 //! fixtures are real results of `compute` on synthetic data; the views around

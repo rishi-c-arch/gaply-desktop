@@ -39,6 +39,8 @@ const FILES = [
   // moved out of the related rank tests' settings, so they stay scanned.
   path.join(HERE, '../LinearRegressionSettings.tsx'),
   path.join(HERE, '../orderedColumns.ts'),
+  // Research OS, Phase 9B-3 (decision 729): the factor analysis's settings, beside the others.
+  path.join(HERE, '../FactorSettings.tsx'),
 ];
 
 const code = (src: string) =>
@@ -65,7 +67,7 @@ const FORBIDDEN: Array<[string, RegExp]> = [
 describe("the Statistics window's files", () => {
   it('are found: the scan is not inert', () => {
     const names = FILES.map((f) => path.basename(f));
-    for (const n of ['StatisticsWindow.tsx', 'statisticsSession.ts', 'useWindowFile.ts', 'VariableView.tsx', 'HelpDialog.tsx', 'windowMenus.ts', 'windowWording.ts', 'useWorkspaceSwitch.tsx', 'DataGrid.tsx', 'gridCells.ts', 'gridRange.ts', 'gridTiming.ts', 'TimingLine.tsx', 'ProjectDialog.tsx', 'AlphaSettings.tsx', 'MethodDialog.tsx', 'AlphaDialog.tsx', 'Output.tsx', 'OutputOutline.tsx', 'methodOutput.tsx', 'DescribeSettings.tsx', 'TTestSettings.tsx', 'OneSampleSettings.tsx', 'PairedSettings.tsx', 'AnovaSettings.tsx', 'CorrSettings.tsx', 'DescribeDialog.tsx', 'TTestDialog.tsx', 'OneSampleDialog.tsx', 'PairedDialog.tsx', 'AnovaDialog.tsx', 'CorrDialog.tsx', 'ScoreSettings.tsx', 'ScoreDialog.tsx', 'XtabSettings.tsx', 'XtabDialog.tsx', 'RanksSettings.tsx', 'RanksDialog.tsx', 'RelatedRanksSettings.tsx', 'RelatedRanksDialog.tsx', 'LinearRegressionSettings.tsx', 'orderedColumns.ts', 'LinearRegressionDialog.tsx']) {
+    for (const n of ['StatisticsWindow.tsx', 'statisticsSession.ts', 'useWindowFile.ts', 'VariableView.tsx', 'HelpDialog.tsx', 'windowMenus.ts', 'windowWording.ts', 'useWorkspaceSwitch.tsx', 'DataGrid.tsx', 'gridCells.ts', 'gridRange.ts', 'gridTiming.ts', 'TimingLine.tsx', 'ProjectDialog.tsx', 'AlphaSettings.tsx', 'MethodDialog.tsx', 'AlphaDialog.tsx', 'Output.tsx', 'OutputOutline.tsx', 'methodOutput.tsx', 'DescribeSettings.tsx', 'TTestSettings.tsx', 'OneSampleSettings.tsx', 'PairedSettings.tsx', 'AnovaSettings.tsx', 'CorrSettings.tsx', 'DescribeDialog.tsx', 'TTestDialog.tsx', 'OneSampleDialog.tsx', 'PairedDialog.tsx', 'AnovaDialog.tsx', 'CorrDialog.tsx', 'ScoreSettings.tsx', 'ScoreDialog.tsx', 'XtabSettings.tsx', 'XtabDialog.tsx', 'RanksSettings.tsx', 'RanksDialog.tsx', 'RelatedRanksSettings.tsx', 'RelatedRanksDialog.tsx', 'LinearRegressionSettings.tsx', 'orderedColumns.ts', 'LinearRegressionDialog.tsx', 'FactorSettings.tsx', 'FactorDialog.tsx']) {
       expect(names, n).toContain(n);
     }
     for (const f of FILES) expect(code(fs.readFileSync(f, 'utf8')).length, f).toBeGreaterThan(100);

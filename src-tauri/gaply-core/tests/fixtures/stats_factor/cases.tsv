@@ -43,3 +43,4 @@ sorted_reflected_pc_promax	data_sorted_reflected.csv	principal_components	4	prom
 rotation_not_converged_pc	data_sorted_reflected.csv	principal_components	4	varimax	2	0.001		ok	3.8224405839968831	
 relative_rule_pc_varimax	data_relative_rule_pc_varimax.csv	principal_components	4	varimax	25	0.001		ok	5.8871296408657754	
 negative_eigenvalue_pa	data_negative_eigenvalue_pa.csv	principal_axis	5	none	25	0.001		ok	1.7596308079498963	
+uncorrelated_item_pa_promax	data_uncorrelated_item_varimax.csv	principal_axis	4	promax	25	0.001		ok	102.15651532042156	

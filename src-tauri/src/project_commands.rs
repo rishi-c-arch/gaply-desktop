@@ -91,7 +91,7 @@ use gaply_core::contracts::{
 use gaply_core::research_project::{
     compare_rerun, ArtifactHash, ArtifactKind, ArtifactRef, Caps, ColumnRole,
     CorrelationCoefficient, DataFormat, ExportCode, ExportCount, ExportManifest, ExportParameter,
-    ExportRun, MissingRows, PostHocTest, ProjectCode, ProjectExportInput, ProjectId,
+    ExportRun, FactorExtraction, FactorRotation, MissingRows, PostHocTest, ProjectCode, ProjectExportInput, ProjectId,
     ProjectRefusal, ProjectTitle, ProvEdge, ProvGraph, RerunComparison, ScoreRule, ScoreStatistic,
     StoredRun, StoredRunId, TestVariant, UsedRole, PROV_FILE_NAME, REPORT_FILE_NAME,
 };
@@ -103,6 +103,7 @@ use gaply_core::stats_alpha::{self, AlphaCode, AlphaParams};
 use gaply_core::stats_anova::{self, AnovaCode, AnovaParams, PostHoc};
 use gaply_core::stats_corr::{self, Coefficient, CorrCode, CorrParams, MissingHandling};
 use gaply_core::stats_desc::{self, DescCode, DescribeParams, TreatAs};
+use gaply_core::stats_factor::{self, Extraction, FactorCode, FactorParams, Rotation};
 use gaply_core::stats_l1::dataset::Dataset;
 use gaply_core::stats_linear_regression::{self, LinearRegressionCode, LinearRegressionParams};
 use gaply_core::stats_onesample::{self, OneSampleCode, OneSampleParams, PairedParams};
@@ -913,7 +914,8 @@ fn saveable(copy: &RunCopy) -> Result<(), ProjectCode> {
     }
     // A method with no row in METHODS cannot be rerun or exported, so a project
     // holding it would refuse its export as a whole (Research OS, Phase 9B-2,
-    // decision 714). The factor analysis is such a method until 9B-3 adds its row.
+    // decision 714). Since 9B-3 every method has a row (decision 731); the guard
+    // stays for the next method that does not.
     if method_for(capability.as_str()).is_none() {
         return Err(ProjectCode::RunNotSaveable);
     }
@@ -1251,6 +1253,13 @@ const METHODS: &[MethodRow] = &[
         kind: RunKind::LinearRegression,
         read_back: read_back::<OperationSpec<LinearRegressionParams>>,
         export: export_with::<OperationSpec<LinearRegressionParams>>,
+    },
+    // Research OS, Phase 9B-3 (decision 731).
+    MethodRow {
+        capability: stats_factor::CAPABILITY_ID,
+        kind: RunKind::Factor,
+        read_back: read_back::<OperationSpec<FactorParams>>,
+        export: export_with::<OperationSpec<FactorParams>>,
     },
 ];
 
@@ -1620,6 +1629,37 @@ impl SavedSpec for OperationSpec<LinearRegressionParams> {
 
     fn parameters(&self) -> Vec<ExportParameter> {
         linear_regression_parameters(self)
+    }
+}
+
+// Research OS, Phase 9B-3 (decision 731): the factor analysis, checked through its façade,
+// never stats_factor itself (verifier_facade_guards.rs).
+impl Rerun for OperationSpec<FactorParams> {
+    fn valid_on(&self, build: Build, dataset: &Dataset) -> bool {
+        check_spec(
+            WorkspaceId::Statistics,
+            self.workspace_id,
+            &self.capability_id,
+        )
+        .is_ok()
+            && passes(stats_adapters::factor_validate(self, build, dataset).status)
+    }
+
+    fn launch(
+        self: Box<Self>,
+        runs: &Arc<Runs>,
+        slot: Arc<Slot>,
+        end: EndHook,
+    ) -> Result<RunId, NotStarted> {
+        runs.start_factor_then(slot, *self, end)
+    }
+}
+
+impl SavedSpec for OperationSpec<FactorParams> {
+    type Code = FactorCode;
+
+    fn parameters(&self) -> Vec<ExportParameter> {
+        factor_parameters(self)
     }
 }
 
@@ -2533,7 +2573,7 @@ pub enum SpecFieldShown {
 
 /// Every field of a saved describe, t-test, one-sample, paired, one-way
 /// ANOVA, correlations, Cronbach's alpha, crosstabs, rank tests, related rank
-/// tests or linear regression spec, by JSON path (`[]` for each element of an
+/// tests, linear regression or factor analysis spec, by JSON path (`[]` for each element of an
 /// array). The ANOVA shares `outcome`, `group`, `levels[]` and
 /// `missingCodes[]` with the t-test's rows, and adds `postHoc[]` (decision
 /// 330); the correlations share `missingCodes[]` and add `variables[]`,
@@ -2544,7 +2584,9 @@ pub enum SpecFieldShown {
 /// `outcome`, `group`, `levels[]` and `missingCodes[]` and add nothing (decision
 /// 621); the related rank tests share `missingCodes[]` and add `columns[]` (decision
 /// 655); the linear regression shares the t-test's `outcome` and `missingCodes[]` and
-/// adds `predictors[]` (decision 686).
+/// adds `predictors[]` (decision 686); the factor analysis shares alpha's `items[]` and
+/// `missingCodes[]` and adds `extraction`, `factors`, `rotation`, `iterations` and
+/// `convergence` (decision 731).
 pub const SPEC_FIELDS: &[(&str, SpecFieldShown)] = &[
     (
         "schemaVersion",
@@ -2615,6 +2657,14 @@ pub const SPEC_FIELDS: &[(&str, SpecFieldShown)] = &[
     // position in the order chosen, through `ExportParameter::Predictors`. Its outcome is
     // the t-test's `parameters.outcome`, already listed.
     ("parameters.predictors[]", SpecFieldShown::Reported),
+    // Research OS, Phase 9B-3 (decision 731): the factor analysis's extraction, factors
+    // (null for Kaiser's rule), rotation, iterations and convergence, settings the user
+    // chose or typed. Its items are alpha's `parameters.items[]`, already listed.
+    ("parameters.extraction", SpecFieldShown::Reported),
+    ("parameters.factors", SpecFieldShown::Reported),
+    ("parameters.rotation", SpecFieldShown::Reported),
+    ("parameters.iterations", SpecFieldShown::Reported),
+    ("parameters.convergence", SpecFieldShown::Reported),
     // Research OS, Phase 8M-4 (decision 435): what made a prepared input,
     // hashes and numbers. Its two hashes are the data file's and the recipe's
     // rows in the report's inputs table; its columns and versions are the lines
@@ -2949,6 +2999,35 @@ fn linear_regression_parameters(spec: &OperationSpec<LinearRegressionParams>) ->
     out.push(ExportParameter::Predictors(
         p.predictors.iter().map(|a| a.0 .0).collect(),
     ));
+    out.push(ExportParameter::MissingCodes {
+        count: p.missing_codes.len() as u64,
+    });
+    out.push(ExportParameter::Seed(spec.random_seed));
+    out
+}
+
+/// The factor analysis's settings, by the allow-list (Research OS, Phase 9B-3, decision
+/// 731): the items' positions in the spec's order (the file's), the extraction, the factors
+/// (Kaiser's rule or a number), the rotation, the iterations, the convergence as the bits of
+/// its double, and how many missing codes. No label and no value is named.
+fn factor_parameters(spec: &OperationSpec<FactorParams>) -> Vec<ExportParameter> {
+    let p = &spec.parameters;
+    let mut out = shape(&spec.inputs);
+    out.push(ExportParameter::Items(p.items.iter().map(|a| a.0 .0).collect()));
+    out.push(ExportParameter::Extraction(match p.extraction {
+        Extraction::PrincipalComponents => FactorExtraction::PrincipalComponents,
+        Extraction::PrincipalAxis => FactorExtraction::PrincipalAxis,
+    }));
+    out.push(ExportParameter::FactorCount(p.factors));
+    out.push(ExportParameter::Rotation(match p.rotation {
+        Rotation::None => FactorRotation::None,
+        Rotation::Varimax => FactorRotation::Varimax,
+        Rotation::Promax => FactorRotation::Promax,
+    }));
+    out.push(ExportParameter::Iterations(p.iterations));
+    out.push(ExportParameter::Convergence {
+        bits: p.convergence.to_bits(),
+    });
     out.push(ExportParameter::MissingCodes {
         count: p.missing_codes.len() as u64,
     });
@@ -3606,6 +3685,68 @@ mod tests {
         }
     }
 
+    /// Research OS, Phase 9B-3 (decision 731): items C2, C4 and C5, principal axis,
+    /// `factors`, promax, 25 iterations and a convergence of 0.001, no code.
+    fn factor_spec(factors: Option<u32>) -> OperationSpec<FactorParams> {
+        OperationSpec {
+            schema_version: SchemaVersion,
+            operation_id: OperationId(16),
+            workspace_id: WorkspaceId::Statistics,
+            capability_id: stats_factor::capability_id(),
+            capability_version: 1,
+            inputs: vec![input()],
+            parameters: FactorParams {
+                items: vec![Alias(ColumnAlias(2)), Alias(ColumnAlias(4)), Alias(ColumnAlias(5))],
+                extraction: Extraction::PrincipalAxis,
+                factors,
+                rotation: Rotation::Promax,
+                iterations: 25,
+                convergence: 0.001,
+                missing_codes: Vec::new(),
+            },
+            random_seed: None,
+            confirmation_refs: Vec::new(),
+            preparation: None,
+        }
+    }
+
+    #[test]
+    fn the_factor_analysis_settings_are_its_items_in_order_and_its_five_choices() {
+        assert_eq!(
+            factor_parameters(&factor_spec(Some(2))),
+            [
+                ExportParameter::InputShape {
+                    rows: 12,
+                    columns: 3
+                },
+                ExportParameter::Items(vec![2, 4, 5]),
+                ExportParameter::Extraction(FactorExtraction::PrincipalAxis),
+                ExportParameter::FactorCount(Some(2)),
+                ExportParameter::Rotation(FactorRotation::Promax),
+                ExportParameter::Iterations(25),
+                ExportParameter::Convergence {
+                    bits: 0.001f64.to_bits()
+                },
+                ExportParameter::MissingCodes { count: 0 },
+                ExportParameter::Seed(None),
+            ]
+        );
+        assert!(factor_parameters(&factor_spec(None)).contains(&ExportParameter::FactorCount(None)));
+    }
+
+    /// Decision 731: every method has a row since 9B-3, so no real run reaches saveable's
+    /// last guard; a copy of a run whose capability no row holds pins it (Research OS,
+    /// Phase 9B-2, decision 714).
+    #[test]
+    fn a_run_of_a_capability_no_row_holds_is_not_saveable() {
+        let mut copy = failed_copy(&ContentHash::of_bytes(b"x"));
+        assert_eq!(saveable(&copy), Ok(()), "the copy is saveable as it is");
+        let none = gaply_core::contracts::CapabilityId::parse("stats.analyze.no_such_method").expect("well formed");
+        assert!(method_for(none.as_str()).is_none());
+        copy.capability = Some((none, 1));
+        assert_eq!(saveable(&copy), Err(ProjectCode::RunNotSaveable));
+    }
+
     #[test]
     fn the_linear_regressions_settings_are_the_outcome_and_the_predictors_in_the_chosen_order() {
         assert_eq!(
@@ -3894,6 +4035,11 @@ mod tests {
         // The linear regression (decision 686): `predictors[]`, two of them, beside the
         // t-test's `outcome`, with one missing code.
         paths(&serde_json::to_value(linear_regression_spec()).unwrap(), "", &mut seen);
+        // The factor analysis (decision 731): alpha's `items[]` with `extraction`,
+        // `factors`, `rotation`, `iterations` and `convergence`; `factors` a number in one
+        // spec and null (a leaf) in the other.
+        paths(&serde_json::to_value(factor_spec(Some(2))).unwrap(), "", &mut seen);
+        paths(&serde_json::to_value(factor_spec(None)).unwrap(), "", &mut seen);
         // A run on prepared data (decision 435).
         paths(
             &serde_json::to_value(prepared_spec()).unwrap(),
@@ -4741,6 +4887,8 @@ mod tests {
             stats_related_ranks::CAPABILITY_ID,
             // Research OS, Phase 9A-2 (decision 686).
             stats_linear_regression::CAPABILITY_ID,
+            // Research OS, Phase 9B-3 (decision 731).
+            stats_factor::CAPABILITY_ID,
         ] {
             assert_eq!(
                 METHODS.iter().filter(|m| m.capability == id).count(),

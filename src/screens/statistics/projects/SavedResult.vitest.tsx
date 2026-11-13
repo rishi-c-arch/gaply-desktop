@@ -120,7 +120,7 @@ const EDGES_9B1 = [
 /* ---- the shape check ----------------------------------------------------------- */
 
 describe('the shape check', () => {
-  it('has the thirty snapshots Rust wrote, and accepts every one', () => {
+  it('has the thirty-four snapshots Rust wrote, and accepts every one', () => {
     expect(SNAPSHOTS).toEqual([
       'alpha.json',
       'alpha_reversed.json',
@@ -128,6 +128,11 @@ describe('the shape check', () => {
       'anova_post_hoc.json',
       'corr_listwise.json',
       'corr_pairwise.json',
+      // Research OS, Phase 9B-3 (decision 732).
+      'factor.json',
+      'factor_failed.json',
+      'factor_not_rotated.json',
+      'factor_varimax.json',
       // Research OS, Phase 9A-2 (decision 687).
       'linear_regression.json',
       // Research OS, Phase 9B-1 (decision 698).
@@ -168,6 +173,10 @@ describe('the shape check', () => {
     expect(checkStored(stored('linear_regression.json')).kind).toBe('linear_regression');
     expect(checkStored(stored('linear_regression_perfect.json')).kind).toBe('linear_regression');
     expect(checkStored(stored('linear_regression_failed.json')).kind).toBe('failed');
+    expect(checkStored(stored('factor.json')).kind).toBe('factor');
+    expect(checkStored(stored('factor_varimax.json')).kind).toBe('factor');
+    expect(checkStored(stored('factor_not_rotated.json')).kind).toBe('factor');
+    expect(checkStored(stored('factor_failed.json')).kind).toBe('failed');
     for (const f of EDGES_9B1) expect(checkStored(stored(f)).kind, f).toBe('linear_regression');
     expect(checkStored(stored('ttest.json')).kind).toBe('ttest');
     const failed = checkStored(stored('ttest_failed.json'));
@@ -203,6 +212,11 @@ describe('the shape check', () => {
     ['linear_regression.json', 'bundleJson'],
     ['linear_regression_perfect.json', 'bundleJson'],
     ['linear_regression_failed.json', 'failureJson'],
+    // Research OS, Phase 9B-3 (decision 732).
+    ['factor.json', 'bundleJson'],
+    ['factor_varimax.json', 'bundleJson'],
+    ['factor_not_rotated.json', 'bundleJson'],
+    ['factor_failed.json', 'failureJson'],
     // Research OS, Phase 9B-1 (decision 698).
     ...EDGES_9B1.map((f) => [f, 'bundleJson'] as const),
   ] as const)('%s: rejects it with any one field of its %s removed', (name, field) => {
@@ -232,14 +246,20 @@ describe('the shape check', () => {
     ['linear_regression.json', 'bundleJson'],
     ['linear_regression_perfect.json', 'bundleJson'],
     ['linear_regression_failed.json', 'failureJson'],
+    // Research OS, Phase 9B-3 (decision 732).
+    ['factor.json', 'bundleJson'],
+    ['factor_varimax.json', 'bundleJson'],
+    ['factor_not_rotated.json', 'bundleJson'],
+    ['factor_failed.json', 'failureJson'],
     // Research OS, Phase 9B-1 (decision 698).
     ...EDGES_9B1.map((f) => [f, 'bundleJson'] as const),
   ] as const)('%s: rejects it with any one number in its %s made null, or made a string', (name, field) => {
     const v0 = JSON.parse(stored(name)[field] as string);
     const numbers = paths(v0).filter((p) => typeof getAt(v0, p) === 'number');
-    // A failure record holds a code and its parameters only: ttest_failed.json's two numbers, and
-    // linear_regression_failed.json's two (its schema version and the collinear column).
-    if (name !== 'ttest_failed.json' && name !== 'linear_regression_failed.json') expect(numbers.length).toBeGreaterThan(10);
+    // A failure record holds a code and its parameters only: ttest_failed.json's two numbers,
+    // linear_regression_failed.json's two (its schema version and the collinear column), and
+    // factor_failed.json's two (its schema version and the singular item).
+    if (name !== 'ttest_failed.json' && name !== 'linear_regression_failed.json' && name !== 'factor_failed.json') expect(numbers.length).toBeGreaterThan(10);
     for (const replacement of [null, '1']) {
       const accepted: string[] = [];
       for (const p of numbers) {

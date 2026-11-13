@@ -50,6 +50,9 @@ import {
 } from '../relatedRanksWording';
 import { LinearRegressionDialog } from './LinearRegressionDialog';
 import { LinearRegressionCard } from '../LinearRegressionCard';
+import { FactorDialog } from './FactorDialog';
+import { FactorCard } from '../FactorCard';
+import { FACTOR_EXPORT_CHOICES, FACTOR_EXPORT_HEADING, FACTOR_EXPORT_TEXT, factorRefusalSentence, factorRunEndedSentence, factorSentence } from '../factorWording';
 import {
   LINEAR_REGRESSION_EXPORT_CHOICES,
   LINEAR_REGRESSION_EXPORT_HEADING,
@@ -219,6 +222,20 @@ export const METHOD_OUTPUT: { [K in MethodKind]: OutputRow<K> } = {
     exportText: LINEAR_REGRESSION_EXPORT_TEXT,
     exportChoices: LINEAR_REGRESSION_EXPORT_CHOICES,
   },
+  // Research OS, Phase 9B-3 (decision 732): its own card, as no page has one; a check point
+  // per item, pair and iteration, so the steps sentence, as alpha's; an item named by the
+  // name the user sees.
+  factor: {
+    bridge: (b) => b.factor,
+    refusal: factorRefusalSentence,
+    runEnded: factorRunEndedSentence,
+    progress: (run) => alphaSteps(run.stepsDone, run.stepsTotal),
+    sentence: (d, view) => factorSentence(d, { column: columnNames(view) }),
+    card: (result, view) => <FactorCard result={result} names={{ column: columnNames(view) }} />,
+    exportHeading: FACTOR_EXPORT_HEADING,
+    exportText: FACTOR_EXPORT_TEXT,
+    exportChoices: FACTOR_EXPORT_CHOICES,
+  },
 };
 
 /** An entry's row. Its kind and its run and result were stored together, so the
@@ -257,4 +274,5 @@ export const METHOD_DIALOGS: Record<MethodKind, React.FC<MethodDialogRowProps>> 
   independent_ranks: ({ bridges, ...p }) => <RanksDialog {...p} bridge={bridges.ranks} />,
   related_ranks: ({ bridges, ...p }) => <RelatedRanksDialog {...p} bridge={bridges.relatedRanks} />,
   linear_regression: ({ bridges, ...p }) => <LinearRegressionDialog {...p} bridge={bridges.linearRegression} />,
+  factor: ({ bridges, ...p }) => <FactorDialog {...p} bridge={bridges.factor} />,
 };

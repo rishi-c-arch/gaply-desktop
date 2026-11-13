@@ -734,7 +734,16 @@ const FACTOR_ITEMS: &[(&str, &[&str])] = &[
     ("crate::stats_l1::dataset", &["Cell", "Dataset"]),
     (
         "crate::stats_linalg",
-        &["cholesky", "eigen_symmetric", "least_squares", "log_det", "sign_reversed", "spd_inverse"],
+        // LEAST_SQUARES_RANK_TOLERANCE since 9B-3: promax's column test (decision 728).
+        &[
+            "cholesky",
+            "eigen_symmetric",
+            "least_squares",
+            "log_det",
+            "sign_reversed",
+            "spd_inverse",
+            "LEAST_SQUARES_RANK_TOLERANCE",
+        ],
     ),
     ("crate::stats_ttest", &["column", "non_finite_cells"]),
     ("crate::stats_desc::export", &["text"]),

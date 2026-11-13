@@ -68,7 +68,9 @@ use crate::stats_desc::{
 };
 use crate::stats_dist::chi_square_upper_wide;
 use crate::stats_l1::dataset::{Cell, Dataset};
-use crate::stats_linalg::{cholesky, eigen_symmetric, least_squares, log_det, sign_reversed, spd_inverse};
+use crate::stats_linalg::{
+    cholesky, eigen_symmetric, least_squares, log_det, sign_reversed, spd_inverse, LEAST_SQUARES_RANK_TOLERANCE,
+};
 use crate::stats_ttest::{column, non_finite_cells};
 use crate::stats_verify::{mean, sample_variance, RangeFault};
 
@@ -1316,6 +1318,15 @@ fn varimax_result(v: Varimax, p: usize) -> RotatedFactors {
 /// iterations are varimax's cycles.
 fn promax_of(a: &[Vec<f64>], cycles: u64) -> Option<RotatedFactors> {
     let m = a.first().map_or(0, Vec::len);
+    // Decision 728 (the review of 9B-2, M1): a column of Λ_R no longer than
+    // LEAST_SQUARES_RANK_TOLERANCE times the longest is rounding noise beside
+    // the others, which least_squares' own test (each column against its own
+    // starting norm) lets through; EFAtools' SPSS route refuses it. No rotation.
+    let column_lengths: Vec<f64> = (0..m).map(|j| a.iter().map(|row| row[j] * row[j]).sum::<f64>().sqrt()).collect();
+    let longest = column_lengths.iter().fold(0.0f64, |x, y| x.max(*y));
+    if column_lengths.iter().any(|x| !(*x > LEAST_SQUARES_RANK_TOLERANCE * longest)) {
+        return None;
+    }
     let target: Vec<Vec<f64>> = a
         .iter()
         .map(|row| {
@@ -1340,7 +1351,17 @@ fn promax_of(a: &[Vec<f64>], cycles: u64) -> Option<RotatedFactors> {
     // Q C⁻¹: each column of Q over its c_j.
     let q_over_c: Vec<Vec<f64>> = q.iter().map(|row| row.iter().zip(&c).map(|(x, cj)| x / cj).collect()).collect();
     let pattern = multiply(a, &q_over_c);
-    let phi: Vec<Vec<f64>> = (0..m).map(|j| (0..m).map(|k| c[j] * qtq_inverse[j][k] * c[k]).collect()).collect();
+    // Decision 728 (m2): Φ on the upper triangle, its diagonal included, then
+    // mirrored, so it is exactly symmetric and the structure below is exactly
+    // the pattern times it. The diagonal stays as computed, as SPSS's.
+    let mut phi = vec![vec![0.0; m]; m];
+    for j in 0..m {
+        for k in j..m {
+            let v = c[j] * qtq_inverse[j][k] * c[k];
+            phi[j][k] = v;
+            phi[k][j] = v;
+        }
+    }
     let structure = multiply(&pattern, &phi);
     Some(RotatedFactors {
         method: Rotation::Promax,
@@ -1534,6 +1555,27 @@ mod tests {
         let mut notes = BTreeSet::new();
         let got = rotate::<Infallible>(Rotation::Varimax, &loadings, 25, 4, &mut notes, || Ok(()));
         assert!(matches!(got, Ok(Some(_))) && notes.is_empty(), "{got:?} {notes:?}");
+    }
+
+    /// Decision 728 (the review of 9B-2, M1): the review's d337, the extracted
+    /// loadings of 4 items and 3 principal axis factors, whose third column is
+    /// rounding noise beside columns of about 0.5. least_squares' own rank test
+    /// compares each column with its own starting norm, so it passed, and promax
+    /// gave the noise factor a Φ of 0.794 and 0.858. A column at most
+    /// LEAST_SQUARES_RANK_TOLERANCE times the longest is now no rotation, with the
+    /// note rotation_singular, as EFAtools' SPSS route refuses it.
+    #[test]
+    fn promax_of_a_column_of_rounding_noise_is_rotation_singular() {
+        let loadings = vec![
+            vec![0.65402814057069014, 0.037868947412225004, 8.5074847629087663e-32],
+            vec![0.40058765451241041, -0.40111010693582511, -7.9150279320799626e-32],
+            vec![0.30489011194376398, 0.44577503288242454, -7.8452976556733472e-32],
+            vec![-1.4669968587295134e-19, 2.6148518817658068e-20, 1.0349614773508631e-16],
+        ];
+        let mut notes = BTreeSet::new();
+        let got = rotate::<Infallible>(Rotation::Promax, &loadings, 25, 4, &mut notes, || Ok(()));
+        assert!(matches!(got, Ok(None)), "{got:?}");
+        assert_eq!(notes.into_iter().collect::<Vec<_>>(), vec![FactorCode::RotationSingular]);
     }
 
     #[test]

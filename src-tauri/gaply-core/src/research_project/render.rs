@@ -99,6 +99,25 @@ closed! {
 }
 
 closed! {
+    /// The factor analysis's extraction, as the user chose it (Research OS, Phase 9B-3,
+    /// decision 731): principal components or principal axis factoring, the spec's words.
+    pub enum FactorExtraction in "" {
+        PrincipalComponents => "principal_components",
+        PrincipalAxis => "principal_axis",
+    }
+}
+
+closed! {
+    /// The factor analysis's rotation, as the user chose it (Research OS, Phase 9B-3,
+    /// decision 731), the spec's words.
+    pub enum FactorRotation in "" {
+        None => "none",
+        Varimax => "varimax",
+        Promax => "promax",
+    }
+}
+
+closed! {
     /// How the correlations handled rows without a value, as the user chose
     /// (decision 357).
     pub enum MissingRows in "" {
@@ -169,8 +188,22 @@ pub enum ExportParameter {
     MissingRows(MissingRows),
     /// Cronbach's alpha's items, by their 1-based positions, in the
     /// dataset's column order; two or more (Research OS, Phase 8I-2,
-    /// decision 382).
+    /// decision 382). The factor analysis's items too, three or more (Research OS,
+    /// Phase 9B-3, decision 731).
     Items(Vec<u32>),
+    /// The factor analysis's extraction, as chosen (Research OS, Phase 9B-3, decision 731).
+    Extraction(FactorExtraction),
+    /// The factor analysis's number of factors: `None` for every eigenvalue above 1
+    /// (Kaiser's rule), or the number chosen (Research OS, Phase 9B-3, decision 731).
+    FactorCount(Option<u32>),
+    /// The factor analysis's rotation, as chosen (Research OS, Phase 9B-3, decision 731).
+    Rotation(FactorRotation),
+    /// The factor analysis's maximum iterations, for the extraction and the rotation
+    /// (Research OS, Phase 9B-3, decision 731).
+    Iterations(u32),
+    /// The factor analysis's convergence, as the bits of its double, as `TestValue` keeps
+    /// its value: a setting the user typed (Research OS, Phase 9B-3, decision 731).
+    Convergence { bits: u64 },
     /// Alpha's reverse-scored items, by their 1-based positions, in the
     /// dataset's column order; empty when none was.
     ReverseScored(Vec<u32>),
@@ -577,6 +610,16 @@ fn parameter_line(p: &ExportParameter) -> String {
         ExportParameter::Items(positions) => {
             let list: Vec<String> = positions.iter().map(u32::to_string).collect();
             format!("Items: columns {}, by position", list.join(", "))
+        }
+        // Decision 731: the factor analysis's five settings.
+        ExportParameter::Extraction(e) => format!("Extraction: {}", e.wire()),
+        ExportParameter::FactorCount(None) => "Factors: every eigenvalue above 1".into(),
+        ExportParameter::FactorCount(Some(m)) => format!("Factors: {m}"),
+        ExportParameter::Rotation(r) => format!("Rotation: {}", r.wire()),
+        ExportParameter::Iterations(n) => format!("Maximum iterations: {n}"),
+        // As TestValue's: Rust's shortest form that reads back to the same double.
+        ExportParameter::Convergence { bits } => {
+            format!("Convergence: {}", f64::from_bits(*bits))
         }
         // Decision 686: singular for one, as ReverseScored's.
         ExportParameter::Predictors(positions) if positions.len() == 1 => {
@@ -1196,6 +1239,46 @@ mod tests {
             parameter_line(&ExportParameter::Predictors(vec![5])),
             "Predictors: column 5, by position"
         );
+    }
+
+    /// Research OS, Phase 9B-3 (decision 731): the factor analysis's extraction, factors,
+    /// rotation, iterations and convergence, each with a line of its own, the closed words
+    /// pinned, and the convergence printed as `TestValue` prints a number.
+    #[test]
+    fn the_factor_analysis_parameters_have_lines_of_their_own() {
+        assert_eq!(
+            parameter_line(&ExportParameter::Extraction(FactorExtraction::PrincipalComponents)),
+            "Extraction: principal_components"
+        );
+        assert_eq!(
+            parameter_line(&ExportParameter::Extraction(FactorExtraction::PrincipalAxis)),
+            "Extraction: principal_axis"
+        );
+        assert_eq!(
+            parameter_line(&ExportParameter::FactorCount(None)),
+            "Factors: every eigenvalue above 1"
+        );
+        assert_eq!(parameter_line(&ExportParameter::FactorCount(Some(3))), "Factors: 3");
+        for (r, line) in [
+            (FactorRotation::None, "Rotation: none"),
+            (FactorRotation::Varimax, "Rotation: varimax"),
+            (FactorRotation::Promax, "Rotation: promax"),
+        ] {
+            assert_eq!(parameter_line(&ExportParameter::Rotation(r)), line);
+        }
+        assert_eq!(parameter_line(&ExportParameter::Iterations(25)), "Maximum iterations: 25");
+        assert_eq!(
+            parameter_line(&ExportParameter::Convergence { bits: 0.001f64.to_bits() }),
+            "Convergence: 0.001"
+        );
+        assert_eq!(
+            parameter_line(&ExportParameter::Convergence { bits: 1e-12f64.to_bits() }),
+            "Convergence: 0.000000000001"
+        );
+        let words: Vec<&str> = FactorExtraction::ALL.iter().map(|c| c.wire()).collect();
+        assert_eq!(words, ["principal_components", "principal_axis"]);
+        let words: Vec<&str> = FactorRotation::ALL.iter().map(|c| c.wire()).collect();
+        assert_eq!(words, ["none", "varimax", "promax"]);
     }
 
     /// Phase 8I-2 (decision 382): alpha's items and reverse-scored items as

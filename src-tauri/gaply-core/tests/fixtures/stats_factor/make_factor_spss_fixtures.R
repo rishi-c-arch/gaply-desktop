@@ -8,7 +8,8 @@
 # It writes spss_solutions.tsv next to itself: the solutions SPSS 23 and 27 gave
 # for EFAtools 1.1.0's four simulated test models (EFAtools' data SPSS_23 and
 # SPSS_27, entries baseline, case_1a, case_6b and case_11b; Grieder and Steiner,
-# Behavior Research Methods 54, 54-74, 2022, doi 10.3758/s13428-021-01581-x),
+# Behavior Research Methods 54, 54-74, 2022, doi 10.3758/s13428-021-01581-x;
+# EFAtools 1.1.0, GPL-3),
 # eight solutions in all: SPSS's unrotated principal axis loadings (paf_load),
 # its varimax (var_load), its promax pattern (pro_load) and factor correlations
 # (pro_phi), and the varimax cycles that reproduce var_load. EFAtools' other
@@ -72,9 +73,13 @@ rows <- function(name, s) {
 simulated <- c("baseline", "case_1a", "case_6b", "case_11b")
 solutions <- c(setNames(SPSS_23, paste0("SPSS_23.", names(SPSS_23))), setNames(SPSS_27, paste0("SPSS_27.", names(SPSS_27))))
 keep <- sub("^SPSS_2[37]\\.", "", names(solutions)) %in% simulated
+# The data's licence beside its provenance (decision 728): EFAtools' own
+# DESCRIPTION, which must say GPL-3.
+licence <- packageDescription("EFAtools")$License
+stopifnot(identical(licence, "GPL-3"))
 hdr <- c("# Written by /usr/local/bin/Rscript make_factor_spss_fixtures.R (decisions 718 and 719).",
-         sprintf("# %s; EFAtools %s's data SPSS_23 and SPSS_27 (SPSS 23 and 27 output; Grieder and Steiner, 2022).",
-                 R.version.string, as.character(packageVersion("EFAtools"))),
+         sprintf("# %s; EFAtools %s's data SPSS_23 and SPSS_27 (SPSS 23 and 27 output; Grieder and Steiner, 2022; EFAtools %s, %s).",
+                 R.version.string, as.character(packageVersion("EFAtools")), as.character(packageVersion("EFAtools")), licence),
          "solution\tkey\ti\tj\tvalue")
 write_set <- function(names, path) {
   out <- do.call(rbind, lapply(names, function(n) rows(n, solutions[[n]])))

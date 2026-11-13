@@ -370,6 +370,7 @@ fn each_operation_path_calls_its_facade() {
         ("start_linear_regression", "self.begin::<LinearRegression>("),
         ("start_linear_regression_then", "self.begin::<LinearRegression>("),
         ("start_factor", "self.begin::<Factor>("),
+        ("start_factor_then", "self.begin::<Factor>("),
     ] {
         assert!(
             squash(fn_body(&runs_src, f)).contains(through),

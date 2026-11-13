@@ -1,0 +1,15 @@
+{
+  "bundleJson": null,
+  "capabilityId": "stats.analyze.factor",
+  "dataFile": {
+    "bytes": 1304,
+    "format": "csv",
+    "kind": "data_file",
+    "sha256": "bc5af171c1471cd39e372aded45648fdd5abe6848d378b0a9f87a6695513229d"
+  },
+  "failureJson": "{\"failure\":{\"code\":\"stats.factor.correlations_singular\",\"params\":{\"column\":7},\"severity\":\"error\"},\"schemaVersion\":1,\"status\":\"failed\"}",
+  "manifestJson": null,
+  "specJson": "{\"schemaVersion\":1,\"operationId\":16,\"workspaceId\":\"statistics\",\"capabilityId\":\"stats.analyze.factor\",\"capabilityVersion\":1,\"inputs\":[{\"contentHash\":\"bc5af171c1471cd39e372aded45648fdd5abe6848d378b0a9f87a6695513229d\",\"rows\":41,\"columns\":7,\"semanticRole\":\"table\"}],\"parameters\":{\"items\":[\"C1\",\"C2\",\"C7\"],\"extraction\":\"principal_axis\",\"factors\":1,\"rotation\":\"none\",\"iterations\":25,\"convergence\":0.001,\"missingCodes\":[]},\"randomSeed\":null,\"confirmationRefs\":[]}",
+  "state": "failed",
+  "storedRunId": 4
+}

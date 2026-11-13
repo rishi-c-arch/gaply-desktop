@@ -21,6 +21,7 @@ import { xtabBridge, type XtabBridge } from '../statistics/xtabBridge';
 import { ranksBridge, type RanksBridge } from '../statistics/ranksBridge';
 import { relatedRanksBridge, type RelatedRanksBridge } from '../statistics/relatedRanksBridge';
 import { linearRegressionBridge, type LinearRegressionBridge } from '../statistics/linearRegressionBridge';
+import { factorBridge, type FactorBridge } from '../statistics/factorBridge';
 import { byKind } from '../statistics/methods';
 import { openProjectStore } from '../statistics/projects/projectSession';
 import { AskFirst } from '../statistics/window/MethodDialog';
@@ -44,10 +45,11 @@ export interface JobView {
   kind: RunEntry['kind'];
 }
 
-/** The eleven methods' bridges: each kind's run is read and cancelled through
+/** The twelve methods' bridges: each kind's run is read and cancelled through
  *  its own (decision 80); crosstabs' since Research OS Phase 8X-2 (decision 591),
  *  the rank tests' since 8Y-2 (decision 622), the related rank tests' since 8Z-2
- *  (decision 656), the linear regression's since 9A-2 (decision 687). */
+ *  (decision 656), the linear regression's since 9A-2 (decision 687), the factor
+ *  analysis's since 9B-3 (decision 732). */
 export interface RunBridges {
   describe: DescribeBridge;
   ttest: TTestBridge;
@@ -60,6 +62,7 @@ export interface RunBridges {
   ranks: RanksBridge;
   relatedRanks: RelatedRanksBridge;
   linearRegression: LinearRegressionBridge;
+  factor: FactorBridge;
 }
 
 /** The bridges the app uses, for any a caller does not give. */
@@ -76,6 +79,7 @@ export function defaultRunBridges(given: Partial<RunBridges> = {}): RunBridges {
     ranks: given.ranks ?? ranksBridge(),
     relatedRanks: given.relatedRanks ?? relatedRanksBridge(),
     linearRegression: given.linearRegression ?? linearRegressionBridge(),
+    factor: given.factor ?? factorBridge(),
   };
 }
 
@@ -103,7 +107,7 @@ export function jobSentence(run: JobView): string {
 }
 
 /** Each kind's status and cancel, from the bridges given (Phase 8C). */
-export function runKinds({ describe: runs, ttest, oneSample, paired, anova, corr, alpha, xtab, ranks, relatedRanks, linearRegression }: RunBridges): Record<RunEntry['kind'], KindCommands> {
+export function runKinds({ describe: runs, ttest, oneSample, paired, anova, corr, alpha, xtab, ranks, relatedRanks, linearRegression, factor }: RunBridges): Record<RunEntry['kind'], KindCommands> {
   return {
     describe: {
       status: async (runId) => {
@@ -214,6 +218,23 @@ export function runKinds({ describe: runs, ttest, oneSample, paired, anova, corr
         return r && { runId: r.runId, state: r.state, terminal: r.terminal, progress: null, kind: 'linear_regression' };
       },
       cancel: (runId) => linearRegression.cancel(runId).catch(() => null),
+    },
+    // Research OS, Phase 9B-3 (decision 732): a check point per item, pair and iteration,
+    // so the steps sentence, as alpha's.
+    factor: {
+      status: async (runId) => {
+        const r = await factor.status(runId).catch(() => null);
+        return (
+          r && {
+            runId: r.runId,
+            state: r.state,
+            terminal: r.terminal,
+            progress: `${stepsSentence(r.stepsDone, r.stepsTotal)}.`,
+            kind: 'factor',
+          }
+        );
+      },
+      cancel: (runId) => factor.cancel(runId).catch(() => null),
     },
   };
 }

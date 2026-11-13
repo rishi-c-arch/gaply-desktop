@@ -24,6 +24,7 @@ import type { XtabResultView, XtabRunStateView } from '../xtabTypes';
 import type { RanksResultView, RanksRunStateView } from '../ranksTypes';
 import type { RelatedRanksResultView, RelatedRanksRunStateView } from '../relatedRanksTypes';
 import type { LinearRegressionResultView, LinearRegressionRunStateView } from '../linearRegressionTypes';
+import type { FactorResultView, FactorRunStateView } from '../factorTypes';
 import type { GridCell } from './gridRange';
 
 /** The sentence for a slot the window finds gone (ADR-012 Part 2). */
@@ -49,6 +50,8 @@ export interface MethodRuns {
   related_ranks: RelatedRanksRunStateView;
   /** Research OS, Phase 9A-2 (decision 687). */
   linear_regression: LinearRegressionRunStateView;
+  /** Research OS, Phase 9B-3 (decision 732). */
+  factor: FactorRunStateView;
 }
 
 /** Each kind's result, as its result command reads it (decision 479). */
@@ -68,6 +71,8 @@ export interface MethodResults {
   related_ranks: RelatedRanksResultView;
   /** Research OS, Phase 9A-2 (decision 687). */
   linear_regression: LinearRegressionResultView;
+  /** Research OS, Phase 9B-3 (decision 732). */
+  factor: FactorResultView;
 }
 
 /** What every entry holds, whatever its method (decision 471). */

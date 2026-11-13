@@ -2,7 +2,7 @@
 // OS, Phase 8C; decision 249). Pure data, one row per method: the run
 // manager's word for its runs (Rust's RunKind), its capability id, its name,
 // the shell's job name (none for the summary, whose sentence has no
-// parenthesis), its screen's route (null for crosstabs, the two rank tests and the linear regression, which have none), and its place in the Statistics window's
+// parenthesis), its screen's route (null for crosstabs, the two rank tests, the linear regression and the factor analysis, which have none), and its place in the Statistics window's
 // Analyze menu (Research OS, Phase 8P, decision 451).
 //
 // RunKind, the capability names, the shell's job names and the Statistics
@@ -82,6 +82,18 @@ export const METHODS = [
     path: null,
     menuGroup: 'Regression',
     menuLabel: 'Linear…',
+  },
+  // Research OS, Phase 9B-3 (decisions 730 and 732). No page and no route
+  // (ADR-012:233-241). After the regression's row, so Analyze's groups read in
+  // SPSS's order: Correlate, Regression, Dimension reduction, Scale.
+  {
+    kind: 'factor',
+    capabilityId: 'stats.analyze.factor',
+    name: 'Factor analysis',
+    jobName: 'factor analysis',
+    path: null,
+    menuGroup: 'Dimension reduction',
+    menuLabel: 'Factor…',
   },
   // Research OS, Phase 8I-2 (decision 384). The kind is Rust's RunKind word.
   {

@@ -28,6 +28,7 @@ import type { XtabDiagnostic, XtabResultView } from '../xtabTypes';
 import type { RanksDiagnostic, RanksResultView } from '../ranksTypes';
 import type { RelatedRanksDiagnostic, RelatedRanksResultView } from '../relatedRanksTypes';
 import type { LinearRegressionDiagnostic, LinearRegressionResultView } from '../linearRegressionTypes';
+import type { FactorDiagnostic, FactorResultView } from '../factorTypes';
 import DESCRIBE_CODES from '../describeCodes.json';
 import TTEST_CODES from '../ttestCodes.json';
 import ONESAMPLE_CODES from '../onesampleCodes.json';
@@ -40,6 +41,8 @@ import RELATED_RANKS_CODES from '../relatedRanksCodes.json';
 import RELATED_LIMITS from '../fixtures/relatedRanksLimits.json';
 import LINEAR_REGRESSION_CODES from '../linearRegressionCodes.json';
 import LR_LIMITS from '../fixtures/linearRegressionLimits.json';
+import FACTOR_CODES from '../factorCodes.json';
+import FA_LIMITS from '../fixtures/factorLimits.json';
 import { capabilityOfKind } from '../methods';
 import TTEST_LIMITS from '../ttestLimits.json';
 
@@ -58,6 +61,7 @@ export const XTAB_CAPABILITY = capabilityOfKind('crosstabs');
 export const RANKS_CAPABILITY = capabilityOfKind('independent_ranks');
 export const RELATED_RANKS_CAPABILITY = capabilityOfKind('related_ranks');
 export const LINEAR_REGRESSION_CAPABILITY = capabilityOfKind('linear_regression');
+export const FACTOR_CAPABILITY = capabilityOfKind('factor');
 
 /** A data file's formats: the ingest's (DataFormat in Rust, without json). */
 const DATA_FORMATS = ['csv', 'tsv', 'xlsx', 'xlsm', 'xlsb', 'xls', 'ods', 'sav', 'mat'];
@@ -74,7 +78,8 @@ export type CaseKind =
   | 'crosstabs'
   | 'independent_ranks'
   | 'related_ranks'
-  | 'linear_regression';
+  | 'linear_regression'
+  | 'factor';
 
 /** A failed run's stored diagnostic, in its method's codes. */
 export type StoredFailure =
@@ -87,7 +92,8 @@ export type StoredFailure =
   | XtabDiagnostic
   | RanksDiagnostic
   | RelatedRanksDiagnostic
-  | LinearRegressionDiagnostic;
+  | LinearRegressionDiagnostic
+  | FactorDiagnostic;
 
 /** What a saved result is, once checked: what to show, or why not. */
 export type Checked =
@@ -102,6 +108,7 @@ export type Checked =
   | { kind: 'independent_ranks'; result: RanksResultView; dataFile: DataFileFacts }
   | { kind: 'related_ranks'; result: RelatedRanksResultView; dataFile: DataFileFacts }
   | { kind: 'linear_regression'; result: LinearRegressionResultView; dataFile: DataFileFacts }
+  | { kind: 'factor'; result: FactorResultView; dataFile: DataFileFacts }
   | { kind: 'failed'; capability: CaseKind; failure: StoredFailure; dataFile: DataFileFacts }
   | { kind: 'unknownCapability' }
   | { kind: 'unknownSchema' }
@@ -135,6 +142,7 @@ const XT_CODES = (XTAB_CODES as string[]).filter((c) => c.indexOf('stats.xtab.')
 const RK_CODES = (RANKS_CODES as string[]).filter((c) => c.indexOf('stats.ranks.') === 0);
 const RR_CODES = (RELATED_RANKS_CODES as string[]).filter((c) => c.indexOf('stats.related_ranks.') === 0);
 const LR_CODES = (LINEAR_REGRESSION_CODES as string[]).filter((c) => c.indexOf('stats.linear_regression.') === 0);
+const FA_CODES = (FACTOR_CODES as string[]).filter((c) => c.indexOf('stats.factor.') === 0);
 const SEVERITIES = ['error', 'warning', 'note'];
 const DESC_PARAM_KEYS = ['column', 'count', 'index', 'value', 'limit', 'expected', 'found', 'from', 'event'];
 const T_PARAM_KEYS = ['column', 'count', 'index', 'value', 'limit', 'expected', 'found'];
@@ -146,6 +154,7 @@ const XT_PARAM_KEYS = ['column', 'count', 'index', 'value', 'limit', 'expected',
 const RK_PARAM_KEYS = ['column', 'count', 'index', 'value', 'limit', 'expected', 'found'];
 const RR_PARAM_KEYS = ['column', 'count', 'index', 'value', 'limit', 'expected', 'found'];
 const LR_PARAM_KEYS = ['column', 'count', 'index', 'value', 'limit', 'expected', 'found'];
+const FA_PARAM_KEYS = ['column', 'count', 'index', 'value', 'limit', 'expected', 'found'];
 const RUN_STATES = [
   'draft',
   'validating',
@@ -1515,6 +1524,337 @@ function linearRegressionFailure(failure: unknown, spec: O): boolean {
   return Object.keys(failure.params).length === 1 && isCount(column) && p.predictors.some((a) => aliasNumber(a) === column);
 }
 
+/* ---- the factor analysis (Research OS, Phase 9B-3, decision 733) ----------------------- */
+
+/* Every rule below is stats_factor::run's (stats_factor/mod.rs, as at 9B-3's Part 0), cited by
+ * line, and equality is as doubles in Rust's order. Rust writes every number through `stat`
+ * (:1028-1036: a finite value, NaN too_small, an infinity overflow), so a field Rust computes
+ * from stored fields is compared with what `stat` would have written. */
+
+const faCode = (c: string) => `stats.factor.${c}`;
+const FA_SINGULAR = faCode('correlations_singular');
+const FA_SMALL = faCode('too_small');
+const FA_OVERFLOW = faCode('overflow');
+const FA_NO_CORRELATION = faCode('no_correlation');
+const FA_RANGE = faCode('distribution_out_of_range');
+/** stats_factor::DISTINCT_TOLERANCE (:109). */
+const FA_DISTINCT = 1e-8;
+
+/** The bands of decision 733, each the worst measured over the stored checker's hunt (seed
+ *  20260734, 256 saved runs with 16 of 128 items at m of 32 to 127, in two runs: 182 and 176
+ *  results, the second after the probe's duplicated item was made an exact copy) and the four
+ *  stored fixtures, times ten and rounded up, measured in full with the bands lifted (13
+ *  Nov 2026, ~/gaply-corpus/os/phase9/9b3/hunt_all/bands_full.tsv). The two rotation bands grow
+ *  with the rotation's work: the first measurement, at m of at most 16 and a fixed band, refused
+ *  three varimax results Rust wrote at m of 32, 64 and 100 (the review of 9B-3, finding 7). */
+export const FA_BANDS = {
+  /** |Σ eigenvalues − p| / p: worst 8.745e-16 (3.94 ε). */
+  eigenSum: 9e-15,
+  /** |Φ_jj − 1|: worst 4.441e-16, at m = 64. */
+  phiDiagonal: 4.5e-15,
+  /** |(TᵀT)_jk − δ_jk| over ε m cycles: worst 0.3334 (m 3, 3 cycles); 0.12 at m of 32 to
+   *  100 with 50 to 76 cycles. */
+  orthogonal: 3.4,
+  /** |rotated row − extracted row × T| over ε m: worst 0.8438 (m 32, 76 cycles). */
+  rotatedRow: 8.5,
+  /** How far below 0 a principal axis initial communality, 1 − 1/(R⁻¹)_ii, may round: none was
+   *  below 0 (worst 0), so ten times it would be 0; the band is 1e-15, about 4.5 ε, since
+   *  (R⁻¹)_ii ≥ 1 holds for the exact inverse only and the arithmetic's own can round below. */
+  initialBelowZero: 1e-15,
+}
+
+const faStat = (v: unknown, codes: readonly string[]) => oneKey(v, { value: isNum, not_computable: (x) => oneOf(x, codes) });
+/** Rust's `stat` (:1028-1036). */
+const faStatOf = (x: number): Expected => (Number.isFinite(x) ? { value: x } : Number.isNaN(x) ? { code: FA_SMALL } : { code: FA_OVERFLOW });
+const faIs = (stored: unknown, e: Expected) => ('value' in e ? statValue(stored) === e.value : ncCode(stored) === e.code);
+const faVal = (v: unknown) => statValue(v) as number;
+const faValues = (v: unknown) => faStat(v, []);
+
+/** FactorOutcome's keys and each object's, every one always written (:291-403). */
+const FA_RESULT_KEYS = ['items', 'rowsUsed', 'descriptives', 'determinant', 'kmo', 'bartlett', 'eigenvalues', 'extraction', 'rotation', 'exclusions', 'notes', 'limitations'];
+const FA_EXTRACTION_KEYS = ['method', 'factors', 'iterations', 'communalities', 'sums', 'loadings'];
+const FA_ROTATION_KEYS = ['method', 'iterations', 'loadings', 'transformation', 'sums', 'structure', 'factorCorrelations'];
+const FA_SUMS_KEYS = ['total', 'percent', 'cumulative'];
+
+/** Every result's limitations, in stats_factor's order (LIMITATIONS, :413-423). */
+const FACTOR_LIMITATIONS = [
+  'no_ml_or_other_extraction',
+  'no_oblique_other_than_promax',
+  'promax_kappa_four',
+  'no_factor_scores',
+  'no_matrices_shown',
+  'pearson_only',
+  'listwise_only',
+  'no_scree_plot',
+  'no_weights',
+].map(faCode);
+/** The notes in decision 717's order (:977-987). */
+const FACTOR_NOTES = [
+  'communality_above_one',
+  'extraction_eigenvalue_negative',
+  'one_factor_not_rotated',
+  'rotation_not_converged',
+  'rotation_singular',
+  'eigenvalues_not_distinct',
+].map(faCode);
+
+const faDiagnostic = (v: unknown) =>
+  diagnostic(FA_CODES, FA_PARAM_KEYS, false)(v) &&
+  isObject(v) &&
+  (v.code !== faCode('suspect_missing_code') || (isObject(v.params) && ['column', 'value', 'count'].every((k) => isNum((v.params as O)[k]))));
+
+/** An exclusion, exactly as stats_factor writes it (:962-975). */
+const FA_EXCLUDED = [faCode('missing_value'), faCode('missing_code')];
+const faExclusion = (e: unknown) =>
+  isObject(e) &&
+  Object.keys(e).length === 3 &&
+  oneOf(e.code, FA_EXCLUDED) &&
+  isCount(e.count) &&
+  e.count >= 1 &&
+  isObject(e.params) &&
+  Object.keys(e.params).length === 1 &&
+  isCount(e.params.column);
+
+/** The exclusions in the items' order, missing_value before missing_code for one item, each
+ *  pair once, each column an item, and missing_code only with missing codes (:962-975). */
+const faExclusionsAgree = (list: O[], items: string[], codes: unknown[]) => {
+  const numbers = items.map(aliasNumber);
+  const order = list.map((e) => numbers.indexOf(((e.params as O).column as number) ?? -1) * 2 + (e.code === FA_EXCLUDED[1] ? 1 : 0));
+  if (order.some((o) => o < 0)) return false;
+  if (order.some((o, i) => i > 0 && o <= order[i - 1])) return false;
+  return codes.length > 0 || list.every((e) => e.code !== FA_EXCLUDED[1]);
+};
+
+/** A p × m matrix of values. */
+const faMatrix = (v: unknown, rows: number, cols: number): v is unknown[][] =>
+  Array.isArray(v) && v.length === rows && v.every((row) => Array.isArray(row) && row.length === cols && row.every(faValues));
+const faRows = (v: unknown[][]) => v.map((row) => row.map(faVal));
+
+/** Sums, each a value, with their percents of p and the running percent (sums_of, :1046-1057). */
+const faSums = (v: unknown, totals: number[] | null, count: number, p: number): boolean => {
+  if (!Array.isArray(v) || v.length !== count) return false;
+  let cumulative = 0;
+  for (let k = 0; k < count; k += 1) {
+    const s = v[k];
+    if (!isObject(s) || !hasExactly(s, FA_SUMS_KEYS) || !faValues(s.total) || !faValues(s.percent) || !faValues(s.cumulative)) return false;
+    const t = faVal(s.total);
+    if (totals !== null && t !== totals[k]) return false;
+    const percent = (t / p) * 100;
+    cumulative += percent;
+    if (!faIs(s.percent, faStatOf(percent)) || !faIs(s.cumulative, faStatOf(cumulative))) return false;
+  }
+  return true;
+};
+
+/** Column sums of squares, in Rust's order (:1076-1079). */
+const columnSquares = (m: number[][], k: number) => Array.from({ length: k }, (_, j) => m.reduce((s, row) => s + row[j] * row[j], 0));
+/** Row sums of squares (:1072-1074). */
+const rowSquares = (m: number[][]) => m.map((row) => row.reduce((s, x) => s + x * x, 0));
+/** a × b, in Rust's order (multiply, :1252-1256). */
+const product = (a: number[][], b: number[][]) => a.map((row) => b[0].map((_, j) => row.reduce((s, x, k) => s + x * b[k][j], 0)));
+
+/** A banded quantity, by its band's name. */
+export type FactorBand = keyof typeof FA_BANDS;
+/** Whoever measures the bands (decision 733's hunt): none in the app, so the checker writes
+ *  nothing outside itself; a probe sets one with `measureFactorBands` and clears it after. */
+let bandWatcher: ((band: FactorBand, value: number) => void) | null = null;
+export function measureFactorBands(watch: ((band: FactorBand, value: number) => void) | null): void {
+  bandWatcher = watch;
+}
+const measure = (k: FactorBand, v: number) => {
+  if (bandWatcher) bandWatcher(k, v);
+  return v;
+};
+
+function factorBundle(v: O, spec: O): FactorResultView | null {
+  const sp = spec.parameters;
+  const r = v.primaryOutputs;
+  if (!isObject(sp) || !Array.isArray(sp.items) || !Array.isArray(sp.missingCodes)) return null;
+  const items = sp.items as unknown[];
+  const p = items.length;
+  if (p < 3 || p > FA_LIMITS.maxItems || items.some((c) => aliasNumber(c) === null)) return null;
+  if (!oneOf(sp.extraction, ['principal_components', 'principal_axis']) || !oneOf(sp.rotation, ['none', 'varimax', 'promax'])) return null;
+  if (!isCount(sp.iterations) || sp.iterations < 1 || !(sp.factors === null || isCount(sp.factors))) return null;
+  if (!isObject(r) || !hasExactly(r, FA_RESULT_KEYS)) return null;
+  if (!isCount(v.runId) || v.status !== 'succeeded') return null;
+  const pc = sp.extraction === 'principal_components';
+  const limit = sp.iterations as number;
+
+  // Shape: the items as the spec names them, in its order (:1000).
+  if (JSON.stringify(r.items) !== JSON.stringify(items)) return null;
+  if (!isCount(r.rowsUsed) || r.rowsUsed < 3) return null;
+  const n = r.rowsUsed;
+  if (!Array.isArray(r.descriptives) || r.descriptives.length !== p) return null;
+  for (let i = 0; i < p; i += 1) {
+    const d = r.descriptives[i];
+    // mean `stat` (:775); sd `stat` or a range code (:767-771).
+    if (!isObject(d) || !hasExactly(d, ['item', 'mean', 'sd']) || d.item !== items[i]) return null;
+    if (!faStat(d.mean, [FA_SMALL, FA_OVERFLOW]) || !faStat(d.sd, [FA_SMALL, FA_OVERFLOW])) return null;
+  }
+  const det = r.determinant;
+  const kmo = r.kmo;
+  const b = r.bartlett;
+  if (!isObject(det) || !hasExactly(det, ['value', 'log']) || !isObject(kmo) || !hasExactly(kmo, ['overall', 'items']) || !isObject(b) || !hasExactly(b, ['chiSquare', 'df', 'p'])) return null;
+  if (!Array.isArray(kmo.items) || kmo.items.length !== p) return null;
+  // The codes each field can hold (:808-860): the determinant too_small below the smallest
+  // normal double; the inverse's statistics correlations_singular together; KMO and the MSAs
+  // no_correlation at 0/0 (adequacy, :1105-1111), or `stat`'s; Bartlett's p overflow or
+  // distribution_out_of_range.
+  if (!faStat(det.value, [FA_SMALL, FA_SINGULAR]) || !faStat(det.log, [FA_SINGULAR])) return null;
+  const msaCodes = [FA_SINGULAR, FA_NO_CORRELATION, FA_SMALL, FA_OVERFLOW];
+  if (!faStat(kmo.overall, msaCodes)) return null;
+  for (let i = 0; i < p; i += 1) {
+    const a = kmo.items[i];
+    if (!isObject(a) || !hasExactly(a, ['item', 'msa']) || a.item !== items[i] || !faStat(a.msa, msaCodes)) return null;
+  }
+  if (!faStat(b.chiSquare, [FA_SINGULAR]) || !faStat(b.p, [FA_SINGULAR, FA_OVERFLOW, FA_RANGE])) return null;
+  // The singular set, all or none (:823-861): the Cholesky factor refuses, so no log, no
+  // inverse and no chi-square.
+  const singular = ncCode(det.log) === FA_SINGULAR;
+  const inverseFields = [det.value, kmo.overall, b.chiSquare, b.p, ...(kmo.items as O[]).map((a) => a.msa)];
+  if (singular ? !inverseFields.every((s) => ncCode(s) === FA_SINGULAR) : inverseFields.some((s) => ncCode(s) === FA_SINGULAR)) return null;
+  // Bartlett's df (:840) and chi-square from the stored log and rows (:843-849).
+  if (b.df !== (p * (p - 1)) / 2) return null;
+  if (!singular) {
+    const log = Math.min(faVal(det.log), 0);
+    const multiplier = n - 1 - (2 * p + 5) / 6;
+    const chi = log === 0 ? 0 : -(multiplier * log);
+    if (!faIs(b.chiSquare, faStatOf(chi))) return null;
+    if (ncCode(b.p) === FA_OVERFLOW) return null; // chi is finite here, so never overflow (:850).
+    if (statValue(b.p) !== undefined && !(faVal(b.p) >= 0 && faVal(b.p) <= 1)) return null;
+    // KMO and each MSA lie in [0, 1]: r² / (r² + q²) of sums of squares.
+    for (const s of [kmo.overall, ...(kmo.items as O[]).map((a) => a.msa)]) if (statValue(s) !== undefined && !(faVal(s) >= 0 && faVal(s) <= 1)) return null;
+  }
+
+  // Every eigenvalue (:864-865), descending exactly (eigen_symmetric's sort), summing to p
+  // within a band.
+  if (!faSums(r.eigenvalues, null, p, p)) return null;
+  const values = (r.eigenvalues as O[]).map((e) => faVal(e.total));
+  if (values.some((x, i) => i > 0 && x > values[i - 1])) return null;
+  if (measure('eigenSum', Math.abs(values.reduce((s, x) => s + x, 0) - p) / p) > FA_BANDS.eigenSum) return null;
+
+  // The extraction (:867-946).
+  const e = r.extraction;
+  if (!isObject(e) || !hasExactly(e, FA_EXTRACTION_KEYS) || e.method !== sp.extraction || !isCount(e.factors) || !isCount(e.iterations)) return null;
+  const m = e.factors;
+  const kaiser = values.filter((x) => x > 1).length;
+  if (sp.factors === null ? m !== kaiser || m === 0 : m !== sp.factors) return null;
+  if (m < 1 || m > (pc ? p : p - 1)) return null;
+  if (!faMatrix(e.loadings, p, m)) return null;
+  const loadings = faRows(e.loadings);
+  if (!faSums(e.sums, columnSquares(loadings, m), m, p)) return null;
+  if (!Array.isArray(e.communalities) || e.communalities.length !== p) return null;
+  const extracted = rowSquares(loadings);
+  for (let i = 0; i < p; i += 1) {
+    const c = e.communalities[i];
+    if (!isObject(c) || !hasExactly(c, ['item', 'initial', 'extraction']) || c.item !== items[i] || !faValues(c.initial) || !faValues(c.extraction)) return null;
+    if (faVal(c.extraction) !== extracted[i]) return null;
+    if (pc ? faVal(c.initial) !== 1 : !(measure('initialBelowZero', -faVal(c.initial)) <= FA_BANDS.initialBelowZero && faVal(c.initial) <= 1)) return null;
+  }
+  // Principal components does not iterate; principal axis takes 1 to the spec's (:893-929).
+  if (pc ? e.iterations !== 0 : e.iterations < 1 || e.iterations > limit) return null;
+  if (pc && values.slice(0, m).some((x) => !(x > 0))) return null; // component_loadings' refusal.
+
+  // The notes (:977-987): a subset of the six in order.
+  const notes = r.notes;
+  if (!Array.isArray(notes) || notes.some((x) => !oneOf(x, FACTOR_NOTES))) return null;
+  const at = notes.map((x) => FACTOR_NOTES.indexOf(x as string));
+  if (at.some((x, i) => i > 0 && x <= at[i - 1])) return null;
+  const noted = (c: string) => notes.indexOf(faCode(c)) >= 0;
+  if (pc && (noted('communality_above_one') || noted('extraction_eigenvalue_negative'))) return null;
+  // A final communality above 1 was the last iteration's, which notes it (:917-920).
+  if (!pc && extracted.some((h) => h > 1) && !noted('communality_above_one')) return null;
+  if (noted('one_factor_not_rotated') !== (m === 1 && sp.rotation !== 'none')) return null;
+  if ((noted('rotation_not_converged') || noted('rotation_singular')) && (m === 1 || sp.rotation === 'none')) return null;
+  if (noted('rotation_singular') && sp.rotation !== 'promax') return null;
+  if (noted('rotation_not_converged') && noted('rotation_singular')) return null;
+  // eigenvalues_not_distinct (:930-935): both ways for principal components, from the stored
+  // eigenvalues; for principal axis it reads the last reduced matrix, not stored.
+  if (pc) {
+    const distinct = m < p && Math.abs(values[m - 1] - values[m]) <= FA_DISTINCT * Math.max(Math.abs(values[m - 1]), Math.abs(values[m]));
+    if (noted('eigenvalues_not_distinct') !== distinct) return null;
+  }
+
+  // The rotation (:950-959): null exactly when none is asked, m is 1, or a note says why.
+  const rot = r.rotation;
+  const none = sp.rotation === 'none' || m === 1 || noted('rotation_not_converged') || noted('rotation_singular');
+  if (none !== (rot === null)) return null;
+  if (isObject(rot)) {
+    if (!hasExactly(rot, FA_ROTATION_KEYS) || rot.method !== sp.rotation || !isCount(rot.iterations) || rot.iterations < 1 || rot.iterations > limit) return null;
+    if (!faMatrix(rot.loadings, p, m)) return null;
+    const rotated = faRows(rot.loadings);
+    if (rot.method === 'varimax') {
+      if (rot.structure !== null || rot.factorCorrelations !== null || !faMatrix(rot.transformation, m, m)) return null;
+      if (!faSums(rot.sums, columnSquares(rotated, m), m, p)) return null;
+      const t = faRows(rot.transformation);
+      // T orthogonal, and each rotated row the extracted row times T, within bands.
+      const tt = product(t[0].map((_, j) => t.map((row) => row[j])), t);
+      for (let j = 0; j < m; j += 1) for (let k = 0; k < m; k += 1) if (measure('orthogonal', Math.abs(tt[j][k] - (j === k ? 1 : 0)) / (Number.EPSILON * m * (rot.iterations as number))) > FA_BANDS.orthogonal) return null;
+      const again = product(loadings, t);
+      for (let i = 0; i < p; i += 1) for (let k = 0; k < m; k += 1) if (measure('rotatedRow', Math.abs(again[i][k] - rotated[i][k]) / (Number.EPSILON * m)) > FA_BANDS.rotatedRow) return null;
+    } else {
+      if (rot.transformation !== null || rot.sums !== null || !faMatrix(rot.structure, p, m) || !faMatrix(rot.factorCorrelations, m, m)) return null;
+      const phi = faRows(rot.factorCorrelations);
+      // Φ exactly symmetric (decision 728), its diagonal within a band of 1, and the structure
+      // exactly the pattern times Φ (:1350-1352).
+      for (let j = 0; j < m; j += 1) {
+        if (measure('phiDiagonal', Math.abs(phi[j][j] - 1)) > FA_BANDS.phiDiagonal) return null;
+        for (let k = 0; k < j; k += 1) if (phi[j][k] !== phi[k][j]) return null;
+      }
+      const structure = product(rotated, phi);
+      const stored = faRows(rot.structure);
+      for (let i = 0; i < p; i += 1) for (let k = 0; k < m; k += 1) if (stored[i][k] !== structure[i][k]) return null;
+    }
+  }
+
+  if (!Array.isArray(r.limitations) || JSON.stringify(r.limitations) !== JSON.stringify(FACTOR_LIMITATIONS)) return null;
+
+  // Exclusions and the manifest, as the regression's.
+  if (!arrayOf(r.exclusions, faExclusion) || !faExclusionsAgree(r.exclusions as O[], items as string[], sp.missingCodes)) return null;
+  if (!arrayOf(v.diagnostics, faDiagnostic) || !arrayOf(v.limitations, faDiagnostic)) return null;
+  if (!manifest(v.manifest, FACTOR_CAPABILITY, faExclusion)) return null;
+  const mf = v.manifest as O;
+  if (mf.rowsUsed !== n) return null;
+  if (mf.rowsRead !== n + (r.exclusions as Array<{ count: number }>).reduce((s, x) => s + x.count, 0)) return null;
+  if (JSON.stringify(mf.exclusions) !== JSON.stringify(r.exclusions)) return null;
+  return {
+    runId: v.runId as number,
+    status: 'succeeded',
+    result: r as unknown as FactorResultView['result'],
+    diagnostics: v.diagnostics as FactorDiagnostic[],
+    manifest: v.manifest as FactorResultView['manifest'],
+  };
+}
+
+/** A failed run's diagnostic (decision 733): one of the run's own six refusals, which only
+ *  compute reaches (:741-1002); the two that name an item name one of the spec's, principal
+ *  axis's singular one only under principal axis, and extraction_not_converged's limit the
+ *  spec's iterations. */
+function factorFailure(failure: unknown, spec: O): boolean {
+  if (!isObject(failure) || failure.severity !== 'error' || !isObject(failure.params)) return false;
+  const p = spec.parameters;
+  if (!isObject(p) || !Array.isArray(p.items)) return false;
+  const keys = Object.keys(failure.params);
+  const column = failure.params.column;
+  const names = () => keys.length === 1 && isCount(column) && (p.items as unknown[]).some((a) => aliasNumber(a) === column);
+  switch (failure.code) {
+    case faCode('correlation_out_of_range'):
+      return names();
+    case faCode('correlations_singular'):
+      return p.extraction === 'principal_axis' && names();
+    case faCode('no_eigenvalue_over_one'):
+      return keys.length === 0 && p.factors === null;
+    case faCode('extraction_eigenvalue_not_positive'):
+      return keys.length === 0 && p.extraction === 'principal_components';
+    case faCode('extraction_not_converged'):
+      return keys.length === 1 && p.extraction === 'principal_axis' && failure.params.limit === p.iterations;
+    case faCode('eigen_not_converged'):
+      return keys.length === 0;
+    default:
+      return false;
+  }
+}
+
 /* ---- the checkers, one per method (Phase 8C; decision 249) ------------------- */
 
 /** How one method's saved result is checked: the case it is shown as, its
@@ -1529,8 +1869,8 @@ interface StoredChecker {
    *  answers null when a field it reads is absent. */
   bundle: (v: O, dataFile: DataFileFacts, spec: O) => Checked | null;
   /** A failed run's diagnostic beyond its code and keys, given the stored spec (decision
-   *  688). Only the linear regression's checker sets it; every other failed run is checked
-   *  by its code and keys alone, as before. */
+   *  688). Only the linear regression's and the factor analysis's (decision 733) checkers set
+   *  it; every other failed run is checked by its code and keys alone, as before. */
   failure?: (failure: unknown, spec: O) => boolean;
 }
 
@@ -1650,6 +1990,18 @@ export const STORED_CHECKERS: Record<string, StoredChecker> = {
       return result ? { kind: 'linear_regression', result, dataFile } : null;
     },
     failure: linearRegressionFailure,
+  },
+  // Research OS, Phase 9B-3 (decision 733).
+  [FACTOR_CAPABILITY]: {
+    which: 'factor',
+    codes: FA_CODES,
+    keys: FA_PARAM_KEYS,
+    strings: false,
+    bundle: (v, dataFile, spec) => {
+      const result = factorBundle(v, spec);
+      return result ? { kind: 'factor', result, dataFile } : null;
+    },
+    failure: factorFailure,
   },
 };
 

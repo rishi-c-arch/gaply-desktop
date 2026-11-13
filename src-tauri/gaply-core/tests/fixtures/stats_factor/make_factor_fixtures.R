@@ -278,8 +278,15 @@ run_case <- function(case, x, extraction, factors, rotation, iterations = 25L, c
         cum <- cum + ss[k] / p * 100
         put(case, "rot_ss", 0L, k - 1L, ss[k]); put(case, "rot_pct", 0L, k - 1L, ss[k] / p * 100); put(case, "rot_cum", 0L, k - 1L, cum)
       }
+    } else if (is.null(pm <- tryCatch(ef$.rotate_promax(loadings, TRUE, "norm", precision, "ss_factors", "kaiser", 4),
+                                      error = function(e) { cat(case, ": EFAtools' promax refuses:", conditionMessage(e), "\n"); NULL }))) {
+      # Decision 728: EFAtools' SPSS route refuses promax here (solve(U'U) is
+      # computationally singular), so there is no rotation and the note is
+      # rotation_singular; the IBM route gives NA here and is not compared.
+      notes <- union(notes, "rotation_singular")
+      fit <- lm.fit(unclass(ef$.reflect_and_order(vm$loadings, rotmat = vm$rotmat, L_unrot = loadings, order_type = "ss_factors")$rot_loadings), diag(p)[, 1:m])
+      cat(case, ": varimax cycles", vm$iter, "; lm.fit rank", fit$rank, "of", m, "\n")
     } else {
-      pm <- ef$.rotate_promax(loadings, TRUE, "norm", precision, "ss_factors", "kaiser", 4)
       pattern <- unclass(pm$rot_loadings); phi <- unclass(pm$Phi); structure <- unclass(pm$Structure)
       # Decision 716's D and C against EFAtools' scaling, on EFAtools' own varimax.
       base <- ef$.reflect_and_order(vm$loadings, rotmat = vm$rotmat, L_unrot = loadings, order_type = "ss_factors")
@@ -404,6 +411,13 @@ run_case("relative_rule_pc_varimax", relative, "principal_components", k3, "vari
 # six weakly related items, five factors.
 weak <- sapply(1:6, function(j) sapply(1:40, function(i) (i * 7919 + j * 104729 + i * j * 13) %% 101))
 run_case("negative_eigenvalue_pa", weak, "principal_axis", 5L, "none")
+# Decision 728's case (the review of 9B-2, M1 and m1), after every earlier one,
+# with its own seed (it draws nothing): uncorrelated_item_varimax's data with
+# principal axis, 4 factors and promax. Principal axis uses an eigenvalue below 0;
+# the fourth varimax factor is rounding noise, and EFAtools' promax refuses it, so
+# both notes and no rotation rows.
+set.seed(728)
+run_case("uncorrelated_item_pa_promax", alone, "principal_axis", 4L, "promax", data = "data_uncorrelated_item_varimax.csv")
 printed <- function(x) paste(names(x), sprintf("%.3e", unlist(x)), collapse = " ")
 cat("routes, worst gaps:", printed(route_worst), "\n")
 

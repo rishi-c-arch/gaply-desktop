@@ -33,6 +33,8 @@ import { relatedRanksResultView } from '../fixtures/relatedRanksFixtures';
 import { makeMockRelatedRanksBridge } from '../relatedRanksBridge';
 import { linearRegressionResultView } from '../fixtures/linearRegressionFixtures';
 import { makeMockLinearRegressionBridge } from '../linearRegressionBridge';
+import { factorResultView } from '../fixtures/factorFixtures';
+import { makeMockFactorBridge } from '../factorBridge';
 import { METHOD_DIALOGS, METHOD_OUTPUT } from './methodOutput';
 import { statisticsSession } from './statisticsSession';
 import { StatisticsWindow } from './StatisticsWindow';
@@ -53,9 +55,9 @@ const view: DatasetView = {
   displayName: 'f.csv',
   profile: {
     rows: 9,
-    columns: [num('C1', 'Height'), num('C2', 'Weight'), { alias: 'C3', header: 'Arm', kind: 'categorical', n: 9, missing: 0, distinct: 2, levels: [{ label: 'a', count: 5 }, { label: 'b', count: 4 }], suspectMissingCodes: [], nonFinite: 0 }],
+    columns: [num('C1', 'Height'), num('C2', 'Weight'), { alias: 'C3', header: 'Arm', kind: 'categorical', n: 9, missing: 0, distinct: 2, levels: [{ label: 'a', count: 5 }, { label: 'b', count: 4 }], suspectMissingCodes: [], nonFinite: 0 }, num('C4', 'Age')],
   },
-  inputRef: { contentHash: 'a'.repeat(64), rows: 9, columns: 3, semanticRole: 'table' },
+  inputRef: { contentHash: 'a'.repeat(64), rows: 9, columns: 4, semanticRole: 'table' },
 };
 
 const valid = { status: 'valid', errors: [], warnings: [], missingInformation: [], estimatedResources: { rows: 9, columns: 2, cells: 18 } };
@@ -197,11 +199,25 @@ const ROWS = [
     },
     line: 'Outcome: C1 Height. Predictors, in this order: C2 Weight. Missing codes: none.',
   },
+  // Research OS, Phase 9B-3 (decision 732): C1, C2 and the numeric C4, principal components,
+  // Kaiser's rule, no rotation. C3 stays the categorical Arm the other rows use as a group.
+  {
+    kind: 'factor',
+    run: 'fa-run',
+    card: 'fa-result-card',
+    prefix: 'stats_factor',
+    choose: async () => {
+      fireEvent.click(screen.getByTestId('fa-column-C1'));
+      fireEvent.click(screen.getByTestId('fa-column-C2'));
+      fireEvent.click(screen.getByTestId('fa-column-C4'));
+    },
+    line: 'Items: C1 Height, C2 Weight, C4 Age. Extraction: principal components. Factors: every eigenvalue above 1. Rotation: none. Iterations: 25. Convergence: 0.001. Missing codes: none.',
+  },
 ] as const;
 
 function setUp() {
   const describeB = makeMockDescribeBridge({ stats_desc_open: view, stats_desc_close: true, stats_desc_forget_run: null, ...fill('stats_desc', resultBundleView) });
-  const cells = makeMockDescribeBridge({ stats_desc_cells: (a: Record<string, unknown>) => ({ slot: a.slot, inputHash: 'a'.repeat(64), rows: 9, columns: 3, firstRow: a.firstRow, firstColumn: a.firstColumn, cells: [] }) });
+  const cells = makeMockDescribeBridge({ stats_desc_cells: (a: Record<string, unknown>) => ({ slot: a.slot, inputHash: 'a'.repeat(64), rows: 9, columns: 4, firstRow: a.firstRow, firstColumn: a.firstColumn, cells: [] }) });
   const runs = {
     describe: describeB,
     ttest: makeMockTTestBridge({ stats_ttest_group_levels: levels, ...fill('stats_ttest', ttestResultView) }),
@@ -214,6 +230,7 @@ function setUp() {
     ranks: makeMockRanksBridge({ stats_ranks_group_levels: levels, ...fill('stats_ranks', ranksResultView) }),
     relatedRanks: makeMockRelatedRanksBridge(fill('stats_related_ranks', relatedRanksResultView)),
     linearRegression: makeMockLinearRegressionBridge(fill('stats_linear_regression', linearRegressionResultView)),
+    factor: makeMockFactorBridge(fill('stats_factor', factorResultView)),
   };
   const capabilities: CapabilityView[] = METHODS.map((m) => ({ id: m.capabilityId, version: 1, lifecycle: 'beta', titleCode: 'stats.capability.describe.title', descriptionCode: 'stats.capability.describe.description', licenseNotes: [], knownLimitations: [], runnable: true }));
   const save = vi.fn().mockResolvedValue('/chosen/out.csv');

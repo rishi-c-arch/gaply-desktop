@@ -777,3 +777,104 @@ fn no_more_rows_than_items_makes_the_inverse_statistics_singular() {
     let singular = Stat::NotComputable(C::CorrelationsSingular);
     assert_eq!((r.determinant.value, r.kmo.overall, r.bartlett.chi_square, r.bartlett.p), (singular, singular, singular, singular));
 }
+
+/* ---- decision 728: promax's noise column and Φ's symmetry -------------------- */
+
+/// A fixture CSV's headers and rows, each value passed through `f` (the value
+/// read as a double, then written back as Rust's shortest form).
+fn fixture(name: &str, f: impl Fn(f64) -> f64) -> (Vec<String>, Vec<Vec<String>>) {
+    let path = format!("{}/tests/fixtures/stats_factor/{name}", env!("CARGO_MANIFEST_DIR"));
+    let text = std::fs::read_to_string(path).unwrap();
+    let mut lines = text.lines();
+    let headers: Vec<String> = lines.next().unwrap().split(',').map(String::from).collect();
+    let rows = lines.map(|l| l.split(',').map(|c| format!("{:?}", f(c.parse::<f64>().unwrap()))).collect()).collect();
+    (headers, rows)
+}
+
+fn notes_of(r: &FactorOutcome) -> Vec<&'static str> {
+    r.notes.iter().map(|c| c.wire()).collect()
+}
+
+/// Decision 728 (the review of 9B-2, M1, m1): the golden's
+/// data_uncorrelated_item_varimax.csv with principal axis, 4 factors and promax
+/// gives rotation_singular unscaled, and its fourth factor is rounding noise. Times
+/// 0.1 and divided by 10, the noise passed least_squares' own rank test, and
+/// promax gave that factor a Φ row of (0.059, −0.092, 0.035) and (0.024, −0.089,
+/// −0.061): the result hung on the scale the data were entered in. Now every scale
+/// gives rotation_singular.
+#[test]
+fn promax_of_a_noise_factor_is_rotation_singular_at_every_scale() {
+    for (scale, f) in [("unscaled", (|x| x) as fn(f64) -> f64), ("times 0.1", |x| x * 0.1), ("divided by 10", |x| x / 10.0)] {
+        let (h, rows) = fixture("data_uncorrelated_item_varimax.csv", f);
+        let r = compute(&dataset(&h, &rows), &params(5, Extraction::PrincipalAxis, Some(4), Rotation::Promax))
+            .unwrap_or_else(|e| panic!("{scale}: refused {}", e.code.wire()));
+        assert!(notes_of(&r).contains(&"stats.factor.rotation_singular"), "{scale}: {:?}", notes_of(&r));
+        assert!(r.rotation.is_none(), "{scale}");
+    }
+}
+
+/// Decision 728 (M1, principal components): the golden's data_three_factor_12.csv
+/// with a copy of item 4 as a 13th column, 13 components and promax. Its
+/// smallest eigenvalue is rounding (1.23e-16 by the review's copy), so its
+/// thirteenth component is noise beside the others, and promax is
+/// rotation_singular.
+#[test]
+fn promax_with_a_duplicated_item_and_every_component_is_rotation_singular() {
+    let (mut h, mut rows) = fixture("data_three_factor_12.csv", |x| x);
+    h.push("x13".to_string());
+    for row in &mut rows {
+        let copy = row[3].clone();
+        row.push(copy);
+    }
+    let r = compute(&dataset(&h, &rows), &params(13, Extraction::PrincipalComponents, Some(13), Rotation::Promax))
+        .unwrap_or_else(|e| panic!("refused {}", e.code.wire()));
+    assert!(notes_of(&r).contains(&"stats.factor.rotation_singular"), "{:?}", notes_of(&r));
+    assert!(r.rotation.is_none());
+}
+
+/// Decision 728 (the review of 9B-2, m2): promax's Φ is exactly symmetric, and its
+/// structure is exactly the pattern times that Φ, over every promax this file's
+/// fixtures give: each data file, both extractions, every m from 2.
+#[test]
+fn promax_s_phi_is_exactly_symmetric_and_the_structure_its_product() {
+    let files = [
+        "data_heywood_pa.csv", "data_missing_and_codes.csv", "data_near_singular_pa.csv", "data_negative_eigenvalue_pa.csv",
+        "data_relative_rule_pc_varimax.csv", "data_sorted_reflected.csv", "data_sum_item_pc.csv", "data_three_factor_12.csv",
+        "data_three_items_pc.csv", "data_two_factor_20.csv", "data_two_factor_6.csv", "data_uncorrelated_item_varimax.csv",
+        "data_uncorrelated_kaiser.csv",
+    ];
+    let mut checked = 0;
+    for name in files {
+        let path = format!("{}/tests/fixtures/stats_factor/{name}", env!("CARGO_MANIFEST_DIR"));
+        let text = std::fs::read_to_string(path).unwrap();
+        let mut lines = text.lines();
+        let h: Vec<String> = lines.next().unwrap().split(',').map(String::from).collect();
+        let rows: Vec<Vec<String>> = lines.map(|l| l.split(',').map(String::from).collect()).collect();
+        let d = dataset(&h, &rows);
+        let p = h.len() as u32;
+        for extraction in [Extraction::PrincipalComponents, Extraction::PrincipalAxis] {
+            let top = if extraction == Extraction::PrincipalComponents { p } else { p - 1 };
+            for m in 2..=top {
+                let mut ps = params(p, extraction, Some(m), Rotation::Promax);
+                ps.iterations = 1000;
+                let Ok(r) = compute(&d, &ps) else { continue };
+                let Some(rot) = r.rotation.as_ref() else { continue };
+                let phi = rot.factor_correlations.as_ref().unwrap();
+                for j in 0..m as usize {
+                    for k in 0..m as usize {
+                        assert_eq!(v(phi[j][k]).to_bits(), v(phi[k][j]).to_bits(), "{name} {extraction:?} m {m}: Φ[{j}][{k}]");
+                    }
+                }
+                let structure = rot.structure.as_ref().unwrap();
+                for (i, row) in rot.loadings.iter().enumerate() {
+                    for j in 0..m as usize {
+                        let want: f64 = (0..m as usize).map(|k| v(row[k]) * v(phi[k][j])).sum();
+                        assert_eq!(v(structure[i][j]).to_bits(), want.to_bits(), "{name} {extraction:?} m {m}: structure[{i}][{j}]");
+                    }
+                }
+                checked += 1;
+            }
+        }
+    }
+    assert!(checked >= 20, "only {checked} promax results");
+}

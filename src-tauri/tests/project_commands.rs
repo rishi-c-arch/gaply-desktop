@@ -1661,6 +1661,105 @@ fn stored_linear_regression_results_have_the_layout_of_their_fixtures() {
     assert_stored_fixture("linear_regression_failed.json", &back);
 }
 
+/// A factor analysis of `items` on `slot` at `iterations`, run to its end (Research OS,
+/// Phase 9B-3, decision 732).
+fn factor_run(
+    w: &World,
+    slot: u64,
+    items: &[u32],
+    extraction: gaply_core::stats_factor::Extraction,
+    factors: Option<u32>,
+    rotation: gaply_core::stats_factor::Rotation,
+    iterations: u32,
+) -> u64 {
+    let e = w.engine();
+    let held = e.datasets.get(slot).expect("the slot");
+    let mut spec = gaply_core::stats_factor::spec(
+        gaply_core::contracts::OperationId(16),
+        held.dataset(),
+        gaply_core::stats_factor::FactorParams {
+            items: items.iter().map(|c| gaply_core::stats_desc::Alias(gaply_core::stats_l1::dataset::ColumnAlias(*c))).collect(),
+            extraction,
+            factors,
+            rotation,
+            iterations,
+            convergence: 0.001,
+            missing_codes: vec![],
+        },
+    );
+    spec.preparation = held.preparation();
+    let run = app_lib::stats_factor_commands::run(&e.runs, &e.datasets, slot, spec)
+        .expect("the run starts")
+        .run_id;
+    w.wait_new_kind(run);
+    run
+}
+
+/// The factor analysis's saved results (Research OS, Phase 9B-3, decision 732): principal axis
+/// with promax and two factors and a row left out; principal components with varimax under
+/// Kaiser's rule; principal components whose varimax does not converge at one iteration, its
+/// note and a null rotation; and principal axis with an item that is the sum of two others, a
+/// failed run. Each on a file's own table, never a prepared slot, laid out as their fixtures,
+/// for the webview's shape check. The data are stats_factor_wire.rs's integer formula, six
+/// items over 40 rows, a seventh column the sum of the first two, and a 41st row with no value
+/// in the second (and so none in the sum).
+#[test]
+fn stored_factor_results_have_the_layout_of_their_fixtures() {
+    use gaply_core::stats_factor::{Extraction, Rotation};
+    let w = World::new("stored-factor");
+    let mut csv = String::from("a,b,c,d,e,f,sum\n");
+    for i in 1..=40u64 {
+        let row: Vec<i64> = (1..=6u64)
+            .map(|j| {
+                let f = (j - 1) % 2;
+                let score = ((i * 7907 + f * 15485863) % 1013) as i64 - 506;
+                let noise = ((i * 104729 + j * 7919 + i * j * 31) % 997) as i64 - 498;
+                2 * score + noise
+            })
+            .collect();
+        let line: Vec<String> = row.iter().map(i64::to_string).chain([(row[0] + row[1]).to_string()]).collect();
+        csv.push_str(&line.join(","));
+        csv.push('\n');
+    }
+    csv.push_str("1,,3,4,5,6,\n");
+    let data = w.open("f.csv", csv.as_bytes());
+    let six = [1, 2, 3, 4, 5, 6];
+    let promax = factor_run(&w, data, &six, Extraction::PrincipalAxis, Some(2), Rotation::Promax, 25);
+    let id = pc::save_run(&w.root(), &w.ws, promax, new_project("Stored factor"))
+        .unwrap()
+        .project_id;
+    let varimax = factor_run(&w, data, &six, Extraction::PrincipalComponents, None, Rotation::Varimax, 25);
+    pc::save_run(&w.root(), &w.ws, varimax, into_open(&id)).unwrap();
+    let not_rotated = factor_run(&w, data, &six, Extraction::PrincipalComponents, None, Rotation::Varimax, 1);
+    pc::save_run(&w.root(), &w.ws, not_rotated, into_open(&id)).unwrap();
+    let singular = factor_run(&w, data, &[1, 2, 7], Extraction::PrincipalAxis, Some(1), Rotation::None, 25);
+    assert_eq!(w.wait_new_kind(singular), RunState::Failed);
+    pc::save_run(&w.root(), &w.ws, singular, into_open(&id)).unwrap();
+    for (n, name, method, rotation, notes) in [
+        (1, "factor.json", "principal_axis", Some("promax"), vec![]),
+        (2, "factor_varimax.json", "principal_components", Some("varimax"), vec![]),
+        (3, "factor_not_rotated.json", "principal_components", None, vec!["stats.factor.rotation_not_converged"]),
+    ] {
+        let back = pc::run_result(&w.root(), &w.ws, &id, n).expect("read back");
+        assert_eq!(back.state, RunState::Succeeded, "{name}");
+        assert_eq!(back.capability_id, "stats.analyze.factor", "{name}");
+        let bundle: Value = serde_json::from_str(back.bundle_json.as_deref().unwrap()).unwrap();
+        let r = &bundle["primaryOutputs"];
+        assert_eq!(r["extraction"]["method"], method, "{name}");
+        assert_eq!(r["rotation"]["method"].as_str(), rotation, "{name}");
+        assert_eq!(r["exclusions"].as_array().unwrap().len(), 1, "{name}: the 41st row");
+        let got: Vec<&str> = r["notes"].as_array().unwrap().iter().map(|c| c.as_str().unwrap()).collect();
+        assert_eq!(got, notes, "{name}");
+        assert_stored_fixture(name, &back);
+    }
+    let back = pc::run_result(&w.root(), &w.ws, &id, 4).expect("read back");
+    assert_eq!(back.state, RunState::Failed);
+    let failure: Value = serde_json::from_str(back.failure_json.as_deref().unwrap()).unwrap();
+    assert_eq!(failure["failure"]["code"], "stats.factor.correlations_singular");
+    assert_eq!(failure["failure"]["params"]["column"], 7);
+    assert_stored_fixture("factor_failed.json", &back);
+}
+
 /// The linear regression's edge cases saved (Research OS, Phase 9B-1, decision 698): the
 /// accepted side of the stored checker, each a result Rust writes that a one-line mutant of
 /// 9A-2's checker refused (the review of 9e4b7ad9, finding 2), and finding 1's perfect fit
@@ -1873,14 +1972,14 @@ fn a_save_target_reads_from_the_webview_shape_and_nothing_else() {
     }
 }
 
-/// A run of a method with no row in `METHODS` is refused at save time (Research OS, Phase
-/// 9B-2, decision 714; m2 of the review of 9B-1): `project.run_not_saveable`, nothing
-/// written. Saved, a factor analysis's project export would refuse as a whole with
-/// `project.db_unreadable`, whose words invite deleting the project. 9B-3 adds its row. A
-/// regression run, which has its row, is still saved beside it.
+/// A factor analysis is saved since it has its row in `METHODS` (Research OS, Phase 9B-3,
+/// decision 731). Until 9B-3 it was refused at save time with `project.run_not_saveable`
+/// (9B-2, decision 714), which this test pinned; the guard itself is now pinned by
+/// project_commands.rs's unit test `a_run_of_a_capability_no_row_holds_is_not_saveable`. A
+/// saved factor analysis's project exports, and a regression is still saved beside it.
 #[test]
-fn a_run_of_a_method_this_build_cannot_yet_keep_is_refused_at_save_time() {
-    let w = World::new("not-yet-kept");
+fn a_factor_run_is_saved_now_that_its_method_has_a_row() {
+    let w = World::new("now-kept");
     let slot = w.open(
         "f.csv",
         b"a,b,c,d\n1,2,3,1\n2,1,4,3\n3,4,2,2\n4,3,5,5\n5,6,4,4\n6,5,7,6\n7,8,6,8\n8,7,9,7\n",
@@ -1910,11 +2009,11 @@ fn a_run_of_a_method_this_build_cannot_yet_keep_is_refused_at_save_time() {
         std::thread::sleep(std::time::Duration::from_millis(2));
     }
     assert_eq!(e.runs.factor_snapshot(RunId(run)).unwrap().record.state, RunState::Succeeded);
-    let before = files(&w.root());
-    let refused = pc::save_run(&w.root(), &w.ws, run, new_project("Factor")).unwrap_err();
-    assert_eq!(code(&refused), "project.run_not_saveable");
-    assert_eq!(files(&w.root()), before, "nothing written");
-    // The regression, which has its row, is still saved.
+    let saved = pc::save_run(&w.root(), &w.ws, run, new_project("Factor")).expect("a factor analysis is saved");
+    assert_eq!(saved.stored_run_id, 1);
+    let report = String::from_utf8(pc::report(&w.root(), &w.ws, &saved.project_id).expect("the project exports").bytes).unwrap();
+    assert!(report.contains("- Rotation: varimax"), "{report}");
+    // The regression is still saved.
     let data = w.open("r.csv", b"y,x\n1,2\n3,3\n2,5\n5,4\n4,7\n");
     let regression = w.linear_regression(data, 1, &[2], vec![]);
     pc::save_run(&w.root(), &w.ws, regression, new_project("Regression")).expect("a regression is saved");

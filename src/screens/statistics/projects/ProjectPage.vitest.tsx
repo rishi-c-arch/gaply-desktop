@@ -24,6 +24,7 @@ import { makeMockXtabBridge } from '../xtabBridge';
 import { makeMockRanksBridge } from '../ranksBridge';
 import { makeMockRelatedRanksBridge } from '../relatedRanksBridge';
 import { makeMockLinearRegressionBridge } from '../linearRegressionBridge';
+import { makeMockFactorBridge } from '../factorBridge';
 import { makeMockProjectBridge } from './projectBridge';
 import { openProjectStore } from './projectSession';
 import type { ProjectListEntryView, StoredRunView } from './projectTypes';
@@ -518,6 +519,24 @@ describe('a going rerun of a saved linear regression', () => {
     render(<ProjectPage projectId={A} bridge={bridge} workspace={workspace} desktop describe={describe_} linearRegression={linearRegression} pollMs={5} onClosed={vi.fn()} onBack={vi.fn()} />);
     fireEvent.click(await screen.findByTestId('project-rerun-cancel'));
     await waitFor(() => expect(linearRegression.calls).toEqual([['stats_linear_regression_cancel', { runId: 9 }]]));
+    expect(describe_.calls).toEqual([]);
+  });
+});
+
+// Research OS, Phase 9B-3 (decision 732): a going rerun of a saved factor analysis is cancelled
+// through its own bridge, its kind read from the runs (9B-1's departure, closed).
+describe('a going rerun of a saved factor analysis', () => {
+  it("Cancel calls stats_factor_cancel through the page's factor bridge, and nothing else", async () => {
+    const factorRun: StoredRunView = { ...RUNS[0], storedRunId: 4, capabilityId: 'stats.analyze.factor' };
+    const { bridge, workspace } = pageBridges({
+      project_current: { projectId: A, rerun: { runId: 9, rerunOf: 4, status: 'going', storedRunId: null, code: null } },
+      project_runs: [...RUNS, factorRun],
+    });
+    const describe_ = makeMockDescribeBridge({ stats_desc_cancel: { runId: 0 } });
+    const factor = makeMockFactorBridge({ stats_factor_cancel: { runId: 0 } });
+    render(<ProjectPage projectId={A} bridge={bridge} workspace={workspace} desktop describe={describe_} factor={factor} pollMs={5} onClosed={vi.fn()} onBack={vi.fn()} />);
+    fireEvent.click(await screen.findByTestId('project-rerun-cancel'));
+    await waitFor(() => expect(factor.calls).toEqual([['stats_factor_cancel', { runId: 9 }]]));
     expect(describe_.calls).toEqual([]);
   });
 });

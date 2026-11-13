@@ -14,6 +14,7 @@ import { makeMockXtabBridge } from '../statistics/xtabBridge';
 import { makeMockRanksBridge } from '../statistics/ranksBridge';
 import { makeMockRelatedRanksBridge } from '../statistics/relatedRanksBridge';
 import { makeMockLinearRegressionBridge } from '../statistics/linearRegressionBridge';
+import { makeMockFactorBridge } from '../statistics/factorBridge';
 import { makeMockWorkspaceBridge } from './workspaceBridge';
 import { makeMockDescribeBridge } from '../statistics/describeBridge';
 import type { DatasetView, RunStateView } from '../statistics/describeTypes';
@@ -194,6 +195,27 @@ describe("a linear regression, through the switch's own kinds", () => {
     expect(linearRegression.calls).toEqual([
       ['stats_linear_regression_status', { runId: 15 }],
       ['stats_linear_regression_cancel', { runId: 15 }],
+    ]);
+    expect(summary.calls).toEqual([]);
+  });
+});
+
+// Research OS, Phase 9B-3 (decision 732): a factor analysis is read and cancelled through its
+// own commands, never the summary's (9B-1's departure, closed), with the steps sentence.
+describe("a factor analysis, through the switch's own kinds", () => {
+  it('is polled and cancelled through stats_factor_status and stats_factor_cancel, and the summary is never asked', async () => {
+    const fa = { runId: 16, state: 'running' as const, terminal: false, elapsedMs: 40, cancelRequested: false, stepsDone: 3, stepsTotal: 12, diagnostics: [] };
+    const factor = makeMockFactorBridge({ stats_factor_status: fa, stats_factor_cancel: { ...fa, cancelRequested: true } });
+    const summary = makeMockDescribeBridge({});
+    const kinds = runKinds(defaultRunBridges({ factor, describe: summary }));
+    expect(Object.keys(kinds)).toContain('factor');
+    const job = await kinds.factor.status(16);
+    expect(job).toEqual({ runId: 16, state: 'running', terminal: false, progress: '3 of 12 steps.', kind: 'factor' });
+    expect(jobSentence(job as NonNullable<typeof job>)).toBe('Run 16 (factor analysis): Running. 3 of 12 steps.');
+    await kinds.factor.cancel(16);
+    expect(factor.calls).toEqual([
+      ['stats_factor_status', { runId: 16 }],
+      ['stats_factor_cancel', { runId: 16 }],
     ]);
     expect(summary.calls).toEqual([]);
   });

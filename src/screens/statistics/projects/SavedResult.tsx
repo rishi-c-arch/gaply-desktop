@@ -51,6 +51,9 @@ import type { RelatedRanksDiagnostic } from '../relatedRanksTypes';
 import { LinearRegressionCard } from '../LinearRegressionCard';
 import { linearRegressionSentence } from '../linearRegressionWording';
 import type { LinearRegressionDiagnostic } from '../linearRegressionTypes';
+import { FactorCard } from '../FactorCard';
+import { factorSentence } from '../factorWording';
+import type { FactorDiagnostic } from '../factorTypes';
 import { diagnosticSentence } from '../describeWording';
 import { ttestSentence, type TTestNames } from '../ttestWording';
 import { oneSampleSentence } from '../onesampleWording';
@@ -68,7 +71,7 @@ import {
   checkStored,
   ONE_SAMPLE_CAPABILITY,
   PAIRED_CAPABILITY,
-  RANKS_CAPABILITY, RELATED_RANKS_CAPABILITY, LINEAR_REGRESSION_CAPABILITY,
+  RANKS_CAPABILITY, RELATED_RANKS_CAPABILITY, LINEAR_REGRESSION_CAPABILITY, FACTOR_CAPABILITY,
   SUMMARY_CAPABILITY,
   TTEST_CAPABILITY,
   XTAB_CAPABILITY,
@@ -270,6 +273,13 @@ export const SAVED_RENDERERS: Record<string, SavedRenderer> = {
     failedSentence: (failure, n = BY_POSITION_ONLY) => linearRegressionSentence(failure as LinearRegressionDiagnostic, { column: n.column }),
     result: (checked, n = BY_POSITION_ONLY) =>
       checked.kind === 'linear_regression' ? <LinearRegressionCard result={checked.result} names={{ column: n.column }} /> : null,
+    hidden: () => false,
+  },
+  // Research OS, Phase 9B-3 (decision 732): through the Output's own card, a score's name
+  // through savedNaming, as the regression's are; not behind a flag.
+  [FACTOR_CAPABILITY]: {
+    failedSentence: (failure, n = BY_POSITION_ONLY) => factorSentence(failure as FactorDiagnostic, { column: n.column }),
+    result: (checked, n = BY_POSITION_ONLY) => (checked.kind === 'factor' ? <FactorCard result={checked.result} names={{ column: n.column }} /> : null),
     hidden: () => false,
   },
 };

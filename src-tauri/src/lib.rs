@@ -466,6 +466,9 @@ pub fn run() {
             stats_linear_regression_commands::stats_linear_regression_result,
             stats_linear_regression_commands::stats_linear_regression_cancel,
             stats_linear_regression_commands::stats_linear_regression_export,
+            // Research OS, Phase 9B-1 (decision 704): the factor analysis, behind the
+            // workspace check. Since 9B-3 (decision 732) the window's Dimension
+            // reduction, Factor… dialog starts it.
             stats_factor_commands::stats_factor_validate,
             stats_factor_commands::stats_factor_run,
             stats_factor_commands::stats_factor_status,
