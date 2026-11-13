@@ -46,6 +46,7 @@ use gaply_core::stats_alpha::{self, AlphaParams};
 use gaply_core::stats_anova::{self, AnovaParams, PostHoc};
 use gaply_core::stats_corr::{self, Coefficient, CorrParams, MissingHandling};
 use gaply_core::stats_desc::{self, Alias, DescribeParams};
+use gaply_core::stats_cfa::{self, CfaParams};
 use gaply_core::stats_factor::{self, Extraction, FactorParams, Rotation};
 use gaply_core::stats_l1::dataset::ColumnAlias;
 use gaply_core::stats_linear_regression::{self, LinearRegressionParams};
@@ -61,6 +62,9 @@ const PAIRS: &[u8] = b"a,b\n1,2\n2,5\n4,5\n3,7\n5,6\n8,9\n";
 /// Three numeric columns, for the factor analysis (Research OS, Phase 9B-1,
 /// decision 704).
 const TRIPLES: &[u8] = b"a,b,c\n1,2,4\n2,5,3\n4,5,7\n3,7,6\n5,6,9\n8,9,8\n";
+/// Four numeric columns, for the confirmatory factor analysis (Research OS, Phase
+/// 9C-1, decision 749): one factor of four columns needs five complete rows.
+const QUADS: &[u8] = b"a,b,c,d\n1,2,4,3\n2,5,3,6\n4,5,7,5\n3,7,6,8\n5,6,9,7\n8,9,8,9\n";
 
 struct Ticks(AtomicU64);
 
@@ -100,6 +104,7 @@ enum Kind {
     RelatedRanks,
     LinearRegression,
     Factor,
+    Cfa,
 }
 
 /// A manager whose hook panics at `Column(0)`, after cancelling the run
@@ -126,6 +131,7 @@ fn panicking(what: AtColumn0, kind: Kind) -> Arc<Runs> {
                 Kind::RelatedRanks => drop(runs.related_ranks_cancel(run).expect("cancelled")),
                 Kind::LinearRegression => drop(runs.linear_regression_cancel(run).expect("cancelled")),
                 Kind::Factor => drop(runs.factor_cancel(run).expect("cancelled")),
+                Kind::Cfa => drop(runs.cfa_cancel(run).expect("cancelled")),
             }
         }
         panic!("the test's hook panics at column 0");
@@ -290,6 +296,20 @@ fn each_kind_says_its_own_panic_and_both_say_the_shared_lines() {
     let triple_slot = slots
         .get(slots.insert("synthetic triples".into(), triples))
         .unwrap();
+    // Research OS, Phase 9C-1 (decision 749): one factor of four columns on QUADS.
+    let quads = load_dataset_from_bytes(QUADS, DataFormat::Csv).expect("the csv opens");
+    let cfa = stats_cfa::spec(
+        OperationId(13),
+        &quads,
+        CfaParams {
+            indicators: vec![(1..=4).map(|j| Alias(ColumnAlias(j))).collect()],
+            correlated_factors: true,
+            missing_codes: vec![],
+        },
+    );
+    let quad_slot = slots
+        .get(slots.insert("synthetic quads".into(), quads))
+        .unwrap();
 
     let mut ends = Vec::new();
     for what in [AtColumn0::Panic, AtColumn0::CancelThenPanic] {
@@ -402,6 +422,11 @@ fn each_kind_says_its_own_panic_and_both_say_the_shared_lines() {
         let run = runs.start_factor(Arc::clone(&triple_slot), factor.clone()).unwrap();
         wait_for("the factor analysis ended", || runs.factor_snapshot(run).unwrap().record.state.is_terminal());
         ends.push(runs.factor_snapshot(run).unwrap().record.state);
+
+        let runs = panicking(what, Kind::Cfa);
+        let run = runs.start_cfa(Arc::clone(&quad_slot), cfa.clone()).unwrap();
+        wait_for("the confirmatory factor analysis ended", || runs.cfa_snapshot(run).unwrap().record.state.is_terminal());
+        ends.push(runs.cfa_snapshot(run).unwrap().record.state);
     }
     let _ = std::panic::take_hook();
 
@@ -420,6 +445,8 @@ fn each_kind_says_its_own_panic_and_both_say_the_shared_lines() {
             RunState::Failed,
             RunState::Failed,
             RunState::Failed,
+            RunState::Failed,
+            RunState::Cancelled,
             RunState::Cancelled,
             RunState::Cancelled,
             RunState::Cancelled,
@@ -449,7 +476,8 @@ fn each_kind_says_its_own_panic_and_both_say_the_shared_lines() {
     assert_eq!(events(&lines, "stats_desc: the related rank tests panicked"), 1);
     assert_eq!(events(&lines, "stats_desc: the linear regression panicked"), 1);
     assert_eq!(events(&lines, "stats_desc: the factor analysis panicked"), 1);
-    assert_eq!(events(&lines, "stats_desc: the run's work panicked"), 12);
-    assert_eq!(events(&lines, "stats_desc: run ended"), 24);
+    assert_eq!(events(&lines, "stats_desc: the confirmatory factor analysis panicked"), 1);
+    assert_eq!(events(&lines, "stats_desc: the run's work panicked"), 13);
+    assert_eq!(events(&lines, "stats_desc: run ended"), 26);
     assert_eq!(events(&lines, "stats_desc: a run event had no edge"), 0);
 }

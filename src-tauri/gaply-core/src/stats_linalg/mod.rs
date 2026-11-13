@@ -160,8 +160,17 @@ fn rotate(m: &mut [Vec<f64>], v: &mut [Vec<f64>], p: usize, q: usize) {
 /// The lower Cholesky factor L of the symmetric positive-definite `a`, A =
 /// L Lᵀ. `Err(j)`, j 1-based, at the first row whose value left before its
 /// square root is at most [`CHOLESKY_TOLERANCE`] times a_jj, or is not a
-/// number (decision 699).
+/// number (decision 699): [`cholesky_within`] at that tolerance.
 pub(crate) fn cholesky(a: &[Vec<f64>]) -> Result<Vec<Vec<f64>>, usize> {
+    cholesky_within(a, CHOLESKY_TOLERANCE)
+}
+
+/// [`cholesky`] with its tolerance as an argument (Research OS, Phase 9C-1,
+/// decision 744): `Err(j)`, j 1-based, at the first row whose value left
+/// before its square root is at most `tolerance` times a_jj, or is not a
+/// number. A tolerance of 0 refuses only a value left at or below 0, or not a
+/// number: the test for a positive-definite matrix.
+pub(crate) fn cholesky_within(a: &[Vec<f64>], tolerance: f64) -> Result<Vec<Vec<f64>>, usize> {
     let n = a.len();
     let mut l = vec![vec![0.0; n]; n];
     for j in 0..n {
@@ -169,7 +178,7 @@ pub(crate) fn cholesky(a: &[Vec<f64>]) -> Result<Vec<Vec<f64>>, usize> {
         for k in 0..j {
             left -= l[j][k] * l[j][k];
         }
-        if !(left > CHOLESKY_TOLERANCE * a[j][j]) {
+        if !(left > tolerance * a[j][j]) {
             return Err(j + 1);
         }
         let d = left.sqrt();
@@ -212,6 +221,22 @@ pub(crate) fn spd_inverse(l: &[Vec<f64>]) -> Vec<Vec<f64>> {
         }
     }
     inv
+}
+
+/// The product A B, each entry summed left to right from k = 0: the order the
+/// factor analysis's goldens, export pin and stored checker were measured in
+/// (moved from `stats_factor` unchanged; Research OS, Phase 9C-1, decision
+/// 744).
+pub(crate) fn multiply(a: &[Vec<f64>], b: &[Vec<f64>]) -> Vec<Vec<f64>> {
+    let inner = b.len();
+    let cols = b.first().map_or(0, Vec::len);
+    a.iter().map(|row| (0..cols).map(|j| (0..inner).map(|k| row[k] * b[k][j]).sum()).collect()).collect()
+}
+
+/// Aᵀ (moved from `stats_factor` unchanged; decision 744).
+pub(crate) fn transpose(a: &[Vec<f64>]) -> Vec<Vec<f64>> {
+    let cols = a.first().map_or(0, Vec::len);
+    (0..cols).map(|j| a.iter().map(|row| row[j]).collect()).collect()
 }
 
 /// ln |A| from A's Cholesky factor `l`: 2 Σ ln l_jj.
@@ -471,5 +496,38 @@ mod tests {
         }
         assert!(least_squares(&[vec![1.0, 2.0]], &[vec![1.0]]).is_none(), "fewer rows than columns");
         assert!(least_squares(&[vec![1.0, 2.0], vec![2.0, 4.0], vec![3.0, 6.0]], &[vec![1.0], vec![2.0], vec![3.0]]).is_none(), "collinear");
+    }
+
+    /// Research OS, Phase 9C-1 (decision 744): `cholesky` is `cholesky_within` at
+    /// [`CHOLESKY_TOLERANCE`], bit for bit and refusal for refusal; at a tolerance of 0 it
+    /// refuses only a value left at or below 0, or not a number, the test for a positive-definite
+    /// matrix.
+    #[test]
+    fn cholesky_within_at_the_tolerance_is_cholesky_and_at_zero_tests_positive_definiteness() {
+        let a = vec![vec![4.0, 2.0, 0.6], vec![2.0, 2.0, 0.5], vec![0.6, 0.5, 3.0]];
+        let bits = |m: &[Vec<f64>]| m.iter().flatten().map(|x| x.to_bits()).collect::<Vec<u64>>();
+        assert_eq!(bits(&cholesky(&a).unwrap()), bits(&cholesky_within(&a, CHOLESKY_TOLERANCE).unwrap()));
+        // A row left at about 1e-12 of its a_jj: within the 1e-9 rule, refused; at 0, factored.
+        let near = vec![vec![1.0, 1.0], vec![1.0, 1.0 + 1e-12]];
+        assert_eq!(cholesky(&near), Err(2));
+        assert_eq!(cholesky_within(&near, CHOLESKY_TOLERANCE), Err(2));
+        assert!(cholesky_within(&near, 0.0).is_ok());
+        // Exactly singular, indefinite, and not a number: refused at 0, naming the row.
+        assert_eq!(cholesky_within(&[vec![1.0, 1.0], vec![1.0, 1.0]], 0.0), Err(2));
+        assert_eq!(cholesky_within(&[vec![1.0, 2.0], vec![2.0, 1.0]], 0.0), Err(2));
+        assert_eq!(cholesky_within(&[vec![f64::NAN]], 0.0), Err(1));
+        assert_eq!(cholesky_within(&[vec![-1.0]], 0.0), Err(1));
+    }
+
+    /// Research OS, Phase 9C-1 (decision 744): `multiply` sums each entry left to right from
+    /// k = 0, the order in which the factor analysis's goldens, export pin and stored checker
+    /// (storedShape.ts's product) were measured; `transpose` swaps rows and columns.
+    #[test]
+    fn multiply_sums_left_to_right_and_transpose_swaps_rows_and_columns() {
+        // 1 + 1e16 rounds to 1e16, so left to right gives 0; summed the other way, 1.
+        assert_eq!(multiply(&[vec![1.0, 1e16, -1e16]], &[vec![1.0], vec![1.0], vec![1.0]]), vec![vec![0.0]]);
+        let a = vec![vec![1.0, 2.0, 3.0], vec![4.0, 5.0, 6.0]];
+        assert_eq!(transpose(&a), vec![vec![1.0, 4.0], vec![2.0, 5.0], vec![3.0, 6.0]]);
+        assert_eq!(multiply(&a, &transpose(&a)), vec![vec![14.0, 32.0], vec![32.0, 77.0]]);
     }
 }

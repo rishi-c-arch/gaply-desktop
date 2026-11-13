@@ -1080,8 +1080,8 @@ fn a_rerun_puts_no_sentinel_anywhere_but_the_projects_artifacts_and_its_title() 
     assert!(report.contains("Repeats run 26."), "the first factor analysis's rerun is in the report");
     assert!(report.contains("Repeats run 28."), "the second factor analysis's rerun is in the report");
     for line in [
-        "- Extraction: principal_components",
-        "- Extraction: principal_axis",
+        "- Extraction: principal components",
+        "- Extraction: principal axis factoring",
         "- Rotation: varimax",
         "- Rotation: promax",
         "- Factors: every eigenvalue above 1",

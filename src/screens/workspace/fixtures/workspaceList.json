@@ -26,6 +26,7 @@
       "stats.analyze.related_ranks",
       "stats.analyze.linear_regression",
       "stats.analyze.factor",
+      "stats.analyze.cfa",
       "stats.prepare.scale_score"
     ],
     "supportsOffline": true,

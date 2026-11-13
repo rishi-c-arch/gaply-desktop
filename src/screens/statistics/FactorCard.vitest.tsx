@@ -219,3 +219,47 @@ describe('an item name', () => {
     }
   });
 });
+
+// Research OS, Phase 9C-1, decision 742's m3 and m4: the card passes its extraction to the
+// words, so a principal components card says component and principal axis's tie note names
+// the last iteration.
+describe('the notes and the promax sentence follow the extraction (decision 742)', () => {
+  it('principal components with one component says component', () => {
+    const r = copy(varimax);
+    r.result.rotation = null;
+    r.result.notes = ['stats.factor.one_factor_not_rotated'];
+    render(<FactorCard result={r} names={NAMES} />);
+    expect(screen.getByTestId('fa-notes').textContent).toBe('One component was extracted, so there is nothing to rotate.');
+  });
+
+  it('principal axis with one factor says factor', () => {
+    const r = copy(promax);
+    r.result.rotation = null;
+    r.result.notes = ['stats.factor.one_factor_not_rotated'];
+    render(<FactorCard result={r} names={NAMES} />);
+    expect(screen.getByTestId('fa-notes').textContent).toBe('One factor was extracted, so there is nothing to rotate.');
+  });
+
+  it("promax after principal components says its components are correlated", () => {
+    const r = copy(promax);
+    r.result.extraction.method = 'principal_components';
+    render(<FactorCard result={r} names={NAMES} />);
+    expect(screen.getByTestId('fa-promax-sums-sentence').textContent).toBe(
+      "Promax's components are correlated, so the rotation sums of squared loadings that SPSS lists for them are not given here."
+    );
+  });
+
+  it("principal axis's tie note names the last iteration; principal components' does not", () => {
+    const pa = copy(promax);
+    pa.result.notes = ['stats.factor.eigenvalues_not_distinct'];
+    render(<FactorCard result={pa} names={NAMES} />);
+    expect(screen.getByTestId('fa-notes').textContent).toBe(
+      'In the last iteration, the last eigenvalue extracted and the next were equal within 1e-8 of the larger, so these loadings are one of many that fit equally well.'
+    );
+    cleanup();
+    render(<FactorCard result={varimax} names={NAMES} />);
+    expect(screen.getByTestId('fa-notes').textContent).toBe(
+      'The last eigenvalue extracted and the next are equal within 1e-8 of the larger, so these loadings are one of many that fit equally well.'
+    );
+  });
+});

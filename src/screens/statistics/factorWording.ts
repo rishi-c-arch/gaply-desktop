@@ -99,6 +99,12 @@ export const FACTOR_NOTES = {
   rotationSingular: "Promax's fit cannot be computed for these loadings, so no rotated solution is given.",
   eigenvaluesNotDistinct:
     'The last eigenvalue extracted and the next are equal within 1e-8 of the larger, so these loadings are one of many that fit equally well.',
+  /** Decision 742's m3: one_factor_not_rotated under principal components. */
+  oneComponentNotRotated: 'One component was extracted, so there is nothing to rotate.',
+  /** Decision 742's m4: eigenvalues_not_distinct under principal axis, which reads the last
+   *  iteration's reduced matrix, not the eigenvalues the card shows. */
+  eigenvaluesNotDistinctLastIteration:
+    'In the last iteration, the last eigenvalue extracted and the next were equal within 1e-8 of the larger, so these loadings are one of many that fit equally well.',
 } as const;
 
 /** One sentence per code. A code with no entry is shown as itself, never hidden;
@@ -195,8 +201,13 @@ export const FACTOR_WORDS: Record<string, Words> = {
   'workspace.illegal_transition': fromRelated('workspace.illegal_transition'),
 };
 
-/** The sentence for a code: a diagnostic, an exclusion, a note or a limitation. */
-export function factorSentence(d: Coded, names: FactorNames = NO_NAMES): string {
+/** The sentence for a code: a diagnostic, an exclusion, a note or a limitation. Given the
+ *  extraction, two notes name what was extracted (decision 742): one_factor_not_rotated says
+ *  component under principal components, and eigenvalues_not_distinct names the last iteration
+ *  under principal axis. Without it, decision 730's words. */
+export function factorSentence(d: Coded, names: FactorNames = NO_NAMES, extraction?: Extraction): string {
+  if (extraction === 'principal_components' && d.code === 'stats.factor.one_factor_not_rotated') return FACTOR_NOTES.oneComponentNotRotated;
+  if (extraction === 'principal_axis' && d.code === 'stats.factor.eigenvalues_not_distinct') return FACTOR_NOTES.eigenvaluesNotDistinctLastIteration;
   const f = FACTOR_WORDS[d.code];
   return f ? f(d, names) : `Gaply has no wording for the code ${d.code}.`;
 }
@@ -330,9 +341,14 @@ export function factorRotationFootnote(method: Exclude<Rotation, 'none'>, cycles
     : `Promax (power 4) with Kaiser normalization; its varimax converged in ${c}.`;
 }
 
-/** Under the variance table, for promax (decision 730). */
+/** Under the variance table, for promax (decision 730), and under principal components its
+ *  components' form (decision 742's m3). */
 export const FA_PROMAX_SUMS_SENTENCE =
   "Promax's factors are correlated, so the rotation sums of squared loadings that SPSS lists for them are not given here.";
+export const FA_PROMAX_SUMS_SENTENCE_COMPONENTS =
+  "Promax's components are correlated, so the rotation sums of squared loadings that SPSS lists for them are not given here.";
+export const factorPromaxSumsSentence = (e: Extraction): string =>
+  e === 'principal_components' ? FA_PROMAX_SUMS_SENTENCE_COMPONENTS : FA_PROMAX_SUMS_SENTENCE;
 
 /** A number, or its sentence where its number would be. */
 export function factorStatText(s: FactorStat): string {

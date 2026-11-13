@@ -11,7 +11,7 @@ crosstabs ([crosstabs.md](crosstabs.md)), its chi-square p and Fisher's exact
 test, and, since 8Y-1, the Mann-Whitney and Kruskal-Wallis tests
 ([independent_ranks.md](independent_ranks.md)), their normal and chi-square p
 and the Mann-Whitney exact p, and, since 8Z-1, the Wilcoxon signed-rank and Friedman tests
-([related_ranks.md](related_ranks.md)), their normal and chi-square p and the Wilcoxon exact p, and, since 9A-1, the linear regression ([linear_regression.md](linear_regression.md)), its t p, its 95% quantile and its F p, and, since 9B-1, the factor analysis ([factor_analysis.md](factor_analysis.md)), its Bartlett's chi-square p to 8,128 degrees of freedom (decision 699), take every p and quantile from it (decision 275; F measured at the regression's degrees of freedom, decision 670). Level 0 and Level 1 keep
+([related_ranks.md](related_ranks.md)), their normal and chi-square p and the Wilcoxon exact p, and, since 9A-1, the linear regression ([linear_regression.md](linear_regression.md)), its t p, its 95% quantile and its F p, and, since 9B-1, the factor analysis ([factor_analysis.md](factor_analysis.md)), its Bartlett's chi-square p to 8,128 degrees of freedom (decision 699), and, since 9C-1, the confirmatory factor analysis ([confirmatory_factor_analysis.md](confirmatory_factor_analysis.md)), its chi-square p to 8,128 degrees of freedom, its C.R.s' normal p, HOELTER's upper quantile, and the noncentral chi-square's tails and ncp for the RMSEA interval and PCLOSE (decision 744), take every p and quantile from it (decision 275; F measured at the regression's degrees of freedom, decision 670). Level 0 and Level 1 keep
 `stats_l0::pvalue` as it is.
 
 ## 1. Why

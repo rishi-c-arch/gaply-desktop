@@ -166,6 +166,25 @@ export const CAPABILITY_WORDS: Record<string, string> = {
     'A row is used only when every item has a value; pairwise deletion and mean substitution are not offered.',
   'stats.capability.limit.analyze.factor_no_scree_plot':
     'The scree plot is not drawn; the eigenvalues it would show are listed.',
+  // Research OS, Phase 9C-1 (decisions 745, 747 and 748): confirmatory factor analysis,
+  // Planned in Part 2 and Beta from Part 3 (decision 749).
+  'stats.capability.analyze.cfa.title': 'Confirmatory factor analysis on your data',
+  'stats.capability.analyze.cfa.description':
+    "Fits a measurement model you specify, each factor measured by two or more numeric columns of your own data file, by maximum likelihood as AMOS does, with the estimates, their standard errors and critical ratios, the standardized estimates, the squared multiple correlations, and AMOS's measures of fit, among them the chi-square, CFI, TLI and RMSEA with its 90% interval.",
+  'stats.capability.limit.analyze.cfa_ml_only':
+    'Maximum likelihood is the only estimator; generalized and unweighted least squares, asymptotically distribution-free and Bayesian estimation are not offered.',
+  'stats.capability.limit.analyze.cfa_no_means': 'Means and intercepts are not estimated.',
+  'stats.capability.limit.analyze.cfa_one_group': 'One group is analysed; multiple-group models are not offered.',
+  'stats.capability.limit.analyze.cfa_simple_structure':
+    'Each column measures one factor; cross-loadings and correlated errors are not offered.',
+  'stats.capability.limit.analyze.cfa_marker_identification':
+    "Each factor's scale is set by fixing its first column's loading to 1, as AMOS does when a model is drawn; fixing a factor's variance to 1 instead is not offered.",
+  'stats.capability.limit.analyze.cfa_no_modification_indices': 'Modification indices are not computed.',
+  'stats.capability.limit.analyze.cfa_normal_theory':
+    'The standard errors and the chi-square assume multivariate normality; bootstrap and robust corrections are not offered.',
+  'stats.capability.limit.analyze.cfa_no_srmr': 'The standardized RMR is not computed; AMOS gives it only through a plugin.',
+  'stats.capability.limit.analyze.cfa_listwise_only':
+    'A row is used only when every column in the model has a value; full information maximum likelihood is not offered.',
   // Phase 8M (decision 411): scale scores, Planned in 8M and Beta since 8M-2's
   // Part 2 (decision 416), with no route yet.
   'stats.capability.prepare.scale_score.title': 'Scale scores',

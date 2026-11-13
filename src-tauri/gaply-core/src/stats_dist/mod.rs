@@ -110,6 +110,7 @@ use std::f64::consts::SQRT_2;
 use statrs::distribution::{ContinuousCDF, Normal};
 use statrs::function::erf::erfc;
 use statrs::function::factorial::ln_binomial;
+use statrs::function::gamma::{gamma_lr, ln_gamma};
 
 use crate::stats_l0::pvalue::chi_square_upper as l0_chi_square_upper;
 use crate::stats_l0::pvalue::f_upper as l0_f_upper;
@@ -446,6 +447,393 @@ pub fn chi_square_upper_wide(x: f64, df: f64) -> Option<f64> {
     l0_chi_square_upper(x, df)
 }
 
+/* ------------------------------------------------------------------------ *
+ *  The confirmatory factor analysis's distributions (Research OS, Phase 9C-1,
+ *  decision 744): the noncentral chi-square's two tails, the ncp at which its
+ *  lower tail takes a value, and the chi-square's upper quantile, for the RMSEA
+ *  interval, PCLOSE and HOELTER.
+ * ------------------------------------------------------------------------ */
+
+/// The noncentral sum stops when a bound on what is left is below this times
+/// the sum so far (decision 744).
+pub const NONCENTRAL_REMAINDER: f64 = 1e-17;
+
+/// The relative width at which [`noncentral_chi_square_ncp`]'s bisection stops
+/// (decision 744).
+pub const NCP_RELATIVE_TOLERANCE: f64 = 1e-12;
+
+/// The relative width at which [`chi_square_quantile_upper`]'s bisection stops
+/// (decision 744).
+pub const QUANTILE_RELATIVE_TOLERANCE: f64 = 1e-14;
+
+/// ln Γ(n + 1) − (n ln n − n + ½ ln 2πn), Stirling's error, for n > 0: its
+/// asymptotic series above 15 (Loader 2000, "Fast and accurate computation of
+/// binomial probabilities", §2), statrs's `ln_gamma` at or below.
+fn stirling_error(n: f64) -> f64 {
+    const S0: f64 = 1.0 / 12.0;
+    const S1: f64 = 1.0 / 360.0;
+    const S2: f64 = 1.0 / 1260.0;
+    const S3: f64 = 1.0 / 1680.0;
+    const S4: f64 = 1.0 / 1188.0;
+    if n > 15.0 {
+        let nn = n * n;
+        if n > 500.0 {
+            (S0 - S1 / nn) / n
+        } else if n > 80.0 {
+            (S0 - (S1 - S2 / nn) / nn) / n
+        } else if n > 35.0 {
+            (S0 - (S1 - (S2 - S3 / nn) / nn) / nn) / n
+        } else {
+            (S0 - (S1 - (S2 - (S3 - S4 / nn) / nn) / nn) / nn) / n
+        }
+    } else {
+        ln_gamma(n + 1.0) - (n * n.ln() - n + 0.5 * (2.0 * std::f64::consts::PI * n).ln())
+    }
+}
+
+/// x ln(x / m) + m − x, the deviance term, without its cancellation near x =
+/// m (Loader 2000, §2): a series in v = (x − m) / (x + m) when |x − m| < 0.1 (x
+/// + m).
+fn deviance_term(x: f64, m: f64) -> f64 {
+    if (x - m).abs() < 0.1 * (x + m) {
+        let v = (x - m) / (x + m);
+        let mut s = (x - m) * v;
+        let mut e = 2.0 * x * v;
+        let v2 = v * v;
+        let mut j = 1.0;
+        loop {
+            e *= v2;
+            let next = s + e / (2.0 * j + 1.0);
+            if next == s {
+                return next;
+            }
+            s = next;
+            j += 1.0;
+        }
+    } else {
+        x * (x / m).ln() + m - x
+    }
+}
+
+/// e^{−m} m^b / Γ(b + 1) for b ≥ 0 and m ≥ 0: the Poisson probability of b at
+/// mean m when b is whole, and the difference P(b, m) − P(b + 1, m) of the
+/// regularized lower incomplete gamma in general. For a whole or half-whole b
+/// up to 15 and m up to 700 it is a product, e^{−m} Π_{i=1}^{b} m / i, or 2
+/// e^{−m} √(m / π) Π_{i=1}^{b − ½} m / (i + ½) (Γ of a half-whole number being √π
+/// times a product): statrs's ln_gamma there is off by up to 3e-15, which
+/// Stirling's error would carry into every term (measured against R's lgamma,
+/// 13 Nov 2026). Otherwise Loader 2000's saddle point form.
+fn poisson_term(b: f64, m: f64) -> f64 {
+    if m == 0.0 {
+        return if b == 0.0 { 1.0 } else { 0.0 };
+    }
+    if b == 0.0 {
+        return (-m).exp();
+    }
+    if b <= SMALL_TERM && m <= 700.0 {
+        let twice = 2.0 * b;
+        if b.fract() == 0.0 {
+            let mut d = (-m).exp();
+            let mut i = 1.0;
+            while i <= b {
+                d *= m / i;
+                i += 1.0;
+            }
+            return d;
+        }
+        if twice.fract() == 0.0 {
+            let mut d = 2.0 * (-m).exp() * (m / std::f64::consts::PI).sqrt();
+            let mut i = 1.0;
+            while i + 0.5 <= b {
+                d *= m / (i + 0.5);
+                i += 1.0;
+            }
+            return d;
+        }
+    }
+    (-stirling_error(b) - deviance_term(b, m)).exp() / (2.0 * std::f64::consts::PI * b).sqrt()
+}
+
+/// The largest b [`poisson_term`] takes as a product.
+const SMALL_TERM: f64 = 15.0;
+
+/// The most terms [`regularized_gamma`] sums or fractions it takes before it
+/// stops; far beyond what any b and y up to the method's ranges need.
+const GAMMA_TERMS: u32 = 1_000_000;
+
+/// P(b, y) and Q(b, y), the regularized lower and upper incomplete gamma, for b
+/// > 0 and y > 0, each from [`poisson_term`]'s e^{−y} y^b / Γ(b + 1): below y =
+/// b + 1 the series P = term · Σ_k y^k / ((b + 1)…(b + k)), compensated, and Q =
+/// 1 − P, which is not small there; at or above it Q = b · term times Legendre's
+/// continued fraction by Lentz's method (Press et al., Numerical Recipes,
+/// §6.2), and P = 1 − Q. (Past y = b the series' running product carries its
+/// rounding through hundreds of factors: measured, the boundary at b + 1 + 3 √b
+/// put the tails' sum up to 14 ε from 1, at b + 1 up to 5 ε.) statrs's own forms carry ln_gamma's error in their prefactor, up to
+/// 4e-10 relative at b = 1e6 (measured against R's pgamma, 13 Nov 2026).
+fn regularized_gamma(b: f64, y: f64) -> (f64, f64) {
+    let term = poisson_term(b, y);
+    if y < b + 1.0 {
+        let (mut t, mut sum, mut k) = (1.0, Compensated::new(1.0), 1.0);
+        for _ in 0..GAMMA_TERMS {
+            t *= y / (b + k);
+            if t <= f64::EPSILON * 1e-3 * sum.value() {
+                break;
+            }
+            sum.add(t);
+            k += 1.0;
+        }
+        let p = term * sum.value();
+        (p, 1.0 - p)
+    } else {
+        const TINY: f64 = 1e-300;
+        let mut bb = y + 1.0 - b;
+        let mut c = 1.0 / TINY;
+        let mut d = 1.0 / bb;
+        let mut h = d;
+        let mut i = 1.0;
+        for _ in 0..GAMMA_TERMS {
+            let an = -i * (i - b);
+            bb += 2.0;
+            d = an * d + bb;
+            if d.abs() < TINY {
+                d = TINY;
+            }
+            c = bb + an / c;
+            if c.abs() < TINY {
+                c = TINY;
+            }
+            d = 1.0 / d;
+            let delta = d * c;
+            h *= delta;
+            if (delta - 1.0).abs() <= f64::EPSILON {
+                break;
+            }
+            i += 1.0;
+        }
+        let q = b * term * h;
+        (1.0 - q, q)
+    }
+}
+
+/// The noncentral chi-square's lower and upper tails at `x` with `df` degrees
+/// of freedom and noncentrality `ncp` (decision 744), each computed on its own
+/// and never as 1 minus the other: the Poisson mixture P(x; df, ncp) = Σ_j
+/// Pois(j; ncp / 2) · P(df / 2 + j, x / 2), with P (and Q) the regularized
+/// incomplete gamma. Each tail's terms come from the incomplete gamma's
+/// recurrence, P(b, y) = P(b + 1, y) + e^{−y} y^b / Γ(b + 1) and Q(b + 1, y) =
+/// Q(b, y) + e^{−y} y^b / Γ(b + 1), run in the direction in which it only
+/// adds: the lower tail downward from the top of its range, the upper upward
+/// from the bottom of its, each started from [`regularized_gamma`]'s tail there. The range
+/// reaches from the Poisson mode outward until a bound on what is left is below
+/// [`NONCENTRAL_REMAINDER`] of the sum, and the terms are summed from the mode
+/// outward. `None` for a df not above 0 or above [`CHI_SQUARE_WIDE_MAX_DF`], an
+/// ncp below 0, or an x below 0, and for any of them not finite. x = 0 gives (0,
+/// 1) before any statrs call (statrs's `gamma_lr` and `gamma_ur` panic at x ≤
+/// 0); ncp = 0 gives (`gamma_lr(df / 2, x / 2)`, [`chi_square_upper_wide`]).
+pub fn noncentral_chi_square_tails(x: f64, df: f64, ncp: f64) -> Option<(f64, f64)> {
+    if !(df.is_finite() && df > 0.0 && df <= CHI_SQUARE_WIDE_MAX_DF) || !(ncp.is_finite() && ncp >= 0.0) || !(x.is_finite() && x >= 0.0) {
+        return None;
+    }
+    if x == 0.0 {
+        return Some((0.0, 1.0));
+    }
+    let (a, y) = (df / 2.0, x / 2.0);
+    if ncp == 0.0 {
+        return Some((gamma_lr(a, y), chi_square_upper_wide(x, df)?));
+    }
+    let lambda = ncp / 2.0;
+    Some((lower_mixture(a, y, lambda).0, upper_mixture(a, y, lambda).0))
+}
+
+/// The Poisson mode, ⌊λ⌋.
+fn poisson_mode(lambda: f64) -> f64 {
+    lambda.floor()
+}
+
+/// A bound on Σ_{i > j} Pois(i; λ), for j + 2 > λ: the terms fall at least
+/// geometrically at the ratio λ / (j + 2) and below. `None` while j is too low
+/// for the bound.
+fn mass_above(j: f64, lambda: f64) -> Option<f64> {
+    let r = lambda / (j + 2.0);
+    (r < 1.0).then(|| poisson_term(j + 1.0, lambda) / (1.0 - r))
+}
+
+/// A bound on Σ_{i < j} Pois(i; λ), for j − 1 < λ: the terms fall at least
+/// geometrically downward at the ratio (j − 1) / λ and below. 0 at j = 0.
+fn mass_below(j: f64, lambda: f64) -> Option<f64> {
+    if j <= 0.0 {
+        return Some(0.0);
+    }
+    let r = (j - 1.0) / lambda;
+    (r < 1.0).then(|| poisson_term(j - 1.0, lambda) / (1.0 - r))
+}
+
+/// A running sum with Neumaier's compensation: the rounding of each addition is
+/// kept and added back at the end, so a sum of many terms is within a few ε of
+/// the exact sum of the terms it was given.
+#[derive(Clone, Copy)]
+struct Compensated {
+    sum: f64,
+    lost: f64,
+}
+
+impl Compensated {
+    fn new(x: f64) -> Compensated {
+        Compensated { sum: x, lost: 0.0 }
+    }
+    fn add(&mut self, x: f64) {
+        let t = self.sum + x;
+        self.lost += if self.sum.abs() >= x.abs() { (self.sum - t) + x } else { (x - t) + self.sum };
+        self.sum = t;
+    }
+    fn value(self) -> f64 {
+        self.sum + self.lost
+    }
+}
+
+/// Sums `terms`, indexed from `first`, from the mode outward: the mode, then
+/// each term above it in turn, then each below it in turn, compensated.
+fn sum_from_mode(terms: &[f64], first: f64, mode: f64) -> f64 {
+    let at = (mode - first) as usize;
+    let mut s = Compensated::new(terms[at]);
+    for t in &terms[at + 1..] {
+        s.add(*t);
+    }
+    for t in terms[..at].iter().rev() {
+        s.add(*t);
+    }
+    s.value()
+}
+
+/// The lower tail's mixture (see [`noncentral_chi_square_tails`]), and how
+/// many terms it summed.
+fn lower_mixture(a: f64, y: f64, lambda: f64) -> (f64, usize) {
+    let mode = poisson_mode(lambda);
+    let w_mode = poisson_term(mode, lambda);
+    // The top: P is at most P at the mode above it, so mass above j at most
+    // NONCENTRAL_REMAINDER times the mode's weight bounds what is left there by
+    // that fraction of the mode's own term.
+    let mut top = mode;
+    while !mass_above(top, lambda).is_some_and(|m| m <= NONCENTRAL_REMAINDER * w_mode) {
+        top += 1.0;
+    }
+    // A start within 3 √y of y = b moves into the series' region, 3 √y clear
+    // of its edge, where the series converges in few terms: near y = b the
+    // fraction's rounding grows with its hundreds of steps (measured: the tails'
+    // sum up to 5 ε from 1). Far from y = b either form converges fast.
+    if (y - (a + top)).abs() < 3.0 * y.sqrt() {
+        top = top.max((y - a + 3.0 * y.sqrt()).ceil());
+    }
+    // Downward from the top, adding.
+    let mut p = Compensated::new(regularized_gamma(a + top, y).0);
+    let mut terms = vec![poisson_term(top, lambda) * p.value()];
+    let mut sum = terms[0];
+    let mut j = top;
+    // Above the mode every term is needed; below it, P only grows (at most 1),
+    // so the rest is at most the Poisson mass below.
+    while j > 0.0 && (j > mode || !mass_below(j, lambda).is_some_and(|m| m <= NONCENTRAL_REMAINDER * sum)) {
+        j -= 1.0;
+        p.add(poisson_term(a + j, y));
+        let t = poisson_term(j, lambda) * p.value();
+        terms.push(t);
+        sum += t;
+    }
+    terms.reverse();
+    (sum_from_mode(&terms, j, mode), terms.len())
+}
+
+/// The upper tail's mixture (see [`noncentral_chi_square_tails`]), and how
+/// many terms it summed.
+fn upper_mixture(a: f64, y: f64, lambda: f64) -> (f64, usize) {
+    let mode = poisson_mode(lambda);
+    let w_mode = poisson_term(mode, lambda);
+    // The bottom: Q is at most Q at the mode below it.
+    let mut bottom = mode;
+    while !mass_below(bottom, lambda).is_some_and(|m| m <= NONCENTRAL_REMAINDER * w_mode) {
+        bottom -= 1.0;
+    }
+    // A start within 3 √y of y = b moves into the fraction's region, 3 √y
+    // clear of its edge, as far as j = 0 allows (see lower_mixture).
+    if (y - (a + bottom)).abs() < 3.0 * y.sqrt() {
+        bottom = bottom.min((y - a - 1.0 - 3.0 * y.sqrt()).floor().max(0.0));
+    }
+    // Upward from the bottom, adding.
+    let mut q = Compensated::new(regularized_gamma(a + bottom, y).1);
+    let mut terms = vec![poisson_term(bottom, lambda) * q.value()];
+    let mut sum = terms[0];
+    let mut j = bottom;
+    // Below the mode every term is needed; above it, Q only grows (at most 1).
+    while j < mode || !mass_above(j, lambda).is_some_and(|m| m <= NONCENTRAL_REMAINDER * sum) {
+        q.add(poisson_term(a + j, y));
+        j += 1.0;
+        let t = poisson_term(j, lambda) * q.value();
+        terms.push(t);
+        sum += t;
+    }
+    (sum_from_mode(&terms, bottom, mode), terms.len())
+}
+
+/// The ncp at which the noncentral chi-square's lower tail at `x` with `df`
+/// degrees of freedom equals `lower_target` (decision 744), the tail
+/// decreasing in the ncp: 0 when the lower tail at ncp 0 is already at or below
+/// the target; otherwise by bisection to a relative [`NCP_RELATIVE_TOLERANCE`],
+/// the bracket's top starting at max(x, 1) and doubling while the lower tail
+/// there is above the target. `None` for a target not inside (0, 1), for an x
+/// or df [`noncentral_chi_square_tails`] refuses, and when the bracket's top
+/// stops being finite.
+pub fn noncentral_chi_square_ncp(x: f64, df: f64, lower_target: f64) -> Option<f64> {
+    if !(lower_target > 0.0 && lower_target < 1.0) {
+        return None;
+    }
+    let lower = |ncp: f64| noncentral_chi_square_tails(x, df, ncp).map(|t| t.0);
+    if lower(0.0)? <= lower_target {
+        return Some(0.0);
+    }
+    let (mut lo, mut hi) = (0.0, x.max(1.0));
+    while lower(hi)? > lower_target {
+        lo = hi;
+        hi *= 2.0;
+        if !hi.is_finite() {
+            return None;
+        }
+    }
+    while hi - lo > NCP_RELATIVE_TOLERANCE * hi {
+        let mid = 0.5 * (lo + hi);
+        if lower(mid)? > lower_target {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    Some(0.5 * (lo + hi))
+}
+
+/// The x at which the chi-square's upper tail with `df` degrees of freedom is
+/// `alpha` (decision 744), by bisection on [`chi_square_upper_wide`] to a
+/// relative [`QUANTILE_RELATIVE_TOLERANCE`], the bracket's top starting at
+/// max(df, 1) and doubling while the tail there is above alpha. `None` for an
+/// alpha not inside (0, 1) and a df outside (0, [`CHI_SQUARE_WIDE_MAX_DF`]].
+pub fn chi_square_quantile_upper(alpha: f64, df: f64) -> Option<f64> {
+    if !(alpha > 0.0 && alpha < 1.0) {
+        return None;
+    }
+    let upper = |x: f64| chi_square_upper_wide(x, df);
+    let (mut lo, mut hi) = (0.0, df.max(1.0));
+    while upper(hi)? > alpha {
+        lo = hi;
+        hi *= 2.0;
+    }
+    while hi - lo > QUANTILE_RELATIVE_TOLERANCE * hi {
+        let mid = 0.5 * (lo + hi);
+        if upper(mid)? > alpha {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    Some(0.5 * (lo + hi))
+}
+
 /// Fisher's exact test's three p values for a 2 x 2 table.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Fisher2x2 {
@@ -666,7 +1054,36 @@ fn rank_sum_counts(n1: usize, n2: usize) -> Vec<f64> {
 
 #[cfg(test)]
 mod tests {
-    use super::exact_two_sided;
+    use super::{exact_two_sided, lower_mixture, poisson_mode, upper_mixture};
+
+    /// Research OS, Phase 9C-1 (decision 744): the noncentral sum starts at the
+    /// Poisson mode, ⌊λ⌋, and runs outward. Started at j = 0 instead, every
+    /// value stays within its gates (the range bounds find the terms either way)
+    /// but a call at an ncp of 2e6 sums a million terms: the reference tests took
+    /// 7.22 s against 0.43 s (the mutation record of 13 Nov 2026). Pinned here,
+    /// where the mode is defined.
+    #[test]
+    fn the_noncentral_sum_starts_at_the_poisson_mode() {
+        assert_eq!(poisson_mode(0.3), 0.0);
+        assert_eq!(poisson_mode(2.5), 2.0);
+        assert_eq!(poisson_mode(1e6), 1e6);
+        assert_eq!(poisson_mode(1e6 + 0.75), 1e6);
+    }
+
+    /// Where the sums start, by what they sum (the review of 9C-1, finding 10:
+    /// the test above pins the helper, not its use). At λ = 1e6, a = 5 and y of
+    /// 0.9e6, 1e6 and 1.1e6, each mixture sums 17,855 to 47,993 terms (measured
+    /// 13 Nov 2026; the larger where the start moves 3 √y clear of y = b);
+    /// started at j = 0 either would sum about a million. The bound is about
+    /// twice the most measured.
+    #[test]
+    fn each_mixture_sums_only_the_terms_near_the_poisson_mode() {
+        for y in [0.9e6, 1e6, 1.1e6] {
+            let (_, lower) = lower_mixture(5.0, y, 1e6);
+            let (_, upper) = upper_mixture(5.0, y, 1e6);
+            assert!(lower < 100_000 && upper < 100_000, "y = {y}: {lower} and {upper} terms");
+        }
+    }
 
     /// Decision 652: the one home of the exact two-sided p. Twice the smaller tail, at most
     /// 1; none unless both tails are finite, checked first, since `f64::min` turns a NaN

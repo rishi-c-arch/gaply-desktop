@@ -942,3 +942,224 @@ fn chi_square_upper_wide_answers_to_df_8128_is_the_narrow_one_below_2401_and_ref
         assert_eq!(chi_square_upper_wide(x, df).map(f64::to_bits), chi_square_upper(x, df).map(f64::to_bits), "x {x} df {df}");
     }
 }
+
+/* ------------------------------------------------------------------------ *
+ *  The noncentral chi-square, its ncp and the chi-square's upper quantile
+ *  (Research OS, Phase 9C-1, decision 744): make_cfa_dist_fixtures.R's four
+ *  files. The earlier scripts are not run; their files stay byte for byte.
+ * ------------------------------------------------------------------------ */
+
+/// The seventh script.
+const PROVENANCE_CFA: &str = "/usr/local/bin/Rscript make_cfa_dist_fixtures.R";
+
+/// The rows of one of the seventh script's files, under its expected header.
+fn cfa_rows(name: &str, header: &str) -> Vec<Vec<f64>> {
+    let text = std::fs::read_to_string(format!("{DIR}/{name}")).unwrap_or_else(|e| panic!("{name}: {e}"));
+    let provenance: Vec<&str> = text.lines().take_while(|l| l.starts_with('#')).collect();
+    assert!(provenance.iter().any(|h| h.contains(PROVENANCE_CFA)), "{name}: not written by {PROVENANCE_CFA}");
+    assert!(provenance.iter().any(|h| h.contains(R_VERSION)), "{name}: not written with {R_VERSION}");
+    let mut lines = text.lines().filter(|l| !l.starts_with('#'));
+    assert_eq!(lines.next(), Some(header), "{name}: the column header");
+    let width = header.split('\t').count();
+    lines
+        .map(|l| {
+            let v: Vec<f64> = l.split('\t').map(|f| f.parse().unwrap_or_else(|e| panic!("{name}: `{f}`: {e}"))).collect();
+            assert_eq!(v.len(), width, "{name}: `{l}`");
+            v
+        })
+        .collect()
+}
+
+/// Decision 744's plan for R's pchisq with an ncp, absolute: ten times R's own
+/// error, about 1.25e-12 to df 2,000 and 7.5e-12 at df 8,128. A row above it
+/// stops the step at the end of Part 1.
+fn nc_absolute_plan(df: f64) -> f64 {
+    if df > 2000.0 {
+        7.5e-11
+    } else {
+        1.25e-11
+    }
+}
+/// The plan in relative terms where R's tail is at least 1e-4: the absolute
+/// plan over 1e-4.
+const NC_RELATIVE_PLAN: f64 = 1.25e-7;
+/// Ten times the largest absolute error measured over nc_pchisq.tsv, rounded up
+/// (decision 744): 3.317e-12, the lower tail at x 3,975.35, df 2, ncp 3,500
+/// (macOS aarch64, 13 Nov 2026), printed by the test below.
+const NC_ABSOLUTE_GATE: f64 = 3.4e-11;
+/// Ten times the largest relative error measured where R's tail is at least
+/// 1e-4, rounded up: 1.084e-10, the upper tail of 0.0235 at df 8,128, ncp 3,500.
+const NC_RELATIVE_GATE: f64 = 1.1e-9;
+/// Decision 744's gate over the Poisson mixture's rows, absolute, and relative
+/// for a far tail (the smaller of the two).
+const NC_MIXTURE_GATE: f64 = 1e-8;
+/// The quantile's plan, relative: a row above it stops the step.
+const CHI_QUANTILE_PLAN: f64 = 1e-10;
+/// Ten times the largest relative error measured over chi_quantile.tsv, rounded
+/// up: 1.607e-14, alpha 0.01 at df 2,000 (macOS aarch64, 13 Nov 2026).
+const CHI_QUANTILE_GATE: f64 = 1.7e-13;
+/// Decision 744's gate for the RMSEA interval's ncp, relative.
+const NCP_GATE: f64 = 1e-10;
+
+#[test]
+fn noncentral_chi_square_tails_are_within_their_gates_of_r_pchisq() {
+    use gaply_core::stats_dist::noncentral_chi_square_tails;
+    let rows = cfa_rows("nc_pchisq.tsv", "x\tdf\tncp\tlower\tupper");
+    let (mut abs_worst, mut rel_worst) = (Worst::default(), Worst::default());
+    let (mut stopped, mut over) = (Vec::new(), Vec::new());
+    let mut relative_rows = 0;
+    for v in &rows {
+        let (x, df, ncp, lower, upper) = (v[0], v[1], v[2], v[3], v[4]);
+        let (gl, gu) = noncentral_chi_square_tails(x, df, ncp).unwrap_or_else(|| panic!("x {x} df {df} ncp {ncp}: refused"));
+        for (tail, got, want) in [("lower", gl, lower), ("upper", gu, upper)] {
+            let row = format!("{tail} x {x:e} df {df} ncp {ncp} (R {want:e}, gaply {got:e})");
+            let abs = (got - want).abs();
+            abs_worst.see(abs, row.clone());
+            if abs > nc_absolute_plan(df) {
+                stopped.push(format!("{row}: absolute {abs:e}"));
+            }
+            if abs > NC_ABSOLUTE_GATE {
+                over.push(format!("{row}: absolute {abs:e}"));
+            }
+            if want >= 1e-4 {
+                relative_rows += 1;
+                let rel = relative(got, want);
+                rel_worst.see(rel, row.clone());
+                if rel > NC_RELATIVE_PLAN {
+                    stopped.push(format!("{row}: relative {rel:e}"));
+                }
+                if rel > NC_RELATIVE_GATE {
+                    over.push(format!("{row}: relative {rel:e}"));
+                }
+            }
+        }
+    }
+    println!("noncentral vs pchisq: {} rows; absolute worst {:.3e} ({}); relative worst {:.3e} over {relative_rows} tails at least 1e-4 ({})", rows.len(), abs_worst.0, abs_worst.1, rel_worst.0, rel_worst.1);
+    assert_eq!(rows.len(), 598, "the script's rows, none skipped");
+    assert!(stopped.is_empty(), "above decision 744's plan; the step stops at the end of Part 1:\n{}", stopped.join("\n"));
+    assert!(over.is_empty(), "over the gates:\n{}", over.join("\n"));
+}
+
+#[test]
+fn noncentral_chi_square_tails_are_within_1e_8_of_the_poisson_mixture_where_pchisq_cannot_reach() {
+    use gaply_core::stats_dist::noncentral_chi_square_tails;
+    let rows = cfa_rows("nc_mixture.tsv", "x\tdf\tncp\tz\tlower\tupper");
+    let mut worst = Worst::default();
+    let mut over = Vec::new();
+    for v in &rows {
+        let (x, df, ncp, z, lower, upper) = (v[0], v[1], v[2], v[3], v[4], v[5]);
+        let (gl, gu) = noncentral_chi_square_tails(x, df, ncp).unwrap_or_else(|| panic!("x {x} df {df} ncp {ncp}: refused"));
+        for (tail, got, want) in [("lower", gl, lower), ("upper", gu, upper)] {
+            let row = format!("{tail} z {z} df {df} ncp {ncp:e} (R {want:e}, gaply {got:e})");
+            // Absolute for both; relative for the far tail, the smaller of the two.
+            let far = want < 0.5;
+            let err = if far { relative(got, want).max((got - want).abs()) } else { (got - want).abs() };
+            worst.see(err, row.clone());
+            if err > NC_MIXTURE_GATE {
+                over.push(format!("{row}: {err:e}"));
+            }
+        }
+    }
+    println!("noncentral vs the mixture: {} rows; worst {:.3e} ({}); gate {NC_MIXTURE_GATE:e}", rows.len(), worst.0, worst.1);
+    assert_eq!(rows.len(), 135, "the script's rows, none skipped");
+    assert!(over.is_empty(), "over decision 744's gate; the step stops at the end of Part 1:\n{}", over.join("\n"));
+}
+
+#[test]
+fn chi_square_quantile_upper_is_within_its_gate_of_r_qchisq() {
+    use gaply_core::stats_dist::chi_square_quantile_upper;
+    let rows = cfa_rows("chi_quantile.tsv", "alpha\tdf\tx");
+    let mut worst = Worst::default();
+    let (mut stopped, mut over) = (Vec::new(), Vec::new());
+    for v in &rows {
+        let (alpha, df, want) = (v[0], v[1], v[2]);
+        let got = chi_square_quantile_upper(alpha, df).unwrap_or_else(|| panic!("alpha {alpha} df {df}: refused"));
+        let rel = relative(got, want);
+        let row = format!("alpha {alpha} df {df} (R {want:e}, gaply {got:e})");
+        worst.see(rel, row.clone());
+        if rel > CHI_QUANTILE_PLAN {
+            stopped.push(format!("{row}: {rel:e}"));
+        }
+        if rel > CHI_QUANTILE_GATE {
+            over.push(format!("{row}: {rel:e}"));
+        }
+    }
+    println!("quantile vs qchisq: {} rows; relative worst {:.3e} ({})", rows.len(), worst.0, worst.1);
+    assert_eq!(rows.len(), 18);
+    assert!(stopped.is_empty(), "above the plan; the step stops at the end of Part 1:\n{}", stopped.join("\n"));
+    assert!(over.is_empty(), "over the gate:\n{}", over.join("\n"));
+}
+
+#[test]
+fn the_rmsea_intervals_ncp_is_within_1e_10_of_uniroot() {
+    use gaply_core::stats_dist::noncentral_chi_square_ncp;
+    let rows = cfa_rows("rmsea_ncp.tsv", "C\td\tncp_lower_95\tncp_lower_05");
+    let mut worst = Worst::default();
+    let mut over = Vec::new();
+    for v in &rows {
+        let (c, d) = (v[0], v[1]);
+        for (target, want) in [(0.95, v[2]), (0.05, v[3])] {
+            let got = noncentral_chi_square_ncp(c, d, target).unwrap_or_else(|| panic!("C {c} d {d}: refused"));
+            let rel = relative(got, want);
+            let row = format!("C {c} d {d} target {target} (R {want:e}, gaply {got:e})");
+            worst.see(rel, row.clone());
+            if rel > NCP_GATE {
+                over.push(format!("{row}: {rel:e}"));
+            }
+        }
+    }
+    println!("ncp vs uniroot: {} rows; relative worst {:.3e} ({})", rows.len(), worst.0, worst.1);
+    assert_eq!(rows.len(), 30);
+    assert!(over.is_empty(), "over decision 744's gate; the step stops at the end of Part 1:\n{}", over.join("\n"));
+}
+
+/// Decision 744: the tails sum to 1 within 4 ε where neither is tiny; each is
+/// monotone in x and in the ncp over a grid; and each refusal.
+#[test]
+fn the_noncentral_tails_sum_to_1_are_monotone_and_refuse_outside_their_range() {
+    use gaply_core::stats_dist::{chi_square_quantile_upper, noncentral_chi_square_ncp, noncentral_chi_square_tails, CHI_SQUARE_WIDE_MAX_DF};
+    let mut checked = 0;
+    for df in [1.0f64, 2.0, 5.0, 24.0, 500.0, 8128.0] {
+        for ncp in [0.0, 0.5, 3.0, 40.0, 900.0] {
+            let sd = (2.0 * (df + 2.0 * ncp)).sqrt();
+            let mut last = (0.0f64, 1.0f64);
+            for k in -40..=40 {
+                let x = df + ncp + 0.1 * f64::from(k) * sd;
+                if x <= 0.0 {
+                    continue;
+                }
+                let (lo, up) = noncentral_chi_square_tails(x, df, ncp).unwrap();
+                if lo > 1e-3 && up > 1e-3 {
+                    assert!((lo + up - 1.0).abs() <= 4.0 * f64::EPSILON, "df {df} ncp {ncp} x {x}: {lo} + {up}");
+                    checked += 1;
+                }
+                assert!(lo >= last.0 && up <= last.1, "df {df} ncp {ncp} x {x}: not monotone in x");
+                last = (lo, up);
+            }
+        }
+        // Monotone in the ncp at a fixed x: the lower tail falls, the upper rises.
+        let x = df + 10.0;
+        let mut last = (1.0f64, 0.0f64);
+        for ncp in [0.0, 0.01, 0.1, 1.0, 5.0, 20.0, 100.0, 1000.0] {
+            let (lo, up) = noncentral_chi_square_tails(x, df, ncp).unwrap();
+            assert!(lo <= last.0 && up >= last.1, "df {df} x {x} ncp {ncp}: not monotone in the ncp");
+            last = (lo, up);
+        }
+    }
+    assert!(checked > 500, "the sum was checked at {checked} points only");
+    // x = 0 before any statrs call; ncp 0 is the central chi-square's.
+    assert_eq!(noncentral_chi_square_tails(0.0, 3.0, 2.0), Some((0.0, 1.0)));
+    assert_eq!(noncentral_chi_square_tails(7.0, 3.0, 0.0).map(|t| t.1), gaply_core::stats_dist::chi_square_upper_wide(7.0, 3.0));
+    // Refusals.
+    for (x, df, ncp) in [(1.0, 0.0, 1.0), (1.0, -1.0, 1.0), (1.0, CHI_SQUARE_WIDE_MAX_DF + 1.0, 1.0), (1.0, f64::NAN, 1.0), (-1.0, 3.0, 1.0), (f64::INFINITY, 3.0, 1.0), (f64::NAN, 3.0, 1.0), (1.0, 3.0, -1.0), (1.0, 3.0, f64::INFINITY), (1.0, 3.0, f64::NAN)] {
+        assert_eq!(noncentral_chi_square_tails(x, df, ncp), None, "x {x} df {df} ncp {ncp}");
+    }
+    for t in [0.0, 1.0, -0.1, 1.5, f64::NAN] {
+        assert_eq!(noncentral_chi_square_ncp(10.0, 3.0, t), None, "target {t}");
+        assert_eq!(chi_square_quantile_upper(t, 3.0), None, "alpha {t}");
+    }
+    assert_eq!(chi_square_quantile_upper(0.05, 0.0), None);
+    assert_eq!(chi_square_quantile_upper(0.05, CHI_SQUARE_WIDE_MAX_DF + 1.0), None);
+    // 0 when the lower tail at ncp 0 is already at or below the target.
+    assert_eq!(noncentral_chi_square_ncp(1.0, 10.0, 0.95), Some(0.0));
+}

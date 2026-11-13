@@ -247,3 +247,46 @@ describe('the factor analysis screen words every code it can show', () => {
     expect([words.MIN_ITEMS, words.MIN_ITERATIONS, words.MAX_ITERATIONS, words.MIN_CONVERGENCE, words.MAX_CONVERGENCE]).toEqual([3, 1, 1000, 1e-12, 0.1]);
   });
 });
+
+// Research OS, Phase 9C-1, decision 742's m3 and m4: a note names what was extracted, and
+// principal axis's tie note says it read the last iteration's eigenvalues, not the ones shown.
+describe('the words follow the extraction (decision 742, m3 and m4)', () => {
+  const sayIn = (c: string, e?: 'principal_components' | 'principal_axis') => words.factorSentence({ code: `stats.factor.${c}` }, NAMES, e);
+
+  it('under principal components a note and the promax sentence say component', () => {
+    expect(sayIn('one_factor_not_rotated', 'principal_components')).toBe('One component was extracted, so there is nothing to rotate.');
+    expect(words.factorPromaxSumsSentence('principal_components')).toBe(
+      "Promax's components are correlated, so the rotation sums of squared loadings that SPSS lists for them are not given here."
+    );
+    expect(sayIn('eigenvalues_not_distinct', 'principal_components')).toBe(
+      'The last eigenvalue extracted and the next are equal within 1e-8 of the larger, so these loadings are one of many that fit equally well.'
+    );
+  });
+
+  it("under principal axis decision 730's words stand, and the tie note names the last iteration", () => {
+    expect(sayIn('one_factor_not_rotated', 'principal_axis')).toBe('One factor was extracted, so there is nothing to rotate.');
+    expect(words.factorPromaxSumsSentence('principal_axis')).toBe(
+      "Promax's factors are correlated, so the rotation sums of squared loadings that SPSS lists for them are not given here."
+    );
+    expect(sayIn('eigenvalues_not_distinct', 'principal_axis')).toBe(
+      'In the last iteration, the last eigenvalue extracted and the next were equal within 1e-8 of the larger, so these loadings are one of many that fit equally well.'
+    );
+  });
+
+  it('with no extraction given, every code keeps its sentence', () => {
+    for (const code of factorCodes) {
+      const s = words.factorSentence({ code, params: paramsFor(code) }, NAMES);
+      expect(words.factorSentence({ code, params: paramsFor(code) }, NAMES, undefined), code).toBe(s);
+    }
+    expect(sayIn('one_factor_not_rotated')).toBe('One factor was extracted, so there is nothing to rotate.');
+  });
+
+  it('no sentence of either extraction passes a verdict', () => {
+    const all: string[] = [];
+    for (const e of ['principal_components', 'principal_axis'] as const) {
+      for (const code of factorCodes) all.push(words.factorSentence({ code, params: paramsFor(code) }, NAMES, e));
+      all.push(words.factorPromaxSumsSentence(e));
+    }
+    expect(all.filter(VERDICT)).toEqual([]);
+  });
+});

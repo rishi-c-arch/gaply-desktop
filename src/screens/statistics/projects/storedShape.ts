@@ -1536,9 +1536,18 @@ const FA_SINGULAR = faCode('correlations_singular');
 const FA_SMALL = faCode('too_small');
 const FA_OVERFLOW = faCode('overflow');
 const FA_NO_CORRELATION = faCode('no_correlation');
-const FA_RANGE = faCode('distribution_out_of_range');
-/** stats_factor::DISTINCT_TOLERANCE (:109). */
+/** stats_factor::DISTINCT_TOLERANCE (:111). */
 const FA_DISTINCT = 1e-8;
+/** stats_factor's MAX_ITERATIONS, MIN_CONVERGENCE and MAX_CONVERGENCE (:91-95), the spec's
+ *  ranges check (:616-625) refuses outside (decision 742's m1). */
+const FA_MAX_ITERATIONS = 1000;
+const FA_MIN_CONVERGENCE = 1e-12;
+const FA_MAX_CONVERGENCE = 0.1;
+/** ln of the smallest normal double: Rust writes the determinant too_small only when Π l_jj²
+ *  is below it (:823-825), so only beside a log below this, within the determinant's band. */
+const FA_LN_MIN_NORMAL = Math.log(2.2250738585072014e-308);
+/** ln of stats_linalg's CHOLESKY_TOLERANCE, 1e-9: each pivot's floor relative to its diagonal. */
+const FA_LN_CHOLESKY_TOLERANCE = Math.log(1e-9);
 
 /** The bands of decision 733, each the worst measured over the stored checker's hunt (seed
  *  20260734, 256 saved runs with 16 of 128 items at m of 32 to 127, in two runs: 182 and 176
@@ -1555,12 +1564,23 @@ export const FA_BANDS = {
   /** |(TᵀT)_jk − δ_jk| over ε m cycles: worst 0.3334 (m 3, 3 cycles); 0.12 at m of 32 to
    *  100 with 50 to 76 cycles. */
   orthogonal: 3.4,
-  /** |rotated row − extracted row × T| over ε m: worst 0.8438 (m 32, 76 cycles). */
-  rotatedRow: 8.5,
+  /** |rotated row − extracted row × T| over ε m cycles, as the orthogonality band (Research OS,
+   *  Phase 9C-1, decision 742's B1: over ε m alone it refused a varimax of 995 cycles Rust wrote,
+   *  at 10.17). Worst 0.25 (m 2, 2 cycles) over 9B-3's hunt, 40 runs of 202 to 995 cycles and
+   *  the five stored fixtures (~/gaply-corpus/os/phase9/9c1/hunt_fa/bands_full.tsv), and 0.2
+   *  over 39,996 one-factor varimax results of 128 items (9c1/hunt/slow_varimax_1_40000.tsv). */
+  rotatedRow: 2.5,
   /** How far below 0 a principal axis initial communality, 1 − 1/(R⁻¹)_ii, may round: none was
    *  below 0 (worst 0), so ten times it would be 0; the band is 1e-15, about 4.5 ε, since
    *  (R⁻¹)_ii ≥ 1 holds for the exact inverse only and the arithmetic's own can round below. */
   initialBelowZero: 1e-15,
+  /** |Π l_jj² − exp(log det)| / Π l_jj², the determinant's value against its log (:823-826;
+   *  Research OS, Phase 9C-1, decision 742's m1), and in the log's units how far above ln of
+   *  the smallest normal double a log beside too_small may be: worst 7.804e-13 over 96 values
+   *  Rust wrote at logs from −708.29 down (9c1/hunt/det_boundary.tsv), 1.447e-13 over the hunt;
+   *  ten times the worst, rounded up. The 304 too_small beside them had logs at least 0.189
+   *  below ln of the smallest normal double. */
+  determinant: 8e-12,
 }
 
 const faStat = (v: unknown, codes: readonly string[]) => oneKey(v, { value: isNum, not_computable: (x) => oneOf(x, codes) });
@@ -1675,6 +1695,10 @@ function factorBundle(v: O, spec: O): FactorResultView | null {
   if (p < 3 || p > FA_LIMITS.maxItems || items.some((c) => aliasNumber(c) === null)) return null;
   if (!oneOf(sp.extraction, ['principal_components', 'principal_axis']) || !oneOf(sp.rotation, ['none', 'varimax', 'promax'])) return null;
   if (!isCount(sp.iterations) || sp.iterations < 1 || !(sp.factors === null || isCount(sp.factors))) return null;
+  // The spec's ranges as check refuses outside them (:536-545, :616-625; decision 742's m1).
+  if (sp.iterations > FA_MAX_ITERATIONS || !isNum(sp.convergence) || sp.convergence < FA_MIN_CONVERGENCE || sp.convergence > FA_MAX_CONVERGENCE) return null;
+  const codes = sp.missingCodes as unknown[];
+  if (!codes.every(isNum) || codes.some((c, i) => i > 0 && !((c as number) > (codes[i - 1] as number)))) return null;
   if (!isObject(r) || !hasExactly(r, FA_RESULT_KEYS)) return null;
   if (!isCount(v.runId) || v.status !== 'succeeded') return null;
   const pc = sp.extraction === 'principal_components';
@@ -1690,24 +1714,32 @@ function factorBundle(v: O, spec: O): FactorResultView | null {
     // mean `stat` (:775); sd `stat` or a range code (:767-771).
     if (!isObject(d) || !hasExactly(d, ['item', 'mean', 'sd']) || d.item !== items[i]) return null;
     if (!faStat(d.mean, [FA_SMALL, FA_OVERFLOW]) || !faStat(d.sd, [FA_SMALL, FA_OVERFLOW])) return null;
+    // A square root (:771): never below 0 (decision 742's m1).
+    if (statValue(d.sd) !== undefined && faVal(d.sd) < 0) return null;
   }
   const det = r.determinant;
   const kmo = r.kmo;
   const b = r.bartlett;
   if (!isObject(det) || !hasExactly(det, ['value', 'log']) || !isObject(kmo) || !hasExactly(kmo, ['overall', 'items']) || !isObject(b) || !hasExactly(b, ['chiSquare', 'df', 'p'])) return null;
   if (!Array.isArray(kmo.items) || kmo.items.length !== p) return null;
-  // The codes each field can hold (:808-860): the determinant too_small below the smallest
+  // The codes each field can hold (:818-860): the determinant too_small below the smallest
   // normal double; the inverse's statistics correlations_singular together; KMO and the MSAs
-  // no_correlation at 0/0 (adequacy, :1105-1111), or `stat`'s; Bartlett's p overflow or
-  // distribution_out_of_range.
+  // no_correlation at 0/0 (adequacy, :1107-1113) and never `stat`'s codes, since r² / (r² +
+  // q²) of finite squares with a nonzero sum is a value in [0, 1]; Bartlett's p overflow,
+  // never distribution_out_of_range, since df is at most 8,128 and the chi-square finite
+  // (decision 742's m1).
   if (!faStat(det.value, [FA_SMALL, FA_SINGULAR]) || !faStat(det.log, [FA_SINGULAR])) return null;
-  const msaCodes = [FA_SINGULAR, FA_NO_CORRELATION, FA_SMALL, FA_OVERFLOW];
+  const msaCodes = [FA_SINGULAR, FA_NO_CORRELATION];
   if (!faStat(kmo.overall, msaCodes)) return null;
   for (let i = 0; i < p; i += 1) {
     const a = kmo.items[i];
     if (!isObject(a) || !hasExactly(a, ['item', 'msa']) || a.item !== items[i] || !faStat(a.msa, msaCodes)) return null;
   }
-  if (!faStat(b.chiSquare, [FA_SINGULAR]) || !faStat(b.p, [FA_SINGULAR, FA_OVERFLOW, FA_RANGE])) return null;
+  if (!faStat(b.chiSquare, [FA_SINGULAR]) || !faStat(b.p, [FA_SINGULAR, FA_OVERFLOW])) return null;
+  // KMO no_correlation exactly when every MSA is (decision 742's m1): the overall sums are the
+  // items' sums, each of squares, so the overall 0/0 is every item's.
+  const msas = (kmo.items as O[]).map((a) => ncCode(a.msa) === FA_NO_CORRELATION);
+  if ((ncCode(kmo.overall) === FA_NO_CORRELATION) !== msas.every((x) => x)) return null;
   // The singular set, all or none (:823-861): the Cholesky factor refuses, so no log, no
   // inverse and no chi-square.
   const singular = ncCode(det.log) === FA_SINGULAR;
@@ -1716,6 +1748,21 @@ function factorBundle(v: O, spec: O): FactorResultView | null {
   // Bartlett's df (:840) and chi-square from the stored log and rows (:843-849).
   if (b.df !== (p * (p - 1)) / 2) return null;
   if (!singular) {
+    // The determinant's value, Π l_jj², against exp of its log, Σ ln l_jj² (:823-826), within
+    // a band; too_small only beside a log below ln of the smallest normal double (decision
+    // 742's m1).
+    const logDet = faVal(det.log);
+    // Every pivot left is above 1e-9 times a diagonal of 1 (stats_linalg::cholesky, decision
+    // 699), so Σ ln l_jj² is above p ln(1e-9); the margin is rounding's (the review of 9C-1,
+    // finding 7).
+    if (!(logDet > p * FA_LN_CHOLESKY_TOLERANCE - 1e-9 * p)) return null;
+    if (ncCode(det.value) === FA_SMALL) {
+      if (!(measure('determinant', Math.max(logDet - FA_LN_MIN_NORMAL, 0)) <= FA_BANDS.determinant)) return null;
+    } else {
+      const value = faVal(det.value);
+      if (!(value >= 2.2250738585072014e-308)) return null;
+      if (!(measure('determinant', Math.abs(value - Math.exp(logDet)) / value) <= FA_BANDS.determinant)) return null;
+    }
     const log = Math.min(faVal(det.log), 0);
     const multiplier = n - 1 - (2 * p + 5) / 6;
     const chi = log === 0 ? 0 : -(multiplier * log);
@@ -1791,7 +1838,7 @@ function factorBundle(v: O, spec: O): FactorResultView | null {
       const tt = product(t[0].map((_, j) => t.map((row) => row[j])), t);
       for (let j = 0; j < m; j += 1) for (let k = 0; k < m; k += 1) if (measure('orthogonal', Math.abs(tt[j][k] - (j === k ? 1 : 0)) / (Number.EPSILON * m * (rot.iterations as number))) > FA_BANDS.orthogonal) return null;
       const again = product(loadings, t);
-      for (let i = 0; i < p; i += 1) for (let k = 0; k < m; k += 1) if (measure('rotatedRow', Math.abs(again[i][k] - rotated[i][k]) / (Number.EPSILON * m)) > FA_BANDS.rotatedRow) return null;
+      for (let i = 0; i < p; i += 1) for (let k = 0; k < m; k += 1) if (measure('rotatedRow', Math.abs(again[i][k] - rotated[i][k]) / (Number.EPSILON * m * (rot.iterations as number))) > FA_BANDS.rotatedRow) return null;
     } else {
       if (rot.transformation !== null || rot.sums !== null || !faMatrix(rot.structure, p, m) || !faMatrix(rot.factorCorrelations, m, m)) return null;
       const phi = faRows(rot.factorCorrelations);
@@ -1812,6 +1859,15 @@ function factorBundle(v: O, spec: O): FactorResultView | null {
   // Exclusions and the manifest, as the regression's.
   if (!arrayOf(r.exclusions, faExclusion) || !faExclusionsAgree(r.exclusions as O[], items as string[], sp.missingCodes)) return null;
   if (!arrayOf(v.diagnostics, faDiagnostic) || !arrayOf(v.limitations, faDiagnostic)) return null;
+  // A succeeded run's diagnostics are validate's warnings, each a suspect code of an item
+  // (:675-691; runs.rs's bundle); its limitations the module's nine, as notes, in order
+  // (decision 742's m1).
+  const itemNumbers = items.map(aliasNumber);
+  for (const d of v.diagnostics as O[]) {
+    if (d.severity !== 'warning' || d.code !== faCode('suspect_missing_code') || itemNumbers.indexOf((d.params as O).column as number) < 0) return null;
+  }
+  const lims = v.limitations as O[];
+  if (lims.length !== FACTOR_LIMITATIONS.length || lims.some((d, i) => d.code !== FACTOR_LIMITATIONS[i] || d.severity !== 'note' || Object.keys(d.params as O).length !== 0)) return null;
   if (!manifest(v.manifest, FACTOR_CAPABILITY, faExclusion)) return null;
   const mf = v.manifest as O;
   if (mf.rowsUsed !== n) return null;

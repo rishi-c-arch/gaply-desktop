@@ -222,6 +222,17 @@ fn each_operation_path_calls_its_facade() {
             "admit",
             "stats_adapters::factor_admit(",
         ),
+        // Research OS, Phase 9C-1 (decision 749).
+        (
+            "src/stats_cfa_commands.rs",
+            "validate",
+            "stats_adapters::cfa_validate(",
+        ),
+        (
+            "src/stats_cfa_commands.rs",
+            "admit",
+            "stats_adapters::cfa_admit(",
+        ),
         // Research OS, Phase 8M-3 (decision 425): no Method impl and no start,
         // so these and the direct-call scan below are what apply.
         (
@@ -335,6 +346,8 @@ fn each_operation_path_calls_its_facade() {
         ),
         // Phase 9B-1 (decision 704).
         ("Factor", "stats_adapters::factor_validate(", "stats_adapters::factor_run("),
+        // Research OS, Phase 9C-1 (decision 749).
+        ("Cfa", "stats_adapters::cfa_validate(", "stats_adapters::cfa_run("),
     ] {
         let block = impl_block(&runs_src, &format!("impl Method for {method} {{"));
         for (f, facade) in [("validate", validate), ("compute", compute)] {
@@ -371,6 +384,8 @@ fn each_operation_path_calls_its_facade() {
         ("start_linear_regression_then", "self.begin::<LinearRegression>("),
         ("start_factor", "self.begin::<Factor>("),
         ("start_factor_then", "self.begin::<Factor>("),
+        ("start_cfa", "self.begin::<Cfa>("),
+        ("start_cfa_then", "self.begin::<Cfa>("),
     ] {
         assert!(
             squash(fn_body(&runs_src, f)).contains(through),
@@ -436,6 +451,9 @@ fn each_operation_path_calls_its_facade() {
         "stats_factor::validate(",
         "stats_factor::run(",
         "stats_factor::compute(",
+        "stats_cfa::validate(",
+        "stats_cfa::run(",
+        "stats_cfa::compute(",
     ] {
         assert!(
             !runs.contains(direct),

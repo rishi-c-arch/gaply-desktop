@@ -130,6 +130,13 @@
 //! window's Dimension reduction, Factor… dialog starts it, and a project reruns it
 //! through [`Runs::start_factor_then`].
 //!
+//! Research OS, Phase 9C-1 (decision 749): a record may hold the confirmatory
+//! factor analysis, started with [`Runs::start_cfa`]. Its check points are
+//! `stats_cfa::run`'s: before the arithmetic, before each column of S, before
+//! the estimation, every iteration calling that one again at its unchanged count,
+//! and before the fit; the progress total is `stats_cfa::check_points`. No
+//! window starts it until 9C-2; [`Runs::start_cfa_then`] is there for its rerun.
+//!
 //! Phase 3: the run manager and the slots belong to the Statistics workspace
 //! (`crate::workspace`), built when it is activated and dropped when it is
 //! left. [`Runs::seal`] is how it is left: under the records' lock it either
@@ -178,6 +185,7 @@ use gaply_core::stats_ranks::{
 use gaply_core::stats_related_ranks::{
     self, RelatedRanksCode, RelatedRanksOutcome, RelatedRanksParams,
 };
+use gaply_core::stats_cfa::{self, CfaCode, CfaOutcome, CfaParams};
 use gaply_core::stats_factor::{self, FactorCode, FactorOutcome, FactorParams};
 use gaply_core::stats_linear_regression::{
     self, LinearRegressionCode, LinearRegressionOutcome, LinearRegressionParams,
@@ -763,6 +771,9 @@ pub enum RunKind {
     /// `stats.analyze.factor`, through the `stats_factor_*` commands (Research
     /// OS, Phase 9B-1, decision 704).
     Factor,
+    /// `stats.analyze.cfa`, through the `stats_cfa_*` commands (Research OS,
+    /// Phase 9C-1, decision 749).
+    Cfa,
 }
 
 /// The data a run read: its slot, and the SHA-256 of the original bytes the
@@ -895,6 +906,7 @@ enum Held {
     RelatedRanks(Outputs<RelatedRanksOutcome, RelatedRanksCode>),
     LinearRegression(Outputs<LinearRegressionOutcome, LinearRegressionCode>),
     Factor(Outputs<FactorOutcome, FactorCode>),
+    Cfa(Outputs<CfaOutcome, CfaCode>),
 }
 
 impl Held {
@@ -965,6 +977,7 @@ enum Job {
     RelatedRanks(OperationSpec<RelatedRanksParams>),
     LinearRegression(OperationSpec<LinearRegressionParams>),
     Factor(OperationSpec<FactorParams>),
+    Cfa(OperationSpec<CfaParams>),
 }
 
 impl Job {
@@ -997,6 +1010,7 @@ enum Report {
     RelatedRanks(ValidationReport<RelatedRanksCode>),
     LinearRegression(ValidationReport<LinearRegressionCode>),
     Factor(ValidationReport<FactorCode>),
+    Cfa(ValidationReport<CfaCode>),
 }
 
 impl Report {
@@ -1020,6 +1034,7 @@ enum Done {
     RelatedRanks(Finished<RelatedRanks>),
     LinearRegression(Finished<LinearRegression>),
     Factor(Finished<Factor>),
+    Cfa(Finished<Cfa>),
 }
 
 /* ------------------------------------------------------------------------ *
@@ -1081,6 +1096,10 @@ macro_rules! by_method {
             }
             $enum::Factor($x) => {
                 type $m = Factor;
+                $body
+            }
+            $enum::Cfa($x) => {
+                type $m = Cfa;
                 $body
             }
         }
@@ -2422,6 +2441,108 @@ impl Method for Factor {
     }
 }
 
+/// `stats.analyze.cfa`, through the `stats_cfa_*` commands (Research OS,
+/// Phase 9C-1, decision 749).
+struct Cfa;
+
+impl Method for Cfa {
+    const KIND: RunKind = RunKind::Cfa;
+    type Params = CfaParams;
+    type Result = CfaOutcome;
+    type Code = CfaCode;
+    type Halt = stats_cfa::Halt<Stop>;
+
+    /// `stats_cfa::check_points` (decision 745): one before the arithmetic,
+    /// one before each column of S, one before the estimation and one before
+    /// the fit.
+    fn columns_total(spec: &OperationSpec<CfaParams>, _: &Dataset) -> usize {
+        stats_cfa::check_points(&spec.parameters)
+    }
+
+    fn validate(spec: &OperationSpec<CfaParams>, dataset: &Dataset) -> ValidationReport<CfaCode> {
+        // Through `stats.analyze.cfa`'s façade: the registry first, then
+        // `stats_cfa::validate`, unchanged.
+        stats_adapters::cfa_validate(spec, crate::workspace::build(), dataset)
+    }
+
+    fn compute(
+        spec: &OperationSpec<CfaParams>,
+        build: Build,
+        dataset: &Dataset,
+        checkpoint: impl FnMut(usize) -> ControlFlow<Stop>,
+    ) -> Result<CfaOutcome, stats_cfa::Halt<Stop>> {
+        // Every check point, the iterations' included: the manager's reads
+        // the cancel flag and the clock at each call, whatever its count.
+        stats_adapters::cfa_run(spec, build, dataset, checkpoint)
+    }
+
+    fn manifest(
+        spec: &OperationSpec<CfaParams>,
+        dataset: &Dataset,
+        result: &CfaOutcome,
+        elapsed: u64,
+    ) -> RunManifest<CfaCode> {
+        stats_cfa::manifest(spec, dataset, result, elapsed, Platform::current())
+    }
+
+    /// The result's own limitations, as notes.
+    fn limitations(result: &CfaOutcome) -> Vec<Diagnostic<CfaCode>> {
+        result.limitations.iter().map(|c| Diagnostic::note(*c)).collect()
+    }
+
+    /// Every check point on a result; a stop leaves the count the check point
+    /// set.
+    fn columns_done(total: usize, outcome: &Outcome<Self>) -> Option<usize> {
+        match outcome {
+            Ok(Ok(_)) => Some(total),
+            Ok(Err(_)) | Err(_) => None,
+        }
+    }
+
+    fn halted(halt: stats_cfa::Halt<Stop>) -> Halted<CfaCode> {
+        match halt {
+            stats_cfa::Halt::Stopped { reason } => Halted::Stopped(reason),
+            stats_cfa::Halt::Refused(d) => Halted::Refused(d),
+        }
+    }
+
+    fn panicked() {
+        tracing::warn!("stats_desc: the confirmatory factor analysis panicked");
+    }
+
+    fn outputs(held: &Held) -> Option<&Outputs<CfaOutcome, CfaCode>> {
+        if let Held::Cfa(o) = held {
+            Some(o)
+        } else {
+            None
+        }
+    }
+
+    fn outputs_mut(held: &mut Held) -> Option<&mut Outputs<CfaOutcome, CfaCode>> {
+        if let Held::Cfa(o) = held {
+            Some(o)
+        } else {
+            None
+        }
+    }
+
+    fn held(outputs: Outputs<CfaOutcome, CfaCode>) -> Held {
+        Held::Cfa(outputs)
+    }
+
+    fn job(spec: OperationSpec<CfaParams>) -> Job {
+        Job::Cfa(spec)
+    }
+
+    fn report(report: ValidationReport<CfaCode>) -> Report {
+        Report::Cfa(report)
+    }
+
+    fn done(finished: Finished<Self>) -> Done {
+        Done::Cfa(finished)
+    }
+}
+
 /// An end hook that is due, with what it is called with: called only once
 /// the records' lock is released (Phase 5C-1a).
 struct Due {
@@ -2807,6 +2928,24 @@ impl Runs {
         end: EndHook,
     ) -> Result<RunId, NotStarted> {
         self.begin::<Factor>(slot, spec, Some(end))
+    }
+
+    /// Starts the confirmatory factor analysis (Research OS, Phase 9C-1, decision
+    /// 749): its check points, the iterations' among them, the manager's ceiling
+    /// and cancel, as every kind's.
+    pub fn start_cfa(self: &Arc<Self>, slot: Arc<Slot>, spec: OperationSpec<CfaParams>) -> Result<RunId, NotStarted> {
+        self.begin::<Cfa>(slot, spec, None)
+    }
+
+    /// [`Runs::start_cfa`], with an end hook, for a project rerun (Research OS,
+    /// Phase 9C-1, decision 749).
+    pub fn start_cfa_then(
+        self: &Arc<Self>,
+        slot: Arc<Slot>,
+        spec: OperationSpec<CfaParams>,
+        end: EndHook,
+    ) -> Result<RunId, NotStarted> {
+        self.begin::<Cfa>(slot, spec, Some(end))
     }
 
     /// Every start, of any method (Research OS, Phase 8C): the record, then
@@ -3221,6 +3360,11 @@ impl Runs {
         self.snapshot_as::<Factor>(run)
     }
 
+    /// [`Runs::snapshot`] for a confirmatory factor analysis run (Phase 9C-1).
+    pub fn cfa_snapshot(&self, run: RunId) -> Result<RunSnapshot<CfaCode>, RunCode> {
+        self.snapshot_as::<Cfa>(run)
+    }
+
     /// Asks the run to stop. Queued: cancelled now. Running: the flag is set,
     /// and the next check point, or the worker's last step if no check point
     /// is left, ends it `Cancelled`. Finished: unchanged.
@@ -3316,6 +3460,11 @@ impl Runs {
     /// [`Runs::cancel`] for a factor analysis run (Phase 9B-1).
     pub fn factor_cancel(&self, run: RunId) -> Result<RunSnapshot<FactorCode>, RunCode> {
         self.cancel_as::<Factor>(run)
+    }
+
+    /// [`Runs::cancel`] for a confirmatory factor analysis run (Phase 9C-1).
+    pub fn cfa_cancel(&self, run: RunId) -> Result<RunSnapshot<CfaCode>, RunCode> {
+        self.cancel_as::<Cfa>(run)
     }
 
     /// The result of a run of `M`'s kind that succeeded. Otherwise the closed
@@ -3423,6 +3572,11 @@ impl Runs {
     /// The result of a factor analysis run that succeeded (Phase 9B-1).
     pub fn factor_result(&self, run: RunId) -> Result<ResultBundle<FactorOutcome, FactorCode>, RunCode> {
         self.result_as::<Factor>(run)
+    }
+
+    /// The result of a confirmatory factor analysis run that succeeded (Phase 9C-1).
+    pub fn cfa_result(&self, run: RunId) -> Result<ResultBundle<CfaOutcome, CfaCode>, RunCode> {
+        self.result_as::<Cfa>(run)
     }
 
     /// A copy of `run` for a project Save (Phase 5B-2), of either kind:

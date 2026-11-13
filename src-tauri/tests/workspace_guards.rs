@@ -1457,3 +1457,64 @@ fn every_factor_command_checks_the_workspace_first() {
         failures.join("\n")
     );
 }
+
+/// Research OS, Phase 9C-1 (decision 749): the confirmatory factor analysis's six
+/// commands, each checking
+/// the workspace first, in the same form; none is exempt. (registered path) No
+/// other family's prefix starts `stats_cfa_`, and it starts no other's: the
+/// families are FIND FIRST of 9C-1's, `stats_ai_key` to `stats_xtab`.
+const CFA_OPERATIONS: &[&str] = &[
+    "stats_cfa_commands::stats_cfa_validate",
+    "stats_cfa_commands::stats_cfa_run",
+    "stats_cfa_commands::stats_cfa_status",
+    "stats_cfa_commands::stats_cfa_result",
+    "stats_cfa_commands::stats_cfa_cancel",
+    "stats_cfa_commands::stats_cfa_export",
+];
+
+#[test]
+fn every_cfa_command_checks_the_workspace_first() {
+    let all = registered();
+    assert!(all.len() > 100, "the handler parse is inert");
+    let mut family: Vec<&str> = all
+        .iter()
+        .map(|p| p.as_str())
+        .filter(|p| p.starts_with("stats_cfa_commands::"))
+        .collect();
+    family.sort_unstable();
+    let mut listed: Vec<&str> = CFA_OPERATIONS.to_vec();
+    listed.sort_unstable();
+    assert_eq!(
+        family, listed,
+        "every registered stats_cfa_commands command is listed, and every listed one is registered"
+    );
+    // Nothing registers a stats_cfa_* command from another module.
+    for p in &all {
+        if p.rsplit("::")
+            .next()
+            .is_some_and(|n| n.starts_with("stats_cfa_"))
+        {
+            assert!(p.starts_with("stats_cfa_commands::"), "{p}");
+        }
+    }
+
+    let src = without_line_comments(&read(&root().join("src/stats_cfa_commands.rs")));
+    let mut failures = Vec::new();
+    for path in CFA_OPERATIONS {
+        let name = path.rsplit("::").next().unwrap();
+        match fn_body(&src, name) {
+            Some(body) if checks_first(body) => {}
+            Some(body) => failures.push(format!(
+                "{path}: first statement is `{}`",
+                body.split(';').next().unwrap_or("").trim()
+            )),
+            None => failures.push(format!("{path}: no body found")),
+        }
+    }
+    println!("gated {} confirmatory factor analysis commands", CFA_OPERATIONS.len());
+    assert!(
+        failures.is_empty(),
+        "decision 749:\n{}",
+        failures.join("\n")
+    );
+}

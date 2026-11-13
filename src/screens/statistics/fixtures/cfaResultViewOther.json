@@ -1,0 +1,358 @@
+{
+  "runId": 5,
+  "status": "succeeded",
+  "result": {
+    "items": [
+      "C1",
+      "C2",
+      "C3"
+    ],
+    "rowsUsed": 60,
+    "indicators": [
+      [
+        "C1",
+        "C2",
+        "C3"
+      ]
+    ],
+    "loadings": [
+      {
+        "factor": 1,
+        "item": "C1",
+        "estimate": {
+          "value": 1.0
+        },
+        "se": {
+          "not_computable": "stats.cfa.fixed_parameter"
+        },
+        "cr": {
+          "not_computable": "stats.cfa.fixed_parameter"
+        },
+        "p": {
+          "not_computable": "stats.cfa.fixed_parameter"
+        },
+        "standardized": {
+          "value": 2.2999686185989052
+        }
+      },
+      {
+        "factor": 1,
+        "item": "C2",
+        "estimate": {
+          "value": 0.15418362053619597
+        },
+        "se": {
+          "value": 0.18120182166139406
+        },
+        "cr": {
+          "value": 0.8508944287785024
+        },
+        "p": {
+          "value": 0.3948279999665571
+        },
+        "standardized": {
+          "value": 0.2947245199798206
+        }
+      },
+      {
+        "factor": 1,
+        "item": "C3",
+        "estimate": {
+          "value": 0.22373040709194725
+        },
+        "se": {
+          "value": 0.253678203701134
+        },
+        "cr": {
+          "value": 0.8819457242591123
+        },
+        "p": {
+          "value": 0.377806158930232
+        },
+        "standardized": {
+          "value": 0.3450394429117015
+        }
+      }
+    ],
+    "factorVariances": [
+      {
+        "factor": 1,
+        "estimate": {
+          "value": 432264.688825408
+        },
+        "se": {
+          "value": 443185.510879637
+        },
+        "cr": {
+          "value": 0.975358350428575
+        },
+        "p": {
+          "value": 0.32938253580996335
+        }
+      }
+    ],
+    "factorCovariances": [],
+    "errorVariances": [
+      {
+        "item": "C1",
+        "estimate": {
+          "value": -350548.9072032451
+        },
+        "se": {
+          "value": 452236.88173138286
+        },
+        "cr": {
+          "value": -0.7751444461167636
+        },
+        "p": {
+          "value": 0.43825431080179145
+        }
+      },
+      {
+        "item": "C2",
+        "estimate": {
+          "value": 108026.38899256426
+        },
+        "se": {
+          "value": 22556.807164360394
+        },
+        "cr": {
+          "value": 4.789081548883622
+        },
+        "p": {
+          "value": 1.6754638764874161e-6
+        }
+      },
+      {
+        "item": "C3",
+        "estimate": {
+          "value": 160107.79066199422
+        },
+        "se": {
+          "value": 37026.42666834143
+        },
+        "cr": {
+          "value": 4.324149129921052
+        },
+        "p": {
+          "value": 0.0000153121693568922
+        }
+      }
+    ],
+    "smc": [
+      {
+        "item": "C1",
+        "value": {
+          "value": 5.289855646539755
+        }
+      },
+      {
+        "item": "C2",
+        "value": {
+          "value": 0.08686254267733562
+        }
+      },
+      {
+        "item": "C3",
+        "value": {
+          "value": 0.11905221716481729
+        }
+      }
+    ],
+    "fit": {
+      "npar": 6,
+      "cmin": {
+        "value": 0.0
+      },
+      "df": 0,
+      "p": {
+        "not_computable": "stats.cfa.df_zero"
+      },
+      "cminDf": {
+        "not_computable": "stats.cfa.df_zero"
+      },
+      "rmr": {
+        "value": 6.178423498310332e-8
+      },
+      "gfi": {
+        "value": 1.0
+      },
+      "agfi": {
+        "not_computable": "stats.cfa.df_zero"
+      },
+      "pgfi": {
+        "not_computable": "stats.cfa.df_zero"
+      },
+      "nfi": {
+        "value": 1.0
+      },
+      "rfi": {
+        "not_computable": "stats.cfa.df_zero"
+      },
+      "ifi": {
+        "value": 1.0
+      },
+      "tli": {
+        "not_computable": "stats.cfa.df_zero"
+      },
+      "cfi": {
+        "value": 1.0
+      },
+      "pratio": {
+        "not_computable": "stats.cfa.df_zero"
+      },
+      "pnfi": {
+        "not_computable": "stats.cfa.df_zero"
+      },
+      "pcfi": {
+        "not_computable": "stats.cfa.df_zero"
+      },
+      "ncp": {
+        "value": 0.0
+      },
+      "ncpLo90": {
+        "not_computable": "stats.cfa.df_zero"
+      },
+      "ncpHi90": {
+        "not_computable": "stats.cfa.df_zero"
+      },
+      "fmin": {
+        "value": 0.0
+      },
+      "f0": {
+        "value": 0.0
+      },
+      "f0Lo90": {
+        "not_computable": "stats.cfa.df_zero"
+      },
+      "f0Hi90": {
+        "not_computable": "stats.cfa.df_zero"
+      },
+      "rmsea": {
+        "not_computable": "stats.cfa.df_zero"
+      },
+      "rmseaLo90": {
+        "not_computable": "stats.cfa.df_zero"
+      },
+      "rmseaHi90": {
+        "not_computable": "stats.cfa.df_zero"
+      },
+      "pclose": {
+        "not_computable": "stats.cfa.df_zero"
+      },
+      "aic": {
+        "value": 12.0
+      },
+      "bcc": {
+        "value": 12.872727272727273
+      },
+      "bic": {
+        "value": 24.5660673733326
+      },
+      "caic": {
+        "value": 30.5660673733326
+      },
+      "ecvi": {
+        "value": 0.2033898305084746
+      },
+      "ecviLo90": {
+        "not_computable": "stats.cfa.df_zero"
+      },
+      "ecviHi90": {
+        "not_computable": "stats.cfa.df_zero"
+      },
+      "mecvi": {
+        "value": 0.2181818181818182
+      },
+      "hoelter05": {
+        "not_computable": "stats.cfa.df_zero"
+      },
+      "hoelter01": {
+        "not_computable": "stats.cfa.df_zero"
+      },
+      "independenceNpar": 3,
+      "independenceCmin": {
+        "value": 272.86000225323716
+      },
+      "independenceDf": 3
+    },
+    "iterations": 11,
+    "exclusions": [
+      {
+        "code": "stats.cfa.missing_code",
+        "count": 1,
+        "params": {
+          "column": 1
+        }
+      },
+      {
+        "code": "stats.cfa.missing_value",
+        "count": 1,
+        "params": {
+          "column": 2
+        }
+      }
+    ],
+    "notes": [
+      "stats.cfa.negative_variance",
+      "stats.cfa.df_zero"
+    ],
+    "limitations": [
+      "stats.cfa.ml_only",
+      "stats.cfa.no_means",
+      "stats.cfa.one_group_only",
+      "stats.cfa.simple_structure_only",
+      "stats.cfa.marker_identification_only",
+      "stats.cfa.no_modification_indices",
+      "stats.cfa.normal_theory_standard_errors",
+      "stats.cfa.no_srmr",
+      "stats.cfa.listwise_only",
+      "stats.cfa.no_weights"
+    ]
+  },
+  "diagnostics": [
+    {
+      "code": "stats.cfa.suspect_missing_code",
+      "params": {
+        "column": 1,
+        "count": 3,
+        "value": 99
+      },
+      "severity": "warning"
+    },
+    {
+      "code": "stats.cfa.ml_only",
+      "params": {},
+      "severity": "note"
+    }
+  ],
+  "manifest": {
+    "schemaVersion": 1,
+    "capabilityId": "stats.analyze.cfa",
+    "capabilityVersion": 1,
+    "engineVersion": 1,
+    "inputs": [
+      "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    ],
+    "parametersHash": "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+    "seed": 7,
+    "rowsRead": 41,
+    "rowsUsed": 40,
+    "exclusions": [
+      {
+        "code": "stats.cfa.missing_value",
+        "count": 1,
+        "params": {
+          "column": 2
+        }
+      }
+    ],
+    "platform": {
+      "os": "macos",
+      "arch": "aarch64"
+    },
+    "elapsedMs": 3,
+    "outputHash": "6ad1bf5daee4d8dfcb466411096e7f26e513bf2cadfb0e1605ff085026fe5c5b",
+    "reproducibility": "bitwise"
+  }
+}

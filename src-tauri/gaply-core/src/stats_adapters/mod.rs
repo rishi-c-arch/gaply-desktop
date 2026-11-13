@@ -79,6 +79,10 @@
 //!   (`stats.analyze.factor`, Phase 9B-1, decision 702): `stats_factor::validate`
 //!   and `stats_factor::run`, the same way, a registry refusal worded
 //!   `stats.factor.unknown_capability` or `stats.factor.capability_version_mismatch`.
+//! * [`cfa_admit`], [`cfa_validate`] and [`cfa_run`] (`stats.analyze.cfa`,
+//!   Research OS, Phase 9C-1, decision 747): `stats_cfa::validate` and
+//!   `stats_cfa::run`, the same way, a registry refusal worded
+//!   `stats.cfa.unknown_capability` or `stats.cfa.capability_version_mismatch`.
 //!   Beta since 9B-1's Part 3 (decision 704).
 //! * [`prep_runnable`], [`prep_admit`], [`prep_validate`], [`prep_build`],
 //!   [`prep_original`] and [`prep_csv`] (`stats.prepare.scale_score`, Phase
@@ -112,6 +116,7 @@ use crate::stats_l0::outcome::{check_reading, StatsConsistencyOutcome};
 use crate::stats_l0::result::{read_results, ResultReading, TableStructure};
 use crate::stats_l1::catalogue::L1MethodId;
 use crate::stats_l1::claim::RevisionHash;
+use crate::stats_cfa::{self, CfaCode, CfaOutcome, CfaParams};
 use crate::stats_factor::{self, FactorCode, FactorOutcome, FactorParams};
 use crate::stats_l1::dataset::{DataFingerprint, Dataset, L1IngestRefusal};
 use crate::stats_l1::reproduce::{reproduce, ReproductionOutcome};
@@ -1478,6 +1483,94 @@ pub(crate) fn factor_run_in<B>(
 ) -> Result<FactorOutcome, stats_factor::Halt<B>> {
     factor_entry(registry, spec, build).map_err(|r| stats_factor::Halt::Refused(factor_refusal(&r)))?;
     stats_factor::run(dataset, &spec.parameters, checkpoint)
+}
+
+/* ------------------------------------------------------------------------ *
+ *  stats.analyze.cfa (Research OS, Phase 9C-1)
+ * ------------------------------------------------------------------------ */
+
+/// A registry refusal in the confirmatory factor analysis's own codes, as
+/// [`factor_refusal`] does.
+fn cfa_refusal(r: &Refusal) -> Diagnostic<CfaCode> {
+    match r.code {
+        CapabilityCode::VersionMismatch => {
+            let int = |k| match r.params.get(&k) {
+                Some(ParamValue::Int(n)) => *n,
+                _ => 0,
+            };
+            Diagnostic::error(CfaCode::CapabilityVersionMismatch)
+                .int(ParamKey::Expected, int(ParamKey::Expected))
+                .int(ParamKey::Found, int(ParamKey::Found))
+        }
+        _ => Diagnostic::error(CfaCode::UnknownCapability),
+    }
+}
+
+/// The registry's check for a confirmatory factor analysis spec, as
+/// [`factor_entry`] does: a registered, runnable entry of its kind, and no
+/// confirmation.
+fn cfa_entry(registry: &Registry, spec: &OperationSpec<CfaParams>, build: Build) -> Result<(), Refusal> {
+    let entry = runnable(registry, spec, build)?;
+    if entry.kind != Kind::AnalyzeCfa {
+        return Err(refused(CapabilityCode::UnknownCapability));
+    }
+    no_confirmation(spec)
+}
+
+/// The registry's answer for a confirmatory factor analysis spec, for the app's
+/// `stats_cfa_*` commands, as [`factor_admit`] is for the factor analysis.
+pub fn cfa_admit(spec: &OperationSpec<CfaParams>, build: Build) -> Result<(), Refusal> {
+    cfa_entry(&Registry::statistics(), spec, build)
+}
+
+/// `stats.analyze.cfa`'s validation: the registry first, so a spec the
+/// registry refuses is `Unsupported` before anything reads the dataset; then
+/// `stats_cfa::validate`, unchanged.
+pub fn cfa_validate(spec: &OperationSpec<CfaParams>, build: Build, dataset: &Dataset) -> ValidationReport<CfaCode> {
+    cfa_validate_in(&Registry::statistics(), spec, build, dataset)
+}
+
+pub(crate) fn cfa_validate_in(
+    registry: &Registry,
+    spec: &OperationSpec<CfaParams>,
+    build: Build,
+    dataset: &Dataset,
+) -> ValidationReport<CfaCode> {
+    match cfa_entry(registry, spec, build) {
+        Ok(()) => stats_cfa::validate(dataset, spec),
+        Err(r) => {
+            let rows = dataset.rows() as u64;
+            let columns = spec.parameters.items().len() as u64;
+            let estimate = ResourceEstimate {
+                rows,
+                columns,
+                cells: rows.saturating_mul(columns),
+            };
+            ValidationReport::new(vec![cfa_refusal(&r)], Vec::new(), Vec::new(), Vec::new(), estimate)
+        }
+    }
+}
+
+/// `stats.analyze.cfa`'s run: the registry again, then `stats_cfa::run`,
+/// unchanged, with its check points.
+pub fn cfa_run<B>(
+    spec: &OperationSpec<CfaParams>,
+    build: Build,
+    dataset: &Dataset,
+    checkpoint: impl FnMut(usize) -> ControlFlow<B>,
+) -> Result<CfaOutcome, stats_cfa::Halt<B>> {
+    cfa_run_in(&Registry::statistics(), spec, build, dataset, checkpoint)
+}
+
+pub(crate) fn cfa_run_in<B>(
+    registry: &Registry,
+    spec: &OperationSpec<CfaParams>,
+    build: Build,
+    dataset: &Dataset,
+    checkpoint: impl FnMut(usize) -> ControlFlow<B>,
+) -> Result<CfaOutcome, stats_cfa::Halt<B>> {
+    cfa_entry(registry, spec, build).map_err(|r| stats_cfa::Halt::Refused(cfa_refusal(&r)))?;
+    stats_cfa::run(dataset, &spec.parameters, checkpoint)
 }
 
 /* ------------------------------------------------------------------------ *
@@ -3215,5 +3308,112 @@ mod factor_facade_tests {
         assert_eq!(codes(&factor_validate_in(&real, &c, b, &d)), [FactorCode::UnknownCapability]);
         assert_eq!(factor_validate_in(&real, &good, b, &d), stats_factor::validate(&d, &good));
         assert_eq!(factor_run_in(&real, &good, b, &d, go).unwrap(), stats_factor::compute(&d, &good.parameters).unwrap());
+    }
+}
+
+#[cfg(test)]
+mod cfa_facade_tests {
+    use super::*;
+    use crate::contracts::capability::Lifecycle;
+    use crate::stats_cfa::Halt;
+    use crate::stats_desc::Alias;
+    use crate::stats_l1::dataset::{build_dataset, ColumnAlias, DataFingerprint, RawTable, TableRef};
+
+    /// Six rows of three columns that one factor fits (0 degrees of freedom).
+    fn data() -> Dataset {
+        let rows: Vec<Vec<String>> = [("1", "2", "1"), ("2", "1", "3"), ("3", "4", "2"), ("4", "3", "5"), ("6", "5", "4"), ("5", "6", "6")]
+            .iter()
+            .map(|(a, b, c)| vec![a.to_string(), b.to_string(), c.to_string()])
+            .collect();
+        build_dataset(
+            RawTable::from_rows(vec!["a".into(), "b".into(), "c".into()], rows),
+            DataFingerprint::of_bytes(b"cfa facade", "test", TableRef::FirstTable),
+        )
+        .expect("dataset")
+    }
+
+    fn forged(d: &Dataset, id: &str, version: u32) -> OperationSpec<CfaParams> {
+        let mut s = stats_cfa::spec(
+            OperationId(7),
+            d,
+            CfaParams {
+                indicators: vec![(1..=3).map(|j| Alias(ColumnAlias(j))).collect()],
+                correlated_factors: true,
+                missing_codes: Vec::new(),
+            },
+        );
+        s.capability_id = CapabilityId::parse(id).unwrap();
+        s.capability_version = version;
+        s
+    }
+
+    fn go(_: usize) -> ControlFlow<()> {
+        ControlFlow::Continue(())
+    }
+
+    fn codes(r: &ValidationReport<CfaCode>) -> Vec<CfaCode> {
+        r.errors.iter().map(|e| e.code).collect()
+    }
+
+    fn unknown() -> Halt<()> {
+        Halt::Refused(Diagnostic::error(CfaCode::UnknownCapability))
+    }
+
+    /// Decision 749: Beta since Part 3, the real registry.
+    fn beta() -> Registry {
+        Registry::statistics()
+    }
+
+    #[test]
+    fn a_beta_registry_admits_the_cfa_and_runs_it_as_the_module_does() {
+        let d = data();
+        let s = forged(&d, stats_cfa::CAPABILITY_ID, 1);
+        for build in [Build::Standard, Build::Devtools] {
+            assert!(cfa_validate_in(&beta(), &s, build, &d).may_run(), "{build:?}");
+            assert_eq!(
+                cfa_run_in(&beta(), &s, build, &d, go).ok(),
+                stats_cfa::compute(&d, &s.parameters).ok(),
+                "{build:?}: the module's own result"
+            );
+        }
+    }
+
+    /// Decision 749: Beta since Part 3, so the real registry admits it and runs it
+    /// through the public façade; a Planned entry is refused.
+    #[test]
+    fn the_real_registry_admits_it_and_a_planned_entry_is_refused() {
+        let d = data();
+        let s = forged(&d, stats_cfa::CAPABILITY_ID, 1);
+        let planned = Registry::statistics().with_lifecycle(stats_cfa::CAPABILITY_ID, Lifecycle::Planned);
+        for build in [Build::Standard, Build::Devtools] {
+            assert!(cfa_admit(&s, build).is_ok(), "{build:?}");
+            assert!(cfa_validate(&s, build, &d).may_run(), "{build:?}");
+            assert_eq!(cfa_run(&s, build, &d, go).ok(), stats_cfa::compute(&d, &s.parameters).ok(), "{build:?}: through the public façade");
+            assert_eq!(codes(&cfa_validate_in(&planned, &s, build, &d)), [CfaCode::UnknownCapability], "{build:?}");
+            assert_eq!(cfa_run_in(&planned, &s, build, &d, go).unwrap_err(), unknown(), "{build:?}");
+        }
+    }
+
+    #[test]
+    fn the_facade_refuses_forged_specs() {
+        let d = data();
+        let b = Build::Devtools;
+        let real = beta();
+        for id in ["stats.analyze.cfa_ml", "stats.describe", "stats.verify.ols", "stats.analyze.factor"] {
+            let s = forged(&d, id, 1);
+            assert_eq!(codes(&cfa_validate_in(&real, &s, b, &d)), [CfaCode::UnknownCapability], "{id}");
+            assert!(!cfa_validate_in(&real, &s, b, &d).may_run(), "{id}");
+            assert_eq!(cfa_run_in(&real, &s, b, &d, go).unwrap_err(), unknown(), "{id}");
+        }
+        let v = cfa_validate_in(&real, &forged(&d, stats_cfa::CAPABILITY_ID, 2), b, &d);
+        assert_eq!(codes(&v), [CfaCode::CapabilityVersionMismatch]);
+        assert_eq!(v.errors[0].params.get(&ParamKey::Expected), Some(&ParamValue::Int(1)));
+        assert_eq!(v.errors[0].params.get(&ParamKey::Found), Some(&ParamValue::Int(2)));
+        let good = forged(&d, stats_cfa::CAPABILITY_ID, 1);
+        let mut c = good.clone();
+        c.confirmation_refs = vec![ConfirmationId::parse(&"ef".repeat(32)).unwrap()];
+        assert_eq!(codes(&cfa_validate_in(&real, &c, b, &d)), [CfaCode::UnknownCapability]);
+        assert_eq!(cfa_validate_in(&real, &good, b, &d), stats_cfa::validate(&d, &good));
+        assert_eq!(cfa_run_in(&real, &good, b, &d, go).unwrap(), stats_cfa::compute(&d, &good.parameters).unwrap());
     }
 }

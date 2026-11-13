@@ -25,7 +25,7 @@ import {
   FACTOR_ROWS_USED_NOTE,
   FA_HEADINGS,
   FA_LABELS,
-  FA_PROMAX_SUMS_SENTENCE,
+  factorPromaxSumsSentence,
   factorExtractedFootnote,
   factorRotationFootnote,
   factorSentence,
@@ -318,7 +318,7 @@ export const FactorCard: React.FC<{ result: FactorResultView; names: FactorNames
         </table>
         {rot?.method === 'promax' && (
           <p style={{ margin: '4px 0 0' }} data-testid="fa-promax-sums-sentence">
-            {FA_PROMAX_SUMS_SENTENCE}
+            {factorPromaxSumsSentence(e)}
           </p>
         )}
       </section>
@@ -350,7 +350,7 @@ export const FactorCard: React.FC<{ result: FactorResultView; names: FactorNames
       {r.notes.length > 0 && (
         <ul data-testid="fa-notes" style={{ margin: 0 }}>
           {r.notes.map((code) => (
-            <li key={code}>{factorSentence({ code })}</li>
+            <li key={code}>{factorSentence({ code }, undefined, e)}</li>
           ))}
         </ul>
       )}

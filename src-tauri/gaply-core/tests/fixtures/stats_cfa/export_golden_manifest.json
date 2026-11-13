@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "capabilityId": "stats.analyze.cfa",
+  "capabilityVersion": 1,
+  "engineVersion": 1,
+  "inputs": [
+    "bed4b7e81c715c416e3fac6942282f3422aa55601afb061617eaaec9f54b42cc"
+  ],
+  "parametersHash": "04a85f7b240e5569ec989a6fb21aa6a8ca2a80dfa10341fe7a2b4d186d85a1ef",
+  "seed": null,
+  "rowsRead": 42,
+  "rowsUsed": 40,
+  "exclusions": [
+    {
+      "code": "stats.cfa.missing_value",
+      "count": 1,
+      "params": {
+        "column": 2
+      }
+    },
+    {
+      "code": "stats.cfa.missing_code",
+      "count": 1,
+      "params": {
+        "column": 5
+      }
+    }
+  ],
+  "platform": {
+    "os": "macos",
+    "arch": "aarch64"
+  },
+  "elapsedMs": 0,
+  "outputHash": "09da9f317656748b93376eda6ee59aa7e5813c652eda4a9d68982bff01d90b70",
+  "reproducibility": "bitwise"
+}

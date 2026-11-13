@@ -1760,6 +1760,64 @@ fn stored_factor_results_have_the_layout_of_their_fixtures() {
     assert_stored_fixture("factor_failed.json", &back);
 }
 
+/// A varimax that takes hundreds of cycles, saved (Research OS, Phase 9C-1, decision 742's B1):
+/// the review of 8bd82d8f found the stored checker's rotated-row band, divided by ε · m alone,
+/// refusing such a result Rust wrote. One-factor data of 128 items and 150 rows, each item the
+/// factor plus its own noise, generated here by splitmix64 with each normal draw the sum of
+/// twelve uniforms less 6, so no platform function is used; principal components, a fixed 3
+/// factors, varimax at iterations 1,000. The seed is the one the release probe of decision 742
+/// found (~/gaply-corpus/os/phase9/9c1/hunt/), its cycles asserted so the fixture cannot drift
+/// into an ordinary result.
+#[test]
+fn a_slow_varimax_stored_result_has_the_layout_of_its_fixture() {
+    use gaply_core::stats_factor::{Extraction, Rotation};
+    const SEED: u64 = 20873;
+    const CYCLES: u64 = 995;
+    struct SplitMix(u64);
+    impl SplitMix {
+        fn next(&mut self) -> u64 {
+            self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
+            let mut z = self.0;
+            z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+            z ^ (z >> 31)
+        }
+        fn unit(&mut self) -> f64 {
+            (self.next() >> 11) as f64 / (1u64 << 53) as f64
+        }
+        fn normal(&mut self) -> f64 {
+            let mut s = 0.0;
+            for _ in 0..12 {
+                s += self.unit();
+            }
+            s - 6.0
+        }
+    }
+    let mut g = SplitMix(SEED);
+    let mut csv = (1..=128).map(|j| format!("x{j}")).collect::<Vec<_>>().join(",");
+    csv.push('\n');
+    for _ in 0..150 {
+        let f = g.normal();
+        let row: Vec<String> = (0..128).map(|_| format!("{:?}", f + g.normal())).collect();
+        csv.push_str(&row.join(","));
+        csv.push('\n');
+    }
+    let w = World::new("stored-factor-slow");
+    let data = w.open("slow.csv", csv.as_bytes());
+    let items: Vec<u32> = (1..=128).collect();
+    let run = factor_run(&w, data, &items, Extraction::PrincipalComponents, Some(3), Rotation::Varimax, 1000);
+    let id = pc::save_run(&w.root(), &w.ws, run, new_project("Stored slow varimax")).unwrap().project_id;
+    let back = pc::run_result(&w.root(), &w.ws, &id, 1).expect("read back");
+    assert_eq!(back.state, RunState::Succeeded);
+    let bundle: Value = serde_json::from_str(back.bundle_json.as_deref().unwrap()).unwrap();
+    let r = &bundle["primaryOutputs"];
+    assert_eq!(r["rotation"]["method"], "varimax");
+    assert_eq!(r["rotation"]["iterations"], CYCLES, "the probe's cycles for this seed");
+    assert_eq!(r["notes"].as_array().unwrap().len(), 0);
+    assert_eq!(r["exclusions"].as_array().unwrap().len(), 0);
+    assert_stored_fixture("factor_slow_varimax.json", &back);
+}
+
 /// The linear regression's edge cases saved (Research OS, Phase 9B-1, decision 698): the
 /// accepted side of the stored checker, each a result Rust writes that a one-line mutant of
 /// 9A-2's checker refused (the review of 9e4b7ad9, finding 2), and finding 1's perfect fit

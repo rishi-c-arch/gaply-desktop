@@ -79,6 +79,9 @@ const SCANNED: &[&str] = &[
     "gaply-core/src/stats_linear_regression",
     "src/stats_factor_commands.rs",
     "gaply-core/src/stats_factor",
+    // Research OS, Phase 9C-1 (decision 749): the confirmatory factor analysis.
+    "src/stats_cfa_commands.rs",
+    "gaply-core/src/stats_cfa",
 ];
 
 /// The one Research OS module allowed to write (Phase 5B-1, ADR-009): the

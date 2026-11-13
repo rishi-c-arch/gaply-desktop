@@ -115,8 +115,14 @@ const AT_9B3: Record<string, string> = {
   'factor_varimax.json': 'cc7c151a53c887fcc8715cf4992bfab571350d18abca89d0ef1507b4c47534c2',
 };
 
+/** Research OS, Phase 9C-1 (decision 742's B1): the slow varimax's stored fixture, captured from
+ *  9C-1's own render; the seven records before it are unchanged. */
+const AT_9C1: Record<string, string> = {
+  'factor_slow_varimax.json': 'b561600727c26b0f2f531d7f80782bb03eef5780ed991d016b9e521b53dd7101',
+};
+
 /** Each file's record: 8eb00b7c's, or that of the step that added the file. */
-const RECORDED: Record<string, string> = { ...AT_8EB00B7C, ...AT_8X2, ...AT_8Y2, ...AT_8Z2, ...AT_9A2, ...AT_9B1, ...AT_9B3 };
+const RECORDED: Record<string, string> = { ...AT_8EB00B7C, ...AT_8X2, ...AT_8Y2, ...AT_8Z2, ...AT_9A2, ...AT_9B1, ...AT_9B3, ...AT_9C1 };
 
 const sha = (s: string) => createHash('sha256').update(s).digest('hex');
 
@@ -185,15 +191,16 @@ describe('a project page with no prepared run, byte for byte as at 8eb00b7c', ()
 describe('a saved result with no scores, byte for byte as at 8eb00b7c', () => {
   it('covers every stored fixture', () => {
     expect(FILES.length).toBeGreaterThanOrEqual(20);
-    // The seven records name disjoint files, and together the whole directory.
-    expect(Object.keys(AT_8EB00B7C).filter((k) => k in AT_8X2 || k in AT_8Y2 || k in AT_8Z2 || k in AT_9A2 || k in AT_9B1 || k in AT_9B3)).toEqual([]);
-    expect(Object.keys(AT_8X2).filter((k) => k in AT_8Y2 || k in AT_8Z2 || k in AT_9A2 || k in AT_9B1 || k in AT_9B3)).toEqual([]);
-    expect(Object.keys(AT_8Y2).filter((k) => k in AT_8Z2 || k in AT_9A2 || k in AT_9B1 || k in AT_9B3)).toEqual([]);
-    expect(Object.keys(AT_8Z2).filter((k) => k in AT_9A2 || k in AT_9B1 || k in AT_9B3)).toEqual([]);
-    expect(Object.keys(AT_9A2).filter((k) => k in AT_9B1 || k in AT_9B3)).toEqual([]);
-    expect(Object.keys(AT_9B1).filter((k) => k in AT_9B3)).toEqual([]);
+    // The eight records name disjoint files, and together the whole directory.
+    expect(Object.keys(AT_8EB00B7C).filter((k) => k in AT_8X2 || k in AT_8Y2 || k in AT_8Z2 || k in AT_9A2 || k in AT_9B1 || k in AT_9B3 || k in AT_9C1)).toEqual([]);
+    expect(Object.keys(AT_8X2).filter((k) => k in AT_8Y2 || k in AT_8Z2 || k in AT_9A2 || k in AT_9B1 || k in AT_9B3 || k in AT_9C1)).toEqual([]);
+    expect(Object.keys(AT_8Y2).filter((k) => k in AT_8Z2 || k in AT_9A2 || k in AT_9B1 || k in AT_9B3 || k in AT_9C1)).toEqual([]);
+    expect(Object.keys(AT_8Z2).filter((k) => k in AT_9A2 || k in AT_9B1 || k in AT_9B3 || k in AT_9C1)).toEqual([]);
+    expect(Object.keys(AT_9A2).filter((k) => k in AT_9B1 || k in AT_9B3 || k in AT_9C1)).toEqual([]);
+    expect(Object.keys(AT_9B1).filter((k) => k in AT_9B3 || k in AT_9C1)).toEqual([]);
+    expect(Object.keys(AT_9B3).filter((k) => k in AT_9C1)).toEqual([]);
     expect(
-      [...Object.keys(AT_8EB00B7C), ...Object.keys(AT_8X2), ...Object.keys(AT_8Y2), ...Object.keys(AT_8Z2), ...Object.keys(AT_9A2), ...Object.keys(AT_9B1), ...Object.keys(AT_9B3)].sort()
+      [...Object.keys(AT_8EB00B7C), ...Object.keys(AT_8X2), ...Object.keys(AT_8Y2), ...Object.keys(AT_8Z2), ...Object.keys(AT_9A2), ...Object.keys(AT_9B1), ...Object.keys(AT_9B3), ...Object.keys(AT_9C1)].sort()
     ).toEqual(FILES);
   });
 

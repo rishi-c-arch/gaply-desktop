@@ -1,0 +1,20 @@
+{
+  "runId": 5,
+  "state": "running",
+  "terminal": false,
+  "elapsedMs": 12,
+  "cancelRequested": true,
+  "stepsDone": 7,
+  "stepsTotal": 9,
+  "diagnostics": [
+    {
+      "code": "stats.cfa.suspect_missing_code",
+      "params": {
+        "column": 1,
+        "count": 3,
+        "value": 99
+      },
+      "severity": "warning"
+    }
+  ]
+}

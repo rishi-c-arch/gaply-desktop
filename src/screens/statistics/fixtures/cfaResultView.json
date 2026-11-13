@@ -1,0 +1,513 @@
+{
+  "runId": 5,
+  "status": "succeeded",
+  "result": {
+    "items": [
+      "C1",
+      "C3",
+      "C5",
+      "C2",
+      "C4",
+      "C6"
+    ],
+    "rowsUsed": 40,
+    "indicators": [
+      [
+        "C1",
+        "C3",
+        "C5"
+      ],
+      [
+        "C2",
+        "C4",
+        "C6"
+      ]
+    ],
+    "loadings": [
+      {
+        "factor": 1,
+        "item": "C1",
+        "estimate": {
+          "value": 1.0
+        },
+        "se": {
+          "not_computable": "stats.cfa.fixed_parameter"
+        },
+        "cr": {
+          "not_computable": "stats.cfa.fixed_parameter"
+        },
+        "p": {
+          "not_computable": "stats.cfa.fixed_parameter"
+        },
+        "standardized": {
+          "value": 0.9677217686405407
+        }
+      },
+      {
+        "factor": 1,
+        "item": "C3",
+        "estimate": {
+          "value": 0.7763556742260725
+        },
+        "se": {
+          "value": 0.05819696513977522
+        },
+        "cr": {
+          "value": 13.34014020080689
+        },
+        "p": {
+          "value": 1.3520501940791632e-40
+        },
+        "standardized": {
+          "value": 0.9335013454153324
+        }
+      },
+      {
+        "factor": 1,
+        "item": "C5",
+        "estimate": {
+          "value": 1.5922429232572348
+        },
+        "se": {
+          "value": 0.07978188540172723
+        },
+        "cr": {
+          "value": 19.957449178341474
+        },
+        "p": {
+          "value": 1.2913786993599556e-88
+        },
+        "standardized": {
+          "value": 0.9913224975049445
+        }
+      },
+      {
+        "factor": 2,
+        "item": "C2",
+        "estimate": {
+          "value": 1.0
+        },
+        "se": {
+          "not_computable": "stats.cfa.fixed_parameter"
+        },
+        "cr": {
+          "not_computable": "stats.cfa.fixed_parameter"
+        },
+        "p": {
+          "not_computable": "stats.cfa.fixed_parameter"
+        },
+        "standardized": {
+          "value": 0.9817939946152037
+        }
+      },
+      {
+        "factor": 2,
+        "item": "C4",
+        "estimate": {
+          "value": 0.7834751696055253
+        },
+        "se": {
+          "value": 0.03739457447725465
+        },
+        "cr": {
+          "value": 20.951573338054057
+        },
+        "p": {
+          "value": 1.8153368029991583e-97
+        },
+        "standardized": {
+          "value": 0.9793410597584835
+        }
+      },
+      {
+        "factor": 2,
+        "item": "C6",
+        "estimate": {
+          "value": 0.5183950512816469
+        },
+        "se": {
+          "value": 0.03256073834438717
+        },
+        "cr": {
+          "value": 15.920862905463197
+        },
+        "p": {
+          "value": 4.5407115726465583e-57
+        },
+        "standardized": {
+          "value": 0.9490915183826515
+        }
+      }
+    ],
+    "factorVariances": [
+      {
+        "factor": 1,
+        "estimate": {
+          "value": 1041379.0177910187
+        },
+        "se": {
+          "value": 252068.89744216794
+        },
+        "cr": {
+          "value": 4.131326904502139
+        },
+        "p": {
+          "value": 0.00003606752301375721
+        }
+      },
+      {
+        "factor": 2,
+        "estimate": {
+          "value": 2544318.7783483854
+        },
+        "se": {
+          "value": 598791.9294522635
+        },
+        "cr": {
+          "value": 4.249086624590557
+        },
+        "p": {
+          "value": 0.000021464391007290476
+        }
+      }
+    ],
+    "factorCovariances": [
+      {
+        "factors": [
+          1,
+          2
+        ],
+        "estimate": {
+          "value": 328192.12655478506
+        },
+        "se": {
+          "value": 270114.7157393302
+        },
+        "cr": {
+          "value": 1.2150101694996192
+        },
+        "p": {
+          "value": 0.2243622127586616
+        },
+        "correlation": {
+          "value": 0.20162203081567737
+        }
+      }
+    ],
+    "errorVariances": [
+      {
+        "item": "C1",
+        "estimate": {
+          "value": 70628.70158398642
+        },
+        "se": {
+          "value": 25238.224622255835
+        },
+        "cr": {
+          "value": 2.7984813766061767
+        },
+        "p": {
+          "value": 0.0051343530170865175
+        }
+      },
+      {
+        "item": "C3",
+        "estimate": {
+          "value": 92609.96646244181
+        },
+        "se": {
+          "value": 24055.286924195534
+        },
+        "cr": {
+          "value": 3.8498799350961765
+        },
+        "p": {
+          "value": 0.00011817573991114681
+        }
+      },
+      {
+        "item": "C5",
+        "estimate": {
+          "value": 46423.07461703442
+        },
+        "se": {
+          "value": 50583.877932605654
+        },
+        "cr": {
+          "value": 0.9177444773784488
+        },
+        "p": {
+          "value": 0.3587526563547687
+        }
+      },
+      {
+        "item": "C2",
+        "estimate": {
+          "value": 95236.61602662316
+        },
+        "se": {
+          "value": 46765.62086204267
+        },
+        "cr": {
+          "value": 2.0364664099631784
+        },
+        "p": {
+          "value": 0.04170354274134012
+        }
+      },
+      {
+        "item": "C4",
+        "estimate": {
+          "value": 66585.97210414747
+        },
+        "se": {
+          "value": 29601.298926873566
+        },
+        "cr": {
+          "value": 2.249427373732486
+        },
+        "p": {
+          "value": 0.024485318650604392
+        }
+      },
+      {
+        "item": "C6",
+        "estimate": {
+          "value": 75318.10910852949
+        },
+        "se": {
+          "value": 20386.90823202662
+        },
+        "cr": {
+          "value": 3.6944350880144357
+        },
+        "p": {
+          "value": 0.0002203761800019396
+        }
+      }
+    ],
+    "smc": [
+      {
+        "item": "C1",
+        "value": {
+          "value": 0.9364854215007764
+        }
+      },
+      {
+        "item": "C3",
+        "value": {
+          "value": 0.8714247618922357
+        }
+      },
+      {
+        "item": "C5",
+        "value": {
+          "value": 0.9827202940594406
+        }
+      },
+      {
+        "item": "C2",
+        "value": {
+          "value": 0.9639194478624786
+        }
+      },
+      {
+        "item": "C4",
+        "value": {
+          "value": 0.9591089113288696
+        }
+      },
+      {
+        "item": "C6",
+        "value": {
+          "value": 0.9007747102658872
+        }
+      }
+    ],
+    "fit": {
+      "npar": 13,
+      "cmin": {
+        "value": 26.877282751332075
+      },
+      "df": 8,
+      "p": {
+        "value": 0.0007423169672420698
+      },
+      "cminDf": {
+        "value": 3.3596603439165094
+      },
+      "rmr": {
+        "value": 82468.88638350322
+      },
+      "gfi": {
+        "value": 0.853877863430405
+      },
+      "agfi": {
+        "value": 0.616429391504813
+      },
+      "pgfi": {
+        "value": 0.3252868051163447
+      },
+      "nfi": {
+        "value": 0.9307493383443788
+      },
+      "rfi": {
+        "value": 0.8701550093957101
+      },
+      "ifi": {
+        "value": 0.9503380867799814
+      },
+      "tli": {
+        "value": 0.9051369686285788
+      },
+      "cfi": {
+        "value": 0.9494063832685754
+      },
+      "pratio": {
+        "value": 0.5333333333333333
+      },
+      "pnfi": {
+        "value": 0.496399647117002
+      },
+      "pcfi": {
+        "value": 0.5063500710765736
+      },
+      "ncp": {
+        "value": 18.877282751332075
+      },
+      "ncpLo90": {
+        "value": 6.7773388992762325
+      },
+      "ncpHi90": {
+        "value": 38.560651062835646
+      },
+      "fmin": {
+        "value": 0.6891610961880019
+      },
+      "f0": {
+        "value": 0.4840328910597968
+      },
+      "f0Lo90": {
+        "value": 0.17377792049426238
+      },
+      "f0Hi90": {
+        "value": 0.9887346426368114
+      },
+      "rmsea": {
+        "value": 0.24597583495635217
+      },
+      "rmseaLo90": {
+        "value": 0.14738466698331545
+      },
+      "rmseaHi90": {
+        "value": 0.3515562975251637
+      },
+      "pclose": {
+        "value": 0.0018023749469198262
+      },
+      "aic": {
+        "value": 52.877282751332075
+      },
+      "bcc": {
+        "value": 58.564782751332075
+      },
+      "bic": {
+        "value": 74.83271565481326
+      },
+      "caic": {
+        "value": 87.83271565481324
+      },
+      "ecvi": {
+        "value": 1.3558277628546687
+      },
+      "ecviLo90": {
+        "value": 1.045572792289134
+      },
+      "ecviHi90": {
+        "value": 1.8605295144316831
+      },
+      "mecvi": {
+        "value": 1.501661096188002
+      },
+      "hoelter05": {
+        "value": 23.0
+      },
+      "hoelter01": {
+        "value": 30.0
+      },
+      "independenceNpar": 6,
+      "independenceCmin": {
+        "value": 388.1158982276723
+      },
+      "independenceDf": 15
+    },
+    "iterations": 18,
+    "exclusions": [
+      {
+        "code": "stats.cfa.missing_value",
+        "count": 1,
+        "params": {
+          "column": 2
+        }
+      }
+    ],
+    "notes": [],
+    "limitations": [
+      "stats.cfa.ml_only",
+      "stats.cfa.no_means",
+      "stats.cfa.one_group_only",
+      "stats.cfa.simple_structure_only",
+      "stats.cfa.marker_identification_only",
+      "stats.cfa.no_modification_indices",
+      "stats.cfa.normal_theory_standard_errors",
+      "stats.cfa.no_srmr",
+      "stats.cfa.listwise_only",
+      "stats.cfa.no_weights"
+    ]
+  },
+  "diagnostics": [
+    {
+      "code": "stats.cfa.suspect_missing_code",
+      "params": {
+        "column": 1,
+        "count": 3,
+        "value": 99
+      },
+      "severity": "warning"
+    },
+    {
+      "code": "stats.cfa.ml_only",
+      "params": {},
+      "severity": "note"
+    }
+  ],
+  "manifest": {
+    "schemaVersion": 1,
+    "capabilityId": "stats.analyze.cfa",
+    "capabilityVersion": 1,
+    "engineVersion": 1,
+    "inputs": [
+      "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    ],
+    "parametersHash": "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+    "seed": 7,
+    "rowsRead": 41,
+    "rowsUsed": 40,
+    "exclusions": [
+      {
+        "code": "stats.cfa.missing_value",
+        "count": 1,
+        "params": {
+          "column": 2
+        }
+      }
+    ],
+    "platform": {
+      "os": "macos",
+      "arch": "aarch64"
+    },
+    "elapsedMs": 3,
+    "outputHash": "6ad1bf5daee4d8dfcb466411096e7f26e513bf2cadfb0e1605ff085026fe5c5b",
+    "reproducibility": "bitwise"
+  }
+}

@@ -291,7 +291,7 @@ Gaply keeps the last 40 runs in memory only; run the factor analysis again.") an
 | `correlations_singular` (a refusal, naming C4) | C4 is a combination of the items before it, or within one part in a billion of its variance of being one, so the correlation matrix is singular and principal axis factoring cannot start. Take it out of the items, or use principal components. |
 | `distribution_out_of_range` | Not computable: this needs a chi-square distribution beyond the range where Gaply has measured its accuracy. |
 | `eigen_not_converged` | The eigenvalues of these data could not be found to the arithmetic's precision. |
-| `eigenvalues_not_distinct` | The last eigenvalue extracted and the next are equal within 1e-8 of the larger, so these loadings are one of many that fit equally well. |
+| `eigenvalues_not_distinct` | Under principal components: The last eigenvalue extracted and the next are equal within 1e-8 of the larger, so these loadings are one of many that fit equally well. Under principal axis factoring, which reads the last iteration's reduced matrix: In the last iteration, the last eigenvalue extracted and the next were equal within 1e-8 of the larger, so these loadings are one of many that fit equally well. |
 | `extraction_eigenvalue_negative` | At some iteration an eigenvalue among those extracted was below 0; as SPSS does, its absolute value was used for the loadings. |
 | `extraction_eigenvalue_not_positive` | A component asked for has an eigenvalue of 0 or below, so it has no loadings. Ask for fewer components. |
 | `extraction_not_converged` | Principal axis factoring did not converge within 25 iterations. Raise the maximum iterations, or ask for fewer factors. |
@@ -317,7 +317,7 @@ Gaply keeps the last 40 runs in memory only; run the factor analysis again.") an
 | `no_oblique_other_than_promax` | Varimax and promax rotations are offered; oblimin, quartimax and equamax are not. |
 | `no_scree_plot` | The scree plot is not drawn; the eigenvalues it would show are listed. |
 | `no_weights` | Each row is counted once; weighting rows by a column is not offered. |
-| `one_factor_not_rotated` | One factor was extracted, so there is nothing to rotate. |
+| `one_factor_not_rotated` | Under principal axis factoring: One factor was extracted, so there is nothing to rotate. Under principal components: One component was extracted, so there is nothing to rotate. |
 | `overflow` | Not computable: a value along the way is too large for the arithmetic. |
 | `pearson_only` | Correlations are Pearson's; polychoric correlations for ordinal items are not offered. |
 | `preparation_mismatch` | These settings do not match how the open data was prepared. Choose the settings again. |

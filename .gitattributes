@@ -68,3 +68,4 @@ src-tauri/gaply-core/tests/fixtures/stats_ranks/export_golden.csv -text
 src-tauri/gaply-core/tests/fixtures/stats_related_ranks/export_golden.csv -text
 src-tauri/gaply-core/tests/fixtures/stats_linear_regression/export_golden.csv -text
 src-tauri/gaply-core/tests/fixtures/stats_factor/export_golden.csv -text
+src-tauri/gaply-core/tests/fixtures/stats_cfa/export_golden.csv -text

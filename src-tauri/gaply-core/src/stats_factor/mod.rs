@@ -29,8 +29,10 @@
 //!
 //! **A rotation that cannot be given is a note** (decision 717): varimax not
 //! meeting its criterion within the iterations (`rotation_not_converged`), or
-//! promax's least squares or inverse refusing (`rotation_singular`). The result
-//! keeps everything else, its rotation `None`.
+//! promax giving no rotation (`rotation_singular`): a varimax column at most
+//! 1e-7 times the longest (decision 728), or its least squares or an inverse
+//! that cannot be computed. The result keeps everything else, its rotation
+//! `None`.
 //!
 //! **Not computable, statistic by statistic.** `correlations_singular` when the
 //! correlation matrix's Cholesky factor refuses (decision 699's rule): the
@@ -69,7 +71,8 @@ use crate::stats_desc::{
 use crate::stats_dist::chi_square_upper_wide;
 use crate::stats_l1::dataset::{Cell, Dataset};
 use crate::stats_linalg::{
-    cholesky, eigen_symmetric, least_squares, log_det, sign_reversed, spd_inverse, LEAST_SQUARES_RANK_TOLERANCE,
+    cholesky, eigen_symmetric, least_squares, log_det, multiply, sign_reversed, spd_inverse, transpose,
+    LEAST_SQUARES_RANK_TOLERANCE,
 };
 use crate::stats_ttest::{column, non_finite_cells};
 use crate::stats_verify::{mean, sample_variance, RangeFault};
@@ -181,8 +184,10 @@ closed! {
         /// iterations (SPSS's ITERATE limits the rotation too), so no rotation
         /// is given; everything else is (decision 717).
         RotationNotConverged => "rotation_not_converged",
-        /// Note: promax's least squares or an inverse of its could not be
-        /// given, so no rotation is given; everything else is (decision 717).
+        /// Note: promax gives no rotation when a varimax column is at most
+        /// 1e-7 times the longest (decision 728), or when its least squares or
+        /// an inverse cannot be computed; everything else is given (decision
+        /// 717).
         RotationSingular => "rotation_singular",
         /// Note: an iteration of principal axis factoring used the absolute
         /// value of an eigenvalue below 0 among the m largest, as SPSS does
@@ -1251,22 +1256,13 @@ fn varimax<B>(
     Ok(None)
 }
 
-fn multiply(a: &[Vec<f64>], b: &[Vec<f64>]) -> Vec<Vec<f64>> {
-    let inner = b.len();
-    let cols = b.first().map_or(0, Vec::len);
-    a.iter().map(|row| (0..cols).map(|j| (0..inner).map(|k| row[k] * b[k][j]).sum()).collect()).collect()
-}
-
-fn transpose(a: &[Vec<f64>]) -> Vec<Vec<f64>> {
-    let cols = a.first().map_or(0, Vec::len);
-    (0..cols).map(|j| a.iter().map(|row| row[j]).collect()).collect()
-}
-
 /// The rotation `method` of the extracted loadings, within `limit` cycles. A
 /// rotation that cannot be given is a note, never a refusal: the run keeps
 /// everything else (decision 717). `None` with `rotation_not_converged` when
 /// varimax does not meet its criterion within the limit (promax starts from it),
-/// or with `rotation_singular` when promax's least squares or inverse refuses.
+/// or with `rotation_singular` when promax gives no rotation: a varimax column
+/// at most 1e-7 times the longest (decision 728), or its least squares or an
+/// inverse that cannot be computed.
 fn rotate<B>(
     method: Rotation,
     loadings: &[Vec<f64>],
@@ -1313,7 +1309,8 @@ fn varimax_result(v: Varimax, p: usize) -> RotatedFactors {
 /// intercept; D = diag(LᵀL)^(-1/2) and Q = L D, columns of length 1; C =
 /// diag((QᵀQ)⁻¹)^(-1/2); the pattern Λ_R Q C⁻¹, the factor correlations Φ = C
 /// (QᵀQ)⁻¹ C and the structure the pattern times Φ. Neither reflected nor sorted
-/// after the fit. `None` when the least squares, a zero column of L or the
+/// after the fit. `None` when a column of Λ_R is at most 1e-7 times the longest
+/// (decision 728), or when the least squares, a zero column of L or the
 /// Cholesky factor refuses: no rotation, the note rotation_singular. Its
 /// iterations are varimax's cycles.
 fn promax_of(a: &[Vec<f64>], cycles: u64) -> Option<RotatedFactors> {

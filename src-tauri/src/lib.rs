@@ -50,6 +50,8 @@ pub mod stats_legacy;
 pub mod stats_linear_regression_commands;
 // Research OS Phase 9B-1 (decision 704): the factor analysis's commands.
 pub mod stats_factor_commands;
+// Research OS Phase 9C-1 (decision 749): the confirmatory factor analysis's commands.
+pub mod stats_cfa_commands;
 pub mod stats_onesample_commands;
 pub mod stats_prep_commands;
 pub mod stats_ranks_commands;
@@ -475,6 +477,14 @@ pub fn run() {
             stats_factor_commands::stats_factor_result,
             stats_factor_commands::stats_factor_cancel,
             stats_factor_commands::stats_factor_export,
+            // Research OS, Phase 9C-1 (decision 749): the confirmatory factor
+            // analysis, behind the workspace check. No window reaches it until 9C-2.
+            stats_cfa_commands::stats_cfa_validate,
+            stats_cfa_commands::stats_cfa_run,
+            stats_cfa_commands::stats_cfa_status,
+            stats_cfa_commands::stats_cfa_result,
+            stats_cfa_commands::stats_cfa_cancel,
+            stats_cfa_commands::stats_cfa_export,
             // Research OS, Phase 8M-3 (decision 425): scale scores, behind the
             // workspace check. In memory only; the screen comes with the layout.
             stats_prep_commands::stats_prep_make,

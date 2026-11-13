@@ -151,8 +151,8 @@ fn factor_analyses_are_saved_read_back_run_again_identical_and_reported() {
     for (line, times) in [
         ("- Items: columns 1, 2, 3, 4, 5, 6, by position", 4),
         ("- Items: columns 1, 2, 7, by position", 1),
-        ("- Extraction: principal_components", 2),
-        ("- Extraction: principal_axis", 3),
+        ("- Extraction: principal components", 2),
+        ("- Extraction: principal axis factoring", 3),
         ("- Factors: every eigenvalue above 1", 2),
         ("- Factors: 2", 2),
         ("- Factors: 1", 1),

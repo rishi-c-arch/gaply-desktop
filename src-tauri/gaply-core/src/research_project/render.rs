@@ -611,11 +611,25 @@ fn parameter_line(p: &ExportParameter) -> String {
             let list: Vec<String> = positions.iter().map(u32::to_string).collect();
             format!("Items: columns {}, by position", list.join(", "))
         }
-        // Decision 731: the factor analysis's five settings.
-        ExportParameter::Extraction(e) => format!("Extraction: {}", e.wire()),
+        // Decision 731: the factor analysis's five settings, in plain words (decision 742's
+        // m6), not the closed codes.
+        ExportParameter::Extraction(e) => format!(
+            "Extraction: {}",
+            match e {
+                FactorExtraction::PrincipalComponents => "principal components",
+                FactorExtraction::PrincipalAxis => "principal axis factoring",
+            }
+        ),
         ExportParameter::FactorCount(None) => "Factors: every eigenvalue above 1".into(),
         ExportParameter::FactorCount(Some(m)) => format!("Factors: {m}"),
-        ExportParameter::Rotation(r) => format!("Rotation: {}", r.wire()),
+        ExportParameter::Rotation(r) => format!(
+            "Rotation: {}",
+            match r {
+                FactorRotation::None => "none",
+                FactorRotation::Varimax => "varimax",
+                FactorRotation::Promax => "promax",
+            }
+        ),
         ExportParameter::Iterations(n) => format!("Maximum iterations: {n}"),
         // As TestValue's: Rust's shortest form that reads back to the same double.
         ExportParameter::Convergence { bits } => {
@@ -1243,16 +1257,17 @@ mod tests {
 
     /// Research OS, Phase 9B-3 (decision 731): the factor analysis's extraction, factors,
     /// rotation, iterations and convergence, each with a line of its own, the closed words
-    /// pinned, and the convergence printed as `TestValue` prints a number.
+    /// pinned, and the convergence printed as `TestValue` prints a number. The lines print
+    /// plain words, not the closed codes (Research OS, Phase 9C-1, decision 742's m6).
     #[test]
     fn the_factor_analysis_parameters_have_lines_of_their_own() {
         assert_eq!(
             parameter_line(&ExportParameter::Extraction(FactorExtraction::PrincipalComponents)),
-            "Extraction: principal_components"
+            "Extraction: principal components"
         );
         assert_eq!(
             parameter_line(&ExportParameter::Extraction(FactorExtraction::PrincipalAxis)),
-            "Extraction: principal_axis"
+            "Extraction: principal axis factoring"
         );
         assert_eq!(
             parameter_line(&ExportParameter::FactorCount(None)),

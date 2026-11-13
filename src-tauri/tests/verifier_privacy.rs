@@ -130,8 +130,9 @@ fn no_header_label_cell_manuscript_text_file_name_or_path_reaches_a_new_surface(
     // 8Y-1: eighteen, the rank tests, Planned, the seventeenth (decision 605);
     // Phase 8Z-1: nineteen, the related rank tests (decisions 639 and 641); Phase
     // 9A-1: twenty, the linear regression (decision 672); Phase 9B-1: twenty-one,
-    // the factor analysis, Planned (decision 702).
-    assert_eq!(list[0]["capabilityIds"].as_array().unwrap().len(), 21);
+    // the factor analysis, Planned (decision 702); Research OS, Phase 9C-1:
+    // twenty-two, the confirmatory factor analysis, Planned (decision 747).
+    assert_eq!(list[0]["capabilityIds"].as_array().unwrap().len(), 22);
 
     // 4. Active: the operation commands read the sentinel files.
     call(&w.w, "workspace_activate", json!({ "id": "statistics" })).expect("Statistics activates");

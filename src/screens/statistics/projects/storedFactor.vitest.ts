@@ -45,6 +45,9 @@ const VARIMAX = 'factor_varimax.json';
 /** Principal components, varimax not converged at one iteration. */
 const NOT_ROTATED = 'factor_not_rotated.json';
 const FAILED = 'factor_failed.json';
+/** Principal components, a fixed 3 factors, varimax converged in 995 cycles of iterations 1,000
+ *  (Research OS, Phase 9C-1, decision 742's B1). */
+const SLOW = 'factor_slow_varimax.json';
 const OK = 'factor';
 const BAD = 'badShape';
 const code = (c: string) => `stats.factor.${c}`;
@@ -98,17 +101,33 @@ describe("the factor analysis's saved results (decision 732)", () => {
     expect(kindOf(snapshot(PROMAX))).toBe(OK);
     expect(kindOf(snapshot(VARIMAX))).toBe(OK);
     expect(kindOf(snapshot(NOT_ROTATED))).toBe(OK);
+    // Decision 742's B1: a varimax of 995 cycles whose rotated rows differ from the extracted
+    // rows times T by 10.17 ε · m, above the old band of 8.5 divided by ε · m alone.
+    expect(kindOf(snapshot(SLOW))).toBe(OK);
     const f = checkStored(snapshot(FAILED));
     expect(f.kind).toBe('failed');
     expect(f.kind === 'failed' && f.capability).toBe('factor');
   });
 
   it('accepts the valid shapes the snapshots stand for: a code in a field Rust can write it in', () => {
-    // An item's MSA of no correlation (adequacy's 0/0), and Bartlett's p out of range.
+    // An item's MSA of no correlation (adequacy's 0/0: an item exactly uncorrelated with every
+    // other), while the others are values.
     expect(kindOf(changed(PROMAX, (b) => (r(b).kmo.items[2].msa = nc('no_correlation'))))).toBe(OK);
-    expect(kindOf(changed(PROMAX, (b) => (r(b).bartlett.p = nc('distribution_out_of_range'))))).toBe(OK);
-    // A determinant below the smallest normal double, its log a value.
-    expect(kindOf(changed(PROMAX, (b) => (r(b).determinant.value = nc('too_small'))))).toBe(OK);
+    // KMO and every MSA no_correlation together (decision 742's m1: adequacy, :1107-1113).
+    expect(kindOf(changed(PROMAX, (b) => {
+      r(b).kmo.overall = nc('no_correlation');
+      r(b).kmo.items.forEach((a: O) => (a.msa = nc('no_correlation')));
+    }))).toBe(OK);
+    // A determinant below the smallest normal double beside a log below ln of it (decision
+    // 742's m1), with Bartlett's chi-square from that log: 128 items, whose log can reach
+    // 128 ln(1e-9), about -2,652 (six items' cannot; the review of 9C-1, finding 7).
+    expect(kindOf(changed(SLOW, (b) => {
+      r(b).determinant.value = nc('too_small');
+      r(b).determinant.log = { value: -720 };
+      r(b).bartlett.chiSquare = { value: -((r(b).rowsUsed - 1 - (2 * 128 + 5) / 6) * -720) };
+    }))).toBe(OK);
+    // A suspect code's warning naming one of the items.
+    expect(kindOf(changed(PROMAX, (b) => (b.diagnostics = [{ code: code('suspect_missing_code'), params: { column: 1, value: -99, count: 2 }, severity: 'warning' }])))).toBe(OK);
   });
 });
 
@@ -190,6 +209,41 @@ describe('what stats_factor never writes (decision 733)', () => {
     ['a mean correlations_singular', () => changed(PROMAX, (b) => (r(b).descriptives[0].mean = nc('correlations_singular')))],
     ['a loading too_small', () => changed(PROMAX, (b) => (r(b).extraction.loadings[0][0] = nc('too_small')))],
     ['correlations_singular on the log alone', () => changed(PROMAX, (b) => (r(b).determinant.log = nc('correlations_singular')))],
+    // Decision 742's m1 (the review of 8bd82d8f): shapes stats_factor never writes, each one
+    // change. Before this step storedFactor.vitest.ts accepted the first two of the determinant's
+    // and Bartlett's as shapes Rust writes.
+    ['the spec\'s iterations above 1,000', () => changed(PROMAX, () => undefined, (s) => (s.parameters.iterations = 5000))],
+    ['the spec\'s convergence 5', () => changed(PROMAX, () => undefined, (s) => (s.parameters.convergence = 5))],
+    ['the spec\'s convergence text', () => changed(PROMAX, () => undefined, (s) => (s.parameters.convergence = 'abc'))],
+    ['the spec\'s convergence below 1e-12', () => changed(PROMAX, () => undefined, (s) => (s.parameters.convergence = 1e-13))],
+    ['a missing code that is text', () => changed(PROMAX, () => undefined, (s) => (s.parameters.missingCodes = ['x']))],
+    ['missing codes out of order', () => changed(PROMAX, () => undefined, (s) => (s.parameters.missingCodes = [2, 1]))],
+    ['a missing code repeated', () => changed(PROMAX, () => undefined, (s) => (s.parameters.missingCodes = [1, 1]))],
+    ['the determinant 0.9 beside its log', () => changed(PROMAX, (b) => (r(b).determinant.value = { value: 0.9 }))],
+    ['the determinant too_small beside a log of -5.18', () => changed(PROMAX, (b) => (r(b).determinant.value = nc('too_small')))],
+    ["Bartlett's p distribution_out_of_range", () => changed(PROMAX, (b) => (r(b).bartlett.p = nc('distribution_out_of_range')))],
+    ['KMO no_correlation while the MSAs are values', () => changed(PROMAX, (b) => (r(b).kmo.overall = nc('no_correlation')))],
+    ['every MSA no_correlation while KMO is a value', () => changed(PROMAX, (b) => r(b).kmo.items.forEach((a: O) => (a.msa = nc('no_correlation'))))],
+    ['KMO too_small', () => changed(PROMAX, (b) => (r(b).kmo.overall = nc('too_small')))],
+    ['an MSA overflow', () => changed(PROMAX, (b) => (r(b).kmo.items[0].msa = nc('overflow')))],
+    ['a standard deviation below 0', () => changed(PROMAX, (b) => (r(b).descriptives[0].sd = { value: -651.5 }))],
+    ['a warning naming a column that is no item', () => changed(PROMAX, (b) => (b.diagnostics = [{ code: code('suspect_missing_code'), params: { column: 9, value: -99, count: 2 }, severity: 'warning' }]))],
+    ['an error among a succeeded run\'s diagnostics', () => changed(PROMAX, (b) => (b.diagnostics = [{ code: code('suspect_missing_code'), params: { column: 1, value: -99, count: 2 }, severity: 'error' }]))],
+    ['the bundle\'s limitations emptied', () => changed(PROMAX, (b) => (b.limitations = []))],
+    ['the bundle\'s limitations out of order', () => changed(PROMAX, (b) => b.limitations.reverse())],
+    // One clause each (the review of 9C-1, finding 8): a warning of another code naming an item,
+    // a limitation at another severity, a limitation with a parameter.
+    ['a warning other than a suspect code', () => changed(PROMAX, (b) => (b.diagnostics = [{ code: code('item_constant'), params: { column: 1 }, severity: 'warning' }]))],
+    ['a limitation as a warning', () => changed(PROMAX, (b) => (b.limitations[0].severity = 'warning'))],
+    ['a limitation with a parameter', () => changed(PROMAX, (b) => (b.limitations[0].params = { column: 1 }))],
+    // A log below p ln(1e-9): every Cholesky pivot left is above 1e-9 of a diagonal of 1
+    // (stats_linalg::cholesky), so six items' log is above about -124.3 (the review of 9C-1,
+    // finding 7).
+    ['a six-item determinant too_small beside a log of -720', () => changed(PROMAX, (b) => {
+      r(b).determinant.value = nc('too_small');
+      r(b).determinant.log = { value: -720 };
+      r(b).bartlett.chiSquare = { value: -((r(b).rowsUsed - 1 - (2 * 6 + 5) / 6) * -720) };
+    })],
     // Exclusions and the manifest.
     ['an exclusion of a column not an item', () => changed(PROMAX, (b) => { r(b).exclusions[0].params.column = 9; b.manifest.exclusions[0].params.column = 9; })],
     ['missing_code with no codes', () => changed(PROMAX, (b) => { r(b).exclusions[0].code = code('missing_code'); b.manifest.exclusions[0].code = code('missing_code'); })],

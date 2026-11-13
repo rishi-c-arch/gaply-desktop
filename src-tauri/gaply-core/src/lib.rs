@@ -83,6 +83,8 @@ pub mod stats_anova;
 pub mod stats_assist;
 pub mod stats_chat;
 pub mod stats_corr;
+// Research OS Phase 9C-1: confirmatory factor analysis, the pure core.
+pub mod stats_cfa;
 pub mod stats_desc;
 pub mod stats_dist;
 // Research OS Phase 9B-1: exploratory factor analysis, the pure core.

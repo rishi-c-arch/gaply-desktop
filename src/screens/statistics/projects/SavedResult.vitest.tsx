@@ -120,7 +120,7 @@ const EDGES_9B1 = [
 /* ---- the shape check ----------------------------------------------------------- */
 
 describe('the shape check', () => {
-  it('has the thirty-four snapshots Rust wrote, and accepts every one', () => {
+  it('has the thirty-five snapshots Rust wrote, and accepts every one', () => {
     expect(SNAPSHOTS).toEqual([
       'alpha.json',
       'alpha_reversed.json',
@@ -132,6 +132,8 @@ describe('the shape check', () => {
       'factor.json',
       'factor_failed.json',
       'factor_not_rotated.json',
+      // Research OS, Phase 9C-1 (decision 742's B1).
+      'factor_slow_varimax.json',
       'factor_varimax.json',
       // Research OS, Phase 9A-2 (decision 687).
       'linear_regression.json',
@@ -176,6 +178,7 @@ describe('the shape check', () => {
     expect(checkStored(stored('factor.json')).kind).toBe('factor');
     expect(checkStored(stored('factor_varimax.json')).kind).toBe('factor');
     expect(checkStored(stored('factor_not_rotated.json')).kind).toBe('factor');
+    expect(checkStored(stored('factor_slow_varimax.json')).kind).toBe('factor');
     expect(checkStored(stored('factor_failed.json')).kind).toBe('failed');
     for (const f of EDGES_9B1) expect(checkStored(stored(f)).kind, f).toBe('linear_regression');
     expect(checkStored(stored('ttest.json')).kind).toBe('ttest');
@@ -217,6 +220,8 @@ describe('the shape check', () => {
     ['factor_varimax.json', 'bundleJson'],
     ['factor_not_rotated.json', 'bundleJson'],
     ['factor_failed.json', 'failureJson'],
+    // Research OS, Phase 9C-1 (decision 742's B1).
+    ['factor_slow_varimax.json', 'bundleJson'],
     // Research OS, Phase 9B-1 (decision 698).
     ...EDGES_9B1.map((f) => [f, 'bundleJson'] as const),
   ] as const)('%s: rejects it with any one field of its %s removed', (name, field) => {
@@ -251,6 +256,8 @@ describe('the shape check', () => {
     ['factor_varimax.json', 'bundleJson'],
     ['factor_not_rotated.json', 'bundleJson'],
     ['factor_failed.json', 'failureJson'],
+    // Research OS, Phase 9C-1 (decision 742's B1).
+    ['factor_slow_varimax.json', 'bundleJson'],
     // Research OS, Phase 9B-1 (decision 698).
     ...EDGES_9B1.map((f) => [f, 'bundleJson'] as const),
   ] as const)('%s: rejects it with any one number in its %s made null, or made a string', (name, field) => {

@@ -1,0 +1,43 @@
+{
+  "status": "invalid",
+  "errors": [
+    {
+      "code": "stats.cfa.item_repeated",
+      "params": {
+        "column": 1
+      },
+      "severity": "error"
+    },
+    {
+      "code": "stats.cfa.too_few_rows",
+      "params": {
+        "count": 2,
+        "limit": 4
+      },
+      "severity": "error"
+    }
+  ],
+  "warnings": [
+    {
+      "code": "stats.cfa.suspect_missing_code",
+      "params": {
+        "column": 1,
+        "count": 3,
+        "value": 99
+      },
+      "severity": "warning"
+    }
+  ],
+  "missingInformation": [
+    {
+      "code": "stats.cfa.no_complete_rows",
+      "params": {},
+      "severity": "error"
+    }
+  ],
+  "estimatedResources": {
+    "rows": 41,
+    "columns": 6,
+    "cells": 246
+  }
+}
