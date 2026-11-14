@@ -1557,8 +1557,10 @@ const FA_LN_CHOLESKY_TOLERANCE = Math.log(1e-9);
  *  with the rotation's work: the first measurement, at m of at most 16 and a fixed band, refused
  *  three varimax results Rust wrote at m of 32, 64 and 100 (the review of 9B-3, finding 7). */
 export const FA_BANDS = {
-  /** |Σ eigenvalues − p| / p: worst 8.745e-16 (3.94 ε). */
-  eigenSum: 9e-15,
+  /** |Σ eigenvalues − p| / p: worst 8.745e-16 (3.94 ε) over 9B-3's hunt, then 2.22e-15 over
+   *  9C-1's slow runs (128 items, m 3, 246 cycles), a 4× margin, so ten times that (Research OS,
+   *  Phase 9C-2, decision 761; decision 754's third answer). */
+  eigenSum: 2.3e-14,
   /** |Φ_jj − 1|: worst 4.441e-16, at m = 64. */
   phiDiagonal: 4.5e-15,
   /** |(TᵀT)_jk − δ_jk| over ε m cycles: worst 0.3334 (m 3, 3 cycles); 0.12 at m of 32 to

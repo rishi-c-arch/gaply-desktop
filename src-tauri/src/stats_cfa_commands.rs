@@ -1,4 +1,4 @@
-//! **The confirmatory confirmatory factor analysis's commands (Research OS, Phase 9C-1,
+//! **The confirmatory factor analysis's commands (Research OS, Phase 9C-1,
 //! decision 749): thin wrappers over `gaply_core::stats_cfa`, through its
 //! façade, and the run manager in [`crate::runs`].** Generated from
 //! `stats_factor_commands.rs`, the pattern, with the names changed.

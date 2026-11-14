@@ -160,121 +160,342 @@
       }
     ],
     "fit": {
-      "npar": 6,
-      "cmin": {
-        "value": 0.0
+      "model": {
+        "npar": 6,
+        "cmin": {
+          "value": 0.0
+        },
+        "df": 0,
+        "p": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "cminDf": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "rmr": {
+          "value": 6.178423498310332e-8
+        },
+        "gfi": {
+          "value": 1.0
+        },
+        "agfi": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "pgfi": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "nfi": {
+          "value": 1.0
+        },
+        "rfi": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "ifi": {
+          "value": 1.0
+        },
+        "tli": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "cfi": {
+          "value": 1.0
+        },
+        "pratio": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "pnfi": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "pcfi": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "ncp": {
+          "value": 0.0
+        },
+        "ncpLo90": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "ncpHi90": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "fmin": {
+          "value": 0.0
+        },
+        "f0": {
+          "value": 0.0
+        },
+        "f0Lo90": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "f0Hi90": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "rmsea": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "rmseaLo90": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "rmseaHi90": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "pclose": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "aic": {
+          "value": 12.0
+        },
+        "bcc": {
+          "value": 12.872727272727273
+        },
+        "bic": {
+          "value": 24.5660673733326
+        },
+        "caic": {
+          "value": 30.5660673733326
+        },
+        "ecvi": {
+          "value": 0.2033898305084746
+        },
+        "ecviLo90": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "ecviHi90": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "mecvi": {
+          "value": 0.2181818181818182
+        },
+        "hoelter05": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "hoelter01": {
+          "not_computable": "stats.cfa.df_zero"
+        }
       },
-      "df": 0,
-      "p": {
-        "not_computable": "stats.cfa.df_zero"
+      "saturated": {
+        "npar": 6,
+        "cmin": {
+          "value": 0.0
+        },
+        "df": 0,
+        "p": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "cminDf": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "rmr": {
+          "value": 0.0
+        },
+        "gfi": {
+          "value": 1.0
+        },
+        "agfi": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "pgfi": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "nfi": {
+          "value": 1.0
+        },
+        "rfi": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "ifi": {
+          "value": 1.0
+        },
+        "tli": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "cfi": {
+          "value": 1.0
+        },
+        "pratio": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "pnfi": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "pcfi": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "ncp": {
+          "value": 0.0
+        },
+        "ncpLo90": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "ncpHi90": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "fmin": {
+          "value": 0.0
+        },
+        "f0": {
+          "value": 0.0
+        },
+        "f0Lo90": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "f0Hi90": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "rmsea": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "rmseaLo90": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "rmseaHi90": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "pclose": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "aic": {
+          "value": 12.0
+        },
+        "bcc": {
+          "value": 12.872727272727273
+        },
+        "bic": {
+          "value": 24.5660673733326
+        },
+        "caic": {
+          "value": 30.5660673733326
+        },
+        "ecvi": {
+          "value": 0.2033898305084746
+        },
+        "ecviLo90": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "ecviHi90": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "mecvi": {
+          "value": 0.2181818181818182
+        },
+        "hoelter05": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "hoelter01": {
+          "not_computable": "stats.cfa.df_zero"
+        }
       },
-      "cminDf": {
-        "not_computable": "stats.cfa.df_zero"
-      },
-      "rmr": {
-        "value": 6.178423498310332e-8
-      },
-      "gfi": {
-        "value": 1.0
-      },
-      "agfi": {
-        "not_computable": "stats.cfa.df_zero"
-      },
-      "pgfi": {
-        "not_computable": "stats.cfa.df_zero"
-      },
-      "nfi": {
-        "value": 1.0
-      },
-      "rfi": {
-        "not_computable": "stats.cfa.df_zero"
-      },
-      "ifi": {
-        "value": 1.0
-      },
-      "tli": {
-        "not_computable": "stats.cfa.df_zero"
-      },
-      "cfi": {
-        "value": 1.0
-      },
-      "pratio": {
-        "not_computable": "stats.cfa.df_zero"
-      },
-      "pnfi": {
-        "not_computable": "stats.cfa.df_zero"
-      },
-      "pcfi": {
-        "not_computable": "stats.cfa.df_zero"
-      },
-      "ncp": {
-        "value": 0.0
-      },
-      "ncpLo90": {
-        "not_computable": "stats.cfa.df_zero"
-      },
-      "ncpHi90": {
-        "not_computable": "stats.cfa.df_zero"
-      },
-      "fmin": {
-        "value": 0.0
-      },
-      "f0": {
-        "value": 0.0
-      },
-      "f0Lo90": {
-        "not_computable": "stats.cfa.df_zero"
-      },
-      "f0Hi90": {
-        "not_computable": "stats.cfa.df_zero"
-      },
-      "rmsea": {
-        "not_computable": "stats.cfa.df_zero"
-      },
-      "rmseaLo90": {
-        "not_computable": "stats.cfa.df_zero"
-      },
-      "rmseaHi90": {
-        "not_computable": "stats.cfa.df_zero"
-      },
-      "pclose": {
-        "not_computable": "stats.cfa.df_zero"
-      },
-      "aic": {
-        "value": 12.0
-      },
-      "bcc": {
-        "value": 12.872727272727273
-      },
-      "bic": {
-        "value": 24.5660673733326
-      },
-      "caic": {
-        "value": 30.5660673733326
-      },
-      "ecvi": {
-        "value": 0.2033898305084746
-      },
-      "ecviLo90": {
-        "not_computable": "stats.cfa.df_zero"
-      },
-      "ecviHi90": {
-        "not_computable": "stats.cfa.df_zero"
-      },
-      "mecvi": {
-        "value": 0.2181818181818182
-      },
-      "hoelter05": {
-        "not_computable": "stats.cfa.df_zero"
-      },
-      "hoelter01": {
-        "not_computable": "stats.cfa.df_zero"
-      },
-      "independenceNpar": 3,
-      "independenceCmin": {
-        "value": 272.86000225323716
-      },
-      "independenceDf": 3
+      "independence": {
+        "npar": 3,
+        "cmin": {
+          "value": 272.86000225323716
+        },
+        "df": 3,
+        "p": {
+          "value": 7.424997729628903e-59
+        },
+        "cminDf": {
+          "value": 90.95333408441239
+        },
+        "rmr": {
+          "value": 48334.40505656776
+        },
+        "gfi": {
+          "value": 0.5770117295928581
+        },
+        "agfi": {
+          "value": 0.15402345918571614
+        },
+        "pgfi": {
+          "value": 0.28850586479642903
+        },
+        "nfi": {
+          "value": 0.0
+        },
+        "rfi": {
+          "value": 0.0
+        },
+        "ifi": {
+          "value": 0.0
+        },
+        "tli": {
+          "value": 0.0
+        },
+        "cfi": {
+          "value": 0.0
+        },
+        "pratio": {
+          "value": 1.0
+        },
+        "pnfi": {
+          "value": 0.0
+        },
+        "pcfi": {
+          "value": 0.0
+        },
+        "ncp": {
+          "value": 269.86000225323716
+        },
+        "ncpLo90": {
+          "value": 219.32646713393584
+        },
+        "ncpHi90": {
+          "value": 327.80881369645357
+        },
+        "fmin": {
+          "value": 4.624745800902325
+        },
+        "f0": {
+          "value": 4.573898343275206
+        },
+        "f0Lo90": {
+          "value": 3.717397748032811
+        },
+        "f0Hi90": {
+          "value": 5.556081588075484
+        },
+        "rmsea": {
+          "value": 1.2347602119811505
+        },
+        "rmseaLo90": {
+          "value": 1.1131633225531659
+        },
+        "rmseaHi90": {
+          "value": 1.360892058917665
+        },
+        "pclose": {
+          "value": 1.6632837345850975e-55
+        },
+        "aic": {
+          "value": 278.86000225323716
+        },
+        "bcc": {
+          "value": 279.2963658896008
+        },
+        "bic": {
+          "value": 285.1430359399035
+        },
+        "caic": {
+          "value": 288.1430359399035
+        },
+        "ecvi": {
+          "value": 4.726440716156562
+        },
+        "ecviLo90": {
+          "value": 3.869940120914167
+        },
+        "ecviHi90": {
+          "value": 5.7086239609568405
+        },
+        "mecvi": {
+          "value": 4.733836709993234
+        },
+        "hoelter05": {
+          "value": 2.0
+        },
+        "hoelter01": {
+          "value": 3.0
+        }
+      }
     },
     "iterations": 11,
     "exclusions": [

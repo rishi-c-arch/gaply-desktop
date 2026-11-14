@@ -1,5 +1,5 @@
 //! **The confirmatory factor analysis's privacy matrix (Research OS, Phase 9C-1,
-//! decision 749), generated from `stats_cfa_privacy_matrix.rs`.** Six sentinels,
+//! decision 749), generated from `stats_factor_privacy_matrix.rs`.** Six sentinels,
 //! every surface the method's commands produce, and where each may appear.
 //!
 //! The sentinels:

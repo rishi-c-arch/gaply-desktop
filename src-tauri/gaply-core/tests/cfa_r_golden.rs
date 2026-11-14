@@ -26,7 +26,7 @@ const LAVAAN: &str = "lavaan 0.7.3";
 /// Nov 2026), printed by the test below.
 fn gate(family: &str) -> f64 {
     match family {
-        // Worst 2.017e-9, a loading of 0.056 in worse_than_independence, whose
+        // Worst 2.017e-9, a loading of 0.056 in independent_columns (9C-1's worse_than_independence), whose
         // likelihood is nearly flat: both fits stop at a decrement of 1e-20 and
         // still differ there. Every other case is within 1e-10.
         "estimate" => 2.1e-8,
@@ -37,7 +37,7 @@ fn gate(family: &str) -> f64 {
         // Worst 2.148e-9 (two_by_two, a P of 0.23), relative over max(1, C.R.²)
         // (see `error_of`).
         "p" => 2.2e-8,
-        // Worst 3.279e-9, an SMC of 3.5e-4 in worse_than_independence.
+        // Worst 3.279e-9, an SMC of 3.5e-4 in independent_columns.
         "standardized" => 3.3e-8,
         // Worst 2.124e-12, two_by_two's CMIN of 0.251.
         "fit_chi" => 2.2e-11,
@@ -174,21 +174,22 @@ pub fn keyed(r: &CfaOutcome) -> BTreeMap<String, V> {
     for (i, x) in r.smc.iter().enumerate() {
         put(format!("smc.{i}"), v(x.value));
     }
-    let f = &r.fit;
-    for (name, s) in [
-        ("cmin", f.cmin), ("p", f.p), ("cmin_df", f.cmin_df), ("rmr", f.rmr), ("gfi", f.gfi), ("agfi", f.agfi),
-        ("pgfi", f.pgfi), ("nfi", f.nfi), ("rfi", f.rfi), ("ifi", f.ifi), ("tli", f.tli), ("cfi", f.cfi),
-        ("pratio", f.pratio), ("pnfi", f.pnfi), ("pcfi", f.pcfi), ("ncp", f.ncp), ("ncp_lo90", f.ncp_lo90),
-        ("ncp_hi90", f.ncp_hi90), ("fmin", f.fmin), ("f0", f.f0), ("f0_lo90", f.f0_lo90), ("f0_hi90", f.f0_hi90),
-        ("rmsea", f.rmsea), ("rmsea_lo90", f.rmsea_lo90), ("rmsea_hi90", f.rmsea_hi90), ("pclose", f.pclose),
-        ("aic", f.aic), ("bcc", f.bcc), ("bic", f.bic), ("caic", f.caic), ("ecvi", f.ecvi), ("ecvi_lo90", f.ecvi_lo90),
-        ("ecvi_hi90", f.ecvi_hi90), ("mecvi", f.mecvi), ("hoelter_05", f.hoelter05), ("hoelter_01", f.hoelter01),
-        ("independence_cmin", f.independence_cmin),
-    ] {
-        put(format!("fit.{name}"), v(s));
-    }
-    for (name, n) in [("npar", f.npar), ("df", f.df), ("independence_npar", f.independence_npar), ("independence_df", f.independence_df)] {
-        put(format!("fit.{name}"), V::Num(n as f64));
+    // The three rows (decision 763): fit., fit_saturated. and fit_independence.
+    for (prefix, f) in [("fit", &r.fit.model), ("fit_saturated", &r.fit.saturated), ("fit_independence", &r.fit.independence)] {
+        for (name, s) in [
+            ("cmin", f.cmin), ("p", f.p), ("cmin_df", f.cmin_df), ("rmr", f.rmr), ("gfi", f.gfi), ("agfi", f.agfi),
+            ("pgfi", f.pgfi), ("nfi", f.nfi), ("rfi", f.rfi), ("ifi", f.ifi), ("tli", f.tli), ("cfi", f.cfi),
+            ("pratio", f.pratio), ("pnfi", f.pnfi), ("pcfi", f.pcfi), ("ncp", f.ncp), ("ncp_lo90", f.ncp_lo90),
+            ("ncp_hi90", f.ncp_hi90), ("fmin", f.fmin), ("f0", f.f0), ("f0_lo90", f.f0_lo90), ("f0_hi90", f.f0_hi90),
+            ("rmsea", f.rmsea), ("rmsea_lo90", f.rmsea_lo90), ("rmsea_hi90", f.rmsea_hi90), ("pclose", f.pclose),
+            ("aic", f.aic), ("bcc", f.bcc), ("bic", f.bic), ("caic", f.caic), ("ecvi", f.ecvi), ("ecvi_lo90", f.ecvi_lo90),
+            ("ecvi_hi90", f.ecvi_hi90), ("mecvi", f.mecvi), ("hoelter_05", f.hoelter05), ("hoelter_01", f.hoelter01),
+        ] {
+            put(format!("{prefix}.{name}"), v(s));
+        }
+        for (name, n) in [("npar", f.npar), ("df", f.df)] {
+            put(format!("{prefix}.{name}"), V::Num(n as f64));
+        }
     }
     for (k, c) in r.notes.iter().enumerate() {
         put(format!("note.{k}"), V::Word(word(*c)));
@@ -205,9 +206,11 @@ pub fn keyed(r: &CfaOutcome) -> BTreeMap<String, V> {
 
 /// A key's family.
 fn family(key: &str) -> &'static str {
-    if let Some(name) = key.strip_prefix("fit.") {
+    // The default model's row and the saturated and independence models' rows
+    // (decision 763) share their families and gates.
+    if let Some(name) = key.strip_prefix("fit.").or_else(|| key.strip_prefix("fit_saturated.")).or_else(|| key.strip_prefix("fit_independence.")) {
         return match name {
-            "npar" | "df" | "independence_npar" | "independence_df" | "hoelter_05" | "hoelter_01" => "exact",
+            "npar" | "df" | "hoelter_05" | "hoelter_01" => "exact",
             "ncp_lo90" | "ncp_hi90" | "f0_lo90" | "f0_hi90" | "rmsea_lo90" | "rmsea_hi90" | "ecvi_lo90" | "ecvi_hi90" | "pclose" => "fit_interval",
             // RMR is a residual covariance, in the data's variance units: at an exact
             // fit it is the arithmetic's rounding of 0 (5.6e-15 in R, 3.5e-14 in Gaply
@@ -300,6 +303,8 @@ fn every_number_of_every_case_is_within_its_gate_of_r() {
         by_case.entry(r[0].clone()).or_default().push((r[1].clone(), r[2].clone()));
     }
     let mut worst: BTreeMap<&str, (f64, String)> = BTreeMap::new();
+    // The saturated and independence models' rows (decision 763), each family's worst over them.
+    let mut worst_rows: BTreeMap<&str, (f64, String)> = BTreeMap::new();
     let mut failures = Vec::new();
     let mut compared = 0usize;
     for row in &cases {
@@ -339,6 +344,12 @@ fn every_number_of_every_case_is_within_its_gate_of_r() {
                                 }
                                 continue;
                             }
+                            if key.starts_with("fit_saturated.") || key.starts_with("fit_independence.") {
+                                let e = worst_rows.entry(fam).or_insert((0.0, String::new()));
+                                if err > e.0 {
+                                    *e = (err, format!("{name} {key} (R {b:e}, Gaply {a:e})"));
+                                }
+                            }
                             let e = worst.entry(fam).or_insert((0.0, String::new()));
                             if err > e.0 {
                                 *e = (err, format!("{name} {key} (R {b:e}, Gaply {a:e})"));
@@ -360,8 +371,11 @@ fn every_number_of_every_case_is_within_its_gate_of_r() {
     for (fam, (e, at)) in &worst {
         println!("cfa golden {fam}: worst {e:.3e} at {at}; gate {:e}", gate(fam));
     }
+    for (fam, (e, at)) in &worst_rows {
+        println!("cfa golden, the saturated and independence rows, {fam}: worst {e:.3e} at {at}; gate {:e}", gate(fam));
+    }
     println!("cfa golden: {} cases, {compared} values compared", cases.len());
-    assert_eq!(cases.len(), 14, "the script's cases, none skipped");
-    assert_eq!(compared, 3541, "every expected row compared");
+    assert_eq!(cases.len(), 15, "the script's cases, none skipped");
+    assert_eq!(compared, 4605, "every expected row compared");
     assert!(failures.is_empty(), "{} failures:\n{}", failures.len(), failures.join("\n"));
 }

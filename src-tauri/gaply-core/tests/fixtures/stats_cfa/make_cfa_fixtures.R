@@ -204,13 +204,55 @@ statistics_of <- function(m, S, theta, N) {
     aic = C + 2 * q, bcc = bcc, bic = C + q * log(N), caic = C + q * (log(N) + 1),
     ecvi = (C + 2 * q) / n, ecvi_lo90 = if (d == 0) "df_zero" else (dL + d + 2 * q) / n, ecvi_hi90 = if (d == 0) "df_zero" else (dU + d + 2 * q) / n,
     mecvi = if (is.character(bcc)) bcc else bcc / n,
-    hoelter_05 = hoelter(0.05), hoelter_01 = hoelter(0.01),
-    independence_npar = p, independence_cmin = Cb, independence_df = db
+    hoelter_05 = hoelter(0.05), hoelter_01 = hoelter(0.01)
   )
+  # The saturated and independence models' rows (Research OS, Phase 9C-2, decision 763).
+  saturated <- amos_row(0, pstar, 0, 0, 1, Cb, db, p, N)
+  Sd <- diag(diag(S))
+  resid_b <- (S - Sd)[upper.tri(S, diag = TRUE)]
+  Mb <- diag(1 / diag(S)) %*% S
+  gfi_b <- 1 - sum(diag((Mb - diag(p)) %*% (Mb - diag(p)))) / sum(diag(Mb %*% Mb))
+  independence <- amos_row(Cb, p, db, sqrt(sum(resid_b^2) / pstar), gfi_b, Cb, db, p, N)
+  # AMOS prints the baseline against itself as .000 and its PRATIO as 1.000: written.
+  for (nm in c("nfi", "rfi", "ifi", "tli", "cfi", "pnfi", "pcfi")) independence[[nm]] <- 0
+  independence$pratio <- 1
   notes <- c(if (any(c(theta[idx_var], theta[idx_err]) < 0)) "negative_variance",
              if (is.null(tryCatch(chol(u$Phi), error = function(e) NULL)) || any(eigen(u$Phi, symmetric = TRUE, only.values = TRUE)$values <= 0)) "factor_covariance_not_positive_definite",
              if (d == 0) "df_zero")
-  list(loadings = loadings, factor_variances = fv, factor_covariances = fc, error_variances = ev, smc = smc, fit = fit, notes = notes, F = Fm, Sigma = u$Sigma)
+  list(loadings = loadings, factor_variances = fv, factor_covariances = fc, error_variances = ev, smc = smc, fit = fit,
+       fit_saturated = saturated, fit_independence = independence, notes = notes, F = Fm, Sigma = u$Sigma)
+}
+
+# One model's row of decision 745's measures (decision 763): C, NPAR q, DF d, RMR, GFI, against
+# the independence model's Cb and db, for p columns and N rows; the saturated model's RMR (0)
+# and GFI (1) are given, as are the independence model's. Written here from decision 745's
+# formulas, not from Gaply's code.
+amos_row <- function(C, q, d, rmr, gfi, Cb, db, p, N) {
+  n <- N - 1
+  pstar <- p * (p + 1) / 2
+  dz <- function(x) if (d == 0) "df_zero" else x
+  dL <- if (d == 0) "df_zero" else nc_ncp(C, d, 0.95)
+  dU <- if (d == 0) "df_zero" else nc_ncp(C, d, 0.05)
+  nfi <- 1 - C / Cb
+  cfi_den <- max(Cb - db, C - d, 0)
+  cfi <- if (cfi_den == 0) 1 else 1 - max(C - d, 0) / cfi_den
+  pratio <- d / db
+  bcc <- if (N <= p + 2) "too_few_rows_for_bcc" else C + 2 * q * (N - 1) / (N - p - 2)
+  hoelter <- function(a) if (d == 0) "df_zero" else if (C == 0) "cmin_zero" else floor(n * qchisq(1 - a, d) / C + 1)
+  list(
+    npar = q, cmin = C, df = d, p = dz(if (d > 0) pchisq(C, d, lower.tail = FALSE) else 0), cmin_df = dz(C / d),
+    rmr = rmr, gfi = gfi, agfi = dz(1 - (pstar / d) * (1 - gfi)), pgfi = dz((d / pstar) * gfi),
+    nfi = nfi, rfi = dz(1 - (C / d) / (Cb / db)), ifi = (Cb - C) / (Cb - d), tli = dz((Cb / db - C / d) / (Cb / db - 1)), cfi = cfi,
+    pratio = dz(pratio), pnfi = dz(nfi * pratio), pcfi = dz(cfi * pratio),
+    ncp = max(C - d, 0), ncp_lo90 = dL, ncp_hi90 = dU,
+    fmin = C / n, f0 = max(C - d, 0) / n, f0_lo90 = if (d == 0) "df_zero" else dL / n, f0_hi90 = if (d == 0) "df_zero" else dU / n,
+    rmsea = dz(sqrt(max(C - d, 0) / n / d)), rmsea_lo90 = if (d == 0) "df_zero" else sqrt(dL / (n * d)), rmsea_hi90 = if (d == 0) "df_zero" else sqrt(dU / (n * d)),
+    pclose = if (d == 0) "df_zero" else nc_tails(C, d, 0.0025 * n * d)[["upper"]],
+    aic = C + 2 * q, bcc = bcc, bic = C + q * log(N), caic = C + q * (log(N) + 1),
+    ecvi = (C + 2 * q) / n, ecvi_lo90 = if (d == 0) "df_zero" else (dL + d + 2 * q) / n, ecvi_hi90 = if (d == 0) "df_zero" else (dU + d + 2 * q) / n,
+    mecvi = if (is.character(bcc)) bcc else bcc / n,
+    hoelter_05 = hoelter(0.05), hoelter_01 = hoelter(0.01)
+  )
 }
 
 # ---- data -----------------------------------------------------------------------------
@@ -278,7 +320,7 @@ write_data("singular.csv", singular, "lavaan's HolzingerSwineford1939, rows 1 to
 set.seed(7453)
 loose <- as.data.frame(matrix(round(rnorm(200 * 6, 50, 10), 2), 200))
 names(loose) <- paste0("v", 1:6)
-write_data("loose.csv", loose, "Synthetic: 200 rows of six independent normal columns rounded to 2 decimals (seed 7453), so one factor fits them worse than the independence model by more than its degrees of freedom.")
+write_data("loose.csv", loose, "Synthetic: 200 rows of six independent normal columns rounded to 2 decimals (seed 7453), so one factor fits them about as well as the independence model (C - d = -0.65).")
 holes <- hs9[1:150, 1:6]
 holes[c(3, 17, 40), 2] <- NA
 holes[c(5, 41), 5] <- -99
@@ -288,6 +330,27 @@ write_data("missing.csv", holes, "lavaan's HolzingerSwineford1939, rows 1 to 150
 sc <- hs9[, 1:8]
 sc$score <- (hs9$x7 + hs9$x8 + hs9$x9) / 3
 write_data("score.csv", sc, "lavaan's HolzingerSwineford1939, all 301 rows, x1 to x8, and a ninth column the mean of x7, x8 and x9, as a scale score would be.")
+# Wheaton's six columns (Research OS, Phase 9C-2, decision 763): AMOS's Example 6 data, N =
+# 932, from the correlations and standard deviations decision 763 quotes. AMOS treats them as
+# the unbiased covariance matrix S_u = D R D, so the rows are built, as exact() builds its, with
+# chol(R) times diag(sd) times sqrt((N - 1) / N), so S with divisor N is S_u (N - 1) / N.
+wheaton_R <- diag(6)
+wheaton_R[lower.tri(wheaton_R)] <- c(.66, .56, .44, -.36, -.30, .47, .52, -.41, -.29, .67, -.35, -.29, -.37, -.28, .54)
+wheaton_R[upper.tri(wheaton_R)] <- t(wheaton_R)[upper.tri(wheaton_R)]
+wheaton_sd <- c(3.44, 3.06, 3.54, 3.16, 3.10, 21.22)
+wheaton_exact <- function(R, sd, N, seed) {
+  set.seed(seed)
+  Z <- matrix(rnorm(N * ncol(R)), N)
+  Z <- scale(Z, center = TRUE, scale = FALSE)
+  Z <- qr.Q(qr(Z)) * sqrt(N)
+  x <- as.data.frame(Z %*% chol(R) %*% diag(sd) * sqrt((N - 1) / N) + 50)
+  names(x) <- c("anomia67", "powles67", "anomia71", "powles71", "educatio", "SEI")
+  x
+}
+wheaton <- wheaton_exact(wheaton_R, wheaton_sd, 932, 7454)
+write_data("wheaton.csv", wheaton, paste("Synthetic, reproduced (not read from Wheaton.sav): 932 rows whose covariance matrix with divisor N is",
+  "S_u (N - 1) / N, S_u = D R D from the correlations and standard deviations of AMOS's Example 6 (Wheaton's anomia67,",
+  "powles67, anomia71, powles71, educatio and SEI; decision 763), seed 7454."))
 
 # ---- the cases -----------------------------------------------------------------------------
 
@@ -299,13 +362,14 @@ cases <- list(
   list(name = "two_by_two", data = "hs301.csv", x = hs9, factors = list(c(1, 2), c(4, 5)), correlated = TRUE, codes = numeric(0)),
   list(name = "heywood", data = "heywood.csv", x = NULL, factors = list(1:4), correlated = TRUE, codes = numeric(0)),
   list(name = "phi_not_pd", data = "phi_not_pd.csv", x = NULL, factors = list(1:2, 3:4), correlated = TRUE, codes = numeric(0)),
-  list(name = "not_identified", data = "hs301.csv", x = hs9, factors = list(c(1, 2), c(4, 5)), correlated = FALSE, codes = numeric(0), refusal = "model_not_identified"),
+  list(name = "not_identified", data = "hs301.csv", x = hs9, factors = list(c(1, 2), c(4, 5)), correlated = FALSE, codes = numeric(0), refusal = "two_item_factor_uncorrelated"),
   list(name = "singular", data = "singular.csv", x = singular, factors = list(c(1, 2), c(3, 4)), correlated = TRUE, codes = numeric(0), refusal = "sample_covariance_singular"),
-  list(name = "worse_than_independence", data = "loose.csv", x = loose, factors = list(1:6), correlated = TRUE, codes = numeric(0)),
+  list(name = "independent_columns", data = "loose.csv", x = loose, factors = list(1:6), correlated = TRUE, codes = numeric(0)),
   list(name = "missing_and_codes", data = "missing.csv", x = holes, factors = list(1:3, 4:6), correlated = TRUE, codes = c(-99)),
   list(name = "score_as_item", data = "score.csv", x = sc, factors = list(1:3, c(4, 5, 9)), correlated = TRUE, codes = numeric(0)),
   list(name = "formula_30", data = "formula:30:6:500", x = formula_data(30, 6, 500), factors = formula_factors(30, 6), correlated = TRUE, codes = numeric(0)),
-  list(name = "formula_128", data = "formula:128:16:600", x = formula_data(128, 16, 600), factors = formula_factors(128, 16), correlated = TRUE, codes = numeric(0))
+  list(name = "formula_128", data = "formula:128:16:600", x = formula_data(128, 16, 600), factors = formula_factors(128, 16), correlated = TRUE, codes = numeric(0)),
+  list(name = "wheaton_two_factors", data = "wheaton.csv", x = wheaton, factors = list(1:4, 5:6), correlated = TRUE, codes = numeric(0))
 )
 cases[[6]]$x <- read.csv("data/heywood.csv", comment.char = "#")
 cases[[7]]$x <- read.csv("data/phi_not_pd.csv", comment.char = "#")
@@ -385,6 +449,14 @@ for (case in cases) {
       if (is.na(at)) fail(case$name, ": S is not singular by the 1e-9 rule")
       add(case$name, "refusal", paste0("sample_covariance_singular:column=", pr$cols[at]))
       cat("  refused: column", pr$cols[at], "left", left, "\n")
+    } else if (case$refusal == "two_item_factor_uncorrelated") {
+      # Decision 762: uncorrelated, more than one factor, and a factor of exactly two
+      # columns, which on its own has 3 moments and 4 parameters; the first such factor
+      # is named. Checked here from the case's own model.
+      sizes <- vapply(case$factors, length, 0L)
+      if (case$correlated || length(sizes) < 2 || !any(sizes == 2)) fail(case$name, ": no uncorrelated factor of two columns")
+      add(case$name, "refusal", paste0("two_item_factor_uncorrelated:index=", which(sizes == 2)[1]))
+      cat("  refused: factor", which(sizes == 2)[1], "of two columns, uncorrelated\n")
     } else {
       # H at the starts: its smallest pivot ratio.
       S <- pr$S
@@ -396,7 +468,7 @@ for (case in cases) {
       ev <- eigen(H, symmetric = TRUE, only.values = TRUE)$values
       ratio <- min(ev) / max(ev)
       if (ratio > 1e-9) fail(case$name, ": H at the starts is not singular (ratio ", ratio, ")")
-      add(case$name, "refusal", "model_not_identified")
+      add(case$name, "refusal", case$refusal)
       cat("  refused: H's eigenvalue ratio", ratio, "\n")
     }
     next
@@ -477,6 +549,8 @@ for (case in cases) {
   for (i in seq_along(st$error_variances)) { v <- st$error_variances[[i]]; for (fld in c("estimate", "se", "cr", "p")) add(case$name, paste0("evar.", i - 1, ".", fld), v[[fld]]) }
   for (i in seq_along(st$smc)) add(case$name, paste0("smc.", i - 1), st$smc[i])
   for (nm in names(st$fit)) add(case$name, paste0("fit.", nm), st$fit[[nm]])
+  for (nm in names(st$fit_saturated)) add(case$name, paste0("fit_saturated.", nm), st$fit_saturated[[nm]])
+  for (nm in names(st$fit_independence)) add(case$name, paste0("fit_independence.", nm), st$fit_independence[[nm]])
   for (k in seq_along(st$notes)) add(case$name, paste0("note.", k - 1), st$notes[k])
   for (k in seq_along(pr$exclusions)) add(case$name, paste0("exclusion.", k - 1), pr$exclusions[[k]])
   cat("  CMIN", mine$cmin, "DF", mine$df, "notes", paste(st$notes, collapse = " "), "\n")

@@ -133,9 +133,11 @@
 //! Research OS, Phase 9C-1 (decision 749): a record may hold the confirmatory
 //! factor analysis, started with [`Runs::start_cfa`]. Its check points are
 //! `stats_cfa::run`'s: before the arithmetic, before each column of S, before
-//! the estimation, every iteration calling that one again at its unchanged count,
-//! and before the fit; the progress total is `stats_cfa::check_points`. No
-//! window starts it until 9C-2; [`Runs::start_cfa_then`] is there for its rerun.
+//! the estimation, every iteration of every attempt calling that one again at
+//! its unchanged count, before the estimates, before the default model's fit
+//! and before the independence model's (Phase 9C-2, decision 762); the progress
+//! total is `stats_cfa::check_points`. No window starts it until 9C-3;
+//! [`Runs::start_cfa_then`] is there for its rerun.
 //!
 //! Phase 3: the run manager and the slots belong to the Statistics workspace
 //! (`crate::workspace`), built when it is activated and dropped when it is
@@ -2452,9 +2454,10 @@ impl Method for Cfa {
     type Code = CfaCode;
     type Halt = stats_cfa::Halt<Stop>;
 
-    /// `stats_cfa::check_points` (decision 745): one before the arithmetic,
-    /// one before each column of S, one before the estimation and one before
-    /// the fit.
+    /// `stats_cfa::check_points` (decisions 745 and 762): one before the
+    /// arithmetic, one before each column of S, one before the estimation, one
+    /// before the estimates, one before the default model's fit and one before
+    /// the independence model's.
     fn columns_total(spec: &OperationSpec<CfaParams>, _: &Dataset) -> usize {
         stats_cfa::check_points(&spec.parameters)
     }

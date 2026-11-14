@@ -122,52 +122,53 @@ pub fn result_csv(result: &CfaOutcome, manifest: &RunManifest<CfaCode>) -> Vec<u
     for s in &result.smc {
         stat(&mut out, "smc", "value", At::Item(index(s.item), s.item), s.value);
     }
-    let f = &result.fit;
-    whole(&mut out, "fit", "npar", f.npar);
-    stat(&mut out, "fit", "cmin", At::Nowhere, f.cmin);
-    whole(&mut out, "fit", "df", f.df);
-    for (name, s) in [
-        ("p", f.p),
-        ("cmin_df", f.cmin_df),
-        ("rmr", f.rmr),
-        ("gfi", f.gfi),
-        ("agfi", f.agfi),
-        ("pgfi", f.pgfi),
-        ("nfi", f.nfi),
-        ("rfi", f.rfi),
-        ("ifi", f.ifi),
-        ("tli", f.tli),
-        ("cfi", f.cfi),
-        ("pratio", f.pratio),
-        ("pnfi", f.pnfi),
-        ("pcfi", f.pcfi),
-        ("ncp", f.ncp),
-        ("ncp_lo90", f.ncp_lo90),
-        ("ncp_hi90", f.ncp_hi90),
-        ("fmin", f.fmin),
-        ("f0", f.f0),
-        ("f0_lo90", f.f0_lo90),
-        ("f0_hi90", f.f0_hi90),
-        ("rmsea", f.rmsea),
-        ("rmsea_lo90", f.rmsea_lo90),
-        ("rmsea_hi90", f.rmsea_hi90),
-        ("pclose", f.pclose),
-        ("aic", f.aic),
-        ("bcc", f.bcc),
-        ("bic", f.bic),
-        ("caic", f.caic),
-        ("ecvi", f.ecvi),
-        ("ecvi_lo90", f.ecvi_lo90),
-        ("ecvi_hi90", f.ecvi_hi90),
-        ("mecvi", f.mecvi),
-        ("hoelter_05", f.hoelter05),
-        ("hoelter_01", f.hoelter01),
-    ] {
-        stat(&mut out, "fit", name, At::Nowhere, s);
+    // The three rows of AMOS's tables (decision 763): the default model's as
+    // table fit, then the saturated and independence models' with the same
+    // statistic names.
+    for (table, f) in [("fit", &result.fit.model), ("fit_saturated", &result.fit.saturated), ("fit_independence", &result.fit.independence)] {
+        whole(&mut out, table, "npar", f.npar);
+        stat(&mut out, table, "cmin", At::Nowhere, f.cmin);
+        whole(&mut out, table, "df", f.df);
+        for (name, s) in [
+            ("p", f.p),
+            ("cmin_df", f.cmin_df),
+            ("rmr", f.rmr),
+            ("gfi", f.gfi),
+            ("agfi", f.agfi),
+            ("pgfi", f.pgfi),
+            ("nfi", f.nfi),
+            ("rfi", f.rfi),
+            ("ifi", f.ifi),
+            ("tli", f.tli),
+            ("cfi", f.cfi),
+            ("pratio", f.pratio),
+            ("pnfi", f.pnfi),
+            ("pcfi", f.pcfi),
+            ("ncp", f.ncp),
+            ("ncp_lo90", f.ncp_lo90),
+            ("ncp_hi90", f.ncp_hi90),
+            ("fmin", f.fmin),
+            ("f0", f.f0),
+            ("f0_lo90", f.f0_lo90),
+            ("f0_hi90", f.f0_hi90),
+            ("rmsea", f.rmsea),
+            ("rmsea_lo90", f.rmsea_lo90),
+            ("rmsea_hi90", f.rmsea_hi90),
+            ("pclose", f.pclose),
+            ("aic", f.aic),
+            ("bcc", f.bcc),
+            ("bic", f.bic),
+            ("caic", f.caic),
+            ("ecvi", f.ecvi),
+            ("ecvi_lo90", f.ecvi_lo90),
+            ("ecvi_hi90", f.ecvi_hi90),
+            ("mecvi", f.mecvi),
+            ("hoelter_05", f.hoelter05),
+            ("hoelter_01", f.hoelter01),
+        ] {
+            stat(&mut out, table, name, At::Nowhere, s);
+        }
     }
-    whole(&mut out, "independence", "npar", f.independence_npar);
-    stat(&mut out, "independence", "cmin", At::Nowhere, f.independence_cmin);
-    whole(&mut out, "independence", "df", f.independence_df);
     for e in &result.exclusions {
         line(&mut out, "excluded", "rows", At::Nowhere, &e.count.to_string(), e.code.wire());
         let column = match e.params.get(&ParamKey::Column) {

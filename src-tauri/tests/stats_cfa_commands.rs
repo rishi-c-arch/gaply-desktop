@@ -14,7 +14,9 @@
 //!   "sleep" past it, on an injected clock, never 30 s of real time, and the same
 //!   spec on a still clock gives a result.
 //! * Refusals, each with its exact code, the run's own among them
-//!   (`sample_covariance_singular`, `model_not_identified`, `cfa_not_converged`),
+//!   (`sample_covariance_singular`, `overflow`, `cfa_not_converged`; since 9C-2
+//!   no data in the bug hunt reach `model_not_identified`, which `cfa_cases.rs`
+//!   holds on Walsh-pattern columns and `stats_cfa`'s unit tests case by case),
 //!   and the registry's `capability.*` codes as they are (decision 74), before the
 //!   slot is read. One refusal is not sent here: `missing_code_not_finite`, since
 //!   JSON has no NaN or infinity to send; `cfa_cases.rs` holds it.
@@ -100,12 +102,23 @@ fn csv() -> Vec<u8> {
     delimited(&HEADERS, &rows, ",", "\n")
 }
 
+/// The bug hunt's dataset h239 (seed 20260746, ~/gaply-corpus/os/phase9/9c1/hunt/;
+/// its rows at R's 4 decimals): 12 rows of four synthetic columns on one factor,
+/// on which neither decision 745's starts nor the triad starts (decision 761)
+/// reach the stop within 500 iterations, so the run refuses as
+/// cfa_not_converged (FIND FIRST of 14 Nov 2026: 14 of the hunt's datasets still
+/// refuse so; this is the smallest).
+const NOT_CONVERGED: &[u8] = b"v1,v2,v3,v4\n-57.9994,-78.1101,-146.7749,15.6289\n-59.3387,-78.0180,30.3659,15.6277\n-65.5569,-77.9353,22.0029,15.6291\n-7.6033,-78.0254,-1.7178,15.6290\n-43.9609,-78.1524,-64.9103,15.6273\n-51.0337,-78.0911,116.1775,15.6275\n-120.2849,-78.2462,-188.9979,15.6260\n-33.5065,-78.0955,-32.8551,15.6276\n4.1543,-78.0178,152.2177,15.6265\n-34.0449,-78.0988,5.0249,15.6265\n-110.6945,-78.1001,-8.0856,15.6274\n-96.2747,-78.1015,-98.6810,15.6284\n";
+
 /// The bug hunt's dataset h041 (seed 20260746, ~/gaply-corpus/os/phase9/9c1/hunt/):
 /// 34 rows of eight synthetic columns, the first factor C1, C2, C3, C7, C8 and the
-/// second C4, C5, C6, correlated, on which decision 745's Fisher scoring from its
-/// starts does not reach its stop within 500 iterations (R's own scoring from the
-/// same starts does not either), so the run refuses as cfa_not_converged.
-const NOT_CONVERGED: &[u8] = b"x1,x2,x3,x4,x5,x6,x7,x8\n-8.8984,59.5534,60.7944,83.9235,-85.0705,-41.29,62.6071,7.8669\n-9.0338,59.5501,60.7733,81.6645,-85.0717,-40.8426,6.535,-11.0439\n-4.5305,59.5538,60.7814,83.6228,-85.0721,-40.9012,73.5662,526.922\n-7.7741,59.5512,60.7409,86.282,-85.0672,-41.1175,77.0245,98.4211\n-11.1557,59.5545,60.8388,77.7212,-85.074,-41.1177,19.6049,312.6662\n-6.1488,59.5527,60.7671,87.0073,-85.0752,-40.7,60.3244,-120.9867\n-8.8571,59.5521,60.7952,83.8586,-85.075,-41.5756,76.3996,157.898\n-12.046,59.553,60.7905,77.9539,-85.0643,-41.4919,70.6684,176.3188\n-6.9381,59.5529,60.803,85.2376,-85.0723,-41.1737,107.5797,-66.9645\n-10.8926,59.5513,60.7661,84.802,-85.0774,-41.188,-14.9624,-162.4867\n-11.2668,59.5526,60.8141,82.107,-85.0724,-41.7805,32.3799,-198.494\n-10.2525,59.552,60.752,83.9345,-85.0717,-40.9361,68.6432,-248.7544\n-6.1454,59.5513,60.788,88.2049,-85.0756,-41.2264,41.6248,-282.0135\n-3.8053,59.551,60.7888,83.414,-85.0754,-40.4868,-9.7591,157.7591\n-8.0268,59.553,60.7955,85.9451,-85.0698,-40.8263,93.1988,-29.2516\n-4.4392,59.5533,60.8076,82.1094,-85.0692,-40.9765,165.0175,255.4041\n-12.4343,59.5522,60.7366,84.4989,-85.0752,-40.513,127.7898,174.4233\n-7.294,59.5511,60.8054,84.5239,-85.0739,-41.6268,66.8572,225.5601\n-9.9634,59.5525,60.7567,81.3878,-85.0752,-41.1567,17.7198,-75.1718\n-4.2156,59.5532,60.773,80.5079,-85.0757,-40.8708,71.5191,-40.2031\n-7.275,59.5517,60.7213,86.4525,-85.0666,-40.8999,18.4897,4.2818\n-8.2658,59.5524,60.736,81.3498,-85.0699,-40.7537,95.5567,-215.8202\n-9.5955,59.5525,60.7747,88.2441,-85.0743,-41.464,11.1069,105.5568\n-11.425,59.5534,60.7915,86.1603,-85.076,-40.6615,48.3462,-413.8615\n-4.8955,59.5521,60.7709,83.453,-85.075,-41.1096,42.5785,23.4984\n-8.0315,59.553,60.7997,86.1877,-85.0684,-41.0116,21.9465,19.2242\n-7.4517,59.5537,60.8565,85.8081,-85.0665,-40.762,33.5504,65.5634\n-5.0888,59.553,60.9056,83.2703,-85.0701,-41.193,29.463,385.5392\n-7.1619,59.5534,60.8471,83.2257,-85.0659,-41.4744,37.3595,221.4536\n-8.3704,59.5526,60.7853,78.109,-85.0726,-41.3302,4.788,-286.5376\n-8.4185,59.5544,60.8483,82.6384,-85.0782,-41.5338,-36.4768,317.7412\n-5.2108,59.552,60.7596,86.3038,-85.0728,-40.9152,44.3469,-60.2179\n-4.4497,59.5551,60.8364,88.9047,-85.0717,-41.1968,114.1039,213.4461\n-2.9546,59.557,60.8761,87.9073,-85.0695,-40.8782,10.492,55.4648\n";
+/// second C4, C5, C6, correlated. Decision 745's Fisher scoring from its starts
+/// does not reach its stop within 500 iterations (R's own scoring from the same
+/// starts does not either), and 7bafd6df refused it as cfa_not_converged; the
+/// triad attempt (decision 761) converges in 72 iterations to a CMIN of
+/// 17.571628521379953 with an error variance below 0 (measured on the Mac, 14
+/// Nov 2026, equal to the review's Linux value).
+const RESCUED: &[u8] = b"x1,x2,x3,x4,x5,x6,x7,x8\n-8.8984,59.5534,60.7944,83.9235,-85.0705,-41.29,62.6071,7.8669\n-9.0338,59.5501,60.7733,81.6645,-85.0717,-40.8426,6.535,-11.0439\n-4.5305,59.5538,60.7814,83.6228,-85.0721,-40.9012,73.5662,526.922\n-7.7741,59.5512,60.7409,86.282,-85.0672,-41.1175,77.0245,98.4211\n-11.1557,59.5545,60.8388,77.7212,-85.074,-41.1177,19.6049,312.6662\n-6.1488,59.5527,60.7671,87.0073,-85.0752,-40.7,60.3244,-120.9867\n-8.8571,59.5521,60.7952,83.8586,-85.075,-41.5756,76.3996,157.898\n-12.046,59.553,60.7905,77.9539,-85.0643,-41.4919,70.6684,176.3188\n-6.9381,59.5529,60.803,85.2376,-85.0723,-41.1737,107.5797,-66.9645\n-10.8926,59.5513,60.7661,84.802,-85.0774,-41.188,-14.9624,-162.4867\n-11.2668,59.5526,60.8141,82.107,-85.0724,-41.7805,32.3799,-198.494\n-10.2525,59.552,60.752,83.9345,-85.0717,-40.9361,68.6432,-248.7544\n-6.1454,59.5513,60.788,88.2049,-85.0756,-41.2264,41.6248,-282.0135\n-3.8053,59.551,60.7888,83.414,-85.0754,-40.4868,-9.7591,157.7591\n-8.0268,59.553,60.7955,85.9451,-85.0698,-40.8263,93.1988,-29.2516\n-4.4392,59.5533,60.8076,82.1094,-85.0692,-40.9765,165.0175,255.4041\n-12.4343,59.5522,60.7366,84.4989,-85.0752,-40.513,127.7898,174.4233\n-7.294,59.5511,60.8054,84.5239,-85.0739,-41.6268,66.8572,225.5601\n-9.9634,59.5525,60.7567,81.3878,-85.0752,-41.1567,17.7198,-75.1718\n-4.2156,59.5532,60.773,80.5079,-85.0757,-40.8708,71.5191,-40.2031\n-7.275,59.5517,60.7213,86.4525,-85.0666,-40.8999,18.4897,4.2818\n-8.2658,59.5524,60.736,81.3498,-85.0699,-40.7537,95.5567,-215.8202\n-9.5955,59.5525,60.7747,88.2441,-85.0743,-41.464,11.1069,105.5568\n-11.425,59.5534,60.7915,86.1603,-85.076,-40.6615,48.3462,-413.8615\n-4.8955,59.5521,60.7709,83.453,-85.075,-41.1096,42.5785,23.4984\n-8.0315,59.553,60.7997,86.1877,-85.0684,-41.0116,21.9465,19.2242\n-7.4517,59.5537,60.8565,85.8081,-85.0665,-40.762,33.5504,65.5634\n-5.0888,59.553,60.9056,83.2703,-85.0701,-41.193,29.463,385.5392\n-7.1619,59.5534,60.8471,83.2257,-85.0659,-41.4744,37.3595,221.4536\n-8.3704,59.5526,60.7853,78.109,-85.0726,-41.3302,4.788,-286.5376\n-8.4185,59.5544,60.8483,82.6384,-85.0782,-41.5338,-36.4768,317.7412\n-5.2108,59.552,60.7596,86.3038,-85.0728,-40.9152,44.3469,-60.2179\n-4.4497,59.5551,60.8364,88.9047,-85.0717,-41.1968,114.1039,213.4461\n-2.9546,59.557,60.8761,87.9073,-85.0695,-40.8782,10.492,55.4648\n";
 
 struct World {
     _dir: TempDir,
@@ -113,17 +126,19 @@ struct World {
     w: tauri::WebviewWindow<tauri::test::MockRuntime>,
     data: std::path::PathBuf,
     stuck: std::path::PathBuf,
+    rescued: std::path::PathBuf,
 }
 
 fn world(runs: Option<Arc<Runs>>) -> World {
     let dir = TempDir::new("cfa");
     let data = dir.write("data.csv", &csv());
     let stuck = dir.write("stuck.csv", NOT_CONVERGED);
+    let rescued = dir.write("rescued.csv", RESCUED);
     let app_data = dir.0.join("appdata");
     std::fs::create_dir_all(&app_data).unwrap();
     let db = Arc::new(Database::in_memory().unwrap());
     let (app, w) = app(&app_data, db, runs);
-    World { _dir: dir, _app: app, w, data, stuck }
+    World { _dir: dir, _app: app, w, data, stuck, rescued }
 }
 
 fn open(w: &World) -> Value {
@@ -236,6 +251,10 @@ fn each_refusal_has_its_code() {
         (one(11, &["C1", "C16", "C17"]), "stats.cfa.no_complete_rows", json!({})),
         (one(12, &["C1", "C3", "C12"]), "stats.cfa.too_few_rows", json!({ "count": 2, "limit": 4 })),
         (one(13, &["C1", "C3", "C10"]), "stats.cfa.item_constant", json!({ "column": 10 })),
+        // Decision 762: two uncorrelated factors of two columns, each a one-factor
+        // model of 3 moments and 4 parameters (a run refusal, model_not_identified,
+        // until 9C-2); the first names factor 1.
+        (cspec(&o, 17, &[&["C1", "C3"], &["C2", "C4"]], false, &[]), "stats.cfa.two_item_factor_uncorrelated", json!({ "index": 1 })),
     ] {
         let v = validate(spec);
         assert_eq!(v["status"], "invalid", "{code}: {v}");
@@ -243,7 +262,7 @@ fn each_refusal_has_its_code() {
         assert_eq!(v["errors"][0]["params"], params, "{code}: {v}");
         checked += 1;
     }
-    assert_eq!(checked, 15);
+    assert_eq!(checked, 16);
     // A refused run, as a view: the run is made and refused by its check.
     let bad = start(&w, &o, one(14, &["C1", "C1", "C3"])).unwrap();
     let s = until_terminal_cfa(&w.w, bad);
@@ -251,11 +270,11 @@ fn each_refusal_has_its_code() {
     assert_eq!(s["diagnostics"][0]["code"], "stats.cfa.item_repeated");
     // The run's own refusals: validation passes, and the run's work refuses,
     // recorded as a failed run carrying the refusal, as for every kind. C11, the
-    // first column times 1e300, overflows S and refuses as S does.
+    // first column times 1e300, overflows S: its variance is not finite, so the
+    // run refuses as overflow naming it (decision 762), not as a singular S.
     for (spec, code, params) in [
         (one(15, &["C1", "C2", "C8"]), "stats.cfa.sample_covariance_singular", json!({ "column": 8 })),
-        (one(16, &["C1", "C3", "C11"]), "stats.cfa.sample_covariance_singular", json!({ "column": 11 })),
-        (cspec(&o, 17, &[&["C1", "C3"], &["C2", "C4"]], false, &[]), "stats.cfa.model_not_identified", json!({})),
+        (one(16, &["C1", "C3", "C11"]), "stats.cfa.overflow", json!({ "column": 11 })),
     ] {
         assert_eq!(validate(spec.clone())["status"], "valid", "{code}");
         let run = start(&w, &o, spec).unwrap();
@@ -265,12 +284,24 @@ fn each_refusal_has_its_code() {
         assert_eq!(s["diagnostics"][0]["params"], params, "{s}");
     }
     let stuck = call(&w.w, "stats_desc_open", json!({ "path": w.stuck.to_string_lossy() })).expect("open");
-    let spec = cspec(&stuck, 18, &[&["C1", "C2", "C3", "C7", "C8"], &["C4", "C5", "C6"]], true, &[]);
+    let spec = cspec(&stuck, 18, &[&["C1", "C2", "C3", "C4"]], false, &[]);
     let run = call(&w.w, "stats_cfa_run", json!({ "slot": stuck["slot"], "spec": spec })).unwrap()["runId"].as_u64().unwrap();
     let s = until_terminal_cfa(&w.w, run);
     assert_eq!(s["state"], "failed", "{s}");
     assert_eq!(s["diagnostics"][0]["code"], "stats.cfa.cfa_not_converged", "{s}");
-    assert_eq!(s["diagnostics"][0]["params"], json!({ "limit": 500 }), "{s}");
+    // Both attempts stop at the cap (decision 762's count, measured on the Mac).
+    assert_eq!(s["diagnostics"][0]["params"], json!({ "count": 500, "limit": 500 }), "{s}");
+    // h041, refused by 7bafd6df, is solved by the triad attempt (decision 761).
+    let rescued = call(&w.w, "stats_desc_open", json!({ "path": w.rescued.to_string_lossy() })).expect("open");
+    let spec = cspec(&rescued, 24, &[&["C1", "C2", "C3", "C7", "C8"], &["C4", "C5", "C6"]], true, &[]);
+    let run = call(&w.w, "stats_cfa_run", json!({ "slot": rescued["slot"], "spec": spec })).unwrap()["runId"].as_u64().unwrap();
+    let s = until_terminal_cfa(&w.w, run);
+    assert_eq!(s["state"], "succeeded", "{s}");
+    let r = call(&w.w, "stats_cfa_result", json!({ "runId": run })).unwrap();
+    assert_eq!(r["result"]["notes"], json!(["stats.cfa.negative_variance"]), "{r}");
+    assert_eq!(r["result"]["iterations"], 72);
+    let cmin = r["result"]["fit"]["model"]["cmin"]["value"].as_f64().expect("a CMIN");
+    assert!((cmin - 17.571628521379953).abs() / 17.571628521379953 <= 1e-9, "CMIN {cmin:?}");
     // The registry before the slot.
     let mut s = two(&o, 19);
     s["capabilityVersion"] = json!(2);
@@ -415,12 +446,12 @@ fn the_progress_counts_every_check_point_and_the_iterations_repeat_theirs() {
     let run = start(&w, &o, two(&o, 1)).unwrap();
     let s = until_terminal_cfa(&w.w, run);
     assert_eq!(s["state"], "succeeded", "{s}");
-    assert_eq!(s["stepsTotal"], 9);
-    assert_eq!(s["stepsDone"], 9);
+    assert_eq!(s["stepsTotal"], 11);
+    assert_eq!(s["stepsDone"], 11);
     let seen = seen.lock().unwrap().clone();
     let mut distinct = seen.clone();
     distinct.dedup();
-    assert_eq!(distinct, (0..9).collect::<Vec<usize>>());
+    assert_eq!(distinct, (0..11).collect::<Vec<usize>>());
     let r = call(&w.w, "stats_cfa_result", json!({ "runId": run })).unwrap();
     let iterations = r["result"]["iterations"].as_u64().unwrap();
     assert!(iterations >= 2, "the premise: more than one step");

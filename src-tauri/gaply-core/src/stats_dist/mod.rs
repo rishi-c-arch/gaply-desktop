@@ -630,8 +630,11 @@ fn regularized_gamma(b: f64, y: f64) -> (f64, f64) {
 /// ncp below 0, or an x below 0, and for any of them not finite. x = 0 gives (0,
 /// 1) before any statrs call (statrs's `gamma_lr` and `gamma_ur` panic at x ≤
 /// 0); ncp = 0 gives (`gamma_lr(df / 2, x / 2)`, [`chi_square_upper_wide`]).
+/// `None` too for an ncp above [`NONCENTRAL_MAX_NCP`] (decision 761). Above 0
+/// each tail is clamped to [0, 1]: the upper tail's sum came to
+/// 1.0000000000000002 at (1e-4, 8, 20) (decision 759's m1).
 pub fn noncentral_chi_square_tails(x: f64, df: f64, ncp: f64) -> Option<(f64, f64)> {
-    if !(df.is_finite() && df > 0.0 && df <= CHI_SQUARE_WIDE_MAX_DF) || !(ncp.is_finite() && ncp >= 0.0) || !(x.is_finite() && x >= 0.0) {
+    if !noncentral_in_range(x, df, ncp) {
         return None;
     }
     if x == 0.0 {
@@ -642,7 +645,48 @@ pub fn noncentral_chi_square_tails(x: f64, df: f64, ncp: f64) -> Option<(f64, f6
         return Some((gamma_lr(a, y), chi_square_upper_wide(x, df)?));
     }
     let lambda = ncp / 2.0;
-    Some((lower_mixture(a, y, lambda).0, upper_mixture(a, y, lambda).0))
+    Some((lower_mixture(a, y, lambda).0.clamp(0.0, 1.0), upper_mixture(a, y, lambda).0.clamp(0.0, 1.0)))
+}
+
+/// The largest ncp [`noncentral_chi_square_tails`] sums its mixture for
+/// (decision 761). The mixture's terms run from the Poisson mode outward, about
+/// √ncp of them each way, so its time grows with the ncp, and at 2^53 or more
+/// `top += 1.0` and the bottom's step stop changing the index and the sum never
+/// ends (decision 759's m2: (100, 3, 1e300) had not returned after 300 s).
+/// Measured on the Mac, 13 Nov 2026, at x = ncp and df 3 and 8,000: the release
+/// build returns in 0.059 s at 1e9, 0.19 s at 1e10, 0.62 to 0.78 s at 1e11 and
+/// 2.5 s at 1e12 (the debug build 0.23 s, 0.89 s, 2.8 s and 9.6 s), so 1e10 is
+/// the largest power of 10 the shipped build sums within 0.5 s.
+pub const NONCENTRAL_MAX_NCP: f64 = 1e10;
+
+/// The arguments [`noncentral_chi_square_tails`] accepts.
+fn noncentral_in_range(x: f64, df: f64, ncp: f64) -> bool {
+    df.is_finite()
+        && df > 0.0
+        && df <= CHI_SQUARE_WIDE_MAX_DF
+        && ncp.is_finite()
+        && ncp >= 0.0
+        && ncp <= NONCENTRAL_MAX_NCP
+        && x.is_finite()
+        && x >= 0.0
+}
+
+/// The noncentral lower tail as one function of the ncp, the Poisson mixture at
+/// every ncp, 0 among them (decision 761), for [`noncentral_chi_square_ncp`]'s
+/// bisection: at ncp 0 [`noncentral_chi_square_tails`] gives statrs's
+/// `gamma_lr`, which differs from the mixture just above 0 in the last bits
+/// (up to 4.8e-13 at df 8,000), and bisecting two functions never ended
+/// (decision 759's B1). At λ = 0 the mixture is P(df / 2, x / 2) by the same
+/// recurrence ([`poisson_term`] gives the terms at λ = 0). Not clamped:
+/// the bisection compares it with a target inside (0, 1).
+fn noncentral_lower(x: f64, df: f64, ncp: f64) -> Option<f64> {
+    if !noncentral_in_range(x, df, ncp) {
+        return None;
+    }
+    if x == 0.0 {
+        return Some(0.0);
+    }
+    Some(lower_mixture(df / 2.0, x / 2.0, ncp / 2.0).0)
 }
 
 /// The Poisson mode, ⌊λ⌋.
@@ -780,12 +824,15 @@ fn upper_mixture(a: f64, y: f64, lambda: f64) -> (f64, usize) {
 /// the bracket's top starting at max(x, 1) and doubling while the lower tail
 /// there is above the target. `None` for a target not inside (0, 1), for an x
 /// or df [`noncentral_chi_square_tails`] refuses, and when the bracket's top
-/// stops being finite.
+/// stops being finite or passes [`NONCENTRAL_MAX_NCP`]. The lower tail is
+/// [`noncentral_lower`] at every ncp, 0 among them, so the bisection is of one
+/// function, and it also stops when the midpoint equals either end, no double
+/// lying between them (decision 761; decision 759's B1 never returned).
 pub fn noncentral_chi_square_ncp(x: f64, df: f64, lower_target: f64) -> Option<f64> {
     if !(lower_target > 0.0 && lower_target < 1.0) {
         return None;
     }
-    let lower = |ncp: f64| noncentral_chi_square_tails(x, df, ncp).map(|t| t.0);
+    let lower = |ncp: f64| noncentral_lower(x, df, ncp);
     if lower(0.0)? <= lower_target {
         return Some(0.0);
     }
@@ -793,12 +840,15 @@ pub fn noncentral_chi_square_ncp(x: f64, df: f64, lower_target: f64) -> Option<f
     while lower(hi)? > lower_target {
         lo = hi;
         hi *= 2.0;
-        if !hi.is_finite() {
+        if !hi.is_finite() || hi > NONCENTRAL_MAX_NCP {
             return None;
         }
     }
     while hi - lo > NCP_RELATIVE_TOLERANCE * hi {
         let mid = 0.5 * (lo + hi);
+        if mid == lo || mid == hi {
+            break;
+        }
         if lower(mid)? > lower_target {
             lo = mid;
         } else {
@@ -813,6 +863,9 @@ pub fn noncentral_chi_square_ncp(x: f64, df: f64, lower_target: f64) -> Option<f
 /// relative [`QUANTILE_RELATIVE_TOLERANCE`], the bracket's top starting at
 /// max(df, 1) and doubling while the tail there is above alpha. `None` for an
 /// alpha not inside (0, 1) and a df outside (0, [`CHI_SQUARE_WIDE_MAX_DF`]].
+/// The bisection also stops when the midpoint equals either end, as
+/// [`noncentral_chi_square_ncp`]'s does (decision 761, a guard: no case is
+/// known to reach it).
 pub fn chi_square_quantile_upper(alpha: f64, df: f64) -> Option<f64> {
     if !(alpha > 0.0 && alpha < 1.0) {
         return None;
@@ -825,6 +878,9 @@ pub fn chi_square_quantile_upper(alpha: f64, df: f64) -> Option<f64> {
     }
     while hi - lo > QUANTILE_RELATIVE_TOLERANCE * hi {
         let mid = 0.5 * (lo + hi);
+        if mid == lo || mid == hi {
+            break;
+        }
         if upper(mid)? > alpha {
             lo = mid;
         } else {
@@ -1103,6 +1159,19 @@ mod tests {
             assert_eq!(exact_two_sided(bad, 0.25), None, "{bad} first");
             assert_eq!(exact_two_sided(0.25, bad), None, "{bad} second");
             assert_eq!(exact_two_sided(bad, bad), None, "{bad} both");
+        }
+    }
+
+    /// Decision 761's premise: at λ = 0 the lower mixture is the mixture just
+    /// above 0, bit for bit (λ = 5e-301, an ncp of 1e-300), at decision 759's
+    /// three triples, so the ncp's bisection sees one function from ncp 0 up.
+    /// statrs's gamma_lr, which the tails give at ncp 0, differs from it there
+    /// in the last bits, which is what hung (the review's B1).
+    #[test]
+    fn the_lower_mixture_at_0_is_the_mixture_just_above_0() {
+        for (x, df) in [(7.8147279032511845f64, 3.0f64), (0.10258658877510106, 2.0), (11.07049769351635, 5.0), (34.764251683501314, 50.0)] {
+            let (a, y) = (df / 2.0, x / 2.0);
+            assert_eq!(lower_mixture(a, y, 0.0).0.to_bits(), lower_mixture(a, y, 5e-301).0.to_bits(), "x {x:?} df {df}");
         }
     }
 }

@@ -1,5 +1,5 @@
 //! **The factor analysis's privacy matrix (Research OS, Phase 9B-1, decision
-//! 704), generated from `stats_factor_privacy_matrix.rs`.** Six sentinels,
+//! 704), generated from `stats_related_ranks_privacy_matrix.rs`.** Six sentinels,
 //! every surface the method's commands produce, and where each may appear.
 //!
 //! The sentinels:

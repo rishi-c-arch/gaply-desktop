@@ -141,11 +141,16 @@ fn the_csv_reads_back_and_every_number_to_its_double() {
     assert_eq!(line(&csv, "factor_variances", "estimate")[4], "1");
     assert_eq!(csv.iter().filter(|r| r[0] == "error_variances").count(), 6 * 4);
     assert_eq!(csv.iter().filter(|r| r[0] == "smc").count(), 6);
-    assert_eq!(line(&csv, "fit", "cmin")[6].parse::<f64>().unwrap(), num(r.fit.cmin));
-    assert_eq!(line(&csv, "fit", "df")[6], r.fit.df.to_string());
-    assert_eq!(line(&csv, "fit", "rmsea_hi90")[6].parse::<f64>().unwrap(), num(r.fit.rmsea_hi90));
+    assert_eq!(line(&csv, "fit", "cmin")[6].parse::<f64>().unwrap(), num(r.fit.model.cmin));
+    assert_eq!(line(&csv, "fit", "df")[6], r.fit.model.df.to_string());
+    assert_eq!(line(&csv, "fit", "rmsea_hi90")[6].parse::<f64>().unwrap(), num(r.fit.model.rmsea_hi90));
     assert_eq!(csv.iter().filter(|r| r[0] == "fit").count(), 38);
-    assert_eq!(line(&csv, "independence", "df")[6], "15");
+    // Decision 763: the saturated and independence models' rows, as tables of
+    // their own with the same statistic names.
+    assert_eq!(csv.iter().filter(|r| r[0] == "fit_saturated").count(), 38);
+    assert_eq!(csv.iter().filter(|r| r[0] == "fit_independence").count(), 38);
+    assert_eq!(line(&csv, "fit_independence", "df")[6], "15");
+    assert_eq!(line(&csv, "fit_saturated", "df")[6], "0");
     let excluded: Vec<&Vec<String>> = csv.iter().filter(|r| r[0] == "excluded").collect();
     assert_eq!(excluded.len(), 4, "two rows, two lines each");
     assert_eq!(csv.iter().filter(|r| r[0] == "limitation").count(), 10);
@@ -159,7 +164,7 @@ fn a_not_computable_value_is_an_empty_field_with_its_code() {
     let d = dataset(&["a", "b", "c"], &rows);
     let p = CfaParams { indicators: vec![vec![a(1), a(2), a(3)]], correlated_factors: true, missing_codes: vec![] };
     let (r, m) = run_of(&d, p);
-    assert_eq!(r.fit.df, 0);
+    assert_eq!(r.fit.model.df, 0);
     let csv = read_csv(&result_csv(&r, &m));
     let rmsea = line(&csv, "fit", "rmsea");
     assert_eq!((rmsea[6].as_str(), rmsea[7].as_str()), ("", "stats.cfa.df_zero"));

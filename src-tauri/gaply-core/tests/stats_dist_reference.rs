@@ -1163,3 +1163,66 @@ fn the_noncentral_tails_sum_to_1_are_monotone_and_refuse_outside_their_range() {
     // 0 when the lower tail at ncp 0 is already at or below the target.
     assert_eq!(noncentral_chi_square_ncp(1.0, 10.0, 0.95), Some(0.0));
 }
+
+/* ---- the review of 9C-1 (Research OS, Phase 9C-2, decision 761) ------------- */
+
+/// Runs `f` on its own thread and waits at most 5 s for it, so a call that
+/// never returns fails the test instead of hanging the suite. A thread that
+/// does not return is left running until the test binary exits.
+fn within_5_s<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> Option<T> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(f());
+    });
+    rx.recv_timeout(std::time::Duration::from_secs(5)).ok()
+}
+
+/// Decision 759's B1: the ncp's inversion bisected two functions, statrs's
+/// `gamma_lr` at ncp 0 and the Poisson mixture above it, which differ in the
+/// last bits; where the first is above the target and the second just above
+/// 0 is not, the bracket's top halved to 5e-324 and the stop never held. The
+/// review's three triples, and five doubles near 34.764251683501314 at df 50
+/// and .05 that hung on the Mac before the fix (a scan of ±400 ulps found 58,
+/// at offsets 0 to 60 but 1, 5 and 6; these are offsets 0, 2, 10, 30 and 60).
+/// Each now returns 0 within 5 s. Each case returns at the ncp-0 test, so either
+/// half of the fix alone ends it (both recorded equivalent in the mutation
+/// record); the midpoint stop is a guard no known case reaches (the review of
+/// 9C-2, finding 7).
+#[test]
+fn the_ncps_inversion_returns_where_decision_759_found_it_never_did() {
+    use gaply_core::stats_dist::noncentral_chi_square_ncp;
+    let cases = [
+        (7.8147279032511845, 3.0, 0.95),
+        (0.10258658877510106, 2.0, 0.05),
+        (11.07049769351635, 5.0, 0.95),
+        (34.764251683501314, 50.0, 0.05),
+        (34.76425168350133, 50.0, 0.05),
+        (34.764251683501385, 50.0, 0.05),
+        (34.76425168350153, 50.0, 0.05),
+        (34.76425168350174, 50.0, 0.05),
+    ];
+    for (x, df, target) in cases {
+        let got = within_5_s(move || noncentral_chi_square_ncp(x, df, target));
+        assert_eq!(got, Some(Some(0.0)), "x {x:?} df {df} target {target}: no answer within 5 s, or not 0");
+    }
+}
+
+/// Decision 759's m1: the upper tail was 1.0000000000000002 at (1e-4, 8, 20);
+/// both tails are clamped to [0, 1].
+#[test]
+fn the_noncentral_tails_stay_within_0_and_1() {
+    use gaply_core::stats_dist::noncentral_chi_square_tails;
+    let (lo, up) = noncentral_chi_square_tails(1e-4, 8.0, 20.0).unwrap();
+    assert!((0.0..=1.0).contains(&up), "upper {up:?}");
+    assert!((0.0..=1.0).contains(&lo), "lower {lo:?}");
+}
+
+/// Decision 759's m2: at an ncp of 2^53 or more the mixture's steps stop
+/// moving and (100, 3, 1e300) never returned; above NONCENTRAL_MAX_NCP the
+/// tails are `None`, and so is the ncp's inversion when its bracket passes it.
+#[test]
+fn the_noncentral_tails_refuse_an_ncp_above_their_limit_at_once() {
+    use gaply_core::stats_dist::{noncentral_chi_square_ncp, noncentral_chi_square_tails};
+    assert_eq!(within_5_s(|| noncentral_chi_square_tails(100.0, 3.0, 1e300)), Some(None), "(100, 3, 1e300)");
+    assert_eq!(within_5_s(|| noncentral_chi_square_ncp(1e300, 3.0, 0.05)), Some(None), "(1e300, 3, .05)");
+}

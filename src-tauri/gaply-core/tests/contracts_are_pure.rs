@@ -1166,7 +1166,7 @@ const FACTOR_SERIALISED: &[&str] = &[
 ];
 
 /// `stats_cfa` types that derive `Serialize` (Research OS, Phase 9C-1,
-/// decision 746).
+/// decision 746; `CfaModelFit`, one model's row, Phase 9C-2, decision 763).
 const CFA_SERIALISED: &[&str] = &[
     "CfaParams",
     "Stat",
@@ -1176,6 +1176,7 @@ const CFA_SERIALISED: &[&str] = &[
     "CfaErrorVariance",
     "CfaSmc",
     "CfaFit",
+    "CfaModelFit",
     "CfaOutcome",
 ];
 

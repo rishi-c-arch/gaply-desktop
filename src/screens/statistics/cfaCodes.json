@@ -61,6 +61,7 @@
   "stats.cfa.too_many_factors",
   "stats.cfa.too_many_items",
   "stats.cfa.too_small",
+  "stats.cfa.two_item_factor_uncorrelated",
   "stats.cfa.unknown_capability",
   "stats.cfa.unknown_column",
   "workspace.illegal_transition",

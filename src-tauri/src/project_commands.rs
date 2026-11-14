@@ -914,8 +914,9 @@ fn saveable(copy: &RunCopy) -> Result<(), ProjectCode> {
     }
     // A method with no row in METHODS cannot be rerun or exported, so a project
     // holding it would refuse its export as a whole (Research OS, Phase 9B-2,
-    // decision 714). Since 9B-3 every method has a row (decision 731); the guard
-    // stays for the next method that does not.
+    // decision 714). Since 9B-3 every method had a row (decision 731); the
+    // confirmatory factor analysis has none until 9C-3, so its runs are refused
+    // here at save (Research OS, Phase 9C-2, decision 764).
     if method_for(capability.as_str()).is_none() {
         return Err(ProjectCode::RunNotSaveable);
     }

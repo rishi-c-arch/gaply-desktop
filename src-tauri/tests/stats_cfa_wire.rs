@@ -2,7 +2,7 @@
 //! (Research OS, Phase 9C-1, decision 749), in the pattern of
 //! `stats_factor_wire.rs`.** Each view serialises to exactly the bytes of its
 //! fixture in `src/screens/statistics/fixtures/` (pretty JSON, two-space indent, a
-//! final newline), which 9C-2's screen types will be tested against. Between them
+//! final newline), which 9C-3's screen types will be tested against. Between them
 //! the fixtures fill every field and every variant of every enum the result
 //! carries: a value and a not-computable code, the factors' covariances given and
 //! empty. Both result fixtures are real results of `compute` on synthetic data;
@@ -127,7 +127,17 @@ fn outcome() -> CfaOutcome {
     let d = dataset(&["a", "b", "c", "d", "e", "f"], &rows);
     let p = CfaParams { indicators: vec![vec![a(1), a(3), a(5)], vec![a(2), a(4), a(6)]], correlated_factors: true, missing_codes: vec![] };
     let r = gaply_core::stats_cfa::compute(&d, &p).expect("computes");
-    let text = serde_json::to_string(&r).unwrap();
+    // The estimates and the default model's row (decision 763: the saturated
+    // row's df_zero cells are expected, so it is not read here).
+    let text = [
+        serde_json::to_string(&r.loadings).unwrap(),
+        serde_json::to_string(&r.factor_variances).unwrap(),
+        serde_json::to_string(&r.factor_covariances).unwrap(),
+        serde_json::to_string(&r.error_variances).unwrap(),
+        serde_json::to_string(&r.smc).unwrap(),
+        serde_json::to_string(&r.fit.model).unwrap(),
+    ]
+    .concat();
     assert_eq!(text.matches("not_computable").count(), text.matches("stats.cfa.fixed_parameter").count(), "every value computed but the fixed loadings'");
     r
 }
@@ -323,9 +333,16 @@ fn a_live_run_gives_views_laid_out_as_the_fixtures() {
         ".result.factorCovariances[].correlation.value:number",
         ".result.errorVariances[].se.value:number",
         ".result.smc[].value.value:number",
-        ".result.fit.rmseaHi90.value:number",
-        ".result.fit.rmsea.not_computable:string",
-        ".result.fit.df:number",
+        ".result.fit.model.rmseaHi90.value:number",
+        ".result.fit.model.rmsea.not_computable:string",
+        ".result.fit.model.df:number",
+        // Decision 763's three rows.
+        ".result.fit.saturated.gfi.value:number",
+        ".result.fit.saturated.rmsea.not_computable:string",
+        ".result.fit.saturated.df:number",
+        ".result.fit.independence.rmseaHi90.value:number",
+        ".result.fit.independence.cfi.value:number",
+        ".result.fit.independence.df:number",
         ".manifest.outputHash:string",
     ] {
         assert!(reached.contains(path), "{path}");
@@ -345,9 +362,9 @@ fn the_cfa_code_list_is_exactly_the_closed_sets() {
     let mut rust: Vec<String> = CfaCode::ALL.iter().map(|c| c.wire().to_string()).collect();
     assert_eq!(
         rust.len(),
-        48,
+        49,
         "decision 745's codes: 27 checks and refusals with the suspect code, 8 not computable, the factor \
-         covariance's note, 2 exclusions and 10 limitations"
+         covariance's note, 2 exclusions and 10 limitations; and decision 762's two_item_factor_uncorrelated"
     );
     rust.extend(RunCode::ALL.iter().map(|c| c.wire().to_string()));
     rust.extend(WorkspaceCode::ALL.iter().map(|c| c.wire().to_string()));

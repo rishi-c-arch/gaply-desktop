@@ -1,5 +1,5 @@
 //! **The linear regression's privacy matrix (Research OS, Phase 9A-1, decision
-//! 674), generated from `stats_linear_regression_privacy_matrix.rs`.** Six sentinels,
+//! 674), generated from `stats_related_ranks_privacy_matrix.rs`.** Six sentinels,
 //! every surface the method's commands produce, and where each may appear.
 //!
 //! The sentinels:

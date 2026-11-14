@@ -325,121 +325,342 @@
       }
     ],
     "fit": {
-      "npar": 13,
-      "cmin": {
-        "value": 26.877282751332075
+      "model": {
+        "npar": 13,
+        "cmin": {
+          "value": 26.877282751332075
+        },
+        "df": 8,
+        "p": {
+          "value": 0.0007423169672420698
+        },
+        "cminDf": {
+          "value": 3.3596603439165094
+        },
+        "rmr": {
+          "value": 82468.88638350322
+        },
+        "gfi": {
+          "value": 0.853877863430405
+        },
+        "agfi": {
+          "value": 0.616429391504813
+        },
+        "pgfi": {
+          "value": 0.3252868051163447
+        },
+        "nfi": {
+          "value": 0.9307493383443788
+        },
+        "rfi": {
+          "value": 0.8701550093957101
+        },
+        "ifi": {
+          "value": 0.9503380867799814
+        },
+        "tli": {
+          "value": 0.9051369686285788
+        },
+        "cfi": {
+          "value": 0.9494063832685754
+        },
+        "pratio": {
+          "value": 0.5333333333333333
+        },
+        "pnfi": {
+          "value": 0.496399647117002
+        },
+        "pcfi": {
+          "value": 0.5063500710765736
+        },
+        "ncp": {
+          "value": 18.877282751332075
+        },
+        "ncpLo90": {
+          "value": 6.7773388992762325
+        },
+        "ncpHi90": {
+          "value": 38.560651062835646
+        },
+        "fmin": {
+          "value": 0.6891610961880019
+        },
+        "f0": {
+          "value": 0.4840328910597968
+        },
+        "f0Lo90": {
+          "value": 0.17377792049426238
+        },
+        "f0Hi90": {
+          "value": 0.9887346426368114
+        },
+        "rmsea": {
+          "value": 0.24597583495635217
+        },
+        "rmseaLo90": {
+          "value": 0.14738466698331545
+        },
+        "rmseaHi90": {
+          "value": 0.3515562975251637
+        },
+        "pclose": {
+          "value": 0.0018023749469198262
+        },
+        "aic": {
+          "value": 52.877282751332075
+        },
+        "bcc": {
+          "value": 58.564782751332075
+        },
+        "bic": {
+          "value": 74.83271565481326
+        },
+        "caic": {
+          "value": 87.83271565481324
+        },
+        "ecvi": {
+          "value": 1.3558277628546687
+        },
+        "ecviLo90": {
+          "value": 1.045572792289134
+        },
+        "ecviHi90": {
+          "value": 1.8605295144316831
+        },
+        "mecvi": {
+          "value": 1.501661096188002
+        },
+        "hoelter05": {
+          "value": 23.0
+        },
+        "hoelter01": {
+          "value": 30.0
+        }
       },
-      "df": 8,
-      "p": {
-        "value": 0.0007423169672420698
+      "saturated": {
+        "npar": 21,
+        "cmin": {
+          "value": 0.0
+        },
+        "df": 0,
+        "p": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "cminDf": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "rmr": {
+          "value": 0.0
+        },
+        "gfi": {
+          "value": 1.0
+        },
+        "agfi": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "pgfi": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "nfi": {
+          "value": 1.0
+        },
+        "rfi": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "ifi": {
+          "value": 1.0
+        },
+        "tli": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "cfi": {
+          "value": 1.0
+        },
+        "pratio": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "pnfi": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "pcfi": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "ncp": {
+          "value": 0.0
+        },
+        "ncpLo90": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "ncpHi90": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "fmin": {
+          "value": 0.0
+        },
+        "f0": {
+          "value": 0.0
+        },
+        "f0Lo90": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "f0Hi90": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "rmsea": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "rmseaLo90": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "rmseaHi90": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "pclose": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "aic": {
+          "value": 42.0
+        },
+        "bcc": {
+          "value": 51.1875
+        },
+        "bic": {
+          "value": 77.46646853639267
+        },
+        "caic": {
+          "value": 98.46646853639265
+        },
+        "ecvi": {
+          "value": 1.0769230769230769
+        },
+        "ecviLo90": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "ecviHi90": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "mecvi": {
+          "value": 1.3125
+        },
+        "hoelter05": {
+          "not_computable": "stats.cfa.df_zero"
+        },
+        "hoelter01": {
+          "not_computable": "stats.cfa.df_zero"
+        }
       },
-      "cminDf": {
-        "value": 3.3596603439165094
-      },
-      "rmr": {
-        "value": 82468.88638350322
-      },
-      "gfi": {
-        "value": 0.853877863430405
-      },
-      "agfi": {
-        "value": 0.616429391504813
-      },
-      "pgfi": {
-        "value": 0.3252868051163447
-      },
-      "nfi": {
-        "value": 0.9307493383443788
-      },
-      "rfi": {
-        "value": 0.8701550093957101
-      },
-      "ifi": {
-        "value": 0.9503380867799814
-      },
-      "tli": {
-        "value": 0.9051369686285788
-      },
-      "cfi": {
-        "value": 0.9494063832685754
-      },
-      "pratio": {
-        "value": 0.5333333333333333
-      },
-      "pnfi": {
-        "value": 0.496399647117002
-      },
-      "pcfi": {
-        "value": 0.5063500710765736
-      },
-      "ncp": {
-        "value": 18.877282751332075
-      },
-      "ncpLo90": {
-        "value": 6.7773388992762325
-      },
-      "ncpHi90": {
-        "value": 38.560651062835646
-      },
-      "fmin": {
-        "value": 0.6891610961880019
-      },
-      "f0": {
-        "value": 0.4840328910597968
-      },
-      "f0Lo90": {
-        "value": 0.17377792049426238
-      },
-      "f0Hi90": {
-        "value": 0.9887346426368114
-      },
-      "rmsea": {
-        "value": 0.24597583495635217
-      },
-      "rmseaLo90": {
-        "value": 0.14738466698331545
-      },
-      "rmseaHi90": {
-        "value": 0.3515562975251637
-      },
-      "pclose": {
-        "value": 0.0018023749469198262
-      },
-      "aic": {
-        "value": 52.877282751332075
-      },
-      "bcc": {
-        "value": 58.564782751332075
-      },
-      "bic": {
-        "value": 74.83271565481326
-      },
-      "caic": {
-        "value": 87.83271565481324
-      },
-      "ecvi": {
-        "value": 1.3558277628546687
-      },
-      "ecviLo90": {
-        "value": 1.045572792289134
-      },
-      "ecviHi90": {
-        "value": 1.8605295144316831
-      },
-      "mecvi": {
-        "value": 1.501661096188002
-      },
-      "hoelter05": {
-        "value": 23.0
-      },
-      "hoelter01": {
-        "value": 30.0
-      },
-      "independenceNpar": 6,
-      "independenceCmin": {
-        "value": 388.1158982276723
-      },
-      "independenceDf": 15
+      "independence": {
+        "npar": 6,
+        "cmin": {
+          "value": 388.1158982276723
+        },
+        "df": 15,
+        "p": {
+          "value": 2.166913889410884e-73
+        },
+        "cminDf": {
+          "value": 25.874393215178152
+        },
+        "rmr": {
+          "value": 777943.5462754564
+        },
+        "gfi": {
+          "value": 0.3536377855947145
+        },
+        "agfi": {
+          "value": 0.09509289983260039
+        },
+        "pgfi": {
+          "value": 0.2525984182819389
+        },
+        "nfi": {
+          "value": 0.0
+        },
+        "rfi": {
+          "value": 0.0
+        },
+        "ifi": {
+          "value": 0.0
+        },
+        "tli": {
+          "value": 0.0
+        },
+        "cfi": {
+          "value": 0.0
+        },
+        "pratio": {
+          "value": 1.0
+        },
+        "pnfi": {
+          "value": 0.0
+        },
+        "pcfi": {
+          "value": 0.0
+        },
+        "ncp": {
+          "value": 373.1158982276723
+        },
+        "ncpLo90": {
+          "value": 312.61004694790324
+        },
+        "ncpHi90": {
+          "value": 441.0537453134783
+        },
+        "fmin": {
+          "value": 9.951689698145444
+        },
+        "f0": {
+          "value": 9.567074313530059
+        },
+        "f0Lo90": {
+          "value": 8.015642229433416
+        },
+        "f0Hi90": {
+          "value": 11.30907039265329
+        },
+        "rmsea": {
+          "value": 0.7986269180508113
+        },
+        "rmseaLo90": {
+          "value": 0.731010361505837
+        },
+        "rmseaHi90": {
+          "value": 0.8682960475419003
+        },
+        "pclose": {
+          "value": 1.5423133639431886e-68
+        },
+        "aic": {
+          "value": 400.1158982276723
+        },
+        "bcc": {
+          "value": 402.7408982276723
+        },
+        "bic": {
+          "value": 410.24917495235593
+        },
+        "caic": {
+          "value": 416.24917495235593
+        },
+        "ecvi": {
+          "value": 10.25938200583775
+        },
+        "ecviLo90": {
+          "value": 8.70794992174111
+        },
+        "ecviHi90": {
+          "value": 12.001378084960983
+        },
+        "mecvi": {
+          "value": 10.326689698145444
+        },
+        "hoelter05": {
+          "value": 3.0
+        },
+        "hoelter01": {
+          "value": 4.0
+        }
+      }
     },
     "iterations": 18,
     "exclusions": [

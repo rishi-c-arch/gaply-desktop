@@ -22,8 +22,16 @@
 //! and ΛᵀΣ⁻¹Λ, and no duplication matrix is formed. The step is halved until Σ
 //! is positive definite and, while the Newton decrement gᵀH⁻¹g is above 1e-10,
 //! F does not increase; the run stops when the decrement is at most 1e-20,
-//! which does not depend on the data's units. H failing its Cholesky factor
-//! (the 1e-9 rule) at any iteration is a model that is not identified.
+//! which does not depend on the data's units. When decision 745's start ends
+//! without a solution, one more attempt starts from the triad starts (Research
+//! OS, Phase 9C-2, decision 761). A run every attempt refuses is
+//! `model_not_identified` only when H failed its Cholesky factor (the 1e-9
+//! rule) at the start of each attempt, and otherwise `cfa_not_converged` with
+//! the iterations done (decision 762).
+//!
+//! **The fit's three rows (decision 763).** Each of AMOS's model-fit tables has
+//! a row for the default model, the saturated model and the independence model,
+//! computed by one function.
 //!
 //! **Not computable, statistic by statistic**, as a closed code beside the
 //! value it replaces: `fixed_parameter`, `df_zero`, `cmin_zero`,
@@ -93,6 +101,10 @@ pub const DECREMENT_STOP: f64 = 1e-20;
 pub const DECREMENT_F_TEST: f64 = 1e-10;
 /// The halvings of a step before the run refuses (decision 745).
 pub const MAX_HALVINGS: u32 = 30;
+/// At 0 degrees of freedom a minimum F of at most this is written as 0
+/// (decision 761). The review of 9C-1 measured the largest F at d = 0 over 1,011
+/// solutions at 7.1e-15.
+pub const DF_ZERO_ROUNDING: f64 = 1e-12;
 /// PCLOSE's RMSEA under the null, 0.05: its ncp is 0.05² n d (AMOS, Appendix C).
 pub const PCLOSE_RMSEA: f64 = 0.05;
 
@@ -124,6 +136,12 @@ closed! {
         /// A factor is measured by fewer than two columns. Params `index` (the
         /// factor's number), `count`, `limit`.
         FactorTooFewItems => "factor_too_few_items",
+        /// With the factors uncorrelated and more than one factor, a factor
+        /// measured by exactly two columns: on its own it is a one-factor model
+        /// of 3 moments and 4 parameters, so no data identify it (Research OS,
+        /// Phase 9C-2, decisions 760 and 762). Param `index` (the factor's
+        /// number).
+        TwoItemFactorUncorrelated => "two_item_factor_uncorrelated",
         /// Fewer columns in all than the limit. Params `count`, `limit`.
         TooFewItems => "too_few_items",
         /// More columns in all than the limit. Params `count`, `limit`.
@@ -156,12 +174,16 @@ closed! {
         /// is a combination of the columns before it within the arithmetic.
         /// Param `column`.
         SampleCovarianceSingular => "sample_covariance_singular",
-        /// The run's refusal: the information matrix fails its Cholesky factor,
-        /// so the model is not identified; with param `count`, the model has
-        /// that many more parameters than moments.
+        /// The run's refusal: the information matrix fails its Cholesky factor
+        /// at the start of every attempt, so the model is not identified there;
+        /// with param `count`, the model has that many more parameters than
+        /// moments (decision 762).
         ModelNotIdentified => "model_not_identified",
-        /// The run's refusal: the estimation did not reach its stop within the
-        /// iterations, or no step kept Σ positive definite. Param `limit`.
+        /// The run's refusal: no attempt reached the stop: within the
+        /// iterations, or with Σ positive definite, or with a step accepted, or
+        /// with the information matrix passing its rule after the start (decision
+        /// 762). Params `count` (the most iterations an attempt made) and
+        /// `limit`.
         CfaNotConverged => "cfa_not_converged",
         /// A candidate missing code the rule found in a column and the user did
         /// not list. Params `column`, `value`, `count`.
@@ -181,7 +203,9 @@ closed! {
         /// below the smallest normal double is given as a value (the hunt saw a
         /// P of 4.4e-323).
         TooSmall => "too_small",
-        /// Not computable: a value along the way too large for a double.
+        /// Not computable: a value along the way too large for a double. Also the
+        /// run's refusal when a column's mean or an entry of S is not finite,
+        /// before S's Cholesky factor (decision 762). Param `column`.
         Overflow => "overflow",
         /// Not computable: the distribution is not measured here.
         DistributionOutOfRange => "distribution_out_of_range",
@@ -307,11 +331,23 @@ pub struct CfaSmc {
     pub value: Stat,
 }
 
-/// AMOS's measures of fit (its Appendix C; decision 745), and the independence
-/// model's NPAR, CMIN and DF. The 90% intervals are `…Lo90` and `…Hi90`.
+/// AMOS's model-fit tables, each with three rows (its Appendix C; Research OS,
+/// Phase 9C-2, decision 763): the default model (the one the user specified),
+/// the saturated model (Σ = S, every moment a parameter, 0 degrees of freedom)
+/// and the independence model (Σ = diag(S), only the variances free).
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CfaFit {
+    pub model: CfaModelFit,
+    pub saturated: CfaModelFit,
+    pub independence: CfaModelFit,
+}
+
+/// One model's row of AMOS's measures of fit (its Appendix C; decisions 745 and
+/// 763). The 90% intervals are `…Lo90` and `…Hi90`.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CfaModelFit {
     pub npar: u64,
     pub cmin: Stat,
     pub df: u64,
@@ -350,9 +386,6 @@ pub struct CfaFit {
     pub mecvi: Stat,
     pub hoelter05: Stat,
     pub hoelter01: Stat,
-    pub independence_npar: u64,
-    pub independence_cmin: Stat,
-    pub independence_df: u64,
 }
 
 /// The confirmatory factor analysis's result.
@@ -533,6 +566,15 @@ fn check<'d>(dataset: &'d Dataset, params: &CfaParams) -> Checked<'d> {
             );
         }
     }
+    // Decision 762: an uncorrelated factor of two columns is never identified.
+    // With one factor the rule never applies (MIN_ITEMS refuses two columns).
+    if !params.correlated_factors && k >= 2 {
+        for (f, columns) in params.indicators.iter().enumerate() {
+            if columns.len() == 2 {
+                errors.push(Diagnostic::error(CfaCode::TwoItemFactorUncorrelated).int(ParamKey::Index, f as i64 + 1));
+            }
+        }
+    }
     let items = params.items();
     let p = items.len();
     if p < MIN_ITEMS {
@@ -693,12 +735,13 @@ pub enum Halt<B> {
     Stopped { reason: B },
 }
 
-/// How many check points a run of `params` calls (decision 745): one before
-/// the arithmetic, one before each column of S, one before the estimation and
-/// one before the fit. Every iteration calls the estimation's again, at an
-/// unchanged count. Only the spec is needed.
+/// How many check points a run of `params` calls (decisions 745 and 762): one
+/// before the arithmetic, one before each column of S, one before the
+/// estimation, one before the estimates, one before the default model's fit
+/// and one before the independence model's. Every iteration calls the
+/// estimation's again, at an unchanged count. Only the spec is needed.
 pub fn check_points(params: &CfaParams) -> usize {
-    1 + params.items().len() + 2
+    1 + params.items().len() + 4
 }
 
 /// The run as a function of the data alone, every check point continuing.
@@ -719,8 +762,10 @@ pub fn compute_with_cap(dataset: &Dataset, params: &CfaParams, cap: u32) -> Resu
 /// The confirmatory factor analysis. `checkpoint(0)` is called after the
 /// parameters are checked and before the arithmetic, `checkpoint(1..=p)`
 /// before each column of S, `checkpoint(p + 1)` before the estimation and
-/// again at every iteration, and `checkpoint(p + 2)` before the fit. A `Break`
-/// stops the run there. What a stop means is the caller's.
+/// again at every iteration of every attempt, `checkpoint(p + 2)` before the
+/// estimates, `checkpoint(p + 3)` before the default model's fit and
+/// `checkpoint(p + 4)` before the independence model's (decision 762). A
+/// `Break` stops the run there. What a stop means is the caller's.
 pub fn run<B>(
     dataset: &Dataset,
     params: &CfaParams,
@@ -971,6 +1016,76 @@ fn starts(model: &Model, s: &[Vec<f64>], ones: bool) -> Vec<f64> {
     theta
 }
 
+/// The triad starts of decision 761, the second attempt's (decision 759's B3):
+/// for a factor of three or more columns, m its first and j and k its second and
+/// third, t = s_mj s_mk / s_jk and φ_ff = t when t is finite, above 0 and below
+/// s_mm, otherwise s_mm / 2; for a factor of two columns s_mm / 2. Each free
+/// loading s_im / φ_ff, each factor covariance s_{m_f m_g} / 2, each error
+/// variance s_ii / 2, as decision 745's. On data drawn from an uncorrelated
+/// model of many factors, scoring from decision 745's starts can stall (the
+/// review's smallest case: F near 3.62 while a free loading ran to −6,931,
+/// lavaan's minimum F being 0.448); t is the one-factor model's own value of
+/// φ_ff on the factor's first three columns.
+fn triad_starts(model: &Model, s: &[Vec<f64>]) -> Vec<f64> {
+    let phi: Vec<f64> = (0..model.k)
+        .map(|f| {
+            let m = model.marker[f];
+            let half = s[m][m] / 2.0;
+            let columns: Vec<usize> = (0..model.p).filter(|i| model.factor_of[*i] == f).collect();
+            if columns.len() < 3 {
+                return half;
+            }
+            let (j, k) = (columns[1], columns[2]);
+            let t = s[m][j] * s[m][k] / s[j][k];
+            if t.is_finite() && t > 0.0 && t < s[m][m] {
+                t
+            } else {
+                half
+            }
+        })
+        .collect();
+    let mut theta = Vec::with_capacity(model.q());
+    for i in &model.free {
+        let f = model.factor_of[*i];
+        theta.push(s[*i][model.marker[f]] / phi[f]);
+    }
+    theta.extend_from_slice(&phi);
+    for (f, g) in &model.pairs {
+        theta.push(s[model.marker[*f]][model.marker[*g]] / 2.0);
+    }
+    for i in 0..model.p {
+        theta.push(s[i][i] / 2.0);
+    }
+    theta
+}
+
+/// How an attempt from one start ended without a solution: its refusal's code
+/// (`model_not_identified` when H failed the 1e-9 rule, `cfa_not_converged`
+/// otherwise), the iteration it came at (0 the start), and whether Σ was
+/// positive definite at its start.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Attempt {
+    code: CfaCode,
+    iteration: u64,
+    start_positive_definite: bool,
+}
+
+/// The run's refusal when every attempt refused (decision 762), with its
+/// count: chosen over the attempts whose start has Σ positive definite (the
+/// triad start can give one that does not on a correlated model, and it says
+/// nothing of the model). `model_not_identified` when each of them failed the
+/// 1e-9 rule at iteration 0; otherwise `cfa_not_converged`, its count the most
+/// iterations any of them made; and `cfa_not_converged` with count 0 when no
+/// start has Σ positive definite. So H failing the rule after the start is
+/// never `model_not_identified`: the model was identified where it started.
+fn refusal_of(attempts: &[Attempt]) -> (CfaCode, u64) {
+    let started: Vec<&Attempt> = attempts.iter().filter(|a| a.start_positive_definite).collect();
+    if !started.is_empty() && started.iter().all(|a| a.code == CfaCode::ModelNotIdentified && a.iteration == 0) {
+        return (CfaCode::ModelNotIdentified, 0);
+    }
+    (CfaCode::CfaNotConverged, started.iter().map(|a| a.iteration).max().unwrap_or(0))
+}
+
 /// The solution, Σ̂'s inverse and H⁻¹ there, and the steps taken.
 struct Fitted {
     theta: Vec<f64>,
@@ -980,8 +1095,9 @@ struct Fitted {
     iterations: u64,
 }
 
-/// Fisher scoring from `theta` (decision 745). `Err((code, iteration))`: the
-/// run's refusal and the iteration it came at, 0 being the start.
+/// Fisher scoring from `theta` (decision 745). `Err`: how the attempt ended
+/// (decision 762), its code, the iteration (0 being the start) and whether Σ
+/// was positive definite at the start.
 fn estimate<B>(
     model: &Model,
     s: &[Vec<f64>],
@@ -989,15 +1105,16 @@ fn estimate<B>(
     mut theta: Vec<f64>,
     cap: u32,
     at: &mut impl FnMut() -> Result<(), Halt<B>>,
-) -> Result<Result<Fitted, (CfaCode, u64)>, Halt<B>> {
+) -> Result<Result<Fitted, Attempt>, Halt<B>> {
     let mut iterations = 0u64;
+    let ended = |code: CfaCode, iteration: u64| Attempt { code, iteration, start_positive_definite: true };
     loop {
         at()?;
         let Some(e) = evaluate(model, s, log_det_s, &theta) else {
-            return Ok(Err((CfaCode::CfaNotConverged, iterations)));
+            return Ok(Err(Attempt { code: CfaCode::CfaNotConverged, iteration: iterations, start_positive_definite: iterations > 0 }));
         };
         let Ok(lh) = cholesky(&e.h) else {
-            return Ok(Err((CfaCode::ModelNotIdentified, iterations)));
+            return Ok(Err(ended(CfaCode::ModelNotIdentified, iterations)));
         };
         let h_inverse = spd_inverse(&lh);
         let step: Vec<f64> = solve(&h_inverse, &e.g).iter().map(|x| -x).collect();
@@ -1006,7 +1123,7 @@ fn estimate<B>(
             return Ok(Ok(Fitted { theta, inverse: e.inverse, f: e.f, h_inverse, iterations }));
         }
         if iterations >= u64::from(cap) {
-            return Ok(Err((CfaCode::CfaNotConverged, iterations)));
+            return Ok(Err(ended(CfaCode::CfaNotConverged, iterations)));
         }
         let mut alpha = 1.0;
         let mut next = None;
@@ -1021,7 +1138,7 @@ fn estimate<B>(
             alpha /= 2.0;
         }
         let Some(candidate) = next else {
-            return Ok(Err((CfaCode::CfaNotConverged, iterations)));
+            return Ok(Err(ended(CfaCode::CfaNotConverged, iterations)));
         };
         theta = candidate;
         iterations += 1;
@@ -1078,6 +1195,15 @@ fn run_with_cap<B>(
             s[j][i] = s[i][j];
         }
     }
+    // Decision 762: a mean or an entry of S that is not finite is overflow,
+    // naming the first column in the spec's order whose mean or variance is
+    // not finite, or else the row's column of the first covariance that is not,
+    // scanning the lower triangle row by row. Its Cholesky factor would refuse
+    // it as a singular S, which it is not.
+    let overflow = (0..p).find(|i| !means[*i].is_finite() || !s[*i][*i].is_finite()).or_else(|| (0..p).find(|i| (0..*i).any(|j| !s[*i][j].is_finite())));
+    if let Some(i) = overflow {
+        return Err(Halt::Refused(Diagnostic::error(CfaCode::Overflow).with(ParamKey::Column, column_param(items[i]))));
+    }
     let ls = cholesky(&s).map_err(|j| {
         Halt::Refused(Diagnostic::error(CfaCode::SampleCovarianceSingular).with(ParamKey::Column, column_param(items[j - 1])))
     })?;
@@ -1086,30 +1212,47 @@ fn run_with_cap<B>(
     if let Err(count) = degrees_of_freedom(&model) {
         return Err(Halt::Refused(Diagnostic::error(CfaCode::ModelNotIdentified).int(ParamKey::Count, count as i64)));
     }
-    let refuse = |code: CfaCode| -> Halt<B> {
-        match code {
-            CfaCode::CfaNotConverged => Halt::Refused(Diagnostic::error(code).int(ParamKey::Limit, i64::from(cap))),
-            _ => Halt::Refused(Diagnostic::error(code)),
-        }
-    };
     let estimation_point = 1 + p;
     let mut at_estimation = || at(estimation_point);
+    let mut attempts = Vec::new();
     let first = starts(&model, &s, false);
     let any_zero = first[..model.free.len()].iter().any(|x| *x == 0.0);
-    let fitted = match estimate(&model, &s, log_det_s, first, cap, &mut at_estimation)? {
-        Ok(f) => f,
-        // Decision 745: a start loading of exactly 0 and H failing at the start:
-        // once more from every free loading 1.
-        Err((CfaCode::ModelNotIdentified, 0)) if any_zero => {
-            match estimate(&model, &s, log_det_s, starts(&model, &s, true), cap, &mut at_estimation)? {
-                Ok(f) => f,
-                Err((code, _)) => return Err(refuse(code)),
-            }
+    let mut fitted = match estimate(&model, &s, log_det_s, first, cap, &mut at_estimation)? {
+        Ok(f) => Some(f),
+        Err(a) => {
+            attempts.push(a);
+            None
         }
-        Err((code, _)) => return Err(refuse(code)),
+    };
+    // Decision 745: a start loading of exactly 0 and H failing at the start:
+    // once more from every free loading 1.
+    if fitted.is_none() && any_zero && attempts[0].code == CfaCode::ModelNotIdentified && attempts[0].iteration == 0 {
+        match estimate(&model, &s, log_det_s, starts(&model, &s, true), cap, &mut at_estimation)? {
+            Ok(f) => fitted = Some(f),
+            Err(a) => attempts.push(a),
+        }
+    }
+    // Decision 761: when decision 745's starts refuse, one more attempt from the
+    // triad starts, with the same cap and check point. A run the first start
+    // solves never makes it, so no result given before changes.
+    if fitted.is_none() {
+        match estimate(&model, &s, log_det_s, triad_starts(&model, &s), cap, &mut at_estimation)? {
+            Ok(f) => fitted = Some(f),
+            Err(a) => attempts.push(a),
+        }
+    }
+    // Decision 762: a run every attempt refuses gives the refusal chosen over
+    // them all.
+    let Some(fitted) = fitted else {
+        let (code, count) = refusal_of(&attempts);
+        let refusal = match code {
+            CfaCode::CfaNotConverged => Diagnostic::error(code).int(ParamKey::Count, count as i64).int(ParamKey::Limit, i64::from(cap)),
+            _ => Diagnostic::error(code),
+        };
+        return Err(Halt::Refused(refusal));
     };
     at(p + 2)?;
-    Ok(outcome(params, &items, &rows, &model, &s, log_det_s, &fitted))
+    outcome(params, &items, &rows, &model, &s, log_det_s, &fitted, &mut at)
 }
 
 /* ------------------------------------------------------------------------ *
@@ -1148,8 +1291,11 @@ fn tested(estimate: f64, se: f64) -> (Stat, Stat, Stat, Stat) {
     (stat(estimate), stat(se), stat(cr), stat(normal_two_tailed(cr)))
 }
 
-/// Every statistic of decision 745 at the solution.
-fn outcome(
+/// Every statistic of decision 745 at the solution, calling `at(p + 3)` before
+/// the default model's fit and `at(p + 4)` before the independence model's
+/// (decision 762).
+#[allow(clippy::too_many_arguments)]
+fn outcome<B>(
     params: &CfaParams,
     items: &[Alias],
     rows: &Rows,
@@ -1157,7 +1303,8 @@ fn outcome(
     s: &[Vec<f64>],
     log_det_s: f64,
     fitted: &Fitted,
-) -> CfaOutcome {
+    at: &mut impl FnMut(usize) -> Result<(), Halt<B>>,
+) -> Result<CfaOutcome, Halt<B>> {
     let (p, k) = (model.p, model.k);
     let n_rows = rows.complete();
     let big_n = n_rows as f64;
@@ -1219,7 +1366,8 @@ fn outcome(
         })
         .collect();
 
-    let fit = fit_measures(model, s, log_det_s, &sigma, fitted, big_n, n);
+    at(p + 3)?;
+    let fit = fit_measures(model, s, log_det_s, &sigma, fitted, big_n, n, &mut || at(p + 4))?;
 
     let mut notes = Vec::new();
     if (0..k).any(|f| phi[f][f] < 0.0) || errors.iter().any(|e| *e < 0.0) {
@@ -1228,7 +1376,7 @@ fn outcome(
     if cholesky_within(&phi, 0.0).is_err() {
         notes.push(CfaCode::FactorCovarianceNotPositiveDefinite);
     }
-    if fit.df == 0 {
+    if fit.model.df == 0 {
         notes.push(CfaCode::DfZero);
     }
 
@@ -1247,7 +1395,7 @@ fn outcome(
         }
     }
 
-    CfaOutcome {
+    Ok(CfaOutcome {
         items: items.to_vec(),
         rows_used: n_rows as u64,
         indicators: params.indicators.clone(),
@@ -1261,28 +1409,75 @@ fn outcome(
         exclusions,
         notes,
         limitations: LIMITATIONS.to_vec(),
-    }
+    })
 }
 
-/// AMOS's Appendix C (decision 745), with C = CMIN, d = DF, q = NPAR, n = N − 1,
-/// p* = p (p + 1) / 2 and b the independence model.
-fn fit_measures(model: &Model, s: &[Vec<f64>], log_det_s: f64, sigma: &[Vec<f64>], fitted: &Fitted, big_n: f64, n: f64) -> CfaFit {
+/// AMOS's Appendix C (decisions 745 and 763), with C = CMIN, d = DF, q = NPAR,
+/// n = N − 1, p* = p (p + 1) / 2 and b the independence model: one function,
+/// [`model_fit`], applied to the default model, the saturated model and, after
+/// `independence` (the check point p + 4 of decision 762), the independence
+/// model, each against the independence model's C_b and d_b.
+#[allow(clippy::too_many_arguments)]
+fn fit_measures<B>(
+    model: &Model,
+    s: &[Vec<f64>],
+    log_det_s: f64,
+    sigma: &[Vec<f64>],
+    fitted: &Fitted,
+    big_n: f64,
+    n: f64,
+    independence: &mut impl FnMut() -> Result<(), Halt<B>>,
+) -> Result<CfaFit, Halt<B>> {
     let p = model.p;
-    let pf = p as f64;
     let q = model.q() as u64;
-    let qf = q as f64;
     let moments = (p * (p + 1) / 2) as u64;
     let d = moments - q;
-    let df = d as f64;
-    let pstar = moments as f64;
-    let c = n * fitted.f.max(0.0);
-    // The independence model: only the variances free.
-    let qb = p as u64;
+    // Decision 745 clamps a minimum below 0 to 0 at every d. At d = 0 a model
+    // with as many parameters as moments that has converged reproduces S, so
+    // its F is 0 and rounding of either sign is not a fit: an F of at most
+    // DF_ZERO_ROUNDING there is written as 0 before every measure is computed
+    // from C (decision 761). Above it, F is kept as computed. Rounding above 0
+    // made CFI 1 − C / C = 0 wherever C_b < d_b (decision 759's B2).
+    let f_min = if d == 0 && fitted.f <= DF_ZERO_ROUNDING { 0.0 } else { fitted.f.max(0.0) };
+    let c = n * f_min;
+    // The independence model: only the variances free, so Σ = diag(S) and its
+    // discrepancy is Σ ln s_ii − ln |S|.
     let db = (p * (p - 1) / 2) as u64;
-    let dbf = db as f64;
     let ln_diag: f64 = (0..p).map(|i| s[i][i].ln()).sum();
-    let cb = n * (ln_diag - log_det_s);
-    // RMR over the lower triangle with the diagonal, on S with divisor N.
+    // Clamped at 0 as F is: on columns uncorrelated to rounding the difference
+    // can round below 0 (−3.4e-15 on Walsh columns; the review of this step,
+    // finding 6), and C_b is the independence row's own CMIN.
+    let cb = n * (ln_diag - log_det_s).max(0.0);
+    let (rmr, gfi) = rmr_and_gfi(s, sigma, &fitted.inverse);
+    let default = model_fit(Row { q, d, c, rmr, gfi }, cb, db, p, big_n, n);
+    // The saturated model (decision 763): Σ = S, every moment a parameter, d = 0
+    // and C = 0; its RMR 0 and its GFI 1 written, not computed from S⁻¹ S.
+    let saturated = model_fit(Row { q: moments, d: 0, c: 0.0, rmr: 0.0, gfi: 1.0 }, cb, db, p, big_n, n);
+    independence()?;
+    let diagonal: Vec<Vec<f64>> = (0..p).map(|i| (0..p).map(|j| if i == j { s[i][i] } else { 0.0 }).collect()).collect();
+    let diagonal_inverse: Vec<Vec<f64>> = (0..p).map(|i| (0..p).map(|j| if i == j { 1.0 / s[i][i] } else { 0.0 }).collect()).collect();
+    let (rmr_b, gfi_b) = rmr_and_gfi(s, &diagonal, &diagonal_inverse);
+    let mut baseline = model_fit(Row { q: p as u64, d: db, c: cb, rmr: rmr_b, gfi: gfi_b }, cb, db, p, big_n, n);
+    // AMOS prints the baseline against itself as .000 and its PRATIO as 1.000
+    // (decision 763); the formulas give other values where C_b ≤ d_b (CFI 1 by
+    // the zero denominator, IFI and TLI −0), so these are written, not computed.
+    let zero = Stat::Value(0.0);
+    baseline.nfi = zero;
+    baseline.rfi = zero;
+    baseline.ifi = zero;
+    baseline.tli = zero;
+    baseline.cfi = zero;
+    baseline.pratio = Stat::Value(1.0);
+    baseline.pnfi = zero;
+    baseline.pcfi = zero;
+    Ok(CfaFit { model: default, saturated, independence: baseline })
+}
+
+/// RMR over the lower triangle with the diagonal, on S with divisor N, and GFI
+/// from Σ̂⁻¹ S (decision 745), for a model's Σ̂ and Σ̂⁻¹.
+fn rmr_and_gfi(s: &[Vec<f64>], sigma: &[Vec<f64>], inverse: &[Vec<f64>]) -> (f64, f64) {
+    let p = s.len();
+    let pstar = ((p * (p + 1) / 2) as u64) as f64;
     let mut squares = 0.0;
     for i in 0..p {
         for j in 0..=i {
@@ -1291,8 +1486,7 @@ fn fit_measures(model: &Model, s: &[Vec<f64>], log_det_s: f64, sigma: &[Vec<f64>
         }
     }
     let rmr = (squares / pstar).sqrt();
-    // GFI from Σ̂⁻¹ S.
-    let m = multiply(&fitted.inverse, s);
+    let m = multiply(inverse, s);
     let (mut residual, mut whole) = (0.0, 0.0);
     for i in 0..p {
         for j in 0..p {
@@ -1302,7 +1496,27 @@ fn fit_measures(model: &Model, s: &[Vec<f64>], log_det_s: f64, sigma: &[Vec<f64>
             whole += m[i][j] * m[j][i];
         }
     }
-    let gfi = 1.0 - residual / whole;
+    (rmr, 1.0 - residual / whole)
+}
+
+/// What a model's row is computed from: its NPAR, DF, CMIN, RMR and GFI.
+struct Row {
+    q: u64,
+    d: u64,
+    c: f64,
+    rmr: f64,
+    gfi: f64,
+}
+
+/// One model's row of Appendix C's measures (decisions 745 and 763), against
+/// the independence model's C_b and d_b, for p columns and N rows.
+fn model_fit(row: Row, cb: f64, db: u64, p: usize, big_n: f64, n: f64) -> CfaModelFit {
+    let Row { q, d, c, rmr, gfi } = row;
+    let pf = p as f64;
+    let qf = q as f64;
+    let df = d as f64;
+    let pstar = ((p * (p + 1) / 2) as u64) as f64;
+    let dbf = db as f64;
     let ncp = (c - df).max(0.0);
     let lo = if d == 0 { None } else { noncentral_chi_square_ncp(c, df, 0.95) };
     let hi = if d == 0 { None } else { noncentral_chi_square_ncp(c, df, 0.05) };
@@ -1328,7 +1542,7 @@ fn fit_measures(model: &Model, s: &[Vec<f64>], log_det_s: f64, sigma: &[Vec<f64>
             }
         })
     };
-    CfaFit {
+    CfaModelFit {
         npar: q,
         cmin: stat(c),
         df: d,
@@ -1372,9 +1586,6 @@ fn fit_measures(model: &Model, s: &[Vec<f64>], log_det_s: f64, sigma: &[Vec<f64>
         },
         hoelter05: hoelter(0.05),
         hoelter01: hoelter(0.01),
-        independence_npar: qb,
-        independence_cmin: stat(cb),
-        independence_df: db,
     }
 }
 
@@ -1491,7 +1702,7 @@ mod tests {
         let identity: Vec<Vec<f64>> = (0..q).map(|i| (0..q).map(|j| if i == j { 1.0 } else { 0.0 }).collect()).collect();
         let fitted = Fitted { theta, inverse: spd_inverse(&l), f: 0.0, h_inverse: identity, iterations: 0 };
         let items = params.items();
-        let r = outcome(&params, &items, &rows, &model, &sigma, log_det(&l), &fitted);
+        let r = outcome(&params, &items, &rows, &model, &sigma, log_det(&l), &fitted, &mut |_| Ok::<(), Halt<Infallible>>(())).unwrap();
         let negative = Stat::NotComputable(CfaCode::NegativeVariance);
         for loading in &r.loadings[..3] {
             assert_eq!(loading.standardized, negative);
@@ -1501,5 +1712,60 @@ mod tests {
         assert_eq!(r.notes, vec![CfaCode::NegativeVariance, CfaCode::FactorCovarianceNotPositiveDefinite]);
         // The SMCs are given wherever σ̂_ii > 0, below 0 here for factor 1's columns.
         assert!(matches!(r.smc[0].value, Stat::Value(x) if x < 0.0));
+    }
+
+    /// Decision 761's triad starts on a 3 × 3 S of one factor: t = s12 s13 / s23
+    /// = 2 × 1.5 / 1 = 3, above 0 and below s11 = 4, so φ = 3, the loadings s21
+    /// / 3 and s31 / 3, the error variances s_ii / 2. Then the fallback to s11 /
+    /// 2 when t is below 0, at or above s11, and not finite (s23 = 0).
+    #[test]
+    fn the_triad_starts_take_the_factors_first_three_columns_and_fall_back_to_half_the_markers_variance() {
+        let params = CfaParams { indicators: vec![vec![a(1), a(2), a(3)]], correlated_factors: true, missing_codes: vec![] };
+        let model = Model::of(&params);
+        let s = vec![vec![4.0, 2.0, 1.5], vec![2.0, 3.0, 1.0], vec![1.5, 1.0, 2.0]];
+        assert_eq!(triad_starts(&model, &s), vec![2.0 / 3.0, 1.5 / 3.0, 3.0, 2.0, 1.5, 1.0]);
+        let with = |s21: f64, s31: f64, s32: f64| vec![vec![4.0, s21, s31], vec![s21, 3.0, s32], vec![s31, s32, 2.0]];
+        // t = 2 × (−1.5) / 1 below 0.
+        assert_eq!(triad_starts(&model, &with(2.0, -1.5, 1.0)), vec![2.0 / 2.0, -1.5 / 2.0, 2.0, 2.0, 1.5, 1.0]);
+        // t = 2 × 1.5 / 0.5 = 6, above s11.
+        assert_eq!(triad_starts(&model, &with(2.0, 1.5, 0.5)), vec![2.0 / 2.0, 1.5 / 2.0, 2.0, 2.0, 1.5, 1.0]);
+        // s23 = 0: t is not finite.
+        assert_eq!(triad_starts(&model, &with(2.0, 1.5, 0.0)), vec![2.0 / 2.0, 1.5 / 2.0, 2.0, 2.0, 1.5, 1.0]);
+        // A factor of two columns, beside one of three, correlated: s_mm / 2 for
+        // the first, t for the second, and the covariance s_{m1 m2} / 2.
+        let two = Model::of(&CfaParams { indicators: vec![vec![a(1), a(2)], vec![a(3), a(4), a(5)]], correlated_factors: true, missing_codes: vec![] });
+        let s5: Vec<Vec<f64>> = (0..5).map(|i| (0..5).map(|j| if i == j { 6.0 + i as f64 } else { 1.0 + 0.5 * (i + j) as f64 }).collect()).collect();
+        let t = s5[2][3] * s5[2][4] / s5[3][4];
+        assert!(t > 0.0 && t < s5[2][2], "the premise: factor 2's t is kept ({t})");
+        let got = triad_starts(&two, &s5);
+        let phi1 = s5[0][0] / 2.0;
+        assert_eq!(got, vec![s5[1][0] / phi1, s5[3][2] / t, s5[4][2] / t, phi1, t, s5[0][2] / 2.0, 3.0, 3.5, 4.0, 4.5, 5.0]);
+    }
+
+    /// Decision 762: when every attempt refuses, the run's refusal is chosen
+    /// over the attempts whose start has Σ positive definite:
+    /// model_not_identified only when each failed the 1e-9 rule at iteration 0;
+    /// otherwise cfa_not_converged with the most iterations any made; and
+    /// cfa_not_converged at 0 when no start has Σ positive definite.
+    #[test]
+    fn the_runs_refusal_is_chosen_over_the_attempts_whose_start_has_sigma_positive_definite() {
+        let h = |iteration| Attempt { code: CfaCode::ModelNotIdentified, iteration, start_positive_definite: true };
+        let stopped = |iteration| Attempt { code: CfaCode::CfaNotConverged, iteration, start_positive_definite: true };
+        let no_start = Attempt { code: CfaCode::CfaNotConverged, iteration: 0, start_positive_definite: false };
+        // Every attempt failing the rule at the start.
+        assert_eq!(refusal_of(&[h(0), h(0), h(0)]), (CfaCode::ModelNotIdentified, 0));
+        // One failing the rule after the start: not model_not_identified.
+        assert_eq!(refusal_of(&[h(12), h(0)]), (CfaCode::CfaNotConverged, 12));
+        assert_eq!(refusal_of(&[h(0), h(12)]), (CfaCode::CfaNotConverged, 12));
+        // One at the cap.
+        assert_eq!(refusal_of(&[stopped(500), h(0)]), (CfaCode::CfaNotConverged, 500));
+        // Σ not positive definite at a trial point, or no step accepted, after
+        // the start.
+        assert_eq!(refusal_of(&[stopped(37)]), (CfaCode::CfaNotConverged, 37));
+        // A start with Σ not positive definite is left out.
+        assert_eq!(refusal_of(&[h(0), no_start]), (CfaCode::ModelNotIdentified, 0));
+        assert_eq!(refusal_of(&[no_start, h(0)]), (CfaCode::ModelNotIdentified, 0));
+        // No start with Σ positive definite.
+        assert_eq!(refusal_of(&[no_start, no_start]), (CfaCode::CfaNotConverged, 0));
     }
 }

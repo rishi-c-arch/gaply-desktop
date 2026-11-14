@@ -478,7 +478,7 @@ pub fn run() {
             stats_factor_commands::stats_factor_cancel,
             stats_factor_commands::stats_factor_export,
             // Research OS, Phase 9C-1 (decision 749): the confirmatory factor
-            // analysis, behind the workspace check. No window reaches it until 9C-2.
+            // analysis, behind the workspace check. No window reaches it until 9C-3.
             stats_cfa_commands::stats_cfa_validate,
             stats_cfa_commands::stats_cfa_run,
             stats_cfa_commands::stats_cfa_status,

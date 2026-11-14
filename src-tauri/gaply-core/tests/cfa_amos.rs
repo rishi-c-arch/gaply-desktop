@@ -59,8 +59,62 @@ fn example_8_is_amos_s_printed_output_to_its_last_decimal() {
     assert_eq!(printed(r.factor_covariances[0].correlation), ".487", "the correlation");
     let got: Vec<String> = r.smc.iter().map(|x| printed(x.value)).collect();
     assert_eq!(got, [".494", ".428", ".542", ".774", ".684", ".708"], "the squared multiple correlations");
-    assert_eq!(printed(r.fit.cmin), "7.853", "CMIN");
-    assert_eq!(r.fit.df, 8, "DF");
-    assert_eq!(printed(r.fit.p), ".448", "P");
-    assert_eq!(r.fit.npar, 13, "NPAR");
+    assert_eq!(printed(r.fit.model.cmin), "7.853", "CMIN");
+    assert_eq!(r.fit.model.df, 8, "DF");
+    assert_eq!(printed(r.fit.model.p), ".448", "P");
+    assert_eq!(r.fit.model.npar, 13, "NPAR");
+}
+
+/// Research OS, Phase 9C-2 (decision 763): the independence and saturated rows
+/// AMOS printed for the Wheaton data (the IBM SPSS Amos User's Guide, Example 6
+/// and Appendix C), which depend only on S and N, so any CFA on those six
+/// columns gives them. data/wheaton.csv is written by make_cfa_fixtures.R from
+/// the correlations and standard deviations decision 763 quotes, its S with
+/// divisor N being S_u (N − 1) / N (reproduced, not read from Wheaton.sav). The
+/// model: (anomia67, powles67, anomia71, powles71) and (educatio, SEI),
+/// correlated. Each cell at its printed decimals, HOELTER as a whole number;
+/// the saturated row's P, CMIN/DF, AGFI and PGFI blank in AMOS, df_zero here.
+#[test]
+fn the_wheaton_independence_and_saturated_rows_are_amos_s_printed_output() {
+    let file = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/stats_cfa/data/wheaton.csv");
+    let text = std::fs::read_to_string(file).expect("wheaton.csv");
+    let provenance: Vec<&str> = text.lines().take_while(|l| l.starts_with('#')).collect();
+    assert!(provenance.iter().any(|l| l.contains("Example 6") && l.contains("932 rows")));
+    let mut lines = text.lines().filter(|l| !l.starts_with('#'));
+    let headers: Vec<String> = lines.next().unwrap().split(',').map(str::to_string).collect();
+    assert_eq!(headers, ["anomia67", "powles67", "anomia71", "powles71", "educatio", "SEI"]);
+    let rows: Vec<Vec<String>> = lines.map(|l| l.split(',').map(str::to_string).collect()).collect();
+    assert_eq!(rows.len(), 932);
+    let d = build_dataset(RawTable::from_rows(headers, rows), DataFingerprint::of_bytes(b"wheaton", "amos tier", TableRef::FirstTable)).unwrap();
+    let a = |n: u32| Alias(ColumnAlias(n));
+    let params = CfaParams { indicators: vec![vec![a(1), a(2), a(3), a(4)], vec![a(5), a(6)]], correlated_factors: true, missing_codes: vec![] };
+    let r = compute(&d, &params).expect("the Wheaton model fits");
+    let whole = |s: Stat| {
+        let Stat::Value(x) = s else { panic!("not computable: {s:?}") };
+        assert_eq!(x.fract(), 0.0, "HOELTER is a whole number");
+        x as i64
+    };
+
+    let b = &r.fit.independence;
+    assert_eq!(b.npar, 6, "independence NPAR");
+    assert_eq!(printed(b.cmin), "2131.790", "independence CMIN");
+    assert_eq!(b.df, 15, "independence DF");
+    assert_eq!(printed(b.p), ".000", "independence P");
+    assert_eq!(printed(b.cmin_df), "142.119", "independence CMIN/DF");
+    assert_eq!(printed(b.rmr), "12.342", "independence RMR");
+    assert_eq!(printed(b.gfi), ".494", "independence GFI");
+    assert_eq!(printed(b.agfi), ".292", "independence AGFI");
+    assert_eq!(printed(b.pgfi), ".353", "independence PGFI");
+    assert_eq!(whole(b.hoelter05), 11, "independence HOELTER .05");
+    assert_eq!(whole(b.hoelter01), 14, "independence HOELTER .01");
+
+    let s = &r.fit.saturated;
+    assert_eq!(s.npar, 21, "saturated NPAR");
+    assert_eq!(printed(s.cmin), ".000", "saturated CMIN");
+    assert_eq!(s.df, 0, "saturated DF");
+    assert_eq!(printed(s.rmr), ".000", "saturated RMR");
+    assert_eq!(printed(s.gfi), "1.000", "saturated GFI");
+    for (name, x) in [("P", s.p), ("CMIN/DF", s.cmin_df), ("AGFI", s.agfi), ("PGFI", s.pgfi)] {
+        assert_eq!(x, Stat::NotComputable(gaply_core::stats_cfa::CfaCode::DfZero), "saturated {name}: blank in AMOS");
+    }
 }

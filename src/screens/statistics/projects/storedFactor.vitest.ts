@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-import { checkStored } from './storedShape';
+import { checkStored, FA_BANDS } from './storedShape';
 
 const STORED = path.join(__dirname, '../../../../src-tauri/tests/fixtures/projects/stored');
 
@@ -270,5 +270,32 @@ describe('what stats_factor never writes (decision 733)', () => {
 
   it('accepts the failed run with its limit when principal axis does not converge', () => {
     expect(kindOf(failed((f) => { f.code = code('extraction_not_converged'); f.params = { limit: 25 }; }))).toBe('failed');
+  });
+});
+
+/** Decision 761 (Research OS, Phase 9C-2; decision 754's third answer): the eigenvalues' sum
+ *  band is 2.3e-14, ten times 9C-1's worst (2.22e-15 at 128 items, m 3, 246 cycles), measured
+ *  as storedShape.ts measures it, |Σ eigenvalues − p| / p. A total 2.2e-14 off is accepted and
+ *  one 2.4e-14 off refused. */
+describe('the eigenvalues sum band (decision 761)', () => {
+  /** The promax snapshot with its last eigenvalue moved so the sum is `rel` of p above p. */
+  const off = (rel: number) =>
+    changed(PROMAX, (b) => {
+      const e = r(b).eigenvalues as O[];
+      const p = 6;
+      const sum = () => e.reduce((s, x) => s + x.total.value, 0);
+      e[5].total.value += rel * p - (sum() - p);
+      resum(e, p);
+      const measured = Math.abs(sum() - p) / p;
+      expect(Math.abs(measured - rel)).toBeLessThan(1e-15);
+    });
+
+  it('is 2.3e-14', () => {
+    expect(FA_BANDS.eigenSum).toBe(2.3e-14);
+  });
+
+  it('accepts a sum 2.2e-14 of p off and refuses one 2.4e-14 off', () => {
+    expect(kindOf(off(2.2e-14))).toBe(OK);
+    expect(kindOf(off(2.4e-14))).toBe(BAD);
   });
 });
