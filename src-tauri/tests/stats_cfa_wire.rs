@@ -362,9 +362,10 @@ fn the_cfa_code_list_is_exactly_the_closed_sets() {
     let mut rust: Vec<String> = CfaCode::ALL.iter().map(|c| c.wire().to_string()).collect();
     assert_eq!(
         rust.len(),
-        49,
+        50,
         "decision 745's codes: 27 checks and refusals with the suspect code, 8 not computable, the factor \
-         covariance's note, 2 exclusions and 10 limitations; and decision 762's two_item_factor_uncorrelated"
+         covariance's note, 2 exclusions and 10 limitations; decision 762's two_item_factor_uncorrelated; and \
+         decision 773's independence_cmin_zero, a ninth not computable"
     );
     rust.extend(RunCode::ALL.iter().map(|c| c.wire().to_string()));
     rust.extend(WorkspaceCode::ALL.iter().map(|c| c.wire().to_string()));

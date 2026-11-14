@@ -31,11 +31,14 @@
 //!
 //! **The fit's three rows (decision 763).** Each of AMOS's model-fit tables has
 //! a row for the default model, the saturated model and the independence model,
-//! computed by one function.
+//! computed by one function, with the saturated row's RMR, GFI, NFI and IFI and
+//! the independence row's comparisons with itself written (decisions 763 and
+//! 773).
 //!
 //! **Not computable, statistic by statistic**, as a closed code beside the
 //! value it replaces: `fixed_parameter`, `df_zero`, `cmin_zero`,
-//! `too_few_rows_for_bcc`, `negative_variance`, `overflow`, `too_small` and
+//! `independence_cmin_zero` (decision 773), `too_few_rows_for_bcc`,
+//! `negative_variance`, `overflow`, `too_small` and
 //! `distribution_out_of_range`. Notes are bare codes; no word says a fit is
 //! good, poor, close, acceptable or adequate, and no cutoff is named.
 //!
@@ -194,6 +197,13 @@ closed! {
         DfZero => "df_zero",
         /// Not computable: HOELTER at a CMIN of 0.
         CminZero => "cmin_zero",
+        /// Not computable: a comparison with the independence model (NFI, RFI,
+        /// IFI, TLI, CFI, PNFI, PCFI) whose value is not finite because the
+        /// independence model's CMIN C_b is 0. The columns are uncorrelated to
+        /// rounding, so the independence model fits exactly and a comparison
+        /// with it divides by 0 (decision 773). A comparison that is finite
+        /// at C_b = 0 is given as computed.
+        IndependenceCminZero => "independence_cmin_zero",
         /// Not computable: BCC and MECVI need more than p + 2 rows.
         TooFewRowsForBcc => "too_few_rows_for_bcc",
         /// Not computable: a square root meets a variance at or below 0. Also
@@ -1451,8 +1461,9 @@ fn fit_measures<B>(
     let (rmr, gfi) = rmr_and_gfi(s, sigma, &fitted.inverse);
     let default = model_fit(Row { q, d, c, rmr, gfi }, cb, db, p, big_n, n);
     // The saturated model (decision 763): Σ = S, every moment a parameter, d = 0
-    // and C = 0; its RMR 0 and its GFI 1 written, not computed from S⁻¹ S.
-    let saturated = model_fit(Row { q: moments, d: 0, c: 0.0, rmr: 0.0, gfi: 1.0 }, cb, db, p, big_n, n);
+    // and C = 0; its RMR 0 and its GFI 1 written, not computed from S⁻¹ S, and
+    // its NFI and IFI 1 (decision 773).
+    let saturated = saturated_fit(moments, cb, db, p, big_n, n);
     independence()?;
     let diagonal: Vec<Vec<f64>> = (0..p).map(|i| (0..p).map(|j| if i == j { s[i][i] } else { 0.0 }).collect()).collect();
     let diagonal_inverse: Vec<Vec<f64>> = (0..p).map(|i| (0..p).map(|j| if i == j { 1.0 / s[i][i] } else { 0.0 }).collect()).collect();
@@ -1508,6 +1519,30 @@ struct Row {
     gfi: f64,
 }
 
+/// The saturated model's row (decision 763): Σ = S, every moment a parameter, d
+/// = 0 and C = 0. Its RMR 0, GFI 1, NFI 1 and IFI 1 are written, not computed
+/// (decision 773): at C_b = 0 NFI's 1 − 0/0 and IFI's 0/0 have no value,
+/// though the model reproduces S. Its CFI is 1 by its rule at every C_b.
+fn saturated_fit(moments: u64, cb: f64, db: u64, p: usize, big_n: f64, n: f64) -> CfaModelFit {
+    let mut row = model_fit(Row { q: moments, d: 0, c: 0.0, rmr: 0.0, gfi: 1.0 }, cb, db, p, big_n, n);
+    row.nfi = Stat::Value(1.0);
+    row.ifi = Stat::Value(1.0);
+    row
+}
+
+/// A comparison with the independence model (NFI, RFI, IFI, TLI, CFI, PNFI,
+/// PCFI): `v` as [`stat`] gives it, but `independence_cmin_zero` where `v` is
+/// not finite and C_b is 0, since then the cause is the comparison's division
+/// by C_b, not a value too small or too large (decision 773). A finite `v` is
+/// unchanged at every C_b.
+fn against_baseline(v: f64, cb: f64) -> Stat {
+    if cb == 0.0 && !v.is_finite() {
+        Stat::NotComputable(CfaCode::IndependenceCminZero)
+    } else {
+        stat(v)
+    }
+}
+
 /// One model's row of Appendix C's measures (decisions 745 and 763), against
 /// the independence model's C_b and d_b, for p columns and N rows.
 fn model_fit(row: Row, cb: f64, db: u64, p: usize, big_n: f64, n: f64) -> CfaModelFit {
@@ -1552,14 +1587,14 @@ fn model_fit(row: Row, cb: f64, db: u64, p: usize, big_n: f64, n: f64) -> CfaMod
         gfi: stat(gfi),
         agfi: unless_df_zero(d, || stat(1.0 - (pstar / df) * (1.0 - gfi))),
         pgfi: unless_df_zero(d, || stat((df / pstar) * gfi)),
-        nfi: stat(nfi),
-        rfi: unless_df_zero(d, || stat(1.0 - (c / df) / (cb / dbf))),
-        ifi: stat((cb - c) / (cb - df)),
-        tli: unless_df_zero(d, || stat((cb / dbf - c / df) / (cb / dbf - 1.0))),
-        cfi: stat(cfi),
+        nfi: against_baseline(nfi, cb),
+        rfi: unless_df_zero(d, || against_baseline(1.0 - (c / df) / (cb / dbf), cb)),
+        ifi: against_baseline((cb - c) / (cb - df), cb),
+        tli: unless_df_zero(d, || against_baseline((cb / dbf - c / df) / (cb / dbf - 1.0), cb)),
+        cfi: against_baseline(cfi, cb),
         pratio: unless_df_zero(d, || stat(pratio)),
-        pnfi: unless_df_zero(d, || stat(nfi * pratio)),
-        pcfi: unless_df_zero(d, || stat(cfi * pratio)),
+        pnfi: unless_df_zero(d, || against_baseline(nfi * pratio, cb)),
+        pcfi: unless_df_zero(d, || against_baseline(cfi * pratio, cb)),
         ncp: stat(ncp),
         ncp_lo90: interval(lo, &|x| x),
         ncp_hi90: interval(hi, &|x| x),
@@ -1767,5 +1802,77 @@ mod tests {
         assert_eq!(refusal_of(&[no_start, h(0)]), (CfaCode::ModelNotIdentified, 0));
         // No start with Σ positive definite.
         assert_eq!(refusal_of(&[no_start, no_start]), (CfaCode::CfaNotConverged, 0));
+    }
+
+    /// A cell's bits, or its code, so -0.0 and 0.0 differ.
+    fn bits(s: Stat) -> Result<u64, CfaCode> {
+        match s {
+            Stat::Value(v) => Ok(v.to_bits()),
+            Stat::NotComputable(c) => Err(c),
+        }
+    }
+
+    /// The comparison cells NFI, RFI, IFI, TLI, CFI, PNFI and PCFI as bits.
+    fn comparisons(f: &CfaModelFit) -> [Result<u64, CfaCode>; 7] {
+        [bits(f.nfi), bits(f.rfi), bits(f.ifi), bits(f.tli), bits(f.cfi), bits(f.pnfi), bits(f.pcfi)]
+    }
+
+    /// p = 6 columns (d_b 15), N = 100, n = 99 throughout.
+    fn row_at(q: u64, d: u64, c: f64, rmr: f64, gfi: f64, cb: f64) -> CfaModelFit {
+        model_fit(Row { q, d, c, rmr, gfi }, cb, 15, 6, 100.0, 99.0)
+    }
+
+    /// Decision 773 (the review of 9C-2's m1): the saturated row's NFI and IFI
+    /// are written as 1, as its RMR (0) and GFI (1) are, at every C_b; at C_b
+    /// = 0 c6675f38 computed them as 1 − 0/0 and 0/0, too_small. Its CFI is 1
+    /// by its rule at every C_b.
+    #[test]
+    fn the_saturated_rows_nfi_and_ifi_are_1_where_the_independence_models_cmin_is_0() {
+        let one = Ok(1.0f64.to_bits());
+        for cb in [0.0, 200.0] {
+            let s = saturated_fit(21, cb, 15, 6, 100.0, 99.0);
+            assert_eq!((bits(s.nfi), bits(s.ifi), bits(s.cfi)), (one, one, one), "C_b {cb}");
+            assert_eq!((bits(s.rmr), bits(s.gfi)), (Ok(0.0f64.to_bits()), one), "C_b {cb}");
+        }
+    }
+
+    /// Decision 773: in the default row at C_b = 0 a comparison whose value
+    /// is not finite is independence_cmin_zero, not too_small or overflow; a
+    /// finite one is as computed (IFI and TLI C / d, CFI by its rule). The
+    /// values are c6675f38's, measured before the change
+    /// (9c2f/logs/before_model_fit_1794657416.log); its codes there were
+    /// overflow at C > 0 and too_small at C = 0.
+    #[test]
+    fn the_default_rows_comparisons_at_an_independence_cmin_of_0_name_their_cause() {
+        let z = Err(CfaCode::IndependenceCminZero);
+        let d0 = Err(CfaCode::DfZero);
+        let v = |x: f64| Ok(x.to_bits());
+        let pratio = 0.5333333333333333;
+        // d > 0, C > d: CFI 1 − (C − d)/(C − d) = 0.
+        assert_eq!(comparisons(&row_at(13, 8, 12.5, 0.05, 0.97, 0.0)), [z, z, v(1.5625), v(1.5625), v(0.0), z, v(0.0)]);
+        // d > 0, 0 < C < d: CFI 1 by its zero denominator.
+        assert_eq!(comparisons(&row_at(13, 8, 3.0, 0.05, 0.97, 0.0)), [z, z, v(0.375), v(0.375), v(1.0), z, v(pratio)]);
+        // d > 0, C = 0: IFI and TLI −0 as computed.
+        assert_eq!(comparisons(&row_at(13, 8, 0.0, 0.05, 0.97, 0.0)), [z, z, v(-0.0), v(-0.0), v(1.0), z, v(pratio)]);
+        // d = 0, C = 0: NFI 1 − 0/0 and IFI 0/0; RFI, TLI, PNFI and PCFI df_zero.
+        assert_eq!(comparisons(&row_at(21, 0, 0.0, 0.0, 1.0, 0.0)), [z, d0, z, d0, v(1.0), d0, d0]);
+        // d = 0, C > 0 (an F above DF_ZERO_ROUNDING): NFI and IFI −∞.
+        assert_eq!(comparisons(&row_at(21, 0, 0.5, 0.01, 0.999, 0.0)), [z, d0, z, d0, v(0.0), d0, d0]);
+    }
+
+    /// Decision 773: above C_b = 0 nothing changes. Every cell of a default
+    /// row and of a d = 0 row at C_b 200, and the saturated row there, bit for
+    /// bit as c6675f38 gave them (Debug prints each f64 as its shortest
+    /// round-trip, so equal strings are equal bits), measured before the change
+    /// (9c2f/logs/before_model_fit_1794657416.log).
+    #[test]
+    fn above_an_independence_cmin_of_0_every_cell_is_as_c6675f38_gave_it() {
+        assert_eq!(
+            format!("{:?}", row_at(13, 8, 12.5, 0.05, 0.97, 200.0)),
+            "CfaModelFit { npar: 13, cmin: Value(12.5), df: 8, p: Value(0.1302503547279267), cmin_df: Value(1.5625), rmr: Value(0.05), gfi: Value(0.97), agfi: Value(0.9212499999999999), pgfi: Value(0.3695238095238095), nfi: Value(0.9375), rfi: Value(0.8828125), ifi: Value(0.9765625), tli: Value(0.9543918918918919), cfi: Value(0.9756756756756757), pratio: Value(0.5333333333333333), pnfi: Value(0.5), pcfi: Value(0.5203603603603604), ncp: Value(4.5), ncp_lo90: Value(0.0), ncp_hi90: Value(18.243951100197364), fmin: Value(0.12626262626262627), f0: Value(0.045454545454545456), f0_lo90: Value(0.0), f0_hi90: Value(0.18428233434542793), rmsea: Value(0.07537783614444091), rmsea_lo90: Value(0.0), rmsea_hi90: Value(0.15177381787771727), pclose: Value(0.26295725778422), aic: Value(38.5), bcc: Value(40.47826086956522), bic: Value(72.3672124178452), caic: Value(85.3672124178452), ecvi: Value(0.3888888888888889), ecvi_lo90: Value(0.3434343434343434), ecvi_hi90: Value(0.5277166777797714), mecvi: Value(0.4088713219148002), hoelter05: Value(123.0), hoelter01: Value(160.0) }"
+        );
+        let saturated = "CfaModelFit { npar: 21, cmin: Value(0.0), df: 0, p: NotComputable(DfZero), cmin_df: NotComputable(DfZero), rmr: Value(0.0), gfi: Value(1.0), agfi: NotComputable(DfZero), pgfi: NotComputable(DfZero), nfi: Value(1.0), rfi: NotComputable(DfZero), ifi: Value(1.0), tli: NotComputable(DfZero), cfi: Value(1.0), pratio: NotComputable(DfZero), pnfi: NotComputable(DfZero), pcfi: NotComputable(DfZero), ncp: Value(0.0), ncp_lo90: NotComputable(DfZero), ncp_hi90: NotComputable(DfZero), fmin: Value(0.0), f0: Value(0.0), f0_lo90: NotComputable(DfZero), f0_hi90: NotComputable(DfZero), rmsea: NotComputable(DfZero), rmsea_lo90: NotComputable(DfZero), rmsea_hi90: NotComputable(DfZero), pclose: NotComputable(DfZero), aic: Value(42.0), bcc: Value(45.19565217391305), bic: Value(96.70857390574993), caic: Value(117.70857390574993), ecvi: Value(0.42424242424242425), ecvi_lo90: NotComputable(DfZero), ecvi_hi90: NotComputable(DfZero), mecvi: Value(0.4565217391304348), hoelter05: NotComputable(DfZero), hoelter01: NotComputable(DfZero) }";
+        assert_eq!(format!("{:?}", row_at(21, 0, 0.0, 0.0, 1.0, 200.0)), saturated);
+        assert_eq!(format!("{:?}", saturated_fit(21, 200.0, 15, 6, 100.0, 99.0)), saturated);
     }
 }

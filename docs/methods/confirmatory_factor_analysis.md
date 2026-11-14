@@ -162,7 +162,9 @@ above, computed by one function of (C, q, d, RMR, GFI) against the independence 
 d_b:
 
 - the saturated model: Σ = S, q = p*, d = 0, C = 0, its RMR 0 and its GFI 1 written, not computed
-  from S⁻¹S. Its P, CMIN/DF, AGFI, PGFI, RFI, TLI, PRATIO, PNFI, PCFI, NCP's, F0's, RMSEA's and
+  from S⁻¹S, and its NFI and IFI 1 written (decision 773: where C_b is 0 their formulas, 1 − 0/0
+  and 0/0, have no value, and 9C-2 gave them `too_small` there); its CFI is 1 by its rule at
+  every C_b. Its P, CMIN/DF, AGFI, PGFI, RFI, TLI, PRATIO, PNFI, PCFI, NCP's, F0's, RMSEA's and
   ECVI's intervals, RMSEA, PCLOSE and HOELTER (21 cells) are `df_zero`, the cells the default
   model marks so at d = 0; its NPAR, CMIN, DF, RMR, GFI, NFI (1), IFI (1), CFI (1), NCP, FMIN, F0,
   AIC, BCC (or `too_few_rows_for_bcc`), BIC, CAIC, ECVI and MECVI (17) are values. AMOS's tables
@@ -174,11 +176,20 @@ d_b:
   AMOS prints the baseline against itself, since the formulas give other values where C_b ≤ d_b
   (CFI 1 by the zero denominator, IFI and TLI −0); every other cell by the formulas.
 
-The default model's row is byte for byte as 9C-1 computed it, but at 0 degrees of freedom where
-the F of at most 1e-12 is now 0 (decision 761: in the hunt h018 and h165, whose CFI was 0 and
-is 1; 9C-1's R references for the hunt still have the old rule there, CFI 0 on h018). C_b is
-written as max(C_b, 0), as C is: on columns uncorrelated to rounding it rounded to −3.4e-15
-(the review of 9C-2, finding 6; `cfa_cases.rs`). On the Wheaton data of AMOS's
+The default model's row is byte for byte as 9C-1 computed it but in three places (decision 772's
+m2 found the second and third, which this page and D325 had left out). At 0 degrees of freedom
+the F of at most 1e-12 is now 0 (decision 761: in the hunt h018 and h165, whose CFI was 0 and is
+1; 9C-1's R references for the hunt still have the old rule there, CFI 0 on h018). The
+noncentral tails' clamp to [0, 1] (decision 761) moves a PCLOSE that summed to
+1.0000000000000002 to 1 (one of the review of c6675f38's 646 earlier results: N 1,000, C 38.590
+on 65 degrees of freedom). And C_b is written as max(C_b, 0), as C is: on columns uncorrelated to
+rounding it rounded to −3.4e-15 (the review of 9C-2, finding 6; `cfa_cases.rs`). There 9C-1
+divided by that C_b and gave numbers (or 1 at C = 0); with C_b exactly 0, 9C-2 gave a comparison
+with the independence model (NFI, RFI, IFI, TLI, CFI, PNFI, PCFI) with no finite value as
+`too_small` or `overflow`, and it is now `independence_cmin_zero` (decision 773: NFI, RFI and PNFI
+at d > 0, NFI and IFI at d = 0); a finite one is as computed, so at d > 0 IFI and TLI are C / d
+and CFI is 1 or 0 by its rule, as AMOS's formulas give them. Decision 773 changes codes only,
+no number. On the Wheaton data of AMOS's
 Example 6 (N = 932, the six columns' correlations and standard deviations, S with divisor N S_u (N
 − 1) / N), the independence row is NPAR 6, CMIN 2131.790, DF 15, P .000, CMIN/DF 142.119, RMR
 12.342, GFI .494, AGFI .292, PGFI .353, HOELTER 11 and 14, and the saturated row NPAR 21, CMIN .000,
@@ -200,7 +211,12 @@ and at 2^53 its index stops moving (the release build sums at 1e10 in 0.19 s, at
 function, the mixture at every ncp, 0 among them (9C-1 took statrs's `gamma_lr` at 0, which
 differs from the mixture there in the last bits, and the bisection never ended on such data:
 decision 759's B1, 58 of 801 doubles near 34.764 at df 50 on the Mac), and it also stops when the
-midpoint equals either end.
+midpoint equals either end. Its bracket's top starts at max(x, 1) and doubles while the lower
+tail there is above the target; where the next top would pass 1e10 it takes 1e10 once, and gives
+no value only when the lower tail there is still above the target, the root past the limit, or
+when the starting top is already above 1e10 (decision 774: before it, x in (5e9, 1e10] at .05
+gave no value, though the root was below the limit; (6e9, 1, .05) is now 6,000,254,822.33, its
+lower tail there .0500000006, in 3.05 s in the release build).
 
 ## 3. Notes and not-computable values
 
@@ -211,7 +227,10 @@ admissible."), `factor_covariance_not_positive_definite`, `df_zero`.
 Not computable, statistic by statistic: `fixed_parameter` (the first loadings' standard errors,
 C.R.s and Ps); `df_zero` (P, CMIN/DF, AGFI, PGFI, RFI, TLI, PRATIO, PNFI, PCFI, the intervals of
 NCP, F0, RMSEA and ECVI, RMSEA, PCLOSE and HOELTER when d is 0); `cmin_zero` (HOELTER when C is
-0); `too_few_rows_for_bcc` (BCC and MECVI when N ≤ p + 2); `negative_variance` (a standardized
+0); `independence_cmin_zero` (a comparison with the independence model, NFI, RFI, IFI, TLI, CFI,
+PNFI or PCFI, with no finite value because C_b is 0: the columns are uncorrelated to rounding, the
+independence model fits exactly, and a comparison with it divides by 0; decision 773);
+`too_few_rows_for_bcc` (BCC and MECVI when N ≤ p + 2); `negative_variance` (a standardized
 weight or correlation whose square root meets a variance at or below 0); `overflow`; `too_small`
 (a 0/0 of quantities that vanished; a value below the smallest normal double is given as a value,
 as the hunt's P of 4.4e-323 was); and `distribution_out_of_range`.
@@ -225,15 +244,21 @@ iterations. There Gaply's minimum is lower than lavaan's, and `cfa_cases.rs` hol
 0.8025321383170834), R's gradient there at most 7.3e-9 in a component, the Newton decrement
 9.7e-21 (H's reciprocal condition is 4.6e-18, so that decrement is right in order of magnitude
 only), and lavaan 0.7-3's own minimum F 1.2731174595742836 (its error variance −2,480 instead).
-The estimates' bits and the 102 iterations are held on macOS aarch64 only; elsewhere the
-estimates within 1e-12, since the decrement sits beside the 1e-20 stop. The standardized weight's and the
+The estimates' bits and the 102 iterations are held on macOS aarch64 and on Linux x86_64, where
+they were measured equal on 14 Nov 2026 (decisions 771 and 775); elsewhere, Windows among them,
+the estimates within 1e-12, since the decrement sits beside the 1e-20 stop. The standardized weight's and the
 correlation's `negative_variance` are checked on a solution built for them
 (`stats_cfa::tests`). `distribution_out_of_range` is not reached within the limits (inferred):
 d is at most p (p + 1) / 2 − 2p, 8,000 at 128 columns, within the chi-square's 8,128; the largest
 ncp a run asks for is below the tails' 1e10, since S's Cholesky rule bounds ln|S| − Σ ln s_ii
-below by p ln(1e-9), so C_b < n p · 20.73, at most 2.65e8 at 99,999 rows and 128 columns, the
-intervals' bisection reaches at most twice its C where C is at least 1 (and 2 where it is less),
-and PCLOSE's ncp .0025 n d is at most 2.0e6.
+below by p ln(1e-9), so C_b < n p · 20.73, at most 2.65e8 at 99,999 rows and 128 columns; the
+intervals' bracket's top is max(C, 1), or below twice the root once it has doubled. Measured on
+the Mac on 14 Nov 2026 (decision 776; a probe outside the repository, the release build), at
+the .05 target and df 1 the top was 8 at C 1 (root 6.99), 40 at C 10 (root 23.11), and 2C at C
+100, 1e4, 1e6, 1e8 and 2.65e8 (there the root 265,053,555 and the top 5.3e8); at df 8,000 it was
+C at 1e4 and 1e6 and 2C at 1e8 and 2.65e8, the ncp 0 at C 1, 10 and 100; at the .95 target it
+was never above 2C. So the top is not within twice C for small C, but at C 2.65e8 it is 5.3e8,
+far below 1e10; and PCLOSE's ncp .0025 n d is at most 2.0e6.
 
 No word anywhere says a fit is good, poor, close, acceptable or adequate, and no cutoff (such as
 RMSEA .05 or CFI .95) is named.

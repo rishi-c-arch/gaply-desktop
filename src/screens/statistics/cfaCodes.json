@@ -27,6 +27,7 @@
   "stats.cfa.factor_too_few_items",
   "stats.cfa.factors_out_of_order",
   "stats.cfa.fixed_parameter",
+  "stats.cfa.independence_cmin_zero",
   "stats.cfa.input_count",
   "stats.cfa.input_mismatch",
   "stats.cfa.item_constant",

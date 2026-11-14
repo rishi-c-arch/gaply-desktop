@@ -822,13 +822,28 @@ fn upper_mixture(a: f64, y: f64, lambda: f64) -> (f64, usize) {
 /// decreasing in the ncp: 0 when the lower tail at ncp 0 is already at or below
 /// the target; otherwise by bisection to a relative [`NCP_RELATIVE_TOLERANCE`],
 /// the bracket's top starting at max(x, 1) and doubling while the lower tail
-/// there is above the target. `None` for a target not inside (0, 1), for an x
-/// or df [`noncentral_chi_square_tails`] refuses, and when the bracket's top
-/// stops being finite or passes [`NONCENTRAL_MAX_NCP`]. The lower tail is
+/// there is above the target, and taking [`NONCENTRAL_MAX_NCP`] once where it
+/// would pass it (decision 774). `None` for a target not inside (0, 1), for an
+/// x or df [`noncentral_chi_square_tails`] refuses, for a starting top above
+/// [`NONCENTRAL_MAX_NCP`], and when the lower tail there is still above the
+/// target, the root past the limit. The lower tail is
 /// [`noncentral_lower`] at every ncp, 0 among them, so the bisection is of one
 /// function, and it also stops when the midpoint equals either end, no double
 /// lying between them (decision 761; decision 759's B1 never returned).
 pub fn noncentral_chi_square_ncp(x: f64, df: f64, lower_target: f64) -> Option<f64> {
+    ncp_within(x, df, lower_target, NONCENTRAL_MAX_NCP)
+}
+
+/// [`noncentral_chi_square_ncp`] with the bracket's limit as an argument, so
+/// its tests can put it at 1000 (decision 774). A starting top max(x, 1) above
+/// the limit is `None` at once, the tail never evaluated there. When the
+/// doubling's next top would pass the limit, the top becomes the limit once: a
+/// lower tail there still above the target puts the root past the limit, and
+/// gives `None`; otherwise the bisection runs between the last bottom and the
+/// limit. Below a top of half the limit this is the doubling as before (the
+/// review of c6675f38's m3: (6e9, 1, .05), its root about 6.0003e9, was `None`
+/// because the top doubled from 6e9 to 1.2e10).
+fn ncp_within(x: f64, df: f64, lower_target: f64, limit: f64) -> Option<f64> {
     if !(lower_target > 0.0 && lower_target < 1.0) {
         return None;
     }
@@ -837,12 +852,16 @@ pub fn noncentral_chi_square_ncp(x: f64, df: f64, lower_target: f64) -> Option<f
         return Some(0.0);
     }
     let (mut lo, mut hi) = (0.0, x.max(1.0));
+    // x is finite here (lower(0.0) refused any other), so hi is a number.
+    if hi > limit {
+        return None;
+    }
     while lower(hi)? > lower_target {
-        lo = hi;
-        hi *= 2.0;
-        if !hi.is_finite() || hi > NONCENTRAL_MAX_NCP {
+        if hi >= limit {
             return None;
         }
+        lo = hi;
+        hi = (2.0 * hi).min(limit);
     }
     while hi - lo > NCP_RELATIVE_TOLERANCE * hi {
         let mid = 0.5 * (lo + hi);
@@ -1110,7 +1129,7 @@ fn rank_sum_counts(n1: usize, n2: usize) -> Vec<f64> {
 
 #[cfg(test)]
 mod tests {
-    use super::{exact_two_sided, lower_mixture, poisson_mode, upper_mixture};
+    use super::{exact_two_sided, lower_mixture, ncp_within, noncentral_lower, poisson_mode, upper_mixture};
 
     /// Research OS, Phase 9C-1 (decision 744): the noncentral sum starts at the
     /// Poisson mode, ⌊λ⌋, and runs outward. Started at j = 0 instead, every
@@ -1173,5 +1192,49 @@ mod tests {
             let (a, y) = (df / 2.0, x / 2.0);
             assert_eq!(lower_mixture(a, y, 0.0).0.to_bits(), lower_mixture(a, y, 5e-301).0.to_bits(), "x {x:?} df {df}");
         }
+    }
+
+    /// Decision 774 (the review of c6675f38's m3): when the bracket's next top
+    /// would pass the limit, the top becomes the limit once. At a limit of
+    /// 1000, (600, 1, .05) has its root between 600 and 1000, and the doubling
+    /// from 600 would pass 1000: c6675f38 gave None.
+    #[test]
+    fn the_ncps_inversion_brackets_at_its_limit_once_when_the_doubling_would_pass_it() {
+        let v = ncp_within(600.0, 1.0, 0.05, 1000.0).expect("a root below the limit");
+        assert!(v > 600.0 && v < 1000.0, "{v}");
+        let tail = noncentral_lower(600.0, 1.0, v).unwrap();
+        assert!((tail - 0.05).abs() <= 1e-9, "lower tail {tail:e} at {v}");
+        // A doubling that lands exactly on the limit (500 to 1000), as before.
+        let w = ncp_within(500.0, 1.0, 0.05, 1000.0).expect("a root below the limit");
+        assert!(w > 500.0 && w < 1000.0, "{w}");
+        assert!((noncentral_lower(500.0, 1.0, w).unwrap() - 0.05).abs() <= 1e-9);
+    }
+
+    /// Decision 774: where the lower tail at the limit is still above the
+    /// target the root is past the limit, and the answer is None: (990, 1, .05)
+    /// at a limit of 1000, its lower tail there about .43.
+    #[test]
+    fn the_ncps_inversion_gives_none_when_the_root_is_past_its_limit() {
+        assert!(noncentral_lower(990.0, 1.0, 1000.0).unwrap() > 0.05);
+        assert_eq!(ncp_within(990.0, 1.0, 0.05, 1000.0), None);
+        // A starting top exactly at the limit, its tail there above the target.
+        assert!(noncentral_lower(1000.0, 1.0, 1000.0).unwrap() > 0.05);
+        assert_eq!(ncp_within(1000.0, 1.0, 0.05, 1000.0), None);
+    }
+
+    /// Decision 774, with decision 761: a starting top max(x, 1) above the
+    /// limit gives None, at the test's limit and at the wrapper's
+    /// NONCENTRAL_MAX_NCP. (1300, 1, .95) has its lower tail at the start, 1300,
+    /// already at or below .95, so without the check at the start the bisection
+    /// would run between 0 and 1300 and give a root above the limit (the two
+    /// assertions on the tail put it between 1000 and 1300).
+    #[test]
+    fn the_ncps_inversion_gives_none_for_a_starting_top_above_its_limit() {
+        assert!(noncentral_lower(1300.0, 1.0, 1300.0).unwrap() <= 0.95);
+        assert!(noncentral_lower(1300.0, 1.0, 1000.0).unwrap() > 0.95, "the root is above the limit");
+        assert_eq!(ncp_within(1300.0, 1.0, 0.95, 1000.0), None);
+        assert_eq!(ncp_within(1100.0, 1.0, 0.05, 1000.0), None);
+        assert_eq!(super::noncentral_chi_square_ncp(2e10, 1.0, 0.05), None);
+        assert_eq!(super::noncentral_chi_square_ncp(1e300, 3.0, 0.05), None);
     }
 }

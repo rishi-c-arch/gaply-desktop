@@ -805,10 +805,16 @@ fn h043_is_a_lower_minimum_than_lavaans_checked_by_r() {
     let r = compute(&d, &model(&[&[1, 15], &[2, 9, 10, 14], &[3, 4, 8, 11, 12, 13], &[5, 6, 7]], true)).unwrap();
     assert_eq!(r.rows_used, 107);
     // The estimates' bits and the 102 iterations were measured on macOS aarch64
-    // only: the decrement at the solution (9.7e-21) sits beside the 1e-20 stop and
-    // F goes through ln, so another libm may take one step more or less (the review
-    // of this step, finding 1). Elsewhere the estimates are held within 1e-12.
-    let measured_here = cfg!(all(target_os = "macos", target_arch = "aarch64"));
+    // in 9C-2 and on Linux x86_64 on 14 Nov 2026 at c6675f38 (decision 771, this
+    // test passing with measured_here forced true), and are held exactly on
+    // both: the decrement at the solution (9.7e-21) sits beside the 1e-20 stop
+    // and F goes through ln, so another libm may take one step more or less
+    // (the review of 9C-2, finding 1). Elsewhere, Windows among them, the
+    // estimates are held within 1e-12 (decision 775).
+    let measured_here = cfg!(any(
+        all(target_os = "macos", target_arch = "aarch64"),
+        all(target_os = "linux", target_arch = "x86_64")
+    ));
     if measured_here {
         assert_eq!(r.iterations, 102);
     }
@@ -881,6 +887,15 @@ fn a_run_whose_every_attempt_fails_h_at_its_start_is_model_not_identified() {
 /// ln|S|) can round below 0, and C_b is now the independence row's own CMIN,
 /// P, RMSEA and HOELTER. Trial 5800 of the same search, three columns on one
 /// factor: C_b was −3.4416913763379853e-15.
+///
+/// Its C_b is therefore exactly 0, and decision 773 (the review of c6675f38's
+/// m1) gives the rows there: the saturated row's NFI and IFI written as 1, and
+/// the default row's NFI and IFI, not finite at C_b = 0 (1 − C/0 and −C/0, or
+/// 0/0 at C = 0), independence_cmin_zero rather than too_small or overflow.
+/// The default model here is numerically not identified (decision 772: φ11
+/// −4.4e-16, the loadings' standard errors near 7.5e14, H passing only through
+/// its relative 1e-9 rule), so this test is about the independence and
+/// saturated rows; whether a run should accept such a point is for 9C-4.
 #[test]
 fn the_independence_models_cmin_is_never_below_0() {
     let cols = vec![
@@ -892,4 +907,17 @@ fn the_independence_models_cmin_is_never_below_0() {
     let b = &r.fit.independence;
     assert_eq!(val(b.cmin).to_bits(), 0.0f64.to_bits(), "{:e}", val(b.cmin));
     assert!(val(b.fmin) >= 0.0 && val(b.ncp) >= 0.0);
+    // Decision 773.
+    let s = &r.fit.saturated;
+    assert_eq!((s.nfi, s.ifi, s.cfi), (Stat::Value(1.0), Stat::Value(1.0), Stat::Value(1.0)), "the saturated row");
+    let m = &r.fit.model;
+    assert_eq!(m.df, 0);
+    let z = Stat::NotComputable(C::IndependenceCminZero);
+    let d0 = Stat::NotComputable(C::DfZero);
+    assert_eq!((m.nfi, m.ifi), (z, z), "the default row's NFI and IFI");
+    assert_eq!((m.rfi, m.tli, m.pnfi, m.pcfi), (d0, d0, d0, d0), "the default row at d = 0");
+    // C is 0 here (its F at most 1e-12 at d = 0, decision 761; measured 14 Nov
+    // 2026), so CFI is 1 by its zero denominator.
+    assert_eq!(m.cmin, Stat::Value(0.0));
+    assert_eq!(m.cfi, Stat::Value(1.0));
 }
