@@ -35,6 +35,8 @@ import { linearRegressionResultView } from '../fixtures/linearRegressionFixtures
 import { makeMockLinearRegressionBridge } from '../linearRegressionBridge';
 import { factorResultView } from '../fixtures/factorFixtures';
 import { makeMockFactorBridge } from '../factorBridge';
+import { cfaResultView } from '../fixtures/cfaFixtures';
+import { makeMockCfaBridge } from '../cfaBridge';
 import { METHOD_DIALOGS, METHOD_OUTPUT } from './methodOutput';
 import { statisticsSession } from './statisticsSession';
 import { StatisticsWindow } from './StatisticsWindow';
@@ -213,6 +215,20 @@ const ROWS = [
     },
     line: 'Items: C1 Height, C2 Weight, C4 Age. Extraction: principal components. Factors: every eigenvalue above 1. Rotation: none. Iterations: 25. Convergence: 0.001. Missing codes: none.',
   },
+  // Research OS, Phase 9C-3 (decision 785): one factor of the view's three numeric columns,
+  // C1, C2 and C4, correlated left as it starts (one factor, so no line for it).
+  {
+    kind: 'cfa',
+    run: 'cf-run',
+    card: 'cf-result-card',
+    prefix: 'stats_cfa',
+    choose: async () => {
+      select('cf-assign-C1', 'new');
+      select('cf-assign-C2', (screen.getByTestId('cf-assign-C1') as HTMLSelectElement).value);
+      select('cf-assign-C4', (screen.getByTestId('cf-assign-C1') as HTMLSelectElement).value);
+    },
+    line: 'Factor 1: C1 Height, C2 Weight, C4 Age. Missing codes: none.',
+  },
 ] as const;
 
 function setUp() {
@@ -231,6 +247,7 @@ function setUp() {
     relatedRanks: makeMockRelatedRanksBridge(fill('stats_related_ranks', relatedRanksResultView)),
     linearRegression: makeMockLinearRegressionBridge(fill('stats_linear_regression', linearRegressionResultView)),
     factor: makeMockFactorBridge(fill('stats_factor', factorResultView)),
+    cfa: makeMockCfaBridge(fill('stats_cfa', cfaResultView)),
   };
   const capabilities: CapabilityView[] = METHODS.map((m) => ({ id: m.capabilityId, version: 1, lifecycle: 'beta', titleCode: 'stats.capability.describe.title', descriptionCode: 'stats.capability.describe.description', licenseNotes: [], knownLimitations: [], runnable: true }));
   const save = vi.fn().mockResolvedValue('/chosen/out.csv');

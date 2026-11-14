@@ -453,6 +453,30 @@ impl World {
         id
     }
 
+    /// The confirmatory factor analysis of `factors`, each a list of columns by number, and
+    /// whether they are correlated (Research OS, Phase 9C-3, decision 784), the spec carrying
+    /// the slot's preparation exactly when it has one, as a screen's does (decision 490), run
+    /// to its end.
+    pub fn cfa(&self, slot: u64, factors: &[&[u32]], correlated: bool, missing_codes: Vec<f64>) -> u64 {
+        let e = self.engine();
+        let held = e.datasets.get(slot).expect("the slot");
+        let mut spec = gaply_core::stats_cfa::spec(
+            OperationId(17),
+            held.dataset(),
+            gaply_core::stats_cfa::CfaParams {
+                indicators: factors.iter().map(|f| f.iter().map(|c| Alias(ColumnAlias(*c))).collect()).collect(),
+                correlated_factors: correlated,
+                missing_codes,
+            },
+        );
+        spec.preparation = held.preparation();
+        let id = app_lib::stats_cfa_commands::run(&e.runs, &e.datasets, slot, spec)
+            .expect("the run starts")
+            .run_id;
+        self.wait_new_kind(id);
+        id
+    }
+
     pub fn wait_new_kind(&self, run: u64) -> RunState {
         let e = self.engine();
         let start = Instant::now();
@@ -470,6 +494,7 @@ impl World {
                 .or_else(|_| e.runs.related_ranks_snapshot(RunId(run)).map(|s| s.record.state))
                 .or_else(|_| e.runs.linear_regression_snapshot(RunId(run)).map(|s| s.record.state))
                 .or_else(|_| e.runs.factor_snapshot(RunId(run)).map(|s| s.record.state))
+                .or_else(|_| e.runs.cfa_snapshot(RunId(run)).map(|s| s.record.state))
                 .expect("the run is held");
             if state.is_terminal() {
                 return state;

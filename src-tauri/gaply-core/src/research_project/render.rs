@@ -204,6 +204,14 @@ pub enum ExportParameter {
     /// The factor analysis's convergence, as the bits of its double, as `TestValue` keeps
     /// its value: a setting the user typed (Research OS, Phase 9B-3, decision 731).
     Convergence { bits: u64 },
+    /// One factor of the confirmatory factor analysis: its number (from 1, in the order of
+    /// the factors' first columns) and its columns by their 1-based positions, in the
+    /// spec's order (the file's); one parameter per factor, since the report writes one line
+    /// per parameter (Research OS, Phase 9C-3, decision 784).
+    Factor { number: u32, positions: Vec<u32> },
+    /// Whether the confirmatory factor analysis's factors are correlated, given only with two
+    /// or more factors (Research OS, Phase 9C-3, decision 784).
+    CorrelatedFactors(bool),
     /// Alpha's reverse-scored items, by their 1-based positions, in the
     /// dataset's column order; empty when none was.
     ReverseScored(Vec<u32>),
@@ -635,6 +643,14 @@ fn parameter_line(p: &ExportParameter) -> String {
         ExportParameter::Convergence { bits } => {
             format!("Convergence: {}", f64::from_bits(*bits))
         }
+        // Decision 784: the confirmatory factor analysis's factors, one line each, and whether
+        // they are correlated.
+        ExportParameter::Factor { number, positions } => {
+            let list: Vec<String> = positions.iter().map(u32::to_string).collect();
+            format!("Factor {number}: columns {}, by position", list.join(", "))
+        }
+        ExportParameter::CorrelatedFactors(true) => "Factors correlated: yes".into(),
+        ExportParameter::CorrelatedFactors(false) => "Factors correlated: no".into(),
         // Decision 686: singular for one, as ReverseScored's.
         ExportParameter::Predictors(positions) if positions.len() == 1 => {
             format!("Predictors: column {}, by position", positions[0])
@@ -1294,6 +1310,22 @@ mod tests {
         assert_eq!(words, ["principal_components", "principal_axis"]);
         let words: Vec<&str> = FactorRotation::ALL.iter().map(|c| c.wire()).collect();
         assert_eq!(words, ["none", "varimax", "promax"]);
+    }
+
+    /// Research OS, Phase 9C-3 (decision 784): the confirmatory factor analysis's factors, one
+    /// line each, their columns by position, and whether the factors are correlated.
+    #[test]
+    fn the_confirmatory_factor_analysis_parameters_have_lines_of_their_own() {
+        assert_eq!(
+            parameter_line(&ExportParameter::Factor { number: 1, positions: vec![1, 3, 5] }),
+            "Factor 1: columns 1, 3, 5, by position"
+        );
+        assert_eq!(
+            parameter_line(&ExportParameter::Factor { number: 16, positions: vec![2, 128] }),
+            "Factor 16: columns 2, 128, by position"
+        );
+        assert_eq!(parameter_line(&ExportParameter::CorrelatedFactors(true)), "Factors correlated: yes");
+        assert_eq!(parameter_line(&ExportParameter::CorrelatedFactors(false)), "Factors correlated: no");
     }
 
     /// Phase 8I-2 (decision 382): alpha's items and reverse-scored items as

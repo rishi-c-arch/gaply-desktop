@@ -53,6 +53,9 @@ import { LinearRegressionCard } from '../LinearRegressionCard';
 import { FactorDialog } from './FactorDialog';
 import { FactorCard } from '../FactorCard';
 import { FACTOR_EXPORT_CHOICES, FACTOR_EXPORT_HEADING, FACTOR_EXPORT_TEXT, factorRefusalSentence, factorRunEndedSentence, factorSentence } from '../factorWording';
+import { CfaDialog } from './CfaDialog';
+import { CfaCard } from '../CfaCard';
+import { CFA_EXPORT_CHOICES, CFA_EXPORT_HEADING, CFA_EXPORT_TEXT, cfaRefusalSentence, cfaRunEndedSentence, cfaSentence } from '../cfaWording';
 import {
   LINEAR_REGRESSION_EXPORT_CHOICES,
   LINEAR_REGRESSION_EXPORT_HEADING,
@@ -236,6 +239,20 @@ export const METHOD_OUTPUT: { [K in MethodKind]: OutputRow<K> } = {
     exportText: FACTOR_EXPORT_TEXT,
     exportChoices: FACTOR_EXPORT_CHOICES,
   },
+  // Research OS, Phase 9C-3 (decision 785): its own card, as no page has one; a check point
+  // per column, the estimation and each model's fit, so the steps sentence, as the factor
+  // analysis's; a column named by the name the user sees.
+  cfa: {
+    bridge: (b) => b.cfa,
+    refusal: cfaRefusalSentence,
+    runEnded: cfaRunEndedSentence,
+    progress: (run) => alphaSteps(run.stepsDone, run.stepsTotal),
+    sentence: (d, view) => cfaSentence(d, { column: columnNames(view) }),
+    card: (result, view) => <CfaCard result={result} names={{ column: columnNames(view) }} />,
+    exportHeading: CFA_EXPORT_HEADING,
+    exportText: CFA_EXPORT_TEXT,
+    exportChoices: CFA_EXPORT_CHOICES,
+  },
 };
 
 /** An entry's row. Its kind and its run and result were stored together, so the
@@ -275,4 +292,5 @@ export const METHOD_DIALOGS: Record<MethodKind, React.FC<MethodDialogRowProps>> 
   related_ranks: ({ bridges, ...p }) => <RelatedRanksDialog {...p} bridge={bridges.relatedRanks} />,
   linear_regression: ({ bridges, ...p }) => <LinearRegressionDialog {...p} bridge={bridges.linearRegression} />,
   factor: ({ bridges, ...p }) => <FactorDialog {...p} bridge={bridges.factor} />,
+  cfa: ({ bridges, ...p }) => <CfaDialog {...p} bridge={bridges.cfa} />,
 };

@@ -147,6 +147,25 @@ describe("a saved result's score columns", () => {
     expect(screen.getByTestId('fa-desc-C3').querySelector('th')?.textContent).toBe('C3');
   });
 
+  // Research OS, Phase 9C-3 (decision 785): a score among the confirmatory factor analysis's
+  // columns is named as the factor analysis's items are, in a sentence and in each table's row.
+  it("a confirmatory factor analysis's column and sentence that name a score", () => {
+    const v = edited('cfa.json', (b) => {
+      b.diagnostics = [{ code: 'stats.cfa.suspect_missing_code', params: { column: 4, value: -99, count: 2 }, severity: 'warning' }];
+    });
+    const named = scoreColumn(4, 'Total');
+    body(v, [score(4, 'Total')]);
+    expect(screen.getByTestId('cf-result-notes').textContent).toContain(`Column ${named} holds -99`);
+    expect(screen.getByTestId('cf-weight-C4').querySelector('th')?.textContent).toBe(`${named} ← Factor 1`);
+    expect(screen.getByTestId('cf-standardized-C4').querySelector('th')?.textContent).toBe(`${named} ← Factor 1`);
+    expect(screen.getByTestId('cf-variance-error-C4').querySelector('th')?.textContent).toBe(`Error of ${named}`);
+    expect(screen.getByTestId('cf-smc-C4').querySelector('th')?.textContent).toBe(named);
+    cleanup();
+    body(v, null);
+    expect(screen.getByTestId('cf-result-notes').textContent).toContain('Column C4 holds -99');
+    expect(screen.getByTestId('cf-weight-C4').querySelector('th')?.textContent).toBe('C4 ← Factor 1');
+  });
+
   // Research OS, Phase 8Z-2 (decision 656): a score among the related rank tests' columns
   // is named as the rank tests' score outcome is, in a sentence and in the columns' table.
   it("a related rank test's column and sentence that name a score", () => {

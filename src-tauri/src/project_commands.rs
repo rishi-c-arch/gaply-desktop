@@ -104,6 +104,7 @@ use gaply_core::stats_anova::{self, AnovaCode, AnovaParams, PostHoc};
 use gaply_core::stats_corr::{self, Coefficient, CorrCode, CorrParams, MissingHandling};
 use gaply_core::stats_desc::{self, DescCode, DescribeParams, TreatAs};
 use gaply_core::stats_factor::{self, Extraction, FactorCode, FactorParams, Rotation};
+use gaply_core::stats_cfa::{self, CfaCode, CfaParams};
 use gaply_core::stats_l1::dataset::Dataset;
 use gaply_core::stats_linear_regression::{self, LinearRegressionCode, LinearRegressionParams};
 use gaply_core::stats_onesample::{self, OneSampleCode, OneSampleParams, PairedParams};
@@ -914,9 +915,10 @@ fn saveable(copy: &RunCopy) -> Result<(), ProjectCode> {
     }
     // A method with no row in METHODS cannot be rerun or exported, so a project
     // holding it would refuse its export as a whole (Research OS, Phase 9B-2,
-    // decision 714). Since 9B-3 every method had a row (decision 731); the
-    // confirmatory factor analysis has none until 9C-3, so its runs are refused
-    // here at save (Research OS, Phase 9C-2, decision 764).
+    // decision 714). Since 9C-3 every method has a row again, the confirmatory
+    // factor analysis's included (decision 784); the guard stays for the next
+    // method registered before its row, and
+    // a_run_of_a_capability_no_row_holds_is_not_saveable pins it.
     if method_for(capability.as_str()).is_none() {
         return Err(ProjectCode::RunNotSaveable);
     }
@@ -1261,6 +1263,13 @@ const METHODS: &[MethodRow] = &[
         kind: RunKind::Factor,
         read_back: read_back::<OperationSpec<FactorParams>>,
         export: export_with::<OperationSpec<FactorParams>>,
+    },
+    // Research OS, Phase 9C-3 (decision 784).
+    MethodRow {
+        capability: stats_cfa::CAPABILITY_ID,
+        kind: RunKind::Cfa,
+        read_back: read_back::<OperationSpec<CfaParams>>,
+        export: export_with::<OperationSpec<CfaParams>>,
     },
 ];
 
@@ -1661,6 +1670,37 @@ impl SavedSpec for OperationSpec<FactorParams> {
 
     fn parameters(&self) -> Vec<ExportParameter> {
         factor_parameters(self)
+    }
+}
+
+// Research OS, Phase 9C-3 (decision 784): the confirmatory factor analysis, checked through
+// its façade, never stats_cfa itself (verifier_facade_guards.rs).
+impl Rerun for OperationSpec<CfaParams> {
+    fn valid_on(&self, build: Build, dataset: &Dataset) -> bool {
+        check_spec(
+            WorkspaceId::Statistics,
+            self.workspace_id,
+            &self.capability_id,
+        )
+        .is_ok()
+            && passes(stats_adapters::cfa_validate(self, build, dataset).status)
+    }
+
+    fn launch(
+        self: Box<Self>,
+        runs: &Arc<Runs>,
+        slot: Arc<Slot>,
+        end: EndHook,
+    ) -> Result<RunId, NotStarted> {
+        runs.start_cfa_then(slot, *self, end)
+    }
+}
+
+impl SavedSpec for OperationSpec<CfaParams> {
+    type Code = CfaCode;
+
+    fn parameters(&self) -> Vec<ExportParameter> {
+        cfa_parameters(self)
     }
 }
 
@@ -2574,7 +2614,7 @@ pub enum SpecFieldShown {
 
 /// Every field of a saved describe, t-test, one-sample, paired, one-way
 /// ANOVA, correlations, Cronbach's alpha, crosstabs, rank tests, related rank
-/// tests, linear regression or factor analysis spec, by JSON path (`[]` for each element of an
+/// tests, linear regression, factor analysis or confirmatory factor analysis spec, by JSON path (`[]` for each element of an
 /// array). The ANOVA shares `outcome`, `group`, `levels[]` and
 /// `missingCodes[]` with the t-test's rows, and adds `postHoc[]` (decision
 /// 330); the correlations share `missingCodes[]` and add `variables[]`,
@@ -2587,7 +2627,8 @@ pub enum SpecFieldShown {
 /// 655); the linear regression shares the t-test's `outcome` and `missingCodes[]` and
 /// adds `predictors[]` (decision 686); the factor analysis shares alpha's `items[]` and
 /// `missingCodes[]` and adds `extraction`, `factors`, `rotation`, `iterations` and
-/// `convergence` (decision 731).
+/// `convergence` (decision 731); the confirmatory factor analysis shares `missingCodes[]` and
+/// adds `indicators[][]` and `correlatedFactors` (decision 784).
 pub const SPEC_FIELDS: &[(&str, SpecFieldShown)] = &[
     (
         "schemaVersion",
@@ -2666,6 +2707,12 @@ pub const SPEC_FIELDS: &[(&str, SpecFieldShown)] = &[
     ("parameters.rotation", SpecFieldShown::Reported),
     ("parameters.iterations", SpecFieldShown::Reported),
     ("parameters.convergence", SpecFieldShown::Reported),
+    // Research OS, Phase 9C-3 (decision 784): the confirmatory factor analysis's factors,
+    // each a list of columns, through one `ExportParameter::Factor` per factor, and whether
+    // they are correlated, through `ExportParameter::CorrelatedFactors`. Its codes are
+    // `parameters.missingCodes[]`, already listed.
+    ("parameters.indicators[][]", SpecFieldShown::Reported),
+    ("parameters.correlatedFactors", SpecFieldShown::Reported),
     // Research OS, Phase 8M-4 (decision 435): what made a prepared input,
     // hashes and numbers. Its two hashes are the data file's and the recipe's
     // rows in the report's inputs table; its columns and versions are the lines
@@ -3029,6 +3076,30 @@ fn factor_parameters(spec: &OperationSpec<FactorParams>) -> Vec<ExportParameter>
     out.push(ExportParameter::Convergence {
         bits: p.convergence.to_bits(),
     });
+    out.push(ExportParameter::MissingCodes {
+        count: p.missing_codes.len() as u64,
+    });
+    out.push(ExportParameter::Seed(spec.random_seed));
+    out
+}
+
+/// The confirmatory factor analysis's settings, by the allow-list (Research OS, Phase 9C-3,
+/// decision 784): each factor, its number and its columns' positions in the spec's order
+/// (the file's), one parameter per factor; whether the factors are correlated, only with two
+/// or more factors, since with one it is no setting of the model; and how many missing codes.
+/// No label and no value is named.
+fn cfa_parameters(spec: &OperationSpec<CfaParams>) -> Vec<ExportParameter> {
+    let p = &spec.parameters;
+    let mut out = shape(&spec.inputs);
+    for (i, factor) in p.indicators.iter().enumerate() {
+        out.push(ExportParameter::Factor {
+            number: i as u32 + 1,
+            positions: factor.iter().map(|a| a.0 .0).collect(),
+        });
+    }
+    if p.indicators.len() >= 2 {
+        out.push(ExportParameter::CorrelatedFactors(p.correlated_factors));
+    }
     out.push(ExportParameter::MissingCodes {
         count: p.missing_codes.len() as u64,
     });
@@ -3735,6 +3806,59 @@ mod tests {
         assert!(factor_parameters(&factor_spec(None)).contains(&ExportParameter::FactorCount(None)));
     }
 
+    /// Research OS, Phase 9C-3 (decision 784): the confirmatory factor analysis of
+    /// `factors` (columns by number), correlated or not, no code.
+    fn cfa_spec(factors: &[&[u32]], correlated: bool) -> OperationSpec<CfaParams> {
+        OperationSpec {
+            schema_version: SchemaVersion,
+            operation_id: OperationId(17),
+            workspace_id: WorkspaceId::Statistics,
+            capability_id: stats_cfa::capability_id(),
+            capability_version: 1,
+            inputs: vec![input()],
+            parameters: CfaParams {
+                indicators: factors.iter().map(|f| f.iter().map(|c| Alias(ColumnAlias(*c))).collect()).collect(),
+                correlated_factors: correlated,
+                missing_codes: Vec::new(),
+            },
+            random_seed: None,
+            confirmation_refs: Vec::new(),
+            preparation: None,
+        }
+    }
+
+    #[test]
+    fn the_confirmatory_factor_analysis_settings_are_its_factors_in_order_and_whether_they_are_correlated() {
+        assert_eq!(
+            cfa_parameters(&cfa_spec(&[&[1, 3, 5], &[2, 4, 6]], true)),
+            [
+                ExportParameter::InputShape {
+                    rows: 12,
+                    columns: 3
+                },
+                ExportParameter::Factor { number: 1, positions: vec![1, 3, 5] },
+                ExportParameter::Factor { number: 2, positions: vec![2, 4, 6] },
+                ExportParameter::CorrelatedFactors(true),
+                ExportParameter::MissingCodes { count: 0 },
+                ExportParameter::Seed(None),
+            ]
+        );
+        assert!(cfa_parameters(&cfa_spec(&[&[1, 3], &[2, 4, 6]], false)).contains(&ExportParameter::CorrelatedFactors(false)));
+        // One factor: whether factors are correlated is no setting of its model.
+        assert_eq!(
+            cfa_parameters(&cfa_spec(&[&[2, 3, 4]], true)),
+            [
+                ExportParameter::InputShape {
+                    rows: 12,
+                    columns: 3
+                },
+                ExportParameter::Factor { number: 1, positions: vec![2, 3, 4] },
+                ExportParameter::MissingCodes { count: 0 },
+                ExportParameter::Seed(None),
+            ]
+        );
+    }
+
     /// Decision 731: every method has a row since 9B-3, so no real run reaches saveable's
     /// last guard; a copy of a run whose capability no row holds pins it (Research OS,
     /// Phase 9B-2, decision 714).
@@ -4041,6 +4165,9 @@ mod tests {
         // spec and null (a leaf) in the other.
         paths(&serde_json::to_value(factor_spec(Some(2))).unwrap(), "", &mut seen);
         paths(&serde_json::to_value(factor_spec(None)).unwrap(), "", &mut seen);
+        // The confirmatory factor analysis (decision 784): `indicators[][]` and
+        // `correlatedFactors`, beside alpha's `missingCodes[]`.
+        paths(&serde_json::to_value(cfa_spec(&[&[1, 3, 5], &[2, 4, 6]], true)).unwrap(), "", &mut seen);
         // A run on prepared data (decision 435).
         paths(
             &serde_json::to_value(prepared_spec()).unwrap(),
@@ -4890,6 +5017,8 @@ mod tests {
             stats_linear_regression::CAPABILITY_ID,
             // Research OS, Phase 9B-3 (decision 731).
             stats_factor::CAPABILITY_ID,
+            // Research OS, Phase 9C-3 (decision 784).
+            stats_cfa::CAPABILITY_ID,
         ] {
             assert_eq!(
                 METHODS.iter().filter(|m| m.capability == id).count(),

@@ -1,4 +1,6 @@
 {
   "maxFactors": 16,
-  "maxItems": 128
+  "maxItems": 128,
+  "minFactorItems": 2,
+  "minItems": 3
 }

@@ -24,6 +24,7 @@ use app_lib::stats_anova_commands as anova;
 use app_lib::stats_corr_commands as corr;
 use app_lib::stats_desc_commands as desc;
 use app_lib::stats_factor_commands as factor;
+use app_lib::stats_cfa_commands as cfa;
 use app_lib::stats_linear_regression_commands as linear_regression;
 use app_lib::stats_onesample_commands as onesample;
 use app_lib::stats_prep_commands as prep;
@@ -37,6 +38,7 @@ use gaply_core::stats_anova::{self, AnovaParams, PostHoc};
 use gaply_core::stats_corr::{self, Coefficient, CorrParams, MissingHandling};
 use gaply_core::stats_desc::{self, Alias, ColumnRequest, DescribeParams, TreatAs};
 use gaply_core::stats_factor::{self, Extraction, FactorParams, Rotation};
+use gaply_core::stats_cfa::{self, CfaParams};
 use gaply_core::stats_l1::dataset::ColumnAlias;
 use gaply_core::stats_linear_regression::{self, LinearRegressionParams};
 use gaply_core::stats_onesample::{self, OneSampleParams, PairedParams};
@@ -97,8 +99,8 @@ fn make(w: &World, slot: u64, recipe: &Recipe) {
     assert!(v.dataset.is_some(), "{:?}", v.errors);
 }
 
-/// The eleven methods, each with a score in it, as `prep_support::eleven`.
-const ELEVEN: [&str; 11] = [
+/// The twelve methods, each with a score in it, as `prep_support::twelve`.
+const TWELVE: [&str; 12] = [
     "summary",
     "t-test",
     "one-sample",
@@ -110,6 +112,7 @@ const ELEVEN: [&str; 11] = [
     "related rank tests",
     "linear regression",
     "factor analysis",
+    "confirmatory factor analysis",
 ];
 
 /// Runs method `which` on the score, column 8 of [`TABLE`], to its end, its
@@ -283,6 +286,22 @@ fn run_method(w: &World, slot: u64, which: &str) -> u64 {
                 &e.datasets,
                 slot,
                 on_prepared!(stats_factor::spec(op, d, params)),
+            )
+        }
+        // Research OS, Phase 9C-3 (decision 784): one factor of C4, C7 and the score C8, in
+        // column order, correlated as the window starts (one factor, so no covariance). A
+        // Heywood case at 0 degrees of freedom on this table, and it succeeds.
+        "confirmatory factor analysis" => {
+            let params = CfaParams {
+                indicators: vec![vec![alias(4), alias(7), score]],
+                correlated_factors: true,
+                missing_codes: no_codes(),
+            };
+            cfa::run(
+                &e.runs,
+                &e.datasets,
+                slot,
+                on_prepared!(stats_cfa::spec(op, d, params)),
             )
         }
         other => panic!("no method {other}"),
@@ -566,8 +585,8 @@ fn a_run_with_two_recipe_edges_is_refused_as_an_unknown_artifact() {
 /// Every method's run on a score saves, with its recipe, whatever its result.
 #[test]
 fn a_run_of_each_method_on_a_score_saves_with_its_recipe() {
-    for which in ELEVEN {
-        let w = World::new("save-eleven");
+    for which in TWELVE {
+        let w = World::new("save-twelve");
         let slot = w.open("items.csv", TABLE);
         make(&w, slot, &mean_recipe());
         let run = run_method(&w, slot, which);
@@ -783,14 +802,14 @@ fn new_artifacts(
         .collect()
 }
 
-/// For each of the eleven methods: a run on a score, saved, reopened and run
+/// For each of the twelve methods: a run on a score, saved, reopened and run
 /// again, is identical, with the recipe reused and nothing else written but the
 /// new bundle and manifest.
 #[test]
 fn each_method_on_a_score_saved_reopened_and_rerun_is_identical_and_reuses_the_recipe() {
     use gaply_core::research_project::RerunComparison::Identical;
-    for which in ELEVEN {
-        let w = World::new("rerun-eleven");
+    for which in TWELVE {
+        let w = World::new("rerun-twelve");
         let slot = w.open("items.csv", TABLE);
         make(&w, slot, &mean_recipe());
         let run = run_method(&w, slot, which);

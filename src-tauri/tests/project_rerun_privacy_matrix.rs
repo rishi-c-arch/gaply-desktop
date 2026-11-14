@@ -83,6 +83,7 @@ use gaply_core::stats_anova::{self, AnovaParams, PostHoc};
 use gaply_core::stats_corr::{self, Coefficient, CorrParams, MissingHandling};
 use gaply_core::stats_desc::{self, Alias, ColumnRequest, DescribeParams, TreatAs};
 use gaply_core::stats_factor::{self, Extraction, FactorParams, Rotation};
+use gaply_core::stats_cfa::{self, CfaParams};
 use gaply_core::stats_l1::dataset::ColumnAlias;
 use gaply_core::stats_linear_regression::{self, LinearRegressionParams};
 use gaply_core::stats_prep::{self, MissingRule, Recipe, RecipeStep, ScaleScoreStep, Statistic};
@@ -1004,6 +1005,56 @@ fn a_rerun_puts_no_sentinel_anywhere_but_the_projects_artifacts_and_its_title() 
         );
     }
 
+    // Phase 9C-3 (decision 784): the confirmatory factor analysis. After the factor analyses',
+    // so no stored run id above moves. One factor of C1, C2 and C3 of friedman_table(), through
+    // the Friedman test's slot, still held; aux (C4) stays unchosen, and a second model would
+    // need a fourth numeric column. Run 30 fails, cfa_not_converged, and is saved as its
+    // failure: a failed run is as good a privacy check, since the sentinel must reach none of
+    // its outputs. A project's rerun takes only a run that Succeeded (project_commands.rs,
+    // rerun_open's check 4), so there is no run 31; the refusal is a response and is checked.
+    {
+        let held = e.datasets.get(friedman_open.slot).unwrap();
+        let spec = stats_cfa::spec(
+            OperationId(30),
+            held.dataset(),
+            CfaParams {
+                indicators: vec![(1..=3).map(|c| Alias(ColumnAlias(c))).collect()],
+                correlated_factors: true,
+                missing_codes: vec![],
+            },
+        );
+        drop(held);
+        let run = app_lib::stats_cfa_commands::run(&e.runs, &e.datasets, friedman_open.slot, spec)
+            .unwrap()
+            .run_id;
+        w.wait_new_kind(run);
+        let saved = pc::save_run(
+            &app,
+            &w.ws,
+            run,
+            SaveTarget::OpenProject {
+                project_id: id.clone(),
+            },
+        )
+        .expect("the confirmatory factor analysis saved");
+        assert_eq!(saved.stored_run_id, 30);
+        responses.push(("save (cfa 30)".into(), serde_json::to_string(&saved).unwrap()));
+        let refused = pc::rerun(&app, &w.ws, 30).expect_err("a failed run is not run again");
+        responses.push(("rerun (cfa 30), refused".into(), format!("{refused:?}")));
+        // Positive control: it ran on three columns in one factor and failed with its code.
+        let read = pc::run_result(&app, &w.ws, &id, 30).unwrap();
+        assert_eq!(read.state, RunState::Failed, "run 30 failed");
+        let stored: serde_json::Value = serde_json::from_str(&read.spec_json).unwrap();
+        assert_eq!(
+            stored["parameters"]["indicators"],
+            serde_json::json!([["C1", "C2", "C3"]]),
+            "run 30 is one factor of three columns"
+        );
+        let failure: serde_json::Value =
+            serde_json::from_str(read.failure_json.as_deref().expect("its failure")).unwrap();
+        assert_eq!(failure["failure"]["code"], "stats.cfa.cfa_not_converged", "{failure}");
+    }
+
     let runs_response = serde_json::to_string(&pc::runs(&app, &w.ws, &id).unwrap()).unwrap();
     responses.push(("runs".into(), runs_response.clone()));
     // Phase 8U-3 (decision 553): project_runs holds no name, nor any other of
@@ -1014,8 +1065,9 @@ fn a_rerun_puts_no_sentinel_anywhere_but_the_projects_artifacts_and_its_title() 
     // 8Y-2 (decision 621): the rank test and its rerun, 16 and 17; Phase 8Z-2 (decision
     // 655): the related rank tests and their reruns, 18 to 21; Phase 9A-2 (decision 686): the
     // regressions and their reruns, 22 to 25; Phase 9B-3 (decision 731): the factor analyses
-    // and their reruns, 26 to 29.
-    for n in [1, 2, 3, 4, 5, 6, 7, 8, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29] {
+    // and their reruns, 26 to 29; Phase 9C-3 (decision 784): the confirmatory factor analysis,
+    // 30, failed.
+    for n in [1, 2, 3, 4, 5, 6, 7, 8, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30] {
         results.push_str(
             &serde_json::to_string(&pc::run_result(&app, &w.ws, &id, n).unwrap()).unwrap(),
         );
@@ -1089,6 +1141,15 @@ fn a_rerun_puts_no_sentinel_anywhere_but_the_projects_artifacts_and_its_title() 
     ] {
         assert_eq!(report.matches(line).count(), 2, "{line}");
     }
+    // Phase 9C-3 (decision 784): the confirmatory factor analysis, counted by its own line
+    // ("- Factor 1:" no other method writes), once: it failed, so it has no rerun.
+    assert_eq!(
+        report.matches("- Factor 1: columns 1, 2, 3, by position").count(),
+        1,
+        "the confirmatory factor analysis is in the report"
+    );
+    assert_eq!(report.matches("- Factor 1:").count(), 1, "one confirmatory factor analysis");
+    assert!(!report.contains("Factors correlated"), "one factor, so no Factors correlated line");
     assert!(prov.contains("wasInformedBy"), "and in the provenance");
 
     // Phase 8M-4 (decision 437): the prepared run is in both exports, by

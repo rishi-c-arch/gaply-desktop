@@ -5,14 +5,25 @@
 distributions in `src-tauri/gaply-core/src/stats_dist/` and its linear algebra in
 `src-tauri/gaply-core/src/stats_linalg/`.
 
-**Status: Beta, with no window yet.** 9C-1 built the core, registered it (Planned at its Part
-2's end, decision 747) and made it Beta with six commands and a run kind (decision 749). 9C-2
-fixed 9C-1's review (decision 761), made the model's checks and refusals say what happened
-(decision 762) and gave each model-fit table AMOS's three rows (decision 763). No window item
-reaches it until 9C-3 adds the dialog, the card, saving and rerun; the Statistics window's Coming
-later list still says "CFA and SEM", and a saved project cannot hold a run of it (the project's
-methods table has no row for it yet). 9C-4 builds the structural equation model's engine, with
-its general optimiser, and 9C-5 its window and path diagram.
+**Status: Beta, in the Statistics window since 9C-3.** 9C-1 built the core, registered it
+(Planned at its Part 2's end, decision 747) and made it Beta with six commands and a run kind
+(decision 749). 9C-2 fixed 9C-1's review (decision 761), made the model's checks and refusals say
+what happened (decision 762) and gave each model-fit table AMOS's three rows (decision 763).
+Since Research OS, Phase 9C-3 (decisions 780 to 788) a user reaches it from Analyze, Structural
+equations, Confirmatory factor analysis…: the dialog is a model editor, each numeric column
+(scores included) with a select that puts it in a factor or leaves it out, every column "Not in
+the model" at the start, the factors numbered by their first column in the file and each drawn in
+the file's order with its first column marked "(loading fixed at 1)", and "The factors are
+correlated" ticked at the start (disabled, its value kept, with fewer than two factors). Run is
+off until there is a factor, every factor has 2 columns and the model 3; an uncorrelated factor
+of two columns is Rust's to refuse after Run. The result is a card of AMOS's text output: the
+notes for the model, the estimates' tables, and the ten model-fit tables with AMOS's three rows,
+the saturated row left out of RMSEA and HOELTER as AMOS leaves it out, a cell with no number shown
+as "–" and its code's sentence under its table (§8). A run is saved into a project with its own
+row, read back through the stored checker (`storedShape.ts`, decision 786), and run again
+Identical; a failed run is saved as its failure and is not run again. Coming later's "CFA and
+SEM" became "Structural equation models". 9C-4 builds the structural equation model's engine,
+with its general optimiser, and 9C-5 its window and path diagram.
 
 The goal is AMOS's numbers (decision 743): the model fitted as AMOS fits a drawn measurement
 model, its estimates, standard errors, critical ratios and fit measures as AMOS prints them.
@@ -432,6 +443,74 @@ these. The result's own limitation codes (`ml_only`, `no_means`, `one_group_only
 `normal_theory_standard_errors`, `no_srmr`, `listwise_only`, `no_weights`) map one to one to these
 ten.
 
+What the window says for each code (`cfaWording.ts`, Research OS, Phase 9C-3, decisions 782 and
+783), word for word, a column named C4 and the counts as shown here; generated from the module
+by a probe (~/gaply-corpus/os/phase9/9c3/cfa_sentences.md). A limitation is the registry's
+sentence for its limit (above). The run's, the registry's and the workspace's 22 codes are the
+related rank tests' sentences, but `run.unknown_run` ("This run is no longer held. Gaply keeps the
+last 40 runs in memory only; run the confirmatory factor analysis again.") and `run.wrong_kind`
+("This run is not a confirmatory factor analysis, so this screen cannot read it."). In the
+model-fit tables a cell with no number shows "–", and under the table one line per code its
+cells hold gives "–: " and the code's cell sentence; in the estimates a cell shows the sentence
+where its number would be.
+
+| code | sentence |
+|---|---|
+| `capability_version_mismatch` | These settings were made for version 2 of the confirmatory factor analysis, and this is version 1. |
+| `cfa_not_converged` | Maximum likelihood did not converge from Gaply's starting points; the longest attempt stopped after 500 iterations, of at most 500. A model with fewer factors, or with columns that measure their factor more strongly, may converge. |
+| `cmin_zero` | Not defined when the chi-square is 0. |
+| `code_equals_score` | Column C4 is a score, and it holds a missing code you ticked in 3 cells. Untick the code, or leave this score out. |
+| `column_holds_text` | Column C4 holds text in 3 cells, so it cannot be in the model. |
+| `column_non_finite` | Column C4 holds an infinity or "not a number" in 3 cells, so it cannot be in the model. |
+| `df_zero` (a note) | The model has 0 degrees of freedom: it has as many parameters as the data have variances and covariances, so it reproduces them exactly, and the measures that need degrees of freedom are not defined. |
+| `df_zero` (a cell) | Not defined at 0 degrees of freedom. |
+| `distribution_out_of_range` | Not computable: this needs a chi-square distribution beyond the range where Gaply has measured its accuracy. |
+| `factor_covariance_not_positive_definite` | The factors' estimated covariance matrix is not positive definite, so this solution is not admissible, as AMOS says of such a solution. |
+| `factor_too_few_items` | Factor 2 has 1 column; each factor needs at least 2. |
+| `factors_out_of_order` | These settings list factor 2 out of the order of the factors' first columns, which this screen never does. Choose the factors again. |
+| `fixed_parameter` | Fixed at 1, to set the factor's scale. |
+| `independence_cmin_zero` | Not defined: the independence model fits exactly, so there is nothing to compare with. |
+| `input_count` | These settings name 2 files, and a confirmatory factor analysis reads exactly one. |
+| `input_mismatch` | These settings were made for a different file from the one open. Open the file again. |
+| `item_constant` | Column C4 takes one value in every complete row, so its correlations are not defined. Take it out of the model. |
+| `item_repeated` | Column C4 is in the model twice. |
+| `items_out_of_order` | These settings list C4 out of the file's order, which this screen never does. Choose the factors again. |
+| `listwise_only` | A row is used only when every column in the model has a value; full information maximum likelihood is not offered. |
+| `marker_identification_only` | Each factor's scale is set by fixing its first column's loading to 1, as AMOS does when a model is drawn; fixing a factor's variance to 1 instead is not offered. |
+| `missing_code` | 3 rows held a missing code you ticked in C4, the first column in the model without a value, and were left out. |
+| `missing_code_not_finite` | Missing code 1 is not a finite number. |
+| `missing_code_repeated` | Missing code 2 is listed twice. |
+| `missing_codes_out_of_order` | Missing code 2 is out of ascending order, so Gaply refuses these settings rather than reorder them. |
+| `missing_value` | 3 rows had no value (an empty cell or a missing-value token) in C4, the first column in the model without one, and were left out. |
+| `ml_only` | Maximum likelihood is the only estimator; generalized and unweighted least squares, asymptotically distribution-free and Bayesian estimation are not offered. |
+| `model_not_identified` | The model's parameters cannot be told apart with these data: the information matrix was singular at the start of every attempt Gaply made. This happens when a factor's columns are uncorrelated with each other or with the other factors' columns. |
+| `model_not_identified` (with a count of 3) | The model has 3 more parameters than the data have variances and covariances, so it is not identified. |
+| `negative_variance` (a note) | At least one variance estimate is below 0, so this solution is not admissible, as AMOS says of such a solution. A standardized estimate, correlation or squared multiple correlation is not given where its formula takes the square root of a variance at or below 0. Where only an error variance is below 0 they are given, and a squared multiple correlation can then be above 1. |
+| `negative_variance` (a cell) | Not defined: a variance it takes the square root of is at or below 0. |
+| `no_complete_rows` | No row has a value in every column in the model, so there is nothing to analyse. |
+| `no_factors` | The model has no factor. Choose a factor for a column. |
+| `no_means` | Means and intercepts are not estimated. |
+| `no_modification_indices` | Modification indices are not computed. |
+| `no_srmr` | The standardized RMR is not computed; AMOS gives it only through a plugin. |
+| `no_weights` | Each row is counted once; weighting rows by a column is not offered. |
+| `normal_theory_standard_errors` | The standard errors and the chi-square assume multivariate normality; bootstrap and robust corrections are not offered. |
+| `one_group_only` | One group is analysed; multiple-group models are not offered. |
+| `overflow` (a cell) | Not computable: a value along the way is too large for the arithmetic. |
+| `overflow` (the run's refusal, naming C4) | C4's values are too large to square, so its variance cannot be computed. Divide the column by a power of 10 and run again. |
+| `preparation_mismatch` | These settings do not match how the open data was prepared. Choose the settings again. |
+| `sample_covariance_singular` | C4 is, to within one part in a billion of its variance, a combination of the columns before it in the model, so their covariance matrix is singular and the model cannot be fitted. Take it out of the model. |
+| `simple_structure_only` | Each column measures one factor; cross-loadings and correlated errors are not offered. |
+| `suspect_missing_code` | Column C4 holds -99 in 3 cells, which may be a code for a missing value. It is counted as a number unless you tick it in Settings. |
+| `too_few_items` | The model has 2 columns, and the confirmatory factor analysis needs at least 3. |
+| `too_few_rows` | 4 rows have a value in every column in the model, and the confirmatory factor analysis needs at least 7. |
+| `too_few_rows_for_bcc` | Not defined: this needs more rows than the number of columns plus 2. |
+| `too_many_factors` | The model has 17 factors; Gaply fits at most 16. |
+| `too_many_items` | The model has 129 columns, and the confirmatory factor analysis takes at most 128. |
+| `too_small` | Not computable: a value along the way is too small for the arithmetic to keep its precision. |
+| `two_item_factor_uncorrelated` | Factor 1 has two columns and is not correlated with any other factor, so no data can identify it. Tick "The factors are correlated", or give it a third column. |
+| `unknown_capability` | These settings name a capability Gaply does not have here. |
+| `unknown_column` | Column C4 is not in this file. |
+
 ## 9. What follows AMOS, and how it was checked
 
 Each item is marked **reproduced** from AMOS's printed output (with its example), **formula**
@@ -459,5 +538,29 @@ except where given.
 
 ## 10. Blueprint §18.2 acceptance
 
-Not applicable until 9C-3 puts the method in the window; 9C-1 and 9C-2 are the core, the
-commands and the runs.
+Against the blueprint's seven items (§18.2), as 9C-3 leaves the method:
+
+- **Formula, method and variant documented**: §2, each formula with its line, and §9 against
+  AMOS.
+- **Golden fixtures and edge cases pass**: lavaan as the oracle (`cfa_r_golden.rs`), AMOS's
+  printed Example 8 and Wheaton rows (`cfa_amos.rs`), the edge cases and the widest model
+  (`cfa_cases.rs`), and the widest save under the read limit (`stats_cfa_saved_size.rs`).
+- **Missing values, ties, weights, precision and sample size handled**: listwise, each row once
+  under its first column without a value; ticked codes; no weights (a limitation); at least the
+  columns plus 1 complete rows; precision as §5 gives it, the card showing six figures and the
+  export every digit.
+- **Diagnostic meanings and limitations documented**: §3 and §8, every code's sentence as the
+  window shows it.
+- **Independent reference comparison completed**: lavaan 0.7-3 through R 4.6.1, and AMOS's
+  printed output (§5, §9).
+- **Unsupported designs return explicit reasons**: every refusal a closed code with its
+  sentence, the dialog keeping Run off until a model can be checked, and an uncorrelated factor
+  of two columns refused by validation with its sentence (§8).
+- **Result manifest and export verified**: the manifest and the export are pinned
+  (`cfa_export.rs`), aliases only in the result, the export and the manifest
+  (`stats_cfa_privacy_matrix.rs`), the rerun privacy matrix's run 30, a saved result read back
+  only through the stored checker (`storedShape.ts`, decision 786), and a rerun Identical
+  (`project_cfa.rs`).
+
+Not yet: the real-app checklist (`realapp_9c3.md`), which only the user runs, and Windows and
+Linux runs of the window.

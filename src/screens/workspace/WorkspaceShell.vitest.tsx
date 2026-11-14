@@ -20,6 +20,7 @@ import { makeMockRanksBridge } from '../statistics/ranksBridge';
 import { makeMockRelatedRanksBridge } from '../statistics/relatedRanksBridge';
 import { makeMockLinearRegressionBridge } from '../statistics/linearRegressionBridge';
 import { makeMockFactorBridge } from '../statistics/factorBridge';
+import { makeMockCfaBridge } from '../statistics/cfaBridge';
 import type { TTestRunStateView } from '../statistics/ttestTypes';
 import type { RunKind, WorkspaceStateView } from './workspaceTypes';
 import type { RunStateView } from '../statistics/describeTypes';
@@ -859,5 +860,52 @@ describe('a factor analysis run in the shell', () => {
     expect(factor.calls.filter(([c]) => c === 'stats_factor_cancel')).toEqual([['stats_factor_cancel', { runId: 16 }]]);
     expect(desc.calls).toEqual([]);
     expect(linearRegression.calls).toEqual([]);
+  });
+});
+
+// Research OS, Phase 9C-3 (decision 785): a confirmatory factor analysis's run, read and
+// cancelled through its own bridge, named by the methods table's job name, with the steps
+// sentence.
+describe('a confirmatory factor analysis run in the shell', () => {
+  it('shows it, reads it through its own status, and Cancel cancels it through its own command', async () => {
+    let ended = false;
+    const ws = makeMockWorkspaceBridge({
+      workspace_state: () => ACTIVE(ended ? null : 17, 'cfa'),
+      workspace_deactivate: () => {
+        if (!ended) {
+          throw Object.assign(
+            new Error(JSON.stringify({ code: 'workspace.run_active', params: { workspace: 'statistics', run: 17 }, severity: 'error' })),
+            { code: 'validation' }
+          );
+        }
+        return NONE;
+      },
+    });
+    const desc = makeMockDescribeBridge({});
+    const factor = makeMockFactorBridge({});
+    const view = (state: 'running' | 'cancelled', terminal: boolean) => ({ runId: 17, state, terminal, elapsedMs: 80, cancelRequested: false, stepsDone: 5, stepsTotal: 11, diagnostics: [] });
+    const cfa = makeMockCfaBridge({
+      stats_cfa_status: () => (ended ? view('cancelled', true) : view('running', false)),
+      stats_cfa_cancel: () => {
+        ended = true;
+        return view('running', false);
+      },
+    });
+    render(
+      <MemoryRouter initialEntries={['/app/workspaces/statistics']}>
+        <Routes>
+          <Route path="/app/workspaces/statistics" element={<WorkspaceShell bridge={ws} runs={desc} factorRuns={factor} cfaRuns={cfa} pollMs={20} />} />
+          <Route path="/app/workspaces" element={<div data-testid="chooser-here" />} />
+        </Routes>
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(screen.getByTestId('ws-job').textContent).toBe('Run 17 (confirmatory factor analysis): Running. 5 of 11 steps.'));
+    fireEvent.click(screen.getByTestId('ws-switch'));
+    await screen.findByTestId('ws-switch-dialog');
+    fireEvent.click(screen.getByTestId('ws-switch-cancel'));
+    await screen.findByTestId('chooser-here');
+    expect(cfa.calls.filter(([c]) => c === 'stats_cfa_cancel')).toEqual([['stats_cfa_cancel', { runId: 17 }]]);
+    expect(desc.calls).toEqual([]);
+    expect(factor.calls).toEqual([]);
   });
 });

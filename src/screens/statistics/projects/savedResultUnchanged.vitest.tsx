@@ -121,8 +121,17 @@ const AT_9C1: Record<string, string> = {
   'factor_slow_varimax.json': 'b561600727c26b0f2f531d7f80782bb03eef5780ed991d016b9e521b53dd7101',
 };
 
+/** Research OS, Phase 9C-3 (decision 785): the confirmatory factor analysis's four stored
+ *  results, captured from 9C-3's own render; the eight records before it are unchanged. */
+const AT_9C3: Record<string, string> = {
+  'cfa.json': 'ea85b652fd2e77dc5b44a66a1c34deade072d378f35a9141a9330f06605a3551',
+  'cfa_failed.json': '22701c887302fb9e3f15815134a5a8c158d19bc9f477792a17c84476fed47d1e',
+  'cfa_heywood.json': 'bf34f8db49f3a1d9a01eb83bc769906644d0a370cfb7b42fab0293491e76e6ed',
+  'cfa_uncorrelated.json': '5989a1dbc3d13a63739c808b84bf2c674b1caf6303a7fcf2eddd548a42af66e4',
+};
+
 /** Each file's record: 8eb00b7c's, or that of the step that added the file. */
-const RECORDED: Record<string, string> = { ...AT_8EB00B7C, ...AT_8X2, ...AT_8Y2, ...AT_8Z2, ...AT_9A2, ...AT_9B1, ...AT_9B3, ...AT_9C1 };
+const RECORDED: Record<string, string> = { ...AT_8EB00B7C, ...AT_8X2, ...AT_8Y2, ...AT_8Z2, ...AT_9A2, ...AT_9B1, ...AT_9B3, ...AT_9C1, ...AT_9C3 };
 
 const sha = (s: string) => createHash('sha256').update(s).digest('hex');
 
@@ -191,16 +200,17 @@ describe('a project page with no prepared run, byte for byte as at 8eb00b7c', ()
 describe('a saved result with no scores, byte for byte as at 8eb00b7c', () => {
   it('covers every stored fixture', () => {
     expect(FILES.length).toBeGreaterThanOrEqual(20);
-    // The eight records name disjoint files, and together the whole directory.
-    expect(Object.keys(AT_8EB00B7C).filter((k) => k in AT_8X2 || k in AT_8Y2 || k in AT_8Z2 || k in AT_9A2 || k in AT_9B1 || k in AT_9B3 || k in AT_9C1)).toEqual([]);
-    expect(Object.keys(AT_8X2).filter((k) => k in AT_8Y2 || k in AT_8Z2 || k in AT_9A2 || k in AT_9B1 || k in AT_9B3 || k in AT_9C1)).toEqual([]);
-    expect(Object.keys(AT_8Y2).filter((k) => k in AT_8Z2 || k in AT_9A2 || k in AT_9B1 || k in AT_9B3 || k in AT_9C1)).toEqual([]);
-    expect(Object.keys(AT_8Z2).filter((k) => k in AT_9A2 || k in AT_9B1 || k in AT_9B3 || k in AT_9C1)).toEqual([]);
-    expect(Object.keys(AT_9A2).filter((k) => k in AT_9B1 || k in AT_9B3 || k in AT_9C1)).toEqual([]);
-    expect(Object.keys(AT_9B1).filter((k) => k in AT_9B3 || k in AT_9C1)).toEqual([]);
-    expect(Object.keys(AT_9B3).filter((k) => k in AT_9C1)).toEqual([]);
+    // The nine records name disjoint files, and together the whole directory.
+    expect(Object.keys(AT_8EB00B7C).filter((k) => k in AT_8X2 || k in AT_8Y2 || k in AT_8Z2 || k in AT_9A2 || k in AT_9B1 || k in AT_9B3 || k in AT_9C1 || k in AT_9C3)).toEqual([]);
+    expect(Object.keys(AT_8X2).filter((k) => k in AT_8Y2 || k in AT_8Z2 || k in AT_9A2 || k in AT_9B1 || k in AT_9B3 || k in AT_9C1 || k in AT_9C3)).toEqual([]);
+    expect(Object.keys(AT_8Y2).filter((k) => k in AT_8Z2 || k in AT_9A2 || k in AT_9B1 || k in AT_9B3 || k in AT_9C1 || k in AT_9C3)).toEqual([]);
+    expect(Object.keys(AT_8Z2).filter((k) => k in AT_9A2 || k in AT_9B1 || k in AT_9B3 || k in AT_9C1 || k in AT_9C3)).toEqual([]);
+    expect(Object.keys(AT_9A2).filter((k) => k in AT_9B1 || k in AT_9B3 || k in AT_9C1 || k in AT_9C3)).toEqual([]);
+    expect(Object.keys(AT_9B1).filter((k) => k in AT_9B3 || k in AT_9C1 || k in AT_9C3)).toEqual([]);
+    expect(Object.keys(AT_9B3).filter((k) => k in AT_9C1 || k in AT_9C3)).toEqual([]);
+    expect(Object.keys(AT_9C1).filter((k) => k in AT_9C3)).toEqual([]);
     expect(
-      [...Object.keys(AT_8EB00B7C), ...Object.keys(AT_8X2), ...Object.keys(AT_8Y2), ...Object.keys(AT_8Z2), ...Object.keys(AT_9A2), ...Object.keys(AT_9B1), ...Object.keys(AT_9B3), ...Object.keys(AT_9C1)].sort()
+      [...Object.keys(AT_8EB00B7C), ...Object.keys(AT_8X2), ...Object.keys(AT_8Y2), ...Object.keys(AT_8Z2), ...Object.keys(AT_9A2), ...Object.keys(AT_9B1), ...Object.keys(AT_9B3), ...Object.keys(AT_9C1), ...Object.keys(AT_9C3)].sort()
     ).toEqual(FILES);
   });
 

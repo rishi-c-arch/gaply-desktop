@@ -31,6 +31,8 @@ import { linearRegressionResultView } from '../fixtures/linearRegressionFixtures
 import { makeMockLinearRegressionBridge } from '../linearRegressionBridge';
 import { factorResultView } from '../fixtures/factorFixtures';
 import { makeMockFactorBridge } from '../factorBridge';
+import { cfaResultView } from '../fixtures/cfaFixtures';
+import { makeMockCfaBridge } from '../cfaBridge';
 import { METHOD_OUTPUT } from './methodOutput';
 import { Output, OutputWatchers } from './Output';
 import { statisticsSession, type NewOutputEntry, type OutputEntry } from './statisticsSession';
@@ -81,6 +83,9 @@ const KINDS = [
   // Research OS, Phase 9B-3 (decision 732): a check point per item, pair and iteration, so the
   // steps sentence, as alpha's.
   { kind: 'factor', key: 'factor', prefix: 'stats_factor', result: factorResultView, run: running, card: 'fa-result-card', progress: '3 of 7 steps' },
+  // Research OS, Phase 9C-3 (decision 785): a check point per column, the estimation and
+  // each model's fit, so the steps sentence, as the factor analysis's.
+  { kind: 'cfa', key: 'cfa', prefix: 'stats_cfa', result: cfaResultView, run: running, card: 'cf-result-card', progress: '3 of 7 steps' },
 ] as const;
 
 function bridgesWith(prefix: string, responses: Record<string, unknown>) {
@@ -98,6 +103,7 @@ function bridgesWith(prefix: string, responses: Record<string, unknown>) {
     relatedRanks: makeMockRelatedRanksBridge(prefix === 'stats_related_ranks' ? scoped : {}),
     linearRegression: makeMockLinearRegressionBridge(prefix === 'stats_linear_regression' ? scoped : {}),
     factor: makeMockFactorBridge(prefix === 'stats_factor' ? scoped : {}),
+    cfa: makeMockCfaBridge(prefix === 'stats_cfa' ? scoped : {}),
   };
 }
 

@@ -1760,6 +1760,75 @@ fn stored_factor_results_have_the_layout_of_their_fixtures() {
     assert_stored_fixture("factor_failed.json", &back);
 }
 
+
+/// The confirmatory factor analysis's stored results (Research OS, Phase 9C-3, decision 785),
+/// on a file's own table: two correlated factors of three columns with a row left out by a
+/// ticked code (cfa.json); three uncorrelated factors of three columns (cfa_uncorrelated.json);
+/// one factor of three columns at 0 degrees of freedom with an error variance below 0, from a
+/// second file, as stats_cfa_wire.rs's Heywood case (cfa_heywood.json); and a failed run,
+/// sample_covariance_singular at the sum column (cfa_failed.json).
+#[test]
+fn stored_cfa_results_have_the_layout_of_their_fixtures() {
+    let w = World::new("stored-cfa");
+    let mut csv = String::from("x1,x2,x3,x4,x5,x6,x7,x8,x9,sum\n");
+    for i in 1..=60u64 {
+        let row: Vec<i64> = (1..=9u64)
+            .map(|j| {
+                let f = (j - 1) % 3;
+                let score = ((i * (7907 + 104729 * f)) % 1013) as i64 - 506;
+                let shared = ((i * 2654435761) % 1009) as i64 - 504;
+                let noise = ((i * 104729 + j * 7919 + i * j * 31) % 997) as i64 - 498;
+                (2 + (j % 3) as i64) * (score + shared) + noise
+            })
+            .collect();
+        let line: Vec<String> = row.iter().map(i64::to_string).chain([(row[0] + row[3]).to_string()]).collect();
+        csv.push_str(&line.join(","));
+        csv.push('\n');
+    }
+    csv.push_str("-99,5,5,5,5,5,5,5,5,5\n");
+    let data = w.open("c.csv", csv.as_bytes());
+    let wave = |i: u64, m: u64| ((i * m) % 1013) as f64 - 506.0;
+    let mut heywood = String::from("x1,x2,x3\n");
+    for i in 1..=60u64 {
+        let (u, v, s) = (wave(i, 7907), 0.894 * wave(i, 104729), wave(i, 15485863));
+        heywood.push_str(&format!("{:?},{:?},{:?}\n", u + 0.1 * s, u + v, u - v));
+    }
+    let other = w.open("h.csv", heywood.as_bytes());
+    let two = w.cfa(data, &[&[1, 4, 7], &[2, 5, 8]], true, vec![-99.0]);
+    let id = pc::save_run(&w.root(), &w.ws, two, new_project("Stored CFA")).unwrap().project_id;
+    let three = w.cfa(data, &[&[1, 4, 7], &[2, 5, 8], &[3, 6, 9]], false, vec![-99.0]);
+    pc::save_run(&w.root(), &w.ws, three, into_open(&id)).unwrap();
+    let one = w.cfa(other, &[&[1, 2, 3]], true, vec![]);
+    pc::save_run(&w.root(), &w.ws, one, into_open(&id)).unwrap();
+    let singular = w.cfa(data, &[&[1, 4, 10]], true, vec![-99.0]);
+    assert_eq!(w.wait_new_kind(singular), RunState::Failed);
+    pc::save_run(&w.root(), &w.ws, singular, into_open(&id)).unwrap();
+    for (n, name, factors, covariances, df, notes, excluded) in [
+        (1, "cfa.json", 2, 1, 8, vec![], 1),
+        (2, "cfa_uncorrelated.json", 3, 0, 27, vec![], 1),
+        (3, "cfa_heywood.json", 1, 0, 0, vec!["stats.cfa.negative_variance", "stats.cfa.df_zero"], 0),
+    ] {
+        let back = pc::run_result(&w.root(), &w.ws, &id, n).expect("read back");
+        assert_eq!(back.state, RunState::Succeeded, "{name}");
+        assert_eq!(back.capability_id, "stats.analyze.cfa", "{name}");
+        let bundle: Value = serde_json::from_str(back.bundle_json.as_deref().unwrap()).unwrap();
+        let r = &bundle["primaryOutputs"];
+        assert_eq!(r["indicators"].as_array().unwrap().len(), factors, "{name}");
+        assert_eq!(r["factorCovariances"].as_array().unwrap().len(), covariances, "{name}");
+        assert_eq!(r["fit"]["model"]["df"], df, "{name}");
+        assert_eq!(r["exclusions"].as_array().unwrap().len(), excluded, "{name}");
+        let got: Vec<&str> = r["notes"].as_array().unwrap().iter().map(|c| c.as_str().unwrap()).collect();
+        assert_eq!(got, notes, "{name}");
+        assert_stored_fixture(name, &back);
+    }
+    let back = pc::run_result(&w.root(), &w.ws, &id, 4).expect("read back");
+    assert_eq!(back.state, RunState::Failed);
+    let failure: Value = serde_json::from_str(back.failure_json.as_deref().unwrap()).unwrap();
+    assert_eq!(failure["failure"]["code"], "stats.cfa.sample_covariance_singular");
+    assert_eq!(failure["failure"]["params"]["column"], 10);
+    assert_stored_fixture("cfa_failed.json", &back);
+}
+
 /// A varimax that takes hundreds of cycles, saved (Research OS, Phase 9C-1, decision 742's B1):
 /// the review of 8bd82d8f found the stored checker's rotated-row band, divided by ε · m alone,
 /// refusing such a result Rust wrote. One-factor data of 128 items and 150 rows, each item the

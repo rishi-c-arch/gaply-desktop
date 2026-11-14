@@ -312,6 +312,16 @@ export function factorSettingsLine(
   return `Items: ${p.items.map((c) => namedColumn(c, view)).join(', ')}. Extraction: ${extraction}. Factors: ${factors}. Rotation: ${p.rotation}. Iterations: ${p.iterations}. Convergence: ${p.convergence}. ${codesWords(p.missingCodes)}`;
 }
 
+/** The confirmatory factor analysis's dialog (Research OS, Phase 9C-3, decision 783): here
+ *  because namedColumn and codesWords are private to this file. Each factor in order with its
+ *  columns, whether the factors are correlated (left out with one factor), and the codes. */
+export const CFA_DIALOG_TITLE = 'Structural equations: Confirmatory factor analysis';
+export function cfaSettingsLine(p: { indicators: string[][]; correlatedFactors: boolean; missingCodes: number[] }, view: LineView): string {
+  const factors = p.indicators.map((f, i) => `Factor ${i + 1}: ${f.map((c) => namedColumn(c, view)).join(', ')}. `).join('');
+  const correlated = p.indicators.length >= 2 ? `Factors correlated: ${p.correlatedFactors ? 'yes' : 'no'}. ` : '';
+  return `${factors}${correlated}${codesWords(p.missingCodes)}`;
+}
+
 /** The scale score's dialog (decisions 504 to 507). Its form's words, Make's
  *  sentence, the scores it lists and the questions before a deletion. A score's
  *  name is the user's own, shown on their own screen. "Delete", never "Remove",

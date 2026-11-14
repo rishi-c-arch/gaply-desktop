@@ -136,8 +136,9 @@
 //! the estimation, every iteration of every attempt calling that one again at
 //! its unchanged count, before the estimates, before the default model's fit
 //! and before the independence model's (Phase 9C-2, decision 762); the progress
-//! total is `stats_cfa::check_points`. No window starts it until 9C-3;
-//! [`Runs::start_cfa_then`] is there for its rerun.
+//! total is `stats_cfa::check_points`. Since Phase 9C-3 (decision 785) the
+//! Statistics window's Structural equations, Confirmatory factor analysis…
+//! dialog starts it, and a project reruns it through [`Runs::start_cfa_then`].
 //!
 //! Phase 3: the run manager and the slots belong to the Statistics workspace
 //! (`crate::workspace`), built when it is activated and dropped when it is

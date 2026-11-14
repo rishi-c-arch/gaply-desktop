@@ -15,6 +15,7 @@ import { makeMockRanksBridge } from '../statistics/ranksBridge';
 import { makeMockRelatedRanksBridge } from '../statistics/relatedRanksBridge';
 import { makeMockLinearRegressionBridge } from '../statistics/linearRegressionBridge';
 import { makeMockFactorBridge } from '../statistics/factorBridge';
+import { makeMockCfaBridge } from '../statistics/cfaBridge';
 import { makeMockWorkspaceBridge } from './workspaceBridge';
 import { makeMockDescribeBridge } from '../statistics/describeBridge';
 import type { DatasetView, RunStateView } from '../statistics/describeTypes';
@@ -216,6 +217,27 @@ describe("a factor analysis, through the switch's own kinds", () => {
     expect(factor.calls).toEqual([
       ['stats_factor_status', { runId: 16 }],
       ['stats_factor_cancel', { runId: 16 }],
+    ]);
+    expect(summary.calls).toEqual([]);
+  });
+});
+
+// Research OS, Phase 9C-3 (decision 785): a confirmatory factor analysis is read and cancelled
+// through its own commands, never the summary's, with the steps sentence.
+describe("a confirmatory factor analysis, through the switch's own kinds", () => {
+  it('is polled and cancelled through stats_cfa_status and stats_cfa_cancel, and the summary is never asked', async () => {
+    const cf = { runId: 17, state: 'running' as const, terminal: false, elapsedMs: 40, cancelRequested: false, stepsDone: 5, stepsTotal: 11, diagnostics: [] };
+    const cfa = makeMockCfaBridge({ stats_cfa_status: cf, stats_cfa_cancel: { ...cf, cancelRequested: true } });
+    const summary = makeMockDescribeBridge({});
+    const kinds = runKinds(defaultRunBridges({ cfa, describe: summary }));
+    expect(Object.keys(kinds)).toContain('cfa');
+    const job = await kinds.cfa.status(17);
+    expect(job).toEqual({ runId: 17, state: 'running', terminal: false, progress: '5 of 11 steps.', kind: 'cfa' });
+    expect(jobSentence(job as NonNullable<typeof job>)).toBe('Run 17 (confirmatory factor analysis): Running. 5 of 11 steps.');
+    await kinds.cfa.cancel(17);
+    expect(cfa.calls).toEqual([
+      ['stats_cfa_status', { runId: 17 }],
+      ['stats_cfa_cancel', { runId: 17 }],
     ]);
     expect(summary.calls).toEqual([]);
   });

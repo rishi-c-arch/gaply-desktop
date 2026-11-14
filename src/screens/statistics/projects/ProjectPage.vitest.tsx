@@ -25,6 +25,7 @@ import { makeMockRanksBridge } from '../ranksBridge';
 import { makeMockRelatedRanksBridge } from '../relatedRanksBridge';
 import { makeMockLinearRegressionBridge } from '../linearRegressionBridge';
 import { makeMockFactorBridge } from '../factorBridge';
+import { makeMockCfaBridge } from '../cfaBridge';
 import { makeMockProjectBridge } from './projectBridge';
 import { openProjectStore } from './projectSession';
 import type { ProjectListEntryView, StoredRunView } from './projectTypes';
@@ -538,5 +539,25 @@ describe('a going rerun of a saved factor analysis', () => {
     fireEvent.click(await screen.findByTestId('project-rerun-cancel'));
     await waitFor(() => expect(factor.calls).toEqual([['stats_factor_cancel', { runId: 9 }]]));
     expect(describe_.calls).toEqual([]);
+  });
+});
+
+// Research OS, Phase 9C-3 (decision 785): a going rerun of a saved confirmatory factor analysis
+// is cancelled through its own bridge, its kind read from the runs.
+describe('a going rerun of a saved confirmatory factor analysis', () => {
+  it("Cancel calls stats_cfa_cancel through the page's cfa bridge, and nothing else", async () => {
+    const cfaRun: StoredRunView = { ...RUNS[0], storedRunId: 4, capabilityId: 'stats.analyze.cfa' };
+    const { bridge, workspace } = pageBridges({
+      project_current: { projectId: A, rerun: { runId: 9, rerunOf: 4, status: 'going', storedRunId: null, code: null } },
+      project_runs: [...RUNS, cfaRun],
+    });
+    const describe_ = makeMockDescribeBridge({ stats_desc_cancel: { runId: 0 } });
+    const factor = makeMockFactorBridge({ stats_factor_cancel: { runId: 0 } });
+    const cfa = makeMockCfaBridge({ stats_cfa_cancel: { runId: 0 } });
+    render(<ProjectPage projectId={A} bridge={bridge} workspace={workspace} desktop describe={describe_} factor={factor} cfa={cfa} pollMs={5} onClosed={vi.fn()} onBack={vi.fn()} />);
+    fireEvent.click(await screen.findByTestId('project-rerun-cancel'));
+    await waitFor(() => expect(cfa.calls).toEqual([['stats_cfa_cancel', { runId: 9 }]]));
+    expect(describe_.calls).toEqual([]);
+    expect(factor.calls).toEqual([]);
   });
 });

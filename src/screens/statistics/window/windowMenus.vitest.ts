@@ -79,11 +79,16 @@ describe('every item, in decision 441\'s words and order', () => {
       // Research OS, Phase 9B-3 (decisions 730 and 732): Regression, then Dimension
       // reduction, then Scale, SPSS's order.
       ['Dimension reduction', ['Factor…']],
+      // Research OS, Phase 9C-3 (decisions 783 and 785): Dimension reduction, then Structural
+      // equations, then Scale.
+      ['Structural equations', ['Confirmatory factor analysis…']],
       ['Scale', ["Reliability (Cronbach's alpha)…"]],
       // Research OS, Phase 8Y-2 (decisions 620 and 624): after Scale, as SPSS places it.
       ['Nonparametric tests', ['Independent samples…', 'Related samples…']],
       // Research OS, Phase 9B-3 (decision 732): "Factor analysis" left as Factor… went live.
-      ['Coming later', ['CFA and SEM']],
+      // Phase 9C-3 (decision 785): "CFA and SEM" became "Structural equation models" as
+      // Confirmatory factor analysis… went live.
+      ['Coming later', ['Structural equation models']],
     ]);
   });
 
@@ -222,7 +227,7 @@ describe('Coming later', () => {
   };
 
   it('is the closed list decision 441 gives, and the table is what the menus show', () => {
-    expect(COMING_LATER.analyze).toEqual(['CFA and SEM']);
+    expect(COMING_LATER.analyze).toEqual(['Structural equation models']);
     expect(COMING_LATER.transform).toEqual(['Recode values…', 'Compute from a formula…', 'Select cases…']);
     expect(later('analyze').map((i) => i.label)).toEqual(COMING_LATER.analyze);
     expect(later('transform').map((i) => i.label)).toEqual(COMING_LATER.transform);
@@ -267,7 +272,8 @@ describe("alpha's item, live (decision 473)", () => {
 });
 
 describe('every method, live (decision 485)', () => {
-  it('LIVE_METHODS holds all twelve', () => {
+  it('LIVE_METHODS holds all thirteen', () => {
+    expect(LIVE_METHODS).toHaveLength(13);
     expect([...LIVE_METHODS].sort()).toEqual(METHODS.map((m) => m.kind).sort());
   });
 

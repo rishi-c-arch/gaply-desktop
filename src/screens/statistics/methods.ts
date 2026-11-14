@@ -2,7 +2,7 @@
 // OS, Phase 8C; decision 249). Pure data, one row per method: the run
 // manager's word for its runs (Rust's RunKind), its capability id, its name,
 // the shell's job name (none for the summary, whose sentence has no
-// parenthesis), its screen's route (null for crosstabs, the two rank tests, the linear regression and the factor analysis, which have none), and its place in the Statistics window's
+// parenthesis), its screen's route (null for crosstabs, the two rank tests, the linear regression, the factor analysis and the confirmatory factor analysis, which have none), and its place in the Statistics window's
 // Analyze menu (Research OS, Phase 8P, decision 451).
 //
 // RunKind, the capability names, the shell's job names and the Statistics
@@ -94,6 +94,18 @@ export const METHODS = [
     path: null,
     menuGroup: 'Dimension reduction',
     menuLabel: 'Factor…',
+  },
+  // Research OS, Phase 9C-3 (decisions 783 and 785). No page and no route (ADR-012:233-241).
+  // After the factor analysis's row, so Analyze's groups read Correlate, Regression, Dimension
+  // reduction, Structural equations, Scale.
+  {
+    kind: 'cfa',
+    capabilityId: 'stats.analyze.cfa',
+    name: 'Confirmatory factor analysis',
+    jobName: 'confirmatory factor analysis',
+    path: null,
+    menuGroup: 'Structural equations',
+    menuLabel: 'Confirmatory factor analysis…',
   },
   // Research OS, Phase 8I-2 (decision 384). The kind is Rust's RunKind word.
   {

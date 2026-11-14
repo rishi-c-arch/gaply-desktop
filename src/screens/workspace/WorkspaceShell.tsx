@@ -30,6 +30,7 @@ import { ranksBridge, type RanksBridge } from '../statistics/ranksBridge';
 import { relatedRanksBridge, type RelatedRanksBridge } from '../statistics/relatedRanksBridge';
 import { linearRegressionBridge, type LinearRegressionBridge } from '../statistics/linearRegressionBridge';
 import { factorBridge, type FactorBridge } from '../statistics/factorBridge';
+import { cfaBridge, type CfaBridge } from '../statistics/cfaBridge';
 import { projectsShown } from '../statistics/projects/projectGate';
 import { noteWorkspaceState } from '../statistics/projects/projectSession';
 import { PROJECT_TEXT } from '../statistics/projects/projectWording';
@@ -65,6 +66,8 @@ export interface WorkspaceShellProps {
   linearRegressionRuns?: LinearRegressionBridge;
   /** Research OS, Phase 9B-3 (decision 732). */
   factorRuns?: FactorBridge;
+  /** Research OS, Phase 9C-3 (decision 785). */
+  cfaRuns?: CfaBridge;
   /** How often the state and the newest run are read. */
   pollMs?: number;
 }
@@ -115,6 +118,7 @@ export const WorkspaceShell: React.FC<WorkspaceShellProps> = ({
   relatedRanksRuns: givenRelatedRanks,
   linearRegressionRuns: givenLinearRegression,
   factorRuns: givenFactor,
+  cfaRuns: givenCfa,
   pollMs = 1000,
 }) => {
   const navigate = useNavigate();
@@ -131,6 +135,7 @@ export const WorkspaceShell: React.FC<WorkspaceShellProps> = ({
   const relatedRanks = useMemo(() => givenRelatedRanks ?? relatedRanksBridge(), [givenRelatedRanks]);
   const linearRegression = useMemo(() => givenLinearRegression ?? linearRegressionBridge(), [givenLinearRegression]);
   const factor = useMemo(() => givenFactor ?? factorBridge(), [givenFactor]);
+  const cfa = useMemo(() => givenCfa ?? cfaBridge(), [givenCfa]);
   const [view, setView] = useState<WorkspaceStateView | null>(null);
   const [run, setRun] = useState<JobView | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -144,8 +149,8 @@ export const WorkspaceShell: React.FC<WorkspaceShellProps> = ({
   }, []);
 
   const runBridges = useMemo(
-    () => ({ describe: runs, ttest, oneSample, paired, anova, corr, alpha, xtab, ranks, relatedRanks, linearRegression, factor }),
-    [runs, ttest, oneSample, paired, anova, corr, alpha, xtab, ranks, relatedRanks, linearRegression, factor]
+    () => ({ describe: runs, ttest, oneSample, paired, anova, corr, alpha, xtab, ranks, relatedRanks, linearRegression, factor, cfa }),
+    [runs, ttest, oneSample, paired, anova, corr, alpha, xtab, ranks, relatedRanks, linearRegression, factor, cfa]
   );
   // The switch, and each kind's commands, are one hook's (decision 449).
   const { leave, statusOf, dialog: switchDialog } = useWorkspaceSwitch({ bridge, runs: runBridges, pollMs, setMessage });

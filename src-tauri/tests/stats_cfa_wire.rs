@@ -2,7 +2,8 @@
 //! (Research OS, Phase 9C-1, decision 749), in the pattern of
 //! `stats_factor_wire.rs`.** Each view serialises to exactly the bytes of its
 //! fixture in `src/screens/statistics/fixtures/` (pretty JSON, two-space indent, a
-//! final newline), which 9C-3's screen types will be tested against. Between them
+//! final newline), which the screen's types are tested against since 9C-3
+//! (cfaTypes.vitest.ts, decision 782). Between them
 //! the fixtures fill every field and every variant of every enum the result
 //! carries: a value and a not-computable code, the factors' covariances given and
 //! empty. Both result fixtures are real results of `compute` on synthetic data;
@@ -16,7 +17,8 @@
 //!
 //! Also: `cfaCodes.json` is exactly `CfaCode::ALL`, `RunCode::ALL`,
 //! `WorkspaceCode::ALL` and `CapabilityCode::ALL`, sorted; `cfaLimits.json` holds
-//! the core's `MAX_ITEMS` and `MAX_FACTORS`; and the confirmatory factor analysis
+//! the core's `MAX_ITEMS`, `MAX_FACTORS`, `MIN_FACTOR_ITEMS` and `MIN_ITEMS` (the
+//! last two since 9C-3, decision 781); and the confirmatory factor analysis
 //! runs under the run manager's ceiling.
 //!
 //! The fixtures are written with `GAPLY_WRITE_CFA_WIRE` set, read, and then
@@ -67,18 +69,33 @@ fn assert_bytes<T: serde::Serialize>(name: &str, view: &T) {
     assert_eq!(got, want, "{name}: the view and its fixture differ");
 }
 
-/// Decision 749: the screen's limits are the core's constants, written with the
-/// other fixtures and compared on every run.
+/// Decisions 749 and 781: the screen's four limits (`maxItems`, `maxFactors`,
+/// `minFactorItems`, `minItems`) are the core's constants, written with the other
+/// fixtures and compared on every run.
 #[test]
 fn the_screens_limits_are_the_cores() {
-    let want = json!({ "maxItems": gaply_core::stats_cfa::MAX_ITEMS, "maxFactors": gaply_core::stats_cfa::MAX_FACTORS });
+    let want = json!({
+        "maxItems": gaply_core::stats_cfa::MAX_ITEMS,
+        "maxFactors": gaply_core::stats_cfa::MAX_FACTORS,
+        "minFactorItems": gaply_core::stats_cfa::MIN_FACTOR_ITEMS,
+        "minItems": gaply_core::stats_cfa::MIN_ITEMS,
+    });
     let path = screens().join("fixtures/cfaLimits.json");
     if writing() {
         std::fs::write(&path, serde_json::to_string_pretty(&want).unwrap() + "\n").unwrap();
     }
     let file: Value = serde_json::from_str(&std::fs::read_to_string(&path).expect("cfaLimits.json")).unwrap();
     assert_eq!(file, want, "cfaLimits.json and stats_cfa's limits differ");
-    assert_eq!((gaply_core::stats_cfa::MAX_ITEMS, gaply_core::stats_cfa::MAX_FACTORS), (128, 16), "decision 745");
+    assert_eq!(
+        (
+            gaply_core::stats_cfa::MAX_ITEMS,
+            gaply_core::stats_cfa::MAX_FACTORS,
+            gaply_core::stats_cfa::MIN_FACTOR_ITEMS,
+            gaply_core::stats_cfa::MIN_ITEMS,
+        ),
+        (128, 16, 2, 3),
+        "decisions 745 and 781"
+    );
 }
 
 fn hash(hex: &str) -> ContentHash {

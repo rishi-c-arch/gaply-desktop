@@ -22,6 +22,7 @@ import { ranksBridge, type RanksBridge } from '../statistics/ranksBridge';
 import { relatedRanksBridge, type RelatedRanksBridge } from '../statistics/relatedRanksBridge';
 import { linearRegressionBridge, type LinearRegressionBridge } from '../statistics/linearRegressionBridge';
 import { factorBridge, type FactorBridge } from '../statistics/factorBridge';
+import { cfaBridge, type CfaBridge } from '../statistics/cfaBridge';
 import { byKind } from '../statistics/methods';
 import { openProjectStore } from '../statistics/projects/projectSession';
 import { AskFirst } from '../statistics/window/MethodDialog';
@@ -45,11 +46,12 @@ export interface JobView {
   kind: RunEntry['kind'];
 }
 
-/** The twelve methods' bridges: each kind's run is read and cancelled through
+/** The thirteen methods' bridges: each kind's run is read and cancelled through
  *  its own (decision 80); crosstabs' since Research OS Phase 8X-2 (decision 591),
  *  the rank tests' since 8Y-2 (decision 622), the related rank tests' since 8Z-2
  *  (decision 656), the linear regression's since 9A-2 (decision 687), the factor
- *  analysis's since 9B-3 (decision 732). */
+ *  analysis's since 9B-3 (decision 732), the confirmatory factor analysis's since 9C-3
+ *  (decision 785). */
 export interface RunBridges {
   describe: DescribeBridge;
   ttest: TTestBridge;
@@ -63,6 +65,7 @@ export interface RunBridges {
   relatedRanks: RelatedRanksBridge;
   linearRegression: LinearRegressionBridge;
   factor: FactorBridge;
+  cfa: CfaBridge;
 }
 
 /** The bridges the app uses, for any a caller does not give. */
@@ -80,6 +83,7 @@ export function defaultRunBridges(given: Partial<RunBridges> = {}): RunBridges {
     relatedRanks: given.relatedRanks ?? relatedRanksBridge(),
     linearRegression: given.linearRegression ?? linearRegressionBridge(),
     factor: given.factor ?? factorBridge(),
+    cfa: given.cfa ?? cfaBridge(),
   };
 }
 
@@ -107,7 +111,7 @@ export function jobSentence(run: JobView): string {
 }
 
 /** Each kind's status and cancel, from the bridges given (Phase 8C). */
-export function runKinds({ describe: runs, ttest, oneSample, paired, anova, corr, alpha, xtab, ranks, relatedRanks, linearRegression, factor }: RunBridges): Record<RunEntry['kind'], KindCommands> {
+export function runKinds({ describe: runs, ttest, oneSample, paired, anova, corr, alpha, xtab, ranks, relatedRanks, linearRegression, factor, cfa }: RunBridges): Record<RunEntry['kind'], KindCommands> {
   return {
     describe: {
       status: async (runId) => {
@@ -235,6 +239,23 @@ export function runKinds({ describe: runs, ttest, oneSample, paired, anova, corr
         );
       },
       cancel: (runId) => factor.cancel(runId).catch(() => null),
+    },
+    // Research OS, Phase 9C-3 (decision 785): a check point per column, the estimation and
+    // each model's fit, so the steps sentence, as the factor analysis's.
+    cfa: {
+      status: async (runId) => {
+        const r = await cfa.status(runId).catch(() => null);
+        return (
+          r && {
+            runId: r.runId,
+            state: r.state,
+            terminal: r.terminal,
+            progress: `${stepsSentence(r.stepsDone, r.stepsTotal)}.`,
+            kind: 'cfa',
+          }
+        );
+      },
+      cancel: (runId) => cfa.cancel(runId).catch(() => null),
     },
   };
 }

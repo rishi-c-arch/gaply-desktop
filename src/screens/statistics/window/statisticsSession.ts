@@ -25,6 +25,7 @@ import type { RanksResultView, RanksRunStateView } from '../ranksTypes';
 import type { RelatedRanksResultView, RelatedRanksRunStateView } from '../relatedRanksTypes';
 import type { LinearRegressionResultView, LinearRegressionRunStateView } from '../linearRegressionTypes';
 import type { FactorResultView, FactorRunStateView } from '../factorTypes';
+import type { CfaResultView, CfaRunStateView } from '../cfaTypes';
 import type { GridCell } from './gridRange';
 
 /** The sentence for a slot the window finds gone (ADR-012 Part 2). */
@@ -52,6 +53,7 @@ export interface MethodRuns {
   linear_regression: LinearRegressionRunStateView;
   /** Research OS, Phase 9B-3 (decision 732). */
   factor: FactorRunStateView;
+  cfa: CfaRunStateView;
 }
 
 /** Each kind's result, as its result command reads it (decision 479). */
@@ -73,6 +75,7 @@ export interface MethodResults {
   linear_regression: LinearRegressionResultView;
   /** Research OS, Phase 9B-3 (decision 732). */
   factor: FactorResultView;
+  cfa: CfaResultView;
 }
 
 /** What every entry holds, whatever its method (decision 471). */

@@ -1,0 +1,15 @@
+{
+  "bundleJson": null,
+  "capabilityId": "stats.analyze.cfa",
+  "dataFile": {
+    "bytes": 2966,
+    "format": "csv",
+    "kind": "data_file",
+    "sha256": "c3bcce811d332e8884ebc78b93df19f89d46f25134b0e0dc94a1b760a69ccec1"
+  },
+  "failureJson": "{\"failure\":{\"code\":\"stats.cfa.sample_covariance_singular\",\"params\":{\"column\":10},\"severity\":\"error\"},\"schemaVersion\":1,\"status\":\"failed\"}",
+  "manifestJson": null,
+  "specJson": "{\"schemaVersion\":1,\"operationId\":17,\"workspaceId\":\"statistics\",\"capabilityId\":\"stats.analyze.cfa\",\"capabilityVersion\":1,\"inputs\":[{\"contentHash\":\"c3bcce811d332e8884ebc78b93df19f89d46f25134b0e0dc94a1b760a69ccec1\",\"rows\":61,\"columns\":10,\"semanticRole\":\"table\"}],\"parameters\":{\"indicators\":[[\"C1\",\"C4\",\"C10\"]],\"correlatedFactors\":true,\"missingCodes\":[-99.0]},\"randomSeed\":null,\"confirmationRefs\":[]}",
+  "state": "failed",
+  "storedRunId": 4
+}

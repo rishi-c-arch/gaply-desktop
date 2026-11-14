@@ -1,10 +1,11 @@
 // Gaply — every method's spec carries the view's preparation (Research OS,
 // Phase 8T-1a, decision 490). Rust refuses a spec on a prepared table without
 // one, and a spec on a file's own table with one (stats_desc/mod.rs:574-586),
-// so each of the twelve builders (crosstabs' since 8X-2, decision 588, Rust's
+// so each of the thirteen builders (crosstabs' since 8X-2, decision 588, Rust's
 // own refusal at stats_xtab/mod.rs:606-608; the rank tests' since 8Y-2, decision 619;
 // the related rank tests' since 8Z-2, decision 653; the linear regression's since 9A-2,
-// decision 684; the factor analysis's since 9B-3, decision 729)
+// decision 684; the factor analysis's since 9B-3, decision 729; the confirmatory factor
+// analysis's since 9C-3, decision 782)
 // copies the view's preparation exactly when the
 // view has one. On a file's own table the key is ABSENT, never null: Rust reads
 // a null as none (contracts/mod.rs:237-258), so only this test can catch it, and
@@ -24,6 +25,7 @@ import { buildTTestSpec } from './TTestSettings';
 import { buildXtabSpec } from './XtabSettings';
 import { buildLinearRegressionSpec } from './LinearRegressionSettings';
 import { buildFactorSpec } from './FactorSettings';
+import { buildCfaSpec } from './CfaSettings';
 
 const BUILDERS: Array<[string, (view: DatasetView) => object]> = [
   ['alpha', (v) => buildAlphaSpec(v, ['C1', 'C2'], [], null, [], 1)],
@@ -40,6 +42,8 @@ const BUILDERS: Array<[string, (view: DatasetView) => object]> = [
   ['linear regression', (v) => buildLinearRegressionSpec(v, 'C1', ['C2'], [], 1)],
   // Research OS, Phase 9B-3 (decision 729).
   ['factor analysis', (v) => buildFactorSpec(v, ['C1', 'C2'], 'principal_components', null, 'none', 25, 0.001, [], 1)],
+  // Research OS, Phase 9C-3 (decision 782).
+  ['confirmatory factor analysis', (v) => buildCfaSpec(v, [['C1', 'C2']], true, [], 1)],
 ];
 
 describe('every spec carries the view\'s preparation (decision 490)', () => {

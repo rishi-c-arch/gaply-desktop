@@ -41,8 +41,11 @@ describe('the methods table', () => {
       manifestId('linearRegressionResultView.json'),
       // Research OS, Phase 9B-3 (decision 732).
       manifestId('factorResultView.json'),
+      // Research OS, Phase 9C-3 (decision 785).
+      manifestId('cfaResultView.json'),
     ]);
     expect(fromViews).toEqual([
+      'stats.analyze.cfa',
       'stats.analyze.correlations',
       'stats.analyze.cronbach_alpha',
       'stats.analyze.crosstabs',
@@ -61,8 +64,8 @@ describe('the methods table', () => {
     expect(sorted(Object.keys(SAVED_RENDERERS))).toEqual(fromViews);
   });
 
-  it('keeps the twelve kinds, their words, names and job names', () => {
-    expect(METHODS.map((m) => m.kind)).toEqual(['describe', 'ttest', 'one_sample', 'paired', 'anova', 'correlations', 'linear_regression', 'factor', 'cronbach_alpha', 'crosstabs', 'independent_ranks', 'related_ranks']);
+  it('keeps the thirteen kinds, their words, names and job names', () => {
+    expect(METHODS.map((m) => m.kind)).toEqual(['describe', 'ttest', 'one_sample', 'paired', 'anova', 'correlations', 'linear_regression', 'factor', 'cfa', 'cronbach_alpha', 'crosstabs', 'independent_ranks', 'related_ranks']);
     expect(byKind((m) => m.jobName)).toEqual({
       describe: null,
       ttest: 'independent-samples t-test',
@@ -72,6 +75,7 @@ describe('the methods table', () => {
       correlations: 'correlations',
       linear_regression: 'linear regression',
       factor: 'factor analysis',
+      cfa: 'confirmatory factor analysis',
       cronbach_alpha: "Cronbach's alpha",
       crosstabs: 'crosstabs',
       independent_ranks: 'rank test',
@@ -89,6 +93,7 @@ describe('the methods table', () => {
     expect(capabilityOfKind('related_ranks')).toBe(manifestId('relatedRanksResultView.json'));
     expect(capabilityOfKind('linear_regression')).toBe(manifestId('linearRegressionResultView.json'));
     expect(capabilityOfKind('factor')).toBe(manifestId('factorResultView.json'));
+    expect(capabilityOfKind('cfa')).toBe(manifestId('cfaResultView.json'));
     expect(capabilityName(manifestId('resultBundleView.json'))).toBe('Descriptive summary');
     expect(capabilityName(manifestId('ttestResultView.json'))).toBe('Independent-samples t-test');
     expect(capabilityName(manifestId('onesampleResultView.json'))).toBe('One-sample t-test');
@@ -101,6 +106,7 @@ describe('the methods table', () => {
     expect(capabilityName(manifestId('relatedRanksResultView.json'))).toBe('Wilcoxon signed-rank and Friedman');
     expect(capabilityName(manifestId('linearRegressionResultView.json'))).toBe('Linear regression');
     expect(capabilityName(manifestId('factorResultView.json'))).toBe('Factor analysis');
+    expect(capabilityName(manifestId('cfaResultView.json'))).toBe('Confirmatory factor analysis');
     expect(METHODS.map((m) => m.path)).toEqual([
       '/app/statistics/describe',
       '/app/statistics/ttest',
@@ -111,6 +117,8 @@ describe('the methods table', () => {
       // The linear regression has no page or route (decision 687).
       null,
       // Nor has the factor analysis (decision 732).
+      null,
+      // Nor has the confirmatory factor analysis (decision 785).
       null,
       '/app/statistics/alpha',
       // Crosstabs has no page or route (ADR-012:233-241; decision 591).
@@ -134,6 +142,7 @@ describe('the methods table', () => {
       ['Correlate', 'Correlations…'],
       ['Regression', 'Linear…'],
       ['Dimension reduction', 'Factor…'],
+      ['Structural equations', 'Confirmatory factor analysis…'],
       ['Scale', "Reliability (Cronbach's alpha)…"],
       ['Descriptive statistics', 'Crosstabs…'],
       ['Nonparametric tests', 'Independent samples…'],

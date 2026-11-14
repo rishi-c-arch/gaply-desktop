@@ -29,6 +29,7 @@ import type { RanksDiagnostic, RanksResultView } from '../ranksTypes';
 import type { RelatedRanksDiagnostic, RelatedRanksResultView } from '../relatedRanksTypes';
 import type { LinearRegressionDiagnostic, LinearRegressionResultView } from '../linearRegressionTypes';
 import type { FactorDiagnostic, FactorResultView } from '../factorTypes';
+import type { CfaDiagnostic, CfaResultView } from '../cfaTypes';
 import DESCRIBE_CODES from '../describeCodes.json';
 import TTEST_CODES from '../ttestCodes.json';
 import ONESAMPLE_CODES from '../onesampleCodes.json';
@@ -43,6 +44,8 @@ import LINEAR_REGRESSION_CODES from '../linearRegressionCodes.json';
 import LR_LIMITS from '../fixtures/linearRegressionLimits.json';
 import FACTOR_CODES from '../factorCodes.json';
 import FA_LIMITS from '../fixtures/factorLimits.json';
+import CFA_CODES from '../cfaCodes.json';
+import CFA_LIMITS from '../fixtures/cfaLimits.json';
 import { capabilityOfKind } from '../methods';
 import TTEST_LIMITS from '../ttestLimits.json';
 
@@ -62,6 +65,7 @@ export const RANKS_CAPABILITY = capabilityOfKind('independent_ranks');
 export const RELATED_RANKS_CAPABILITY = capabilityOfKind('related_ranks');
 export const LINEAR_REGRESSION_CAPABILITY = capabilityOfKind('linear_regression');
 export const FACTOR_CAPABILITY = capabilityOfKind('factor');
+export const CFA_CAPABILITY = capabilityOfKind('cfa');
 
 /** A data file's formats: the ingest's (DataFormat in Rust, without json). */
 const DATA_FORMATS = ['csv', 'tsv', 'xlsx', 'xlsm', 'xlsb', 'xls', 'ods', 'sav', 'mat'];
@@ -79,7 +83,8 @@ export type CaseKind =
   | 'independent_ranks'
   | 'related_ranks'
   | 'linear_regression'
-  | 'factor';
+  | 'factor'
+  | 'cfa';
 
 /** A failed run's stored diagnostic, in its method's codes. */
 export type StoredFailure =
@@ -93,7 +98,8 @@ export type StoredFailure =
   | RanksDiagnostic
   | RelatedRanksDiagnostic
   | LinearRegressionDiagnostic
-  | FactorDiagnostic;
+  | FactorDiagnostic
+  | CfaDiagnostic;
 
 /** What a saved result is, once checked: what to show, or why not. */
 export type Checked =
@@ -109,6 +115,7 @@ export type Checked =
   | { kind: 'related_ranks'; result: RelatedRanksResultView; dataFile: DataFileFacts }
   | { kind: 'linear_regression'; result: LinearRegressionResultView; dataFile: DataFileFacts }
   | { kind: 'factor'; result: FactorResultView; dataFile: DataFileFacts }
+  | { kind: 'cfa'; result: CfaResultView; dataFile: DataFileFacts }
   | { kind: 'failed'; capability: CaseKind; failure: StoredFailure; dataFile: DataFileFacts }
   | { kind: 'unknownCapability' }
   | { kind: 'unknownSchema' }
@@ -143,6 +150,7 @@ const RK_CODES = (RANKS_CODES as string[]).filter((c) => c.indexOf('stats.ranks.
 const RR_CODES = (RELATED_RANKS_CODES as string[]).filter((c) => c.indexOf('stats.related_ranks.') === 0);
 const LR_CODES = (LINEAR_REGRESSION_CODES as string[]).filter((c) => c.indexOf('stats.linear_regression.') === 0);
 const FA_CODES = (FACTOR_CODES as string[]).filter((c) => c.indexOf('stats.factor.') === 0);
+const CF_CODES = (CFA_CODES as string[]).filter((c) => c.indexOf('stats.cfa.') === 0);
 const SEVERITIES = ['error', 'warning', 'note'];
 const DESC_PARAM_KEYS = ['column', 'count', 'index', 'value', 'limit', 'expected', 'found', 'from', 'event'];
 const T_PARAM_KEYS = ['column', 'count', 'index', 'value', 'limit', 'expected', 'found'];
@@ -155,6 +163,7 @@ const RK_PARAM_KEYS = ['column', 'count', 'index', 'value', 'limit', 'expected',
 const RR_PARAM_KEYS = ['column', 'count', 'index', 'value', 'limit', 'expected', 'found'];
 const LR_PARAM_KEYS = ['column', 'count', 'index', 'value', 'limit', 'expected', 'found'];
 const FA_PARAM_KEYS = ['column', 'count', 'index', 'value', 'limit', 'expected', 'found'];
+const CF_PARAM_KEYS = ['column', 'count', 'index', 'value', 'limit', 'expected', 'found'];
 const RUN_STATES = [
   'draft',
   'validating',
@@ -1913,6 +1922,495 @@ function factorFailure(failure: unknown, spec: O): boolean {
   }
 }
 
+
+/* ---- the confirmatory factor analysis (Research OS, Phase 9C-3, decision 786) ----------------
+ * Accepts what stats_cfa writes and nothing else. Each rule names the line of
+ * gaply-core/src/stats_cfa/mod.rs it mirrors (as at c0bb7c03), and equality is as doubles in
+ * Rust's order: every field Rust computes from stored fields with + − × ÷ and √ is recomputed
+ * here with the same operations in the same order, which IEEE 754 makes bit for bit the same.
+ * BIC and CAIC take ln N, which JavaScript's Math.log and Rust's ln need not round alike, so
+ * they are held to a band (CFA_BANDS). Rust writes every number through `stat` (:1274-1282: a
+ * finite value, NaN too_small, an infinity overflow). */
+
+const cfCode = (c: string) => `stats.cfa.${c}`;
+const CF_SMALL = cfCode('too_small');
+const CF_OVERFLOW = cfCode('overflow');
+const CF_RANGE = cfCode('distribution_out_of_range');
+const CF_DF_ZERO = cfCode('df_zero');
+const CF_FIXED = cfCode('fixed_parameter');
+const CF_NEGATIVE = cfCode('negative_variance');
+const CF_CMIN_ZERO = cfCode('cmin_zero');
+const CF_BASELINE_ZERO = cfCode('independence_cmin_zero');
+const CF_BCC = cfCode('too_few_rows_for_bcc');
+/** stats_cfa::MAX_ITERATIONS (:97): the run's cap, and cfa_not_converged's limit. */
+const CF_MAX_ITERATIONS = 500;
+
+/** The bands of decision 786, each ten times the worst measured over the stored checker's hunt
+ *  and the stored fixtures, rounded up: 236 stored results (seed 20260786 and 9C-2's B3
+ *  datasets of seed 20260764; 14 Nov 2026, ~/gaply-corpus/os/phase9/9c3/hunt/), measured with
+ *  the band lifted. Every other quantity decision 786 names is recomputed exactly. */
+export const CFA_BANDS = {
+  /** |stored − recomputed| / |recomputed| for BIC = C + q ln N and CAIC = C + q (ln N + 1)
+   *  (:1621-1622), where Math.log and Rust's ln may round apart: worst 2.751e-16 (about
+   *  1.24 ε), so 2.8e-15. */
+  lnN: 2.8e-15,
+};
+export type CfaBand = keyof typeof CFA_BANDS;
+let cfaBandWatcher: ((band: CfaBand, value: number) => void) | null = null;
+/** Whoever measures the bands (decision 786's hunt): none in the app. */
+export function measureCfaBands(watch: ((band: CfaBand, value: number) => void) | null): void {
+  cfaBandWatcher = watch;
+}
+const cfMeasure = (k: CfaBand, v: number) => {
+  if (cfaBandWatcher) cfaBandWatcher(k, v);
+  return v;
+};
+
+/** Rust's `stat` (:1274-1282). */
+const cfStatOf = (x: number): Expected => (Number.isFinite(x) ? { value: x } : Number.isNaN(x) ? { code: CF_SMALL } : { code: CF_OVERFLOW });
+/** A stored Stat is what Rust would write: exactly {"value": x} or {"not_computable": code}, as
+ *  serde writes Stat (the review of 9C-3, finding 5: a value beside another key was accepted). */
+const cfIs = (stored: unknown, e: Expected) =>
+  isObject(stored) && ('value' in e ? statValue(stored) === e.value && hasExactly(stored, ['value']) : ncCode(stored) === e.code && hasExactly(stored, ['not_computable']));
+const cfStat = (v: unknown, codes: readonly string[]) => oneKey(v, { value: isNum, not_computable: (x) => oneOf(x, codes) });
+const cfVal = (v: unknown) => statValue(v) as number;
+const isValue = (v: unknown) => cfStat(v, []);
+/** `against_baseline` (:1538-1544): `stat`, but independence_cmin_zero for a value that is not
+ *  finite where C_b is 0. */
+const againstOf = (x: number, cb: number): Expected => (cb === 0 && !Number.isFinite(x) ? { code: CF_BASELINE_ZERO } : cfStatOf(x));
+/** `unless_df_zero` (:1290-1296). */
+const unlessDfZero = (d: number, e: () => Expected): Expected => (d === 0 ? { code: CF_DF_ZERO } : e());
+
+/** CfaOutcome's keys and each object's, every one always written (:290-418). */
+const CF_RESULT_KEYS = ['items', 'rowsUsed', 'indicators', 'loadings', 'factorVariances', 'factorCovariances', 'errorVariances', 'smc', 'fit', 'iterations', 'exclusions', 'notes', 'limitations'];
+const CF_LOADING_KEYS = ['factor', 'item', 'estimate', 'se', 'cr', 'p', 'standardized'];
+const CF_VARIANCE_KEYS = ['factor', 'estimate', 'se', 'cr', 'p'];
+const CF_COVARIANCE_KEYS = ['factors', 'estimate', 'se', 'cr', 'p', 'correlation'];
+const CF_ERROR_KEYS = ['item', 'estimate', 'se', 'cr', 'p'];
+const CF_SMC_KEYS = ['item', 'value'];
+const CF_FIT_KEYS = ['model', 'saturated', 'independence'];
+/** CfaModelFit's 38 measures (:359-399). */
+const CF_MEASURES = [
+  'npar', 'cmin', 'df', 'p', 'cminDf', 'rmr', 'gfi', 'agfi', 'pgfi', 'nfi', 'rfi', 'ifi', 'tli', 'cfi', 'pratio', 'pnfi', 'pcfi',
+  'ncp', 'ncpLo90', 'ncpHi90', 'fmin', 'f0', 'f0Lo90', 'f0Hi90', 'rmsea', 'rmseaLo90', 'rmseaHi90', 'pclose',
+  'aic', 'bcc', 'bic', 'caic', 'ecvi', 'ecviLo90', 'ecviHi90', 'mecvi', 'hoelter05', 'hoelter01',
+];
+/** LIMITATIONS (:434-446), in decision 745's order. */
+const CFA_LIMITATIONS = [
+  'ml_only',
+  'no_means',
+  'one_group_only',
+  'simple_structure_only',
+  'marker_identification_only',
+  'no_modification_indices',
+  'normal_theory_standard_errors',
+  'no_srmr',
+  'listwise_only',
+  'no_weights',
+].map(cfCode);
+/** The notes in their order (:1382-1392). */
+const CFA_NOTES = ['negative_variance', 'factor_covariance_not_positive_definite', 'df_zero'].map(cfCode);
+
+const cfDiagnostic = (v: unknown) =>
+  diagnostic(CF_CODES, CF_PARAM_KEYS, false)(v) &&
+  isObject(v) &&
+  (v.code !== cfCode('suspect_missing_code') || (isObject(v.params) && ['column', 'value', 'count'].every((k) => isNum((v.params as O)[k]))));
+
+/** An exclusion, exactly as stats_cfa writes it (:1394-1406). */
+const CF_EXCLUDED = [cfCode('missing_value'), cfCode('missing_code')];
+const cfExclusion = (e: unknown) =>
+  isObject(e) &&
+  Object.keys(e).length === 3 &&
+  oneOf(e.code, CF_EXCLUDED) &&
+  isCount(e.count) &&
+  e.count >= 1 &&
+  isObject(e.params) &&
+  Object.keys(e.params).length === 1 &&
+  isCount(e.params.column);
+
+/** The exclusions in the columns' file order (sorted by alias, :1394-1396), missing_value
+ *  before missing_code for one column, each pair once, each column a column of the model, and
+ *  missing_code only with missing codes. A row is counted once, under its first column in the
+ *  file's order without a value (Rows::of, :464-493). */
+const cfExclusionsAgree = (list: O[], numbers: number[], codes: unknown[]) => {
+  const sorted = numbers.slice().sort((a, b) => a - b);
+  const order = list.map((e) => sorted.indexOf(((e.params as O).column as number) ?? -1) * 2 + (e.code === CF_EXCLUDED[1] ? 1 : 0));
+  if (order.some((o) => o < 0)) return false;
+  if (order.some((o, i) => i > 0 && o <= order[i - 1])) return false;
+  return codes.length > 0 || list.every((e) => e.code !== CF_EXCLUDED[1]);
+};
+
+/** stats_linalg::cholesky_within(Φ, 0) (stats_linalg/mod.rs:173-195), its operations in its
+ *  order: true when it factors, false at the first value left at or below 0, or not a number. */
+const choleskyAtZero = (a: number[][]): boolean => {
+  const n = a.length;
+  const l = a.map(() => a.map(() => 0));
+  for (let j = 0; j < n; j += 1) {
+    let left = a[j][j];
+    for (let k = 0; k < j; k += 1) left -= l[j][k] * l[j][k];
+    if (!(left > 0 * a[j][j])) return false;
+    const d = Math.sqrt(left);
+    l[j][j] = d;
+    for (let i = j + 1; i < n; i += 1) {
+      let s = a[i][j];
+      for (let k = 0; k < j; k += 1) s -= l[i][k] * l[j][k];
+      l[i][j] = s / d;
+    }
+  }
+  return true;
+};
+
+/** A spec's indicators as check requires them (:545-641): 1 to 16 factors, each of at least
+ *  2 columns, 3 to 128 in all, each factor's columns ascending, the factors ordered by first
+ *  column, no column twice; with the factors uncorrelated and two or more, no factor of two
+ *  columns (:579-586). Their alias numbers, or null. */
+function cfIndicators(sp: O): number[][] | null {
+  if (!Array.isArray(sp.indicators) || typeof sp.correlatedFactors !== 'boolean') return null;
+  const f = sp.indicators as unknown[];
+  if (f.length < 1 || f.length > CFA_LIMITS.maxFactors) return null;
+  const out: number[][] = [];
+  for (const columns of f) {
+    if (!Array.isArray(columns) || columns.length < CFA_LIMITS.minFactorItems) return null;
+    const numbers = columns.map(aliasNumber);
+    if (numbers.some((x) => x === null)) return null;
+    const ns = numbers as number[];
+    if (ns.some((x, i) => i > 0 && !(x > ns[i - 1]))) return null;
+    out.push(ns);
+  }
+  if (out.some((x, i) => i > 0 && !(x[0] > out[i - 1][0]))) return null;
+  const all = out.flat();
+  if (all.length < CFA_LIMITS.minItems || all.length > CFA_LIMITS.maxItems || new Set(all).size !== all.length) return null;
+  if (!sp.correlatedFactors && out.length >= 2 && out.some((x) => x.length === 2)) return null;
+  return out;
+}
+
+/** An estimate with its S.E., C.R. and two-tailed P, as `tested` writes them (:1299-1302): the
+ *  estimate a value, the S.E. `stat` of a square root, C.R. exactly estimate / S.E., and P a
+ *  value in [0, 1], or too_small where C.R. is not a number. */
+function cfTested(t: O): boolean {
+  if (!isValue(t.estimate) || !cfStat(t.se, [CF_SMALL, CF_OVERFLOW]) || !cfStat(t.cr, [CF_SMALL, CF_OVERFLOW]) || !cfStat(t.p, [CF_SMALL])) return false;
+  const se = isValue(t.se) ? cfVal(t.se) : ncCode(t.se) === CF_SMALL ? Number.NaN : Number.POSITIVE_INFINITY;
+  if (isValue(t.se) && !(se >= 0)) return false;
+  const cr = cfVal(t.estimate) / se;
+  if (!cfIs(t.cr, cfStatOf(cr))) return false;
+  if (Number.isNaN(cr)) return ncCode(t.p) === CF_SMALL || (isValue(t.p) && cfVal(t.p) >= 0 && cfVal(t.p) <= 1);
+  return isValue(t.p) && cfVal(t.p) >= 0 && cfVal(t.p) <= 1;
+}
+
+/** One model's row (model_fit, :1548-1630), against the independence model's C_b and d_b, for
+ *  p columns and N rows. `npar` and `df` as the spec gives them; every measure Rust builds from
+ *  CMIN, DF, NPAR, GFI and N with + − × ÷ and √, exactly; the intervals from the stored NCP
+ *  interval; BIC and CAIC within a band; P, PCLOSE, the NCP interval and HOELTER, which take a
+ *  distribution, by their ranges and codes. */
+function cfRow(f: O, q: number, d: number, cb: number, db: number, p: number, bigN: number): boolean {
+  if (!hasExactly(f, CF_MEASURES)) return false;
+  if (f.npar !== q || f.df !== d) return false;
+  // CMIN `stat(c)`, C = (N − 1) F at a converged F ≥ 0 (:1449-1450): a value at least 0.
+  if (!isValue(f.cmin) || !(cfVal(f.cmin) >= 0)) return false;
+  // RMR a square root and GFI 1 − a ratio of sums (:1489-1509): values.
+  // RMR and GFI are `stat`'s (:1574-1575), so either may overflow: rmr_and_gfi squares the
+  // residuals with no guard (:1489-1509; the review of 9C-3, finding 4). A GFI that is not a
+  // number gives AGFI and PGFI too_small, an infinite one overflow (1 − (p*/d)(1 − ±∞) and
+  // (d/p*)(±∞) are both infinite at d above 0).
+  if (!cfStat(f.rmr, [CF_SMALL, CF_OVERFLOW]) || (isValue(f.rmr) && !(cfVal(f.rmr) >= 0)) || !cfStat(f.gfi, [CF_SMALL, CF_OVERFLOW])) return false;
+  const c = cfVal(f.cmin);
+  const gfi = isValue(f.gfi) ? cfVal(f.gfi) : ncCode(f.gfi) === CF_SMALL ? Number.NaN : Number.POSITIVE_INFINITY;
+  const n = bigN - 1;
+  const pf = p;
+  const qf = q;
+  const df = d;
+  const pstar = (p * (p + 1)) / 2;
+  const dbf = db;
+  const ncp = Math.max(c - df, 0);
+  const nfi = 1 - c / cb;
+  const cfiDenominator = Math.max(Math.max(cb - dbf, c - df), 0);
+  const cfi = cfiDenominator === 0 ? 1 : 1 - ncp / cfiDenominator;
+  const pratio = df / dbf;
+  const bcc: Expected = bigN <= pf + 2 ? { code: CF_BCC } : cfStatOf(c + (2 * qf * (bigN - 1)) / (bigN - pf - 2));
+  const exact: Array<[string, Expected]> = [
+    ['cminDf', unlessDfZero(d, () => cfStatOf(c / df))],
+    ['agfi', unlessDfZero(d, () => cfStatOf(1 - (pstar / df) * (1 - gfi)))],
+    ['pgfi', unlessDfZero(d, () => cfStatOf((df / pstar) * gfi))],
+    ['nfi', againstOf(nfi, cb)],
+    ['rfi', unlessDfZero(d, () => againstOf(1 - c / df / (cb / dbf), cb))],
+    ['ifi', againstOf((cb - c) / (cb - df), cb)],
+    ['tli', unlessDfZero(d, () => againstOf((cb / dbf - c / df) / (cb / dbf - 1), cb))],
+    ['cfi', againstOf(cfi, cb)],
+    ['pratio', unlessDfZero(d, () => cfStatOf(pratio))],
+    ['pnfi', unlessDfZero(d, () => againstOf(nfi * pratio, cb))],
+    ['pcfi', unlessDfZero(d, () => againstOf(cfi * pratio, cb))],
+    ['ncp', cfStatOf(ncp)],
+    ['fmin', cfStatOf(c / n)],
+    ['f0', cfStatOf(ncp / n)],
+    ['rmsea', unlessDfZero(d, () => cfStatOf(Math.sqrt(ncp / n / df)))],
+    ['aic', cfStatOf(c + 2 * qf)],
+    ['bcc', bcc],
+    ['ecvi', cfStatOf((c + 2 * qf) / n)],
+    ['mecvi', 'value' in bcc ? cfStatOf(bcc.value / n) : bcc],
+  ];
+  for (const [k, e] of exact) if (!cfIs(f[k], e)) return false;
+  // BIC and CAIC (:1621-1622), within a band of ln N's rounding.
+  const lnN = Math.log(bigN);
+  for (const [k, x] of [
+    ['bic', c + qf * lnN],
+    ['caic', c + qf * (lnN + 1)],
+  ] as Array<[string, number]>) {
+    if (!isValue(f[k])) return false;
+    const gap = Math.abs(cfVal(f[k]) - x) / Math.max(Math.abs(x), Number.MIN_VALUE);
+    if (cfMeasure('lnN', gap) > CFA_BANDS.lnN) return false;
+  }
+  // P and PCLOSE (:1592, :1615-1617): df_zero at 0 degrees of freedom; else a probability, or
+  // distribution_out_of_range where the distribution gives none.
+  for (const k of ['p', 'pclose']) {
+    if (d === 0 ? ncCode(f[k]) !== CF_DF_ZERO : !(cfStat(f[k], [CF_RANGE]) && (!isValue(f[k]) || (cfVal(f[k]) >= 0 && cfVal(f[k]) <= 1)))) return false;
+  }
+  // The NCP interval (:1557-1559, :1605-1606) and what Rust builds from it (:1609-1614,
+  // :1624-1625): at 0 degrees of freedom df_zero; else each end a value at least 0 or
+  // distribution_out_of_range, and F0's, RMSEA's and ECVI's ends exactly from it.
+  for (const [end, f0k, rk, ek] of [
+    ['ncpLo90', 'f0Lo90', 'rmseaLo90', 'ecviLo90'],
+    ['ncpHi90', 'f0Hi90', 'rmseaHi90', 'ecviHi90'],
+  ]) {
+    if (d === 0) {
+      if ([end, f0k, rk, ek].some((k) => ncCode(f[k]) !== CF_DF_ZERO)) return false;
+      continue;
+    }
+    if (!cfStat(f[end], [CF_RANGE])) return false;
+    if (!isValue(f[end])) {
+      if ([f0k, rk, ek].some((k) => ncCode(f[k]) !== CF_RANGE)) return false;
+      continue;
+    }
+    const x = cfVal(f[end]);
+    if (!(x >= 0)) return false;
+    if (!cfIs(f[f0k], cfStatOf(x / n)) || !cfIs(f[rk], cfStatOf(Math.sqrt(x / (n * df)))) || !cfIs(f[ek], cfStatOf((x + df + 2 * qf) / n))) return false;
+  }
+  if (d !== 0 && isValue(f.ncpLo90) && isValue(f.ncpHi90) && !(cfVal(f.ncpLo90) <= cfVal(f.ncpHi90))) return false;
+  // HOELTER (:1570-1581): df_zero at 0 degrees of freedom, cmin_zero at a CMIN of 0, else a
+  // whole number at least 1, overflow, or distribution_out_of_range.
+  for (const k of ['hoelter05', 'hoelter01']) {
+    const h = f[k];
+    if (d === 0) {
+      if (ncCode(h) !== CF_DF_ZERO) return false;
+    } else if (c === 0) {
+      if (ncCode(h) !== CF_CMIN_ZERO) return false;
+    } else if (!cfStat(h, [CF_OVERFLOW, CF_RANGE]) || (isValue(h) && !(Number.isInteger(cfVal(h)) && cfVal(h) >= 1))) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function cfaBundle(v: O, spec: O): CfaResultView | null {
+  const sp = spec.parameters;
+  const r = v.primaryOutputs;
+  if (!isObject(sp) || !hasExactly(sp, ['indicators', 'correlatedFactors', 'missingCodes'])) return null;
+  const factors = cfIndicators(sp);
+  if (factors === null) return null;
+  // The codes finite, ascending and once each (:547-557).
+  const codes = sp.missingCodes;
+  if (!Array.isArray(codes) || !codes.every(isNum) || codes.some((c, i) => i > 0 && !((c as number) > (codes[i - 1] as number)))) return null;
+  if (!isObject(r) || !hasExactly(r, CF_RESULT_KEYS)) return null;
+  if (!isCount(v.runId) || v.status !== 'succeeded') return null;
+  const k = factors.length;
+  const numbers = factors.flat();
+  const p = numbers.length;
+  const items = numbers.map((x) => `C${x}`);
+
+  // Shape: the items, factor by factor, and the indicators, as the spec (:1408-1410).
+  if (JSON.stringify(r.items) !== JSON.stringify(items) || JSON.stringify(r.indicators) !== JSON.stringify(sp.indicators)) return null;
+  // At least p + 1 complete rows (:668-674), and 0 to 500 iterations (:97).
+  if (!isCount(r.rowsUsed) || r.rowsUsed < p + 1) return null;
+  if (!isCount(r.iterations) || r.iterations > CF_MAX_ITERATIONS) return null;
+  const bigN = r.rowsUsed;
+  const factorOf = factors.flatMap((cols, f) => cols.map(() => f + 1));
+  const marker = factors.flatMap((cols) => cols.map((_, t) => t === 0));
+
+  // The loadings, one per column in items' order (:1328-1342): a marker's estimate exactly 1
+  // and its S.E., C.R. and P fixed_parameter; every other one tested.
+  if (!Array.isArray(r.loadings) || r.loadings.length !== p) return null;
+  const lambda: number[] = [];
+  for (let i = 0; i < p; i += 1) {
+    const l = r.loadings[i];
+    if (!isObject(l) || !hasExactly(l, CF_LOADING_KEYS) || l.factor !== factorOf[i] || l.item !== items[i]) return null;
+    if (marker[i]) {
+      if (statValue(l.estimate) !== 1 || !hasExactly(l.estimate as O, ['value'])) return null;
+      if ([l.se, l.cr, l.p].some((s) => ncCode(s) !== CF_FIXED || !hasExactly(s as O, ['not_computable']))) return null;
+    } else if (!cfTested(l)) {
+      return null;
+    }
+    lambda.push(cfVal(l.estimate));
+  }
+  // The factors' variances, one per factor in order (:1343-1349).
+  if (!Array.isArray(r.factorVariances) || r.factorVariances.length !== k) return null;
+  const phi = Array.from({ length: k }, () => Array.from({ length: k }, () => 0));
+  for (let f = 0; f < k; f += 1) {
+    const x = r.factorVariances[f];
+    if (!isObject(x) || !hasExactly(x, CF_VARIANCE_KEYS) || x.factor !== f + 1 || !cfTested(x)) return null;
+    phi[f][f] = cfVal(x.estimate);
+  }
+  // The covariances: every pair f < g in Rust's order when the factors covary and there are
+  // two or more (Model::of, :816-820), none otherwise (:1350-1364).
+  const pairs: Array<[number, number]> = [];
+  if (sp.correlatedFactors) for (let f = 0; f < k; f += 1) for (let g = f + 1; g < k; g += 1) pairs.push([f, g]);
+  if (!Array.isArray(r.factorCovariances) || r.factorCovariances.length !== pairs.length) return null;
+  for (let t = 0; t < pairs.length; t += 1) {
+    const x = r.factorCovariances[t];
+    const [f, g] = pairs[t];
+    if (!isObject(x) || !hasExactly(x, CF_COVARIANCE_KEYS) || JSON.stringify(x.factors) !== JSON.stringify([f + 1, g + 1]) || !cfTested(x)) return null;
+    phi[f][g] = cfVal(x.estimate);
+    phi[g][f] = cfVal(x.estimate);
+  }
+  // The error variances, one per column in items' order (:1366-1372).
+  if (!Array.isArray(r.errorVariances) || r.errorVariances.length !== p || !Array.isArray(r.smc) || r.smc.length !== p) return null;
+  const theta: number[] = [];
+  for (let i = 0; i < p; i += 1) {
+    const x = r.errorVariances[i];
+    if (!isObject(x) || !hasExactly(x, CF_ERROR_KEYS) || x.item !== items[i] || !cfTested(x)) return null;
+    theta.push(cfVal(x.estimate));
+  }
+  // Σ's diagonal, λ_i λ_i φ_ff + θ_i (Model::sigma, :850-864), and from it the standardized
+  // weights (:1331-1335), the correlations (:1356-1360) and the SMCs (:1373-1378), exactly;
+  // negative_variance exactly where Rust's test `> 0.0` fails for a variance under a root.
+  const negative = { code: CF_NEGATIVE };
+  for (let i = 0; i < p; i += 1) {
+    const f = factorOf[i] - 1;
+    const sii = lambda[i] * lambda[i] * phi[f][f] + theta[i];
+    const l = r.loadings[i] as O;
+    const standardized = phi[f][f] > 0 && sii > 0 ? cfStatOf((lambda[i] * Math.sqrt(phi[f][f])) / Math.sqrt(sii)) : negative;
+    if (!cfIs(l.standardized, standardized)) return null;
+    const s = r.smc[i];
+    if (!isObject(s) || !hasExactly(s, CF_SMC_KEYS) || s.item !== items[i]) return null;
+    if (!cfIs(s.value, sii > 0 ? cfStatOf(1 - theta[i] / sii) : negative)) return null;
+  }
+  for (let t = 0; t < pairs.length; t += 1) {
+    const [f, g] = pairs[t];
+    const x = r.factorCovariances[t] as O;
+    const e = phi[f][f] > 0 && phi[g][g] > 0 ? cfStatOf(phi[f][g] / Math.sqrt(phi[f][f] * phi[g][g])) : negative;
+    if (!cfIs(x.correlation, e)) return null;
+  }
+
+  // The three rows (fit_measures, :1431-1486): NPAR and DF from the spec; the saturated row's
+  // and the independence row's written cells exactly; each row's measures from its CMIN.
+  const fit = r.fit;
+  if (!isObject(fit) || !hasExactly(fit, CF_FIT_KEYS) || !isObject(fit.model) || !isObject(fit.saturated) || !isObject(fit.independence)) return null;
+  const moments = (p * (p + 1)) / 2;
+  const q = p - k + k + pairs.length + p;
+  if (q > moments) return null; // degrees_of_freedom refuses it (:1162-1170).
+  const d = moments - q;
+  const db = (p * (p - 1)) / 2;
+  const ind = fit.independence as O;
+  if (!isValue(ind.cmin)) return null;
+  const cb = cfVal(ind.cmin);
+  // The independence row (:1468-1484): Σ = diag(S), q = p, d = d_b, C = C_b; its comparisons
+  // written, 0 but PRATIO 1.
+  const written = (row: O, cells: Record<string, number>) => Object.keys(cells).every((key) => statValue(row[key]) === cells[key] && hasExactly(row[key] as O, ['value']));
+  // The written cells are checked as written; the rest of the row by model_fit's rules
+  // (cfRowExcept).
+  if (!written(ind, { nfi: 0, rfi: 0, ifi: 0, tli: 0, cfi: 0, pratio: 1, pnfi: 0, pcfi: 0 })) return null;
+  if (!cfRowExcept(ind, p, db, cb, db, p, bigN, ['nfi', 'rfi', 'ifi', 'tli', 'cfi', 'pratio', 'pnfi', 'pcfi'])) return null;
+  // The saturated row (saturated_fit, :1526-1536): q = p*, d = 0, C = 0, RMR 0 and GFI 1
+  // written, and NFI and IFI written 1.
+  const sat = fit.saturated as O;
+  if (!written(sat, { cmin: 0, rmr: 0, gfi: 1, nfi: 1, ifi: 1 })) return null;
+  if (!cfRowExcept(sat, moments, 0, cb, db, p, bigN, ['nfi', 'ifi'])) return null;
+  // The default row (:1451).
+  if (!cfRow(fit.model as O, q, d, cb, db, p, bigN)) return null;
+
+  // The notes (:1382-1392): a subset of the three in order; negative_variance exactly when a
+  // factor variance or an error variance is below 0; the factors' covariance note exactly when
+  // cholesky_within(Φ, 0) refuses; df_zero exactly at 0 degrees of freedom.
+  const notes = r.notes;
+  if (!Array.isArray(notes) || notes.some((x) => !oneOf(x, CFA_NOTES))) return null;
+  const at = notes.map((x) => CFA_NOTES.indexOf(x as string));
+  if (at.some((x, i) => i > 0 && x <= at[i - 1])) return null;
+  const noted = (c: string) => notes.indexOf(cfCode(c)) >= 0;
+  if (noted('negative_variance') !== (phi.some((row, f) => row[f] < 0) || theta.some((e) => e < 0))) return null;
+  if (noted('factor_covariance_not_positive_definite') !== !choleskyAtZero(phi)) return null;
+  if (noted('df_zero') !== (d === 0)) return null;
+
+  if (!Array.isArray(r.limitations) || JSON.stringify(r.limitations) !== JSON.stringify(CFA_LIMITATIONS)) return null;
+
+  // Exclusions and the manifest, as the factor analysis's, the model's columns as its items.
+  if (!arrayOf(r.exclusions, cfExclusion) || !cfExclusionsAgree(r.exclusions as O[], numbers, codes)) return null;
+  if (!arrayOf(v.diagnostics, cfDiagnostic) || !arrayOf(v.limitations, cfDiagnostic)) return null;
+  // A succeeded run's diagnostics are validate's warnings, each a suspect code of a column of
+  // the model (:705-722); its limitations the module's ten, as notes, in order.
+  for (const x of v.diagnostics as O[]) {
+    if (x.severity !== 'warning' || x.code !== cfCode('suspect_missing_code') || numbers.indexOf((x.params as O).column as number) < 0) return null;
+  }
+  const lims = v.limitations as O[];
+  if (lims.length !== CFA_LIMITATIONS.length || lims.some((x, i) => x.code !== CFA_LIMITATIONS[i] || x.severity !== 'note' || Object.keys(x.params as O).length !== 0)) return null;
+  if (!manifest(v.manifest, CFA_CAPABILITY, cfExclusion)) return null;
+  const mf = v.manifest as O;
+  if (mf.rowsUsed !== bigN) return null;
+  if (mf.rowsRead !== bigN + (r.exclusions as Array<{ count: number }>).reduce((s, x) => s + x.count, 0)) return null;
+  if (JSON.stringify(mf.exclusions) !== JSON.stringify(r.exclusions)) return null;
+  return {
+    runId: v.runId as number,
+    status: 'succeeded',
+    result: r as unknown as CfaResultView['result'],
+    diagnostics: v.diagnostics as CfaDiagnostic[],
+    manifest: v.manifest as CfaResultView['manifest'],
+  };
+}
+
+/** cfRow with the named cells, written by fit_measures over model_fit's, replaced by what
+ *  model_fit computes before the rules run, so every other cell is held to its rule. */
+function cfRowExcept(row: O, q: number, d: number, cb: number, db: number, p: number, bigN: number, writtenKeys: string[]): boolean {
+  if (!hasExactly(row, CF_MEASURES) || !isValue(row.cmin)) return false;
+  const c = cfVal(row.cmin);
+  const df = d;
+  const ncp = Math.max(c - df, 0);
+  const nfi = 1 - c / cb;
+  const cfiDenominator = Math.max(Math.max(cb - db, c - df), 0);
+  const cfi = cfiDenominator === 0 ? 1 : 1 - ncp / cfiDenominator;
+  const pratio = df / db;
+  const computed: Record<string, Expected> = {
+    nfi: againstOf(nfi, cb),
+    rfi: unlessDfZero(d, () => againstOf(1 - c / df / (cb / db), cb)),
+    ifi: againstOf((cb - c) / (cb - df), cb),
+    tli: unlessDfZero(d, () => againstOf((cb / db - c / df) / (cb / db - 1), cb)),
+    cfi: againstOf(cfi, cb),
+    pratio: unlessDfZero(d, () => cfStatOf(pratio)),
+    pnfi: unlessDfZero(d, () => againstOf(nfi * pratio, cb)),
+    pcfi: unlessDfZero(d, () => againstOf(cfi * pratio, cb)),
+  };
+  const asComputed: O = { ...row };
+  for (const key of writtenKeys) {
+    const e = computed[key];
+    asComputed[key] = 'value' in e ? { value: e.value } : { not_computable: e.code };
+  }
+  return cfRow(asComputed, q, d, cb, db, p, bigN);
+}
+
+/** A failed run's diagnostic (decision 786): one of the run's four refusals, which only the run
+ *  reaches (:1173-1268). sample_covariance_singular and overflow name a column of the spec;
+ *  cfa_not_converged's count at most its limit, and its limit 500; model_not_identified with
+ *  no params, or with count. */
+function cfaFailure(failure: unknown, spec: O): boolean {
+  if (!isObject(failure) || failure.severity !== 'error' || !isObject(failure.params)) return false;
+  const sp = spec.parameters;
+  // The spec held to the rules cfaBundle holds it to (the review of 9C-3, finding 6): exactly
+  // CfaParams' keys, the indicators as check requires them, the codes finite, ascending, once.
+  if (!isObject(sp) || !hasExactly(sp, ['indicators', 'correlatedFactors', 'missingCodes']) || cfIndicators(sp) === null) return false;
+  const codes = sp.missingCodes;
+  if (!Array.isArray(codes) || !codes.every(isNum) || codes.some((c, i) => i > 0 && !((c as number) > (codes[i - 1] as number)))) return false;
+  const numbers = (cfIndicators(sp) as number[][]).flat();
+  const keys = Object.keys(failure.params).sort();
+  const pr = failure.params as O;
+  switch (failure.code) {
+    case cfCode('sample_covariance_singular'):
+    case cfCode('overflow'):
+      return keys.length === 1 && keys[0] === 'column' && isCount(pr.column) && numbers.indexOf(pr.column) >= 0;
+    case cfCode('cfa_not_converged'):
+      return JSON.stringify(keys) === JSON.stringify(['count', 'limit']) && pr.limit === CF_MAX_ITERATIONS && isCount(pr.count) && pr.count <= CF_MAX_ITERATIONS;
+    case cfCode('model_not_identified'):
+      return keys.length === 0 || (JSON.stringify(keys) === JSON.stringify(['count']) && isCount(pr.count) && pr.count >= 1);
+    default:
+      return false;
+  }
+}
+
 /* ---- the checkers, one per method (Phase 8C; decision 249) ------------------- */
 
 /** How one method's saved result is checked: the case it is shown as, its
@@ -1927,8 +2425,9 @@ interface StoredChecker {
    *  answers null when a field it reads is absent. */
   bundle: (v: O, dataFile: DataFileFacts, spec: O) => Checked | null;
   /** A failed run's diagnostic beyond its code and keys, given the stored spec (decision
-   *  688). Only the linear regression's and the factor analysis's (decision 733) checkers set
-   *  it; every other failed run is checked by its code and keys alone, as before. */
+   *  688). Only the linear regression's, the factor analysis's (decision 733) and the
+   *  confirmatory factor analysis's (decision 786) checkers set it; every other failed run is
+   *  checked by its code and keys alone, as before. */
   failure?: (failure: unknown, spec: O) => boolean;
 }
 
@@ -2060,6 +2559,18 @@ export const STORED_CHECKERS: Record<string, StoredChecker> = {
       return result ? { kind: 'factor', result, dataFile } : null;
     },
     failure: factorFailure,
+  },
+  // Research OS, Phase 9C-3 (decision 786).
+  [CFA_CAPABILITY]: {
+    which: 'cfa',
+    codes: CF_CODES,
+    keys: CF_PARAM_KEYS,
+    strings: false,
+    bundle: (v, dataFile, spec) => {
+      const result = cfaBundle(v, spec);
+      return result ? { kind: 'cfa', result, dataFile } : null;
+    },
+    failure: cfaFailure,
   },
 };
 
