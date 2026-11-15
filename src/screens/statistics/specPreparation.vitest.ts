@@ -1,11 +1,11 @@
 // Gaply — every method's spec carries the view's preparation (Research OS,
 // Phase 8T-1a, decision 490). Rust refuses a spec on a prepared table without
 // one, and a spec on a file's own table with one (stats_desc/mod.rs:574-586),
-// so each of the thirteen builders (crosstabs' since 8X-2, decision 588, Rust's
+// so each of the fourteen builders (crosstabs' since 8X-2, decision 588, Rust's
 // own refusal at stats_xtab/mod.rs:606-608; the rank tests' since 8Y-2, decision 619;
 // the related rank tests' since 8Z-2, decision 653; the linear regression's since 9A-2,
 // decision 684; the factor analysis's since 9B-3, decision 729; the confirmatory factor
-// analysis's since 9C-3, decision 782)
+// analysis's since 9C-3, decision 782; the structural equation model's since 9C-5, decision 814)
 // copies the view's preparation exactly when the
 // view has one. On a file's own table the key is ABSENT, never null: Rust reads
 // a null as none (contracts/mod.rs:237-258), so only this test can catch it, and
@@ -26,6 +26,7 @@ import { buildXtabSpec } from './XtabSettings';
 import { buildLinearRegressionSpec } from './LinearRegressionSettings';
 import { buildFactorSpec } from './FactorSettings';
 import { buildCfaSpec } from './CfaSettings';
+import { buildSemSpec } from './SemSettings';
 
 const BUILDERS: Array<[string, (view: DatasetView) => object]> = [
   ['alpha', (v) => buildAlphaSpec(v, ['C1', 'C2'], [], null, [], 1)],
@@ -44,6 +45,8 @@ const BUILDERS: Array<[string, (view: DatasetView) => object]> = [
   ['factor analysis', (v) => buildFactorSpec(v, ['C1', 'C2'], 'principal_components', null, 'none', 25, 0.001, [], 1)],
   // Research OS, Phase 9C-3 (decision 782).
   ['confirmatory factor analysis', (v) => buildCfaSpec(v, [['C1', 'C2']], true, [], 1)],
+  // Research OS, Phase 9C-5 (decision 814).
+  ['structural equation model', (v) => buildSemSpec(v, { indicators: [['C1', 'C2']], paths: [], covariances: [], equal: [] }, [], 1)],
 ];
 
 describe('every spec carries the view\'s preparation (decision 490)', () => {

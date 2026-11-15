@@ -333,6 +333,10 @@ fn each_not_computable_path_writes_its_code() {
     assert_eq!(r.fit.model.mecvi, Stat::NotComputable(C::TooFewRowsForBcc));
 }
 
+/// The R golden's error_block_not_pd spec (Research OS, Phase 9C-5, decision
+/// 812): the review of 9C-4's id206 shape.
+const ERROR_BLOCK_NOT_PD: &str = r#"{"indicators":[["C1","C2","C3","C4"]],"paths":[{"to":{"factor":1},"from":{"column":"C5"}}],"covariances":[{"a":{"column":"C1"},"b":{"column":"C2"}},{"a":{"column":"C1"},"b":{"column":"C3"}},{"a":{"column":"C2"},"b":{"column":"C4"}},{"a":{"column":"C3"},"b":{"column":"C5"}},{"a":{"column":"C4"},"b":{"column":"C5"}}],"equal":[],"missingCodes":[]}"#;
+
 #[test]
 fn each_note_comes_in_its_order() {
     let heywood = file(&format!("{CFA_DATA}/heywood.csv"));
@@ -342,6 +346,15 @@ fn each_note_comes_in_its_order() {
     let phi = file(&format!("{CFA_DATA}/phi_not_pd.csv"));
     let r = compute(&phi, &sem(r#"{"indicators":[["C1","C2"],["C3","C4"]],"paths":[],"covariances":[{"a":{"factor":1},"b":{"factor":2}}],"equal":[],"missingCodes":[]}"#)).unwrap();
     assert_eq!(r.notes, [C::CovarianceNotPositiveDefinite]);
+    // Decision 812 (the review of 9C-4, M2): the block through error covariances
+    // alone. One factor, so the factors' own block is 1 × 1 and positive; the
+    // block of the factor and C1 to C5 is not positive definite, and no variance
+    // is below 0 (the golden's error_block_not_pd, data/id206.csv, seed 4).
+    let id206 = file(&format!("{SEM_DATA}/id206.csv"));
+    let r = compute(&id206, &sem(ERROR_BLOCK_NOT_PD)).unwrap();
+    assert_eq!(r.notes, [C::CovarianceNotPositiveDefinite, C::DfZero]);
+    assert!(r.variances.iter().all(|v| val(v.estimate) > 0.0));
+    assert!(val(r.variances[0].estimate) > 0.0, "the factors' own block, 1 × 1, is positive");
     let felson = file(&format!("{SEM_DATA}/felson.csv"));
     let r = compute(&felson, &sem(EXAMPLE_7)).unwrap();
     assert_eq!(r.notes, [C::Nonrecursive]);
@@ -487,6 +500,29 @@ fn the_walsh_columns_refuse_as_not_converged() {
 /// The count the run gives on the Walsh columns, 500, as R's prototype gave
 /// (logs/p2_sem_targets_1794724810.log).
 const WALSH_COUNT: i64 = 500;
+
+/// The R golden's newton_relaxed spec (Research OS, Phase 9C-5, decision 812):
+/// the review of 9C-4's id384 shape on data/id384.csv, seed 17.
+const NEWTON_RELAXED: &str = r#"{"indicators":[["C1","C2","C3","C4"],["C5","C6"],["C7","C8","C9","C10"]],"paths":[{"to":{"column":"C11"},"from":{"factor":3}},{"to":{"column":"C13"},"from":{"column":"C11"}}],"covariances":[{"a":{"factor":2},"b":{"column":"C4"}},{"a":{"column":"C1"},"b":{"column":"C13"}}],"equal":[],"missingCodes":[]}"#;
+
+/// Decision 812 (the review of 9C-4, M1): on id384's shape attempt 1 fails at
+/// iteration 0 (H is not positive definite at Gaply's start), and Newton's
+/// attempt, with Fisher scoring's relaxation of the F test, reaches R's proper
+/// minimum. At a8e53eba, without the relaxation, the run refused this dataset
+/// as sem_not_converged at 500 of 500 (9c5/search/m1/gaply_pre_fix.tsv); its
+/// numbers are the golden's newton_relaxed case.
+#[test]
+fn newtons_attempt_reaches_the_proper_minimum_of_id384_at_attempt_2() {
+    let d = file(&format!("{SEM_DATA}/id384.csv"));
+    let s = sem(NEWTON_RELAXED);
+    let first = compute_with_caps(&d, &s, [MAX_ITERATIONS, 0, 0]).unwrap_err();
+    assert_eq!((first.code, int(&first, ParamKey::Count)), (C::SemNotConverged, Some(0)), "the premise: attempt 1 ends at iteration 0");
+    let r = compute(&d, &s).unwrap_or_else(|e| panic!("refused: {} {:?}", e.code.wire(), e.params));
+    println!("id384: attempt {}, {} iterations", r.attempt, r.iterations);
+    assert_eq!(r.attempt, 2);
+    assert!(r.notes.is_empty(), "{:?}", r.notes);
+    assert!(r.variances.iter().all(|v| val(v.estimate) > 0.0));
+}
 
 /* ---- a CFA spec fitted by both methods ------------------------------------- */
 

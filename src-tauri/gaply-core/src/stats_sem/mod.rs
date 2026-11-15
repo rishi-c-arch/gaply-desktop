@@ -65,7 +65,7 @@ use crate::stats_desc::{
     input_ref, preparation_holds, score_code_count, suspect_codes_unless_score, Alias,
 };
 use crate::stats_dist::normal_two_tailed;
-use crate::stats_fit::{fit_measures as fit_rows, FitCode, FitInput, FitPoint, FitRow, FitValue};
+use crate::stats_fit::{fit_measures as fit_rows, model_df, FitCode, FitInput, FitPoint, FitRow, FitValue};
 use crate::stats_l1::dataset::{Cell, Dataset};
 use crate::stats_linalg::{cholesky, cholesky_within, inverse, log_det, multiply, pivoted_rank, spd_inverse};
 use crate::stats_ttest::{column, non_finite_cells};
@@ -1748,7 +1748,9 @@ fn fisher<E>(
 /// definite: a minimum, not a saddle. Otherwise the step is −(J + μ D)⁻¹ g, D
 /// H's diagonal each raised to at least [`DIAGONAL_FLOOR`] of its largest; μ
 /// grows (to [`DAMPING_START`] from 0, then tenfold) while J + μ D fails its
-/// factor at [`DAMPED_TOLERANCE`] or F at the step is undefined or larger, and
+/// factor at [`DAMPED_TOLERANCE`] or F at the step is undefined, or larger
+/// where H fails its factor or gᵀH⁻¹g is above [`DECREMENT_F_TEST`] (decision
+/// 812: at or below it a defined F is enough, as in Fisher scoring), and
 /// after [`MAX_SOLVES`] solves for one step the attempt ends; after a step μ
 /// falls (to 0 at or below [`DAMPING_START`], else a tenth). `at` is called at
 /// each iteration and before each solve.
@@ -1765,6 +1767,11 @@ fn newton<E>(
         at()?;
         let Some(e) = point(&theta) else { return Ok(Err(iterations)) };
         let j = e.j.as_ref().expect("Newton's attempt evaluates J");
+        // Decision 812: where H passes its factor and the decrement is at most
+        // DECREMENT_F_TEST, F's rounding exceeds what a step can lower it by, so
+        // a step is taken whenever F at it is defined, as Fisher scoring takes
+        // one (the review of 9C-4, M1).
+        let mut relaxed = false;
         if let Ok(lh) = cholesky(&e.h) {
             let h_inverse = spd_inverse(&lh);
             let decrement: f64 = solve(&h_inverse, &e.g).iter().zip(&e.g).map(|(x, y)| x * y).sum();
@@ -1774,6 +1781,7 @@ fn newton<E>(
                     Err(_) => Err(iterations),
                 });
             }
+            relaxed = decrement <= DECREMENT_F_TEST;
         }
         if iterations >= u64::from(cap) {
             return Ok(Err(iterations));
@@ -1789,7 +1797,7 @@ fn newton<E>(
                 let step = solve(&spd_inverse(&l), &e.g);
                 let candidate: Vec<f64> = theta.iter().zip(&step).map(|(t, s)| t - s).collect();
                 if let Some(f) = f_at(&candidate) {
-                    if f <= e.f {
+                    if relaxed || f <= e.f {
                         accepted = Some(candidate);
                         break;
                     }
@@ -2176,13 +2184,18 @@ fn outcome<B>(
     at(p + 3)?;
     let sigma_l = cholesky_within(&imp.sigma, 0.0).expect("the solution's Σ is positive definite");
     let sigma_inverse = spd_inverse(&sigma_l);
+    let q = model.q() as u64;
+    // Decision 812: never reached, since identification refuses such a spec in
+    // check (a pivoted rank is at most the moments); mapped, not unwrapped.
+    let d = model_df(p, q).map_err(|count| Halt::Refused(Diagnostic::error(SemCode::ModelNotIdentified).int(ParamKey::Count, count as i64)))?;
     let input = FitInput {
         s,
         log_det_s,
         sigma: &imp.sigma,
         sigma_inverse: &sigma_inverse,
         f: solved.f,
-        q: model.q() as u64,
+        q,
+        d,
         big_n,
         n,
     };
@@ -2465,6 +2478,66 @@ mod tests {
         let found = newton(vec![1.0, 1.0], 10, &bowl, &f_bowl, &mut || Ok::<(), Infallible>(())).unwrap().unwrap();
         // J⁻¹ through its Cholesky factor gives 0.5000000000000001, so the step lands within
         // rounding of 0, where the decrement is far below 1e-20.
+        assert_eq!(found.iterations, 1);
+        assert!(found.theta.iter().all(|x| x.abs() <= 4.0 * f64::EPSILON), "{:?}", found.theta);
+    }
+
+    /// Decision 812 (decision 808's third answer): a spec with more parameters
+    /// than moments is refused by check's identification, before any fit, so
+    /// model_df's Err is a guard the run never reaches. On two columns a path
+    /// and a covariance between them, with both variances, are 4 parameters
+    /// over 3 moments; and a 6-column spec with every pair of columns
+    /// covarying and a path between two of them, 22 over 21.
+    #[test]
+    fn identification_refuses_a_spec_with_more_parameters_than_moments_first() {
+        let wheaton = table(WHEATON);
+        let two = params(r#"{"indicators":[],"paths":[{"to":{"column":"C2"},"from":{"column":"C1"}}],"covariances":[{"a":{"column":"C1"},"b":{"column":"C2"}}],"equal":[],"missingCodes":[]}"#);
+        let mut covs = Vec::new();
+        for a in 1..=6 {
+            for b in a + 1..=6 {
+                covs.push(format!(r#"{{"a":{{"column":"C{a}"}},"b":{{"column":"C{b}"}}}}"#));
+            }
+        }
+        let six = params(&format!(r#"{{"indicators":[],"paths":[{{"to":{{"column":"C2"}},"from":{{"column":"C1"}}}}],"covariances":[{}],"equal":[],"missingCodes":[]}}"#, covs.join(",")));
+        for (spec, p, q) in [(two, 2usize, 4usize), (six, 6, 22)] {
+            let model = Model::of(&spec);
+            assert_eq!((model.p, model.q()), (p, q), "the premise");
+            assert!(crate::stats_fit::model_df(p, q as u64).is_err(), "the premise: q above the moments");
+            let checked = check(&wheaton, &spec);
+            assert_eq!(checked.errors.len(), 1);
+            assert_eq!(checked.errors[0].code, SemCode::ModelNotIdentified);
+            assert!(checked.ready.is_none());
+        }
+    }
+
+    /// Decision 812 (the review of 9C-4, M1): near a minimum, where a step
+    /// would lower F by less than F's rounding, Newton's attempt takes Fisher
+    /// scoring's relaxation of the F test. F here is 1 + x² + y² plus 4 ulps
+    /// of 1 at every point but the start, so F is flat to rounding and every
+    /// step leaves it a few ulps above F at the start: the strict test f <= e.f
+    /// rejects each solve until μ is so large that the step no longer moves θ,
+    /// and the attempt stands at its start until its cap (measured at a8e53eba:
+    /// refused after 10 iterations, the cap here, and 52 check points). With the
+    /// relaxation, H = J = 2I passes its Cholesky factor and gᵀH⁻¹g = 4e-16
+    /// is at most DECREMENT_F_TEST, so the first step is taken and lands on
+    /// the minimum, where the decrement is 0 and J is positive definite.
+    #[test]
+    fn newtons_attempt_accepts_a_step_flat_to_rounding_near_a_minimum() {
+        const START: [f64; 2] = [1e-8, 1e-8];
+        let rounding = |t: &[f64]| if t == START { 0.0 } else { 4.0 * f64::EPSILON };
+        let f = |t: &[f64]| 1.0 + t[0] * t[0] + t[1] * t[1] + rounding(t);
+        let two = vec![vec![2.0, 0.0], vec![0.0, 2.0]];
+        let point = |t: &[f64]| Some(Point { f: f(t), g: vec![2.0 * t[0], 2.0 * t[1]], h: two.clone(), j: Some(two.clone()) });
+        let f_at = |t: &[f64]| Some(f(t));
+        // The premise: every step from the start, however damped, lands above F there.
+        assert!(f(&[0.0, 0.0]) > f(&START) && f(&[0.5e-8, 0.5e-8]) > f(&START));
+        let mut calls = 0;
+        let found = newton(START.to_vec(), 10, &point, &f_at, &mut || {
+            calls += 1;
+            Ok::<(), Infallible>(())
+        })
+        .unwrap();
+        let found = found.unwrap_or_else(|n| panic!("refused after {n} iterations and {calls} check points"));
         assert_eq!(found.iterations, 1);
         assert!(found.theta.iter().all(|x| x.abs() <= 4.0 * f64::EPSILON), "{:?}", found.theta);
     }

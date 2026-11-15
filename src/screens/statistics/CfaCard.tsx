@@ -7,7 +7,8 @@
 // regression weights, the standardized regression weights, the covariances and correlations of
 // the factors where there are any, the variances, the squared multiple correlations); and the
 // ten model-fit tables, each with AMOS's rows for the default, saturated and independence
-// models, the saturated row left out of RMSEA's and HOELTER's as AMOS leaves it out. Then the
+// models, the saturated row left out of RMSEA's and HOELTER's as AMOS leaves it out (drawn by
+// ModelFitTables.tsx since 9C-5, decision 814, which the SEM's card shares). Then the
 // notes, the rows left out, what is not assessed, the digits note and the manifest.
 //
 // Every number goes through shownNumber, but NPAR, DF, HOELTER and the iterations, which are
@@ -21,29 +22,25 @@
 import React from 'react';
 import { CELL_PADDING } from '../../design-system/primitives';
 import { DiagnosticList, ManifestPanel } from './flowParts';
-import type { CfaModelFit, CfaResultView, CfaStat } from './cfaTypes';
+import type { CfaResultView, CfaStat } from './cfaTypes';
+import { ModelFitTables } from './ModelFitTables';
 import {
   CFA_DIGITS_NOTE,
-  CFA_FIT_TABLES,
   CFA_ROWS_USED_NOTE,
   CF_HEADINGS,
   CF_LABELS,
   CF_NO_COVARIANCES,
-  CF_ROWS,
-  CF_THREE_MODELS,
+  cfaCellSentence,
   cfaChiSquareSentence,
   cfaCovarianceRow,
-  cfaDashLine,
   cfaErrorRow,
   cfaFactorRow,
-  cfaFitText,
   cfaIterationsSentence,
   cfaSentence,
   cfaStatText,
   cfaWeightRow,
   cfaWholeText,
   type CfaNames,
-  type CfaRow,
 } from './cfaWording';
 
 const head: React.CSSProperties = { textAlign: 'left', ...CELL_PADDING };
@@ -84,70 +81,6 @@ const TestedCells: React.FC<{ s: { estimate: CfaStat; se: CfaStat; cr: CfaStat; 
     <StatCell stat={s.p} />
   </>
 );
-
-const ROW_ORDER: CfaRow[] = ['model', 'saturated', 'independence'];
-
-/** One of AMOS's ten model-fit tables, its rows' not-computable cells shown as "–", and under
- *  it one line per code those cells hold, in the order they first appear. */
-const FitTable: React.FC<{ spec: (typeof CFA_FIT_TABLES)[number]; fit: Record<CfaRow, CfaModelFit> }> = ({ spec, fit }) => {
-  const rows = ROW_ORDER.filter((r) => r !== 'saturated' || spec.saturated);
-  const codes: string[] = [];
-  for (const r of rows) {
-    for (const c of spec.columns) {
-      const s = fit[r][c.key];
-      if (typeof s !== 'number' && !('value' in s) && !codes.includes(s.not_computable)) codes.push(s.not_computable);
-    }
-  }
-  return (
-    <section aria-label={spec.heading}>
-      <Heading text={spec.heading} />
-      <table data-testid={`cf-fit-${spec.id}`} style={table}>
-        <thead>
-          <tr>
-            <th scope="col" style={head}>
-              {CF_LABELS.model}
-            </th>
-            {spec.columns.map((c) => (
-              <th key={c.key} scope="col" style={head}>
-                {c.label}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => (
-            <tr key={r} data-testid={`cf-fit-${spec.id}-${r}`}>
-              <th scope="row" style={head}>
-                {CF_ROWS[r]}
-              </th>
-              {spec.columns.map((c) => {
-                const s = fit[r][c.key];
-                const value = typeof s === 'number' || 'value' in s;
-                return (
-                  <td key={c.key} className={value ? 'gds-mono' : undefined} style={CELL_PADDING}>
-                    {cfaFitText(s, c.whole === true)}
-                  </td>
-                );
-              })}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {codes.length > 0 && (
-        <ul style={{ margin: '4px 0 0' }} data-testid={`cf-fit-${spec.id}-codes`}>
-          {codes.map((code) => (
-            <li key={code}>{cfaDashLine(code)}</li>
-          ))}
-        </ul>
-      )}
-      {spec.id === 'cmin' && (
-        <p style={{ margin: '4px 0 0' }} data-testid="cf-three-models">
-          {CF_THREE_MODELS}
-        </p>
-      )}
-    </section>
-  );
-};
 
 /** The neutral result card (decision 66). */
 export const CfaCard: React.FC<{ result: CfaResultView; names: CfaNames }> = ({ result, names }) => {
@@ -322,9 +255,7 @@ export const CfaCard: React.FC<{ result: CfaResultView; names: CfaNames }> = ({ 
 
       <section aria-label={CF_HEADINGS.fit}>
         <h3 style={{ margin: '8px 0 4px' }}>{CF_HEADINGS.fit}</h3>
-        {CFA_FIT_TABLES.map((t) => (
-          <FitTable key={t.id} spec={t} fit={r.fit} />
-        ))}
+        <ModelFitTables fit={r.fit} prefix="cf" cellSentence={cfaCellSentence} />
       </section>
 
       {r.notes.length > 0 && (

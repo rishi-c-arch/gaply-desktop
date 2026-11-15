@@ -123,8 +123,19 @@ pub(crate) struct FitRows {
     pub independence: FitRow,
 }
 
+/// The model's degrees of freedom, p (p + 1) / 2 − q, by checked subtraction:
+/// `Ok(d)`, or `Err` with the count by which q exceeds the moments, which each
+/// caller refuses as `model_not_identified` (Research OS, Phase 9C-5, decision
+/// 812). Each caller's identification check refuses such a spec before any
+/// fit, so the `Err` is a guard that no run reaches.
+pub(crate) fn model_df(p: usize, q: u64) -> Result<u64, u64> {
+    let moments = (p * (p + 1) / 2) as u64;
+    moments.checked_sub(q).ok_or_else(|| q - moments)
+}
+
 /// What the fit is computed from: S with divisor N and ln|S|; the fitted Σ̂ and
-/// Σ̂⁻¹; the minimum F as the estimation reached it; NPAR q; N and n = N − 1.
+/// Σ̂⁻¹; the minimum F as the estimation reached it; NPAR q; the degrees of
+/// freedom d, from [`model_df`]; N and n = N − 1.
 pub(crate) struct FitInput<'a> {
     pub s: &'a [Vec<f64>],
     pub log_det_s: f64,
@@ -132,6 +143,7 @@ pub(crate) struct FitInput<'a> {
     pub sigma_inverse: &'a [Vec<f64>],
     pub f: f64,
     pub q: u64,
+    pub d: u64,
     pub big_n: f64,
     pub n: f64,
 }
@@ -170,10 +182,9 @@ fn unless_df_zero(d: u64, v: impl FnOnce() -> FitValue) -> FitValue {
 /// `at(FitPoint::Independence)` before each of the independence row's (decision
 /// 796); the saturated row, at d = 0, searches none.
 pub(crate) fn fit_measures<E>(input: &FitInput<'_>, at: &mut impl FnMut(FitPoint) -> Result<(), E>) -> Result<FitRows, E> {
-    let FitInput { s, log_det_s, sigma, sigma_inverse, f, q, big_n, n } = *input;
+    let FitInput { s, log_det_s, sigma, sigma_inverse, f, q, d, big_n, n } = *input;
     let p = s.len();
     let moments = (p * (p + 1) / 2) as u64;
-    let d = moments - q;
     // Decision 745 clamps a minimum below 0 to 0 at every d. At d = 0 a model
     // with as many parameters as moments that has converged reproduces S, so
     // its F is 0 and rounding of either sign is not a fit: an F of at most
@@ -369,4 +380,24 @@ pub(crate) fn model_fit<E>(
         hoelter05: hoelter(0.05),
         hoelter01: hoelter(0.01),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Decision 812 (decision 808's third answer): the model's degrees of
+    /// freedom by checked subtraction, below, at and above the p (p + 1) / 2
+    /// moments; never a wrapped or panicking subtraction.
+    #[test]
+    fn model_df_subtracts_by_checking_below_at_and_above_the_moments() {
+        // p = 6: 21 moments.
+        assert_eq!(model_df(6, 15), Ok(6));
+        assert_eq!(model_df(6, 21), Ok(0));
+        assert_eq!(model_df(6, 22), Err(1));
+        assert_eq!(model_df(6, 40), Err(19));
+        // p = 1: one moment; q far above it.
+        assert_eq!(model_df(1, u64::MAX), Err(u64::MAX - 1));
+        assert_eq!(model_df(128, 0), Ok(8256));
+    }
 }

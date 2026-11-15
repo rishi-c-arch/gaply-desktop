@@ -122,6 +122,42 @@ const CFA_EDGES_9C4 = ['cfa_exact_fit.json', 'cfa_independence_zero.json', 'cfa_
 
 /* ---- the shape check ----------------------------------------------------------- */
 
+/** Decision 812: the it.each body that removes each field of a stored record in turn, named so
+ *  factor_slow_varimax.json's own it runs the same body. */
+function rejectsEachFieldRemoved(name: string, field: 'bundleJson' | 'failureJson') {
+  const all = paths(JSON.parse(stored(name)[field] as string)).filter((p) => typeof p[p.length - 1] === 'string');
+  expect(all.length).toBeGreaterThan(5);
+  const accepted: string[] = [];
+  for (const p of all) {
+    const s = withStored(name, field, (v) => setAt(v, p, DELETE));
+    if (checkStored(s).kind !== 'badShape' && checkStored(s).kind !== 'unknownSchema') accepted.push(p.join('.'));
+  }
+  expect(accepted).toEqual([]);
+}
+
+/** Decision 812: the it.each body that nulls, or makes a string of, each number in turn. */
+function rejectsEachNumberNulled(name: string, field: 'bundleJson' | 'failureJson') {
+  const v0 = JSON.parse(stored(name)[field] as string);
+  const numbers = paths(v0).filter((p) => typeof getAt(v0, p) === 'number');
+  // A failure record holds a code and its parameters only: ttest_failed.json's two numbers,
+  // linear_regression_failed.json's two (its schema version and the collinear column), and
+  // factor_failed.json's two (its schema version and the singular item), and
+  // cfa_failed.json's two (its schema version and the singular column; decision 785), and
+  // cfa_failed_not_identified.json's one (its schema version; decision 794).
+  if (name !== 'ttest_failed.json' && name !== 'linear_regression_failed.json' && name !== 'factor_failed.json' && name !== 'cfa_failed.json' && name !== 'cfa_failed_not_identified.json') expect(numbers.length).toBeGreaterThan(10);
+  for (const replacement of [null, '1']) {
+    const accepted: string[] = [];
+    for (const p of numbers) {
+      const s = withStored(name, field, (v) => setAt(v, p, replacement));
+      if (checkStored(s).kind !== 'badShape' && checkStored(s).kind !== 'unknownSchema') accepted.push(p.join('.'));
+    }
+    expect(accepted, String(replacement)).toEqual([]);
+  }
+}
+
+/** Decision 812: factor_slow_varimax.json's two cases' timeout. */
+const SLOW_VARIMAX_TIMEOUT_MS = 60_000;
+
 describe('the shape check', () => {
   it('has the forty-three snapshots Rust wrote, and accepts every one', () => {
     expect(SNAPSHOTS).toEqual([
@@ -240,8 +276,8 @@ describe('the shape check', () => {
     ['factor_varimax.json', 'bundleJson'],
     ['factor_not_rotated.json', 'bundleJson'],
     ['factor_failed.json', 'failureJson'],
-    // Research OS, Phase 9C-1 (decision 742's B1).
-    ['factor_slow_varimax.json', 'bundleJson'],
+    // Research OS, Phase 9C-1 (decision 742's B1): factor_slow_varimax.json has an it of its own
+    // below, with its own timeout (decision 812).
     // Research OS, Phase 9C-3 (decision 785).
     ['cfa.json', 'bundleJson'],
     ['cfa_uncorrelated.json', 'bundleJson'],
@@ -252,16 +288,15 @@ describe('the shape check', () => {
     ['cfa_failed_not_identified.json', 'failureJson'],
     // Research OS, Phase 9B-1 (decision 698).
     ...EDGES_9B1.map((f) => [f, 'bundleJson'] as const),
-  ] as const)('%s: rejects it with any one field of its %s removed', (name, field) => {
-    const all = paths(JSON.parse(stored(name)[field] as string)).filter((p) => typeof p[p.length - 1] === 'string');
-    expect(all.length).toBeGreaterThan(5);
-    const accepted: string[] = [];
-    for (const p of all) {
-      const s = withStored(name, field, (v) => setAt(v, p, DELETE));
-      if (checkStored(s).kind !== 'badShape' && checkStored(s).kind !== 'unknownSchema') accepted.push(p.join('.'));
-    }
-    expect(accepted).toEqual([]);
-  });
+  ] as const)('%s: rejects it with any one field of its %s removed', rejectsEachFieldRemoved);
+
+  // Research OS, Phase 9C-5 (decision 812): this case timed out at default workers. Measured on
+  // 15 Nov 2026 (macOS, ~/gaply-corpus/os/phase9/9c5/timing/): alone 6.77, 6.83 and 6.77 s; in
+  // the whole suite at default workers 18.01, 18.77 and 18.58 s (load 3.85 to 18.17), against
+  // the config's 20 s. Its timeout is three times the slowest of the six times of the two cases
+  // (18.78 s), rounded up to the next 10 s, and at least 60 s. Every other case keeps the
+  // config's timeout.
+  it('factor_slow_varimax.json: rejects it with any one field of its bundleJson removed', () => rejectsEachFieldRemoved('factor_slow_varimax.json', 'bundleJson'), SLOW_VARIMAX_TIMEOUT_MS);
 
   it.each([
     ['summary.json', 'bundleJson'],
@@ -284,8 +319,8 @@ describe('the shape check', () => {
     ['factor_varimax.json', 'bundleJson'],
     ['factor_not_rotated.json', 'bundleJson'],
     ['factor_failed.json', 'failureJson'],
-    // Research OS, Phase 9C-1 (decision 742's B1).
-    ['factor_slow_varimax.json', 'bundleJson'],
+    // Research OS, Phase 9C-1 (decision 742's B1): factor_slow_varimax.json has an it of its own
+    // below, with its own timeout (decision 812).
     // Research OS, Phase 9C-3 (decision 785).
     ['cfa.json', 'bundleJson'],
     ['cfa_uncorrelated.json', 'bundleJson'],
@@ -296,24 +331,11 @@ describe('the shape check', () => {
     ['cfa_failed_not_identified.json', 'failureJson'],
     // Research OS, Phase 9B-1 (decision 698).
     ...EDGES_9B1.map((f) => [f, 'bundleJson'] as const),
-  ] as const)('%s: rejects it with any one number in its %s made null, or made a string', (name, field) => {
-    const v0 = JSON.parse(stored(name)[field] as string);
-    const numbers = paths(v0).filter((p) => typeof getAt(v0, p) === 'number');
-    // A failure record holds a code and its parameters only: ttest_failed.json's two numbers,
-    // linear_regression_failed.json's two (its schema version and the collinear column), and
-    // factor_failed.json's two (its schema version and the singular item), and
-    // cfa_failed.json's two (its schema version and the singular column; decision 785), and
-    // cfa_failed_not_identified.json's one (its schema version; decision 794).
-    if (name !== 'ttest_failed.json' && name !== 'linear_regression_failed.json' && name !== 'factor_failed.json' && name !== 'cfa_failed.json' && name !== 'cfa_failed_not_identified.json') expect(numbers.length).toBeGreaterThan(10);
-    for (const replacement of [null, '1']) {
-      const accepted: string[] = [];
-      for (const p of numbers) {
-        const s = withStored(name, field, (v) => setAt(v, p, replacement));
-        if (checkStored(s).kind !== 'badShape' && checkStored(s).kind !== 'unknownSchema') accepted.push(p.join('.'));
-      }
-      expect(accepted, String(replacement)).toEqual([]);
-    }
-  });
+  ] as const)('%s: rejects it with any one number in its %s made null, or made a string', rejectsEachNumberNulled);
+
+  // Research OS, Phase 9C-5 (decision 812): as the case above, measured on 15 Nov 2026: alone
+  // 6.84, 6.82 and 6.85 s; in the whole suite 18.28, 18.10 and 18.78 s.
+  it('factor_slow_varimax.json: rejects it with any one number in its bundleJson made null, or made a string', () => rejectsEachNumberNulled('factor_slow_varimax.json', 'bundleJson'), SLOW_VARIMAX_TIMEOUT_MS);
 
   it('rejects wrong types, unknown words and codes, extra groups, and text that is not JSON', () => {
     const bad = [

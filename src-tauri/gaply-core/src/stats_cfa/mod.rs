@@ -69,7 +69,7 @@ use crate::stats_desc::{
     input_ref, preparation_holds, score_code_count, suspect_codes_unless_score, Alias,
 };
 use crate::stats_dist::normal_two_tailed;
-use crate::stats_fit::{fit_measures as fit_rows, FitCode, FitInput, FitPoint, FitRow, FitValue};
+use crate::stats_fit::{fit_measures as fit_rows, model_df, FitCode, FitInput, FitPoint, FitRow, FitValue};
 #[cfg(test)]
 use crate::stats_fit::Row;
 use crate::stats_l1::dataset::{Cell, Dataset};
@@ -1424,13 +1424,18 @@ fn fit_measures<B>(
     at: &mut impl FnMut(usize) -> Result<(), Halt<B>>,
 ) -> Result<CfaFit, Halt<B>> {
     let p = model.p;
+    let q = model.q() as u64;
+    // Decision 812: never reached, since degrees_of_freedom refuses such a spec
+    // before estimating; mapped, not unwrapped.
+    let d = model_df(p, q).map_err(|count| Halt::Refused(Diagnostic::error(CfaCode::ModelNotIdentified).int(ParamKey::Count, count as i64)))?;
     let input = FitInput {
         s,
         log_det_s,
         sigma,
         sigma_inverse: &fitted.inverse,
         f: fitted.f,
-        q: model.q() as u64,
+        q,
+        d,
         big_n,
         n,
     };

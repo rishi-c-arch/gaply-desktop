@@ -382,10 +382,12 @@ fn every_number_of_every_case_is_within_its_gate_of_r() {
         println!("sem golden {fam}: worst {e:.3e} at {at}; gate {:e}", gate(fam));
     }
     println!("sem golden: {} cases, {compared} values compared", cases.len());
-    assert_eq!(cases.len(), 21, "the script's cases, none skipped");
+    // 21 cases at 9C-4; 23 with 9C-5's newton_relaxed and error_block_not_pd (decision 812).
+    assert_eq!(cases.len(), 23, "the script's cases, none skipped");
     assert_eq!(compared, COMPARED, "every expected row compared");
     assert!(failures.is_empty(), "{} failures:\n{}", failures.len(), failures.join("\n"));
 }
 
-/// Every expected row: make_sem_fixtures.R's count, 6,458.
-const COMPARED: usize = 6458;
+/// Every expected row: make_sem_fixtures.R's count, 6,939 (6,458 at 9C-4, and 9C-5's two cases' 278 and
+/// 203 rows, decision 812).
+const COMPARED: usize = 6939;

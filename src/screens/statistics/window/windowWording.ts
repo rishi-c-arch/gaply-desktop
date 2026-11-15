@@ -322,6 +322,53 @@ export function cfaSettingsLine(p: { indicators: string[][]; correlatedFactors: 
   return `${factors}${correlated}${codesWords(p.missingCodes)}`;
 }
 
+/** The structural equation model's dialog (Research OS, Phase 9C-5, decision 815): here because
+ *  namedColumn and codesWords are private to this file. Each part only when it has something to
+ *  say, everything in the spec's order: the factors with their columns, the columns on their own,
+ *  the paths, the covariances, the groups held equal in the card's terms, and the codes. */
+export const SEM_DIALOG_TITLE = 'Structural equations: Structural equation model';
+type SemLineVariable = { factor: number } | { column: string };
+type SemLineParameter =
+  | { loading: { factor: number; column: string } }
+  | { path: { to: SemLineVariable; from: SemLineVariable } }
+  | { covariance: { a: SemLineVariable; b: SemLineVariable } }
+  | { variance: { variable: SemLineVariable } };
+export function semSettingsLine(
+  p: {
+    indicators: string[][];
+    paths: Array<{ to: SemLineVariable; from: SemLineVariable }>;
+    covariances: Array<{ a: SemLineVariable; b: SemLineVariable }>;
+    equal: SemLineParameter[][];
+    missingCodes: number[];
+  },
+  view: LineView
+): string {
+  const name = (v: SemLineVariable) => ('factor' in v ? `Factor ${v.factor}` : namedColumn(v.column, view));
+  const indicators = new Set(p.indicators.flat());
+  // Endogenous: a factor's column, or a variable some path goes to (decision 815's card terms).
+  const endogenous = (v: SemLineVariable) => ('column' in v && indicators.has(v.column)) || p.paths.some((x) => JSON.stringify(x.to) === JSON.stringify(v));
+  const term = (v: SemLineVariable) => (endogenous(v) ? `Error of ${name(v)}` : name(v));
+  const ends = [...p.paths.flatMap((x) => [x.to, x.from]), ...p.covariances.flatMap((x) => [x.a, x.b])];
+  const alone = Array.from(new Set(ends.flatMap((v) => ('column' in v && !indicators.has(v.column) ? [v.column] : []))))
+    .sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)));
+  const member = (m: SemLineParameter) =>
+    'loading' in m
+      ? `${namedColumn(m.loading.column, view)} ← Factor ${m.loading.factor}`
+      : 'path' in m
+        ? `${name(m.path.to)} ← ${name(m.path.from)}`
+        : 'covariance' in m
+          ? `${term(m.covariance.a)} ↔ ${term(m.covariance.b)}`
+          : term(m.variance.variable);
+  const parts = [
+    p.indicators.map((f, i) => `Factor ${i + 1}: ${f.map((c) => namedColumn(c, view)).join(', ')}. `).join(''),
+    alone.length > 0 ? `On their own: ${alone.map((c) => namedColumn(c, view)).join(', ')}. ` : '',
+    p.paths.length > 0 ? `Paths: ${p.paths.map((x) => `${name(x.from)} → ${name(x.to)}`).join(', ')}. ` : '',
+    p.covariances.length > 0 ? `Covariances: ${p.covariances.map((x) => `${name(x.a)} ↔ ${name(x.b)}`).join(', ')}. ` : '',
+    p.equal.length > 0 ? `Held equal: ${p.equal.map((g, i) => `group ${i + 1} (${g.map(member).join(', ')})`).join('; ')}. ` : '',
+  ];
+  return `${parts.join('')}${codesWords(p.missingCodes)}`;
+}
+
 /** The scale score's dialog (decisions 504 to 507). Its form's words, Make's
  *  sentence, the scores it lists and the questions before a deletion. A score's
  *  name is the user's own, shown on their own screen. "Delete", never "Remove",

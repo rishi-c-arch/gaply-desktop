@@ -38,7 +38,8 @@ import {
 import { LINEAR_REGRESSION_WORDS } from './linearRegressionWording';
 import { DISTRIBUTION_OUT_OF_RANGE_SENTENCE, OVERFLOW_SENTENCE, TOO_SMALL_SENTENCE } from './factorWording';
 import type { Coded } from './anovaWording';
-import type { CfaModelFit, CfaStat } from './cfaTypes';
+import type { CfaStat } from './cfaTypes';
+import { FIT_DASH, FIT_ROWS, FIT_TABLES, FIT_THREE_MODELS, fitCellText, fitDashLine, fitWholeText, type FitColumn, type FitRow } from './ModelFitTables';
 import { shownNumber } from './ttestWording';
 
 /** The most columns in a model: stats_cfa::MAX_ITEMS, from the wire fixture. */
@@ -316,8 +317,8 @@ export const CF_LABELS = {
   model: 'Model',
 } as const;
 
-export const CF_ROWS = { model: 'Default model', saturated: 'Saturated model', independence: 'Independence model' } as const;
-export type CfaRow = keyof typeof CF_ROWS;
+export const CF_ROWS = FIT_ROWS;
+export type CfaRow = FitRow;
 
 export const cfaWeightRow = (column: string, factor: number): string => `${column} ← Factor ${factor}`;
 export const cfaCovarianceRow = (f: number, g: number): string => `Factor ${f} ↔ Factor ${g}`;
@@ -339,155 +340,26 @@ export function cfaChiSquareSentence(cmin: CfaStat, df: number, p: CfaStat): str
     : `Chi-square = ${c}, degrees of freedom = ${df}. Probability level: ${cfaCellSentence(p.not_computable)}`;
 }
 
-/** One model-fit table's column: AMOS's name, the measure, and whether it is a whole number
- *  shown with every digit (NPAR, DF, HOELTER). */
-export interface CfaFitColumn {
-  label: string;
-  key: keyof CfaModelFit;
-  whole?: boolean;
-}
-
-/** AMOS's ten model-fit tables, in AMOS's order, each with its columns as AMOS names them.
- *  The saturated row is left out of RMSEA's and HOELTER's, as AMOS leaves it out. */
-export const CFA_FIT_TABLES: ReadonlyArray<{ id: string; heading: string; columns: CfaFitColumn[]; saturated: boolean }> = [
-  {
-    id: 'cmin',
-    heading: 'CMIN',
-    saturated: true,
-    columns: [
-      { label: 'NPAR', key: 'npar', whole: true },
-      { label: 'CMIN', key: 'cmin' },
-      { label: 'DF', key: 'df', whole: true },
-      { label: 'P', key: 'p' },
-      { label: 'CMIN/DF', key: 'cminDf' },
-    ],
-  },
-  {
-    id: 'rmr',
-    heading: 'RMR, GFI',
-    saturated: true,
-    columns: [
-      { label: 'RMR', key: 'rmr' },
-      { label: 'GFI', key: 'gfi' },
-      { label: 'AGFI', key: 'agfi' },
-      { label: 'PGFI', key: 'pgfi' },
-    ],
-  },
-  {
-    id: 'baseline',
-    heading: 'Baseline comparisons',
-    saturated: true,
-    columns: [
-      { label: 'NFI Delta1', key: 'nfi' },
-      { label: 'RFI rho1', key: 'rfi' },
-      { label: 'IFI Delta2', key: 'ifi' },
-      { label: 'TLI rho2', key: 'tli' },
-      { label: 'CFI', key: 'cfi' },
-    ],
-  },
-  {
-    id: 'parsimony',
-    heading: 'Parsimony-adjusted measures',
-    saturated: true,
-    columns: [
-      { label: 'PRATIO', key: 'pratio' },
-      { label: 'PNFI', key: 'pnfi' },
-      { label: 'PCFI', key: 'pcfi' },
-    ],
-  },
-  {
-    id: 'ncp',
-    heading: 'NCP',
-    saturated: true,
-    columns: [
-      { label: 'NCP', key: 'ncp' },
-      { label: 'LO 90', key: 'ncpLo90' },
-      { label: 'HI 90', key: 'ncpHi90' },
-    ],
-  },
-  {
-    id: 'fmin',
-    heading: 'FMIN',
-    saturated: true,
-    columns: [
-      { label: 'FMIN', key: 'fmin' },
-      { label: 'F0', key: 'f0' },
-      { label: 'LO 90', key: 'f0Lo90' },
-      { label: 'HI 90', key: 'f0Hi90' },
-    ],
-  },
-  {
-    id: 'rmsea',
-    heading: 'RMSEA',
-    saturated: false,
-    columns: [
-      { label: 'RMSEA', key: 'rmsea' },
-      { label: 'LO 90', key: 'rmseaLo90' },
-      { label: 'HI 90', key: 'rmseaHi90' },
-      { label: 'PCLOSE', key: 'pclose' },
-    ],
-  },
-  {
-    id: 'aic',
-    heading: 'AIC',
-    saturated: true,
-    columns: [
-      { label: 'AIC', key: 'aic' },
-      { label: 'BCC', key: 'bcc' },
-      { label: 'BIC', key: 'bic' },
-      { label: 'CAIC', key: 'caic' },
-    ],
-  },
-  {
-    id: 'ecvi',
-    heading: 'ECVI',
-    saturated: true,
-    columns: [
-      { label: 'ECVI', key: 'ecvi' },
-      { label: 'LO 90', key: 'ecviLo90' },
-      { label: 'HI 90', key: 'ecviHi90' },
-      { label: 'MECVI', key: 'mecvi' },
-    ],
-  },
-  {
-    id: 'hoelter',
-    heading: 'HOELTER',
-    saturated: false,
-    columns: [
-      { label: 'HOELTER .05', key: 'hoelter05', whole: true },
-      { label: 'HOELTER .01', key: 'hoelter01', whole: true },
-    ],
-  },
-];
-
-/** Under the CMIN table (decision 783). */
-export const CF_THREE_MODELS =
-  'The default model is the one you specified. The saturated model has a parameter for every variance and covariance, so it fits them exactly. The independence model has only the columns\' variances, so it says the columns are uncorrelated.';
-
-/** What a model-fit cell shows where it has no number. */
-export const CF_DASH = '–';
+/* The ten model-fit tables, their rows' names, the dash, its line, the whole numbers and the
+ * cells' text moved to ModelFitTables.tsx (Research OS, Phase 9C-5, decision 814), which both
+ * cards draw; they are re-exported here under their old names, unchanged. */
+export type CfaFitColumn = FitColumn;
+export const CFA_FIT_TABLES = FIT_TABLES;
+export const CF_THREE_MODELS = FIT_THREE_MODELS;
+export const CF_DASH = FIT_DASH;
 /** Under a model-fit table, once per code its cells hold: "–: " and the code's sentence. */
-export const cfaDashLine = (code: string): string => `${CF_DASH}: ${cfaCellSentence(code)}`;
+export const cfaDashLine = (code: string): string => fitDashLine(code, cfaCellSentence);
 
 /** A number, or its sentence where its number would be (the estimates' tables). */
 export function cfaStatText(s: CfaStat): string {
   return 'value' in s ? shownNumber(s.value) : cfaCellSentence(s.not_computable);
 }
 
-/** A whole number with every digit (NPAR, DF, HOELTER, the iterations): shownNumber rounds
- *  to six figures, and HOELTER grows without bound as the chi-square nears 0. -0 is 0. */
-export function cfaWholeText(v: number): string {
-  // String writes 1e21 and above with an exponent; BigInt writes the double's every digit (the
-  // review of 9C-3, finding 7).
-  if (Number.isInteger(v) && Math.abs(v) >= 1e21) return BigInt(v).toString();
-  return Object.is(v, -0) ? '0' : String(v);
-}
+export const cfaWholeText = fitWholeText;
 
 /** A model-fit cell: a number as the card shows it (a whole one with every digit), or "–". */
 export function cfaFitText(s: CfaStat | number, whole: boolean): string {
-  if (typeof s === 'number') return cfaWholeText(s);
-  if (!('value' in s)) return CF_DASH;
-  return whole ? cfaWholeText(s.value) : shownNumber(s.value);
+  return fitCellText(s, whole);
 }
 
 export const CFA_DIGITS_NOTE = RELATED_RANKS_DIGITS_NOTE;

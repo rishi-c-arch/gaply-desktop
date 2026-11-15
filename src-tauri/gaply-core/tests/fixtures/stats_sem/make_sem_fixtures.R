@@ -31,6 +31,10 @@
 # 7 (data/felson.csv, written here), Example 8 (the CFA golden's data/example8.csv), lavaan's
 # PoliticalDemocracy and HolzingerSwineford1939, and synthetic tables, each with its provenance.
 # Files written: cases.tsv, expected.tsv, and data/*.csv.
+#
+# Research OS, Phase 9C-5, decision 812, added two cases after every earlier one, so every
+# earlier row is unchanged: newton_relaxed (data/id384.csv) and error_block_not_pd
+# (data/id206.csv), each checked here as its comment says.
 
 suppressMessages(library(lavaan))
 stopifnot(as.character(packageVersion("lavaan")) == "0.7.3")
@@ -371,6 +375,67 @@ loop <- data.frame(c1 = eta[, 1] + rnorm(N_loop, sd = .6), c2 = 0.8 * eta[, 1] +
 write_data("loop.csv", loop, paste("Synthetic: 400 rows of two factors in a loop (eta1 = 0.4 eta2 + 0.6 c7 + z1, eta2 = 0.3 eta1 + 0.5 c8 + z2),",
   "each measured by three columns, c7 and c8 the columns pointing into them (seed 7956)."))
 
+# ---- Research OS, Phase 9C-5, decision 812: two cases from the review of 9C-4 -------------------
+# Each draws its model's parameters and then its rows from one seed. The seeds were found by
+# 9C-5's search (FIND FIRST), over seeds 1 to 200 of these generators, run outside this script:
+# - id384's shape (M1): the first seed whose data 9C-4's engine refused as sem_not_converged,
+#   attempt 1 failing at iteration 0, where R's refinement reaches a proper minimum (every variance
+#   above 0, J positive definite). Seed 17; 9C-5's engine solves it at attempt 2.
+# - id206's shape (M2): the first seed whose notes are exactly covariance_not_positive_definite and
+#   df_zero (seeds 1 to 3: df_zero alone). Seed 4.
+gen_id384 <- function(seed, N = 150) {
+  set.seed(seed)
+  k <- 3; p <- 12
+  md <- model_of(list(factors = list(1:4, 5:6, 7:10), paths = rbind(c(k + 11, 3), c(k + 12, k + 11)),
+                      covs = rbind(c(2, k + 4), c(k + 1, k + 12)), equal = list()), p)
+  loadings <- runif(7, 0.4, 1.6)
+  paths <- runif(2, 0.3, 0.9)
+  vars <- c(runif(3, 0.6, 1.6), runif(12, 0.2, 1.0))
+  r <- runif(2, -0.5, 0.5)
+  covs <- c(r[1] * sqrt(vars[2] * vars[k + 4]), r[2] * sqrt(vars[k + 1] * vars[k + 12]))
+  Sigma <- matrices(md, c(loadings, paths, covs, vars))$Sigma
+  Z <- matrix(rnorm(N * p), N) %*% chol(Sigma)
+  noise <- rnorm(N)
+  x <- data.frame(Z[, 1:11] + 10, noise + 10, Z[, 12] + 10)
+  names(x) <- paste0("c", 1:13)
+  x
+}
+gen_id206 <- function(seed, N = 400) {
+  set.seed(seed)
+  k <- 1; p <- 5
+  md <- model_of(list(factors = list(1:4), paths = rbind(c(1, k + 5)),
+                      covs = rbind(c(k + 1, k + 2), c(k + 1, k + 3), c(k + 2, k + 4), c(k + 3, k + 5), c(k + 4, k + 5)), equal = list()), p)
+  loadings <- runif(3, 0.5, 1.5)
+  path <- runif(1, 0.3, 0.9)
+  vars <- c(runif(1, 0.5, 1.5), runif(4, 0.3, 1.2), runif(1, 0.5, 1.5))
+  pairs <- rbind(c(2, 3), c(2, 4), c(3, 5), c(4, 6), c(5, 6))
+  covs <- vapply(1:5, function(i) runif(1, -0.6, 0.6) * sqrt(vars[pairs[i, 1]] * vars[pairs[i, 2]]), 0)
+  Sigma <- matrices(md, c(loadings, path, covs, vars))$Sigma
+  Z <- matrix(rnorm(N * p), N) %*% chol(Sigma)
+  x <- as.data.frame(Z + 10)
+  names(x) <- paste0("c", 1:5)
+  x
+}
+write_data("id384.csv", gen_id384(17), paste("Synthetic: 150 rows of the review of 9C-4's id384 shape (decision 811; factors c1-c4, c5-c6, c7-c10;",
+  "factor 3 -> c11 -> c13; covariances factor 2 with c4 and c1 with c13; c12 not in the model), the model's parameters and the rows drawn from seed 17",
+  "(Research OS, Phase 9C-5, decision 812)."))
+write_data("id206.csv", gen_id206(4), paste("Synthetic: 400 rows of the review of 9C-4's id206 shape (decision 811; one factor on c1-c4, c5 -> the factor,",
+  "covariances c1-c2, c1-c3, c2-c4, c3-c5 and c4-c5), the model's parameters and the rows drawn from seed 4 (Research OS, Phase 9C-5, decision 812)."))
+
+# J, the observed information, by central differences of the analytic gradient (9C-5's M1 case
+# asserts it positive definite): its smallest eigenvalue over its largest.
+j_ratio <- function(md, S, theta) {
+  J <- matrix(0, md$q, md$q)
+  for (b in seq_len(md$q)) {
+    h <- 1e-6 * max(abs(theta[b]), 1)
+    up <- theta; up[b] <- up[b] + h
+    dn <- theta; dn[b] <- dn[b] - h
+    J[, b] <- (gradient_and_information(md, S, up)$g - gradient_and_information(md, S, dn)$g) / (2 * h)
+  }
+  ev <- eigen((J + t(J)) / 2, symmetric = TRUE, only.values = TRUE)$values
+  min(ev) / max(ev)
+}
+
 # ---- the cases --------------------------------------------------------------------------------
 # A spec's variables: f(n) a factor, column(j) column j of the dataset (its alias Cj). Each case
 # names its dataset's columns used by number; they are the model's columns, in alias order.
@@ -414,7 +479,15 @@ cases <- list(
   list(name = "two_column_factor", data = "../stats_cfa/data/hs301.csv", factors = list(1:2), paths = none, covs = list(), equal = list(), codes = numeric(0), refusal = "model_not_identified"),
   list(name = "more_than_moments", data = "../stats_cfa/data/hs301.csv", factors = list(), paths = P(list("c", 1, "c", 3), list("c", 2, "c", 1), list("c", 3, "c", 2)),
        covs = list(list("c", 1, "c", 2), list("c", 1, "c", 3), list("c", 2, "c", 3)), equal = list(), codes = numeric(0), refusal = "model_not_identified"),
-  list(name = "singular", data = "../stats_cfa/data/singular.csv", factors = list(1:4), paths = none, covs = list(), equal = list(), codes = numeric(0), refusal = "sample_covariance_singular")
+  list(name = "singular", data = "../stats_cfa/data/singular.csv", factors = list(1:4), paths = none, covs = list(), equal = list(), codes = numeric(0), refusal = "sample_covariance_singular"),
+  # Research OS, Phase 9C-5, decision 812: proper asserts R's minimum proper (every variance
+  # above 0, J positive definite); notes asserts the notes; RAM fits lavaan in its RAM
+  # representation, since its LISREL form holds no covariance between c3's error and c5.
+  list(name = "newton_relaxed", data = "id384.csv", factors = list(1:4, 5:6, 7:10), paths = P(list("c", 11, "f", 3), list("c", 13, "c", 11)),
+       covs = list(list("f", 2, "c", 4), list("c", 1, "c", 13)), equal = list(), codes = numeric(0), proper = TRUE),
+  list(name = "error_block_not_pd", data = "id206.csv", factors = list(1:4), paths = P(list("f", 1, "c", 5)),
+       covs = list(list("c", 1, "c", 2), list("c", 1, "c", 3), list("c", 2, "c", 4), list("c", 3, "c", 5), list("c", 4, "c", 5)), equal = list(), codes = numeric(0),
+       notes = c("covariance_not_positive_definite", "df_zero"), representation = "RAM")
 )
 
 # ---- the spec as Gaply's JSON, and as the RAM model -----------------------------------------
@@ -549,7 +622,8 @@ for (case in cases) {
     next
   }
   syntax <- lavaan_syntax(md)
-  fit <- lavaan(syntax, data = pr$d, likelihood = "normal", information = "expected", fixed.x = FALSE)
+  lav_rep <- if (is.null(case$representation)) "LISREL" else case$representation
+  fit <- lavaan(syntax, data = pr$d, likelihood = "normal", information = "expected", fixed.x = FALSE, representation = lav_rep)
   if (!lavInspect(fit, "converged")) fail(case$name, ": lavaan did not converge")
   th0 <- theta_from_lavaan(fit, md)
   ref <- refine(md, pr$S, th0)
@@ -557,6 +631,12 @@ for (case in cases) {
   gap <- max(abs(th0 - ref$theta) / st$se)
   if (gap > 1e-3) fail(case$name, ": lavaan's estimates and the refined differ by ", gap, " standard errors")
   cat("  refined in", ref$iterations, "iterations, decrement", ref$decrement, "; lavaan within", signif(gap, 3), "SE\n")
+  if (isTRUE(case$proper)) {
+    jr <- j_ratio(md, pr$S, ref$theta)
+    if (min(diag(st$u$Phi)) <= 0 || jr <= 0) fail(case$name, ": R's minimum is not proper (smallest variance ", min(diag(st$u$Phi)), ", J's eigenvalue ratio ", jr, ")")
+    cat("  proper: smallest variance", signif(min(diag(st$u$Phi)), 4), "J's eigenvalue ratio", signif(jr, 4), "\n")
+  }
+  if (!is.null(case$notes) && !identical(st$notes, case$notes)) fail(case$name, ": the notes are ", paste(st$notes, collapse = " "))
   # lavaan at the refined estimates.
   pt <- parTable(fit)
   free <- pt$free > 0
@@ -576,7 +656,7 @@ for (case in cases) {
     pt$start[row] <- ref$theta[md$position[r]]
     pt$est[row] <- ref$theta[md$position[r]]
   }
-  at_ref <- lavaan(pt, data = pr$d, likelihood = "normal", information = "expected", fixed.x = FALSE, optim.method = "none", se = "standard")
+  at_ref <- lavaan(pt, data = pr$d, likelihood = "normal", information = "expected", fixed.x = FALSE, optim.method = "none", se = "standard", representation = lav_rep)
   pe <- parameterEstimates(at_ref)
   lav_se <- vapply(seq_len(md$q), function(a) pe$se[rows_of(a)[1]], 0) * sqrt(pr$N / (pr$N - 1))
   d_se <- max(abs(lav_se - st$se) / st$se)
@@ -618,7 +698,7 @@ for (case in cases) {
     }
   }
   if (d_se > 1e-10 || d_std > 1e-10 || d_r2 > 1e-10 || d_eff > 1e-10) fail(case$name, ": lavaan at the refined estimates differs: se ", d_se, " std ", d_std, " r2 ", d_r2, " effects ", d_eff)
-  wish <- lavaan(syntax, data = pr$d, likelihood = "wishart", information = "expected", fixed.x = FALSE)
+  wish <- lavaan(syntax, data = pr$d, likelihood = "wishart", information = "expected", fixed.x = FALSE, representation = lav_rep)
   fm <- fitMeasures(wish, c("chisq", "df", "pvalue", "cfi", "tli", "nfi", "rfi", "ifi", "pnfi", "agfi", "pgfi", "rmsea", "rmsea.pvalue", "ecvi", "rmsea.ci.lower", "rmsea.ci.upper"))
   mine <- st$fit
   pairs <- list(chisq = mine$cmin, df = mine$df, pvalue = mine$p, cfi = mine$cfi, tli = mine$tli, nfi = mine$nfi,

@@ -58,10 +58,15 @@ error):
 4. the covariances: `too_many_covariances`; then each: `unknown_factor`,
    `covariance_with_itself`, `covariances_out_of_order`, `covariance_repeated`;
 5. the groups held equal: `too_many_equal_members`; then each group (`index`, and `value` for a
-   member's position): `equal_group_too_small`, `equal_mixed_kinds`, `equal_unknown_parameter`,
-   `equal_fixed_parameter` (a first loading), `equal_out_of_order`, `equal_repeated`;
+   member's position): `equal_group_too_small`, `equal_mixed_kinds`; then its members one by
+   one, each `equal_unknown_parameter` or `equal_fixed_parameter` (a first loading); then
+   `equal_out_of_order` (the group against the one before it, then its members in turn); then
+   `equal_repeated` for each member already held (`sem_cases.rs`,
+   `the_spec_checks_come_in_decision_797s_order_and_validate_lists_every_one`, pins this order;
+   decision 797 and this page said "unknown, then fixed" for each group until 9C-5, decision 812);
 6. the columns: `too_few_columns`, `too_many_columns`; then each in alias order:
-   `unknown_column`, `column_non_finite`, `column_holds_text`, `code_equals_score`;
+   `unknown_column`, `column_non_finite`, `column_holds_text`; then, in a second pass after every
+   column, each column's `code_equals_score`, as CFA's checks do;
 7. identification from the spec alone (§2): `model_not_identified` with `count`, the
    constraints the model lacks;
 8. then, each only when none before it applies: `no_complete_rows`; `too_few_rows` (fewer than
@@ -186,16 +191,31 @@ Notes, bare codes, no verdict, in this order: `negative_variance` (a variance or
 estimate below 0: AMOS's "This solution is not admissible"); `covariance_not_positive_definite`
 (the block of Φ̂ over the factors and every variable a covariance names fails
 `cholesky_within(·, 0)`; on a CFA's model, CFA's `factor_covariance_not_positive_definite`);
-`nonrecursive` (the paths hold a loop); `df_zero`.
+`nonrecursive` (the paths hold a loop); `df_zero`. Each note is reached by a test:
+`sem_cases.rs`'s `each_note_comes_in_its_order`, whose `covariance_not_positive_definite` cases
+are a block of two factors (`phi_not_pd`) and, since 9C-5 (decision 812), a block through error
+covariances alone (one factor, so the factors' own block is 1 × 1 and positive: the golden's
+`error_block_not_pd`, with `df_zero`).
 
-Not computable, each written where CFA's is: `fixed_parameter`, `df_zero`, `cmin_zero`,
-`independence_cmin_zero`, `too_few_rows_for_bcc`, `negative_variance` (a standardized weight,
-correlation, squared multiple correlation or standardized effect whose implied or error variance
-is at or below 0), `too_small`, `overflow` and `distribution_out_of_range`. The first six are
-reached in `sem_r_golden.rs` (the Heywood, `phi_not_pd` and `df_zero` cases) or in `sem_cases.rs`
-(`each_not_computable_path_writes_its_code`). The last three come from `stats_fit`'s rules (a fit
-value below the smallest normal double, one that is not finite, a distribution that gives no
-value): no SEM test reaches them.
+Not computable, each written where CFA's is, and where each is reached:
+
+- `fixed_parameter` (a first loading's S.E., C.R. and P), `df_zero`, `cmin_zero`,
+  `independence_cmin_zero` and `too_few_rows_for_bcc`: in `sem_cases.rs`
+  (`each_not_computable_path_writes_its_code`), and the first three in `sem_r_golden.rs` too
+  (`cmin_zero` in the `phi_not_pd` case's HOELTER);
+- `negative_variance` as a value (a standardized weight, correlation, squared multiple
+  correlation or standardized effect whose implied or error variance is at or below 0): in
+  `stats_sem`'s unit test
+  `a_factor_variance_below_0_leaves_its_standardized_values_not_computable_and_is_noted` only;
+  neither the golden nor `sem_cases.rs` holds such a value (the golden's one
+  `negative_variance` is a note);
+- `too_small` and `overflow`: written by `stats_sem`'s own `stat` for the estimates, S.E.s,
+  C.R.s, P values and standardized values, and by `stats_fit`'s for the fit. Both write a value
+  that is not a number (a 0/0 of quantities that vanished) as `too_small` and an infinity as
+  `overflow`, and keep a finite value, a subnormal included, as a value, as
+  confirmatory_factor_analysis.md says of CFA's. No SEM test reaches either;
+- `distribution_out_of_range`: `stats_fit`'s, for a distribution that gives no value. No SEM
+  test reaches it.
 
 ## 4. The check points
 

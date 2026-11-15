@@ -803,13 +803,15 @@ const STATS_CFA_CRATE_PATHS: &[&str] = &[
 /// `stats_linalg`'s, less `transpose`, which the estimation does not need; the
 /// distributions `stats_dist`'s. Since 9C-4 (decision 796) the measures of fit are
 /// `stats_fit`'s, so the four distributions only they use are imported there; `Row` only
-/// by the unit tests that pin the rows' cells.
+/// by the unit tests that pin the rows' cells. Since 9C-5 (decision 812) the degrees of
+/// freedom are `stats_fit`'s `model_df`, by checked subtraction.
 const CFA_ITEMS: &[(&str, &[&str])] = &[
     ("crate::stats_dist", &["normal_two_tailed"]),
     (
         "crate::stats_fit",
         &[
             "fit_measures as fit_rows",
+            "model_df",
             "FitCode",
             "FitInput",
             "FitPoint",
@@ -867,10 +869,11 @@ const STATS_SEM_INLINE_PATHS: &[&str] = &[
 /// The items `stats_sem` may import, by exact name: only what it imports (decision
 /// 800). The input helpers are the confirmatory factor analysis's; the linear
 /// algebra `stats_linalg`'s with `inverse` and `pivoted_rank`; the fit
-/// `stats_fit`'s; the dataset's builders only in the unit tests.
+/// `stats_fit`'s, with `model_df` since 9C-5 (decision 812); the dataset's builders only
+/// in the unit tests.
 const SEM_ITEMS: &[(&str, &[&str])] = &[
     ("crate::stats_dist", &["normal_two_tailed"]),
-    ("crate::stats_fit", &["fit_measures as fit_rows", "FitCode", "FitInput", "FitPoint", "FitRow", "FitValue"]),
+    ("crate::stats_fit", &["fit_measures as fit_rows", "model_df", "FitCode", "FitInput", "FitPoint", "FitRow", "FitValue"]),
     ("crate::stats_l1::dataset", &["Cell", "Dataset", "build_dataset", "DataFingerprint", "RawTable", "TableRef"]),
     (
         "crate::stats_linalg",
