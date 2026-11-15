@@ -23,6 +23,11 @@
 //!
 //! Gates are tiered by the condition number, since the errors of an inverse,
 //! an eigenvector and a solution grow with it.
+//!
+//! A second section (Research OS, Phase 9C-4, decision 796) reads
+//! `make_sem_linalg_fixtures.R`'s files: `inverse` against R's `solve` on 40
+//! matrices in three families, each with its own gate, and `pivoted_rank`
+//! against R's `qr(…, tol = 1e-9)$rank` on 24 symmetric matrices of known rank.
 
 use super::*;
 
@@ -210,4 +215,98 @@ fn stats_linalg_agrees_with_r_within_each_familys_gate() {
             }
         }
     }
+}
+
+/* ---- inverse and pivoted_rank (Research OS, Phase 9C-4, decision 796) ---------- */
+
+const SEM_LINALG: &str = include_str!("../../tests/fixtures/stats_linalg/sem_linalg.tsv");
+const SEM_CASES: &str = include_str!("../../tests/fixtures/stats_linalg/sem_cases.tsv");
+
+/// The inverse's gate in each family of `make_sem_linalg_fixtures.R`: ten
+/// times the largest error measured in it (the largest |Rust − R| over the
+/// largest |R| of the case), rounded up (macOS aarch64, 15 Nov 2026; the
+/// measurement is a run with every gate at 0, logged under
+/// ~/gaply-corpus/os/phase9/9c4/logs/p1_linalg_measure_1794723175.log).
+///
+/// | family | cases | measured | gate |
+/// |---|---|---|---|
+/// | general | 14 | 1.457e-14 | 1.5e-13 |
+/// | triangular | 13 | 5.551e-16 | 5.6e-15 |
+/// | near_singular | 13 | 1.268e-11 | 1.3e-10 |
+const SEM_INVERSE_GATES: &[(&str, f64)] = &[("general", 1.5e-13), ("triangular", 5.6e-15), ("near_singular", 1.3e-10)];
+
+/// The inverse's cases: each family by its prefix, and A and R's solve(A).
+#[test]
+fn inverse_agrees_with_rs_solve_within_each_familys_gate() {
+    let mut cases: Vec<(String, String)> = Vec::new();
+    for line in SEM_CASES.lines().filter(|l| !l.starts_with('#')) {
+        let f: Vec<&str> = line.split('\t').collect();
+        if f[1] == "inverse" {
+            cases.push((f[0].to_string(), f[3].to_string()));
+        }
+    }
+    assert_eq!(cases.len(), 40, "the fixture's inverse cases");
+    let mut worst: Vec<(&str, f64, usize)> = SEM_INVERSE_GATES.iter().map(|(f, _)| (*f, 0.0, 0)).collect();
+    for (name, _) in &cases {
+        let case = sem_case(name);
+        let a = matrix(&case, "A", false).unwrap();
+        let want = matrix(&case, "inv", false).unwrap();
+        let got = inverse(&a).unwrap_or_else(|| panic!("{name}: inverse refused"));
+        let e = largest_difference(&got, &want) / largest(&want);
+        assert!(e.is_finite(), "{name}: a non-finite error");
+        let family = SEM_INVERSE_GATES.iter().map(|(f, _)| *f).find(|f| name.starts_with(&format!("{f}_"))).expect("a family");
+        let w = worst.iter_mut().find(|(f, _, _)| *f == family).unwrap();
+        w.1 = w.1.max(e);
+        w.2 += 1;
+    }
+    let table: String = worst.iter().map(|(f, w, n)| format!("\n  {f:14} {w:.3e} over {n} cases")).collect();
+    assert_eq!(worst.iter().map(|w| w.2).collect::<Vec<_>>(), vec![14, 13, 13], "cases per family:{table}");
+    for ((family, w, _), (_, gate)) in worst.iter().zip(SEM_INVERSE_GATES) {
+        assert!(*w <= *gate, "{family}: {w:e} over {gate:e}; measured:{table}");
+    }
+}
+
+/// pivoted_rank against R's qr(M, tol = 1e-9)$rank on 24 symmetric matrices of
+/// known rank scaled to a unit diagonal. On the 12 "leading" cases, whose
+/// first columns are dependent, a Cholesky factor taking the first remaining
+/// diagonal stops below the rank: that premise is asserted here, so the cases
+/// tell the two pivot rules apart.
+#[test]
+fn pivoted_rank_agrees_with_rs_qr_rank() {
+    let mut seen = (0, 0);
+    for line in SEM_CASES.lines().filter(|l| !l.starts_with('#')) {
+        let f: Vec<&str> = line.split('\t').collect();
+        if f[1] != "rank" {
+            continue;
+        }
+        let name = f[0];
+        let want: usize = f[3].parse().unwrap();
+        let m = matrix(&sem_case(name), "M", true).unwrap();
+        assert_eq!(pivoted_rank(&m, 1e-9), want, "{name}");
+        let first_diagonal = match cholesky_within(&m, 1e-9) {
+            Ok(_) => m.len(),
+            Err(j) => j - 1,
+        };
+        if name.starts_with("leading_") {
+            seen.1 += 1;
+            assert!(first_diagonal < want, "{name}: the first remaining diagonal gives {first_diagonal}, the rank is {want}");
+        } else {
+            seen.0 += 1;
+            assert_eq!(first_diagonal, want, "{name}: on generic X X' both rules give the rank");
+        }
+    }
+    assert_eq!(seen, (12, 12), "the fixture's generic and leading cases");
+}
+
+/// One case of `sem_linalg.tsv`, read as [`matrix`] reads `linalg.tsv`'s.
+fn sem_case(name: &str) -> Case {
+    let mut case = Case { family: String::new(), condition: 0.0, items: Vec::new() };
+    for line in SEM_LINALG.lines().filter(|l| !l.starts_with('#')) {
+        let f: Vec<&str> = line.split('\t').collect();
+        if f[0] == name {
+            case.items.push((f[1].to_string(), f[2].parse().unwrap(), f[3].parse().unwrap(), f[4].parse().unwrap()));
+        }
+    }
+    assert!(!case.items.is_empty(), "{name}: no rows");
+    case
 }

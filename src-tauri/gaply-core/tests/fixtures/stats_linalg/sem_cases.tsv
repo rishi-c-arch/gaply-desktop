@@ -1,0 +1,67 @@
+# Written by /usr/local/bin/Rscript make_sem_linalg_fixtures.R (decision 796).
+# R version 4.6.1 (2026-06-24); seed 20260796; base R only.
+# case	family	n	measure (inverse: the condition number; rank: R's qr rank)	note
+general_2	inverse	2	1.7543630698766053	Gaussian entries
+general_3	inverse	3	3.7339363973149848	Gaussian entries
+general_4	inverse	4	7.9200745633671339	Gaussian entries
+general_6	inverse	6	16.764879958766247	Gaussian entries
+general_8	inverse	8	14.406231254692376	Gaussian entries
+general_10	inverse	10	8.4929154736821957	Gaussian entries
+general_13	inverse	13	96.22492802680334	Gaussian entries
+general_17	inverse	17	52.487730668531881	Gaussian entries
+general_22	inverse	22	230.57554735264497	Gaussian entries
+general_28	inverse	28	232.4693525772511	Gaussian entries
+general_35	inverse	35	102.40256914913617	Gaussian entries
+general_43	inverse	43	104.87875803541516	Gaussian entries
+general_52	inverse	52	129.25507807153207	Gaussian entries
+general_60	inverse	60	135.57299446579918	Gaussian entries
+triangular_2	inverse	2	1	unit lower triangular, rows and columns shuffled alike
+triangular_3	inverse	3	1.4923606528872277	unit lower triangular, rows and columns shuffled alike
+triangular_5	inverse	5	1.5416518474764564	unit lower triangular, rows and columns shuffled alike
+triangular_7	inverse	7	2.2444093800675167	unit lower triangular, rows and columns shuffled alike
+triangular_9	inverse	9	2.5511318675958026	unit lower triangular, rows and columns shuffled alike
+triangular_12	inverse	12	2.5801149306378326	unit lower triangular, rows and columns shuffled alike
+triangular_16	inverse	16	3.8826478332989471	unit lower triangular, rows and columns shuffled alike
+triangular_20	inverse	20	4.3296495125178094	unit lower triangular, rows and columns shuffled alike
+triangular_26	inverse	26	4.7800559336484003	unit lower triangular, rows and columns shuffled alike
+triangular_33	inverse	33	6.4895043639286065	unit lower triangular, rows and columns shuffled alike
+triangular_41	inverse	41	8.8058250034212335	unit lower triangular, rows and columns shuffled alike
+triangular_50	inverse	50	10.329060286867501	unit lower triangular, rows and columns shuffled alike
+triangular_60	inverse	60	15.573203200278344	unit lower triangular, rows and columns shuffled alike
+near_singular_2	inverse	2	1000000.0000458529	smallest singular value 1e-6 of the largest
+near_singular_3	inverse	3	1000000.0000579985	smallest singular value 1e-6 of the largest
+near_singular_4	inverse	4	999999.99999534222	smallest singular value 1e-6 of the largest
+near_singular_5	inverse	5	999999.99999698054	smallest singular value 1e-6 of the largest
+near_singular_7	inverse	7	999999.99996315537	smallest singular value 1e-6 of the largest
+near_singular_9	inverse	9	999999.99998907454	smallest singular value 1e-6 of the largest
+near_singular_12	inverse	12	1000000.0000061142	smallest singular value 1e-6 of the largest
+near_singular_15	inverse	15	1000000.0000013148	smallest singular value 1e-6 of the largest
+near_singular_20	inverse	20	999999.99999524653	smallest singular value 1e-6 of the largest
+near_singular_27	inverse	27	999999.99997903896	smallest singular value 1e-6 of the largest
+near_singular_35	inverse	35	999999.99999398866	smallest singular value 1e-6 of the largest
+near_singular_46	inverse	46	999999.99999181461	smallest singular value 1e-6 of the largest
+near_singular_60	inverse	60	999999.9999929074	smallest singular value 1e-6 of the largest
+generic_2_1	rank	2	1	X X' of known rank, scaled to a unit diagonal
+generic_2_2	rank	2	2	X X' of known rank, scaled to a unit diagonal
+generic_3_2	rank	3	2	X X' of known rank, scaled to a unit diagonal
+generic_5_5	rank	5	5	X X' of known rank, scaled to a unit diagonal
+generic_8_3	rank	8	3	X X' of known rank, scaled to a unit diagonal
+generic_12_12	rank	12	12	X X' of known rank, scaled to a unit diagonal
+generic_20_7	rank	20	7	X X' of known rank, scaled to a unit diagonal
+generic_30_29	rank	30	29	X X' of known rank, scaled to a unit diagonal
+generic_45_20	rank	45	20	X X' of known rank, scaled to a unit diagonal
+generic_60_60	rank	60	60	X X' of known rank, scaled to a unit diagonal
+generic_60_31	rank	60	31	X X' of known rank, scaled to a unit diagonal
+generic_17_1	rank	17	1	X X' of known rank, scaled to a unit diagonal
+leading_3_2	rank	3	2	X X' of known rank with its first rows of X repeated, so its first columns are dependent
+leading_4_3	rank	4	3	X X' of known rank with its first rows of X repeated, so its first columns are dependent
+leading_6_4	rank	6	4	X X' of known rank with its first rows of X repeated, so its first columns are dependent
+leading_9_5	rank	9	5	X X' of known rank with its first rows of X repeated, so its first columns are dependent
+leading_14_10	rank	14	10	X X' of known rank with its first rows of X repeated, so its first columns are dependent
+leading_20_12	rank	20	12	X X' of known rank with its first rows of X repeated, so its first columns are dependent
+leading_27_20	rank	27	20	X X' of known rank with its first rows of X repeated, so its first columns are dependent
+leading_33_30	rank	33	30	X X' of known rank with its first rows of X repeated, so its first columns are dependent
+leading_40_25	rank	40	25	X X' of known rank with its first rows of X repeated, so its first columns are dependent
+leading_50_45	rank	50	45	X X' of known rank with its first rows of X repeated, so its first columns are dependent
+leading_60_50	rank	60	50	X X' of known rank with its first rows of X repeated, so its first columns are dependent
+leading_60_58	rank	60	58	X X' of known rank with its first rows of X repeated, so its first columns are dependent

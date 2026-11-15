@@ -18,7 +18,7 @@ import type { WireCode } from '../statsverifier/statsL1Types';
 import LIMITS from './describeLimits.json';
 // Pinned to stats_related_ranks::MAX_RELATED_COLUMNS by stats_related_ranks_wire.rs.
 import RELATED_LIMITS from './fixtures/relatedRanksLimits.json';
-import { RANKS_DIGITS_NOTE, RANKS_EXACT_NOT_GIVEN_CELL, RANKS_EXPORT_HEADING, RANKS_EXPORT_TEXT, RANKS_WORDS, type RanksNames } from './ranksWording';
+import { RANKS_DIGITS_NOTE, RANKS_EXACT_NOT_GIVEN_CELL, RANKS_EXPORT_HEADING, RANKS_WORDS, type RanksNames } from './ranksWording';
 import type { Coded } from './anovaWording';
 import type { RelatedRanksStat } from './relatedRanksTypes';
 import { shownNumber } from './ttestWording';
@@ -244,7 +244,12 @@ export const RELATED_RANKS_EXPORT_CHOICES = [
   { format: 'manifestJson', label: 'The run manifest (JSON)', file: 'related_ranks_manifest.json', mime: 'application/json' },
 ] as const;
 
-export const RELATED_RANKS_EXPORT_TEXT = RANKS_EXPORT_TEXT;
+/** Research OS, Phase 9C-4 (decision 794, the review of 96ce0cbe's m1): the related rank tests'
+ *  export carries no label, naming each column by its position and alias, so this is not the
+ *  one-way ANOVA's sentence. The linear regression, the factor analysis and the confirmatory
+ *  factor analysis, whose exports carry no label either, share it. */
+export const RELATED_RANKS_EXPORT_TEXT =
+  "Gaply writes only the file you name in the save dialog and keeps no copy. The result tables carry every digit and the manifest's hashes, and name each column by its position, never by its header. The manifest holds hashes, versions and counts, never your data, headers or file name.";
 
 /** Rows used is the complete rows, so the three counts add up. */
 export const RELATED_RANKS_ROWS_USED_NOTE = 'The complete rows. Rows read is rows used plus the rows left out above.';

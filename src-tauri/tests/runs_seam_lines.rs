@@ -47,6 +47,7 @@ use gaply_core::stats_anova::{self, AnovaParams, PostHoc};
 use gaply_core::stats_corr::{self, Coefficient, CorrParams, MissingHandling};
 use gaply_core::stats_desc::{self, Alias, DescribeParams};
 use gaply_core::stats_cfa::{self, CfaParams};
+use gaply_core::stats_sem::{self, SemParams};
 use gaply_core::stats_factor::{self, Extraction, FactorParams, Rotation};
 use gaply_core::stats_l1::dataset::ColumnAlias;
 use gaply_core::stats_linear_regression::{self, LinearRegressionParams};
@@ -105,6 +106,7 @@ enum Kind {
     LinearRegression,
     Factor,
     Cfa,
+    Sem,
 }
 
 /// A manager whose hook panics at `Column(0)`, after cancelling the run
@@ -132,6 +134,7 @@ fn panicking(what: AtColumn0, kind: Kind) -> Arc<Runs> {
                 Kind::LinearRegression => drop(runs.linear_regression_cancel(run).expect("cancelled")),
                 Kind::Factor => drop(runs.factor_cancel(run).expect("cancelled")),
                 Kind::Cfa => drop(runs.cfa_cancel(run).expect("cancelled")),
+                Kind::Sem => drop(runs.sem_cancel(run).expect("cancelled")),
             }
         }
         panic!("the test's hook panics at column 0");
@@ -307,6 +310,19 @@ fn each_kind_says_its_own_panic_and_both_say_the_shared_lines() {
             missing_codes: vec![],
         },
     );
+    // Research OS, Phase 9C-4 (decision 803): one factor of the same four columns,
+    // as a structural equation model.
+    let sem = stats_sem::spec(
+        OperationId(14),
+        &quads,
+        SemParams {
+            indicators: vec![(1..=4).map(|j| Alias(ColumnAlias(j))).collect()],
+            paths: vec![],
+            covariances: vec![],
+            equal: vec![],
+            missing_codes: vec![],
+        },
+    );
     let quad_slot = slots
         .get(slots.insert("synthetic quads".into(), quads))
         .unwrap();
@@ -427,6 +443,11 @@ fn each_kind_says_its_own_panic_and_both_say_the_shared_lines() {
         let run = runs.start_cfa(Arc::clone(&quad_slot), cfa.clone()).unwrap();
         wait_for("the confirmatory factor analysis ended", || runs.cfa_snapshot(run).unwrap().record.state.is_terminal());
         ends.push(runs.cfa_snapshot(run).unwrap().record.state);
+
+        let runs = panicking(what, Kind::Sem);
+        let run = runs.start_sem(Arc::clone(&quad_slot), sem.clone()).unwrap();
+        wait_for("the structural equation models ended", || runs.sem_snapshot(run).unwrap().record.state.is_terminal());
+        ends.push(runs.sem_snapshot(run).unwrap().record.state);
     }
     let _ = std::panic::take_hook();
 
@@ -446,6 +467,8 @@ fn each_kind_says_its_own_panic_and_both_say_the_shared_lines() {
             RunState::Failed,
             RunState::Failed,
             RunState::Failed,
+            RunState::Failed,
+            RunState::Cancelled,
             RunState::Cancelled,
             RunState::Cancelled,
             RunState::Cancelled,
@@ -477,7 +500,8 @@ fn each_kind_says_its_own_panic_and_both_say_the_shared_lines() {
     assert_eq!(events(&lines, "stats_desc: the linear regression panicked"), 1);
     assert_eq!(events(&lines, "stats_desc: the factor analysis panicked"), 1);
     assert_eq!(events(&lines, "stats_desc: the confirmatory factor analysis panicked"), 1);
-    assert_eq!(events(&lines, "stats_desc: the run's work panicked"), 13);
-    assert_eq!(events(&lines, "stats_desc: run ended"), 26);
+    assert_eq!(events(&lines, "stats_desc: the structural equation models panicked"), 1);
+    assert_eq!(events(&lines, "stats_desc: the run's work panicked"), 14);
+    assert_eq!(events(&lines, "stats_desc: run ended"), 28);
     assert_eq!(events(&lines, "stats_desc: a run event had no edge"), 0);
 }

@@ -85,10 +85,16 @@ pub mod stats_chat;
 pub mod stats_corr;
 // Research OS Phase 9C-1: confirmatory factor analysis, the pure core.
 pub mod stats_cfa;
+// Research OS Phase 9C-4: structural equation models, the pure core.
+pub mod stats_sem;
 pub mod stats_desc;
 pub mod stats_dist;
 // Research OS Phase 9B-1: exploratory factor analysis, the pure core.
 pub mod stats_factor;
+// Research OS Phase 9C-4 (decision 796): AMOS's measures of fit in three rows, shared by
+// the confirmatory factor analysis and the structural equation models; arithmetic, not an
+// interface.
+pub(crate) mod stats_fit;
 pub mod stats_l0;
 pub mod stats_l1;
 // Research OS Phase 9B-1 (decision 699): the dense linear algebra of the

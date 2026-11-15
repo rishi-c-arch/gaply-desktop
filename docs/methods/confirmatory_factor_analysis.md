@@ -22,8 +22,11 @@ the saturated row left out of RMSEA and HOELTER as AMOS leaves it out, a cell wi
 as "–" and its code's sentence under its table (§8). A run is saved into a project with its own
 row, read back through the stored checker (`storedShape.ts`, decision 786), and run again
 Identical; a failed run is saved as its failure and is not run again. Coming later's "CFA and
-SEM" became "Structural equation models". 9C-4 builds the structural equation model's engine,
-with its general optimiser, and 9C-5 its window and path diagram.
+SEM" became "Structural equation models". 9C-4 (decisions 792 to 805) built the structural
+equation model's engine ([structural_equation_models.md](structural_equation_models.md)), with
+its Newton attempt and its check at the solution, and moved this method's fit into
+`stats_fit` with every byte unchanged; 9C-5 gives it a window and path diagram, and in its
+Part 0 gives this method the Newton attempt and the check at the solution.
 
 The goal is AMOS's numbers (decision 743): the model fitted as AMOS fits a drawn measurement
 model, its estimates, standard errors, critical ratios and fit measures as AMOS prints them.
@@ -119,10 +122,13 @@ check); 24 are identified at lavaan's solution, 15 stopping at the cap and 9 fai
 after the start. lavaan's default starts as a second attempt rescued 5 of the 41, damping H
 (Levenberg–Marquardt) 11 of the 24, and seven stall with the decrement between 1e-14 and 1e-11,
 where expected-information steps cycle near a misspecified minimum and the observed Hessian is
-needed. The triad starts, as a second attempt only, rescued 7 and lost none. Robust estimation
-for the harder cases waits for 9C-4, which builds the general optimiser the structural equation
-model needs and measures it on 9C-1's hunt, those 287 datasets' generator, the review's 52 and
-the nine of 9C-1's report.
+needed. The triad starts, as a second attempt only, rescued 7 and lost none. 9C-4 built that
+estimation for the structural equation model (decision 798: Fisher scoring, then damped
+Newton on the observed information, accepted only at a minimum, then the triad starts, with
+identification checked from the spec and at the solution), measured on its own hunt and on
+9C-2's hunts fitted as SEMs ([structural_equation_models.md](structural_equation_models.md)
+§5). This method keeps its own attempts until 9C-5's Part 0 gives it the Newton attempt and the
+check at the solution.
 
 **The statistics.**
 

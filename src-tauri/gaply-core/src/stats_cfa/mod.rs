@@ -68,10 +68,10 @@ use crate::contracts::{
 use crate::stats_desc::{
     input_ref, preparation_holds, score_code_count, suspect_codes_unless_score, Alias,
 };
-use crate::stats_dist::{
-    chi_square_quantile_upper, chi_square_upper_wide, noncentral_chi_square_ncp,
-    noncentral_chi_square_tails, normal_two_tailed,
-};
+use crate::stats_dist::normal_two_tailed;
+use crate::stats_fit::{fit_measures as fit_rows, FitCode, FitInput, FitPoint, FitRow, FitValue};
+#[cfg(test)]
+use crate::stats_fit::Row;
 use crate::stats_l1::dataset::{Cell, Dataset};
 use crate::stats_linalg::{cholesky, cholesky_within, log_det, multiply, spd_inverse};
 use crate::stats_ttest::{column, non_finite_cells};
@@ -104,12 +104,10 @@ pub const DECREMENT_STOP: f64 = 1e-20;
 pub const DECREMENT_F_TEST: f64 = 1e-10;
 /// The halvings of a step before the run refuses (decision 745).
 pub const MAX_HALVINGS: u32 = 30;
-/// At 0 degrees of freedom a minimum F of at most this is written as 0
-/// (decision 761). The review of 9C-1 measured the largest F at d = 0 over 1,011
-/// solutions at 7.1e-15.
-pub const DF_ZERO_ROUNDING: f64 = 1e-12;
-/// PCLOSE's RMSEA under the null, 0.05: its ncp is 0.05² n d (AMOS, Appendix C).
-pub const PCLOSE_RMSEA: f64 = 0.05;
+// At 0 degrees of freedom a minimum F of at most DF_ZERO_ROUNDING is written as 0
+// (decision 761), and PCLOSE_RMSEA is PCLOSE's RMSEA under the null: both now
+// `stats_fit`'s, where the rows are computed (Research OS, Phase 9C-4, decision 796).
+pub use crate::stats_fit::{DF_ZERO_ROUNDING, PCLOSE_RMSEA};
 
 closed! {
     /// Every refusal, outcome, exclusion, note and limitation of the
@@ -1281,20 +1279,6 @@ fn stat(v: f64) -> Stat {
     }
 }
 
-/// A distribution's value, or `distribution_out_of_range` where it gives none.
-fn dist(v: Option<f64>) -> Stat {
-    v.map_or(Stat::NotComputable(CfaCode::DistributionOutOfRange), stat)
-}
-
-/// `v` unless the degrees of freedom are 0.
-fn unless_df_zero(d: u64, v: impl FnOnce() -> Stat) -> Stat {
-    if d == 0 {
-        Stat::NotComputable(CfaCode::DfZero)
-    } else {
-        v()
-    }
-}
-
 /// An estimate with its standard error, C.R. and two-tailed P.
 fn tested(estimate: f64, se: f64) -> (Stat, Stat, Stat, Stat) {
     let cr = estimate / se;
@@ -1377,7 +1361,7 @@ fn outcome<B>(
         .collect();
 
     at(p + 3)?;
-    let fit = fit_measures(model, s, log_det_s, &sigma, fitted, big_n, n, &mut || at(p + 4))?;
+    let fit = fit_measures(model, s, log_det_s, &sigma, fitted, big_n, n, &mut *at)?;
 
     let mut notes = Vec::new();
     if (0..k).any(|f| phi[f][f] < 0.0) || errors.iter().any(|e| *e < 0.0) {
@@ -1422,11 +1406,12 @@ fn outcome<B>(
     })
 }
 
-/// AMOS's Appendix C (decisions 745 and 763), with C = CMIN, d = DF, q = NPAR,
-/// n = N − 1, p* = p (p + 1) / 2 and b the independence model: one function,
-/// [`model_fit`], applied to the default model, the saturated model and, after
-/// `independence` (the check point p + 4 of decision 762), the independence
-/// model, each against the independence model's C_b and d_b.
+/// AMOS's Appendix C (decisions 745 and 763) for this model: `stats_fit`'s
+/// three rows (Research OS, Phase 9C-4, decision 796), computed there with the
+/// arithmetic that was here, in its order, from S, ln|S|, Σ̂, Σ̂⁻¹, the minimum
+/// F, q, N and n, and mapped to this module's codes. The default row's interval
+/// searches call `at(p + 3)` and the independence row's `at(p + 4)`, which is
+/// also called before that row (decision 762), so the counts are unchanged.
 #[allow(clippy::too_many_arguments)]
 fn fit_measures<B>(
     model: &Model,
@@ -1436,192 +1421,105 @@ fn fit_measures<B>(
     fitted: &Fitted,
     big_n: f64,
     n: f64,
-    independence: &mut impl FnMut() -> Result<(), Halt<B>>,
+    at: &mut impl FnMut(usize) -> Result<(), Halt<B>>,
 ) -> Result<CfaFit, Halt<B>> {
     let p = model.p;
-    let q = model.q() as u64;
-    let moments = (p * (p + 1) / 2) as u64;
-    let d = moments - q;
-    // Decision 745 clamps a minimum below 0 to 0 at every d. At d = 0 a model
-    // with as many parameters as moments that has converged reproduces S, so
-    // its F is 0 and rounding of either sign is not a fit: an F of at most
-    // DF_ZERO_ROUNDING there is written as 0 before every measure is computed
-    // from C (decision 761). Above it, F is kept as computed. Rounding above 0
-    // made CFI 1 − C / C = 0 wherever C_b < d_b (decision 759's B2).
-    let f_min = if d == 0 && fitted.f <= DF_ZERO_ROUNDING { 0.0 } else { fitted.f.max(0.0) };
-    let c = n * f_min;
-    // The independence model: only the variances free, so Σ = diag(S) and its
-    // discrepancy is Σ ln s_ii − ln |S|.
-    let db = (p * (p - 1) / 2) as u64;
-    let ln_diag: f64 = (0..p).map(|i| s[i][i].ln()).sum();
-    // Clamped at 0 as F is: on columns uncorrelated to rounding the difference
-    // can round below 0 (−3.4e-15 on Walsh columns; the review of this step,
-    // finding 6), and C_b is the independence row's own CMIN.
-    let cb = n * (ln_diag - log_det_s).max(0.0);
-    let (rmr, gfi) = rmr_and_gfi(s, sigma, &fitted.inverse);
-    let default = model_fit(Row { q, d, c, rmr, gfi }, cb, db, p, big_n, n);
-    // The saturated model (decision 763): Σ = S, every moment a parameter, d = 0
-    // and C = 0; its RMR 0 and its GFI 1 written, not computed from S⁻¹ S, and
-    // its NFI and IFI 1 (decision 773).
-    let saturated = saturated_fit(moments, cb, db, p, big_n, n);
-    independence()?;
-    let diagonal: Vec<Vec<f64>> = (0..p).map(|i| (0..p).map(|j| if i == j { s[i][i] } else { 0.0 }).collect()).collect();
-    let diagonal_inverse: Vec<Vec<f64>> = (0..p).map(|i| (0..p).map(|j| if i == j { 1.0 / s[i][i] } else { 0.0 }).collect()).collect();
-    let (rmr_b, gfi_b) = rmr_and_gfi(s, &diagonal, &diagonal_inverse);
-    let mut baseline = model_fit(Row { q: p as u64, d: db, c: cb, rmr: rmr_b, gfi: gfi_b }, cb, db, p, big_n, n);
-    // AMOS prints the baseline against itself as .000 and its PRATIO as 1.000
-    // (decision 763); the formulas give other values where C_b ≤ d_b (CFI 1 by
-    // the zero denominator, IFI and TLI −0), so these are written, not computed.
-    let zero = Stat::Value(0.0);
-    baseline.nfi = zero;
-    baseline.rfi = zero;
-    baseline.ifi = zero;
-    baseline.tli = zero;
-    baseline.cfi = zero;
-    baseline.pratio = Stat::Value(1.0);
-    baseline.pnfi = zero;
-    baseline.pcfi = zero;
-    Ok(CfaFit { model: default, saturated, independence: baseline })
-}
-
-/// RMR over the lower triangle with the diagonal, on S with divisor N, and GFI
-/// from Σ̂⁻¹ S (decision 745), for a model's Σ̂ and Σ̂⁻¹.
-fn rmr_and_gfi(s: &[Vec<f64>], sigma: &[Vec<f64>], inverse: &[Vec<f64>]) -> (f64, f64) {
-    let p = s.len();
-    let pstar = ((p * (p + 1) / 2) as u64) as f64;
-    let mut squares = 0.0;
-    for i in 0..p {
-        for j in 0..=i {
-            let r = s[i][j] - sigma[i][j];
-            squares += r * r;
-        }
-    }
-    let rmr = (squares / pstar).sqrt();
-    let m = multiply(inverse, s);
-    let (mut residual, mut whole) = (0.0, 0.0);
-    for i in 0..p {
-        for j in 0..p {
-            let a = m[i][j] - if i == j { 1.0 } else { 0.0 };
-            let b = m[j][i] - if i == j { 1.0 } else { 0.0 };
-            residual += a * b;
-            whole += m[i][j] * m[j][i];
-        }
-    }
-    (rmr, 1.0 - residual / whole)
-}
-
-/// What a model's row is computed from: its NPAR, DF, CMIN, RMR and GFI.
-struct Row {
-    q: u64,
-    d: u64,
-    c: f64,
-    rmr: f64,
-    gfi: f64,
-}
-
-/// The saturated model's row (decision 763): Σ = S, every moment a parameter, d
-/// = 0 and C = 0. Its RMR 0, GFI 1, NFI 1 and IFI 1 are written, not computed
-/// (decision 773): at C_b = 0 NFI's 1 − 0/0 and IFI's 0/0 have no value,
-/// though the model reproduces S. Its CFI is 1 by its rule at every C_b.
-fn saturated_fit(moments: u64, cb: f64, db: u64, p: usize, big_n: f64, n: f64) -> CfaModelFit {
-    let mut row = model_fit(Row { q: moments, d: 0, c: 0.0, rmr: 0.0, gfi: 1.0 }, cb, db, p, big_n, n);
-    row.nfi = Stat::Value(1.0);
-    row.ifi = Stat::Value(1.0);
-    row
-}
-
-/// A comparison with the independence model (NFI, RFI, IFI, TLI, CFI, PNFI,
-/// PCFI): `v` as [`stat`] gives it, but `independence_cmin_zero` where `v` is
-/// not finite and C_b is 0, since then the cause is the comparison's division
-/// by C_b, not a value too small or too large (decision 773). A finite `v` is
-/// unchanged at every C_b.
-fn against_baseline(v: f64, cb: f64) -> Stat {
-    if cb == 0.0 && !v.is_finite() {
-        Stat::NotComputable(CfaCode::IndependenceCminZero)
-    } else {
-        stat(v)
-    }
-}
-
-/// One model's row of Appendix C's measures (decisions 745 and 763), against
-/// the independence model's C_b and d_b, for p columns and N rows.
-fn model_fit(row: Row, cb: f64, db: u64, p: usize, big_n: f64, n: f64) -> CfaModelFit {
-    let Row { q, d, c, rmr, gfi } = row;
-    let pf = p as f64;
-    let qf = q as f64;
-    let df = d as f64;
-    let pstar = ((p * (p + 1) / 2) as u64) as f64;
-    let dbf = db as f64;
-    let ncp = (c - df).max(0.0);
-    let lo = if d == 0 { None } else { noncentral_chi_square_ncp(c, df, 0.95) };
-    let hi = if d == 0 { None } else { noncentral_chi_square_ncp(c, df, 0.05) };
-    let interval = |v: Option<f64>, f: &dyn Fn(f64) -> f64| unless_df_zero(d, || dist(v.map(f)));
-    let nfi = 1.0 - c / cb;
-    let cfi_denominator = (cb - dbf).max(c - df).max(0.0);
-    let cfi = if cfi_denominator == 0.0 { 1.0 } else { 1.0 - ncp / cfi_denominator };
-    let pratio = df / dbf;
-    let bcc = if big_n <= pf + 2.0 {
-        Stat::NotComputable(CfaCode::TooFewRowsForBcc)
-    } else {
-        stat(c + 2.0 * qf * (big_n - 1.0) / (big_n - pf - 2.0))
+    let input = FitInput {
+        s,
+        log_det_s,
+        sigma,
+        sigma_inverse: &fitted.inverse,
+        f: fitted.f,
+        q: model.q() as u64,
+        big_n,
+        n,
     };
-    let hoelter = |alpha: f64| {
-        unless_df_zero(d, || {
-            if c == 0.0 {
-                Stat::NotComputable(CfaCode::CminZero)
-            } else {
-                match chi_square_quantile_upper(alpha, df) {
-                    Some(x) => stat((n * x / c + 1.0).floor()),
-                    None => Stat::NotComputable(CfaCode::DistributionOutOfRange),
-                }
-            }
+    let rows = fit_rows(&input, &mut |point| {
+        at(match point {
+            FitPoint::Default => p + 3,
+            FitPoint::Independence => p + 4,
         })
-    };
-    CfaModelFit {
-        npar: q,
-        cmin: stat(c),
-        df: d,
-        p: unless_df_zero(d, || dist(chi_square_upper_wide(c, df))),
-        cmin_df: unless_df_zero(d, || stat(c / df)),
-        rmr: stat(rmr),
-        gfi: stat(gfi),
-        agfi: unless_df_zero(d, || stat(1.0 - (pstar / df) * (1.0 - gfi))),
-        pgfi: unless_df_zero(d, || stat((df / pstar) * gfi)),
-        nfi: against_baseline(nfi, cb),
-        rfi: unless_df_zero(d, || against_baseline(1.0 - (c / df) / (cb / dbf), cb)),
-        ifi: against_baseline((cb - c) / (cb - df), cb),
-        tli: unless_df_zero(d, || against_baseline((cb / dbf - c / df) / (cb / dbf - 1.0), cb)),
-        cfi: against_baseline(cfi, cb),
-        pratio: unless_df_zero(d, || stat(pratio)),
-        pnfi: unless_df_zero(d, || against_baseline(nfi * pratio, cb)),
-        pcfi: unless_df_zero(d, || against_baseline(cfi * pratio, cb)),
-        ncp: stat(ncp),
-        ncp_lo90: interval(lo, &|x| x),
-        ncp_hi90: interval(hi, &|x| x),
-        fmin: stat(c / n),
-        f0: stat(ncp / n),
-        f0_lo90: interval(lo, &|x| x / n),
-        f0_hi90: interval(hi, &|x| x / n),
-        rmsea: unless_df_zero(d, || stat((ncp / n / df).sqrt())),
-        rmsea_lo90: interval(lo, &|x| (x / (n * df)).sqrt()),
-        rmsea_hi90: interval(hi, &|x| (x / (n * df)).sqrt()),
-        pclose: unless_df_zero(d, || {
-            dist(noncentral_chi_square_tails(c, df, PCLOSE_RMSEA * PCLOSE_RMSEA * n * df).map(|t| t.1))
+    })?;
+    Ok(CfaFit { model: row_of(rows.model), saturated: row_of(rows.saturated), independence: row_of(rows.independence) })
+}
+
+/// A measure of fit as this module's [`Stat`]: the value, or its reason as
+/// the `CfaCode` of the same name (decision 796).
+fn of_fit(v: FitValue) -> Stat {
+    match v {
+        FitValue::Value(x) => Stat::Value(x),
+        FitValue::NotComputable(code) => Stat::NotComputable(match code {
+            FitCode::DfZero => CfaCode::DfZero,
+            FitCode::CminZero => CfaCode::CminZero,
+            FitCode::IndependenceCminZero => CfaCode::IndependenceCminZero,
+            FitCode::TooFewRowsForBcc => CfaCode::TooFewRowsForBcc,
+            FitCode::TooSmall => CfaCode::TooSmall,
+            FitCode::Overflow => CfaCode::Overflow,
+            FitCode::DistributionOutOfRange => CfaCode::DistributionOutOfRange,
         }),
-        aic: stat(c + 2.0 * qf),
-        bcc,
-        bic: stat(c + qf * big_n.ln()),
-        caic: stat(c + qf * (big_n.ln() + 1.0)),
-        ecvi: stat((c + 2.0 * qf) / n),
-        ecvi_lo90: interval(lo, &|x| (x + df + 2.0 * qf) / n),
-        ecvi_hi90: interval(hi, &|x| (x + df + 2.0 * qf) / n),
-        mecvi: match bcc {
-            Stat::Value(v) => stat(v / n),
-            code => code,
-        },
-        hoelter05: hoelter(0.05),
-        hoelter01: hoelter(0.01),
     }
+}
+
+/// One row of `stats_fit` as [`CfaModelFit`], field for field.
+fn row_of(r: FitRow) -> CfaModelFit {
+    CfaModelFit {
+        npar: r.npar,
+        cmin: of_fit(r.cmin),
+        df: r.df,
+        p: of_fit(r.p),
+        cmin_df: of_fit(r.cmin_df),
+        rmr: of_fit(r.rmr),
+        gfi: of_fit(r.gfi),
+        agfi: of_fit(r.agfi),
+        pgfi: of_fit(r.pgfi),
+        nfi: of_fit(r.nfi),
+        rfi: of_fit(r.rfi),
+        ifi: of_fit(r.ifi),
+        tli: of_fit(r.tli),
+        cfi: of_fit(r.cfi),
+        pratio: of_fit(r.pratio),
+        pnfi: of_fit(r.pnfi),
+        pcfi: of_fit(r.pcfi),
+        ncp: of_fit(r.ncp),
+        ncp_lo90: of_fit(r.ncp_lo90),
+        ncp_hi90: of_fit(r.ncp_hi90),
+        fmin: of_fit(r.fmin),
+        f0: of_fit(r.f0),
+        f0_lo90: of_fit(r.f0_lo90),
+        f0_hi90: of_fit(r.f0_hi90),
+        rmsea: of_fit(r.rmsea),
+        rmsea_lo90: of_fit(r.rmsea_lo90),
+        rmsea_hi90: of_fit(r.rmsea_hi90),
+        pclose: of_fit(r.pclose),
+        aic: of_fit(r.aic),
+        bcc: of_fit(r.bcc),
+        bic: of_fit(r.bic),
+        caic: of_fit(r.caic),
+        ecvi: of_fit(r.ecvi),
+        ecvi_lo90: of_fit(r.ecvi_lo90),
+        ecvi_hi90: of_fit(r.ecvi_hi90),
+        mecvi: of_fit(r.mecvi),
+        hoelter05: of_fit(r.hoelter05),
+        hoelter01: of_fit(r.hoelter01),
+    }
+}
+
+/// `stats_fit`'s one row as this module's (decision 796), for the unit tests
+/// below that pin the rows' cells: the same function the run calls, through
+/// the same mapping.
+#[cfg(test)]
+fn model_fit(row: Row, cb: f64, db: u64, p: usize, big_n: f64, n: f64) -> CfaModelFit {
+    match crate::stats_fit::model_fit(row, cb, db, p, big_n, n, &mut || Ok::<(), Infallible>(())) {
+        Ok(r) => row_of(r),
+        Err(never) => match never {},
+    }
+}
+
+/// `stats_fit`'s saturated row as this module's (decision 796), for the unit
+/// tests below.
+#[cfg(test)]
+fn saturated_fit(moments: u64, cb: f64, db: u64, p: usize, big_n: f64, n: f64) -> CfaModelFit {
+    row_of(crate::stats_fit::saturated_fit(moments, cb, db, p, big_n, n))
 }
 
 /* ------------------------------------------------------------------------ *

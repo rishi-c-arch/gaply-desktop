@@ -1,0 +1,15 @@
+{
+  "bundleJson": null,
+  "capabilityId": "stats.analyze.cfa",
+  "dataFile": {
+    "bytes": 584,
+    "format": "csv",
+    "kind": "data_file",
+    "sha256": "2ce619919faf6582094635998c1f33a55538b2573195dd5552e52d707836f8b5"
+  },
+  "failureJson": "{\"failure\":{\"code\":\"stats.cfa.model_not_identified\",\"params\":{},\"severity\":\"error\"},\"schemaVersion\":1,\"status\":\"failed\"}",
+  "manifestJson": null,
+  "specJson": "{\"schemaVersion\":1,\"operationId\":17,\"workspaceId\":\"statistics\",\"capabilityId\":\"stats.analyze.cfa\",\"capabilityVersion\":1,\"inputs\":[{\"contentHash\":\"2ce619919faf6582094635998c1f33a55538b2573195dd5552e52d707836f8b5\",\"rows\":32,\"columns\":4,\"semanticRole\":\"table\"}],\"parameters\":{\"indicators\":[[\"C1\",\"C2\"],[\"C3\",\"C4\"]],\"correlatedFactors\":true,\"missingCodes\":[]},\"randomSeed\":null,\"confirmationRefs\":[]}",
+  "state": "failed",
+  "storedRunId": 4
+}

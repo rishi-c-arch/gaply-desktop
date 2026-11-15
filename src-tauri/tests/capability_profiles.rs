@@ -64,6 +64,7 @@ fn every_profile_literal_is_the_app_constant_it_copies() {
             | Kind::AnalyzeLinearRegression
             | Kind::AnalyzeFactor
             | Kind::AnalyzeCfa
+            | Kind::AnalyzeSem
             | Kind::PrepareScaleScore => {
                 for tier in [MemoryTier::Gb8, MemoryTier::Gb16, MemoryTier::Gb32] {
                     let l = IngestLimits::for_tier(tier);
@@ -89,6 +90,7 @@ fn every_profile_literal_is_the_app_constant_it_copies() {
             | Kind::AnalyzeLinearRegression
             | Kind::AnalyzeFactor
             | Kind::AnalyzeCfa
+            | Kind::AnalyzeSem
             | Kind::PrepareScaleScore => {
                 tables += 1;
                 let mut formats: Vec<String> = e
@@ -131,7 +133,8 @@ fn every_profile_literal_is_the_app_constant_it_copies() {
             | Kind::AnalyzeRelatedRanks
             | Kind::AnalyzeLinearRegression
             | Kind::AnalyzeFactor
-            | Kind::AnalyzeCfa => {
+            | Kind::AnalyzeCfa
+            | Kind::AnalyzeSem => {
                 assert_eq!(p.ceiling_ms, Some(runs::RUN_CEILING_MS));
                 assert_eq!(
                     p.cancel,
@@ -153,7 +156,7 @@ fn every_profile_literal_is_the_app_constant_it_copies() {
         assert!(!p.uses_gpu && !p.temp_disk, "{}", e.descriptor.id.as_str());
     }
     assert_eq!(
-        tables, 21,
-        "seven Level 1 capabilities, the descriptive summary, the three t-tests (Phase 8D-1), the one-way ANOVA (Phase 8G), the correlations (Phase 8H), Cronbach's alpha (Phase 8I), scale scores (Phase 8M), crosstabs (Phase 8X-1), the rank tests (Phase 8Y-1), the related rank tests (Phase 8Z-1), the linear regression (Phase 9A-1), the factor analysis (Phase 9B-1) and the confirmatory factor analysis (Research OS, Phase 9C-1)"
+        tables, 22,
+        "seven Level 1 capabilities, the descriptive summary, the three t-tests (Phase 8D-1), the one-way ANOVA (Phase 8G), the correlations (Phase 8H), Cronbach's alpha (Phase 8I), scale scores (Phase 8M), crosstabs (Phase 8X-1), the rank tests (Phase 8Y-1), the related rank tests (Phase 8Z-1), the linear regression (Phase 9A-1), the factor analysis (Phase 9B-1), the confirmatory factor analysis (Research OS, Phase 9C-1) and the structural equation models (Research OS, Phase 9C-4)"
     );
 }

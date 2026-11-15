@@ -58,6 +58,7 @@ const list = [
       'stats.analyze.linear_regression',
       'stats.analyze.factor',
       'stats.analyze.cfa',
+      'stats.analyze.sem',
       'stats.prepare.scale_score',
     ],
     supportsOffline: true,

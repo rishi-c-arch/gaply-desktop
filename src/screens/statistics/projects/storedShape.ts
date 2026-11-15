@@ -1925,12 +1925,14 @@ function factorFailure(failure: unknown, spec: O): boolean {
 
 /* ---- the confirmatory factor analysis (Research OS, Phase 9C-3, decision 786) ----------------
  * Accepts what stats_cfa writes and nothing else. Each rule names the line of
- * gaply-core/src/stats_cfa/mod.rs it mirrors (as at c0bb7c03), and equality is as doubles in
+ * gaply-core/src/stats_cfa/mod.rs it mirrors (as at c0bb7c03); a rule of the measures of fit,
+ * moved unchanged to gaply-core/src/stats_fit/mod.rs in 9C-4 (decision 796), names its line
+ * there as fit:N (as at 9C-4). Equality is as doubles in
  * Rust's order: every field Rust computes from stored fields with + − × ÷ and √ is recomputed
  * here with the same operations in the same order, which IEEE 754 makes bit for bit the same.
  * BIC and CAIC take ln N, which JavaScript's Math.log and Rust's ln need not round alike, so
- * they are held to a band (CFA_BANDS). Rust writes every number through `stat` (:1274-1282: a
- * finite value, NaN too_small, an infinity overflow). */
+ * they are held to a band (CFA_BANDS). Rust writes every number through `stat` (:1274-1282,
+ * and fit:141-149 for the fit: a finite value, NaN too_small, an infinity overflow). */
 
 const cfCode = (c: string) => `stats.cfa.${c}`;
 const CF_SMALL = cfCode('too_small');
@@ -1951,7 +1953,7 @@ const CF_MAX_ITERATIONS = 500;
  *  the band lifted. Every other quantity decision 786 names is recomputed exactly. */
 export const CFA_BANDS = {
   /** |stored − recomputed| / |recomputed| for BIC = C + q ln N and CAIC = C + q (ln N + 1)
-   *  (:1621-1622), where Math.log and Rust's ln may round apart: worst 2.751e-16 (about
+   *  (fit:360-361), where Math.log and Rust's ln may round apart: worst 2.751e-16 (about
    *  1.24 ε), so 2.8e-15. */
   lnN: 2.8e-15,
 };
@@ -1966,7 +1968,7 @@ const cfMeasure = (k: CfaBand, v: number) => {
   return v;
 };
 
-/** Rust's `stat` (:1274-1282). */
+/** Rust's `stat` (:1274-1282, and fit:141-149). */
 const cfStatOf = (x: number): Expected => (Number.isFinite(x) ? { value: x } : Number.isNaN(x) ? { code: CF_SMALL } : { code: CF_OVERFLOW });
 /** A stored Stat is what Rust would write: exactly {"value": x} or {"not_computable": code}, as
  *  serde writes Stat (the review of 9C-3, finding 5: a value beside another key was accepted). */
@@ -1975,10 +1977,10 @@ const cfIs = (stored: unknown, e: Expected) =>
 const cfStat = (v: unknown, codes: readonly string[]) => oneKey(v, { value: isNum, not_computable: (x) => oneOf(x, codes) });
 const cfVal = (v: unknown) => statValue(v) as number;
 const isValue = (v: unknown) => cfStat(v, []);
-/** `against_baseline` (:1538-1544): `stat`, but independence_cmin_zero for a value that is not
+/** `against_baseline` (fit:275-281): `stat`, but independence_cmin_zero for a value that is not
  *  finite where C_b is 0. */
 const againstOf = (x: number, cb: number): Expected => (cb === 0 && !Number.isFinite(x) ? { code: CF_BASELINE_ZERO } : cfStatOf(x));
-/** `unless_df_zero` (:1290-1296). */
+/** `unless_df_zero` (fit:157-163). */
 const unlessDfZero = (d: number, e: () => Expected): Expected => (d === 0 ? { code: CF_DF_ZERO } : e());
 
 /** CfaOutcome's keys and each object's, every one always written (:290-418). */
@@ -2097,7 +2099,7 @@ function cfTested(t: O): boolean {
   return isValue(t.p) && cfVal(t.p) >= 0 && cfVal(t.p) <= 1;
 }
 
-/** One model's row (model_fit, :1548-1630), against the independence model's C_b and d_b, for
+/** One model's row (model_fit, fit:287-372), against the independence model's C_b and d_b, for
  *  p columns and N rows. `npar` and `df` as the spec gives them; every measure Rust builds from
  *  CMIN, DF, NPAR, GFI and N with + − × ÷ and √, exactly; the intervals from the stored NCP
  *  interval; BIC and CAIC within a band; P, PCLOSE, the NCP interval and HOELTER, which take a
@@ -2105,11 +2107,11 @@ function cfTested(t: O): boolean {
 function cfRow(f: O, q: number, d: number, cb: number, db: number, p: number, bigN: number): boolean {
   if (!hasExactly(f, CF_MEASURES)) return false;
   if (f.npar !== q || f.df !== d) return false;
-  // CMIN `stat(c)`, C = (N − 1) F at a converged F ≥ 0 (:1449-1450): a value at least 0.
+  // CMIN `stat(c)`, C = (N − 1) F at a converged F ≥ 0 (fit:183-184): a value at least 0.
   if (!isValue(f.cmin) || !(cfVal(f.cmin) >= 0)) return false;
-  // RMR a square root and GFI 1 − a ratio of sums (:1489-1509): values.
-  // RMR and GFI are `stat`'s (:1574-1575), so either may overflow: rmr_and_gfi squares the
-  // residuals with no guard (:1489-1509; the review of 9C-3, finding 4). A GFI that is not a
+  // RMR a square root and GFI 1 − a ratio of sums (fit:221-243): values.
+  // RMR and GFI are `stat`'s (fit:333-334), so either may overflow: rmr_and_gfi squares the
+  // residuals with no guard (fit:221-243; the review of 9C-3, finding 4). A GFI that is not a
   // number gives AGFI and PGFI too_small, an infinite one overflow (1 − (p*/d)(1 − ±∞) and
   // (d/p*)(±∞) are both infinite at d above 0).
   if (!cfStat(f.rmr, [CF_SMALL, CF_OVERFLOW]) || (isValue(f.rmr) && !(cfVal(f.rmr) >= 0)) || !cfStat(f.gfi, [CF_SMALL, CF_OVERFLOW])) return false;
@@ -2149,7 +2151,7 @@ function cfRow(f: O, q: number, d: number, cb: number, db: number, p: number, bi
     ['mecvi', 'value' in bcc ? cfStatOf(bcc.value / n) : bcc],
   ];
   for (const [k, e] of exact) if (!cfIs(f[k], e)) return false;
-  // BIC and CAIC (:1621-1622), within a band of ln N's rounding.
+  // BIC and CAIC (fit:360-361), within a band of ln N's rounding.
   const lnN = Math.log(bigN);
   for (const [k, x] of [
     ['bic', c + qf * lnN],
@@ -2159,13 +2161,13 @@ function cfRow(f: O, q: number, d: number, cb: number, db: number, p: number, bi
     const gap = Math.abs(cfVal(f[k]) - x) / Math.max(Math.abs(x), Number.MIN_VALUE);
     if (cfMeasure('lnN', gap) > CFA_BANDS.lnN) return false;
   }
-  // P and PCLOSE (:1592, :1615-1617): df_zero at 0 degrees of freedom; else a probability, or
+  // P and PCLOSE (fit:331, fit:355-357): df_zero at 0 degrees of freedom; else a probability, or
   // distribution_out_of_range where the distribution gives none.
   for (const k of ['p', 'pclose']) {
     if (d === 0 ? ncCode(f[k]) !== CF_DF_ZERO : !(cfStat(f[k], [CF_RANGE]) && (!isValue(f[k]) || (cfVal(f[k]) >= 0 && cfVal(f[k]) <= 1)))) return false;
   }
-  // The NCP interval (:1557-1559, :1605-1606) and what Rust builds from it (:1609-1614,
-  // :1624-1625): at 0 degrees of freedom df_zero; else each end a value at least 0 or
+  // The NCP interval (fit:303-305, fit:346-347) and what Rust builds from it (fit:350-354,
+  // fit:363-364): at 0 degrees of freedom df_zero; else each end a value at least 0 or
   // distribution_out_of_range, and F0's, RMSEA's and ECVI's ends exactly from it.
   for (const [end, f0k, rk, ek] of [
     ['ncpLo90', 'f0Lo90', 'rmseaLo90', 'ecviLo90'],
@@ -2185,7 +2187,7 @@ function cfRow(f: O, q: number, d: number, cb: number, db: number, p: number, bi
     if (!cfIs(f[f0k], cfStatOf(x / n)) || !cfIs(f[rk], cfStatOf(Math.sqrt(x / (n * df)))) || !cfIs(f[ek], cfStatOf((x + df + 2 * qf) / n))) return false;
   }
   if (d !== 0 && isValue(f.ncpLo90) && isValue(f.ncpHi90) && !(cfVal(f.ncpLo90) <= cfVal(f.ncpHi90))) return false;
-  // HOELTER (:1570-1581): df_zero at 0 degrees of freedom, cmin_zero at a CMIN of 0, else a
+  // HOELTER (fit:315-326): df_zero at 0 degrees of freedom, cmin_zero at a CMIN of 0, else a
   // whole number at least 1, overflow, or distribution_out_of_range.
   for (const k of ['hoelter05', 'hoelter01']) {
     const h = f[k];
@@ -2289,7 +2291,7 @@ function cfaBundle(v: O, spec: O): CfaResultView | null {
     if (!cfIs(x.correlation, e)) return null;
   }
 
-  // The three rows (fit_measures, :1431-1486): NPAR and DF from the spec; the saturated row's
+  // The three rows (fit_measures, fit:172-217): NPAR and DF from the spec; the saturated row's
   // and the independence row's written cells exactly; each row's measures from its CMIN.
   const fit = r.fit;
   if (!isObject(fit) || !hasExactly(fit, CF_FIT_KEYS) || !isObject(fit.model) || !isObject(fit.saturated) || !isObject(fit.independence)) return null;
@@ -2301,19 +2303,19 @@ function cfaBundle(v: O, spec: O): CfaResultView | null {
   const ind = fit.independence as O;
   if (!isValue(ind.cmin)) return null;
   const cb = cfVal(ind.cmin);
-  // The independence row (:1468-1484): Σ = diag(S), q = p, d = d_b, C = C_b; its comparisons
+  // The independence row (fit:199-215): Σ = diag(S), q = p, d = d_b, C = C_b; its comparisons
   // written, 0 but PRATIO 1.
   const written = (row: O, cells: Record<string, number>) => Object.keys(cells).every((key) => statValue(row[key]) === cells[key] && hasExactly(row[key] as O, ['value']));
   // The written cells are checked as written; the rest of the row by model_fit's rules
   // (cfRowExcept).
   if (!written(ind, { nfi: 0, rfi: 0, ifi: 0, tli: 0, cfi: 0, pratio: 1, pnfi: 0, pcfi: 0 })) return null;
   if (!cfRowExcept(ind, p, db, cb, db, p, bigN, ['nfi', 'rfi', 'ifi', 'tli', 'cfi', 'pratio', 'pnfi', 'pcfi'])) return null;
-  // The saturated row (saturated_fit, :1526-1536): q = p*, d = 0, C = 0, RMR 0 and GFI 1
+  // The saturated row (saturated_fit, fit:259-268): q = p*, d = 0, C = 0, RMR 0 and GFI 1
   // written, and NFI and IFI written 1.
   const sat = fit.saturated as O;
   if (!written(sat, { cmin: 0, rmr: 0, gfi: 1, nfi: 1, ifi: 1 })) return null;
   if (!cfRowExcept(sat, moments, 0, cb, db, p, bigN, ['nfi', 'ifi'])) return null;
-  // The default row (:1451).
+  // The default row (fit:194).
   if (!cfRow(fit.model as O, q, d, cb, db, p, bigN)) return null;
 
   // The notes (:1382-1392): a subset of the three in order; negative_variance exactly when a

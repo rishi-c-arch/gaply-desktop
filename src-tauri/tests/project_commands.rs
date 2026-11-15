@@ -1829,6 +1829,107 @@ fn stored_cfa_results_have_the_layout_of_their_fixtures() {
     assert_stored_fixture("cfa_failed.json", &back);
 }
 
+/// The confirmatory factor analysis's stored edge cases (Research OS, Phase 9C-4, decision
+/// 794, the review of 96ce0cbe's M1 and decision 790's third answer): the accepting side of
+/// the stored checker's rules that no fixture reached. Three from Walsh ±1 patterns over 16
+/// rows (w_m(r) = −1 when the bits of r & m number odd, else 1), whose covariances are exact:
+/// S diagonal, so C_b = 0 and C = 0 at d = 9 (cfa_independence_zero.json, a degenerate
+/// solution Rust writes until 9C-5's check at the solution); S the model's exactly, so C = 0
+/// at d = 13 (cfa_exact_fit.json). One from the rows of the CFA golden's phi_not_pd.csv, whose
+/// factors correlate above 1 (cfa_phi_not_pd.json). And a failed run of model_not_identified
+/// on cfa_cases.rs's Walsh columns over 32 rows (cfa_failed_not_identified.json). Each
+/// premise is asserted on the saved bundle, so a fixture cannot drift into an ordinary result.
+#[test]
+fn stored_cfa_edge_cases_have_the_layout_of_their_fixtures() {
+    let walsh = |m: u32, r: u32| if (r & m).count_ones() % 2 == 1 { -1.0 } else { 1.0 };
+    let csv = |cols: &[Vec<f64>]| -> Vec<u8> {
+        let mut s = (1..=cols.len()).map(|i| format!("c{i}")).collect::<Vec<_>>().join(",");
+        for r in 0..cols[0].len() {
+            s.push('\n');
+            s.push_str(&cols.iter().map(|c| format!("{:?}", c[r])).collect::<Vec<_>>().join(","));
+        }
+        s.push('\n');
+        s.into_bytes()
+    };
+    let w = World::new("stored-cfa-edges");
+    // Six columns c_j · w_j, c cycling through 1, 0.5, 2, 0.25.
+    let c4 = [1.0, 0.5, 2.0, 0.25];
+    let indep: Vec<Vec<f64>> = (1..=6u32).map(|j| (0..16u32).map(|r| c4[((j - 1) % 4) as usize] * walsh(j, r)).collect()).collect();
+    // f₁ = w_1, f₂ = 0.5 w_1 + w_2; columns λ f + c w_m.
+    let mut exact: Vec<Vec<f64>> = Vec::new();
+    for (m, l, c) in [(4u32, 1.0, 1.0), (5, 2.0, 0.5), (6, 0.5, 2.0), (7, 1.5, 0.25)] {
+        exact.push((0..16u32).map(|r| l * walsh(1, r) + c * walsh(m, r)).collect());
+    }
+    for (m, l, c) in [(8u32, 0.75, 0.5), (9, 1.0, 2.0), (10, 2.0, 1.0)] {
+        exact.push((0..16u32).map(|r| l * (0.5 * walsh(1, r) + walsh(2, r)) + c * walsh(m, r)).collect());
+    }
+    // The CFA golden's phi_not_pd.csv, its '#' provenance lines skipped.
+    let golden = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("gaply-core/tests/fixtures/stats_cfa/data/phi_not_pd.csv"),
+    )
+    .unwrap();
+    let phi: String = golden.lines().filter(|l| !l.starts_with('#')).map(|l| format!("{l}\n")).collect();
+    // cfa_cases.rs's a_run_whose_every_attempt_fails_h_at_its_start_is_model_not_identified.
+    let not_identified = vec![
+        vec![-0.5, -0.5, 0.5, 0.5, -0.5, -0.5, 0.5, 0.5, -0.5, -0.5, 0.5, 0.5, -0.5, -0.5, 0.5, 0.5, -0.5, -0.5, 0.5, 0.5, -0.5, -0.5, 0.5, 0.5, -0.5, -0.5, 0.5, 0.5, -0.5, -0.5, 0.5, 0.5],
+        vec![1.0, 0.0, -1.0, -2.0, 0.0, -1.0, -2.0, -3.0, 3.0, 2.0, 1.0, 0.0, 2.0, 1.0, 0.0, -1.0, 1.0, 0.0, -1.0, -2.0, 0.0, -1.0, -2.0, -3.0, 3.0, 2.0, 1.0, 0.0, 2.0, 1.0, 0.0, -1.0],
+        vec![-1.5, 0.5, -1.5, 0.5, 0.5, 2.5, 0.5, 2.5, -2.5, -0.5, -2.5, -0.5, -0.5, 1.5, -0.5, 1.5, -1.5, 0.5, -1.5, 0.5, 0.5, 2.5, 0.5, 2.5, -2.5, -0.5, -2.5, -0.5, -0.5, 1.5, -0.5, 1.5],
+        vec![1.5, -0.5, 2.5, 0.5, -0.5, -2.5, 0.5, -1.5, -0.5, -2.5, 0.5, -1.5, -2.5, -4.5, -1.5, -3.5, 3.5, 1.5, 4.5, 2.5, 1.5, -0.5, 2.5, 0.5, 1.5, -0.5, 2.5, 0.5, -0.5, -2.5, 0.5, -1.5],
+    ];
+    let a = w.open("indep.csv", &csv(&indep));
+    let b = w.open("exact.csv", &csv(&exact));
+    let c = w.open("phi.csv", phi.as_bytes());
+    let d = w.open("walsh.csv", &csv(&not_identified));
+    let run = w.cfa(a, &[&[1, 2, 3, 4, 5, 6]], true, vec![]);
+    let id = pc::save_run(&w.root(), &w.ws, run, new_project("Stored CFA edges")).unwrap().project_id;
+    let run = w.cfa(b, &[&[1, 2, 3, 4], &[5, 6, 7]], true, vec![]);
+    pc::save_run(&w.root(), &w.ws, run, into_open(&id)).unwrap();
+    let run = w.cfa(c, &[&[1, 2], &[3, 4]], true, vec![]);
+    pc::save_run(&w.root(), &w.ws, run, into_open(&id)).unwrap();
+    let run = w.cfa(d, &[&[1, 2], &[3, 4]], true, vec![]);
+    assert_eq!(w.wait_new_kind(run), RunState::Failed);
+    pc::save_run(&w.root(), &w.ws, run, into_open(&id)).unwrap();
+
+    let nc = |c: &str| serde_json::json!({ "not_computable": format!("stats.cfa.{c}") });
+    let zero = serde_json::json!({ "value": 0.0 });
+    for (n, name, df, notes) in [
+        (1, "cfa_independence_zero.json", 9, vec![]),
+        (2, "cfa_exact_fit.json", 13, vec![]),
+        (3, "cfa_phi_not_pd.json", 1, vec!["stats.cfa.factor_covariance_not_positive_definite"]),
+    ] {
+        let back = pc::run_result(&w.root(), &w.ws, &id, n).expect("read back");
+        assert_eq!(back.state, RunState::Succeeded, "{name}");
+        let bundle: Value = serde_json::from_str(back.bundle_json.as_deref().unwrap()).unwrap();
+        let r = &bundle["primaryOutputs"];
+        let m = &r["fit"]["model"];
+        assert_eq!(m["df"], df, "{name}");
+        let got: Vec<&str> = r["notes"].as_array().unwrap().iter().map(|c| c.as_str().unwrap()).collect();
+        assert_eq!(got, notes, "{name}");
+        // C is 0 at d > 0 in each, so HOELTER is cmin_zero (storedShape.ts's HOELTER branch).
+        assert_eq!(m["cmin"], zero, "{name}");
+        assert_eq!((&m["hoelter05"], &m["hoelter01"]), (&nc("cmin_zero"), &nc("cmin_zero")), "{name}");
+        if n == 1 {
+            // C_b = 0: NFI, RFI and PNFI independence_cmin_zero, the other comparisons finite.
+            assert_eq!(r["fit"]["independence"]["cmin"], zero);
+            for k in ["nfi", "rfi", "pnfi"] {
+                assert_eq!(m[k], nc("independence_cmin_zero"), "{k}");
+            }
+            for k in ["ifi", "tli", "cfi", "pcfi"] {
+                assert!(m[k]["value"].is_f64(), "{k}: {}", m[k]);
+            }
+        } else {
+            assert!(r["fit"]["independence"]["cmin"]["value"].as_f64().unwrap() > 0.0, "{name}");
+        }
+        assert_stored_fixture(name, &back);
+    }
+    let back = pc::run_result(&w.root(), &w.ws, &id, 4).expect("read back");
+    assert_eq!(back.state, RunState::Failed);
+    let failure: Value = serde_json::from_str(back.failure_json.as_deref().unwrap()).unwrap();
+    assert_eq!(failure["failure"]["code"], "stats.cfa.model_not_identified");
+    assert_eq!(failure["failure"]["params"], serde_json::json!({}));
+    assert_stored_fixture("cfa_failed_not_identified.json", &back);
+}
+
 /// A varimax that takes hundreds of cycles, saved (Research OS, Phase 9C-1, decision 742's B1):
 /// the review of 8bd82d8f found the stored checker's rotated-row band, divided by ε · m alone,
 /// refusing such a result Rust wrote. One-factor data of 128 items and 150 rows, each item the
@@ -2144,4 +2245,33 @@ fn a_factor_run_is_saved_now_that_its_method_has_a_row() {
     let data = w.open("r.csv", b"y,x\n1,2\n3,3\n2,5\n5,4\n4,7\n");
     let regression = w.linear_regression(data, 1, &[2], vec![]);
     pc::save_run(&w.root(), &w.ws, regression, new_project("Regression")).expect("a regression is saved");
+}
+
+/// Research OS, Phase 9C-4 (decision 803): the structural equation models have no row in
+/// METHODS until 9C-5, so a finished run of theirs, real and succeeded, is refused by
+/// saveable's last guard with project.run_not_saveable, and nothing is written. This pins
+/// the guard on a real capability, as `a_run_of_a_capability_no_row_holds_is_not_saveable`
+/// does on a copy.
+#[test]
+fn a_finished_structural_equation_model_is_not_saveable_until_it_has_a_row() {
+    let w = World::new("sem-not-saveable");
+    let mut csv = String::from("x1,x2,x3,x4\n");
+    for i in 1..=40u64 {
+        let score = ((i * 7907) % 1013) as i64 - 506;
+        let noise = |j: u64| ((i * 104729 + j * 7919 + i * j * 31) % 997) as i64 - 498;
+        csv.push_str(&format!("{},{},{},{}\n", score + noise(1), 2 * score + noise(2), score - noise(3), noise(4)));
+    }
+    let slot = w.open("sem.csv", csv.as_bytes());
+    let params: gaply_core::stats_sem::SemParams = serde_json::from_value(json!({
+        "indicators": [["C1", "C2", "C3"]],
+        "paths": [{ "to": { "factor": 1 }, "from": { "column": "C4" } }],
+        "covariances": [], "equal": [], "missingCodes": [],
+    }))
+    .unwrap();
+    let run = w.sem(slot, params);
+    assert_eq!(w.wait_new_kind(run), RunState::Succeeded, "the premise: a real, finished run");
+    let before = files(&w.root());
+    let e = pc::save_run(&w.root(), &w.ws, run, new_project("p")).unwrap_err();
+    assert_eq!(code(&e), "project.run_not_saveable");
+    assert_eq!(files(&w.root()), before, "nothing written");
 }

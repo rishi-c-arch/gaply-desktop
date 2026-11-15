@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "capabilityId": "stats.analyze.sem",
+  "capabilityVersion": 1,
+  "engineVersion": 1,
+  "inputs": [
+    "0ddb4c8873e307d06031e2ee2a869610dd7078584c3526bace674e15b5fd4824"
+  ],
+  "parametersHash": "7b101aededb4c74a8adf740ccc1cf7be8206d2cbf37dfc3f7b095cecbf128414",
+  "seed": null,
+  "rowsRead": 62,
+  "rowsUsed": 60,
+  "exclusions": [
+    {
+      "code": "stats.sem.missing_value",
+      "count": 1,
+      "params": {
+        "column": 2
+      }
+    },
+    {
+      "code": "stats.sem.missing_code",
+      "count": 1,
+      "params": {
+        "column": 5
+      }
+    }
+  ],
+  "platform": {
+    "os": "macos",
+    "arch": "aarch64"
+  },
+  "elapsedMs": 0,
+  "outputHash": "dbc4df9f2ea5a1e1af2b3ef0b7e063b03bcb32c114b722ccf9351d73660fe1f1",
+  "reproducibility": "bitwise"
+}

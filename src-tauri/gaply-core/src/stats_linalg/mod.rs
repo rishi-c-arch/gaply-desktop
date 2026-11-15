@@ -3,7 +3,11 @@
 //! eigensolver, a Cholesky factor with its inverse and log-determinant, and
 //! least squares with several right-hand sides and no intercept. (9B-1's polar
 //! factor went in 9B-2, decision 719: SPSS's varimax rotates pairs of factors
-//! and needs no singular value decomposition.)
+//! and needs no singular value decomposition.) Since 9C-4 (decision 796), the
+//! inverse of a square matrix that need not be symmetric, by Gauss–Jordan
+//! elimination with partial pivoting, and the rank of a symmetric matrix by a
+//! Cholesky factor that pivots on its largest diagonal, for the structural
+//! equation models.
 //!
 //! Matrices are `Vec<Vec<f64>>`, row by row; an eigenvector or a column is a
 //! `Vec<f64>`. Every function is `pub(crate)`: this is arithmetic for the
@@ -19,7 +23,8 @@
 //!
 //! R's `eigen`, `chol`, `chol2inv`, `determinant` and `qr.solve` are the
 //! oracle (`tests/fixtures/stats_linalg/make_linalg_fixtures.R`, compared in
-//! `stats_linalg_r_golden.rs`); each algorithm here is written from its
+//! `stats_linalg_r_golden.rs`), with `solve` and `qr`'s rank for the two of
+//! 9C-4 (`make_sem_linalg_fixtures.R`); each algorithm here is written from its
 //! published description, not from any tool's source (ADR-008).
 
 /// The sweeps [`eigen_symmetric`] makes before it refuses (decision 699).
@@ -300,6 +305,119 @@ pub(crate) fn least_squares(x: &[Vec<f64>], y: &[Vec<f64>]) -> Option<Vec<Vec<f6
     Some(out)
 }
 
+/// [`inverse`] refuses when the largest pivot it can choose in a column is at
+/// most this times the largest absolute entry of A (Research OS, Phase 9C-4,
+/// decision 796).
+pub(crate) const INVERSE_PIVOT_TOLERANCE: f64 = 1e-12;
+
+/// A⁻¹ for a square `a` that need not be symmetric (Research OS, Phase 9C-4,
+/// decision 796): Gauss–Jordan elimination on [A | I] with partial pivoting.
+/// At column j the pivot is the largest absolute value at or below the
+/// diagonal, the lowest row on a tie, and its row is exchanged into place;
+/// the pivot row is divided by the pivot and every other row has its multiple
+/// of it subtracted. `None` when a chosen pivot is at most
+/// [`INVERSE_PIVOT_TOLERANCE`] times the largest absolute entry of `a`, or is
+/// not a number, and for a matrix that is not square or holds a value that is
+/// not finite. The structural equation models invert I − A with it, A holding
+/// every path and loading.
+pub(crate) fn inverse(a: &[Vec<f64>]) -> Option<Vec<Vec<f64>>> {
+    let n = a.len();
+    if a.iter().any(|row| row.len() != n || row.iter().any(|v| !v.is_finite())) {
+        return None;
+    }
+    let scale = a.iter().flatten().fold(0.0f64, |m, x| m.max(x.abs()));
+    let mut m: Vec<Vec<f64>> = a.to_vec();
+    let mut inv: Vec<Vec<f64>> = (0..n).map(|i| (0..n).map(|j| if i == j { 1.0 } else { 0.0 }).collect()).collect();
+    for j in 0..n {
+        let mut pivot_row = j;
+        let mut largest = m[j][j].abs();
+        for (i, row) in m.iter().enumerate().skip(j + 1) {
+            if row[j].abs() > largest {
+                largest = row[j].abs();
+                pivot_row = i;
+            }
+        }
+        if !(largest > INVERSE_PIVOT_TOLERANCE * scale) {
+            return None;
+        }
+        m.swap(j, pivot_row);
+        inv.swap(j, pivot_row);
+        let pivot = m[j][j];
+        for k in 0..n {
+            m[j][k] /= pivot;
+            inv[j][k] /= pivot;
+        }
+        for i in 0..n {
+            if i == j {
+                continue;
+            }
+            let factor = m[i][j];
+            if factor == 0.0 {
+                continue;
+            }
+            for k in 0..n {
+                m[i][k] -= factor * m[j][k];
+                inv[i][k] -= factor * inv[j][k];
+            }
+        }
+    }
+    Some(inv)
+}
+
+/// The number of pivots above `tolerance` of a Cholesky factor that takes, at
+/// each step, the largest remaining diagonal value, the lowest index on a tie
+/// (Research OS, Phase 9C-4, decision 796): for a symmetric matrix the caller
+/// has scaled to a unit diagonal, its numerical rank. It stops at the first
+/// largest remaining value at or below `tolerance`, or not a number, and
+/// counts the steps before it; each step takes the Schur complement of its
+/// pivot. The structural equation models' identification check gives it the
+/// information matrix at two points, at a tolerance of 1e-9.
+pub(crate) fn pivoted_rank(a: &[Vec<f64>], tolerance: f64) -> usize {
+    pivot_steps(a, tolerance).0.len()
+}
+
+/// The indices [`pivoted_rank`] takes as pivots, in its order: what it counts.
+#[cfg(test)]
+fn pivot_order(a: &[Vec<f64>], tolerance: f64) -> Vec<usize> {
+    pivot_steps(a, tolerance).0
+}
+
+/// [`pivoted_rank`]'s steps: the pivots it takes, in its order, with their values,
+/// and the value at which it stopped, if any (Research OS, Phase 9C-4, decision
+/// 800: the bug hunt reports the margins).
+pub(crate) fn pivot_steps(a: &[Vec<f64>], tolerance: f64) -> (Vec<usize>, Vec<f64>, Option<f64>) {
+    let n = a.len();
+    let mut w: Vec<Vec<f64>> = a.to_vec();
+    let mut remaining: Vec<usize> = (0..n).collect();
+    let mut order = Vec::new();
+    let mut values = Vec::new();
+    let mut stopped = None;
+    while !remaining.is_empty() {
+        let mut at = 0;
+        for (t, &i) in remaining.iter().enumerate().skip(1) {
+            if w[i][i] > w[remaining[at]][remaining[at]] {
+                at = t;
+            }
+        }
+        let p = remaining[at];
+        let d = w[p][p];
+        if !(d > tolerance) {
+            stopped = Some(d);
+            break;
+        }
+        order.push(p);
+        values.push(d);
+        remaining.remove(at);
+        for &i in &remaining {
+            let f = w[i][p] / d;
+            for &k in &remaining {
+                w[i][k] -= f * w[p][k];
+            }
+        }
+    }
+    (order, values, stopped)
+}
+
 #[cfg(test)]
 mod stats_linalg_r_golden;
 
@@ -529,5 +647,57 @@ mod tests {
         let a = vec![vec![1.0, 2.0, 3.0], vec![4.0, 5.0, 6.0]];
         assert_eq!(transpose(&a), vec![vec![1.0, 4.0], vec![2.0, 5.0], vec![3.0, 6.0]]);
         assert_eq!(multiply(&a, &transpose(&a)), vec![vec![14.0, 32.0], vec![32.0, 77.0]]);
+    }
+
+    /// Research OS, Phase 9C-4 (decision 796): `inverse` refuses an exactly singular matrix
+    /// and one whose best pivot is at most 1e-12 of its scale (2⁻⁴³, about 1.1e-13), takes
+    /// one above it (2⁻³⁹, about 1.8e-12), and exchanges rows where a diagonal is 0. Powers of
+    /// 2 keep each inverse exact.
+    #[test]
+    fn inverse_refuses_a_singular_matrix_and_a_pivot_of_1e_13_of_its_scale() {
+        assert_eq!(inverse(&[vec![1.0, 2.0], vec![2.0, 4.0]]), None, "exactly singular");
+        let small = 1.0 / 8_796_093_022_208.0; // 2^-43
+        assert!(small < 1e-12 && small > 1e-13);
+        assert_eq!(inverse(&[vec![1.0, 0.0], vec![0.0, small]]), None, "a pivot of 2^-43 of the scale");
+        let enough = 1.0 / 549_755_813_888.0; // 2^-39
+        assert!(enough > 1e-12);
+        assert_eq!(inverse(&[vec![1.0, 0.0], vec![0.0, enough]]), Some(vec![vec![1.0, 0.0], vec![0.0, 549_755_813_888.0]]));
+        assert_eq!(inverse(&[vec![0.0, 1.0], vec![1.0, 0.0]]), Some(vec![vec![0.0, 1.0], vec![1.0, 0.0]]), "a 0 diagonal, rows exchanged");
+        assert_eq!(inverse(&[vec![2.0, 0.0], vec![0.0, f64::NAN]]), None, "a value that is not finite");
+        assert_eq!(inverse(&[vec![1.0, 2.0]]), None, "not square");
+        // (I − A) for a two-variable loop, b₁₂ = 0.5 and b₂₁ = 0.25: its inverse is
+        // [[1, 0.5], [0.25, 1]] / (1 − 0.125).
+        let got = inverse(&[vec![1.0, -0.5], vec![-0.25, 1.0]]).unwrap();
+        let want = [[1.0 / 0.875, 0.5 / 0.875], [0.25 / 0.875, 1.0 / 0.875]];
+        for i in 0..2 {
+            for j in 0..2 {
+                assert!((got[i][j] - want[i][j]).abs() <= 4.0 * f64::EPSILON, "{i} {j}: {} against {}", got[i][j], want[i][j]);
+            }
+        }
+    }
+
+    /// Decision 796: `pivoted_rank` takes the largest remaining diagonal value, the lowest
+    /// index on a tie, and stops at the first that is not above its tolerance.
+    #[test]
+    fn pivoted_rank_takes_the_largest_diagonal_the_lowest_index_on_a_tie_and_stops_at_its_tolerance() {
+        let identity: Vec<Vec<f64>> = (0..3).map(|i| (0..3).map(|j| if i == j { 1.0 } else { 0.0 }).collect()).collect();
+        assert_eq!(pivot_order(&identity, 1e-9), vec![0, 1, 2], "a tie at every step: the lowest index");
+        // After 0, the diagonals left are 0.75 at 1 and 1 at 2: the largest, 2, comes first.
+        let m = vec![vec![1.0, 0.5, 0.0], vec![0.5, 1.0, 0.0], vec![0.0, 0.0, 1.0]];
+        assert_eq!(pivot_order(&m, 1e-9), vec![0, 2, 1]);
+        // After 0, 0.75 at both 1 and 2: the lowest index.
+        let tie = vec![vec![1.0, 0.5, 0.5], vec![0.5, 1.0, 0.0], vec![0.5, 0.0, 1.0]];
+        assert_eq!(pivot_order(&tie, 1e-9), vec![0, 1, 2]);
+        // The stop: a value at the tolerance is not counted, one above it is.
+        assert_eq!(pivoted_rank(&[vec![1.0, 0.0], vec![0.0, 1e-9]], 1e-9), 1);
+        assert_eq!(pivoted_rank(&[vec![1.0, 0.0], vec![0.0, 2e-9]], 1e-9), 2);
+        // Two equal columns: the second's Schur complement is 0.
+        assert_eq!(pivoted_rank(&[vec![1.0, 1.0], vec![1.0, 1.0]], 1e-9), 1);
+        // The first two columns equal: the first remaining diagonal stops at the second, a
+        // count of 1; the largest takes the third next and counts 2.
+        let leading = vec![vec![1.0, 1.0, 0.0], vec![1.0, 1.0, 0.0], vec![0.0, 0.0, 1.0]];
+        assert_eq!(pivoted_rank(&leading, 1e-9), 2);
+        assert_eq!(pivoted_rank(&[vec![f64::NAN]], 1e-9), 0, "not a number stops it");
+        assert_eq!(pivoted_rank(&[], 1e-9), 0);
     }
 }

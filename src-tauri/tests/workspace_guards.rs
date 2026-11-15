@@ -1518,3 +1518,64 @@ fn every_cfa_command_checks_the_workspace_first() {
         failures.join("\n")
     );
 }
+
+/// Research OS, Phase 9C-4 (decision 803): the structural equation models' six
+/// commands, each checking
+/// the workspace first, in the same form; none is exempt. (registered path) No
+/// other family's prefix starts `stats_sem_`, and it starts no other's: the
+/// families are FIND FIRST of 9C-4's, `stats_ai_key` to `stats_xtab`.
+const SEM_OPERATIONS: &[&str] = &[
+    "stats_sem_commands::stats_sem_validate",
+    "stats_sem_commands::stats_sem_run",
+    "stats_sem_commands::stats_sem_status",
+    "stats_sem_commands::stats_sem_result",
+    "stats_sem_commands::stats_sem_cancel",
+    "stats_sem_commands::stats_sem_export",
+];
+
+#[test]
+fn every_sem_command_checks_the_workspace_first() {
+    let all = registered();
+    assert!(all.len() > 100, "the handler parse is inert");
+    let mut family: Vec<&str> = all
+        .iter()
+        .map(|p| p.as_str())
+        .filter(|p| p.starts_with("stats_sem_commands::"))
+        .collect();
+    family.sort_unstable();
+    let mut listed: Vec<&str> = SEM_OPERATIONS.to_vec();
+    listed.sort_unstable();
+    assert_eq!(
+        family, listed,
+        "every registered stats_sem_commands command is listed, and every listed one is registered"
+    );
+    // Nothing registers a stats_sem_* command from another module.
+    for p in &all {
+        if p.rsplit("::")
+            .next()
+            .is_some_and(|n| n.starts_with("stats_sem_"))
+        {
+            assert!(p.starts_with("stats_sem_commands::"), "{p}");
+        }
+    }
+
+    let src = without_line_comments(&read(&root().join("src/stats_sem_commands.rs")));
+    let mut failures = Vec::new();
+    for path in SEM_OPERATIONS {
+        let name = path.rsplit("::").next().unwrap();
+        match fn_body(&src, name) {
+            Some(body) if checks_first(body) => {}
+            Some(body) => failures.push(format!(
+                "{path}: first statement is `{}`",
+                body.split(';').next().unwrap_or("").trim()
+            )),
+            None => failures.push(format!("{path}: no body found")),
+        }
+    }
+    println!("gated {} structural equation models commands", SEM_OPERATIONS.len());
+    assert!(
+        failures.is_empty(),
+        "decision 803:\n{}",
+        failures.join("\n")
+    );
+}

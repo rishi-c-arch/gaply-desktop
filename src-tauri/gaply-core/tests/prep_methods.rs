@@ -3,13 +3,15 @@
 //!
 //! Prepared tables here are built by `stats_prep::build`, never by hand.
 //!
-//! * All twelve methods run on a score (the rank tests the eighth since Phase
+//! * All thirteen methods run on a score (the rank tests the eighth since Phase
 //!   8Y-1, decision 604; the related rank tests the ninth since 8Z-1, decision
 //!   638, a score one of their columns; the linear regression the tenth since
 //!   9A-1, decision 671, scores two of its predictors; the factor analysis the
 //!   eleventh since 9B-1, decision 701, a score one of its three items; the
 //!   confirmatory factor analysis the twelfth since 9C-1, decision 746, a score
-//!   one of its three columns): each manifest carries the preparation,
+//!   one of its three columns; the structural equation models the thirteenth
+//!   since 9C-4, decision 800, a score the third column of a factor): each
+//!   manifest carries the preparation,
 //!   each result names the score by its alias alone, and each method's numbers
 //!   equal its numbers on the same values given as a file's column. That last
 //!   comparison is byte for byte on the result, so no gate is involved: the
@@ -33,6 +35,7 @@ use gaply_core::stats_anova::{self, AnovaParams};
 use gaply_core::stats_corr::{self, Coefficient, CorrParams, MissingHandling};
 use gaply_core::stats_desc::{self, Alias, ColumnRequest, DescribeParams, TreatAs};
 use gaply_core::stats_cfa::{self, CfaParams};
+use gaply_core::stats_sem::{self, SemParams};
 use gaply_core::stats_factor::{self, Extraction, FactorParams, Rotation};
 use gaply_core::stats_linear_regression::{self, LinearRegressionParams};
 use gaply_core::stats_l1::dataset::{
@@ -367,6 +370,20 @@ fn cfa_params(codes: &[f64]) -> CfaParams {
         missing_codes: codes.to_vec(),
     }
 }
+/// A factor measured by q2, q3 and the sum score, q4 pointing into it (Research OS,
+/// Phase 9C-4, decision 800): over the twelve rows with every value, four columns, 8
+/// parameters and 2 degrees of freedom. The spec, as JSON: {"indicators":[["C5","C6","C8"]],
+/// "paths":[{"to":{"factor":1},"from":{"column":"C7"}}],"covariances":[],"equal":[],
+/// "missingCodes":[]}.
+fn sem_params(codes: &[f64]) -> SemParams {
+    SemParams {
+        indicators: vec![vec![a(Q2), a(6), a(SUM)]],
+        paths: vec![stats_sem::SemPath { to: stats_sem::SemVariable::Factor(1), from: stats_sem::SemVariable::Column(a(7)) }],
+        covariances: Vec::new(),
+        equal: Vec::new(),
+        missing_codes: codes.to_vec(),
+    }
+}
 fn alpha_params(codes: &[f64]) -> AlphaParams {
     AlphaParams {
         items: vec![a(Q2), a(SUM), a(MEAN)],
@@ -410,7 +427,7 @@ macro_rules! method {
     };
 }
 
-fn methods() -> [Method; 12] {
+fn methods() -> [Method; 13] {
     [
         method!(
             "summary",
@@ -520,6 +537,15 @@ fn methods() -> [Method; 12] {
             stats_cfa::compute,
             stats_cfa::manifest
         ),
+        method!(
+            "structural equation models",
+            "stats.sem.",
+            sem_params,
+            stats_sem::spec,
+            stats_sem::validate,
+            stats_sem::compute,
+            stats_sem::manifest
+        ),
     ]
 }
 
@@ -527,7 +553,7 @@ fn words(errors: &[(String, Option<i64>, Option<i64>)]) -> Vec<&str> {
     errors.iter().map(|e| e.0.as_str()).collect()
 }
 
-/* ---- all twelve on a score --------------------------------------------------- */
+/* ---- all thirteen on a score ------------------------------------------------- */
 
 #[test]
 fn the_fixture_has_the_score_values_the_tests_below_rely_on() {
@@ -545,7 +571,7 @@ fn the_fixture_has_the_score_values_the_tests_below_rely_on() {
 }
 
 #[test]
-fn all_twelve_methods_run_on_a_score_and_their_manifests_carry_the_preparation() {
+fn all_thirteen_methods_run_on_a_score_and_their_manifests_carry_the_preparation() {
     let d = prepared();
     let hash = ContentHash::from_hex(d.schema.fingerprint.sha256_hex()).unwrap();
     for m in methods() {

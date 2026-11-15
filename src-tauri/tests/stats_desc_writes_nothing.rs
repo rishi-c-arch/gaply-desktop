@@ -82,6 +82,11 @@ const SCANNED: &[&str] = &[
     // Research OS, Phase 9C-1 (decision 749): the confirmatory factor analysis.
     "src/stats_cfa_commands.rs",
     "gaply-core/src/stats_cfa",
+    // Research OS, Phase 9C-4 (decision 803): the structural equation models, and
+    // the measures of fit they share with the confirmatory factor analysis.
+    "src/stats_sem_commands.rs",
+    "gaply-core/src/stats_sem",
+    "gaply-core/src/stats_fit",
 ];
 
 /// The one Research OS module allowed to write (Phase 5B-1, ADR-009): the

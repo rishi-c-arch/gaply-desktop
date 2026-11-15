@@ -46,6 +46,16 @@ const THREE = 'cfa_uncorrelated.json';
 const HEYWOOD = 'cfa_heywood.json';
 /** sample_covariance_singular at the sum column, C10. */
 const FAILED = 'cfa_failed.json';
+// Research OS, Phase 9C-4 (decision 794, the review of 96ce0cbe's M1): results Rust writes that
+// reach the accepting side of rules no earlier fixture reached.
+/** One factor of six Walsh columns, S diagonal: C_b = 0 and C = 0 at d = 9. */
+const INDEPENDENCE_ZERO = 'cfa_independence_zero.json';
+/** Two correlated factors whose S is the model's exactly: C = 0 at d = 13. */
+const EXACT = 'cfa_exact_fit.json';
+/** Two correlated factors that correlate above 1: Φ̂ not positive definite. */
+const PHI = 'cfa_phi_not_pd.json';
+/** model_not_identified from real data (decision 790's third answer). */
+const FAILED_NOT_IDENTIFIED = 'cfa_failed_not_identified.json';
 const OK = 'cfa';
 const BAD = 'badShape';
 const code = (c: string) => `stats.cfa.${c}`;
@@ -102,12 +112,31 @@ const permuted = (file: string, order: number[], indicators: string[][], factors
   );
 
 describe('what Rust writes', () => {
-  it.each([TWO, THREE, HEYWOOD])('%s is accepted as a confirmatory factor analysis', (file) => {
+  it.each([TWO, THREE, HEYWOOD, INDEPENDENCE_ZERO, EXACT, PHI])('%s is accepted as a confirmatory factor analysis', (file) => {
     expect(kindOf(snapshot(file))).toBe(OK);
   });
 
-  it('the failed run is accepted as failed', () => {
-    expect(kindOf(snapshot(FAILED))).toBe('failed');
+  it.each([FAILED, FAILED_NOT_IDENTIFIED])('the failed run %s is accepted as failed', (file) => {
+    expect(kindOf(snapshot(file))).toBe('failed');
+  });
+
+  // Decision 794: each edge fixture holds the case its rule needs, so a rule made one-way is
+  // red at it.
+  it('the edge fixtures are the cases the rules need: C_b 0, C 0 at d above 0, Φ̂ not positive definite', () => {
+    const zero = r(JSON.parse(snapshot(INDEPENDENCE_ZERO).bundleJson));
+    const exact = r(JSON.parse(snapshot(EXACT).bundleJson));
+    const phi = r(JSON.parse(snapshot(PHI).bundleJson));
+    expect([zero.fit.model.df, exact.fit.model.df, phi.fit.model.df]).toEqual([9, 13, 1]);
+    expect(zero.fit.independence.cmin).toEqual({ value: 0 });
+    expect([zero.fit.model.nfi, zero.fit.model.rfi, zero.fit.model.pnfi]).toEqual([nc('independence_cmin_zero'), nc('independence_cmin_zero'), nc('independence_cmin_zero')]);
+    for (const o of [zero, exact, phi]) {
+      expect(o.fit.model.cmin).toEqual({ value: 0 });
+      expect([o.fit.model.hoelter05, o.fit.model.hoelter01]).toEqual([nc('cmin_zero'), nc('cmin_zero')]);
+    }
+    expect(exact.fit.independence.cmin.value).toBeGreaterThan(0);
+    expect([zero.notes, exact.notes, phi.notes]).toEqual([[], [], [code('factor_covariance_not_positive_definite')]]);
+    const failure = JSON.parse(snapshot(FAILED_NOT_IDENTIFIED).failureJson).failure;
+    expect([failure.code, failure.params]).toEqual([code('model_not_identified'), {}]);
   });
 
   it("the fixtures are the shapes the rules need: correlated, uncorrelated, df 0 with its notes", () => {
@@ -253,6 +282,9 @@ const REFUSED: Array<[string, () => O]> = [
   ['negative_variance not noted with a variance below 0', () => changed(HEYWOOD, (b) => (r(b).notes = [code('df_zero')]))],
   ['the factors\' covariance note where Φ is positive definite', () => changed(TWO, (b) => (r(b).notes = [code('factor_covariance_not_positive_definite')]))],
   ['df_zero not noted at 0 degrees of freedom', () => changed(HEYWOOD, (b) => (r(b).notes = [code('negative_variance')]))],
+  // Decision 794: each note rule's other direction.
+  ['the factors\' covariance note missing where Φ is not positive definite', () => changed(PHI, (b) => (r(b).notes = []))],
+  ['df_zero noted at degrees of freedom above 0', () => changed(TWO, (b) => (r(b).notes = [code('df_zero')]))],
   ['the limitations out of order', () => changed(TWO, (b) => (r(b).limitations = [...r(b).limitations].reverse()))],
   // Exclusions, diagnostics and the manifest.
   ['an exclusion under a column outside the model', () => changed(TWO, (b) => ((r(b).exclusions[0].params.column = 3), (b.manifest.exclusions[0].params.column = 3)))],

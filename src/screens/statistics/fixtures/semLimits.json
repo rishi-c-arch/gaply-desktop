@@ -1,0 +1,9 @@
+{
+  "maxColumns": 128,
+  "maxCovariances": 256,
+  "maxEqualMembers": 128,
+  "maxFactors": 16,
+  "maxPaths": 64,
+  "minColumns": 2,
+  "minFactorItems": 2
+}

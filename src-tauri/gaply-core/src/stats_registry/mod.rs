@@ -69,6 +69,7 @@ use crate::stats_anova::{CAPABILITY_ID as ANOVA_ID, CAPABILITY_VERSION as ANOVA_
 use crate::stats_corr::{CAPABILITY_ID as CORR_ID, CAPABILITY_VERSION as CORR_VERSION};
 use crate::stats_desc::{CAPABILITY_ID, CAPABILITY_VERSION};
 use crate::stats_cfa::{CAPABILITY_ID as CFA_ID, CAPABILITY_VERSION as CFA_VERSION};
+use crate::stats_sem::{CAPABILITY_ID as SEM_ID, CAPABILITY_VERSION as SEM_VERSION};
 use crate::stats_factor::{CAPABILITY_ID as FACTOR_ID, CAPABILITY_VERSION as FACTOR_VERSION};
 use crate::stats_l1::catalogue::{L1MethodId, MethodCatalogue};
 use crate::stats_l1::compute::L1Registry;
@@ -280,6 +281,36 @@ closed! {
         LimitAnalyzeCfaNoSrmr => "limit.analyze.cfa_no_srmr",
         /// Listwise deletion only (decision 748).
         LimitAnalyzeCfaListwiseOnly => "limit.analyze.cfa_listwise_only",
+        AnalyzeSemTitle => "analyze.sem.title",
+        AnalyzeSemDescription => "analyze.sem.description",
+        /// Maximum likelihood only (Research OS, Phase 9C-4, decision 802).
+        LimitAnalyzeSemMlOnly => "limit.analyze.sem_ml_only",
+        /// No means or intercepts (decision 802).
+        LimitAnalyzeSemNoMeans => "limit.analyze.sem_no_means",
+        /// One group (decision 802).
+        LimitAnalyzeSemOneGroup => "limit.analyze.sem_one_group",
+        /// Each column measures at most one factor, and is no path's end (decision 802).
+        LimitAnalyzeSemIndicatorsOneFactor => "limit.analyze.sem_indicators_one_factor",
+        /// A group held equal holds one kind of parameter (decision 802).
+        LimitAnalyzeSemEqualOneKind => "limit.analyze.sem_equal_one_kind",
+        /// Each factor's scale its first column's loading of 1 (decision 802).
+        LimitAnalyzeSemMarkerIdentification => "limit.analyze.sem_marker_identification",
+        /// No parameter fixed at a value of the user's (decision 802).
+        LimitAnalyzeSemNoFixedValues => "limit.analyze.sem_no_fixed_values",
+        /// Effects among the structural variables only (decision 802).
+        LimitAnalyzeSemEffectsStructuralOnly => "limit.analyze.sem_effects_structural_only",
+        /// No standard errors or intervals for indirect effects (decision 802).
+        LimitAnalyzeSemNoIndirectEffectTests => "limit.analyze.sem_no_indirect_effect_tests",
+        /// No stability index for a loop (decision 802).
+        LimitAnalyzeSemNoStabilityIndex => "limit.analyze.sem_no_stability_index",
+        /// No modification indices (decision 802).
+        LimitAnalyzeSemNoModificationIndices => "limit.analyze.sem_no_modification_indices",
+        /// Normal-theory standard errors and chi-square (decision 802).
+        LimitAnalyzeSemNormalTheory => "limit.analyze.sem_normal_theory",
+        /// No standardized RMR (decision 802).
+        LimitAnalyzeSemNoSrmr => "limit.analyze.sem_no_srmr",
+        /// Listwise deletion only (decision 802).
+        LimitAnalyzeSemListwiseOnly => "limit.analyze.sem_listwise_only",
         PrepareScaleScoreTitle => "prepare.scale_score.title",
         PrepareScaleScoreDescription => "prepare.scale_score.description",
         /// A score's items are the file's columns (ADR-011 question 13).
@@ -323,6 +354,8 @@ pub enum Kind {
     AnalyzeFactor,
     /// `stats.analyze.cfa` (Research OS, Phase 9C-1).
     AnalyzeCfa,
+    /// `stats.analyze.sem` (Research OS, Phase 9C-4).
+    AnalyzeSem,
     /// `stats.prepare.scale_score` (Phase 8M). Not a method: no run kind.
     PrepareScaleScore,
 }
@@ -369,6 +402,9 @@ const LIFECYCLES: &[(&str, Lifecycle)] = &[
     // Planned in 9C-1's Part 2 (decision 747); Beta at the start of its Part 3
     // (decision 749), so its commands and runs can run.
     (CFA_ID, Lifecycle::Beta),
+    // Planned in 9C-4's Part 2 (decision 801); Beta at the start of its Part 3
+    // (decision 803), so its commands and runs can run.
+    (SEM_ID, Lifecycle::Beta),
     // Planned in 8M (decision 411); Beta at the start of 8M-2's Part 2
     // (decision 416), so 8M-3's commands can run in both builds.
     (PREP_ID, Lifecycle::Beta),
@@ -1122,6 +1158,63 @@ fn analyze_cfa() -> Entry {
     }
 }
 
+/// Structural equation models on the user's data (Research OS, Phase 9C-4,
+/// decisions 797 to 802): the other methods' profile, formats and licence; the
+/// table capabilities' two limitations, the methods' weights, and its own
+/// fourteen.
+fn analyze_sem() -> Entry {
+    Entry {
+        kind: Kind::AnalyzeSem,
+        descriptor: StatsDescriptor {
+            id: id(SEM_ID),
+            version: SEM_VERSION,
+            workspace_id: WorkspaceId::Statistics,
+            title_code: StatsWording::AnalyzeSemTitle,
+            description_code: StatsWording::AnalyzeSemDescription,
+            lifecycle: lifecycle_of(SEM_ID),
+            input_schema_version: 1,
+            output_schema_version: 1,
+            method_schema_version: 1,
+            supported_formats: TABLE_FORMATS.to_vec(),
+            dependency_ids: Vec::new(),
+            license_notes: vec![StatsWording::LicenseStatrsMit],
+            resource_profile: ResourceProfile {
+                ram_class: RamClass::Gb8,
+                max_rows: Some(METHOD_MAX_ROWS),
+                max_columns: Some(METHOD_MAX_COLUMNS),
+                max_input_bytes: None,
+                ceiling_ms: Some(DESCRIBE_CEILING_MS),
+                cancel: Cancel::Cooperative,
+                uses_gpu: false,
+                temp_disk: false,
+            },
+            offline_behavior: OfflineBehavior::RunsOffline,
+            validation_suite_id: SuiteId("sem_r_golden"),
+            known_limitation_codes: vec![
+                StatsWording::LimitTableTextFilesUtf8Only,
+                StatsWording::LimitTableLimitsByMemory,
+                StatsWording::LimitAnalyzeNoWeights,
+                StatsWording::LimitAnalyzeSemMlOnly,
+                StatsWording::LimitAnalyzeSemNoMeans,
+                StatsWording::LimitAnalyzeSemOneGroup,
+                StatsWording::LimitAnalyzeSemIndicatorsOneFactor,
+                StatsWording::LimitAnalyzeSemEqualOneKind,
+                StatsWording::LimitAnalyzeSemMarkerIdentification,
+                StatsWording::LimitAnalyzeSemNoFixedValues,
+                StatsWording::LimitAnalyzeSemEffectsStructuralOnly,
+                StatsWording::LimitAnalyzeSemNoIndirectEffectTests,
+                StatsWording::LimitAnalyzeSemNoStabilityIndex,
+                StatsWording::LimitAnalyzeSemNoModificationIndices,
+                StatsWording::LimitAnalyzeSemNormalTheory,
+                StatsWording::LimitAnalyzeSemNoSrmr,
+                StatsWording::LimitAnalyzeSemListwiseOnly,
+            ],
+            export_kinds: vec![ExportKind::Csv, ExportKind::Json],
+            documentation_id: DocId("methods/structural_equation_models"),
+        },
+    }
+}
+
 /// Scale scores (Phase 8M, decisions 408 and 411): the methods' rows, columns,
 /// formats and table limitations, with no ceiling and no cancel (ADR-011 Part
 /// 12): one fast call, measured at 0.18 s at 100,000 × 128 (decision 410), never
@@ -1181,7 +1274,7 @@ impl Registry {
     /// `stats.analyze.correlations`, `stats.analyze.cronbach_alpha`,
     /// `stats.analyze.crosstabs`, `stats.analyze.independent_ranks`,
     /// `stats.analyze.related_ranks`, `stats.analyze.linear_regression`,
-    /// `stats.analyze.factor`, `stats.analyze.cfa` and
+    /// `stats.analyze.factor`, `stats.analyze.cfa`, `stats.analyze.sem` and
     /// `stats.prepare.scale_score`.
     pub fn statistics() -> Registry {
         let mut entries = vec![check()];
@@ -1199,6 +1292,7 @@ impl Registry {
         entries.push(analyze_linear_regression());
         entries.push(analyze_factor());
         entries.push(analyze_cfa());
+        entries.push(analyze_sem());
         entries.push(prepare_scale_score());
         Registry { entries }
     }
@@ -1370,7 +1464,7 @@ mod tests {
                 checked += 1;
             }
         }
-        assert_eq!(checked, 2 * 22, "twenty-two capabilities, two builds");
+        assert_eq!(checked, 2 * 23, "twenty-three capabilities, two builds");
     }
 
     /// Phase 8D-1 (decision 253), made Beta in 8D-2a (decision 265): the
@@ -1423,7 +1517,7 @@ mod tests {
         }
         let ids: Vec<String> = t.ids().iter().map(|i| i.as_str().to_string()).collect();
         assert_eq!(
-            &ids[ids.len() - 13..ids.len() - 10],
+            &ids[ids.len() - 14..ids.len() - 11],
             [TTEST_ID, ONE_SAMPLE_ID, PAIRED_ID],
             "appended after the independent t-test, one-sample first"
         );
@@ -1454,6 +1548,7 @@ mod tests {
                 | Kind::AnalyzeLinearRegression
                 | Kind::AnalyzeFactor
                 | Kind::AnalyzeCfa
+                | Kind::AnalyzeSem
                 | Kind::PrepareScaleScore => {
                     methods += 1;
                     assert!(
@@ -1491,7 +1586,7 @@ mod tests {
                 }
             }
         }
-        assert_eq!((methods, verify), (14, 7));
+        assert_eq!((methods, verify), (15, 7));
         assert_eq!((METHOD_MAX_ROWS, METHOD_MAX_COLUMNS), (100_000, 128));
     }
 
@@ -1536,7 +1631,7 @@ mod tests {
         }
         let ids: Vec<String> = t.ids().iter().map(|i| i.as_str().to_string()).collect();
         assert_eq!(
-            &ids[ids.len() - 10..ids.len() - 8],
+            &ids[ids.len() - 11..ids.len() - 9],
             [ANOVA_ID, CORR_ID],
             "appended after the paired t-test, the correlations after it"
         );
@@ -1581,7 +1676,7 @@ mod tests {
         }
         let ids: Vec<String> = t.ids().iter().map(|i| i.as_str().to_string()).collect();
         assert_eq!(
-            &ids[ids.len() - 9..ids.len() - 7],
+            &ids[ids.len() - 10..ids.len() - 8],
             [CORR_ID, ALPHA_ID],
             "appended after the one-way ANOVA, Cronbach's alpha after it"
         );
@@ -1626,7 +1721,7 @@ mod tests {
         }
         let ids: Vec<String> = t.ids().iter().map(|i| i.as_str().to_string()).collect();
         assert_eq!(
-            &ids[ids.len() - 8..ids.len() - 6],
+            &ids[ids.len() - 9..ids.len() - 7],
             [ALPHA_ID, XTAB_ID],
             "appended after the correlations, crosstabs after it (decision 578)"
         );
@@ -1680,7 +1775,7 @@ mod tests {
         }
         let ids: Vec<String> = t.ids().iter().map(|i| i.as_str().to_string()).collect();
         assert_eq!(
-            &ids[ids.len() - 7..ids.len() - 5],
+            &ids[ids.len() - 8..ids.len() - 6],
             [XTAB_ID, RANKS_ID],
             "appended after Cronbach's alpha, the rank tests after it (decision 605)"
         );
@@ -1739,7 +1834,7 @@ mod tests {
         }
         let ids: Vec<String> = t.ids().iter().map(|i| i.as_str().to_string()).collect();
         assert_eq!(
-            &ids[ids.len() - 6..ids.len() - 4],
+            &ids[ids.len() - 7..ids.len() - 5],
             [RANKS_ID, RELATED_RANKS_ID],
             "appended after crosstabs, the related rank tests after it"
         );
@@ -1791,7 +1886,7 @@ mod tests {
         }
         let ids: Vec<String> = t.ids().iter().map(|i| i.as_str().to_string()).collect();
         assert_eq!(
-            &ids[ids.len() - 5..ids.len() - 3],
+            &ids[ids.len() - 6..ids.len() - 4],
             [RELATED_RANKS_ID, LINEAR_REGRESSION_ID],
             "appended after the rank tests, the linear regression after it"
         );
@@ -1845,7 +1940,7 @@ mod tests {
         }
         let ids: Vec<String> = t.ids().iter().map(|i| i.as_str().to_string()).collect();
         assert_eq!(
-            &ids[ids.len() - 5..ids.len() - 2],
+            &ids[ids.len() - 6..ids.len() - 3],
             [RELATED_RANKS_ID, LINEAR_REGRESSION_ID, FACTOR_ID],
             "appended after the related rank tests, the factor analysis after it"
         );
@@ -1892,7 +1987,7 @@ mod tests {
         }
         let ids: Vec<String> = t.ids().iter().map(|i| i.as_str().to_string()).collect();
         assert_eq!(
-            &ids[ids.len() - 4..ids.len() - 1],
+            &ids[ids.len() - 5..ids.len() - 2],
             [LINEAR_REGRESSION_ID, FACTOR_ID, CFA_ID],
             "appended after the linear regression, the confirmatory factor analysis after it"
         );
@@ -1941,11 +2036,69 @@ mod tests {
         }
         let ids: Vec<String> = t.ids().iter().map(|i| i.as_str().to_string()).collect();
         assert_eq!(
-            &ids[ids.len() - 3..],
-            [FACTOR_ID, CFA_ID, PREP_ID],
-            "appended after the factor analysis, scale scores after it"
+            &ids[ids.len() - 4..ids.len() - 1],
+            [FACTOR_ID, CFA_ID, SEM_ID],
+            "appended after the factor analysis, the structural equation models after it"
         );
     }
+
+    /// Research OS, Phase 9C-4 (decision 801): the structural equation models are
+    /// listed after the confirmatory factor analysis and before scale scores, with
+    /// their own title, description and fourteen limitations after the three
+    /// shared ones, and their validation suite and page named. Planned in Part 2,
+    /// Beta since Part 3 (decision 803), so runnable in both builds.
+    #[test]
+    fn the_structural_equation_models_are_listed_and_named() {
+        let t = Registry::statistics();
+        let id = CapabilityId::parse(SEM_ID).unwrap();
+        let e = t.lookup(&id).expect("listed");
+        let d = &e.descriptor;
+        assert_eq!(e.kind, Kind::AnalyzeSem);
+        assert_eq!((d.version, d.lifecycle), (1, LIFECYCLE_SEM));
+        assert_eq!(
+            (d.title_code, d.description_code),
+            (StatsWording::AnalyzeSemTitle, StatsWording::AnalyzeSemDescription)
+        );
+        assert_eq!(
+            d.known_limitation_codes,
+            [
+                StatsWording::LimitTableTextFilesUtf8Only,
+                StatsWording::LimitTableLimitsByMemory,
+                StatsWording::LimitAnalyzeNoWeights,
+                StatsWording::LimitAnalyzeSemMlOnly,
+                StatsWording::LimitAnalyzeSemNoMeans,
+                StatsWording::LimitAnalyzeSemOneGroup,
+                StatsWording::LimitAnalyzeSemIndicatorsOneFactor,
+                StatsWording::LimitAnalyzeSemEqualOneKind,
+                StatsWording::LimitAnalyzeSemMarkerIdentification,
+                StatsWording::LimitAnalyzeSemNoFixedValues,
+                StatsWording::LimitAnalyzeSemEffectsStructuralOnly,
+                StatsWording::LimitAnalyzeSemNoIndirectEffectTests,
+                StatsWording::LimitAnalyzeSemNoStabilityIndex,
+                StatsWording::LimitAnalyzeSemNoModificationIndices,
+                StatsWording::LimitAnalyzeSemNormalTheory,
+                StatsWording::LimitAnalyzeSemNoSrmr,
+                StatsWording::LimitAnalyzeSemListwiseOnly,
+            ]
+        );
+        assert_eq!(
+            (d.validation_suite_id, d.documentation_id),
+            (SuiteId("sem_r_golden"), DocId("methods/structural_equation_models"))
+        );
+        for build in [Build::Standard, Build::Devtools] {
+            assert_eq!(t.require_runnable(&id, 1, build).is_ok(), LIFECYCLE_SEM == Lifecycle::Beta, "{build:?}");
+        }
+        let ids: Vec<String> = t.ids().iter().map(|i| i.as_str().to_string()).collect();
+        assert_eq!(
+            &ids[ids.len() - 3..],
+            [CFA_ID, SEM_ID, PREP_ID],
+            "appended after the confirmatory factor analysis, scale scores after it"
+        );
+    }
+
+    /// The structural equation models' lifecycle as this step leaves it: Planned
+    /// at Part 2's end (decision 801), Beta since Part 3 (decision 803).
+    const LIFECYCLE_SEM: Lifecycle = Lifecycle::Beta;
 
     /// Phase 8M (decision 411): scale scores are listed last, with their own
     /// title, description and limitations, the methods' rows and columns with

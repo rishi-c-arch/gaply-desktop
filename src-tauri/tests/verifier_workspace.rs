@@ -187,8 +187,9 @@ fn workspace_list_carries_the_registrys_capability_ids() {
     // Phase 9A-1: twenty, with `stats.analyze.linear_regression` after it
     // (decision 672); Phase 9B-1: twenty-one, with `stats.analyze.factor` after
     // it (decision 702); Research OS, Phase 9C-1: twenty-two, with
-    // `stats.analyze.cfa` after it (decision 747).
-    assert_eq!(ids.len(), 22);
+    // `stats.analyze.cfa` after it (decision 747); Phase 9C-4: twenty-three, with
+    // `stats.analyze.sem` after it (decision 801).
+    assert_eq!(ids.len(), 23);
 }
 
 #[test]

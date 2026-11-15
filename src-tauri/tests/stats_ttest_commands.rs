@@ -970,6 +970,7 @@ fn run_ids_and_slot_numbers_stay_unique_across_both_kinds() {
             RunKind::LinearRegression => "stats_linear_regression_status",
             RunKind::Factor => "stats_factor_status",
             RunKind::Cfa => "stats_cfa_status",
+            RunKind::Sem => "stats_sem_status",
         };
         assert_eq!(
             code_of(&call(&w.w, cmd, json!({ "runId": run })).unwrap_err()),

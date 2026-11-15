@@ -167,6 +167,11 @@ const STATS_LINALG: &str = "src/stats_linalg";
 const STATS_FACTOR: &str = "src/stats_factor";
 /// Confirmatory factor analysis (Research OS, Phase 9C-1, decision 746).
 const STATS_CFA: &str = "src/stats_cfa";
+/// AMOS's measures of fit in three rows, shared by the confirmatory factor analysis and
+/// the structural equation models (Research OS, Phase 9C-4, decision 796).
+const STATS_FIT: &str = "src/stats_fit";
+/// Structural equation models (Research OS, Phase 9C-4, decision 800).
+const STATS_SEM: &str = "src/stats_sem";
 const STATS_CORR: &str = "src/stats_corr";
 const STATS_ALPHA: &str = "src/stats_alpha";
 const STATS_PREP: &str = "src/stats_prep";
@@ -240,6 +245,7 @@ const STATS_REGISTRY_CRATE_PATHS: &[&str] = &[
     "crate::stats_linear_regression",
     "crate::stats_factor",
     "crate::stats_cfa",
+    "crate::stats_sem",
 ];
 /// What `stats_registry` may import from the catalogue, Level 1's registry
 /// and the descriptive summary, by exact name. The one-way ANOVA's id and
@@ -342,6 +348,11 @@ const REGISTRY_ITEMS: &[(&str, &[&str])] = &[
         "crate::stats_cfa",
         &["CAPABILITY_ID as CFA_ID", "CAPABILITY_VERSION as CFA_VERSION"],
     ),
+    // Research OS, Phase 9C-4 (decision 801): the structural equation models'.
+    (
+        "crate::stats_sem",
+        &["CAPABILITY_ID as SEM_ID", "CAPABILITY_VERSION as SEM_VERSION"],
+    ),
 ];
 const STATS_ADAPTERS_CRATE_PATHS: &[&str] = &[
     "crate::contracts",
@@ -361,6 +372,7 @@ const STATS_ADAPTERS_CRATE_PATHS: &[&str] = &[
     "crate::stats_linear_regression",
     "crate::stats_factor",
     "crate::stats_cfa",
+    "crate::stats_sem",
     "crate::extract",
 ];
 /// The one module outside decision 46's list `stats_adapters` reads, by
@@ -389,6 +401,7 @@ const STATS_ADAPTERS_INLINE_PATHS: &[&str] = &[
     "crate::stats_linear_regression",
     "crate::stats_factor",
     "crate::stats_cfa",
+    "crate::stats_sem",
     "crate::extract::ExtractionResult",
     "crate::extract::SectionKind",
     "crate::extract::extract_from_text",
@@ -779,6 +792,7 @@ const STATS_CFA_CRATE_PATHS: &[&str] = &[
     "crate::stats_desc::export",
     "crate::stats_desc",
     "crate::stats_dist",
+    "crate::stats_fit",
     "crate::stats_l1::dataset",
     "crate::stats_linalg",
     "crate::stats_ttest",
@@ -787,20 +801,81 @@ const STATS_CFA_CRATE_PATHS: &[&str] = &[
 /// (decision 746). The input helpers are the factor analysis's, less
 /// stats_verify's (S is its own two-pass sums); the linear algebra
 /// `stats_linalg`'s, less `transpose`, which the estimation does not need; the
-/// distributions `stats_dist`'s.
+/// distributions `stats_dist`'s. Since 9C-4 (decision 796) the measures of fit are
+/// `stats_fit`'s, so the four distributions only they use are imported there; `Row` only
+/// by the unit tests that pin the rows' cells.
 const CFA_ITEMS: &[(&str, &[&str])] = &[
+    ("crate::stats_dist", &["normal_two_tailed"]),
     (
-        "crate::stats_dist",
+        "crate::stats_fit",
         &[
-            "chi_square_quantile_upper",
-            "chi_square_upper_wide",
-            "noncentral_chi_square_ncp",
-            "noncentral_chi_square_tails",
-            "normal_two_tailed",
+            "fit_measures as fit_rows",
+            "FitCode",
+            "FitInput",
+            "FitPoint",
+            "FitRow",
+            "FitValue",
+            "Row",
+            "DF_ZERO_ROUNDING",
+            "PCLOSE_RMSEA",
         ],
     ),
     ("crate::stats_l1::dataset", &["Cell", "Dataset"]),
     ("crate::stats_linalg", &["cholesky", "cholesky_within", "log_det", "multiply", "spd_inverse"]),
+    ("crate::stats_ttest", &["column", "non_finite_cells"]),
+    ("crate::stats_desc::export", &["text"]),
+    (
+        "crate::stats_desc",
+        &[
+            "input_ref",
+            "preparation_holds",
+            "score_code_count",
+            "suspect_codes_unless_score",
+            "Alias",
+        ],
+    ),
+];
+
+/// What `stats_sem` may name inside the crate (Research OS, Phase 9C-4, decision
+/// 800): the confirmatory factor analysis's list, with `stats_fit`.
+const STATS_SEM_CRATE_PATHS: &[&str] = &[
+    "crate::contracts",
+    "crate::stats_desc::export",
+    "crate::stats_desc",
+    "crate::stats_dist",
+    "crate::stats_fit",
+    "crate::stats_l1::dataset",
+    "crate::stats_linalg",
+    "crate::stats_ttest",
+];
+/// Its inline paths: the same, and the three of `stats_cfa` its unit test that takes
+/// the CFA's accepted Walsh point names (decision 800), by exact path, which
+/// `stats_cfa_appears_in_stats_sem_only_in_its_unit_tests` holds to that test.
+const STATS_SEM_INLINE_PATHS: &[&str] = &[
+    "crate::contracts",
+    "crate::stats_desc::export",
+    "crate::stats_desc",
+    "crate::stats_dist",
+    "crate::stats_fit",
+    "crate::stats_l1::dataset",
+    "crate::stats_linalg",
+    "crate::stats_ttest",
+    "crate::stats_cfa::compute",
+    "crate::stats_cfa::CfaParams",
+    "crate::stats_cfa::Stat",
+];
+/// The items `stats_sem` may import, by exact name: only what it imports (decision
+/// 800). The input helpers are the confirmatory factor analysis's; the linear
+/// algebra `stats_linalg`'s with `inverse` and `pivoted_rank`; the fit
+/// `stats_fit`'s; the dataset's builders only in the unit tests.
+const SEM_ITEMS: &[(&str, &[&str])] = &[
+    ("crate::stats_dist", &["normal_two_tailed"]),
+    ("crate::stats_fit", &["fit_measures as fit_rows", "FitCode", "FitInput", "FitPoint", "FitRow", "FitValue"]),
+    ("crate::stats_l1::dataset", &["Cell", "Dataset", "build_dataset", "DataFingerprint", "RawTable", "TableRef"]),
+    (
+        "crate::stats_linalg",
+        &["cholesky", "cholesky_within", "inverse", "log_det", "multiply", "pivoted_rank", "spd_inverse"],
+    ),
     ("crate::stats_ttest", &["column", "non_finite_cells"]),
     ("crate::stats_desc::export", &["text"]),
     (
@@ -929,6 +1004,23 @@ const PREP_ITEMS: &[(&str, &[&str])] = &[
 const STATS_LINALG_CRATE_PATHS: &[&str] = &[];
 const LINALG_ITEMS: &[(&str, &[&str])] = &[];
 
+/// What `stats_fit` may name inside the crate (Research OS, Phase 9C-4, decision 796):
+/// the distributions its rows need and `stats_linalg`'s product, for GFI.
+const STATS_FIT_CRATE_PATHS: &[&str] = &["crate::stats_dist", "crate::stats_linalg"];
+/// The items `stats_fit` may import, by exact name: only what it imports.
+const FIT_ITEMS: &[(&str, &[&str])] = &[
+    (
+        "crate::stats_dist",
+        &[
+            "chi_square_quantile_upper",
+            "chi_square_upper_wide",
+            "noncentral_chi_square_ncp_with",
+            "noncentral_chi_square_tails",
+        ],
+    ),
+    ("crate::stats_linalg", &["multiply"]),
+];
+
 /// What `stats_dist` may name inside the crate (Phase 8E, decision 275):
 /// Level 0's three tail functions only, the chi-square's added in Phase 8X-1
 /// (decision 576).
@@ -976,6 +1068,8 @@ const DOMAIN_MODULES: &[&str] = &[
     "stats_linalg",
     "stats_factor",
     "stats_cfa",
+    "stats_fit",
+    "stats_sem",
     "research_project",
 ];
 /// Where their types are declared, read to build the type list.
@@ -1001,6 +1095,8 @@ const DOMAIN_SOURCES: &[&str] = &[
     "src/stats_linalg",
     "src/stats_factor",
     "src/stats_cfa",
+    "src/stats_fit",
+    "src/stats_sem",
     "src/research_project",
 ];
 
@@ -1178,6 +1274,27 @@ const CFA_SERIALISED: &[&str] = &[
     "CfaFit",
     "CfaModelFit",
     "CfaOutcome",
+];
+
+/// `stats_sem` types that derive `Serialize` (Research OS, Phase 9C-4, decision 800).
+const SEM_SERIALISED: &[&str] = &[
+    "SemVariable",
+    "SemPath",
+    "SemCovariance",
+    "SemLoading",
+    "SemVarianceOf",
+    "SemParameter",
+    "SemParams",
+    "Stat",
+    "SemWeightKind",
+    "SemWeight",
+    "SemCovarianceEstimate",
+    "SemVariance",
+    "SemSmc",
+    "SemEffect",
+    "SemFit",
+    "SemModelFit",
+    "SemOutcome",
 ];
 
 /// `stats_alpha` types that derive `Serialize` (Phase 8I, decision 372).
@@ -1498,6 +1615,8 @@ fn contracts_and_stats_desc_reach_no_file_network_process_clock_model_or_log() {
         .chain(sources(STATS_LINALG, 2).iter())
         .chain(sources(STATS_FACTOR, 2).iter())
         .chain(sources(STATS_CFA, 2).iter())
+        .chain(sources(STATS_FIT, 1).iter())
+        .chain(sources(STATS_SEM, 2).iter())
         .chain(sources(RESEARCH_PROJECT, 2).iter())
     {
         found.extend(forbidden_in(path, code));
@@ -1617,6 +1736,20 @@ fn imports_are_std_serde_serde_json_sha2_and_the_named_crate_paths_only() {
             STATS_CFA_CRATE_PATHS,
             CFA_ITEMS,
             STATS_CFA_CRATE_PATHS,
+            EXTERNAL_ROOTS,
+        ),
+        (
+            STATS_FIT,
+            STATS_FIT_CRATE_PATHS,
+            FIT_ITEMS,
+            STATS_FIT_CRATE_PATHS,
+            EXTERNAL_ROOTS,
+        ),
+        (
+            STATS_SEM,
+            STATS_SEM_CRATE_PATHS,
+            SEM_ITEMS,
+            STATS_SEM_INLINE_PATHS,
             EXTERNAL_ROOTS,
         ),
         (
@@ -1883,6 +2016,30 @@ fn imports_are_std_serde_serde_json_sha2_and_the_named_crate_paths_only() {
             .collect();
         for name in *names {
             assert!(imported.iter().any(|i| i == name), "stats_cfa no longer imports {prefix}::{name}; update the list");
+        }
+    }
+    // And stats_sem each item on its list (decision 800).
+    let sem: String = sources(STATS_SEM, 2).into_iter().map(|(_, c)| c).collect();
+    for (prefix, names) in SEM_ITEMS {
+        let imported: Vec<String> = use_statements(&sem)
+            .iter()
+            .filter(|s| s.starts_with(prefix) && STATS_SEM_CRATE_PATHS.iter().find(|p| s.starts_with(*p)) == Some(prefix))
+            .flat_map(|s| imported_names(s, prefix))
+            .collect();
+        for name in *names {
+            assert!(imported.iter().any(|i| i == name), "stats_sem no longer imports {prefix}::{name}; update the list");
+        }
+    }
+    // And stats_fit each item on its list (decision 796).
+    let fit: String = sources(STATS_FIT, 1).into_iter().map(|(_, c)| c).collect();
+    for (prefix, names) in FIT_ITEMS {
+        let imported: Vec<String> = use_statements(&fit)
+            .iter()
+            .filter(|s| s.starts_with(prefix) && STATS_FIT_CRATE_PATHS.iter().find(|p| s.starts_with(*p)) == Some(prefix))
+            .flat_map(|s| imported_names(s, prefix))
+            .collect();
+        for name in *names {
+            assert!(imported.iter().any(|i| i == name), "stats_fit no longer imports {prefix}::{name}; update the list");
         }
     }
     // And stats_corr each item on its list (decision 343).
@@ -2780,6 +2937,8 @@ fn every_deserialised_struct_refuses_unknown_fields_and_wire_structs_are_camel_c
         STATS_LINEAR_REGRESSION,
         STATS_FACTOR,
         STATS_CFA,
+        STATS_FIT,
+        STATS_SEM,
         RESEARCH_PROJECT,
     ] {
         for (path, code) in sources(dir, 1) {
@@ -3181,4 +3340,58 @@ fn a_stats_ranks_type_holding_text_prints_counts_through_its_own_debug() {
             );
         }
     }
+}
+
+/// Research OS, Phase 9C-4 (decision 796): `stats_fit` computes rows each method maps to its
+/// own types, so none of its types derives `Serialize` (nothing of it reaches the wire under
+/// its own name), and none holds a `String`.
+#[test]
+fn no_stats_fit_type_derives_serialize_or_holds_text() {
+    let items: Vec<Item> = sources(STATS_FIT, 1).iter().flat_map(|(_, c)| items(c)).collect();
+    assert!(items.len() >= 6, "{} items found in {STATS_FIT} — the scan is inert", items.len());
+    let serialised: Vec<&str> = items.iter().filter(|i| derives(i, "Serialize")).map(|i| i.name.as_str()).collect();
+    assert!(serialised.is_empty(), "these derive Serialize: {serialised:?}");
+    let texty: Vec<&str> = items.iter().filter(|i| holds_string(&i.body)).map(|i| i.name.as_str()).collect();
+    assert!(texty.is_empty(), "these hold a String: {texty:?}");
+}
+
+/// Research OS, Phase 9C-4 (decision 800): in `stats_sem`, exactly the listed types derive
+/// `Serialize`, none names a cell or the dataset, `Rows`, which holds the values, derives
+/// nothing, and no type holds a `String`.
+#[test]
+fn only_the_listed_stats_sem_types_derive_serialize_and_none_holds_a_cell_or_text() {
+    let items: Vec<Item> = sources(STATS_SEM, 2).iter().flat_map(|(_, c)| items(c)).collect();
+    assert!(items.len() >= 17, "{} items found in {STATS_SEM} — the scan is inert", items.len());
+    let mut serialised: Vec<&str> = items.iter().filter(|i| derives(i, "Serialize")).map(|i| i.name.as_str()).collect();
+    serialised.sort_unstable();
+    let mut listed: Vec<&str> = SEM_SERIALISED.to_vec();
+    listed.sort_unstable();
+    assert_eq!(serialised, listed, "the types deriving Serialize in {STATS_SEM} are not the listed ones");
+    for item in items.iter().filter(|i| derives(i, "Serialize")) {
+        for cell in CELL_TYPES {
+            assert!(!identifiers(&item.body).contains(cell), "{} derives Serialize and names `{cell}`", item.name);
+        }
+    }
+    let rows = items.iter().find(|i| i.name == "Rows").expect("Rows exists");
+    assert!(!rows.attrs.contains("#[derive("), "Rows holds the values and derives nothing");
+    let texty: Vec<&str> = items.iter().filter(|i| holds_string(&i.body)).map(|i| i.name.as_str()).collect();
+    assert!(texty.is_empty(), "these hold a String: {texty:?}");
+}
+
+/// Research OS, Phase 9C-4 (decision 800): `stats_sem` names `stats_cfa` only in its unit
+/// tests, where one takes the CFA's accepted point on the Walsh columns; the run never
+/// reaches the CFA. Every line naming it comes after the tests module opens.
+#[test]
+fn stats_cfa_appears_in_stats_sem_only_in_its_unit_tests() {
+    let mut seen = 0;
+    for (path, code) in sources(STATS_SEM, 2) {
+        let opens = code.lines().position(|l| l.trim() == "mod tests {");
+        for (n, line) in code.lines().enumerate() {
+            if line.contains("stats_cfa") {
+                seen += 1;
+                assert!(opens.is_some_and(|o| n > o), "{path}:{}: stats_cfa outside the unit tests", n + 1);
+            }
+        }
+    }
+    assert!(seen > 0, "no line names stats_cfa — the guard is inert");
 }

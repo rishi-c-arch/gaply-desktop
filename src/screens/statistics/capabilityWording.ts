@@ -185,6 +185,35 @@ export const CAPABILITY_WORDS: Record<string, string> = {
   'stats.capability.limit.analyze.cfa_no_srmr': 'The standardized RMR is not computed; AMOS gives it only through a plugin.',
   'stats.capability.limit.analyze.cfa_listwise_only':
     'A row is used only when every column in the model has a value; full information maximum likelihood is not offered.',
+  // Research OS, Phase 9C-4 (decisions 797 to 802): structural equation models, Planned in
+  // Part 2 and Beta from Part 3 (decision 803), with no window item until 9C-5.
+  'stats.capability.analyze.sem.title': 'Structural equation models on your data',
+  'stats.capability.analyze.sem.description':
+    "Fits a structural equation model you specify as AMOS draws one: factors each measured by two or more numeric columns of your own data file, paths between factors and columns, loops, correlated errors and parameters held equal, by maximum likelihood as AMOS does, with the estimates, their standard errors and critical ratios, the standardized estimates, the squared multiple correlations, the total, direct and indirect effects, and AMOS's measures of fit, among them the chi-square, CFI, TLI and RMSEA with its 90% interval.",
+  'stats.capability.limit.analyze.sem_ml_only':
+    'Maximum likelihood is the only estimator; generalized and unweighted least squares, asymptotically distribution-free and Bayesian estimation are not offered.',
+  'stats.capability.limit.analyze.sem_no_means': 'Means and intercepts are not estimated.',
+  'stats.capability.limit.analyze.sem_one_group': 'One group is analysed; multiple-group models are not offered.',
+  'stats.capability.limit.analyze.sem_indicators_one_factor':
+    "Each column measures at most one factor, and a factor's columns are not the ends of paths; cross-loadings and paths into a factor's column are not offered.",
+  'stats.capability.limit.analyze.sem_equal_one_kind':
+    'Each group of parameters held equal holds one kind of parameter; a path cannot be held equal to a variance, for example.',
+  'stats.capability.limit.analyze.sem_marker_identification':
+    "Each factor's scale is set by fixing its first column's loading to 1, as AMOS does when a model is drawn; fixing a factor's variance to 1 instead is not offered.",
+  'stats.capability.limit.analyze.sem_no_fixed_values':
+    'No parameter can be fixed at a value of your choosing; only the first loadings are fixed, at 1.',
+  'stats.capability.limit.analyze.sem_effects_structural_only':
+    "Total, direct and indirect effects are given among the factors and the columns that measure no factor; the effects on a factor's own columns are not listed.",
+  'stats.capability.limit.analyze.sem_no_indirect_effect_tests':
+    'Indirect effects have no standard errors or confidence intervals; bootstrapping is not offered.',
+  'stats.capability.limit.analyze.sem_no_stability_index':
+    'A model with a loop gets no stability index, so whether its effects settle is not assessed.',
+  'stats.capability.limit.analyze.sem_no_modification_indices': 'Modification indices are not computed.',
+  'stats.capability.limit.analyze.sem_normal_theory':
+    'The standard errors and the chi-square assume multivariate normality; bootstrap and robust corrections are not offered.',
+  'stats.capability.limit.analyze.sem_no_srmr': 'The standardized RMR is not computed; AMOS gives it only through a plugin.',
+  'stats.capability.limit.analyze.sem_listwise_only':
+    'A row is used only when every column in the model has a value; full information maximum likelihood is not offered.',
   // Phase 8M (decision 411): scale scores, Planned in 8M and Beta since 8M-2's
   // Part 2 (decision 416), with no route yet.
   'stats.capability.prepare.scale_score.title': 'Scale scores',

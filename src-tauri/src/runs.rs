@@ -140,6 +140,16 @@
 //! Statistics window's Structural equations, Confirmatory factor analysis…
 //! dialog starts it, and a project reruns it through [`Runs::start_cfa_then`].
 //!
+//! Research OS, Phase 9C-4 (decision 803): a record may hold the structural
+//! equation models, started with [`Runs::start_sem`]. Its check points are
+//! `stats_sem::run`'s: before the arithmetic, before each column of S, before
+//! the estimation, every iteration of every attempt, every Newton solve and the
+//! check at the solution calling that one again at its unchanged count, before
+//! the estimates and effects, before the default model's fit and before the
+//! independence model's, each fit row's interval searches calling its own again;
+//! the progress total is `stats_sem::check_points`. No window starts it until
+//! 9C-5, and saving refuses it.
+//!
 //! Phase 3: the run manager and the slots belong to the Statistics workspace
 //! (`crate::workspace`), built when it is activated and dropped when it is
 //! left. [`Runs::seal`] is how it is left: under the records' lock it either
@@ -189,6 +199,7 @@ use gaply_core::stats_related_ranks::{
     self, RelatedRanksCode, RelatedRanksOutcome, RelatedRanksParams,
 };
 use gaply_core::stats_cfa::{self, CfaCode, CfaOutcome, CfaParams};
+use gaply_core::stats_sem::{self, SemCode, SemOutcome, SemParams};
 use gaply_core::stats_factor::{self, FactorCode, FactorOutcome, FactorParams};
 use gaply_core::stats_linear_regression::{
     self, LinearRegressionCode, LinearRegressionOutcome, LinearRegressionParams,
@@ -777,6 +788,9 @@ pub enum RunKind {
     /// `stats.analyze.cfa`, through the `stats_cfa_*` commands (Research OS,
     /// Phase 9C-1, decision 749).
     Cfa,
+    /// `stats.analyze.sem`, through the `stats_sem_*` commands (Research OS,
+    /// Phase 9C-4, decision 803).
+    Sem,
 }
 
 /// The data a run read: its slot, and the SHA-256 of the original bytes the
@@ -910,6 +924,7 @@ enum Held {
     LinearRegression(Outputs<LinearRegressionOutcome, LinearRegressionCode>),
     Factor(Outputs<FactorOutcome, FactorCode>),
     Cfa(Outputs<CfaOutcome, CfaCode>),
+    Sem(Outputs<SemOutcome, SemCode>),
 }
 
 impl Held {
@@ -981,6 +996,7 @@ enum Job {
     LinearRegression(OperationSpec<LinearRegressionParams>),
     Factor(OperationSpec<FactorParams>),
     Cfa(OperationSpec<CfaParams>),
+    Sem(OperationSpec<SemParams>),
 }
 
 impl Job {
@@ -1014,6 +1030,7 @@ enum Report {
     LinearRegression(ValidationReport<LinearRegressionCode>),
     Factor(ValidationReport<FactorCode>),
     Cfa(ValidationReport<CfaCode>),
+    Sem(ValidationReport<SemCode>),
 }
 
 impl Report {
@@ -1038,6 +1055,7 @@ enum Done {
     LinearRegression(Finished<LinearRegression>),
     Factor(Finished<Factor>),
     Cfa(Finished<Cfa>),
+    Sem(Finished<Sem>),
 }
 
 /* ------------------------------------------------------------------------ *
@@ -1103,6 +1121,10 @@ macro_rules! by_method {
             }
             $enum::Cfa($x) => {
                 type $m = Cfa;
+                $body
+            }
+            $enum::Sem($x) => {
+                type $m = Sem;
                 $body
             }
         }
@@ -2547,6 +2569,109 @@ impl Method for Cfa {
     }
 }
 
+/// `stats.analyze.sem`, through the `stats_sem_*` commands (Research OS,
+/// Phase 9C-4, decision 803).
+struct Sem;
+
+impl Method for Sem {
+    const KIND: RunKind = RunKind::Sem;
+    type Params = SemParams;
+    type Result = SemOutcome;
+    type Code = SemCode;
+    type Halt = stats_sem::Halt<Stop>;
+
+    /// `stats_sem::check_points` (decision 799): one before the
+    /// arithmetic, one before each column of S, one before the estimation, one
+    /// before the estimates and effects, one before the default model's fit and one before
+    /// the independence model's.
+    fn columns_total(spec: &OperationSpec<SemParams>, _: &Dataset) -> usize {
+        stats_sem::check_points(&spec.parameters)
+    }
+
+    fn validate(spec: &OperationSpec<SemParams>, dataset: &Dataset) -> ValidationReport<SemCode> {
+        // Through `stats.analyze.sem`'s façade: the registry first, then
+        // `stats_sem::validate`, unchanged.
+        stats_adapters::sem_validate(spec, crate::workspace::build(), dataset)
+    }
+
+    fn compute(
+        spec: &OperationSpec<SemParams>,
+        build: Build,
+        dataset: &Dataset,
+        checkpoint: impl FnMut(usize) -> ControlFlow<Stop>,
+    ) -> Result<SemOutcome, stats_sem::Halt<Stop>> {
+        // Every check point, the iterations' included: the manager's reads
+        // the cancel flag and the clock at each call, whatever its count.
+        stats_adapters::sem_run(spec, build, dataset, checkpoint)
+    }
+
+    fn manifest(
+        spec: &OperationSpec<SemParams>,
+        dataset: &Dataset,
+        result: &SemOutcome,
+        elapsed: u64,
+    ) -> RunManifest<SemCode> {
+        stats_sem::manifest(spec, dataset, result, elapsed, Platform::current())
+    }
+
+    /// The result's own limitations, as notes.
+    fn limitations(result: &SemOutcome) -> Vec<Diagnostic<SemCode>> {
+        result.limitations.iter().map(|c| Diagnostic::note(*c)).collect()
+    }
+
+    /// Every check point on a result; a stop leaves the count the check point
+    /// set.
+    fn columns_done(total: usize, outcome: &Outcome<Self>) -> Option<usize> {
+        match outcome {
+            Ok(Ok(_)) => Some(total),
+            Ok(Err(_)) | Err(_) => None,
+        }
+    }
+
+    fn halted(halt: stats_sem::Halt<Stop>) -> Halted<SemCode> {
+        match halt {
+            stats_sem::Halt::Stopped { reason } => Halted::Stopped(reason),
+            stats_sem::Halt::Refused(d) => Halted::Refused(d),
+        }
+    }
+
+    fn panicked() {
+        tracing::warn!("stats_desc: the structural equation models panicked");
+    }
+
+    fn outputs(held: &Held) -> Option<&Outputs<SemOutcome, SemCode>> {
+        if let Held::Sem(o) = held {
+            Some(o)
+        } else {
+            None
+        }
+    }
+
+    fn outputs_mut(held: &mut Held) -> Option<&mut Outputs<SemOutcome, SemCode>> {
+        if let Held::Sem(o) = held {
+            Some(o)
+        } else {
+            None
+        }
+    }
+
+    fn held(outputs: Outputs<SemOutcome, SemCode>) -> Held {
+        Held::Sem(outputs)
+    }
+
+    fn job(spec: OperationSpec<SemParams>) -> Job {
+        Job::Sem(spec)
+    }
+
+    fn report(report: ValidationReport<SemCode>) -> Report {
+        Report::Sem(report)
+    }
+
+    fn done(finished: Finished<Self>) -> Done {
+        Done::Sem(finished)
+    }
+}
+
 /// An end hook that is due, with what it is called with: called only once
 /// the records' lock is released (Phase 5C-1a).
 struct Due {
@@ -2950,6 +3075,24 @@ impl Runs {
         end: EndHook,
     ) -> Result<RunId, NotStarted> {
         self.begin::<Cfa>(slot, spec, Some(end))
+    }
+
+    /// Starts the structural equation models (Research OS, Phase 9C-4,
+    /// decision 803): their check points, the iterations' and Newton's solves'
+    /// among them, the manager's ceiling and cancel, as every kind's.
+    pub fn start_sem(self: &Arc<Self>, slot: Arc<Slot>, spec: OperationSpec<SemParams>) -> Result<RunId, NotStarted> {
+        self.begin::<Sem>(slot, spec, None)
+    }
+
+    /// [`Runs::start_sem`], with an end hook, for a project rerun (Research OS,
+    /// Phase 9C-4, decision 803).
+    pub fn start_sem_then(
+        self: &Arc<Self>,
+        slot: Arc<Slot>,
+        spec: OperationSpec<SemParams>,
+        end: EndHook,
+    ) -> Result<RunId, NotStarted> {
+        self.begin::<Sem>(slot, spec, Some(end))
     }
 
     /// Every start, of any method (Research OS, Phase 8C): the record, then
@@ -3369,6 +3512,11 @@ impl Runs {
         self.snapshot_as::<Cfa>(run)
     }
 
+    /// [`Runs::snapshot`] for a structural equation models run (Phase 9C-4).
+    pub fn sem_snapshot(&self, run: RunId) -> Result<RunSnapshot<SemCode>, RunCode> {
+        self.snapshot_as::<Sem>(run)
+    }
+
     /// Asks the run to stop. Queued: cancelled now. Running: the flag is set,
     /// and the next check point, or the worker's last step if no check point
     /// is left, ends it `Cancelled`. Finished: unchanged.
@@ -3469,6 +3617,11 @@ impl Runs {
     /// [`Runs::cancel`] for a confirmatory factor analysis run (Phase 9C-1).
     pub fn cfa_cancel(&self, run: RunId) -> Result<RunSnapshot<CfaCode>, RunCode> {
         self.cancel_as::<Cfa>(run)
+    }
+
+    /// [`Runs::cancel`] for a structural equation models run (Phase 9C-4).
+    pub fn sem_cancel(&self, run: RunId) -> Result<RunSnapshot<SemCode>, RunCode> {
+        self.cancel_as::<Sem>(run)
     }
 
     /// The result of a run of `M`'s kind that succeeded. Otherwise the closed
@@ -3581,6 +3734,11 @@ impl Runs {
     /// The result of a confirmatory factor analysis run that succeeded (Phase 9C-1).
     pub fn cfa_result(&self, run: RunId) -> Result<ResultBundle<CfaOutcome, CfaCode>, RunCode> {
         self.result_as::<Cfa>(run)
+    }
+
+    /// The result of a structural equation models run that succeeded (Phase 9C-4).
+    pub fn sem_result(&self, run: RunId) -> Result<ResultBundle<SemOutcome, SemCode>, RunCode> {
+        self.result_as::<Sem>(run)
     }
 
     /// A copy of `run` for a project Save (Phase 5B-2), of either kind:

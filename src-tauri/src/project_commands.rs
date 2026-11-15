@@ -915,10 +915,11 @@ fn saveable(copy: &RunCopy) -> Result<(), ProjectCode> {
     }
     // A method with no row in METHODS cannot be rerun or exported, so a project
     // holding it would refuse its export as a whole (Research OS, Phase 9B-2,
-    // decision 714). Since 9C-3 every method has a row again, the confirmatory
-    // factor analysis's included (decision 784); the guard stays for the next
-    // method registered before its row, and
-    // a_run_of_a_capability_no_row_holds_is_not_saveable pins it.
+    // decision 714). Since 9C-3 every method had a row, the confirmatory factor
+    // analysis's included (decision 784); the structural equation models have none
+    // until 9C-5 (decision 803), so a finished run of theirs is refused here, and
+    // a_run_of_a_capability_no_row_holds_is_not_saveable and the SEM's own save test in
+    // tests/project_commands.rs pin it.
     if method_for(capability.as_str()).is_none() {
         return Err(ProjectCode::RunNotSaveable);
     }
@@ -3859,9 +3860,10 @@ mod tests {
         );
     }
 
-    /// Decision 731: every method has a row since 9B-3, so no real run reaches saveable's
+    /// Decision 731: every method had a row since 9B-3, so no real run reached saveable's
     /// last guard; a copy of a run whose capability no row holds pins it (Research OS,
-    /// Phase 9B-2, decision 714).
+    /// Phase 9B-2, decision 714). Since 9C-4 a real structural equation models run reaches
+    /// it too, until 9C-5 gives them a row (decision 803; tests/project_commands.rs).
     #[test]
     fn a_run_of_a_capability_no_row_holds_is_not_saveable() {
         let mut copy = failed_copy(&ContentHash::of_bytes(b"x"));

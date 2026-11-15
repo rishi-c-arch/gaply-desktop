@@ -834,6 +834,20 @@ pub fn noncentral_chi_square_ncp(x: f64, df: f64, lower_target: f64) -> Option<f
     ncp_within(x, df, lower_target, NONCENTRAL_MAX_NCP)
 }
 
+/// [`noncentral_chi_square_ncp`], calling `step` before each evaluation of the
+/// lower tail and stopping with `step`'s `Err` (Research OS, Phase 9C-4,
+/// decision 796, from decision 767's second answer), so a caller's check point
+/// can end a long search. The arithmetic is the same, in the same order, so
+/// with a `step` that never stops its value is the same bits.
+pub fn noncentral_chi_square_ncp_with<E>(
+    x: f64,
+    df: f64,
+    lower_target: f64,
+    step: impl FnMut() -> Result<(), E>,
+) -> Result<Option<f64>, E> {
+    ncp_within_with(x, df, lower_target, NONCENTRAL_MAX_NCP, step)
+}
+
 /// [`noncentral_chi_square_ncp`] with the bracket's limit as an argument, so
 /// its tests can put it at 1000 (decision 774). A starting top max(x, 1) above
 /// the limit is `None` at once, the tail never evaluated there. When the
@@ -844,21 +858,44 @@ pub fn noncentral_chi_square_ncp(x: f64, df: f64, lower_target: f64) -> Option<f
 /// review of c6675f38's m3: (6e9, 1, .05), its root about 6.0003e9, was `None`
 /// because the top doubled from 6e9 to 1.2e10).
 fn ncp_within(x: f64, df: f64, lower_target: f64, limit: f64) -> Option<f64> {
-    if !(lower_target > 0.0 && lower_target < 1.0) {
-        return None;
+    match ncp_within_with(x, df, lower_target, limit, || Ok::<(), std::convert::Infallible>(())) {
+        Ok(v) => v,
+        Err(never) => match never {},
     }
-    let lower = |ncp: f64| noncentral_lower(x, df, ncp);
-    if lower(0.0)? <= lower_target {
-        return Some(0.0);
+}
+
+/// [`ncp_within`], calling `step` before each evaluation of the lower tail
+/// (decision 796): the one implementation of the search.
+fn ncp_within_with<E>(
+    x: f64,
+    df: f64,
+    lower_target: f64,
+    limit: f64,
+    mut step: impl FnMut() -> Result<(), E>,
+) -> Result<Option<f64>, E> {
+    if !(lower_target > 0.0 && lower_target < 1.0) {
+        return Ok(None);
+    }
+    let mut lower = |ncp: f64| -> Result<Option<f64>, E> {
+        step()?;
+        Ok(noncentral_lower(x, df, ncp))
+    };
+    let Some(at_zero) = lower(0.0)? else { return Ok(None) };
+    if at_zero <= lower_target {
+        return Ok(Some(0.0));
     }
     let (mut lo, mut hi) = (0.0, x.max(1.0));
     // x is finite here (lower(0.0) refused any other), so hi is a number.
     if hi > limit {
-        return None;
+        return Ok(None);
     }
-    while lower(hi)? > lower_target {
+    loop {
+        let Some(at_hi) = lower(hi)? else { return Ok(None) };
+        if at_hi <= lower_target {
+            break;
+        }
         if hi >= limit {
-            return None;
+            return Ok(None);
         }
         lo = hi;
         hi = (2.0 * hi).min(limit);
@@ -868,13 +905,14 @@ fn ncp_within(x: f64, df: f64, lower_target: f64, limit: f64) -> Option<f64> {
         if mid == lo || mid == hi {
             break;
         }
-        if lower(mid)? > lower_target {
+        let Some(at_mid) = lower(mid)? else { return Ok(None) };
+        if at_mid > lower_target {
             lo = mid;
         } else {
             hi = mid;
         }
     }
-    Some(0.5 * (lo + hi))
+    Ok(Some(0.5 * (lo + hi)))
 }
 
 /// The x at which the chi-square's upper tail with `df` degrees of freedom is

@@ -290,3 +290,15 @@ describe('the words follow the extraction (decision 742, m3 and m4)', () => {
     expect(all.filter(VERDICT)).toEqual([]);
   });
 });
+
+// The review of 96ce0cbe, m1 (Research OS, Phase 9C-4, decision 794): this method's export
+// carries no label (its CSV names each column by position and alias, never by header), so its
+// sentence is not the one-way ANOVA's, which says the tables carry the group labels.
+describe('the export sentence', () => {
+  it('says the tables name each column by position, and carry no label', () => {
+    expect(words.FACTOR_EXPORT_TEXT).toBe(
+      "Gaply writes only the file you name in the save dialog and keeps no copy. The result tables carry every digit and the manifest's hashes, and name each column by its position, never by its header. The manifest holds hashes, versions and counts, never your data, headers or file name."
+    );
+    expect(words.FACTOR_EXPORT_TEXT).not.toMatch(/label/i);
+  });
+});

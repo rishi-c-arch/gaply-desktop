@@ -1,0 +1,1208 @@
+{
+  "runId": 5,
+  "status": "succeeded",
+  "result": {
+    "columns": [
+      "C1",
+      "C2",
+      "C3",
+      "C4",
+      "C5",
+      "C6",
+      "C7",
+      "C8",
+      "C9",
+      "C10"
+    ],
+    "rowsUsed": 60,
+    "indicators": [
+      [
+        "C5",
+        "C6",
+        "C7"
+      ],
+      [
+        "C8",
+        "C9",
+        "C10"
+      ]
+    ],
+    "weights": [
+      {
+        "to": {
+          "column": "C5"
+        },
+        "from": {
+          "factor": 1
+        },
+        "kind": "loading",
+        "estimate": {
+          "value": 1.0
+        },
+        "se": {
+          "not_computable": "stats.sem.fixed_parameter"
+        },
+        "cr": {
+          "not_computable": "stats.sem.fixed_parameter"
+        },
+        "p": {
+          "not_computable": "stats.sem.fixed_parameter"
+        },
+        "standardized": {
+          "value": 2.3966884710211125
+        }
+      },
+      {
+        "to": {
+          "column": "C6"
+        },
+        "from": {
+          "factor": 1
+        },
+        "kind": "loading",
+        "estimate": {
+          "value": 0.140984044644895
+        },
+        "se": {
+          "value": 0.18286482790436376
+        },
+        "cr": {
+          "value": 0.7709740919594886
+        },
+        "p": {
+          "value": 0.4407222883311424
+        },
+        "standardized": {
+          "value": 0.28083051308188856
+        }
+      },
+      {
+        "to": {
+          "column": "C7"
+        },
+        "from": {
+          "factor": 1
+        },
+        "kind": "loading",
+        "estimate": {
+          "value": 0.20566298204074104
+        },
+        "se": {
+          "value": 0.2579696349181965
+        },
+        "cr": {
+          "value": 0.797237171366924
+        },
+        "p": {
+          "value": 0.4253133017293674
+        },
+        "standardized": {
+          "value": 0.3305187658221991
+        }
+      },
+      {
+        "to": {
+          "column": "C8"
+        },
+        "from": {
+          "factor": 2
+        },
+        "kind": "loading",
+        "estimate": {
+          "value": 1.0
+        },
+        "se": {
+          "not_computable": "stats.sem.fixed_parameter"
+        },
+        "cr": {
+          "not_computable": "stats.sem.fixed_parameter"
+        },
+        "p": {
+          "not_computable": "stats.sem.fixed_parameter"
+        },
+        "standardized": {
+          "value": 0.9787188096362948
+        }
+      },
+      {
+        "to": {
+          "column": "C9"
+        },
+        "from": {
+          "factor": 2
+        },
+        "kind": "loading",
+        "estimate": {
+          "value": 0.8941900277982475
+        },
+        "se": {
+          "value": 0.03579139195139329
+        },
+        "cr": {
+          "value": 24.98338228959096
+        },
+        "p": {
+          "value": 9.266905535355637e-138
+        },
+        "standardized": {
+          "value": 0.9785900645293798
+        }
+      },
+      {
+        "to": {
+          "column": "C10"
+        },
+        "from": {
+          "factor": 2
+        },
+        "kind": "loading",
+        "estimate": {
+          "value": 1.2138028652520645
+        },
+        "se": {
+          "value": 0.05494328719409478
+        },
+        "cr": {
+          "value": 22.09192291251409
+        },
+        "p": {
+          "value": 3.779603368695936e-108
+        },
+        "standardized": {
+          "value": 0.96592043985116
+        }
+      },
+      {
+        "to": {
+          "column": "C1"
+        },
+        "from": {
+          "column": "C2"
+        },
+        "kind": "path",
+        "estimate": {
+          "value": 0.5100249048116374
+        },
+        "se": {
+          "value": 0.07876600546107519
+        },
+        "cr": {
+          "value": 6.475190684434073
+        },
+        "p": {
+          "value": 9.469228002082675e-11
+        },
+        "standardized": {
+          "value": 0.45127874079415764
+        }
+      },
+      {
+        "to": {
+          "column": "C1"
+        },
+        "from": {
+          "column": "C3"
+        },
+        "kind": "path",
+        "estimate": {
+          "value": 0.5645671619785164
+        },
+        "se": {
+          "value": 0.058581558397217265
+        },
+        "cr": {
+          "value": 9.637284794481234
+        },
+        "p": {
+          "value": 5.564019523686123e-22
+        },
+        "standardized": {
+          "value": 0.5915139041641865
+        }
+      },
+      {
+        "to": {
+          "column": "C2"
+        },
+        "from": {
+          "column": "C1"
+        },
+        "kind": "path",
+        "estimate": {
+          "value": 0.37647304385982616
+        },
+        "se": {
+          "value": 0.07747031107874705
+        },
+        "cr": {
+          "value": 4.859578316100328
+        },
+        "p": {
+          "value": 1.1763604157218916e-6
+        },
+        "standardized": {
+          "value": 0.425481218151017
+        }
+      },
+      {
+        "to": {
+          "column": "C2"
+        },
+        "from": {
+          "column": "C4"
+        },
+        "kind": "path",
+        "estimate": {
+          "value": 0.44320698552346555
+        },
+        "se": {
+          "value": 0.06569004955280378
+        },
+        "cr": {
+          "value": 6.746942475164393
+        },
+        "p": {
+          "value": 1.5099310294797555e-11
+        },
+        "standardized": {
+          "value": 0.5081648743195345
+        }
+      }
+    ],
+    "covariances": [
+      {
+        "a": {
+          "factor": 1
+        },
+        "b": {
+          "factor": 2
+        },
+        "estimate": {
+          "value": -1002.0732384139313
+        },
+        "se": {
+          "value": 1506.1926482981967
+        },
+        "cr": {
+          "value": -0.6653021707058157
+        },
+        "p": {
+          "value": 0.5058572424792235
+        },
+        "correlation": {
+          "value": -0.0044512477235417285
+        }
+      },
+      {
+        "a": {
+          "factor": 1
+        },
+        "b": {
+          "column": "C3"
+        },
+        "estimate": {
+          "value": 1017.6974255813747
+        },
+        "se": {
+          "value": 1355.734449771361
+        },
+        "cr": {
+          "value": 0.750661330287067
+        },
+        "p": {
+          "value": 0.4528565009811878
+        },
+        "correlation": {
+          "value": 0.005009153778860713
+        }
+      },
+      {
+        "a": {
+          "column": "C3"
+        },
+        "b": {
+          "column": "C4"
+        },
+        "estimate": {
+          "value": -3242.530967862571
+        },
+        "se": {
+          "value": 11037.546985228591
+        },
+        "cr": {
+          "value": -0.2937727895701834
+        },
+        "p": {
+          "value": 0.7689315288629295
+        },
+        "correlation": {
+          "value": -0.03808165879990552
+        }
+      }
+    ],
+    "variances": [
+      {
+        "variable": {
+          "factor": 1
+        },
+        "error": false,
+        "estimate": {
+          "value": 469399.41148130136
+        },
+        "se": {
+          "value": 537867.5513542787
+        },
+        "cr": {
+          "value": 0.8727044609763431
+        },
+        "p": {
+          "value": 0.3828241856069687
+        }
+      },
+      {
+        "variable": {
+          "factor": 2
+        },
+        "error": false,
+        "estimate": {
+          "value": 107967.45340855408
+        },
+        "se": {
+          "value": 20773.264576206988
+        },
+        "cr": {
+          "value": 5.197423496556071
+        },
+        "p": {
+          "value": 2.0206965742528014e-7
+        }
+      },
+      {
+        "variable": {
+          "column": "C1"
+        },
+        "error": true,
+        "estimate": {
+          "value": 15906.945692282457
+        },
+        "se": {
+          "value": 3152.862965118679
+        },
+        "cr": {
+          "value": 5.0452385239279485
+        },
+        "p": {
+          "value": 4.5295594475529955e-7
+        }
+      },
+      {
+        "variable": {
+          "column": "C2"
+        },
+        "error": true,
+        "estimate": {
+          "value": 19132.332672716737
+        },
+        "se": {
+          "value": 3988.698209276848
+        },
+        "cr": {
+          "value": 4.796635811708962
+        },
+        "p": {
+          "value": 1.6135257268802799e-6
+        }
+      },
+      {
+        "variable": {
+          "column": "C3"
+        },
+        "error": false,
+        "estimate": {
+          "value": 87935.87350087032
+        },
+        "se": {
+          "value": 16190.071280880016
+        },
+        "cr": {
+          "value": 5.431469199565534
+        },
+        "p": {
+          "value": 5.5891963819263654e-8
+        }
+      },
+      {
+        "variable": {
+          "column": "C4"
+        },
+        "error": false,
+        "estimate": {
+          "value": 82446.16666666669
+        },
+        "se": {
+          "value": 15179.569675269642
+        },
+        "cr": {
+          "value": 5.431390245600105
+        },
+        "p": {
+          "value": 5.591670254262935e-8
+        }
+      },
+      {
+        "variable": {
+          "column": "C5"
+        },
+        "error": true,
+        "estimate": {
+          "value": -387681.1032243001
+        },
+        "se": {
+          "value": 547050.945039915
+        },
+        "cr": {
+          "value": -0.7086745882433552
+        },
+        "p": {
+          "value": 0.4785264379317532
+        }
+      },
+      {
+        "variable": {
+          "column": "C6"
+        },
+        "error": true,
+        "estimate": {
+          "value": 108972.47213274015
+        },
+        "se": {
+          "value": 22775.557492822245
+        },
+        "cr": {
+          "value": 4.784623698764915
+        },
+        "p": {
+          "value": 1.7130797053804717e-6
+        }
+      },
+      {
+        "variable": {
+          "column": "C7"
+        },
+        "error": true,
+        "estimate": {
+          "value": 161890.7240984928
+        },
+        "se": {
+          "value": 37611.651705099255
+        },
+        "cr": {
+          "value": 4.304270532116626
+        },
+        "p": {
+          "value": 0.000016753683895401407
+        }
+      },
+      {
+        "variable": {
+          "column": "C8"
+        },
+        "error": true,
+        "estimate": {
+          "value": 4746.319688668356
+        },
+        "se": {
+          "value": 1548.666231816536
+        },
+        "cr": {
+          "value": 3.0647789634446116
+        },
+        "p": {
+          "value": 0.002178309212782527
+        }
+      },
+      {
+        "variable": {
+          "column": "C9"
+        },
+        "error": true,
+        "estimate": {
+          "value": 3818.757498743994
+        },
+        "se": {
+          "value": 1240.7457335860634
+        },
+        "cr": {
+          "value": 3.0777921659314003
+        },
+        "p": {
+          "value": 0.002085403017174502
+        }
+      },
+      {
+        "variable": {
+          "column": "C10"
+        },
+        "error": true,
+        "estimate": {
+          "value": 11422.637143382512
+        },
+        "se": {
+          "value": 2823.493096758824
+        },
+        "cr": {
+          "value": 4.045569353966162
+        },
+        "p": {
+          "value": 0.0000521961094798141
+        }
+      }
+    ],
+    "smc": [
+      {
+        "variable": {
+          "column": "C1"
+        },
+        "value": {
+          "value": 0.8014273626165801
+        }
+      },
+      {
+        "variable": {
+          "column": "C2"
+        },
+        "value": {
+          "value": 0.6949341834072045
+        }
+      },
+      {
+        "variable": {
+          "column": "C5"
+        },
+        "value": {
+          "value": 5.7441156271255185
+        }
+      },
+      {
+        "variable": {
+          "column": "C6"
+        },
+        "value": {
+          "value": 0.07886577707783671
+        }
+      },
+      {
+        "variable": {
+          "column": "C7"
+        },
+        "value": {
+          "value": 0.10924265456062965
+        }
+      },
+      {
+        "variable": {
+          "column": "C8"
+        },
+        "value": {
+          "value": 0.9578905083358857
+        }
+      },
+      {
+        "variable": {
+          "column": "C9"
+        },
+        "value": {
+          "value": 0.9576385143956151
+        }
+      },
+      {
+        "variable": {
+          "column": "C10"
+        },
+        "value": {
+          "value": 0.9330022961222583
+        }
+      }
+    ],
+    "effects": [
+      {
+        "to": {
+          "column": "C1"
+        },
+        "from": {
+          "column": "C2"
+        },
+        "total": {
+          "value": 0.6312272447045176
+        },
+        "direct": {
+          "value": 0.5100249048116374
+        },
+        "indirect": {
+          "value": 0.1212023398928802
+        },
+        "totalStandardized": {
+          "value": 0.5585206397919426
+        },
+        "directStandardized": {
+          "value": 0.45127874079415764
+        },
+        "indirectStandardized": {
+          "value": 0.1072418989977849
+        }
+      },
+      {
+        "to": {
+          "column": "C1"
+        },
+        "from": {
+          "column": "C3"
+        },
+        "total": {
+          "value": 0.6987309261651895
+        },
+        "direct": {
+          "value": 0.5645671619785164
+        },
+        "indirect": {
+          "value": 0.13416376418667308
+        },
+        "totalStandardized": {
+          "value": 0.7320812933005071
+        },
+        "directStandardized": {
+          "value": 0.5915139041641865
+        },
+        "indirectStandardized": {
+          "value": 0.1405673891363206
+        }
+      },
+      {
+        "to": {
+          "column": "C1"
+        },
+        "from": {
+          "column": "C4"
+        },
+        "total": {
+          "value": 0.2797643243057722
+        },
+        "direct": {
+          "value": 0.0
+        },
+        "indirect": {
+          "value": 0.2797643243057722
+        },
+        "totalStandardized": {
+          "value": 0.2838205707247385
+        },
+        "directStandardized": {
+          "value": 0.0
+        },
+        "indirectStandardized": {
+          "value": 0.2838205707247385
+        }
+      },
+      {
+        "to": {
+          "column": "C2"
+        },
+        "from": {
+          "column": "C1"
+        },
+        "total": {
+          "value": 0.46593811388274536
+        },
+        "direct": {
+          "value": 0.37647304385982616
+        },
+        "indirect": {
+          "value": 0.0894650700229192
+        },
+        "totalStandardized": {
+          "value": 0.5265925927797166
+        },
+        "directStandardized": {
+          "value": 0.425481218151017
+        },
+        "indirectStandardized": {
+          "value": 0.1011113746286995
+        }
+      },
+      {
+        "to": {
+          "column": "C2"
+        },
+        "from": {
+          "column": "C3"
+        },
+        "total": {
+          "value": 0.26305335861240436
+        },
+        "direct": {
+          "value": 0.0
+        },
+        "indirect": {
+          "value": 0.26305335861240436
+        },
+        "totalStandardized": {
+          "value": 0.3114868404590717
+        },
+        "directStandardized": {
+          "value": 0.0
+        },
+        "indirectStandardized": {
+          "value": 0.3114868404590717
+        }
+      },
+      {
+        "to": {
+          "column": "C2"
+        },
+        "from": {
+          "column": "C4"
+        },
+        "total": {
+          "value": 0.5485307122582471
+        },
+        "direct": {
+          "value": 0.44320698552346555
+        },
+        "indirect": {
+          "value": 0.10532372673478158
+        },
+        "totalStandardized": {
+          "value": 0.6289251964878131
+        },
+        "directStandardized": {
+          "value": 0.5081648743195345
+        },
+        "indirectStandardized": {
+          "value": 0.12076032216827857
+        }
+      }
+    ],
+    "fit": {
+      "model": {
+        "npar": 23,
+        "cmin": {
+          "value": 49.4201285680456
+        },
+        "df": 32,
+        "p": {
+          "value": 0.02533261756260896
+        },
+        "cminDf": {
+          "value": 1.544379017751425
+        },
+        "rmr": {
+          "value": 19785.512075308954
+        },
+        "gfi": {
+          "value": 0.8760673337171209
+        },
+        "agfi": {
+          "value": 0.7869907298263015
+        },
+        "pgfi": {
+          "value": 0.5097119032535976
+        },
+        "nfi": {
+          "value": 0.9343464095572522
+        },
+        "rfi": {
+          "value": 0.907674638439886
+        },
+        "ifi": {
+          "value": 0.9758302410866594
+        },
+        "tli": {
+          "value": 0.965386961132366
+        },
+        "cfi": {
+          "value": 0.9753862834719047
+        },
+        "pratio": {
+          "value": 0.7111111111111111
+        },
+        "pnfi": {
+          "value": 0.664424113462935
+        },
+        "pcfi": {
+          "value": 0.6936080238022434
+        },
+        "ncp": {
+          "value": 17.420128568045598
+        },
+        "ncpLo90": {
+          "value": 2.2612534502705115
+        },
+        "ncpHi90": {
+          "value": 40.51037806135618
+        },
+        "fmin": {
+          "value": 0.8376292977634847
+        },
+        "f0": {
+          "value": 0.2952564164075525
+        },
+        "f0Lo90": {
+          "value": 0.03832632966560189
+        },
+        "f0Hi90": {
+          "value": 0.6866165773111217
+        },
+        "rmsea": {
+          "value": 0.0960560410007409
+        },
+        "rmseaLo90": {
+          "value": 0.034607770833297816
+        },
+        "rmseaHi90": {
+          "value": 0.14648128904734745
+        },
+        "pclose": {
+          "value": 0.08991984938850214
+        },
+        "aic": {
+          "value": 95.4201285680456
+        },
+        "bcc": {
+          "value": 105.96179523471227
+        },
+        "bic": {
+          "value": 143.5900534991539
+        },
+        "caic": {
+          "value": 166.5900534991539
+        },
+        "ecvi": {
+          "value": 1.6172903147126372
+        },
+        "ecviLo90": {
+          "value": 1.3603602279706868
+        },
+        "ecviHi90": {
+          "value": 2.0086504756162062
+        },
+        "mecvi": {
+          "value": 1.7959626310968182
+        },
+        "hoelter05": {
+          "value": 56.0
+        },
+        "hoelter01": {
+          "value": 64.0
+        }
+      },
+      "saturated": {
+        "npar": 55,
+        "cmin": {
+          "value": 0.0
+        },
+        "df": 0,
+        "p": {
+          "not_computable": "stats.sem.df_zero"
+        },
+        "cminDf": {
+          "not_computable": "stats.sem.df_zero"
+        },
+        "rmr": {
+          "value": 0.0
+        },
+        "gfi": {
+          "value": 1.0
+        },
+        "agfi": {
+          "not_computable": "stats.sem.df_zero"
+        },
+        "pgfi": {
+          "not_computable": "stats.sem.df_zero"
+        },
+        "nfi": {
+          "value": 1.0
+        },
+        "rfi": {
+          "not_computable": "stats.sem.df_zero"
+        },
+        "ifi": {
+          "value": 1.0
+        },
+        "tli": {
+          "not_computable": "stats.sem.df_zero"
+        },
+        "cfi": {
+          "value": 1.0
+        },
+        "pratio": {
+          "not_computable": "stats.sem.df_zero"
+        },
+        "pnfi": {
+          "not_computable": "stats.sem.df_zero"
+        },
+        "pcfi": {
+          "not_computable": "stats.sem.df_zero"
+        },
+        "ncp": {
+          "value": 0.0
+        },
+        "ncpLo90": {
+          "not_computable": "stats.sem.df_zero"
+        },
+        "ncpHi90": {
+          "not_computable": "stats.sem.df_zero"
+        },
+        "fmin": {
+          "value": 0.0
+        },
+        "f0": {
+          "value": 0.0
+        },
+        "f0Lo90": {
+          "not_computable": "stats.sem.df_zero"
+        },
+        "f0Hi90": {
+          "not_computable": "stats.sem.df_zero"
+        },
+        "rmsea": {
+          "not_computable": "stats.sem.df_zero"
+        },
+        "rmseaLo90": {
+          "not_computable": "stats.sem.df_zero"
+        },
+        "rmseaHi90": {
+          "not_computable": "stats.sem.df_zero"
+        },
+        "pclose": {
+          "not_computable": "stats.sem.df_zero"
+        },
+        "aic": {
+          "value": 110.0
+        },
+        "bcc": {
+          "value": 135.20833333333334
+        },
+        "bic": {
+          "value": 225.18895092221553
+        },
+        "caic": {
+          "value": 280.1889509222155
+        },
+        "ecvi": {
+          "value": 1.8644067796610169
+        },
+        "ecviLo90": {
+          "not_computable": "stats.sem.df_zero"
+        },
+        "ecviHi90": {
+          "not_computable": "stats.sem.df_zero"
+        },
+        "mecvi": {
+          "value": 2.291666666666667
+        },
+        "hoelter05": {
+          "not_computable": "stats.sem.df_zero"
+        },
+        "hoelter01": {
+          "not_computable": "stats.sem.df_zero"
+        }
+      },
+      "independence": {
+        "npar": 10,
+        "cmin": {
+          "value": 752.740683864681
+        },
+        "df": 45,
+        "p": {
+          "value": 3.702988948109226e-129
+        },
+        "cminDf": {
+          "value": 16.727570752548466
+        },
+        "rmr": {
+          "value": 39096.68316857566
+        },
+        "gfi": {
+          "value": 0.4233513716433994
+        },
+        "agfi": {
+          "value": 0.2952072320085992
+        },
+        "pgfi": {
+          "value": 0.3463783949809632
+        },
+        "nfi": {
+          "value": 0.0
+        },
+        "rfi": {
+          "value": 0.0
+        },
+        "ifi": {
+          "value": 0.0
+        },
+        "tli": {
+          "value": 0.0
+        },
+        "cfi": {
+          "value": 0.0
+        },
+        "pratio": {
+          "value": 1.0
+        },
+        "pnfi": {
+          "value": 0.0
+        },
+        "pcfi": {
+          "value": 0.0
+        },
+        "ncp": {
+          "value": 707.740683864681
+        },
+        "ncpLo90": {
+          "value": 622.5357999371347
+        },
+        "ncpHi90": {
+          "value": 800.39090794419
+        },
+        "fmin": {
+          "value": 12.75831667567256
+        },
+        "f0": {
+          "value": 11.99560481126578
+        },
+        "f0Lo90": {
+          "value": 10.551454236222622
+        },
+        "f0Hi90": {
+          "value": 13.565947592274407
+        },
+        "rmsea": {
+          "value": 0.5163032014290694
+        },
+        "rmseaLo90": {
+          "value": 0.48422800497797225
+        },
+        "rmseaHi90": {
+          "value": 0.5490587418942916
+        },
+        "pclose": {
+          "value": 1.6023034409802315e-115
+        },
+        "aic": {
+          "value": 772.740683864681
+        },
+        "bcc": {
+          "value": 777.3240171980144
+        },
+        "bic": {
+          "value": 793.6841294869021
+        },
+        "caic": {
+          "value": 803.6841294869021
+        },
+        "ecvi": {
+          "value": 13.097299726520017
+        },
+        "ecviLo90": {
+          "value": 11.653149151476859
+        },
+        "ecviHi90": {
+          "value": 14.667642507528644
+        },
+        "mecvi": {
+          "value": 13.174983342339228
+        },
+        "hoelter05": {
+          "value": 5.0
+        },
+        "hoelter01": {
+          "value": 6.0
+        }
+      }
+    },
+    "iterations": 49,
+    "attempt": 1,
+    "exclusions": [
+      {
+        "code": "stats.sem.missing_code",
+        "count": 1,
+        "params": {
+          "column": 1
+        }
+      },
+      {
+        "code": "stats.sem.missing_value",
+        "count": 1,
+        "params": {
+          "column": 2
+        }
+      }
+    ],
+    "notes": [
+      "stats.sem.negative_variance",
+      "stats.sem.nonrecursive"
+    ],
+    "limitations": [
+      "stats.sem.ml_only",
+      "stats.sem.no_means",
+      "stats.sem.one_group_only",
+      "stats.sem.indicators_measure_one_factor",
+      "stats.sem.equal_one_kind",
+      "stats.sem.marker_identification_only",
+      "stats.sem.no_fixed_values",
+      "stats.sem.effects_structural_only",
+      "stats.sem.no_indirect_effect_tests",
+      "stats.sem.no_stability_index",
+      "stats.sem.no_modification_indices",
+      "stats.sem.normal_theory_standard_errors",
+      "stats.sem.no_srmr",
+      "stats.sem.listwise_only",
+      "stats.sem.no_weights"
+    ]
+  },
+  "diagnostics": [
+    {
+      "code": "stats.sem.suspect_missing_code",
+      "params": {
+        "column": 1,
+        "count": 3,
+        "value": 99
+      },
+      "severity": "warning"
+    },
+    {
+      "code": "stats.sem.ml_only",
+      "params": {},
+      "severity": "note"
+    }
+  ],
+  "manifest": {
+    "schemaVersion": 1,
+    "capabilityId": "stats.analyze.sem",
+    "capabilityVersion": 1,
+    "engineVersion": 1,
+    "inputs": [
+      "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    ],
+    "parametersHash": "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+    "seed": 7,
+    "rowsRead": 41,
+    "rowsUsed": 40,
+    "exclusions": [
+      {
+        "code": "stats.sem.missing_value",
+        "count": 1,
+        "params": {
+          "column": 2
+        }
+      }
+    ],
+    "platform": {
+      "os": "macos",
+      "arch": "aarch64"
+    },
+    "elapsedMs": 3,
+    "outputHash": "6ad1bf5daee4d8dfcb466411096e7f26e513bf2cadfb0e1605ff085026fe5c5b",
+    "reproducibility": "bitwise"
+  }
+}

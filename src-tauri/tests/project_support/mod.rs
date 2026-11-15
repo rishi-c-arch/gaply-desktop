@@ -477,6 +477,22 @@ impl World {
         id
     }
 
+    /// The structural equation model `params` on `slot` (Research OS, Phase 9C-4,
+    /// decision 803), the spec carrying the slot's preparation exactly when it has
+    /// one, run to its end. No window reaches the method until 9C-5; this is how a
+    /// test saves one.
+    pub fn sem(&self, slot: u64, params: gaply_core::stats_sem::SemParams) -> u64 {
+        let e = self.engine();
+        let held = e.datasets.get(slot).expect("the slot");
+        let mut spec = gaply_core::stats_sem::spec(OperationId(18), held.dataset(), params);
+        spec.preparation = held.preparation();
+        let id = app_lib::stats_sem_commands::run(&e.runs, &e.datasets, slot, spec)
+            .expect("the run starts")
+            .run_id;
+        self.wait_new_kind(id);
+        id
+    }
+
     pub fn wait_new_kind(&self, run: u64) -> RunState {
         let e = self.engine();
         let start = Instant::now();
@@ -495,6 +511,7 @@ impl World {
                 .or_else(|_| e.runs.linear_regression_snapshot(RunId(run)).map(|s| s.record.state))
                 .or_else(|_| e.runs.factor_snapshot(RunId(run)).map(|s| s.record.state))
                 .or_else(|_| e.runs.cfa_snapshot(RunId(run)).map(|s| s.record.state))
+                .or_else(|_| e.runs.sem_snapshot(RunId(run)).map(|s| s.record.state))
                 .expect("the run is held");
             if state.is_terminal() {
                 return state;

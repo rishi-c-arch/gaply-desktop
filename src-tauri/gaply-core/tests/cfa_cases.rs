@@ -921,3 +921,42 @@ fn the_independence_models_cmin_is_never_below_0() {
     assert_eq!(m.cmin, Stat::Value(0.0));
     assert_eq!(m.cfi, Stat::Value(1.0));
 }
+
+/* ---- the interval searches' check points (Research OS, Phase 9C-4) -------------- */
+
+/// Decision 796 (decision 767's second answer): each row's two interval searches
+/// call that row's own check point before every evaluation of the noncentral
+/// lower tail, the default row's p + 3 and the independence row's p + 4, at
+/// unchanged counts. So a stop at the independence row's check point after its
+/// first bisection step ends the run, which a single call before the row could
+/// not do; and both points come more than once, each run of them unbroken.
+#[test]
+fn a_stop_inside_the_independence_rows_interval_search_ends_the_run() {
+    let d = table(&structured(200, 6, 2));
+    let p = structured_model(6, 2);
+    assert_eq!(check_points(&p), 1 + 6 + 4, "the count is unchanged");
+    let mut seen = Vec::new();
+    run(&d, &p, |i| {
+        seen.push(i);
+        ControlFlow::<()>::Continue(())
+    })
+    .unwrap();
+    let default_row = seen.iter().filter(|i| **i == 9).count();
+    let independence_row = seen.iter().filter(|i| **i == 10).count();
+    println!("check point 9 (the default row) {default_row} times, 10 (the independence row) {independence_row} times");
+    assert!(default_row > 1, "the default row's searches call p + 3: {default_row}");
+    assert!(independence_row > 1, "the independence row's searches call p + 4: {independence_row}");
+    assert!(seen.iter().all(|i| *i < check_points(&p)), "no point beyond the count");
+    let mut calls = 0;
+    let stopped = run(&d, &p, |i| {
+        if i == 10 {
+            calls += 1;
+            if calls == 2 {
+                return ControlFlow::Break("stop");
+            }
+        }
+        ControlFlow::Continue(())
+    });
+    assert_eq!(stopped.unwrap_err(), Halt::Stopped { reason: "stop" });
+    assert_eq!(calls, 2, "stopped at the first bisection step's call");
+}

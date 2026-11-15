@@ -52,6 +52,8 @@ pub mod stats_linear_regression_commands;
 pub mod stats_factor_commands;
 // Research OS Phase 9C-1 (decision 749): the confirmatory factor analysis's commands.
 pub mod stats_cfa_commands;
+// Research OS Phase 9C-4 (decision 803): the structural equation models' commands.
+pub mod stats_sem_commands;
 pub mod stats_onesample_commands;
 pub mod stats_prep_commands;
 pub mod stats_ranks_commands;
@@ -486,6 +488,14 @@ pub fn run() {
             stats_cfa_commands::stats_cfa_result,
             stats_cfa_commands::stats_cfa_cancel,
             stats_cfa_commands::stats_cfa_export,
+            // Research OS, Phase 9C-4 (decision 803): the structural equation models,
+            // behind the workspace check. No window reaches them until 9C-5.
+            stats_sem_commands::stats_sem_validate,
+            stats_sem_commands::stats_sem_run,
+            stats_sem_commands::stats_sem_status,
+            stats_sem_commands::stats_sem_result,
+            stats_sem_commands::stats_sem_cancel,
+            stats_sem_commands::stats_sem_export,
             // Research OS, Phase 8M-3 (decision 425): scale scores, behind the
             // workspace check. In memory only; the screen comes with the layout.
             stats_prep_commands::stats_prep_make,
