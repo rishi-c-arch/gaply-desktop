@@ -139,12 +139,26 @@ before it ended without a solution (decision 798):
    g, is at most 1e-10 too (decision 823). The second condition is what bounds the step: the step
    solves J + μD, not H, so a small gᵀH⁻¹g alone says nothing about its size, and on a function
    with H = 1 and J = 1e-6 it once allowed a step from t = 10 to 0 that raised F from 5e-5 to
-   6.25e5 (the review of 365b638). With both, every relaxed step has δᵀ(J + μD)δ ≤ 1e-10, and
-   δᵀJδ ≤ 1e-10 wherever J is positive semidefinite. `newtons_relaxed_step_is_bounded_by_its_own_solves_decrement`,
+   6.25e5 (the review of 365b638). With both, a relaxed step is bounded in the measure it was
+   solved in, gᵀ(J + μD)⁻¹g = δᵀ(J + μD)δ ≤ 1e-10, and so δᵀJδ ≤ 1e-10 always, since
+   δᵀJδ = δᵀ(J + μD)δ − μδᵀDδ with μ ≥ 0 and D ≥ 0; the bound is on the step in that measure,
+   not on its length. `newtons_relaxed_step_is_bounded_by_its_own_solves_decrement`,
    `newtons_attempt_relaxes_nothing_where_h_fails_its_factor` and
    `newtons_attempt_relaxes_nothing_where_h_s_decrement_is_large` pin the rule; on 9C-4's 338
    models, 9C-2's 500 and the 200 seeds of id384's shape the bound changed no outcome and no
-   value (9C-5b's hunt rerun, byte-identical to 365b638's).
+   value (9C-5b's hunt rerun, byte-identical to 9C-5's run after its M1 fix).
+   A solve whose step rounds away, its candidate equal to θ in every coordinate, ends the
+   attempt at once, before F is evaluated there (decision 828): a larger μ only shrinks the step
+   further. Before it, the strict test took such a step and the attempt stood still to its cap,
+   inflating a refusal's count and its time. One case is not covered: where the zero-length step
+   came from an iteration's first solve at a μ carried above 0, the attempt before decision 828
+   would next have tried a smaller μ, so it might have moved; ending there errs toward a refusal,
+   never a false solution (the review of 9C-5c, finding 1, left open).
+   `newtons_attempt_ends_at_a_step_of_zero_length` pins it. Rerun on 9C-4's 338 models, 9C-2's
+   500 and the 200 seeds of id384's shape, it changed no line (9C-5c's dump and table are
+   byte-identical to 9C-5b's): no solved case changed, and no refusal's count fell (a refusal
+   reports the most iterations any attempt made). On the Walsh columns, where Newton's
+   attempt makes the most, the count falls from 500 to 9.
 3. Fisher scoring from the triad starts: each factor of three or more columns given CFA's triad
    φ₀ (decision 761) and its loadings from it; made only when these differ from attempt 1's.
 
@@ -176,8 +190,10 @@ estimate by 10⁸ of its unit, the others refitted, raises F by only about 0.5. 
 of `cfa_cases.rs`, the point the CFA accepts measures 3.2339e15 and is refused
 (`the_check_at_the_solution_refuses_the_walsh_point_and_passes_example_8`); at Example 8's solution it passes.
 No dataset is known to reach this refusal through the attempts: on those Walsh columns every
-loading starts at 0, H fails at attempt 1's start and Newton's attempt never moves them, so the
-run refuses as `sem_not_converged` (count 500, limit 500, `sem_cases.rs`).
+loading starts at 0, H fails at attempt 1's start, the triad attempt is not made (its starts are
+attempt 1's), and Newton's attempt moves 9 times and then its step rounds to zero length, so the
+run refuses as `sem_not_converged` (count 9, limit 500, `sem_cases.rs`; count 500 before decision
+828 ended the attempt at a step of zero length).
 
 **The statistics** (decision 799), in AMOS's tables' order:
 

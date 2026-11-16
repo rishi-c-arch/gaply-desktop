@@ -1,8 +1,8 @@
 //! Shared by scale scores' command tests (Research OS, Phase 8M-3, decisions
-//! 424 to 427): an app over Tauri's mock runtime with every command the twelve
+//! 424 to 427): an app over Tauri's mock runtime with every command the thirteen
 //! methods and the prepared slot use, so a test calls them through IPC with
 //! the webview's argument names and reads the JSON the webview reads; a table
-//! and recipes that fit all twelve; and a run that waits for a test. Folders,
+//! and recipes that fit all thirteen; and a run that waits for a test. Folders,
 //! tables and the IPC call itself are `desc_support`'s, unchanged.
 #![allow(dead_code)]
 
@@ -23,6 +23,7 @@ use app_lib::stats_corr_commands as corr;
 use app_lib::stats_desc_commands as desc;
 use app_lib::stats_factor_commands as factor;
 use app_lib::stats_cfa_commands as cfa;
+use app_lib::stats_sem_commands as sem;
 use app_lib::stats_linear_regression_commands as linear_regression;
 use app_lib::stats_onesample_commands as onesample;
 use app_lib::stats_prep_commands as prep;
@@ -147,6 +148,13 @@ pub fn app_with(
             cfa::stats_cfa_result,
             cfa::stats_cfa_cancel,
             cfa::stats_cfa_export,
+            // Research OS, Phase 9C-5 (decision 816).
+            sem::stats_sem_validate,
+            sem::stats_sem_run,
+            sem::stats_sem_status,
+            sem::stats_sem_result,
+            sem::stats_sem_cancel,
+            sem::stats_sem_export,
             corr::stats_corr_validate,
             corr::stats_corr_run,
             corr::stats_corr_status,
@@ -272,10 +280,29 @@ pub struct Method {
     pub spec: Value,
 }
 
-/// All twelve methods on `score`. The rank tests, the related rank tests, the linear
-/// regression, the factor analysis and then the confirmatory factor analysis are last, so no
-/// method's index moves.
-pub fn twelve(view: &Value, score: &str) -> Vec<Method> {
+/// Research OS, Phase 9C-5 (decision 816): the structural equation model of [`thirteen`], as
+/// FIND FIRST measured it on every table it is used with (the score C8 here and in
+/// prep_project.rs, stats_prep_commands.rs's C3, the cells matrix's C9 and
+/// stats_prep_privacy_matrix.rs's own C8; 9c5c/p2_prep_*.log): attempt 1, df 0, the note
+/// df_zero. `outputs` is the result's primary outputs; other methods pass untouched.
+pub fn assert_sem_outcome(prefix: &str, outputs: &Value) {
+    if prefix == "stats_sem" {
+        assert_eq!(
+            (&outputs["attempt"], &outputs["fit"]["model"]["df"], &outputs["notes"]),
+            (&json!(1), &json!(0), &json!(["stats.sem.df_zero"])),
+            "the structural equation model's outcome: attempt {} iterations {} df {} notes {}",
+            outputs["attempt"],
+            outputs["iterations"],
+            outputs["fit"]["model"]["df"],
+            outputs["notes"]
+        );
+    }
+}
+
+/// All thirteen methods on `score`. The rank tests, the related rank tests, the linear
+/// regression, the factor analysis, the confirmatory factor analysis and then the structural
+/// equation models are last, so no method's index moves.
+pub fn thirteen(view: &Value, score: &str) -> Vec<Method> {
     vec![
         Method {
             prefix: "stats_desc",
@@ -373,7 +400,7 @@ pub fn twelve(view: &Value, score: &str) -> Vec<Method> {
             ),
         },
         // Research OS, Phase 8Z-2 (decision 655): C4, C7 and the score, in this order. With
-        // the score C8 that is column order; with stats_prep_commands.rs's C3 (twelve(&o, "C3"))
+        // the score C8 that is column order; with stats_prep_commands.rs's C3 (thirteen(&o, "C3"))
         // it is C4, C7, C3, out of column order, as a screen's list may be (decision 683).
         Method {
             prefix: "stats_related_ranks",
@@ -384,7 +411,7 @@ pub fn twelve(view: &Value, score: &str) -> Vec<Method> {
             ),
         },
         // Research OS, Phase 9A-2 (decision 686): C7 on the score and then C4, in this
-        // order. With stats_prep_commands.rs's C3 (twelve(&o, "C3")) it is C7 on C3 and C4.
+        // order. With stats_prep_commands.rs's C3 (thirteen(&o, "C3")) it is C7 on C3 and C4.
         Method {
             prefix: "stats_linear_regression",
             spec: spec(
@@ -395,7 +422,7 @@ pub fn twelve(view: &Value, score: &str) -> Vec<Method> {
         },
         // Research OS, Phase 9B-3 (decision 731): C4, C7 and the score in column order, as
         // alpha's, principal components under Kaiser's rule, no rotation. With
-        // stats_prep_commands.rs's C3 (twelve(&o, "C3")) it is C3, C4 and C7.
+        // stats_prep_commands.rs's C3 (thirteen(&o, "C3")) it is C3, C4 and C7.
         Method {
             prefix: "stats_factor",
             spec: spec(
@@ -414,7 +441,7 @@ pub fn twelve(view: &Value, score: &str) -> Vec<Method> {
         },
         // Research OS, Phase 9C-3 (decision 784): one factor of C4, C7 and the score in column
         // order, correlated as the window starts. With stats_prep_commands.rs's C3
-        // (twelve(&o, "C3")) it is C3, C4 and C7; with the cells matrix's C9, C4, C7 and C9.
+        // (thirteen(&o, "C3")) it is C3, C4 and C7; with the cells matrix's C9, C4, C7 and C9.
         Method {
             prefix: "stats_cfa",
             spec: spec(
@@ -426,6 +453,26 @@ pub fn twelve(view: &Value, score: &str) -> Vec<Method> {
                     "missingCodes": [],
                 }),
             ),
+        },
+        // Research OS, Phase 9C-5 (decision 816): paths to C7 from C4 and from the score, the
+        // froms in column order, and the covariance of C4 and the score, in column order; df 0.
+        // With stats_prep_commands.rs's C3 (thirteen(&o, "C3")) the froms are C3 and C4; with
+        // the cells matrix's C9, C4 and C9.
+        Method {
+            prefix: "stats_sem",
+            spec: spec(view, "stats.analyze.sem", {
+                let ends = in_column_order(&["C4", score]);
+                json!({
+                    "indicators": [],
+                    "paths": [
+                        { "to": { "column": "C7" }, "from": { "column": ends[0] } },
+                        { "to": { "column": "C7" }, "from": { "column": ends[1] } }
+                    ],
+                    "covariances": [{ "a": { "column": ends[0] }, "b": { "column": ends[1] } }],
+                    "equal": [],
+                    "missingCodes": [],
+                })
+            }),
         },
     ]
 }

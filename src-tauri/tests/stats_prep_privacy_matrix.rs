@@ -36,7 +36,7 @@ use serde_json::{json, Value};
 
 use desc_support::{call, delimited, TempDir, C};
 use gaply_core::Database;
-use prep_support::{app_with, make, recipe, start, twelve, until_terminal};
+use prep_support::{app_with, assert_sem_outcome, make, recipe, start, thirteen, until_terminal};
 
 const NAME: &str = "NAME_SENTINEL_f19";
 const HDR: &str = "HDR_SENTINEL_a71";
@@ -193,7 +193,7 @@ fn no_sentinel_reaches_a_surface_it_is_not_allowed_on() {
     );
 
     // Every method, on the score, and the summary on an item as well.
-    let methods = twelve(&view, "C8");
+    let methods = thirteen(&view, "C8");
     for m in &methods {
         push("spec", m.spec.to_string());
         let v = call(
@@ -208,6 +208,7 @@ fn no_sentinel_reaches_a_surface_it_is_not_allowed_on() {
         assert_eq!(s["state"], "succeeded", "{}: {s}", m.prefix);
         push("a method's run state", s.to_string());
         let mut r = call(&w, &format!("{}_result", m.prefix), json!({ "runId": run })).unwrap();
+        assert_sem_outcome(m.prefix, &r["result"]);
         let manifest = r
             .as_object_mut()
             .unwrap()
@@ -274,7 +275,7 @@ fn no_sentinel_reaches_a_surface_it_is_not_allowed_on() {
     );
     push("a refused make's report", refused.to_string());
 
-    let mut forged = twelve(&view, "C8").remove(0);
+    let mut forged = thirteen(&view, "C8").remove(0);
     forged.spec["preparation"]["recipeHash"] = json!("ab".repeat(32));
     let v = call(
         &w,

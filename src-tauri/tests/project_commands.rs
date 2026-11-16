@@ -2247,14 +2247,15 @@ fn a_factor_run_is_saved_now_that_its_method_has_a_row() {
     pc::save_run(&w.root(), &w.ws, regression, new_project("Regression")).expect("a regression is saved");
 }
 
-/// Research OS, Phase 9C-4 (decision 803): the structural equation models have no row in
-/// METHODS until 9C-5, so a finished run of theirs, real and succeeded, is refused by
-/// saveable's last guard with project.run_not_saveable, and nothing is written. This pins
-/// the guard on a real capability, as `a_run_of_a_capability_no_row_holds_is_not_saveable`
-/// does on a copy.
+/// A structural equation model is saved since it has its row in `METHODS` (Research OS,
+/// Phase 9C-5, decision 816). From 9C-4 until 9C-5 it was refused at save time with
+/// `project.run_not_saveable` (decision 803), which this test pinned on the same run; the
+/// guard itself is now pinned by project_commands.rs's unit test
+/// `a_run_of_a_capability_no_row_holds_is_not_saveable`. The saved run's project exports, its
+/// report holding the factor and the path as parameter_line writes them.
 #[test]
-fn a_finished_structural_equation_model_is_not_saveable_until_it_has_a_row() {
-    let w = World::new("sem-not-saveable");
+fn a_structural_equation_model_is_saved_now_that_its_method_has_a_row() {
+    let w = World::new("sem-now-kept");
     let mut csv = String::from("x1,x2,x3,x4\n");
     for i in 1..=40u64 {
         let score = ((i * 7907) % 1013) as i64 - 506;
@@ -2270,8 +2271,10 @@ fn a_finished_structural_equation_model_is_not_saveable_until_it_has_a_row() {
     .unwrap();
     let run = w.sem(slot, params);
     assert_eq!(w.wait_new_kind(run), RunState::Succeeded, "the premise: a real, finished run");
-    let before = files(&w.root());
-    let e = pc::save_run(&w.root(), &w.ws, run, new_project("p")).unwrap_err();
-    assert_eq!(code(&e), "project.run_not_saveable");
-    assert_eq!(files(&w.root()), before, "nothing written");
+    let saved = pc::save_run(&w.root(), &w.ws, run, new_project("SEM")).expect("a structural equation model is saved");
+    assert_eq!(saved.stored_run_id, 1);
+    let report = String::from_utf8(pc::report(&w.root(), &w.ws, &saved.project_id).expect("the project exports").bytes).unwrap();
+    for line in ["- Factor 1: columns 1, 2, 3, by position", "- Path: column 4 → factor 1"] {
+        assert_eq!(report.matches(line).count(), 1, "{line}:\n{report}");
+    }
 }

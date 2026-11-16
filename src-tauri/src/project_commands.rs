@@ -93,7 +93,8 @@ use gaply_core::research_project::{
     CorrelationCoefficient, DataFormat, ExportCode, ExportCount, ExportManifest, ExportParameter,
     ExportRun, FactorExtraction, FactorRotation, MissingRows, PostHocTest, ProjectCode, ProjectExportInput, ProjectId,
     ProjectRefusal, ProjectTitle, ProvEdge, ProvGraph, RerunComparison, ScoreRule, ScoreStatistic,
-    StoredRun, StoredRunId, TestVariant, UsedRole, PROV_FILE_NAME, REPORT_FILE_NAME,
+    SemEnd, SemHeldKind, SemHeldMember, StoredRun, StoredRunId, TestVariant, UsedRole, PROV_FILE_NAME,
+    REPORT_FILE_NAME,
 };
 use gaply_core::research_project::{
     numbers_agree_to_last_digits, platforms_differ, render_prov_json, render_report_markdown,
@@ -105,6 +106,7 @@ use gaply_core::stats_corr::{self, Coefficient, CorrCode, CorrParams, MissingHan
 use gaply_core::stats_desc::{self, DescCode, DescribeParams, TreatAs};
 use gaply_core::stats_factor::{self, Extraction, FactorCode, FactorParams, Rotation};
 use gaply_core::stats_cfa::{self, CfaCode, CfaParams};
+use gaply_core::stats_sem::{self, SemCode, SemParameter, SemParams, SemVariable};
 use gaply_core::stats_l1::dataset::Dataset;
 use gaply_core::stats_linear_regression::{self, LinearRegressionCode, LinearRegressionParams};
 use gaply_core::stats_onesample::{self, OneSampleCode, OneSampleParams, PairedParams};
@@ -915,11 +917,9 @@ fn saveable(copy: &RunCopy) -> Result<(), ProjectCode> {
     }
     // A method with no row in METHODS cannot be rerun or exported, so a project
     // holding it would refuse its export as a whole (Research OS, Phase 9B-2,
-    // decision 714). Since 9C-3 every method had a row, the confirmatory factor
-    // analysis's included (decision 784); the structural equation models have none
-    // until 9C-5 (decision 803), so a finished run of theirs is refused here, and
-    // a_run_of_a_capability_no_row_holds_is_not_saveable and the SEM's own save test in
-    // tests/project_commands.rs pin it.
+    // decision 714). Since 9C-5 every method has a row again, the structural equation
+    // models' included (decision 816); the guard stays for the next method, and
+    // a_run_of_a_capability_no_row_holds_is_not_saveable pins it.
     if method_for(capability.as_str()).is_none() {
         return Err(ProjectCode::RunNotSaveable);
     }
@@ -1271,6 +1271,13 @@ const METHODS: &[MethodRow] = &[
         kind: RunKind::Cfa,
         read_back: read_back::<OperationSpec<CfaParams>>,
         export: export_with::<OperationSpec<CfaParams>>,
+    },
+    // Research OS, Phase 9C-5 (decision 816).
+    MethodRow {
+        capability: stats_sem::CAPABILITY_ID,
+        kind: RunKind::Sem,
+        read_back: read_back::<OperationSpec<SemParams>>,
+        export: export_with::<OperationSpec<SemParams>>,
     },
 ];
 
@@ -1702,6 +1709,37 @@ impl SavedSpec for OperationSpec<CfaParams> {
 
     fn parameters(&self) -> Vec<ExportParameter> {
         cfa_parameters(self)
+    }
+}
+
+// Research OS, Phase 9C-5 (decision 816): the structural equation models, checked through
+// their façade, never stats_sem itself (verifier_facade_guards.rs).
+impl Rerun for OperationSpec<SemParams> {
+    fn valid_on(&self, build: Build, dataset: &Dataset) -> bool {
+        check_spec(
+            WorkspaceId::Statistics,
+            self.workspace_id,
+            &self.capability_id,
+        )
+        .is_ok()
+            && passes(stats_adapters::sem_validate(self, build, dataset).status)
+    }
+
+    fn launch(
+        self: Box<Self>,
+        runs: &Arc<Runs>,
+        slot: Arc<Slot>,
+        end: EndHook,
+    ) -> Result<RunId, NotStarted> {
+        runs.start_sem_then(slot, *self, end)
+    }
+}
+
+impl SavedSpec for OperationSpec<SemParams> {
+    type Code = SemCode;
+
+    fn parameters(&self) -> Vec<ExportParameter> {
+        sem_parameters(self)
     }
 }
 
@@ -2629,7 +2667,10 @@ pub enum SpecFieldShown {
 /// adds `predictors[]` (decision 686); the factor analysis shares alpha's `items[]` and
 /// `missingCodes[]` and adds `extraction`, `factors`, `rotation`, `iterations` and
 /// `convergence` (decision 731); the confirmatory factor analysis shares `missingCodes[]` and
-/// adds `indicators[][]` and `correlatedFactors` (decision 784).
+/// adds `indicators[][]` and `correlatedFactors` (decision 784); the structural equation
+/// models share the CFA's `indicators[][]` and `missingCodes[]` and add `paths[]`,
+/// `covariances[]` and `equal[][]`, each end a factor or a column (Research OS, Phase 9C-5,
+/// decision 816).
 pub const SPEC_FIELDS: &[(&str, SpecFieldShown)] = &[
     (
         "schemaVersion",
@@ -2714,6 +2755,31 @@ pub const SPEC_FIELDS: &[(&str, SpecFieldShown)] = &[
     // `parameters.missingCodes[]`, already listed.
     ("parameters.indicators[][]", SpecFieldShown::Reported),
     ("parameters.correlatedFactors", SpecFieldShown::Reported),
+    // Research OS, Phase 9C-5 (decision 816): the structural equation models' paths,
+    // covariances and groups held equal, each end a factor by its number or a column by its
+    // alias number, through `ExportParameter::Path`, `Covariance` and `HeldEqual`. Their
+    // factors are the CFA's `parameters.indicators[][]` and their codes
+    // `parameters.missingCodes[]`, already listed.
+    ("parameters.paths[].to.factor", SpecFieldShown::Reported),
+    ("parameters.paths[].to.column", SpecFieldShown::Reported),
+    ("parameters.paths[].from.factor", SpecFieldShown::Reported),
+    ("parameters.paths[].from.column", SpecFieldShown::Reported),
+    ("parameters.covariances[].a.factor", SpecFieldShown::Reported),
+    ("parameters.covariances[].a.column", SpecFieldShown::Reported),
+    ("parameters.covariances[].b.factor", SpecFieldShown::Reported),
+    ("parameters.covariances[].b.column", SpecFieldShown::Reported),
+    ("parameters.equal[][].loading.factor", SpecFieldShown::Reported),
+    ("parameters.equal[][].loading.column", SpecFieldShown::Reported),
+    ("parameters.equal[][].path.to.factor", SpecFieldShown::Reported),
+    ("parameters.equal[][].path.to.column", SpecFieldShown::Reported),
+    ("parameters.equal[][].path.from.factor", SpecFieldShown::Reported),
+    ("parameters.equal[][].path.from.column", SpecFieldShown::Reported),
+    ("parameters.equal[][].covariance.a.factor", SpecFieldShown::Reported),
+    ("parameters.equal[][].covariance.a.column", SpecFieldShown::Reported),
+    ("parameters.equal[][].covariance.b.factor", SpecFieldShown::Reported),
+    ("parameters.equal[][].covariance.b.column", SpecFieldShown::Reported),
+    ("parameters.equal[][].variance.variable.factor", SpecFieldShown::Reported),
+    ("parameters.equal[][].variance.variable.column", SpecFieldShown::Reported),
     // Research OS, Phase 8M-4 (decision 435): what made a prepared input,
     // hashes and numbers. Its two hashes are the data file's and the recipe's
     // rows in the report's inputs table; its columns and versions are the lines
@@ -3100,6 +3166,84 @@ fn cfa_parameters(spec: &OperationSpec<CfaParams>) -> Vec<ExportParameter> {
     }
     if p.indicators.len() >= 2 {
         out.push(ExportParameter::CorrelatedFactors(p.correlated_factors));
+    }
+    out.push(ExportParameter::MissingCodes {
+        count: p.missing_codes.len() as u64,
+    });
+    out.push(ExportParameter::Seed(spec.random_seed));
+    out
+}
+
+/// One end of a structural equation model's path or covariance, or a variance's variable: a
+/// factor by its number, a column by its alias number, as the CFA's positions are (Research
+/// OS, Phase 9C-5, decision 816).
+fn sem_end(v: SemVariable) -> SemEnd {
+    match v {
+        SemVariable::Factor(n) => SemEnd::Factor(n),
+        SemVariable::Column(a) => SemEnd::Column(a.0 .0),
+    }
+}
+
+/// The structural equation model's settings, by the allow-list (Research OS, Phase 9C-5,
+/// decision 816): the shape; one `Factor` per factor, as `cfa_parameters` writes it; one
+/// `Path` per path and one `Covariance` per covariance, in the spec's order; one `HeldEqual`
+/// per group, numbered from 1 in the spec's order, its members in the spec's order and its
+/// kind its members' (the spec's check refuses a group of mixed kinds or of fewer than two,
+/// `equal_mixed_kinds` and `equal_group_too_small`, so a saved spec has none; a group with no
+/// members would have no kind and is not written); how many missing codes; the seed. No label
+/// and no value is named.
+fn sem_parameters(spec: &OperationSpec<SemParams>) -> Vec<ExportParameter> {
+    let p = &spec.parameters;
+    let mut out = shape(&spec.inputs);
+    for (i, factor) in p.indicators.iter().enumerate() {
+        out.push(ExportParameter::Factor {
+            number: i as u32 + 1,
+            positions: factor.iter().map(|a| a.0 .0).collect(),
+        });
+    }
+    for path in &p.paths {
+        out.push(ExportParameter::Path {
+            from: sem_end(path.from),
+            to: sem_end(path.to),
+        });
+    }
+    for c in &p.covariances {
+        out.push(ExportParameter::Covariance {
+            a: sem_end(c.a),
+            b: sem_end(c.b),
+        });
+    }
+    for (g, group) in p.equal.iter().enumerate() {
+        let Some(first) = group.first() else { continue };
+        let kind = match first {
+            SemParameter::Loading(_) => SemHeldKind::Loadings,
+            SemParameter::Path(_) => SemHeldKind::Paths,
+            SemParameter::Covariance(_) => SemHeldKind::Covariances,
+            SemParameter::Variance(_) => SemHeldKind::Variances,
+        };
+        let members = group
+            .iter()
+            .map(|m| match m {
+                SemParameter::Loading(l) => SemHeldMember::Loading {
+                    factor: l.factor,
+                    column: l.column.0 .0,
+                },
+                SemParameter::Path(path) => SemHeldMember::Path {
+                    from: sem_end(path.from),
+                    to: sem_end(path.to),
+                },
+                SemParameter::Covariance(c) => SemHeldMember::Covariance {
+                    a: sem_end(c.a),
+                    b: sem_end(c.b),
+                },
+                SemParameter::Variance(v) => SemHeldMember::Variance(sem_end(v.variable)),
+            })
+            .collect();
+        out.push(ExportParameter::HeldEqual {
+            group: g as u32 + 1,
+            kind,
+            members,
+        });
     }
     out.push(ExportParameter::MissingCodes {
         count: p.missing_codes.len() as u64,
@@ -3828,6 +3972,160 @@ mod tests {
         }
     }
 
+    /// Research OS, Phase 9C-5 (decision 816): a structural equation model's spec with every
+    /// leaf its JSON can have: two factors; a path and a covariance with a factor and a column
+    /// at each end; a group held equal of each kind, each with a factor and a column at each
+    /// end; one missing code. Never run, so its model need not be one the method fits.
+    fn sem_spec() -> OperationSpec<SemParams> {
+        let parameters: SemParams = serde_json::from_value(serde_json::json!({
+            "indicators": [["C1", "C2"], ["C6", "C7"]],
+            "paths": [
+                { "to": { "factor": 1 }, "from": { "column": "C3" } },
+                { "to": { "column": "C4" }, "from": { "factor": 2 } }
+            ],
+            "covariances": [
+                { "a": { "factor": 1 }, "b": { "column": "C5" } },
+                { "a": { "column": "C3" }, "b": { "factor": 2 } }
+            ],
+            "equal": [
+                [{ "loading": { "factor": 1, "column": "C2" } }, { "loading": { "factor": 2, "column": "C7" } }],
+                [
+                    { "path": { "to": { "factor": 1 }, "from": { "column": "C3" } } },
+                    { "path": { "to": { "column": "C4" }, "from": { "factor": 2 } } }
+                ],
+                [
+                    { "covariance": { "a": { "factor": 1 }, "b": { "column": "C5" } } },
+                    { "covariance": { "a": { "column": "C3" }, "b": { "factor": 2 } } }
+                ],
+                [{ "variance": { "variable": { "factor": 1 } } }, { "variance": { "variable": { "column": "C3" } } }]
+            ],
+            "missingCodes": [-99.0]
+        }))
+        .expect("a SEM spec");
+        OperationSpec {
+            schema_version: SchemaVersion,
+            operation_id: OperationId(18),
+            workspace_id: WorkspaceId::Statistics,
+            capability_id: stats_sem::capability_id(),
+            capability_version: 1,
+            inputs: vec![input()],
+            parameters,
+            random_seed: None,
+            confirmation_refs: Vec::new(),
+            preparation: None,
+        }
+    }
+
+    /// Research OS, Phase 9C-5 (decision 816): the structural equation model's settings, typed,
+    /// on Wheaton's Model C (sem_amos.rs's wheaton_model('C')) and Example 7 (sem_amos.rs's
+    /// example_7): the factors as the CFA's, the paths and covariances in the spec's order with
+    /// every end a factor or a column by number, the groups numbered from 1 with their members
+    /// in order; and on `sem_spec`, a group of each kind. Their lines, as parameter_line
+    /// writes them, are read from a project's report in tests/project_sem.rs.
+    #[test]
+    fn the_structural_equation_models_settings_are_its_factors_paths_covariances_and_groups_in_order() {
+        use SemEnd::{Column, Factor};
+        let model_c: SemParams = serde_json::from_value(serde_json::json!({
+            "indicators": [["C1", "C2"], ["C3", "C4"], ["C5", "C6"]],
+            "paths": [
+                { "to": { "factor": 1 }, "from": { "factor": 3 } },
+                { "to": { "factor": 2 }, "from": { "factor": 1 } },
+                { "to": { "factor": 2 }, "from": { "factor": 3 } }
+            ],
+            "covariances": [{ "a": { "column": "C1" }, "b": { "column": "C3" } }],
+            "equal": [
+                [{ "loading": { "factor": 1, "column": "C2" } }, { "loading": { "factor": 2, "column": "C4" } }],
+                [{ "variance": { "variable": { "column": "C1" } } }, { "variance": { "variable": { "column": "C3" } } }],
+                [{ "variance": { "variable": { "column": "C2" } } }, { "variance": { "variable": { "column": "C4" } } }]
+            ],
+            "missingCodes": []
+        }))
+        .unwrap();
+        let mut spec = sem_spec();
+        spec.parameters = model_c;
+        let shape = ExportParameter::InputShape { rows: 12, columns: 3 };
+        assert_eq!(
+            sem_parameters(&spec),
+            [
+                shape.clone(),
+                ExportParameter::Factor { number: 1, positions: vec![1, 2] },
+                ExportParameter::Factor { number: 2, positions: vec![3, 4] },
+                ExportParameter::Factor { number: 3, positions: vec![5, 6] },
+                ExportParameter::Path { from: Factor(3), to: Factor(1) },
+                ExportParameter::Path { from: Factor(1), to: Factor(2) },
+                ExportParameter::Path { from: Factor(3), to: Factor(2) },
+                ExportParameter::Covariance { a: Column(1), b: Column(3) },
+                ExportParameter::HeldEqual {
+                    group: 1,
+                    kind: SemHeldKind::Loadings,
+                    members: vec![SemHeldMember::Loading { factor: 1, column: 2 }, SemHeldMember::Loading { factor: 2, column: 4 }],
+                },
+                ExportParameter::HeldEqual {
+                    group: 2,
+                    kind: SemHeldKind::Variances,
+                    members: vec![SemHeldMember::Variance(Column(1)), SemHeldMember::Variance(Column(3))],
+                },
+                ExportParameter::HeldEqual {
+                    group: 3,
+                    kind: SemHeldKind::Variances,
+                    members: vec![SemHeldMember::Variance(Column(2)), SemHeldMember::Variance(Column(4))],
+                },
+                ExportParameter::MissingCodes { count: 0 },
+                ExportParameter::Seed(None),
+            ]
+        );
+        // Example 7: no factor, six paths and seven covariances, every end a column.
+        spec.parameters = serde_json::from_value(serde_json::json!({
+            "indicators": [],
+            "paths": [
+                { "to": { "column": "C1" }, "from": { "column": "C2" } },
+                { "to": { "column": "C1" }, "from": { "column": "C3" } },
+                { "to": { "column": "C2" }, "from": { "column": "C1" } },
+                { "to": { "column": "C2" }, "from": { "column": "C4" } },
+                { "to": { "column": "C2" }, "from": { "column": "C5" } },
+                { "to": { "column": "C2" }, "from": { "column": "C6" } }
+            ],
+            "covariances": [
+                { "a": { "column": "C1" }, "b": { "column": "C2" } },
+                { "a": { "column": "C3" }, "b": { "column": "C4" } },
+                { "a": { "column": "C3" }, "b": { "column": "C5" } },
+                { "a": { "column": "C3" }, "b": { "column": "C6" } },
+                { "a": { "column": "C4" }, "b": { "column": "C5" } },
+                { "a": { "column": "C4" }, "b": { "column": "C6" } },
+                { "a": { "column": "C5" }, "b": { "column": "C6" } }
+            ],
+            "equal": [],
+            "missingCodes": [-99.0]
+        }))
+        .unwrap();
+        let mut want = vec![shape.clone()];
+        for (to, from) in [(1, 2), (1, 3), (2, 1), (2, 4), (2, 5), (2, 6)] {
+            want.push(ExportParameter::Path { from: Column(from), to: Column(to) });
+        }
+        for (a, b) in [(1, 2), (3, 4), (3, 5), (3, 6), (4, 5), (4, 6), (5, 6)] {
+            want.push(ExportParameter::Covariance { a: Column(a), b: Column(b) });
+        }
+        want.extend([ExportParameter::MissingCodes { count: 1 }, ExportParameter::Seed(None)]);
+        assert_eq!(sem_parameters(&spec), want);
+        // sem_spec: a group of each kind, ends of both sorts, in the spec's order.
+        let kinds: Vec<(u32, SemHeldKind, Vec<SemHeldMember>)> = sem_parameters(&sem_spec())
+            .into_iter()
+            .filter_map(|p| match p {
+                ExportParameter::HeldEqual { group, kind, members } => Some((group, kind, members)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            kinds,
+            [
+                (1, SemHeldKind::Loadings, vec![SemHeldMember::Loading { factor: 1, column: 2 }, SemHeldMember::Loading { factor: 2, column: 7 }]),
+                (2, SemHeldKind::Paths, vec![SemHeldMember::Path { from: Column(3), to: Factor(1) }, SemHeldMember::Path { from: Factor(2), to: Column(4) }]),
+                (3, SemHeldKind::Covariances, vec![SemHeldMember::Covariance { a: Factor(1), b: Column(5) }, SemHeldMember::Covariance { a: Column(3), b: Factor(2) }]),
+                (4, SemHeldKind::Variances, vec![SemHeldMember::Variance(Factor(1)), SemHeldMember::Variance(Column(3))]),
+            ]
+        );
+    }
+
     #[test]
     fn the_confirmatory_factor_analysis_settings_are_its_factors_in_order_and_whether_they_are_correlated() {
         assert_eq!(
@@ -3862,8 +4160,7 @@ mod tests {
 
     /// Decision 731: every method had a row since 9B-3, so no real run reached saveable's
     /// last guard; a copy of a run whose capability no row holds pins it (Research OS,
-    /// Phase 9B-2, decision 714). Since 9C-4 a real structural equation models run reaches
-    /// it too, until 9C-5 gives them a row (decision 803; tests/project_commands.rs).
+    /// Phase 9B-2, decision 714).
     #[test]
     fn a_run_of_a_capability_no_row_holds_is_not_saveable() {
         let mut copy = failed_copy(&ContentHash::of_bytes(b"x"));
@@ -4170,6 +4467,11 @@ mod tests {
         // The confirmatory factor analysis (decision 784): `indicators[][]` and
         // `correlatedFactors`, beside alpha's `missingCodes[]`.
         paths(&serde_json::to_value(cfa_spec(&[&[1, 3, 5], &[2, 4, 6]], true)).unwrap(), "", &mut seen);
+        // The structural equation models (Research OS, Phase 9C-5, decision 816): a spec with
+        // a factor and a column at each end of a path and of a covariance, and a group of each
+        // kind, since an empty array gives no leaf; beside the CFA's `indicators[][]` and
+        // alpha's `missingCodes[]`.
+        paths(&serde_json::to_value(sem_spec()).unwrap(), "", &mut seen);
         // A run on prepared data (decision 435).
         paths(
             &serde_json::to_value(prepared_spec()).unwrap(),
@@ -5021,6 +5323,8 @@ mod tests {
             stats_factor::CAPABILITY_ID,
             // Research OS, Phase 9C-3 (decision 784).
             stats_cfa::CAPABILITY_ID,
+            // Research OS, Phase 9C-5 (decision 816).
+            stats_sem::CAPABILITY_ID,
         ] {
             assert_eq!(
                 METHODS.iter().filter(|m| m.capability == id).count(),

@@ -479,8 +479,8 @@ impl World {
 
     /// The structural equation model `params` on `slot` (Research OS, Phase 9C-4,
     /// decision 803), the spec carrying the slot's preparation exactly when it has
-    /// one, run to its end. No window reaches the method until 9C-5; this is how a
-    /// test saves one.
+    /// one, run to its end. No window reaches the method until 9C-5e (decision 829);
+    /// this is how a test starts one.
     pub fn sem(&self, slot: u64, params: gaply_core::stats_sem::SemParams) -> u64 {
         let e = self.engine();
         let held = e.datasets.get(slot).expect("the slot");

@@ -118,6 +118,61 @@ closed! {
 }
 
 closed! {
+    /// The kind of a structural equation model's group held equal, as the line names it
+    /// (Research OS, Phase 9C-5, decision 816): every member of a group is of one kind.
+    pub enum SemHeldKind in "" {
+        Loadings => "loadings",
+        Paths => "paths",
+        Covariances => "covariances",
+        Variances => "variances",
+    }
+}
+
+/// One end of a structural equation model's path or covariance, or a variance's variable
+/// (Research OS, Phase 9C-5, decision 816): a factor by its number from 1, or a column by
+/// its alias number, as the confirmatory factor analysis's positions are; never a label.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SemEnd {
+    Factor(u32),
+    Column(u32),
+}
+
+impl SemEnd {
+    /// The end's words: "factor {n}" or "column {k}".
+    fn words(self) -> String {
+        match self {
+            SemEnd::Factor(n) => format!("factor {n}"),
+            SemEnd::Column(k) => format!("column {k}"),
+        }
+    }
+}
+
+/// One member of a structural equation model's group held equal (Research OS, Phase 9C-5,
+/// decision 816), each end as [`SemEnd`] names it: a loading by its factor's number and its
+/// column's alias number, a path, a covariance, or a variance.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SemHeldMember {
+    Loading { factor: u32, column: u32 },
+    Path { from: SemEnd, to: SemEnd },
+    Covariance { a: SemEnd, b: SemEnd },
+    Variance(SemEnd),
+}
+
+impl SemHeldMember {
+    /// The member's words: "{factor} → {column}", "{from} → {to}", "{a} ↔ {b}" or "{end}".
+    fn words(self) -> String {
+        match self {
+            SemHeldMember::Loading { factor, column } => {
+                format!("{} → {}", SemEnd::Factor(factor).words(), SemEnd::Column(column).words())
+            }
+            SemHeldMember::Path { from, to } => format!("{} → {}", from.words(), to.words()),
+            SemHeldMember::Covariance { a, b } => format!("{} ↔ {}", a.words(), b.words()),
+            SemHeldMember::Variance(end) => end.words(),
+        }
+    }
+}
+
+closed! {
     /// How the correlations handled rows without a value, as the user chose
     /// (decision 357).
     pub enum MissingRows in "" {
@@ -212,6 +267,18 @@ pub enum ExportParameter {
     /// Whether the confirmatory factor analysis's factors are correlated, given only with two
     /// or more factors (Research OS, Phase 9C-3, decision 784).
     CorrelatedFactors(bool),
+    /// One path of the structural equation model, a single-headed arrow from `from` to `to`,
+    /// each end a factor by its number or a column by its alias number, one parameter per
+    /// path in the spec's order (Research OS, Phase 9C-5, decision 816). The model's factors
+    /// are [`ExportParameter::Factor`], as the confirmatory factor analysis's are.
+    Path { from: SemEnd, to: SemEnd },
+    /// One covariance of the structural equation model, a double-headed arrow between `a`
+    /// and `b`, in the spec's order (Research OS, Phase 9C-5, decision 816).
+    Covariance { a: SemEnd, b: SemEnd },
+    /// One group of the structural equation model's parameters held equal: its number from 1
+    /// in the spec's order, its kind, and its members in the spec's order (Research OS,
+    /// Phase 9C-5, decision 816).
+    HeldEqual { group: u32, kind: SemHeldKind, members: Vec<SemHeldMember> },
     /// Alpha's reverse-scored items, by their 1-based positions, in the
     /// dataset's column order; empty when none was.
     ReverseScored(Vec<u32>),
@@ -651,6 +718,12 @@ fn parameter_line(p: &ExportParameter) -> String {
         }
         ExportParameter::CorrelatedFactors(true) => "Factors correlated: yes".into(),
         ExportParameter::CorrelatedFactors(false) => "Factors correlated: no".into(),
+        ExportParameter::Path { from, to } => format!("Path: {} → {}", from.words(), to.words()),
+        ExportParameter::Covariance { a, b } => format!("Covariance: {} ↔ {}", a.words(), b.words()),
+        ExportParameter::HeldEqual { group, kind, members } => {
+            let list: Vec<String> = members.iter().map(|m| m.words()).collect();
+            format!("Held equal, group {group} ({}): {}", kind.wire(), list.join("; "))
+        }
         // Decision 686: singular for one, as ReverseScored's.
         ExportParameter::Predictors(positions) if positions.len() == 1 => {
             format!("Predictors: column {}, by position", positions[0])
@@ -1326,6 +1399,64 @@ mod tests {
         );
         assert_eq!(parameter_line(&ExportParameter::CorrelatedFactors(true)), "Factors correlated: yes");
         assert_eq!(parameter_line(&ExportParameter::CorrelatedFactors(false)), "Factors correlated: no");
+    }
+
+    /// Research OS, Phase 9C-5 (decision 816): the structural equation model's paths,
+    /// covariances and groups held equal, one line each, every end a factor by its number or
+    /// a column by its alias number, never a label; every end kind and every group kind.
+    #[test]
+    fn the_structural_equation_model_parameters_have_lines_of_their_own() {
+        let line = |p: ExportParameter| parameter_line(&p);
+        assert_eq!(line(ExportParameter::Path { from: SemEnd::Factor(3), to: SemEnd::Factor(1) }), "Path: factor 3 → factor 1");
+        assert_eq!(line(ExportParameter::Path { from: SemEnd::Column(4), to: SemEnd::Factor(1) }), "Path: column 4 → factor 1");
+        assert_eq!(line(ExportParameter::Path { from: SemEnd::Factor(2), to: SemEnd::Column(128) }), "Path: factor 2 → column 128");
+        assert_eq!(line(ExportParameter::Path { from: SemEnd::Column(1), to: SemEnd::Column(2) }), "Path: column 1 → column 2");
+        assert_eq!(line(ExportParameter::Covariance { a: SemEnd::Column(1), b: SemEnd::Column(3) }), "Covariance: column 1 ↔ column 3");
+        assert_eq!(line(ExportParameter::Covariance { a: SemEnd::Factor(1), b: SemEnd::Factor(2) }), "Covariance: factor 1 ↔ factor 2");
+        assert_eq!(line(ExportParameter::Covariance { a: SemEnd::Factor(2), b: SemEnd::Column(7) }), "Covariance: factor 2 ↔ column 7");
+        assert_eq!(
+            line(ExportParameter::HeldEqual {
+                group: 1,
+                kind: SemHeldKind::Loadings,
+                members: vec![
+                    SemHeldMember::Loading { factor: 1, column: 2 },
+                    SemHeldMember::Loading { factor: 2, column: 4 },
+                ],
+            }),
+            "Held equal, group 1 (loadings): factor 1 → column 2; factor 2 → column 4"
+        );
+        assert_eq!(
+            line(ExportParameter::HeldEqual {
+                group: 2,
+                kind: SemHeldKind::Paths,
+                members: vec![
+                    SemHeldMember::Path { from: SemEnd::Factor(3), to: SemEnd::Factor(1) },
+                    SemHeldMember::Path { from: SemEnd::Column(5), to: SemEnd::Column(6) },
+                ],
+            }),
+            "Held equal, group 2 (paths): factor 3 → factor 1; column 5 → column 6"
+        );
+        assert_eq!(
+            line(ExportParameter::HeldEqual {
+                group: 3,
+                kind: SemHeldKind::Covariances,
+                members: vec![
+                    SemHeldMember::Covariance { a: SemEnd::Column(1), b: SemEnd::Column(3) },
+                    SemHeldMember::Covariance { a: SemEnd::Factor(1), b: SemEnd::Column(2) },
+                ],
+            }),
+            "Held equal, group 3 (covariances): column 1 ↔ column 3; factor 1 ↔ column 2"
+        );
+        assert_eq!(
+            line(ExportParameter::HeldEqual {
+                group: 12,
+                kind: SemHeldKind::Variances,
+                members: vec![SemHeldMember::Variance(SemEnd::Column(1)), SemHeldMember::Variance(SemEnd::Factor(2)), SemHeldMember::Variance(SemEnd::Column(3))],
+            }),
+            "Held equal, group 12 (variances): column 1; factor 2; column 3"
+        );
+        let words: Vec<&str> = SemHeldKind::ALL.iter().map(|k| k.wire()).collect();
+        assert_eq!(words, ["loadings", "paths", "covariances", "variances"]);
     }
 
     /// Phase 8I-2 (decision 382): alpha's items and reverse-scored items as

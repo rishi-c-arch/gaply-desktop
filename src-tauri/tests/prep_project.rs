@@ -25,6 +25,7 @@ use app_lib::stats_corr_commands as corr;
 use app_lib::stats_desc_commands as desc;
 use app_lib::stats_factor_commands as factor;
 use app_lib::stats_cfa_commands as cfa;
+use app_lib::stats_sem_commands as sem;
 use app_lib::stats_linear_regression_commands as linear_regression;
 use app_lib::stats_onesample_commands as onesample;
 use app_lib::stats_prep_commands as prep;
@@ -39,6 +40,7 @@ use gaply_core::stats_corr::{self, Coefficient, CorrParams, MissingHandling};
 use gaply_core::stats_desc::{self, Alias, ColumnRequest, DescribeParams, TreatAs};
 use gaply_core::stats_factor::{self, Extraction, FactorParams, Rotation};
 use gaply_core::stats_cfa::{self, CfaParams};
+use gaply_core::stats_sem;
 use gaply_core::stats_l1::dataset::ColumnAlias;
 use gaply_core::stats_linear_regression::{self, LinearRegressionParams};
 use gaply_core::stats_onesample::{self, OneSampleParams, PairedParams};
@@ -99,8 +101,8 @@ fn make(w: &World, slot: u64, recipe: &Recipe) {
     assert!(v.dataset.is_some(), "{:?}", v.errors);
 }
 
-/// The twelve methods, each with a score in it, as `prep_support::twelve`.
-const TWELVE: [&str; 12] = [
+/// The thirteen methods, each with a score in it, as `prep_support::thirteen`.
+const THIRTEEN: [&str; 13] = [
     "summary",
     "t-test",
     "one-sample",
@@ -113,6 +115,7 @@ const TWELVE: [&str; 12] = [
     "linear regression",
     "factor analysis",
     "confirmatory factor analysis",
+    "structural equation models",
 ];
 
 /// Runs method `which` on the score, column 8 of [`TABLE`], to its end, its
@@ -302,6 +305,28 @@ fn run_method(w: &World, slot: u64, which: &str) -> u64 {
                 &e.datasets,
                 slot,
                 on_prepared!(stats_cfa::spec(op, d, params)),
+            )
+        }
+        // Research OS, Phase 9C-5 (decision 816): paths to C7 from C4 and from the score C8, the
+        // froms in column order, and the covariance of C4 and the score; df 0, the note df_zero.
+        "structural equation models" => {
+            let params: stats_sem::SemParams = serde_json::from_value(serde_json::json!({
+                "indicators": [],
+                "paths": [
+                    { "to": { "column": "C7" }, "from": { "column": "C4" } },
+                    { "to": { "column": "C7" }, "from": { "column": "C8" } }
+                ],
+                "covariances": [{ "a": { "column": "C4" }, "b": { "column": "C8" } }],
+                "equal": [],
+                "missingCodes": [],
+            }))
+            .expect("a SEM spec");
+            assert_eq!(score, alias(8), "the score is C8");
+            sem::run(
+                &e.runs,
+                &e.datasets,
+                slot,
+                on_prepared!(stats_sem::spec(op, d, params)),
             )
         }
         other => panic!("no method {other}"),
@@ -585,8 +610,8 @@ fn a_run_with_two_recipe_edges_is_refused_as_an_unknown_artifact() {
 /// Every method's run on a score saves, with its recipe, whatever its result.
 #[test]
 fn a_run_of_each_method_on_a_score_saves_with_its_recipe() {
-    for which in TWELVE {
-        let w = World::new("save-twelve");
+    for which in THIRTEEN {
+        let w = World::new("save-thirteen");
         let slot = w.open("items.csv", TABLE);
         make(&w, slot, &mean_recipe());
         let run = run_method(&w, slot, which);
@@ -599,6 +624,19 @@ fn a_run_of_each_method_on_a_score_saves_with_its_recipe() {
         );
         let on_disk = std::fs::read(recipe_file(&w, &id)).unwrap();
         assert_eq!(on_disk, stats_prep::recipe_bytes(&mean_recipe()), "{which}");
+        // Research OS, Phase 9C-5 (decision 816): the structural equation model on this table,
+        // as FIND FIRST measured it (9c5c/p2_prep_*.log): attempt 1, df 0, the note df_zero.
+        if which == "structural equation models" {
+            let back = pc::run_result(&w.root(), &w.ws, &id, 1).expect("read back");
+            let bundle: serde_json::Value = serde_json::from_str(back.bundle_json.as_deref().expect("a result")).unwrap();
+            let o = &bundle["primaryOutputs"];
+            assert_eq!(
+                (&o["attempt"], &o["fit"]["model"]["df"], &o["notes"]),
+                (&serde_json::json!(1), &serde_json::json!(0), &serde_json::json!(["stats.sem.df_zero"])),
+                "the structural equation model's outcome: iterations {}",
+                o["iterations"]
+            );
+        }
     }
 }
 
@@ -802,14 +840,14 @@ fn new_artifacts(
         .collect()
 }
 
-/// For each of the twelve methods: a run on a score, saved, reopened and run
+/// For each of the thirteen methods: a run on a score, saved, reopened and run
 /// again, is identical, with the recipe reused and nothing else written but the
 /// new bundle and manifest.
 #[test]
 fn each_method_on_a_score_saved_reopened_and_rerun_is_identical_and_reuses_the_recipe() {
     use gaply_core::research_project::RerunComparison::Identical;
-    for which in TWELVE {
-        let w = World::new("rerun-twelve");
+    for which in THIRTEEN {
+        let w = World::new("rerun-thirteen");
         let slot = w.open("items.csv", TABLE);
         make(&w, slot, &mean_recipe());
         let run = run_method(&w, slot, which);

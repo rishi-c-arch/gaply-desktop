@@ -15,7 +15,8 @@
 //!   spec on a still clock gives a result.
 //! * Refusals, each with its exact code, the run's own among them
 //!   (`sample_covariance_singular`, `overflow`, `sem_not_converged` on the CFA
-//!   cases' Walsh columns), and the registry's `capability.*` codes as they are
+//!   cases' Walsh columns, at Newton's attempt's 9 iterations since decision 828),
+//!   and the registry's `capability.*` codes as they are
 //!   (decision 74), before the slot is read. Two refusals are not sent here:
 //!   `missing_code_not_finite`, since JSON has no NaN or infinity to send
 //!   (`sem_cases.rs` holds it), and `solution_not_identified`, which no known
@@ -104,8 +105,9 @@ fn csv() -> Vec<u8> {
 
 /// The CFA cases' Walsh columns (cfa_cases.rs's the_independence_models_cmin_is_never_below_0):
 /// 32 rows of three columns, on which every start puts the loadings at exactly 0,
-/// so one factor of the three refuses as sem_not_converged at the cap (decision
-/// 798; sem_cases.rs).
+/// so one factor of the three refuses as sem_not_converged (decision 798;
+/// sem_cases.rs): with a count of 9, Newton's attempt's, since decision 828 ends
+/// that attempt at a step of zero length; before it, 500, the cap.
 fn walsh() -> Vec<u8> {
     let cols = [
         [2.0, 0.0, 2.0, 0.0, 2.0, 0.0, 2.0, 0.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 0.0, -2.0, 0.0, -2.0, 0.0, -2.0, 0.0, -2.0],
@@ -291,7 +293,7 @@ fn each_refusal_has_its_code() {
     let s = until_terminal_sem(&w.w, run);
     assert_eq!(s["state"], "failed", "{s}");
     assert_eq!(s["diagnostics"][0]["code"], "stats.sem.sem_not_converged", "{s}");
-    assert_eq!(s["diagnostics"][0]["params"], json!({ "count": 500, "limit": 500 }), "{s}");
+    assert_eq!(s["diagnostics"][0]["params"], json!({ "count": 9, "limit": 500 }), "{s}");
     // The registry before the slot.
     let mut s = two(&o, 19);
     s["capabilityVersion"] = json!(2);

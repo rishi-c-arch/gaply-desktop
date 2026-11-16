@@ -1011,7 +1011,8 @@ fn a_rerun_puts_no_sentinel_anywhere_but_the_projects_artifacts_and_its_title() 
     // need a fourth numeric column. Run 30 fails, cfa_not_converged, and is saved as its
     // failure: a failed run is as good a privacy check, since the sentinel must reach none of
     // its outputs. A project's rerun takes only a run that Succeeded (project_commands.rs,
-    // rerun_open's check 4), so there is no run 31; the refusal is a response and is checked.
+    // rerun_open's check 4), so run 30 has no rerun; the refusal is a response and is checked.
+    // The next stored run, 31, is the structural equation model's below.
     {
         let held = e.datasets.get(friedman_open.slot).unwrap();
         let spec = stats_cfa::spec(
@@ -1055,6 +1056,66 @@ fn a_rerun_puts_no_sentinel_anywhere_but_the_projects_artifacts_and_its_title() 
         assert_eq!(failure["failure"]["code"], "stats.cfa.cfa_not_converged", "{failure}");
     }
 
+    // Phase 9C-5 (decisions 816, 824 and 829): the structural equation model and its rerun,
+    // 31 and 32. After the CFA's, so no stored run id above moves. The path model C1 → C2 → C3
+    // of friedman_table(), through the Friedman test's slot, still held; aux (C4) stays
+    // unchosen. Measured on the Mac before it was written (16 Nov 2026,
+    // 9c5c/p2_find_matrix_1794807965.log): attempt 1 in 1 iteration, df 1, npar 5, no notes,
+    // as the prompt's reviewer found on Linux; so it succeeds and run 32 is its rerun.
+    {
+        let held = e.datasets.get(friedman_open.slot).unwrap();
+        let params: gaply_core::stats_sem::SemParams = serde_json::from_value(serde_json::json!({
+            "indicators": [],
+            "paths": [
+                { "to": { "column": "C2" }, "from": { "column": "C1" } },
+                { "to": { "column": "C3" }, "from": { "column": "C2" } }
+            ],
+            "covariances": [],
+            "equal": [],
+            "missingCodes": [],
+        }))
+        .unwrap();
+        let spec = gaply_core::stats_sem::spec(OperationId(31), held.dataset(), params);
+        drop(held);
+        let run = app_lib::stats_sem_commands::run(&e.runs, &e.datasets, friedman_open.slot, spec)
+            .unwrap()
+            .run_id;
+        w.wait_new_kind(run);
+        let saved = pc::save_run(
+            &app,
+            &w.ws,
+            run,
+            SaveTarget::OpenProject {
+                project_id: id.clone(),
+            },
+        )
+        .expect("the structural equation model saved");
+        assert_eq!(saved.stored_run_id, 31);
+        responses.push(("save (sem 31)".into(), serde_json::to_string(&saved).unwrap()));
+        let read = pc::run_result(&app, &w.ws, &id, 31).unwrap();
+        responses.push(("rerun (sem 31)".into(), rerun_saved(&w, &app, 31)));
+        // Positive control: it ran on the two paths, succeeded with FIND FIRST's outcome, and
+        // its rerun ran.
+        assert_eq!(read.state, RunState::Succeeded, "run 31 succeeded");
+        let stored: serde_json::Value = serde_json::from_str(&read.spec_json).unwrap();
+        assert_eq!(
+            stored["parameters"]["paths"],
+            serde_json::json!([
+                { "to": { "column": "C2" }, "from": { "column": "C1" } },
+                { "to": { "column": "C3" }, "from": { "column": "C2" } }
+            ]),
+            "run 31 is the path model C1 → C2 → C3"
+        );
+        let bundle: serde_json::Value = serde_json::from_str(read.bundle_json.as_deref().expect("a result")).unwrap();
+        let o = &bundle["primaryOutputs"];
+        assert_eq!(
+            (&o["attempt"], &o["iterations"], &o["fit"]["model"]["df"], &o["fit"]["model"]["npar"], &o["notes"]),
+            (&serde_json::json!(1), &serde_json::json!(1), &serde_json::json!(1), &serde_json::json!(5), &serde_json::json!([])),
+            "run 31's outcome"
+        );
+        assert_eq!(pc::run_result(&app, &w.ws, &id, 32).unwrap().state, RunState::Succeeded, "run 32 succeeded");
+    }
+
     let runs_response = serde_json::to_string(&pc::runs(&app, &w.ws, &id).unwrap()).unwrap();
     responses.push(("runs".into(), runs_response.clone()));
     // Phase 8U-3 (decision 553): project_runs holds no name, nor any other of
@@ -1066,8 +1127,9 @@ fn a_rerun_puts_no_sentinel_anywhere_but_the_projects_artifacts_and_its_title() 
     // 655): the related rank tests and their reruns, 18 to 21; Phase 9A-2 (decision 686): the
     // regressions and their reruns, 22 to 25; Phase 9B-3 (decision 731): the factor analyses
     // and their reruns, 26 to 29; Phase 9C-3 (decision 784): the confirmatory factor analysis,
-    // 30, failed.
-    for n in [1, 2, 3, 4, 5, 6, 7, 8, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30] {
+    // 30, failed; Phase 9C-5 (decision 816): the structural equation model and its rerun, 31
+    // and 32.
+    for n in [1, 2, 3, 4, 5, 6, 7, 8, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32] {
         results.push_str(
             &serde_json::to_string(&pc::run_result(&app, &w.ws, &id, n).unwrap()).unwrap(),
         );
@@ -1150,6 +1212,14 @@ fn a_rerun_puts_no_sentinel_anywhere_but_the_projects_artifacts_and_its_title() 
     );
     assert_eq!(report.matches("- Factor 1:").count(), 1, "one confirmatory factor analysis");
     assert!(!report.contains("Factors correlated"), "one factor, so no Factors correlated line");
+    // Phase 9C-5 (decisions 816 and 824): the structural equation model and its rerun, counted
+    // by their Path lines, which no other method writes: twice each, since run 32, its rerun,
+    // is saved; and no Factor line among the SEM's, so the one above stays the CFA's.
+    assert!(report.contains("Repeats run 31."), "the structural equation model's rerun is in the report");
+    for line in ["- Path: column 1 → column 2", "- Path: column 2 → column 3"] {
+        assert_eq!(report.matches(line).count(), 2, "{line}");
+    }
+    assert_eq!(report.matches("- Path: ").count(), 4, "two Path lines in each of runs 31 and 32");
     assert!(prov.contains("wasInformedBy"), "and in the provenance");
 
     // Phase 8M-4 (decision 437): the prepared run is in both exports, by

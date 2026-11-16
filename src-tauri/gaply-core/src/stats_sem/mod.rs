@@ -1752,9 +1752,20 @@ fn fisher<E>(
 /// unless the step is relaxed. A step is relaxed (decisions 812 and 823) only
 /// where H passes its factor with gᵀH⁻¹g at most [`DECREMENT_F_TEST`] and the
 /// solve's own decrement, gᵀ(J + μD)⁻¹g, is at most it too: so every relaxed
-/// step has δᵀ(J + μD)δ ≤ 1e-10, and δᵀJδ ≤ 1e-10 where J is positive
-/// semidefinite. Reading H alone, as decision 812 wrote it, bounded nothing,
-/// since the step solves J + μD, not H (the review of 365b638, finding 1).
+/// step has δᵀ(J + μD)δ ≤ 1e-10, and so δᵀJδ ≤ 1e-10 always, since δᵀJδ =
+/// δᵀ(J + μD)δ − μδᵀDδ with μ ≥ 0 and D ≥ 0; the bound is on the step in
+/// J + μD's measure, not on its length (the review of 7ace972, finding 6).
+/// Reading H alone, as decision 812 wrote it, bounded nothing, since the step
+/// solves J + μD, not H (the review of 365b638, finding 1).
+/// A solve whose candidate equals θ in every coordinate ends the attempt at
+/// once, before F is evaluated there (decision 828, Z1): a larger μ only
+/// shrinks the step, and before Z1 the attempt stood still to its cap,
+/// inflating a refusal's count and its time. One case is not covered by that
+/// premise (the review of 9C-5c, finding 1): where the zero-length step came
+/// from an iteration's first solve at a μ carried above 0, the next iteration
+/// before Z1 would have tried a smaller μ not yet tried at this θ, so Z1 can
+/// end an attempt that might have moved. That errs toward a refusal, never a
+/// false solution; it is an open question for the next step, not changed here.
 /// After [`MAX_SOLVES`] solves for one step the attempt ends; after a step μ
 /// falls (to 0 at or below [`DAMPING_START`], else a tenth). `at` is called at
 /// each iteration and before each solve.
@@ -1800,6 +1811,13 @@ fn newton<E>(
             if let Ok(l) = cholesky_within(&damped, DAMPED_TOLERANCE) {
                 let step = solve(&spd_inverse(&l), &e.g);
                 let candidate: Vec<f64> = theta.iter().zip(&step).map(|(t, s)| t - s).collect();
+                // Decision 828 (Z1): a step of zero length ends the attempt; it
+                // is not taken and not counted, and F is not evaluated at it. A
+                // larger μ only shrinks the step further; a smaller μ, where the
+                // first solve used a carried μ above 0, is not tried (see the doc).
+                if candidate == theta {
+                    return Ok(Err(iterations));
+                }
                 // Decision 823: the relaxation is bounded by this solve's own
                 // decrement, gᵀ(J + μD)⁻¹g = δᵀ(J + μD)δ, so a relaxed step is
                 // small in the measure it was solved in, not only in H's.
@@ -2621,12 +2639,12 @@ mod tests {
     /// J = 1: gᵀH⁻¹g = 1e-6 is above DECREMENT_F_TEST while the solve's own,
     /// gᵀ(J + μD)⁻¹g, is at most 1e-12; F is larger everywhere but the start.
     /// So no step that moves θ is taken. D here is 1e-6 (H's diagonal), so as μ
-    /// grows the step shrinks until 3 − step rounds to 3 itself, where F equals
-    /// F at the start and the strict test takes it: measured at 365b638, the
-    /// attempt ends at its cap of 10 having never moved, `Err(10)`, not the
-    /// `Err(0)` decision 823 expected. What the test pins is the decision's
-    /// point: θ never leaves the start (with the gᵀH⁻¹g test removed, the first
-    /// solve is taken, to 2.999999).
+    /// grows the step shrinks until 3 − step rounds to 3 itself. At 365b638 and
+    /// 7ace972 the strict test took that step of zero length and the attempt
+    /// stood still to its cap, `Err(10)`; since decision 828 (Z1) a candidate
+    /// equal to θ ends the attempt at once, so it is `Err(0)`, as decision 823
+    /// meant, with θ never leaving the start (with the gᵀH⁻¹g test removed, the
+    /// first solve is taken, to 2.999999).
     #[test]
     fn newtons_attempt_relaxes_nothing_where_h_s_decrement_is_large() {
         use std::cell::RefCell;
@@ -2644,7 +2662,30 @@ mod tests {
         let got = newton(start.to_vec(), 10, &point, &f_at, &mut || Ok::<(), Infallible>(())).unwrap();
         let seen = seen.into_inner();
         assert!(seen.iter().all(|t| *t == start[0]), "θ left the start: {seen:?}");
-        assert!(matches!(got, Err(10)), "{got:?}");
+        assert!(matches!(got, Err(0)), "{got:?}");
+    }
+
+    /// Decision 828 (Z1): a solve whose candidate equals θ in every coordinate
+    /// ends the attempt at once, before F is evaluated there. θ = 3, g = 1e-300,
+    /// H = 0 (so D = 0 and μ never changes the solve), J = 1: the step is 1e-300
+    /// and 3 − 1e-300 is 3 as a double. F at every point but the start is
+    /// larger, so only the candidate equal to θ could ever be taken. Before Z1
+    /// the strict test took it at every iteration and the attempt stood still to
+    /// its cap, `Err(10)`; with Z1 it is `Err(0)`, and F is never asked for.
+    #[test]
+    fn newtons_attempt_ends_at_a_step_of_zero_length() {
+        let start = [3.0f64];
+        assert_eq!(start[0] - 1e-300, start[0], "the premise: the step rounds away");
+        assert!(cholesky(&[vec![0.0]]).is_err(), "the premise: H fails its factor, so nothing is relaxed");
+        let point = |_t: &[f64]| Some(Point { f: 1.0, g: vec![1e-300], h: vec![vec![0.0]], j: Some(vec![vec![1.0]]) });
+        let asked = std::cell::Cell::new(0u32);
+        let f_at = |t: &[f64]| {
+            asked.set(asked.get() + 1);
+            Some(if t == start { 1.0 } else { 2.0 })
+        };
+        let got = newton(start.to_vec(), 10, &point, &f_at, &mut || Ok::<(), Infallible>(())).unwrap();
+        assert!(matches!(got, Err(0)), "{got:?}");
+        assert_eq!(asked.get(), 0, "F was evaluated at a candidate equal to θ");
     }
 
     /// AMOS's Example 6, Model B: its 120 "Critical Ratios for Differences

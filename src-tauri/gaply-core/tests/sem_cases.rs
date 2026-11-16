@@ -483,8 +483,13 @@ fn each_attempt_reaches_example_8s_solution_and_all_three_capped_refuse() {
 
 /// Decision 798: on the CFA cases' Walsh columns (one factor of three columns
 /// over 32 rows) every start puts the loadings at exactly 0, where H fails, and
-/// Newton's attempt never moves them, so the run refuses as sem_not_converged at
-/// the cap rather than reaching the point the CFA accepts.
+/// Newton's attempt never reaches a solution, so the run refuses as
+/// sem_not_converged rather than reaching the point the CFA accepts. Attempt 1
+/// ends at iteration 0, the triad attempt is not made (its starts are attempt
+/// 1's), and the count is Newton's: it moves 9 times and then its step rounds
+/// to zero length. R's prototype stood still from there to its cap of 500, as
+/// Gaply did until decision 828 (Z1); Gaply now ends Newton's attempt at a step
+/// of zero length, so the count is 9.
 #[test]
 fn the_walsh_columns_refuse_as_not_converged() {
     let cols = vec![
@@ -492,14 +497,26 @@ fn the_walsh_columns_refuse_as_not_converged() {
         vec![-0.5, -0.5, 1.5, 1.5, -1.5, -1.5, 0.5, 0.5, -0.5, -0.5, 1.5, 1.5, -1.5, -1.5, 0.5, 0.5, -0.5, -0.5, 1.5, 1.5, -1.5, -1.5, 0.5, 0.5, -0.5, -0.5, 1.5, 1.5, -1.5, -1.5, 0.5, 0.5],
         vec![0.5, 1.5, 0.5, 1.5, 0.5, 1.5, 0.5, 1.5, -1.5, -0.5, -1.5, -0.5, -1.5, -0.5, -1.5, -0.5, 0.5, 1.5, 0.5, 1.5, 0.5, 1.5, 0.5, 1.5, -1.5, -0.5, -1.5, -0.5, -1.5, -0.5, -1.5, -0.5],
     ];
-    let e = compute(&table(&cols), &sem(r#"{"indicators":[["C1","C2","C3"]],"paths":[],"covariances":[],"equal":[],"missingCodes":[]}"#)).unwrap_err();
+    let (d, s) = (table(&cols), sem(r#"{"indicators":[["C1","C2","C3"]],"paths":[],"covariances":[],"equal":[],"missingCodes":[]}"#));
+    let max = MAX_ITERATIONS as i64;
+    for (caps, want, limit) in [([MAX_ITERATIONS, 0, 0], 0, max), ([0, MAX_ITERATIONS, 0], WALSH_COUNT, max), ([0, 0, MAX_ITERATIONS], 0, 0)] {
+        let one = compute_with_caps(&d, &s, caps).unwrap_err();
+        println!("the Walsh columns, caps {caps:?}: {} with {:?}", one.code.wire(), one.params);
+        assert_eq!(one.code, C::SemNotConverged, "{caps:?}");
+        assert_eq!(int(&one, ParamKey::Count), Some(want), "{caps:?}");
+        // A limit of 0 with caps [0, 0, 500]: the triad attempt was not made.
+        assert_eq!(int(&one, ParamKey::Limit), Some(limit), "{caps:?}");
+    }
+    let e = compute(&d, &s).unwrap_err();
     println!("the Walsh columns: {} with {:?}", e.code.wire(), e.params);
     assert_eq!((e.code, int(&e, ParamKey::Count), int(&e, ParamKey::Limit)), (C::SemNotConverged, Some(WALSH_COUNT), Some(MAX_ITERATIONS as i64)));
 }
 
-/// The count the run gives on the Walsh columns, 500, as R's prototype gave
-/// (logs/p2_sem_targets_1794724810.log).
-const WALSH_COUNT: i64 = 500;
+/// The count the run gives on the Walsh columns, 9, from Newton's attempt
+/// (decision 828, Z1; measured 16 Nov 2026, 9c5c/p0_walsh_attempts_1794807172.log).
+/// Before Z1 it was 500, the cap, as R's prototype gave
+/// (logs/p2_sem_targets_1794724810.log), standing still to it.
+const WALSH_COUNT: i64 = 9;
 
 /// The R golden's newton_relaxed spec (Research OS, Phase 9C-5, decision 812):
 /// the review of 9C-4's id384 shape on data/id384.csv, seed 17.

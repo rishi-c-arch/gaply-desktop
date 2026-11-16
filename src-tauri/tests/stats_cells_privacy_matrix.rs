@@ -38,7 +38,7 @@ use serde_json::{json, Value};
 
 use desc_support::{call, delimited, TempDir, C};
 use gaply_core::Database;
-use prep_support::{app_with, recipe, start, twelve, until_terminal};
+use prep_support::{app_with, assert_sem_outcome, recipe, start, thirteen, until_terminal};
 
 const TEXT: &str = "CELL_SENTINEL_t83";
 const HDR: &str = "HDR_SENTINEL_k22";
@@ -227,7 +227,7 @@ fn no_cell_reaches_a_surface_it_is_not_allowed_on() {
     }
 
     // Every run after scrolling: its spec, manifest, result and exports.
-    for m in &twelve(&view, "C9") {
+    for m in &thirteen(&view, "C9") {
         push("spec", json_of(&m.spec));
         let v = call(
             &w,
@@ -241,6 +241,7 @@ fn no_cell_reaches_a_surface_it_is_not_allowed_on() {
         assert_eq!(s["state"], "succeeded", "{}: {s}", m.prefix);
         push("a method's run state", json_of(&s));
         let mut r = call(&w, &format!("{}_result", m.prefix), json!({ "runId": run })).unwrap();
+        assert_sem_outcome(m.prefix, &r["result"]);
         let manifest = r
             .as_object_mut()
             .unwrap()
