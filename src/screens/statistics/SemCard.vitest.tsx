@@ -136,9 +136,21 @@ describe('the effects', () => {
     expect(screen.getByTestId('sm-effect-total-C1-C3').textContent).not.toBe('');
   });
 
+  // 9C-5b (decision 823's N6; the review of 365b638, finding 6): the fixture's one path (factor 1
+  // → factor 2) gives no cell on Factor 1's diagonal at all, so the test passed with nothing to be
+  // blank. A copy shaped as Wheaton's Model B (factor 3 → factor 1, factor 1 → factor 2, factor 3
+  // → factor 2) has rows Factor 1 and Factor 2 and columns Factor 1 and Factor 3, so Factor 1's
+  // own cell is drawn, and must be empty.
   it("draws Wheaton-like effects between factors, Factor 1's on itself blank", () => {
-    render(<SemCard result={two} names={NAMES} />);
-    expect(screen.getByTestId('sm-effect-total-f2-f1').textContent).toBe(v(two.result.effects[0].total));
+    const r = copy(two);
+    const e = two.result.effects[0];
+    const pair = (to: number, from: number) => ({ ...JSON.parse(JSON.stringify(e)), to: { factor: to }, from: { factor: from } });
+    r.result.effects = [pair(1, 3), pair(2, 1), pair(2, 3)];
+    render(<SemCard result={r} names={NAMES} />);
+    expect(screen.getByTestId('sm-effect-total-f2-f1').textContent).toBe(v(e.total));
+    expect(screen.getByTestId('sm-effect-total-f1-f3').textContent).toBe(v(e.total));
+    const own = screen.getByTestId('sm-effect-total-f1-f1');
+    expect(own.textContent).toBe('');
     expect(screen.queryByTestId('sm-effect-total-f2-f2')).toBeNull();
   });
 

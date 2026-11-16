@@ -1749,9 +1749,13 @@ fn fisher<E>(
 /// H's diagonal each raised to at least [`DIAGONAL_FLOOR`] of its largest; μ
 /// grows (to [`DAMPING_START`] from 0, then tenfold) while J + μ D fails its
 /// factor at [`DAMPED_TOLERANCE`] or F at the step is undefined, or larger
-/// where H fails its factor or gᵀH⁻¹g is above [`DECREMENT_F_TEST`] (decision
-/// 812: at or below it a defined F is enough, as in Fisher scoring), and
-/// after [`MAX_SOLVES`] solves for one step the attempt ends; after a step μ
+/// unless the step is relaxed. A step is relaxed (decisions 812 and 823) only
+/// where H passes its factor with gᵀH⁻¹g at most [`DECREMENT_F_TEST`] and the
+/// solve's own decrement, gᵀ(J + μD)⁻¹g, is at most it too: so every relaxed
+/// step has δᵀ(J + μD)δ ≤ 1e-10, and δᵀJδ ≤ 1e-10 where J is positive
+/// semidefinite. Reading H alone, as decision 812 wrote it, bounded nothing,
+/// since the step solves J + μD, not H (the review of 365b638, finding 1).
+/// After [`MAX_SOLVES`] solves for one step the attempt ends; after a step μ
 /// falls (to 0 at or below [`DAMPING_START`], else a tenth). `at` is called at
 /// each iteration and before each solve.
 fn newton<E>(
@@ -1769,8 +1773,8 @@ fn newton<E>(
         let j = e.j.as_ref().expect("Newton's attempt evaluates J");
         // Decision 812: where H passes its factor and the decrement is at most
         // DECREMENT_F_TEST, F's rounding exceeds what a step can lower it by, so
-        // a step is taken whenever F at it is defined, as Fisher scoring takes
-        // one (the review of 9C-4, M1).
+        // a step whose own solve's decrement is at most it too (decision 823)
+        // is taken whenever F at it is defined (the review of 9C-4, M1).
         let mut relaxed = false;
         if let Ok(lh) = cholesky(&e.h) {
             let h_inverse = spd_inverse(&lh);
@@ -1796,8 +1800,12 @@ fn newton<E>(
             if let Ok(l) = cholesky_within(&damped, DAMPED_TOLERANCE) {
                 let step = solve(&spd_inverse(&l), &e.g);
                 let candidate: Vec<f64> = theta.iter().zip(&step).map(|(t, s)| t - s).collect();
+                // Decision 823: the relaxation is bounded by this solve's own
+                // decrement, gᵀ(J + μD)⁻¹g = δᵀ(J + μD)δ, so a relaxed step is
+                // small in the measure it was solved in, not only in H's.
+                let solved_decrement: f64 = step.iter().zip(&e.g).map(|(s, g)| s * g).sum();
                 if let Some(f) = f_at(&candidate) {
-                    if relaxed || f <= e.f {
+                    if f <= e.f || (relaxed && solved_decrement <= DECREMENT_F_TEST) {
                         accepted = Some(candidate);
                         break;
                     }
@@ -2540,6 +2548,103 @@ mod tests {
         let found = found.unwrap_or_else(|n| panic!("refused after {n} iterations and {calls} check points"));
         assert_eq!(found.iterations, 1);
         assert!(found.theta.iter().all(|x| x.abs() <= 4.0 * f64::EPSILON), "{:?}", found.theta);
+    }
+
+    /// Decision 823 (N1; the review of 365b638, finding 1): the relaxation is
+    /// bounded by the solve's own decrement. f(t) = 0.5e-6 t² + 1e3 max(0, 5 − t)⁴
+    /// with g = 1e-6 t, H = 1 and J f's second derivative. At t = 10, gᵀH⁻¹g is
+    /// at most DECREMENT_F_TEST, but J = 1e-6, so the undamped solve's step is
+    /// t itself (to 0, where F is 6.25e5) and its decrement gᵀJ⁻¹g is 1e-4: a
+    /// relaxation read from H alone accepts it. Bounded, that solve is refused
+    /// for its rise, μ grows to DAMPING_START and the step stops at 9.90099. From
+    /// t = 20 gᵀH⁻¹g is 4e-10, so no relaxation applies either way (19.80198).
+    /// The cap is 1, so `point`'s second call is at the one step taken.
+    #[test]
+    fn newtons_relaxed_step_is_bounded_by_its_own_solves_decrement() {
+        use std::cell::RefCell;
+        let f = |t: f64| 0.5e-6 * t * t + 1e3 * (5.0 - t).max(0.0).powi(4);
+        let second = |t: f64| 1e-6 + 12e3 * (5.0 - t).max(0.0).powi(2);
+        // Each start is checked and its faults kept, so a fault that breaks both shows both.
+        let mut faults: Vec<String> = Vec::new();
+        for (start, expected) in [(10.0f64, 9.90099f64), (20.0, 19.80198)] {
+            let seen: RefCell<Vec<f64>> = RefCell::new(Vec::new());
+            let point = |t: &[f64]| {
+                seen.borrow_mut().push(t[0]);
+                Some(Point { f: f(t[0]), g: vec![1e-6 * t[0]], h: vec![vec![1.0]], j: Some(vec![vec![second(t[0])]]) })
+            };
+            let f_at = |t: &[f64]| Some(f(t[0]));
+            // The premises: gᵀH⁻¹g at the start against DECREMENT_F_TEST, and J = 1e-6 there.
+            let g0 = 1e-6 * start;
+            assert!(g0 * g0 > DECREMENT_STOP);
+            assert_eq!(g0 * g0 <= DECREMENT_F_TEST, start == 10.0, "gᵀH⁻¹g = {:e}", g0 * g0);
+            assert_eq!(second(start), 1e-6);
+            assert!(f(0.0) > f(start));
+            let got = newton(vec![start], 1, &point, &f_at, &mut || Ok::<(), Infallible>(())).unwrap();
+            let seen = seen.into_inner();
+            if seen.len() != 2 {
+                faults.push(format!("from {start}: {} points, {seen:?}", seen.len()));
+                continue;
+            }
+            if seen[1] <= 5.0 {
+                faults.push(format!("from {start} the step went to {}", seen[1]));
+            } else if (seen[1] - expected).abs() > 1e-5 {
+                faults.push(format!("from {start}: {} against {expected}", seen[1]));
+            }
+            if !matches!(got, Err(1)) {
+                faults.push(format!("from {start}: the cap did not end the attempt after one step: {got:?}"));
+            }
+        }
+        assert!(faults.is_empty(), "{faults:#?}");
+    }
+
+    /// Decision 823 (N1): where H fails its factor nothing is relaxed. H = 0,
+    /// g = 1e-6, J = 1: D is 0 (H's diagonal), so every solve is the same,
+    /// gᵀJ⁻¹g = 1e-12, and F at every point but the start is larger. The attempt
+    /// ends after MAX_SOLVES rejected solves at iteration 0.
+    #[test]
+    fn newtons_attempt_relaxes_nothing_where_h_fails_its_factor() {
+        let start = [3.0f64];
+        let point = |_t: &[f64]| Some(Point { f: 1.0, g: vec![1e-6], h: vec![vec![0.0]], j: Some(vec![vec![1.0]]) });
+        let f_at = |t: &[f64]| Some(if t == start { 1.0 } else { 2.0 });
+        assert!(cholesky(&[vec![0.0]]).is_err(), "the premise: H fails its factor");
+        let mut calls = 0u32;
+        let got = newton(start.to_vec(), 10, &point, &f_at, &mut || {
+            calls += 1;
+            Ok::<(), Infallible>(())
+        })
+        .unwrap();
+        assert!(matches!(got, Err(0)), "{got:?}");
+        assert_eq!(calls, 1 + MAX_SOLVES, "one iteration and every solve");
+    }
+
+    /// Decision 823 (N1): both decrements must be small. H = 1e-6, g = 1e-6,
+    /// J = 1: gᵀH⁻¹g = 1e-6 is above DECREMENT_F_TEST while the solve's own,
+    /// gᵀ(J + μD)⁻¹g, is at most 1e-12; F is larger everywhere but the start.
+    /// So no step that moves θ is taken. D here is 1e-6 (H's diagonal), so as μ
+    /// grows the step shrinks until 3 − step rounds to 3 itself, where F equals
+    /// F at the start and the strict test takes it: measured at 365b638, the
+    /// attempt ends at its cap of 10 having never moved, `Err(10)`, not the
+    /// `Err(0)` decision 823 expected. What the test pins is the decision's
+    /// point: θ never leaves the start (with the gᵀH⁻¹g test removed, the first
+    /// solve is taken, to 2.999999).
+    #[test]
+    fn newtons_attempt_relaxes_nothing_where_h_s_decrement_is_large() {
+        use std::cell::RefCell;
+        let start = [3.0f64];
+        let seen: RefCell<Vec<f64>> = RefCell::new(Vec::new());
+        let point = |t: &[f64]| {
+            seen.borrow_mut().push(t[0]);
+            Some(Point { f: 1.0, g: vec![1e-6], h: vec![vec![1e-6]], j: Some(vec![vec![1.0]]) })
+        };
+        let f_at = |t: &[f64]| Some(if t == start { 1.0 } else { 2.0 });
+        let h_decrement = 1e-6 * 1e-6 / 1e-6;
+        assert!(h_decrement > DECREMENT_F_TEST, "the premise: {h_decrement:e}");
+        assert!(1e-6 * 1e-6 / 1.0 <= DECREMENT_F_TEST, "the premise: the solve's decrement at μ = 0");
+        assert!(cholesky(&[vec![1e-6]]).is_ok(), "the premise: H passes its factor, so (c) is not (b)");
+        let got = newton(start.to_vec(), 10, &point, &f_at, &mut || Ok::<(), Infallible>(())).unwrap();
+        let seen = seen.into_inner();
+        assert!(seen.iter().all(|t| *t == start[0]), "θ left the start: {seen:?}");
+        assert!(matches!(got, Err(10)), "{got:?}");
     }
 
     /// AMOS's Example 6, Model B: its 120 "Critical Ratios for Differences

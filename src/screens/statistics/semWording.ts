@@ -84,6 +84,9 @@ type Words = (d: Coded, names: SemNames) => string;
 
 /** The CFA's sentence for a code whose suffix it shares. */
 const asCfa = (suffix: string): Words => (d, n) => CFA_WORDS[`stats.cfa.${suffix}`](d, n);
+/** The CFA's sentence with its last words, "Choose the factors again.", made this method's, "Build
+ *  the model again." (9C-5b, decision 823's N8). */
+const rebuilt = (suffix: string): Words => (d, n) => asCfa(suffix)(d, n).replace(/ Choose the factors again\.$/, ' Build the model again.');
 const fromRelated = (code: string): Words => RELATED_RANKS_WORDS[code] as unknown as Words;
 /** The registry's sentence for one of the method's limits (capabilityWording.ts). */
 const asLimit = (limit: string): Words => () => (CAPABILITY_WORDS as Record<string, string>)[`stats.capability.limit.analyze.${limit}`];
@@ -172,8 +175,9 @@ export const SEM_WORDS: Record<string, Words> = {
   'stats.sem.missing_codes_out_of_order': asCfa('missing_codes_out_of_order'),
   'stats.sem.too_many_factors': asCfa('too_many_factors'),
   'stats.sem.factor_too_few_items': asCfa('factor_too_few_items'),
-  'stats.sem.items_out_of_order': asCfa('items_out_of_order'),
-  'stats.sem.factors_out_of_order': asCfa('factors_out_of_order'),
+  // The CFA's, ending as this method's own never-written sentences end (9C-5b, decision 823's N8).
+  'stats.sem.items_out_of_order': rebuilt('items_out_of_order'),
+  'stats.sem.factors_out_of_order': rebuilt('factors_out_of_order'),
   'stats.sem.item_repeated': asCfa('item_repeated'),
   'stats.sem.unknown_column': asCfa('unknown_column'),
   'stats.sem.column_non_finite': asCfa('column_non_finite'),
@@ -291,6 +295,10 @@ export const SM_EQUAL_HEADING = 'Parameters held equal';
 export const semFactorHeading = (n: number): string => `Factor ${n}`;
 export const SM_FIXED_MARK = '(loading fixed at 1)';
 export const semGroupHeading = (n: number): string => `Group ${n}`;
+/** 9C-5b (decision 823's N7): the accessible names of a covariance row's two selects and a group's
+ *  kind select, by number only, never a column's name. */
+export const semCovarianceEndLabel = (i: number, end: 'first' | 'second'): string => `Covariance ${i}, ${end} end`;
+export const semGroupKindLabel = (n: number): string => `Group ${n}, kind`;
 export const SM_FROM = 'From';
 export const SM_TO = 'To';
 export const SM_CHOOSE = 'Choose a variable';
@@ -332,6 +340,12 @@ export const semAloneUnused = (column: string): string =>
 export const SM_MISSING = {
   empty: 'Add a factor, a path or a covariance.',
   columns: `Put at least ${MIN_COLUMNS} columns in the model.`,
+  // 9C-5b (decision 823's N4): a model past a cap, which the screen never builds; said after the
+  // column count's line, so a helper given such a model says what to do.
+  tooManyColumns: (count: number): string =>
+    `The model has ${count} columns, more than the ${MAX_COLUMNS} Gaply fits. Choose "Not in the model" for ${count - MAX_COLUMNS} of them.`,
+  tooManyFactors: (count: number): string =>
+    `The model has ${count} factors, more than the ${MAX_FACTORS} Gaply fits. Move every column of ${count - MAX_FACTORS} of them to another factor or out of the model.`,
   factorShort: (n: number): string => `Factor ${n} has 1 column; each factor needs at least ${MIN_FACTOR_ITEMS}.`,
   alone: (column: string): string => `${column} is on its own with no path or covariance. Add one, or choose "Not in the model" for it.`,
   pathEnds: (i: number): string => `Choose both ends of path ${i}.`,

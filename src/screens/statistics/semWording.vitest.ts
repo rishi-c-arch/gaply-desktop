@@ -85,6 +85,8 @@ function everySentence(): string[] {
   out.push(words.semFactorOption(3), words.semFactorHeading(3), words.semGroupHeading(3), words.semErrorName('"q"'), words.semWeightRow('"a"', 'Factor 1'), words.semCovarianceRow('"a"', '"b"'));
   out.push(words.SM_MISSING.factorShort(2), words.SM_MISSING.alone('"q"'), words.SM_MISSING.pathEnds(1), words.SM_MISSING.pathItself(1), words.SM_MISSING.pathRepeats(2, 1));
   out.push(words.SM_MISSING.covarianceEnds(1), words.SM_MISSING.covarianceItself(1), words.SM_MISSING.covarianceRepeats(2, 1), words.SM_MISSING.groupShort(1), words.SM_CAPS.exogenous(276));
+  // 9C-5b (decision 823's N4 and N7).
+  out.push(words.SM_MISSING.tooManyColumns(129), words.SM_MISSING.tooManyFactors(17), words.semCovarianceEndLabel(1, 'first'), words.semCovarianceEndLabel(1, 'second'), words.semGroupKindLabel(2));
   out.push(words.semMissingCodeQuestion(-99, [{ header: 'a', cells: 2 }]));
   out.push(
     SEM_DIALOG_TITLE,
@@ -141,11 +143,11 @@ describe('the structural equation model screen words every code it can show', ()
     expect(words.semSentence({ code: 'run.wrong_kind' })).toBe('This run is not a structural equation model, so this screen cannot read it.');
   });
 
-  it("takes the CFA's sentence for each code the CFA also has, but the three reworded for this method", () => {
+  it("takes the CFA's sentence for each code the CFA also has, but the three reworded for this method and the two order sentences' endings", () => {
     const reworded = ['capability_version_mismatch', 'input_count', 'too_few_rows'];
     const shared = [
       'unknown_capability', 'input_mismatch', 'preparation_mismatch', 'missing_code_not_finite', 'missing_code_repeated', 'missing_codes_out_of_order',
-      'too_many_factors', 'factor_too_few_items', 'items_out_of_order', 'factors_out_of_order', 'item_repeated', 'unknown_column', 'column_non_finite',
+      'too_many_factors', 'factor_too_few_items', 'item_repeated', 'unknown_column', 'column_non_finite',
       'column_holds_text', 'code_equals_score', 'no_complete_rows', 'suspect_missing_code', 'missing_value', 'missing_code', 'sample_covariance_singular', 'overflow', 'no_weights',
     ];
     for (const s of shared) {
@@ -158,6 +160,16 @@ describe('the structural equation model screen words every code it can show', ()
       const mine = say(s, { ...NUMBERS });
       expect(mine).toContain('structural equation model');
       expect(mine).not.toContain('confirmatory factor analysis');
+    }
+    // 9C-5b (decision 823's N8; the review of 365b638, finding 9): the CFA's two order sentences
+    // end "Choose the factors again."; this method's end as its own never-written sentences do.
+    for (const s of ['items_out_of_order', 'factors_out_of_order']) {
+      const d = { code: `stats.sem.${s}`, params: { ...NUMBERS } };
+      const mine = words.semSentence(d, NAMES);
+      const cfa = cfaSentence({ ...d, code: `stats.cfa.${s}` }, NAMES);
+      expect(mine, s).toMatch(/ Build the model again\.$/);
+      expect(mine, s).not.toBe(cfa);
+      expect(mine.replace(/ Build the model again\.$/, ''), s).toBe(cfa.replace(/ Choose the factors again\.$/, ''));
     }
     expect(say('df_zero')).toBe(cfaSentence({ code: 'stats.cfa.df_zero' }));
     for (const s of ['fixed_parameter', 'df_zero', 'cmin_zero', 'independence_cmin_zero', 'too_few_rows_for_bcc', 'negative_variance', 'too_small', 'overflow', 'distribution_out_of_range']) {

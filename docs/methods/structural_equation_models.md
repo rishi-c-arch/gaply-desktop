@@ -133,6 +133,18 @@ before it ended without a solution (decision 798):
    largest; μ grows from 0 to 1e-4 and then tenfold while the solve fails, F is undefined or F
    rises, up to 60 solves a step, and falls tenfold (to 0 at or below 1e-4) after an accepted
    step. `newtons_attempt_refuses_a_saddle_and_accepts_a_minimum` drives the loop on x² − y² at the origin.
+   A rise in F is accepted in one case only, near a minimum where F's rounding exceeds what a
+   step can lower it by: H passes Cholesky with gᵀH⁻¹g ≤ 1e-10, Fisher scoring's own test
+   (decision 812), **and** the solve's own decrement gᵀ(J + μD)⁻¹g, the computed step dotted with
+   g, is at most 1e-10 too (decision 823). The second condition is what bounds the step: the step
+   solves J + μD, not H, so a small gᵀH⁻¹g alone says nothing about its size, and on a function
+   with H = 1 and J = 1e-6 it once allowed a step from t = 10 to 0 that raised F from 5e-5 to
+   6.25e5 (the review of 365b638). With both, every relaxed step has δᵀ(J + μD)δ ≤ 1e-10, and
+   δᵀJδ ≤ 1e-10 wherever J is positive semidefinite. `newtons_relaxed_step_is_bounded_by_its_own_solves_decrement`,
+   `newtons_attempt_relaxes_nothing_where_h_fails_its_factor` and
+   `newtons_attempt_relaxes_nothing_where_h_s_decrement_is_large` pin the rule; on 9C-4's 338
+   models, 9C-2's 500 and the 200 seeds of id384's shape the bound changed no outcome and no
+   value (9C-5b's hunt rerun, byte-identical to 365b638's).
 3. Fisher scoring from the triad starts: each factor of three or more columns given CFA's triad
    φ₀ (decision 761) and its loadings from it; made only when these differ from attempt 1's.
 

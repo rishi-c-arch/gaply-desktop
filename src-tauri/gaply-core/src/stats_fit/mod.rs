@@ -184,6 +184,9 @@ fn unless_df_zero(d: u64, v: impl FnOnce() -> FitValue) -> FitValue {
 pub(crate) fn fit_measures<E>(input: &FitInput<'_>, at: &mut impl FnMut(FitPoint) -> Result<(), E>) -> Result<FitRows, E> {
     let FitInput { s, log_det_s, sigma, sigma_inverse, f, q, d, big_n, n } = *input;
     let p = s.len();
+    // Decision 823 (the review of 365b638, finding 8): q and d arrive apart, so
+    // a caller that took d from anything but model_df is caught in debug builds.
+    debug_assert_eq!(model_df(p, q), Ok(d), "FitInput's d is not model_df(p, q)");
     let moments = (p * (p + 1) / 2) as u64;
     // Decision 745 clamps a minimum below 0 to 0 at every d. At d = 0 a model
     // with as many parameters as moments that has converged reproduces S, so
@@ -399,5 +402,19 @@ mod tests {
         // p = 1: one moment; q far above it.
         assert_eq!(model_df(1, u64::MAX), Err(u64::MAX - 1));
         assert_eq!(model_df(128, 0), Ok(8256));
+    }
+
+    /// Decision 823 (N2; the review of 365b638, finding 8): FitInput carries
+    /// q and d apart, so fit_measures asserts, in debug builds, that d is
+    /// model_df(p, q) with p = s.len(). Two columns are 3 moments; q = 2 makes
+    /// d 1, and this input says 0.
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "FitInput's d is not model_df(p, q)")]
+    fn fit_measures_refuses_an_input_whose_d_disagrees_with_its_q() {
+        let identity = vec![vec![1.0, 0.0], vec![0.0, 1.0]];
+        assert_eq!(model_df(2, 2), Ok(1), "the premise");
+        let input = FitInput { s: &identity, log_det_s: 0.0, sigma: &identity, sigma_inverse: &identity, f: 0.0, q: 2, d: 0, big_n: 100.0, n: 99.0 };
+        let _ = fit_measures(&input, &mut |_| Ok::<(), std::convert::Infallible>(()));
     }
 }

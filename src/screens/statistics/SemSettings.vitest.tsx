@@ -3,87 +3,21 @@
 // numbered by their first column; paths, covariances and groups held equal, each row holding its
 // ends by id or alias; the five resolutions; the caps; the codes; readiness in decision 814's
 // order; the label never outside text; and the spec, checked by a TypeScript copy of Rust's
-// check_spec (stats_sem/mod.rs:1223-1400), itself checked against sem_cases.rs's order case.
+// check_spec (stats_sem/mod.rs:1223-1400), itself checked against sem_cases.rs's order case. The
+// copy is semSpecRules.ts, which the seeded fuzz files share (9C-5b, decision 823's N9).
 import React from 'react';
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import type { ColumnProfile, DatasetView } from './describeTypes';
-import type { SemParameter, SemParams, SemVariable } from './semTypes';
-import { SemSettings, buildSemSpec, compareParameters, compareVariables, useSemSettings, type SemSettingsState } from './SemSettings';
+import type { SemParams } from './semTypes';
+import { SemSettings, buildSemSpec, semStillMissing, useSemSettings, type SemModel, type SemSettingsState } from './SemSettings';
 import SEM_LIMITS from './fixtures/semLimits.json';
 import { SM_CAPS, SM_MISSING } from './semWording';
 import { datasetViewPrepared } from './fixtures/describeFixtures';
+import { checkSemSpec } from './semSpecRules';
 
 afterEach(cleanup);
-
-/* ---- a TypeScript copy of Rust's check_spec, in its order --------------------- */
-
-type V = SemVariable;
-const vEq = (x: V, y: V) => compareVariables(x, y) === 0;
-const pEq = (x: SemParameter, y: SemParameter) => compareParameters(x, y) === 0;
-const num = (a: string) => Number(a.slice(1));
-/** stats_sem::check_spec's codes, in its order (stats_sem/mod.rs:1223-1400), with the columns'
- *  count (:1420-1438). Each family reports every error it finds. */
-function checkSemSpec(p: SemParams): string[] {
-  const out: string[] = [];
-  const k = p.indicators.length;
-  if (k === 0 && p.paths.length === 0 && p.covariances.length === 0) out.push('empty_model');
-  if (k > SEM_LIMITS.maxFactors) out.push('too_many_factors');
-  p.indicators.forEach((f) => f.length < SEM_LIMITS.minFactorItems && out.push('factor_too_few_items'));
-  for (const f of p.indicators) for (let i = 1; i < f.length; i++) if (num(f[i - 1]) > num(f[i])) out.push('items_out_of_order');
-  for (let i = 1; i < k; i++) if (p.indicators[i - 1][0] !== undefined && p.indicators[i][0] !== undefined && num(p.indicators[i - 1][0]) > num(p.indicators[i][0])) out.push('factors_out_of_order');
-  const seen = new Set<string>();
-  for (const a of p.indicators.flat()) if (seen.has(a) || !seen.add(a)) out.push('item_repeated');
-  const indicator = new Set(p.indicators.flat());
-  const known = (v: V) => ('factor' in v ? v.factor >= 1 && v.factor <= k : true);
-  if (p.paths.length > SEM_LIMITS.maxPaths) out.push('too_many_paths');
-  p.paths.forEach((x, i) => {
-    if (!known(x.to) || !known(x.from)) out.push('unknown_factor');
-    if (vEq(x.to, x.from)) out.push('path_to_itself');
-    for (const e of [x.to, x.from]) if ('column' in e && indicator.has(e.column)) out.push('indicator_in_path');
-    const before = p.paths[i - 1];
-    if (i > 0 && (compareVariables(before.to, x.to) || compareVariables(before.from, x.from)) > 0) out.push('paths_out_of_order');
-    if (p.paths.slice(0, i).some((y) => vEq(y.to, x.to) && vEq(y.from, x.from))) out.push('path_repeated');
-  });
-  if (p.covariances.length > SEM_LIMITS.maxCovariances) out.push('too_many_covariances');
-  p.covariances.forEach((c, i) => {
-    if (!known(c.a) || !known(c.b)) out.push('unknown_factor');
-    if (vEq(c.a, c.b)) out.push('covariance_with_itself');
-    const before = p.covariances[i - 1];
-    if (compareVariables(c.a, c.b) > 0 || (i > 0 && (compareVariables(before.a, c.a) || compareVariables(before.b, c.b)) > 0)) out.push('covariances_out_of_order');
-    if (p.covariances.slice(0, i).some((y) => vEq(y.a, c.a) && vEq(y.b, c.b))) out.push('covariance_repeated');
-  });
-  if (p.equal.reduce((n, g) => n + g.length, 0) > SEM_LIMITS.maxEqualMembers) out.push('too_many_equal_members');
-  const columns = new Set([...Array.from(indicator), ...[...p.paths.flatMap((x) => [x.to, x.from]), ...p.covariances.flatMap((x) => [x.a, x.b])].flatMap((v) => ('column' in v ? [v.column] : []))]);
-  const hasVariable = (v: V) => ('factor' in v ? v.factor >= 1 && v.factor <= k : columns.has(v.column));
-  const kind = (m: SemParameter) => ('loading' in m ? 0 : 'path' in m ? 1 : 'covariance' in m ? 2 : 3);
-  const held: SemParameter[] = [];
-  p.equal.forEach((g, gi) => {
-    if (g.length < 2) out.push('equal_group_too_small');
-    if (g.some((m, i) => i > 0 && kind(g[i - 1]) !== kind(m))) out.push('equal_mixed_kinds');
-    for (const m of g) {
-      if ('loading' in m) {
-        const f = m.loading.factor >= 1 && m.loading.factor <= k ? p.indicators[m.loading.factor - 1] : null;
-        if (f && f[0] === m.loading.column) out.push('equal_fixed_parameter');
-        else if (!(f && f.includes(m.loading.column))) out.push('equal_unknown_parameter');
-      } else if ('path' in m) {
-        if (!p.paths.some((x) => vEq(x.to, m.path.to) && vEq(x.from, m.path.from))) out.push('equal_unknown_parameter');
-      } else if ('covariance' in m) {
-        if (!p.covariances.some((x) => vEq(x.a, m.covariance.a) && vEq(x.b, m.covariance.b))) out.push('equal_unknown_parameter');
-      } else if (!hasVariable(m.variance.variable)) out.push('equal_unknown_parameter');
-    }
-    if (gi > 0 && p.equal[gi - 1][0] && g[0] && compareParameters(p.equal[gi - 1][0], g[0]) > 0) out.push('equal_out_of_order');
-    g.forEach((m, i) => i > 0 && compareParameters(g[i - 1], m) > 0 && out.push('equal_out_of_order'));
-    for (const m of g) {
-      if (held.some((h) => pEq(h, m))) out.push('equal_repeated');
-      else held.push(m);
-    }
-  });
-  if (columns.size < SEM_LIMITS.minColumns) out.push('too_few_columns');
-  else if (columns.size > SEM_LIMITS.maxColumns) out.push('too_many_columns');
-  return out;
-}
 
 const col = (alias: string, header: string, over: Partial<ColumnProfile> = {}): ColumnProfile => ({
   alias,
@@ -556,23 +490,44 @@ describe('the groups held equal', () => {
     expect(members(paths).map((m) => m.label)).toEqual(['"q5" ← "q4"']);
   });
 
+  // Rebuilt by 9C-5b (decision 823's N4): it assigned 130 columns in one act, past maxColumns, so
+  // with assign's guard its unticked boxes would be none and its check would pass on nothing. Now
+  // 128 columns on their own, their variances in one group, and one complete covariance row in a
+  // second group: 129 parameters, so at maxEqualMembers ticks the one left is disabled, and the
+  // 129th tick through the settings' handle is refused (N5).
   it('disables every unticked box while the groups hold the most members, with its sentence', () => {
-    render(<Harness v={wide(SEM_LIMITS.maxEqualMembers + 2)} />);
+    const n = SEM_LIMITS.maxColumns;
+    expect(SEM_LIMITS.maxEqualMembers, 'the premise: 128 variances fill the groups').toBe(n);
+    render(<Harness v={wide(n)} />);
     act(() => {
-      for (let i = 1; i <= SEM_LIMITS.maxEqualMembers + 2; i++) s().assign(`C${i}`, 'own');
+      for (let i = 1; i <= n; i++) s().assign(`C${i}`, 'own');
     });
+    expect(s().columns).toHaveLength(n);
+    addCov('"x1"', '"x2"');
+    const newest = () => s().groups.reduce((a, b) => (a.id > b.id ? a : b)).id;
     act(() => s().addGroup());
-    const g = s().groups[0].id;
-    act(() => s().setGroupKind(g, 'variance'));
-    const keys = s().groups[0].offered.map((p) => p.key);
+    const gv = newest();
+    act(() => s().setGroupKind(gv, 'variance'));
+    act(() => s().addGroup());
+    const gc = newest();
+    act(() => s().setGroupKind(gc, 'covariance'));
+    const group = (id: number) => s().groups.find((x) => x.id === id) as SemSettingsState['groups'][number];
+    const keys = group(gv).offered.map((p) => p.key);
+    expect(keys).toHaveLength(n);
+    expect(group(gc).offered).toHaveLength(1);
     act(() => {
-      for (const k of keys.slice(0, SEM_LIMITS.maxEqualMembers)) s().tick(g, k, true);
+      for (const k of keys) s().tick(gv, k, true);
     });
-    expect(s().groups[0].ticked).toHaveLength(SEM_LIMITS.maxEqualMembers);
+    expect(group(gv).ticked).toHaveLength(SEM_LIMITS.maxEqualMembers);
     expect(byId('sm-equal-at-cap').textContent).toBe(SM_CAPS.equal);
-    const boxes = members(g);
-    expect(boxes.filter((b) => !b.ticked).every((b) => b.disabled)).toBe(true);
-    expect(boxes.filter((b) => b.ticked).every((b) => !b.disabled)).toBe(true);
+    const left = members(gc);
+    expect(left).toHaveLength(1);
+    expect(left[0].ticked).toBe(false);
+    expect(left[0].disabled).toBe(true);
+    expect(members(gv).every((b) => b.ticked && !b.disabled)).toBe(true);
+    // N5: the 129th tick through the settings' handle is refused (SemSettings.tsx's tick cap).
+    act(() => s().tick(gc, group(gc).offered[0].key, true));
+    expect(group(gc).ticked).toEqual([]);
   });
 
   it('numbers the groups by their first parameter in Rust\'s order, whatever order they were made in', () => {
@@ -730,5 +685,126 @@ describe("a column's label", () => {
     for (const el of Array.from(container.querySelectorAll('*'))) {
       for (const attr of Array.from(el.attributes)) expect(attr.value, attr.name).not.toContain(sentinel);
     }
+  });
+});
+
+describe("the review of 365b638's findings in the editor (9C-5b, decision 823)", () => {
+  it('N3: "Add every pair of exogenous variables" called twice in one act adds each pair once', () => {
+    render(<Harness />);
+    for (const a of ['C5', 'C6', 'C7']) put(a, 'On its own');
+    expect(s().exogenousToAdd).toBe(3);
+    act(() => {
+      s().addExogenousPairs();
+      s().addExogenousPairs();
+    });
+    expect(s().covariances).toHaveLength(3);
+    expect(s().covariances.every((c) => c.complete && c.repeats === null)).toBe(true);
+  });
+
+  it('N4: assign refuses a column that would pass the most columns, the model unchanged', () => {
+    const n = SEM_LIMITS.maxColumns;
+    render(<Harness v={wide(n + 1)} />);
+    put('C1', 'A new factor');
+    act(() => {
+      for (let i = 2; i <= n; i++) s().assign(`C${i}`, i === 2 ? s().factors[0].id : 'own');
+    });
+    expect(s().columns).toHaveLength(n);
+    const factor = s().factors[0].id;
+    const before = JSON.stringify(s().spec(1));
+    for (const t of ['own', 'new', factor] as const) {
+      act(() => s().assign(`C${n + 1}`, t));
+      expect(s().placeOf(`C${n + 1}`), String(t)).toBe('none');
+    }
+    expect(s().columns).toHaveLength(n);
+    expect(JSON.stringify(s().spec(1))).toBe(before);
+  });
+
+  it('N4: assign refuses a choice that would pass the most factors, the model unchanged', () => {
+    const k = SEM_LIMITS.maxFactors;
+    render(<Harness v={wide(k + 2)} />);
+    act(() => {
+      for (let i = 1; i <= k; i++) s().assign(`C${i}`, 'new');
+    });
+    expect(s().factors).toHaveLength(k);
+    act(() => s().assign(`C${k + 1}`, 'new'));
+    expect(s().placeOf(`C${k + 1}`)).toBe('none');
+    // A column already in a factor of two, moved to a new factor: refused, it stays.
+    const first = s().factors[0].id;
+    act(() => s().assign(`C${k + 2}`, first));
+    act(() => s().assign(`C${k + 2}`, 'new'));
+    expect(s().placeOf(`C${k + 2}`)).toBe(first);
+    expect(s().factors).toHaveLength(k);
+  });
+
+  it("N4: readiness, as a pure helper of the model and the view, says what passes each cap", () => {
+    const n = SEM_LIMITS.maxColumns;
+    // count columns on their own and, past 1, the path C1 → C2, so the model is not empty.
+    const own = (count: number): SemModel => ({
+      assigned: Object.fromEntries(Array.from({ length: count }, (_, i) => [`C${i + 1}`, 'own' as const])),
+      paths: count > 1 ? [{ id: 1, first: { column: 'C1' }, second: { column: 'C2' } }] : [],
+      covariances: [],
+      groups: [],
+      next: 2,
+    });
+    expect(semStillMissing(own(n + 1), wide(n + 1))).toBe(SM_MISSING.tooManyColumns(n + 1));
+    expect(SM_MISSING.tooManyColumns(n + 1)).toBe(`The model has ${n + 1} columns, more than the ${n} Gaply fits. Choose "Not in the model" for 1 of them.`);
+    expect(SM_MISSING.tooManyColumns(n + 3)).toBe(`The model has ${n + 3} columns, more than the ${n} Gaply fits. Choose "Not in the model" for 3 of them.`);
+    const k = SEM_LIMITS.maxFactors;
+    const factors: SemModel = { ...own(0), assigned: Object.fromEntries(Array.from({ length: 2 * (k + 1) }, (_, i) => [`C${i + 1}`, Math.floor(i / 2) + 1])), next: k + 2 };
+    expect(semStillMissing(factors, wide(2 * (k + 1)))).toBe(SM_MISSING.tooManyFactors(k + 1));
+    expect(SM_MISSING.tooManyFactors(k + 1)).toBe(`The model has ${k + 1} factors, more than the ${k} Gaply fits. Move every column of 1 of them to another factor or out of the model.`);
+    // Within the caps the helper agrees with the screen's sentence.
+    expect(semStillMissing(own(0), wide(3))).toBe(SM_MISSING.empty);
+    expect(semStillMissing(own(n), wide(n))).toBe(SM_MISSING.alone('"x3"'));
+    expect(semStillMissing(own(2), wide(2))).toBeNull();
+  });
+
+  it('N5: "Add every pair of exogenous variables" is enabled at exactly the most covariances, and disabled one row past', () => {
+    render(<Harness v={wide(23)} />);
+    act(() => {
+      for (let i = 1; i <= 23; i++) s().assign(`C${i}`, 'own');
+    });
+    act(() => {
+      for (let i = 0; i < 3; i++) s().addCovariance();
+    });
+    // 23 exogenous variables: 253 pairs, and three rows left at "Choose a variable": 256.
+    expect([s().exogenousToAdd, s().exogenousTotal]).toEqual([253, SEM_LIMITS.maxCovariances]);
+    expect((byId('sm-cov-exogenous') as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.queryByTestId('sm-cov-exogenous-cap')).toBeNull();
+    act(() => s().addCovariance());
+    expect((byId('sm-cov-exogenous') as HTMLButtonElement).disabled).toBe(true);
+    expect(byId('sm-cov-exogenous-cap').textContent).toBe(SM_CAPS.exogenous(SEM_LIMITS.maxCovariances + 1));
+  });
+
+  it('N5: a group with members is numbered before an empty one made earlier', () => {
+    render(<Harness />);
+    for (const a of ['C5', 'C6']) put(a, 'On its own');
+    const empty = addGroup('Variances');
+    const full = addGroup('Variances');
+    tickLabel(full, '"q4"');
+    tickLabel(full, '"q5"');
+    expect(within(byId(`sm-group-${full}`)).getByText('Group 1')).toBeTruthy();
+    expect(within(byId(`sm-group-${empty}`)).getByText('Group 2')).toBeTruthy();
+  });
+
+  it('N5: a path joining a variable to itself is never offered in a Paths group', () => {
+    render(<Harness />);
+    for (const a of ['C5', 'C6']) put(a, 'On its own');
+    addPath('"q4"', '"q4"');
+    addPath('"q4"', '"q5"');
+    const g = addGroup('Paths');
+    expect(members(g).map((m) => m.label)).toEqual(['"q5" ← "q4"']);
+  });
+
+  it("N7: a covariance row's two selects and a group's kind select have accessible names, with no column name in them", () => {
+    render(<Harness />);
+    for (const a of ['C5', 'C6']) put(a, 'On its own');
+    addCov('"q4"', '"q5"');
+    const c = addCov('"q5"', '');
+    const g = addGroup('Variances');
+    expect(screen.getByRole('combobox', { name: 'Covariance 2, first end' })).toBe(byId(`sm-cov-a-${c}`));
+    expect(screen.getByRole('combobox', { name: 'Covariance 2, second end' })).toBe(byId(`sm-cov-b-${c}`));
+    expect(screen.getByRole('combobox', { name: 'Covariance 1, first end' })).toBeTruthy();
+    expect(screen.getByRole('combobox', { name: 'Group 1, kind' })).toBe(byId(`sm-group-kind-${g}`));
   });
 });

@@ -71,7 +71,9 @@ import {
   semFactorHeading,
   semFactorOption,
   semFactorTooFew,
+  semCovarianceEndLabel,
   semGroupHeading,
+  semGroupKindLabel,
   semGroupShort,
   semMissingCodeQuestion,
   semWeightRow,
@@ -173,6 +175,8 @@ interface Model {
 }
 
 const EMPTY: Model = { assigned: {}, paths: [], covariances: [], groups: [], next: 1 };
+/** The editor's model, as semStillMissing reads it (9C-5b, decision 823's N4). */
+export type SemModel = Model;
 
 /** A factor as drawn: its stable id, its number (from 1, by its first column in the file) and
  *  its columns in the file's order. */
@@ -330,6 +334,92 @@ function normalize(model: Model, shown: string[]): Model {
   return m;
 }
 
+/** Each row's state: complete, joining a variable to itself, or repeating an earlier row (its
+ *  number from 1). */
+function rowsState(rows: Row[], kind: 'path' | 'covariance', factors: DrawnFactor[], model: Model) {
+  const done: string[] = [];
+  return rows.map((r) => {
+    const x = variableOf(r.first, factors, model);
+    const y = variableOf(r.second, factors, model);
+    const complete = x !== null && y !== null;
+    const itself = complete && sameVariable(x as SemVariable, y as SemVariable);
+    const key = kind === 'path' ? `${endKey(r.second)}<${endKey(r.first)}` : [endKey(r.first), endKey(r.second)].sort().join('~');
+    const earlier = complete && !itself ? done.indexOf(key) : -1;
+    done.push(complete && !itself ? key : `#${r.id}`);
+    return { r, complete, itself, repeats: earlier >= 0 ? earlier + 1 : null };
+  });
+}
+
+/** Decision 814: groups numbered by their first parameter in Rust's order; a group with none
+ *  after every group that has one, in the order made. */
+function numberedGroups(model: Model, factors: DrawnFactor[], shown: string[]): Group[] {
+  const byKey = new Map(offeredParameters(model, factors, shown, () => '').map((p) => [p.key, p]));
+  const firstOf = (g: Group) => g.members.map((k) => byKey.get(k)?.parameter).filter((p): p is SemParameter => p !== undefined).sort(compareParameters)[0];
+  return [...model.groups].sort((x, y) => {
+    const a = firstOf(x);
+    const b = firstOf(y);
+    if (a && b) return compareParameters(a, b);
+    if (a) return -1;
+    if (b) return 1;
+    return x.id - y.id;
+  });
+}
+
+/** The pairs "Add every pair of exogenous variables" adds to this model, in the model's order:
+ *  each pair of factors and columns on their own with no path into them, not yet listed. A pure
+ *  function of the model, so the edit computes them from the model it edits, never from the last
+ *  render (9C-5b, decision 823's N3). */
+function exogenousPairs(model: Model, shown: string[]): Array<[string, string]> {
+  const keys = [...drawFactors(model, shown).map((f) => `f${f.id}`), ...shown.filter((a) => model.assigned[a] === 'own')];
+  const exogenous = keys.filter((k) => !endogenous(endOf(k), model));
+  const listed = new Set(model.covariances.filter((r) => r.first !== null && r.second !== null).map((r) => [endKey(r.first), endKey(r.second)].sort().join('~')));
+  const pairs: Array<[string, string]> = [];
+  for (let i = 0; i < exogenous.length; i++) {
+    for (let j = i + 1; j < exogenous.length; j++) {
+      if (!listed.has([exogenous[i], exogenous[j]].sort().join('~'))) pairs.push([exogenous[i], exogenous[j]]);
+    }
+  }
+  return pairs;
+}
+
+/** Readiness (decision 814), a pure function of the model and the view: the first thing missing,
+ *  one sentence, or null when the dialog may run. 9C-5b (decision 823's N4) adds, after the column
+ *  count's line, a line for each cap a model can pass: the screen never builds such a model, and
+ *  this says what to do if one is given. */
+export function semStillMissing(model: SemModel, view: DatasetView | null): string | null {
+  const shown = view ? numeric(view).map((c) => c.alias) : [];
+  const column = columnNames(view);
+  const factors = drawFactors(model, shown);
+  const columns = shown.filter((a) => model.assigned[a] !== undefined);
+  const alone = shown.filter((a) => model.assigned[a] === 'own');
+  const paths = rowsState(model.paths, 'path', factors, model);
+  const covariances = rowsState(model.covariances, 'covariance', factors, model);
+  const used = new Set([...model.paths, ...model.covariances].flatMap((r) => [endKey(r.first), endKey(r.second)]));
+  const unused = alone.filter((a) => !used.has(a));
+  const short = factors.find((f) => f.columns.length < MIN_FACTOR_ITEMS);
+  const shortGroup = numberedGroups(model, factors, shown).findIndex((g) => g.members.length < 2);
+  if (factors.length === 0 && model.paths.length === 0 && model.covariances.length === 0) return SM_MISSING.empty;
+  if (columns.length < MIN_COLUMNS) return SM_MISSING.columns;
+  if (columns.length > MAX_COLUMNS) return SM_MISSING.tooManyColumns(columns.length);
+  if (factors.length > MAX_FACTORS) return SM_MISSING.tooManyFactors(factors.length);
+  if (short) return SM_MISSING.factorShort(short.number);
+  if (unused.length > 0) return SM_MISSING.alone(column(aliasNumber(unused[0])));
+  let i = paths.findIndex((p) => !p.complete);
+  if (i >= 0) return SM_MISSING.pathEnds(i + 1);
+  i = paths.findIndex((p) => p.itself);
+  if (i >= 0) return SM_MISSING.pathItself(i + 1);
+  i = paths.findIndex((p) => p.repeats !== null);
+  if (i >= 0) return SM_MISSING.pathRepeats(i + 1, paths[i].repeats as number);
+  i = covariances.findIndex((c) => !c.complete);
+  if (i >= 0) return SM_MISSING.covarianceEnds(i + 1);
+  i = covariances.findIndex((c) => c.itself);
+  if (i >= 0) return SM_MISSING.covarianceItself(i + 1);
+  i = covariances.findIndex((c) => c.repeats !== null);
+  if (i >= 0) return SM_MISSING.covarianceRepeats(i + 1, covariances[i].repeats as number);
+  if (shortGroup >= 0) return SM_MISSING.groupShort(shortGroup + 1);
+  return null;
+}
+
 /** The user's choices, over the open file's view. */
 export function useSemSettings(view: DatasetView | null): SemSettingsState {
   const [model, setModel] = useState<Model>(EMPTY);
@@ -365,21 +455,8 @@ export function useSemSettings(view: DatasetView | null): SemSettingsState {
     [factors, alone, name]
   );
 
-  const rowsView = (rows: Row[], kind: 'path' | 'covariance') => {
-    const done: string[] = [];
-    return rows.map((r) => {
-      const x = variableOf(r.first, factors, model);
-      const y = variableOf(r.second, factors, model);
-      const complete = x !== null && y !== null;
-      const itself = complete && sameVariable(x as SemVariable, y as SemVariable);
-      const key = kind === 'path' ? `${endKey(r.second)}<${endKey(r.first)}` : [endKey(r.first), endKey(r.second)].sort().join('~');
-      const earlier = complete && !itself ? done.indexOf(key) : -1;
-      done.push(complete && !itself ? key : `#${r.id}`);
-      return { r, complete, itself, repeats: earlier >= 0 ? earlier + 1 : null };
-    });
-  };
-  const pathRows = rowsView(model.paths, 'path');
-  const covarianceRows = rowsView(model.covariances, 'covariance');
+  const pathRows = rowsState(model.paths, 'path', factors, model);
+  const covarianceRows = rowsState(model.covariances, 'covariance', factors, model);
   const paths = pathRows.map(({ r, complete, itself, repeats }) => ({ id: r.id, from: endKey(r.first), to: endKey(r.second), complete, itself, repeats }));
   // A complete row's ends in the model's order, as the card names them (the review of 9C-5, finding 7).
   const inOrder = (r: Row): [End, End] => {
@@ -400,18 +477,8 @@ export function useSemSettings(view: DatasetView | null): SemSettingsState {
   const offeredAll = useMemo(() => offeredParameters(model, factors, shown, name), [model, factors, shown, name]);
   const heldBy: Record<string, number> = {};
   for (const g of model.groups) for (const k of g.members) heldBy[k] = g.id;
-  // Decision 814: groups numbered by their first parameter in Rust's order; a group with none
-  // after every group that has one, in the order made.
   const byKey = new Map(offeredAll.map((p) => [p.key, p]));
-  const firstOf = (g: Group) => g.members.map((k) => byKey.get(k)?.parameter).filter((p): p is SemParameter => p !== undefined).sort(compareParameters)[0];
-  const numbered = [...model.groups].sort((x, y) => {
-    const a = firstOf(x);
-    const b = firstOf(y);
-    if (a && b) return compareParameters(a, b);
-    if (a) return -1;
-    if (b) return 1;
-    return x.id - y.id;
-  });
+  const numbered = numberedGroups(model, factors, shown);
   const groups = numbered.map((g, i) => ({ id: g.id, number: i + 1, kind: g.kind, offered: offeredAll.filter((p) => p.kind === g.kind), ticked: g.members }));
   const memberCount = model.groups.reduce((n, g) => n + g.members.length, 0);
 
@@ -425,41 +492,13 @@ export function useSemSettings(view: DatasetView | null): SemSettingsState {
     });
   }, [offered]);
 
-  // Exogenous variables: factors and columns on their own with no path into them.
-  const exogenous = variables.filter((v) => !endogenous(endOf(v.key), model));
-  const listed = new Set(model.covariances.filter((r) => r.first !== null && r.second !== null).map((r) => [endKey(r.first), endKey(r.second)].sort().join('~')));
-  const pairs: Array<[string, string]> = [];
-  for (let i = 0; i < exogenous.length; i++) {
-    for (let j = i + 1; j < exogenous.length; j++) {
-      const key = [exogenous[i].key, exogenous[j].key].sort().join('~');
-      if (!listed.has(key)) pairs.push([exogenous[i].key, exogenous[j].key]);
-    }
-  }
+  const pairs = exogenousPairs(model, shown);
   const exogenousTotal = model.covariances.length + pairs.length;
 
   const used = new Set([...model.paths, ...model.covariances].flatMap((r) => [endKey(r.first), endKey(r.second)]));
   const unused = alone.filter((a) => !used.has(a));
 
-  const short = factors.find((f) => f.columns.length < MIN_FACTOR_ITEMS);
-  const firstPath = (test: (p: (typeof paths)[number]) => boolean) => paths.findIndex(test);
-  const firstCov = (test: (c: (typeof covariances)[number]) => boolean) => covariances.findIndex(test);
-  const shortGroup = groups.find((g) => g.ticked.length < 2);
-  let stillMissing: string | null = null;
-  if (factors.length === 0 && model.paths.length === 0 && model.covariances.length === 0) stillMissing = SM_MISSING.empty;
-  else if (columns.length < MIN_COLUMNS) stillMissing = SM_MISSING.columns;
-  else if (short) stillMissing = SM_MISSING.factorShort(short.number);
-  else if (unused.length > 0) stillMissing = SM_MISSING.alone(name({ column: unused[0] }));
-  else if (firstPath((p) => !p.complete) >= 0) stillMissing = SM_MISSING.pathEnds(firstPath((p) => !p.complete) + 1);
-  else if (firstPath((p) => p.itself) >= 0) stillMissing = SM_MISSING.pathItself(firstPath((p) => p.itself) + 1);
-  else if (firstPath((p) => p.repeats !== null) >= 0) {
-    const i = firstPath((p) => p.repeats !== null);
-    stillMissing = SM_MISSING.pathRepeats(i + 1, paths[i].repeats as number);
-  } else if (firstCov((c) => !c.complete) >= 0) stillMissing = SM_MISSING.covarianceEnds(firstCov((c) => !c.complete) + 1);
-  else if (firstCov((c) => c.itself) >= 0) stillMissing = SM_MISSING.covarianceItself(firstCov((c) => c.itself) + 1);
-  else if (firstCov((c) => c.repeats !== null) >= 0) {
-    const i = firstCov((c) => c.repeats !== null);
-    stillMissing = SM_MISSING.covarianceRepeats(i + 1, covariances[i].repeats as number);
-  } else if (shortGroup) stillMissing = SM_MISSING.groupShort(shortGroup.number);
+  const stillMissing = semStillMissing(model, view);
 
   const spec = useCallback(
     (operationId: number) => {
@@ -523,12 +562,14 @@ export function useSemSettings(view: DatasetView | null): SemSettingsState {
           delete assigned[alias];
           return { ...m, assigned };
         }
-        if (target === 'new') {
-          assigned[alias] = m.next;
-          return { ...m, assigned, next: m.next + 1 };
-        }
-        assigned[alias] = target;
-        return { ...m, assigned };
+        const next: Model = target === 'new' ? { ...m, assigned: { ...assigned, [alias]: m.next }, next: m.next + 1 } : { ...m, assigned: { ...assigned, [alias]: target } };
+        // 9C-5b (decision 823's N4): a choice that would put the model past the most columns or
+        // the most factors is refused here, from the model it edits, not only hidden from the menu.
+        const count = (x: Model) => shown.filter((a) => x.assigned[a] !== undefined).length;
+        const factorCount = (x: Model) => drawFactors(x, shown).length;
+        if (count(next) > MAX_COLUMNS && count(next) > count(m)) return m;
+        if (factorCount(next) > MAX_FACTORS && factorCount(next) > factorCount(m)) return m;
+        return next;
       }),
     addPath: () =>
       edit((m) => {
@@ -556,9 +597,10 @@ export function useSemSettings(view: DatasetView | null): SemSettingsState {
     removeCovariance: (id) => edit((m) => ({ ...dropMember(m, `C:${id}`), covariances: m.covariances.filter((r) => r.id !== id) })),
     addExogenousPairs: () =>
       edit((m) => {
-        if (pairs.length === 0 || m.covariances.length + pairs.length > MAX_COVARIANCES) return m;
+        const add = exogenousPairs(m, shown);
+        if (add.length === 0 || m.covariances.length + add.length > MAX_COVARIANCES) return m;
         let next = m.next;
-        const rows = pairs.map(([a, b]) => ({ id: next++, first: endOf(a), second: endOf(b) }));
+        const rows = add.map(([a, b]) => ({ id: next++, first: endOf(a), second: endOf(b) }));
         return { ...m, next, covariances: [...m.covariances, ...rows] };
       }),
     addGroup: () => edit((m) => ({ ...m, next: m.next + 1, groups: [...m.groups, { id: m.next, kind: 'loading', members: [] }] })),
@@ -583,15 +625,16 @@ const targetOf = (v: string): SemTarget => (v === 'none' ? 'none' : v === 'own' 
 
 /** A row's end's select: "Choose a variable" and the variables offered; a path's ends are
  *  labelled "From" and "To", a covariance's are not. */
-const EndSelect: React.FC<{ value: string; options: Array<{ key: string; name: string }>; testId: string; label?: string; onChange: (key: string) => void }> = ({
+const EndSelect: React.FC<{ value: string; options: Array<{ key: string; name: string }>; testId: string; label?: string; ariaLabel?: string; onChange: (key: string) => void }> = ({
   value,
   options,
   testId,
   label,
+  ariaLabel,
   onChange,
 }) => {
   const select = (
-    <select value={value} data-testid={testId} onChange={(e) => onChange(e.target.value)}>
+    <select value={value} aria-label={ariaLabel} data-testid={testId} onChange={(e) => onChange(e.target.value)}>
       <option value="">{SM_CHOOSE}</option>
       {options.map((o) => (
         <option key={o.key} value={o.key}>
@@ -737,8 +780,8 @@ export const SemSettings: React.FC<{ view: DatasetView; settings: SemSettingsSta
             )}
             {s.covariances.map((c, i) => (
               <div key={c.id} data-testid={`sm-cov-${c.id}`}>
-                <EndSelect value={c.a} options={covarianceOptions} testId={`sm-cov-a-${c.id}`} onChange={(k) => s.setCovarianceEnd(c.id, 'a', k)} /> ↔{' '}
-                <EndSelect value={c.b} options={covarianceOptions} testId={`sm-cov-b-${c.id}`} onChange={(k) => s.setCovarianceEnd(c.id, 'b', k)} />{' '}
+                <EndSelect value={c.a} options={covarianceOptions} testId={`sm-cov-a-${c.id}`} ariaLabel={semCovarianceEndLabel(i + 1, 'first')} onChange={(k) => s.setCovarianceEnd(c.id, 'a', k)} /> ↔{' '}
+                <EndSelect value={c.b} options={covarianceOptions} testId={`sm-cov-b-${c.id}`} ariaLabel={semCovarianceEndLabel(i + 1, 'second')} onChange={(k) => s.setCovarianceEnd(c.id, 'b', k)} />{' '}
                 <Button variant="ghost" aria-label={`${ALPHA_REMOVE_ITEM} covariance ${i + 1}`} onClick={() => s.removeCovariance(c.id)} data-testid={`sm-cov-remove-${c.id}`}>
                   {ALPHA_REMOVE_ITEM}
                 </Button>
@@ -792,7 +835,7 @@ export const SemSettings: React.FC<{ view: DatasetView; settings: SemSettingsSta
             {s.groups.map((g) => (
               <fieldset key={g.id} data-testid={`sm-group-${g.id}`}>
                 <legend>{semGroupHeading(g.number)}</legend>
-                <select value={g.kind} data-testid={`sm-group-kind-${g.id}`} onChange={(e) => s.setGroupKind(g.id, e.target.value as SemKind)}>
+                <select value={g.kind} aria-label={semGroupKindLabel(g.number)} data-testid={`sm-group-kind-${g.id}`} onChange={(e) => s.setGroupKind(g.id, e.target.value as SemKind)}>
                   {(Object.keys(SM_KINDS) as SemKind[]).map((k) => (
                     <option key={k} value={k}>
                       {SM_KINDS[k]}
