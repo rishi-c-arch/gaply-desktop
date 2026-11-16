@@ -2715,13 +2715,10 @@ mod tests {
         use std::cell::{Cell, RefCell};
         let near = |t: f64| (0.5..=1.5).contains(&t);
         let (g1, h1) = (2f64.powi(40), 2f64.powi(105));
-        // The premises, at the start of the case.
+        // The premises that hold everywhere near 1. The step's premises are checked
+        // below, at the point the attempt reached (decision 839, T2).
         let s3 = g1 / (1e-3 * h1);
         let s4 = g1 / (1e-4 * h1);
-        for t in [1.0 - f64::EPSILON / 2.0, 1.0, 1.0 + f64::EPSILON] {
-            assert_eq!(t - s3, t, "the premise: at μ = 1e-3 the step rounds away at {t}");
-            assert!(t - s4 < t, "the premise: at μ = 1e-4 the step moves θ at {t}");
-        }
         assert!(g1 * g1 / h1 > DECREMENT_F_TEST, "the premise: nothing is relaxed near 1");
         assert!(1.0 * 1.0 / 100.0 > DECREMENT_F_TEST, "the premise: nothing is relaxed at the start");
         assert!(1e-2 > DAMPING_START, "the premise: μ carried after the first step is above 0");
@@ -2741,9 +2738,13 @@ mod tests {
         };
         let got = newton(vec![2.0], 2, &point, &f_at, &mut || Ok::<(), Infallible>(())).unwrap();
         let seen = seen.into_inner();
-        if let Some(t1) = seen.get(1) {
-            assert!(near(*t1), "the premise: the first step lands near 1, at {t1}");
-        }
+        // The premises at the point the first step reached, seen[1], where the
+        // attempt's second solve is made: there the step at μ = 1e-3 rounds away
+        // and the step at μ = 1e-4 moves θ.
+        let t1 = *seen.get(1).expect("the premise: the attempt reached a second point");
+        assert!(near(t1), "the premise: the first step lands near 1, at {t1}");
+        assert_eq!(t1 - s3, t1, "the premise: at μ = 1e-3 the step rounds away at {t1}");
+        assert!(t1 - s4 < t1, "the premise: at μ = 1e-4 the step moves θ at {t1}");
         (got, seen, asked.get())
     }
 

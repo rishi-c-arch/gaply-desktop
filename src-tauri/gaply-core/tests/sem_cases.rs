@@ -532,15 +532,27 @@ fn a_model_every_attempt_refuses_ends_at_newtons_count_not_its_cap() {
     let headers: Vec<String> = (1..=128).map(|j| format!("w{j}")).collect();
     let rows: Vec<Vec<String>> = (0..256u32).map(|r| (1..=128u32).map(|c| if (r & c).count_ones() % 2 == 1 { "-1" } else { "1" }.to_string()).collect()).collect();
     let d = dataset(&headers, &rows);
-    let indicators: Vec<String> = (0..16).map(|f| format!("[{}]", (1..=8).map(|i| format!("\"C{}\"", 8 * f + i)).collect::<Vec<_>>().join(","))).collect();
-    let paths: Vec<String> = (1..=15).map(|k| format!(r#"{{"to":{{"factor":{}}},"from":{{"factor":{}}}}}"#, k + 1, k)).collect();
+    // The model as the test builds it: each factor's columns, the paths as
+    // (to, from) factors, and the covariances (none). The spec is written from these.
+    let factors: Vec<Vec<u32>> = (0..16u32).map(|f| (1..=8u32).map(|i| 8 * f + i).collect()).collect();
+    let factor_paths: Vec<(u32, u32)> = (1..=15u32).map(|k| (k + 1, k)).collect();
+    let covariances: Vec<(u32, u32)> = Vec::new();
+    let indicators: Vec<String> = factors.iter().map(|f| format!("[{}]", f.iter().map(|c| format!("\"C{c}\"")).collect::<Vec<_>>().join(","))).collect();
+    let paths: Vec<String> = factor_paths.iter().map(|(to, from)| format!(r#"{{"to":{{"factor":{to}}},"from":{{"factor":{from}}}}}"#)).collect();
+    assert!(covariances.is_empty(), "the spec below writes no covariances");
     let s = sem(&format!(r#"{{"indicators":[{}],"paths":[{}],"covariances":[],"equal":[],"missingCodes":[]}}"#, indicators.join(","), paths.join(",")));
     // The premises: S = I exactly, since every mask m from 1 to 255 sums to 0
     // over the rows: so each column's mean is 0, and columns a ≠ b, whose product
-    // is mask a ^ b, are orthogonal; and q = 112 free loadings + 15 paths + 144
-    // variances.
+    // is mask a ^ b, are orthogonal; and q = 271, counted from the model built
+    // above as Model::of counts it (Model::q is private): each factor's free
+    // loadings (its columns less the first, fixed at 1), the paths, the
+    // covariances, and one variance per variable, the factors and their columns
+    // (decision 839, T1).
     assert!((1..=255u32).all(|m| (0..256u32).map(|r| if (r & m).count_ones() % 2 == 1 { -1i32 } else { 1 }).sum::<i32>() == 0));
-    assert_eq!(16 * 7 + 15 + (16 + 128), 271);
+    let columns: std::collections::BTreeSet<u32> = factors.iter().flatten().copied().collect();
+    let free_loadings: usize = factors.iter().map(|f| f.len() - 1).sum();
+    let q = free_loadings + factor_paths.len() + covariances.len() + (factors.len() + columns.len());
+    assert_eq!(q, 271, "the premise: q counted from the model the test builds");
     let e = compute_with_caps(&d, &s, [0, 10, 0]).unwrap_err();
     println!("the review's model, caps [0, 10, 0]: {} with {:?}", e.code.wire(), e.params);
     assert_eq!((e.code, int(&e, ParamKey::Count), int(&e, ParamKey::Limit)), (C::SemNotConverged, Some(7), Some(10)));

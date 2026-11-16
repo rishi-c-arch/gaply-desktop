@@ -1,6 +1,7 @@
 // The structural equation model's stored checker accepts what stats_sem writes and nothing else
-// (Research OS, Phase 9C-5d, decisions 818 and 834). It is not registered until 9C-5e (decision
-// 836), so it is called directly: semBundle and semFailure. Two bundles are built here from the two
+// (Research OS, Phase 9C-5d, decisions 818 and 834; 9C-5e, decision 840). It is not registered
+// until 9C-5f (decision 842), so it is called directly: semBundle and semFailure. Three records
+// Rust wrote (sem_checker_records.rs, fixtures/semChecker/) hold C1 and C2 at the end of the file. Two bundles are built here from the two
 // wire results (fixtures/semResultView.json and semResultViewOther.json), laid out as a stored run
 // is (stored/cfa.json's keys), each premise asserted against the result. Each refused case changes
 // one field, so it breaks one rule of decision 818; each rule's red is a mutation of storedShape.ts
@@ -13,11 +14,13 @@
 // spec holds a group; the hunt's probe tests it, and 9C-5e commits cases on sem_equal.json) and
 // an effect's three standardized values all negative_variance or none (outside the band's zone
 // around 0 the other rules imply it).
+import fs from 'node:fs';
+import nodePath from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import ONE from '../fixtures/semResultView.json';
 import OTHER from '../fixtures/semResultViewOther.json';
-import { SEM_BANDS, SEM_CAPABILITY, semBundle, semFailure } from './storedShape';
+import { measureSemBands, SEM_BANDS, SEM_CAPABILITY, semBundle, semFailure } from './storedShape';
 
 type O = Record<string, any>;
 const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x)) as T;
@@ -303,17 +306,36 @@ describe('a failed run', () => {
 });
 
 describe('the bands', () => {
-  it('each band is pinned at the value 9C-5d\'s hunt set (decision 835)', () => {
-    expect(SEM_BANDS).toEqual({ standardizedWeight: 1e-17, smc: 1e-16, total: 1e-16, standardizedEffect: 1e-17 });
+  it('each band is pinned at the value 9C-5e\'s hunt set (decisions 841 and 843)', () => {
+    expect(SEM_BANDS).toEqual({ standardizedWeight: 1e-17, smc: 1e-17, total: 1e-12, standardizedEffect: 1e-17, zone: 1e-12 });
   });
 });
 
-describe('the near neighbours of the refused cases are accepted', () => {
+describe('near neighbours: a value moved just past its band is refused, and a missing code exclusion with its code is accepted', () => {
   it('without a loop, an SMC or a standardized weight moved by ten times its band is refused', () => {
     const move = (x: O, band: number) => (x.value += 10 * band * Math.max(Math.abs(x.value), 1));
     for (const edit of [(b: O) => move(r(b).smc[0].value, SEM_BANDS.smc), (b: O) => move(r(b).weights[1].standardized, SEM_BANDS.standardizedWeight)]) {
       const b = B1();
       edit(b);
+      expect(accepts(b, SPEC_ONE)).toBe(false);
+    }
+  });
+  it('without a loop, a standardized weight, an SMC, a total or a standardized total moved by one ulp is refused (C2: exact)', () => {
+    const edits: Array<(b: O) => void> = [
+      (b) => (r(b).weights[1].standardized.value = ulp(r(b).weights[1].standardized.value)),
+      (b) => (r(b).smc[0].value.value = ulp(r(b).smc[0].value.value)),
+      (b) => {
+        const e = r(b).effects[0];
+        e.total.value = ulp(e.total.value);
+        e.indirect.value = e.total.value - e.direct.value;
+      },
+      (b) => (r(b).effects[0].totalStandardized.value = ulp(r(b).effects[0].totalStandardized.value)),
+    ];
+    expect(r(B1()).notes).toEqual([]);
+    for (const edit of edits) {
+      const b = B1();
+      edit(b);
+      expect(JSON.stringify(b)).not.toBe(JSON.stringify(B1()));
       expect(accepts(b, SPEC_ONE)).toBe(false);
     }
   });
@@ -323,5 +345,121 @@ describe('the near neighbours of the refused cases are accepted', () => {
     b.manifest.exclusions[0].code = code('missing_code');
     expect(accepts(b, { ...SPEC_ONE, parameters: { ...SPEC_ONE.parameters, missingCodes: [-99] } })).toBe(true);
   });
+});
+
+/** A record sem_checker_records.rs wrote (decision 840): a real run, saved and read back as a
+ *  stored result, its spec and bundle parsed. Read with fs, not imported, so the build does not
+ *  type each record's JSON. */
+const RECORDS = nodePath.join(__dirname, 'fixtures/semChecker');
+const record = (name: string): { spec: O; bundle: O } => {
+  const v = JSON.parse(fs.readFileSync(nodePath.join(RECORDS, name), 'utf8'));
+  return { spec: JSON.parse(v.specJson), bundle: JSON.parse(v.bundleJson) };
+};
+/** Each forged value of decision 838's finding 2, as a change to a copy of the bundle: a
+ *  standardized weight of 17 (the first free weight, and, where it is a path, its effect's direct
+ *  standardized value with it, which must equal it bit for bit, so the forgery is consistent), an
+ *  SMC of 0.123 (the first) and a standardized total of −5 (the first effect's). */
+const FORGED: Array<[string, (b: O) => void]> = [
+  ['a standardized weight of 17', (b) => {
+    const w = r(b).weights.find((x: O) => 'value' in x.cr);
+    w.standardized = { value: 17 };
+    const e = r(b).effects.find((x: O) => JSON.stringify([x.to, x.from]) === JSON.stringify([w.to, w.from]));
+    if (e) e.directStandardized = { value: 17 };
+  }],
+  ['an SMC of 0.123', (b) => (r(b).smc[0].value = { value: 0.123 })],
+  ['a standardized total of −5', (b) => (r(b).effects[0].totalStandardized = { value: -5 })],
+];
+
+describe('the records Rust wrote for the checker (decision 840)', () => {
+  it('loopPivot.json: a loop of decision 838\'s shape whose natural units differ from Rust\'s is accepted (C1)', () => {
+    const { spec, bundle } = record('loopPivot.json');
+    expect(r(bundle).notes).toEqual([code('nonrecursive')]);
+    expect(r(bundle).rowsUsed).toBe(2000);
+    // The premise: some value the checker computes differs from the one Rust stored (its pivots
+    // differ from Rust's), so C1's tolerance, not exact equality, is what accepts the record.
+    const differs: number[] = [];
+    measureSemBands((band, _value, at, _tolerance, computed) => {
+      if (band === 'zoneMargin' || at === undefined || at >= 10000) return;
+      if (r(bundle).weights[at].standardized.value !== computed) differs.push(at);
+    });
+    const ok = accepts(bundle, spec);
+    measureSemBands(null);
+    expect(differs.length).toBeGreaterThan(0);
+    expect(ok).toBe(true);
+  });
+
+  /** C3's effect on C2 in cancel.json, whose two routes nearly cancel. */
+  const cancelling = (b: O) => r(b).effects.find((e: O) => e.to.column === 'C2' && e.from.column === 'C3');
+  /** A consistent change to that effect's total by `delta`: its indirect is total − direct, as
+   *  the checker requires exactly, and both standardized values are scaled with them, so only the
+   *  total's tolerance can refuse it. */
+  const moveTotal = (b: O, delta: number) => {
+    const e = cancelling(b);
+    const [t0, i0] = [e.total.value, e.indirect.value];
+    e.total.value = t0 + delta;
+    e.indirect.value = e.total.value - e.direct.value;
+    e.totalStandardized.value *= e.total.value / t0;
+    e.indirectStandardized.value *= e.indirect.value / i0;
+  };
+
+  it('cancel.json: a loop whose total from C3 to C2 nearly cancels is accepted (decision 843)', () => {
+    const { spec, bundle } = record('cancel.json');
+    expect(r(bundle).notes).toEqual([code('nonrecursive')]);
+    const e = cancelling(bundle);
+    expect(Math.abs(e.total.value)).toBeLessThan(0.1 * Math.abs(e.direct.value));
+    expect(accepts(bundle, spec)).toBe(true);
+  });
+
+  it('cancel.json: a consistent change to that total by 1e-6 of its direct path is refused, by the total\'s band alone', () => {
+    const { spec, bundle } = record('cancel.json');
+    // The control: the same arithmetic with no change leaves a record the checker accepts.
+    const same = clone(bundle);
+    moveTotal(same, 0);
+    expect(accepts(same, spec)).toBe(true);
+    const b = clone(bundle);
+    moveTotal(b, 1e-6 * Math.abs(cancelling(b).direct.value));
+    expect(accepts(b, spec)).toBe(false);
+  });
+
+  it('cancel.json: that total, changed consistently, is accepted at half its tolerance from the checker\'s value and refused at twice it (the review of decision 843, finding 3)', () => {
+    const { spec, bundle } = record('cancel.json');
+    const i = r(bundle).effects.indexOf(cancelling(bundle));
+    let tolerance = Number.NaN;
+    let computed = Number.NaN;
+    measureSemBands((band, _value, at, tol, comp) => {
+      if (band === 'total' && at === 20000 + 3 * i) [tolerance, computed] = [tol as number, comp as number];
+    });
+    const ok = accepts(bundle, spec);
+    measureSemBands(null);
+    expect(ok).toBe(true);
+    // The size: 8ε |B_ij| + 1e-12 (|B| |I − A| |B|)_ij is far below the direct path here, so a
+    // band 1e4 times wider would fail this bound.
+    expect(tolerance).toBeGreaterThan(0);
+    expect(tolerance).toBeLessThan(1e-10 * Math.abs(cancelling(bundle).direct.value));
+    const t0 = cancelling(bundle).total.value;
+    const dir = t0 >= computed ? 1 : -1;
+    for (const [k, accepted] of [[0.5, true], [2, false]] as Array<[number, boolean]>) {
+      const b = clone(bundle);
+      moveTotal(b, computed + dir * k * tolerance - t0);
+      expect(accepts(b, spec), `${k} of the tolerance`).toBe(accepted);
+    }
+  });
+
+  for (const [name, loop] of [['small.json', false], ['smallLoop.json', true]] as Array<[string, boolean]>) {
+    it(`${name}: data scaled by 1e-10, ${loop ? 'with' : 'without'} a loop, is accepted as stored (C2)`, () => {
+      const { spec, bundle } = record(name);
+      expect(r(bundle).notes).toEqual(loop ? [code('nonrecursive')] : []);
+      // The premise: every variance far inside 2480982e's absolute zone of 1e-17.
+      expect(r(bundle).variances.every((v: O) => v.estimate.value > 0 && v.estimate.value < 1e-17)).toBe(true);
+      expect(accepts(bundle, spec)).toBe(true);
+    });
+    it.each(FORGED)(`${name}: %s is refused (C2)`, (_, forge) => {
+      const { spec, bundle } = record(name);
+      const b = clone(bundle);
+      forge(b);
+      expect(JSON.stringify(b)).not.toBe(JSON.stringify(bundle));
+      expect(accepts(b, spec)).toBe(false);
+    });
+  }
 });
 
