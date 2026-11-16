@@ -26,10 +26,11 @@ mod project_support;
 use std::time::{Duration, Instant};
 
 use app_lib::project_commands::{self as pc, RerunProgress, RerunView, SaveTarget};
+use app_lib::project_store::{ArtifactInput, ProjectRoot, RunToSave, SaveRequest};
 use app_lib::runs::RunKind;
-use gaply_core::contracts::RunState;
-use gaply_core::research_project::RerunComparison;
-use gaply_core::stats_sem::SemParams;
+use gaply_core::contracts::{CapabilityId, ContentHash, OperationSpec, RunState};
+use gaply_core::research_project::{ArtifactHash, ArtifactKind, DataFormat, RerunComparison, UsedRole};
+use gaply_core::stats_sem::{self, SemParams};
 use serde_json::{json, Value};
 
 use project_support::*;
@@ -333,8 +334,9 @@ fn structural_equation_models_are_saved_read_back_run_again_identical_and_report
         assert_eq!((r.status, r.stored_run_id), (RerunProgress::Saved, Some(new)));
         assert_eq!(comparison(&w, &id, new), Some(RerunComparison::Identical), "run {stored} again");
     }
-    // The failed run is not run again.
-    assert!(pc::rerun(&w.root(), &w.ws, 4).is_err(), "a failed run is not run again");
+    // The failed run is not run again, by rerun_open's check 4 (decision 833, R3).
+    let e = pc::rerun(&w.root(), &w.ws, 4).expect_err("a failed run is not run again");
+    assert_eq!(code(&e), "project.rerun_not_succeeded");
 
     let r = String::from_utf8(pc::report(&w.root(), &w.ws, &id).expect("the report").bytes).expect("UTF-8");
     for n in [1, 2, 3] {
@@ -359,4 +361,79 @@ fn structural_equation_models_are_saved_read_back_run_again_identical_and_report
     for text in ["anomia67", "ses_sum", "academic", "rating"] {
         assert!(!r.contains(text), "{text} in the report");
     }
+}
+
+fn artifact(kind: ArtifactKind, format: DataFormat, bytes: &[u8]) -> ArtifactInput {
+    ArtifactInput {
+        kind,
+        format,
+        schema_version: 1,
+        expected: ArtifactHash::parse(ContentHash::of_bytes(bytes).as_hex()).unwrap(),
+        bytes: bytes.to_vec(),
+    }
+}
+
+/// Saves a Succeeded SEM row through the store, on a second handle, as `project_rerun.rs`'s
+/// `store_a_row` does (that helper is its file's own): the CSV `data` and the spec's bytes, with
+/// a test bundle and manifest. Its stored id.
+fn store_a_row(w: &World, id: &str, data: &[u8], spec: &[u8]) -> u64 {
+    let hash = |b: &[u8]| ArtifactHash::parse(ContentHash::of_bytes(b).as_hex()).unwrap();
+    let store = ProjectRoot::open_root_with(&w.root(), SMALL).unwrap();
+    let mut h = store.open(id).unwrap();
+    let (bundle, manifest) = (b"{\"test\":\"bundle\"}", b"{\"test\":\"manifest\"}");
+    let req = SaveRequest {
+        run: RunToSave {
+            capability_id: CapabilityId::parse(stats_sem::CAPABILITY_ID).unwrap(),
+            capability_version: stats_sem::CAPABILITY_VERSION,
+            state: RunState::Succeeded,
+            started_at: 1_792_396_340,
+            ended_at: 1_792_396_341,
+            used: vec![(hash(data), UsedRole::Data), (hash(spec), UsedRole::Spec)],
+            generated: vec![hash(bundle), hash(manifest)],
+            derived: Vec::new(),
+        },
+        artifacts: vec![
+            artifact(ArtifactKind::DataFile, DataFormat::Csv, data),
+            artifact(ArtifactKind::OperationSpec, DataFormat::Json, spec),
+            artifact(ArtifactKind::ResultBundle, DataFormat::Json, bundle),
+            artifact(ArtifactKind::RunManifest, DataFormat::Json, manifest),
+        ],
+    };
+    h.save(req).expect("a test row").0
+}
+
+/// Decision 833 (R2; decision 832's finding 2): a rerun refuses a spec its data file no longer
+/// fits. Model B is saved; then two rows on the same data file: its own spec unchanged (the
+/// control, which reruns), and the same spec with its third path's end moved from factor 3 to
+/// C9, a column the seven-column file does not have, refused `project.rerun_refused` by the
+/// SEM's `valid_on`. Made to pass every spec, `valid_on` lets the second start.
+#[test]
+fn a_rerun_refuses_a_spec_whose_path_end_the_data_file_does_not_have() {
+    let w = World::new("9c5d-sem-refused");
+    let bytes = wheaton_data();
+    let slot = w.open("wheaton.csv", &bytes);
+    let b = w.sem(slot, model_b());
+    assert_eq!(w.wait_new_kind(b), RunState::Succeeded);
+    let id = pc::save_run(&w.root(), &w.ws, b, new_project("SEM")).expect("Model B saves").project_id;
+    let spec_json = pc::run_result(&w.root(), &w.ws, &id, 1).unwrap().spec_json;
+    let spec: OperationSpec<SemParams> = serde_json::from_str(&spec_json).unwrap();
+    let canonical = serde_json::to_vec(&spec).unwrap();
+    assert_eq!(canonical, spec_json.as_bytes(), "the premise: a Save stores canonical bytes");
+    let header = String::from_utf8(bytes.clone()).unwrap().lines().next().unwrap().split(',').count();
+    assert_eq!(header, 7, "the premise: the file has seven columns, so no C9");
+    let mut moved = serde_json::to_value(&spec).unwrap();
+    assert_eq!(moved["parameters"]["paths"][2], json!({ "to": { "factor": 2 }, "from": { "factor": 3 } }), "the premise: the third path");
+    moved["parameters"]["paths"][2]["from"] = json!({ "column": "C9" });
+    let moved: OperationSpec<SemParams> = serde_json::from_value(moved).unwrap();
+    let moved = serde_json::to_vec(&moved).unwrap();
+
+    // The control: the unchanged spec on a row stored the same way reruns.
+    let control = store_a_row(&w, &id, &bytes, &canonical);
+    pc::rerun(&w.root(), &w.ws, control).expect("the control reruns");
+    assert_eq!(settled(&w).status, RerunProgress::Saved, "the control's rerun");
+
+    let refused = store_a_row(&w, &id, &bytes, &moved);
+    let e = pc::rerun(&w.root(), &w.ws, refused).expect_err("a path end the file does not have");
+    assert_eq!(code(&e), "project.rerun_refused");
+    assert_eq!(w.ws.projects().rerun_going(), None, "nothing is going");
 }

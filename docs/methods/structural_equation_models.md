@@ -147,18 +147,25 @@ before it ended without a solution (decision 798):
    `newtons_attempt_relaxes_nothing_where_h_s_decrement_is_large` pin the rule; on 9C-4's 338
    models, 9C-2's 500 and the 200 seeds of id384's shape the bound changed no outcome and no
    value (9C-5b's hunt rerun, byte-identical to 9C-5's run after its M1 fix).
-   A solve whose step rounds away, its candidate equal to θ in every coordinate, ends the
-   attempt at once, before F is evaluated there (decision 828): a larger μ only shrinks the step
-   further. Before it, the strict test took such a step and the attempt stood still to its cap,
-   inflating a refusal's count and its time. One case is not covered: where the zero-length step
-   came from an iteration's first solve at a μ carried above 0, the attempt before decision 828
-   would next have tried a smaller μ, so it might have moved; ending there errs toward a refusal,
-   never a false solution (the review of 9C-5c, finding 1, left open).
-   `newtons_attempt_ends_at_a_step_of_zero_length` pins it. Rerun on 9C-4's 338 models, 9C-2's
-   500 and the 200 seeds of id384's shape, it changed no line (9C-5c's dump and table are
-   byte-identical to 9C-5b's): no solved case changed, and no refusal's count fell (a refusal
-   reports the most iterations any attempt made). On the Walsh columns, where Newton's
-   attempt makes the most, the count falls from 500 to 9.
+   A solve whose step rounds away, its candidate equal to θ in every coordinate, is not taken,
+   and F is not evaluated there (decision 828, as decision 833 refines it). If a smaller μ has
+   not yet been tried at this θ, which happens where the iteration began with a μ carried above
+   0 from the last, the next solve takes the next smaller μ (μ / 10, or 0 at or below 1e-4),
+   not counted as an iteration; otherwise the attempt ends at once, since a larger μ only
+   shrinks the step further. Each such solve still counts against the 60 solves of one step,
+   and μ still rises after a refused step, so the attempt cannot loop. Before decision 828 the
+   strict test took a zero-length step and the attempt stood still to its cap, inflating a
+   refusal's count and its time; decision 828 alone ended the attempt even where a smaller μ,
+   untried, might have moved it (the review of 9C-5c, finding 1).
+   `newtons_attempt_ends_at_a_step_of_zero_length`,
+   `newtons_attempt_tries_a_smaller_mu_after_a_zero_length_step` and
+   `newtons_attempt_ends_where_the_smaller_mu_raises_f` pin it. Rerun on 9C-4's 338 models,
+   9C-2's 500 and the 200 seeds of id384's shape, decision 828 changed no line (9C-5c's dump and
+   table are byte-identical to 9C-5b's), and decision 833's refinement changed none either
+   (9C-5d's are byte-identical to 9C-5c's; how often its step down was reached there was not
+   counted): no solved case changed, and no refusal's count fell
+   (a refusal reports the most iterations any attempt made). On the Walsh columns, where
+   Newton's attempt makes the most, the count falls from 500 to 9, and stays 9.
 3. Fisher scoring from the triad starts: each factor of three or more columns given CFA's triad
    φ₀ (decision 761) and its loadings from it; made only when these differ from attempt 1's.
 
@@ -427,10 +434,20 @@ Peak memory is the probe's whole process, its 100,000-row table included (`/usr/
 success comes near 20 s. `validate` on the 128-column spec, where the identification check is
 the cost, takes 0.096 s (median of seven).
 
-A run every attempt refuses: 128 columns of Walsh patterns over 2¹⁷ rows, on 16 factors with a chain of 15 paths,
-with a check point that stops the run after 30 s. It met **the ceiling's stop at 30.01 s**, not
-`sem_not_converged`: the outcome decision 767's third answer expects, so a user sees the time
-limit, not a refusal.
+Newton's attempt now ends at a step of zero length instead of standing still to its cap, so a
+run every attempt refuses can end as `sem_not_converged` before the 30 s limit; Fisher's attempts
+1 and 3 still run to 500 iterations each, and the time limit is still what a user sees for a run
+that has not ended by 30 s. Two such runs were measured. 9C-4's case, 128 columns of Walsh patterns over
+2¹⁷ rows on 16 factors with a chain of 15 paths and a check point that stops the run after
+30 s, met the ceiling's stop at 30.01 s at 9C-4 (decision 800); after decisions 828 and 833 it
+is refused as `sem_not_converged`, count 7 of 500, in 2.14 s (release, 16 Nov 2026,
+9c5d/r1_runs_1794824308.log). The review of 735ec94c's model, 128 such columns over 256 rows
+(S = I), 16 factors of 8 columns in order and the paths factor k → factor k + 1, is refused at
+count 7 of 500 in 0.74 s, and before decision 828 met the stop at 30.04 s (the review's
+measurement). Decision 767's third answer, that such a run meets the time limit and not a
+refusal, described the code before decision 828: Newton's attempt then stood still to its cap.
+`a_model_every_attempt_refuses_ends_at_newtons_count_not_its_cap` (sem_cases.rs) pins the
+review's model's count, 7 of a cap of 10.
 
 The widest result within the limits (128 columns: 16 factors of five columns and 48 columns no
 factor holds; 64 paths in one loop through the 64 structural variables; 256 covariances)

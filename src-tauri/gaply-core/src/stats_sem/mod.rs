@@ -1757,15 +1757,16 @@ fn fisher<E>(
 /// J + μD's measure, not on its length (the review of 7ace972, finding 6).
 /// Reading H alone, as decision 812 wrote it, bounded nothing, since the step
 /// solves J + μD, not H (the review of 365b638, finding 1).
-/// A solve whose candidate equals θ in every coordinate ends the attempt at
-/// once, before F is evaluated there (decision 828, Z1): a larger μ only
-/// shrinks the step, and before Z1 the attempt stood still to its cap,
-/// inflating a refusal's count and its time. One case is not covered by that
-/// premise (the review of 9C-5c, finding 1): where the zero-length step came
-/// from an iteration's first solve at a μ carried above 0, the next iteration
-/// before Z1 would have tried a smaller μ not yet tried at this θ, so Z1 can
-/// end an attempt that might have moved. That errs toward a refusal, never a
-/// false solution; it is an open question for the next step, not changed here.
+/// A solve whose candidate equals θ in every coordinate is not taken, and F is
+/// not evaluated there (decision 828, Z1, as decision 833, Z2, refines it). If
+/// a smaller μ has not yet been tried at this θ (the iteration began with a μ
+/// carried above 0), the next solve takes the next smaller μ (μ / 10, or 0 at
+/// or below [`DAMPING_START`]), not counted as an iteration; otherwise the
+/// attempt ends at once, since a larger μ only shrinks the step. Before Z1 the
+/// attempt stood still to its cap, inflating a refusal's count and its time;
+/// Z1 alone ended it even where a smaller μ, untried, might have moved θ. Each
+/// such solve still counts against [`MAX_SOLVES`], and μ still rises after a
+/// refused step, so the attempt cannot loop.
 /// After [`MAX_SOLVES`] solves for one step the attempt ends; after a step μ
 /// falls (to 0 at or below [`DAMPING_START`], else a tenth). `at` is called at
 /// each iteration and before each solve.
@@ -1805,17 +1806,26 @@ fn newton<E>(
         let largest = (0..q).map(|a| e.h[a][a]).fold(0.0f64, f64::max);
         let d: Vec<f64> = (0..q).map(|a| e.h[a][a].max(DIAGONAL_FLOOR * largest)).collect();
         let mut accepted = None;
+        // The smallest μ solved at this θ (decision 833, Z2): μ only rises
+        // within an iteration but for Z2's step down, which lowers this too.
+        let mut lowest = mu;
         for _ in 0..MAX_SOLVES {
             at()?;
             let damped: Vec<Vec<f64>> = (0..q).map(|a| (0..q).map(|b| if a == b { j[a][b] + mu * d[a] } else { j[a][b] }).collect()).collect();
             if let Ok(l) = cholesky_within(&damped, DAMPED_TOLERANCE) {
                 let step = solve(&spd_inverse(&l), &e.g);
                 let candidate: Vec<f64> = theta.iter().zip(&step).map(|(t, s)| t - s).collect();
-                // Decision 828 (Z1): a step of zero length ends the attempt; it
-                // is not taken and not counted, and F is not evaluated at it. A
-                // larger μ only shrinks the step further; a smaller μ, where the
-                // first solve used a carried μ above 0, is not tried (see the doc).
+                // Decisions 828 (Z1) and 833 (Z2): a step of zero length is not
+                // taken and not counted, and F is not evaluated at it. A larger
+                // μ only shrinks the step further, so where no smaller μ is
+                // untried at this θ the attempt ends; otherwise the next solve,
+                // still one of MAX_SOLVES, takes the next smaller μ.
                 if candidate == theta {
+                    if mu > 0.0 && mu <= lowest {
+                        mu = if mu <= DAMPING_START { 0.0 } else { mu / 10.0 };
+                        lowest = mu;
+                        continue;
+                    }
                     return Ok(Err(iterations));
                 }
                 // Decision 823: the relaxation is bounded by this solve's own
@@ -2686,6 +2696,80 @@ mod tests {
         let got = newton(start.to_vec(), 10, &point, &f_at, &mut || Ok::<(), Infallible>(())).unwrap();
         assert!(matches!(got, Err(0)), "{got:?}");
         assert_eq!(asked.get(), 0, "F was evaluated at a candidate equal to θ");
+    }
+
+    /// Decision 833 (Z2): the case Z1 did not cover, a zero-length first solve
+    /// at a μ carried above 0. One coordinate, J = 0 everywhere, so μ = 0 fails
+    /// its factor and the step is g / (μ D), D being H's diagonal.
+    /// - Above t = 1.5 (the start, 2): F = 10, g = 1, H = 100, so the steps at
+    ///   μ = 1e-4, 1e-3 and 1e-2 are 100, 10 and 1; F is 20 outside [0.5, 1.5],
+    ///   so only the third is taken, to about 1, and μ falls to about 1e-3.
+    /// - On [0.5, 1.5]: g = 2⁴⁰, H = 2¹⁰⁵, so the step is 2⁻⁶⁵ / μ: about
+    ///   2.7e-17 at 1e-3, which rounds away against 1, and 2.7e-16 at 1e-4, which
+    ///   does not. gᵀH⁻¹g = 2⁻²⁵ is above DECREMENT_F_TEST, so nothing is
+    ///   relaxed. F there is `slope` · t.
+    ///
+    /// Returns the attempt's outcome at cap 2, the points `point` was called at,
+    /// and how many times F was asked for.
+    fn z2_case(slope: f64) -> (Result<Solved, u64>, Vec<f64>, u32) {
+        use std::cell::{Cell, RefCell};
+        let near = |t: f64| (0.5..=1.5).contains(&t);
+        let (g1, h1) = (2f64.powi(40), 2f64.powi(105));
+        // The premises, at the start of the case.
+        let s3 = g1 / (1e-3 * h1);
+        let s4 = g1 / (1e-4 * h1);
+        for t in [1.0 - f64::EPSILON / 2.0, 1.0, 1.0 + f64::EPSILON] {
+            assert_eq!(t - s3, t, "the premise: at μ = 1e-3 the step rounds away at {t}");
+            assert!(t - s4 < t, "the premise: at μ = 1e-4 the step moves θ at {t}");
+        }
+        assert!(g1 * g1 / h1 > DECREMENT_F_TEST, "the premise: nothing is relaxed near 1");
+        assert!(1.0 * 1.0 / 100.0 > DECREMENT_F_TEST, "the premise: nothing is relaxed at the start");
+        assert!(1e-2 > DAMPING_START, "the premise: μ carried after the first step is above 0");
+        let seen: RefCell<Vec<f64>> = RefCell::new(Vec::new());
+        let asked = Cell::new(0u32);
+        let point = |t: &[f64]| {
+            seen.borrow_mut().push(t[0]);
+            if t[0] > 1.5 {
+                Some(Point { f: 10.0, g: vec![1.0], h: vec![vec![100.0]], j: Some(vec![vec![0.0]]) })
+            } else {
+                Some(Point { f: slope * t[0], g: vec![g1], h: vec![vec![h1]], j: Some(vec![vec![0.0]]) })
+            }
+        };
+        let f_at = |t: &[f64]| {
+            asked.set(asked.get() + 1);
+            Some(if t[0] > 1.5 { 10.0 } else if near(t[0]) { slope * t[0] } else { 20.0 })
+        };
+        let got = newton(vec![2.0], 2, &point, &f_at, &mut || Ok::<(), Infallible>(())).unwrap();
+        let seen = seen.into_inner();
+        if let Some(t1) = seen.get(1) {
+            assert!(near(*t1), "the premise: the first step lands near 1, at {t1}");
+        }
+        (got, seen, asked.get())
+    }
+
+    /// Decision 833 (Z2), its first test: where the carried μ's step rounds
+    /// away and μ / 10's lowers F, the attempt takes that step. F = t near 1.
+    /// Before Z2 the attempt ended there, `Err(1)`; with it, the step is taken
+    /// and the cap ends the attempt at `Err(2)`, at a θ below the first step's.
+    #[test]
+    fn newtons_attempt_tries_a_smaller_mu_after_a_zero_length_step() {
+        let (got, seen, _) = z2_case(1.0);
+        assert!(matches!(got, Err(2)), "{got:?}, at {seen:?}");
+        assert_eq!(seen.len(), 3, "{seen:?}");
+        assert!(seen[2] < seen[1], "θ did not move from the first step: {seen:?}");
+    }
+
+    /// Decision 833 (Z2), its second test: the same, but F = −t near 1, so the
+    /// step at μ / 10 raises F. μ rises back to the carried μ, whose step rounds
+    /// away again, and with no smaller μ untried at this θ the attempt ends:
+    /// `Err(1)`. F is asked for four times: three at the start (μ = 1e-4, 1e-3,
+    /// 1e-2; μ = 0 fails its factor) and once near 1, at μ / 10.
+    #[test]
+    fn newtons_attempt_ends_where_the_smaller_mu_raises_f() {
+        let (got, seen, asked) = z2_case(-1.0);
+        assert!(matches!(got, Err(1)), "{got:?}, at {seen:?}");
+        assert_eq!(seen.len(), 2, "{seen:?}");
+        assert_eq!(asked, 4, "F's evaluations");
     }
 
     /// AMOS's Example 6, Model B: its 120 "Critical Ratios for Differences

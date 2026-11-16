@@ -30,6 +30,7 @@ import type { RelatedRanksDiagnostic, RelatedRanksResultView } from '../relatedR
 import type { LinearRegressionDiagnostic, LinearRegressionResultView } from '../linearRegressionTypes';
 import type { FactorDiagnostic, FactorResultView } from '../factorTypes';
 import type { CfaDiagnostic, CfaResultView } from '../cfaTypes';
+import type { SemDiagnostic, SemResultView } from '../semTypes';
 import DESCRIBE_CODES from '../describeCodes.json';
 import TTEST_CODES from '../ttestCodes.json';
 import ONESAMPLE_CODES from '../onesampleCodes.json';
@@ -46,6 +47,8 @@ import FACTOR_CODES from '../factorCodes.json';
 import FA_LIMITS from '../fixtures/factorLimits.json';
 import CFA_CODES from '../cfaCodes.json';
 import CFA_LIMITS from '../fixtures/cfaLimits.json';
+import SEM_CODES from '../semCodes.json';
+import SEM_LIMITS from '../fixtures/semLimits.json';
 import { capabilityOfKind } from '../methods';
 import TTEST_LIMITS from '../ttestLimits.json';
 
@@ -84,7 +87,8 @@ export type CaseKind =
   | 'related_ranks'
   | 'linear_regression'
   | 'factor'
-  | 'cfa';
+  | 'cfa'
+  | 'sem';
 
 /** A failed run's stored diagnostic, in its method's codes. */
 export type StoredFailure =
@@ -99,7 +103,8 @@ export type StoredFailure =
   | RelatedRanksDiagnostic
   | LinearRegressionDiagnostic
   | FactorDiagnostic
-  | CfaDiagnostic;
+  | CfaDiagnostic
+  | SemDiagnostic;
 
 /** What a saved result is, once checked: what to show, or why not. */
 export type Checked =
@@ -116,6 +121,7 @@ export type Checked =
   | { kind: 'linear_regression'; result: LinearRegressionResultView; dataFile: DataFileFacts }
   | { kind: 'factor'; result: FactorResultView; dataFile: DataFileFacts }
   | { kind: 'cfa'; result: CfaResultView; dataFile: DataFileFacts }
+  | { kind: 'sem'; result: SemResultView; dataFile: DataFileFacts }
   | { kind: 'failed'; capability: CaseKind; failure: StoredFailure; dataFile: DataFileFacts }
   | { kind: 'unknownCapability' }
   | { kind: 'unknownSchema' }
@@ -1968,8 +1974,33 @@ const cfMeasure = (k: CfaBand, v: number) => {
   return v;
 };
 
-/** Rust's `stat` (:1274-1282, and fit:141-149). */
-const cfStatOf = (x: number): Expected => (Number.isFinite(x) ? { value: x } : Number.isNaN(x) ? { code: CF_SMALL } : { code: CF_OVERFLOW });
+/** The codes the rules shared by the confirmatory factor analysis and the structural equation
+ *  model write (decision 818): each method passes its own, so a shared rule never names
+ *  another method's code. stats_fit maps its codes to each method's (fit:141-149). */
+interface SharedCodes {
+  small: string;
+  overflow: string;
+  range: string;
+  dfZero: string;
+  cminZero: string;
+  baselineZero: string;
+  bcc: string;
+  /** missing_value, then missing_code. */
+  excluded: readonly [string, string];
+}
+const CF_SHARED: SharedCodes = {
+  small: CF_SMALL,
+  overflow: CF_OVERFLOW,
+  range: CF_RANGE,
+  dfZero: CF_DF_ZERO,
+  cminZero: CF_CMIN_ZERO,
+  baselineZero: CF_BASELINE_ZERO,
+  bcc: CF_BCC,
+  excluded: [cfCode('missing_value'), cfCode('missing_code')],
+};
+
+/** Rust's `stat` (:1274-1282, and fit:141-149), in `c`'s codes. */
+const cfStatOf = (x: number, c: SharedCodes): Expected => (Number.isFinite(x) ? { value: x } : Number.isNaN(x) ? { code: c.small } : { code: c.overflow });
 /** A stored Stat is what Rust would write: exactly {"value": x} or {"not_computable": code}, as
  *  serde writes Stat (the review of 9C-3, finding 5: a value beside another key was accepted). */
 const cfIs = (stored: unknown, e: Expected) =>
@@ -1979,9 +2010,9 @@ const cfVal = (v: unknown) => statValue(v) as number;
 const isValue = (v: unknown) => cfStat(v, []);
 /** `against_baseline` (fit:275-281): `stat`, but independence_cmin_zero for a value that is not
  *  finite where C_b is 0. */
-const againstOf = (x: number, cb: number): Expected => (cb === 0 && !Number.isFinite(x) ? { code: CF_BASELINE_ZERO } : cfStatOf(x));
+const againstOf = (x: number, cb: number, c: SharedCodes): Expected => (cb === 0 && !Number.isFinite(x) ? { code: c.baselineZero } : cfStatOf(x, c));
 /** `unless_df_zero` (fit:157-163). */
-const unlessDfZero = (d: number, e: () => Expected): Expected => (d === 0 ? { code: CF_DF_ZERO } : e());
+const unlessDfZero = (d: number, e: () => Expected, c: SharedCodes): Expected => (d === 0 ? { code: c.dfZero } : e());
 
 /** CfaOutcome's keys and each object's, every one always written (:290-418). */
 const CF_RESULT_KEYS = ['items', 'rowsUsed', 'indicators', 'loadings', 'factorVariances', 'factorCovariances', 'errorVariances', 'smc', 'fit', 'iterations', 'exclusions', 'notes', 'limitations'];
@@ -2018,28 +2049,31 @@ const cfDiagnostic = (v: unknown) =>
   isObject(v) &&
   (v.code !== cfCode('suspect_missing_code') || (isObject(v.params) && ['column', 'value', 'count'].every((k) => isNum((v.params as O)[k]))));
 
-/** An exclusion, exactly as stats_cfa writes it (:1394-1406). */
-const CF_EXCLUDED = [cfCode('missing_value'), cfCode('missing_code')];
-const cfExclusion = (e: unknown) =>
+/** An exclusion, exactly as stats_cfa writes it (:1394-1406), in `c`'s codes (the CFA's is
+ *  cfExcluded; the structural equation model's writes the same shape, stats_sem/mod.rs's
+ *  outcome). */
+const cfExclusion = (e: unknown, c: SharedCodes) =>
   isObject(e) &&
   Object.keys(e).length === 3 &&
-  oneOf(e.code, CF_EXCLUDED) &&
+  oneOf(e.code, c.excluded) &&
   isCount(e.count) &&
   e.count >= 1 &&
   isObject(e.params) &&
   Object.keys(e.params).length === 1 &&
   isCount(e.params.column);
 
+const cfExcluded = (e: unknown) => cfExclusion(e, CF_SHARED);
+
 /** The exclusions in the columns' file order (sorted by alias, :1394-1396), missing_value
  *  before missing_code for one column, each pair once, each column a column of the model, and
- *  missing_code only with missing codes. A row is counted once, under its first column in the
- *  file's order without a value (Rows::of, :464-493). */
-const cfExclusionsAgree = (list: O[], numbers: number[], codes: unknown[]) => {
+ *  missing_code only with missing codes, in `c`'s codes. A row is counted once, under its first
+ *  column in the file's order without a value (Rows::of, :464-493). */
+const cfExclusionsAgree = (list: O[], numbers: number[], codes: unknown[], c: SharedCodes) => {
   const sorted = numbers.slice().sort((a, b) => a - b);
-  const order = list.map((e) => sorted.indexOf(((e.params as O).column as number) ?? -1) * 2 + (e.code === CF_EXCLUDED[1] ? 1 : 0));
+  const order = list.map((e) => sorted.indexOf(((e.params as O).column as number) ?? -1) * 2 + (e.code === c.excluded[1] ? 1 : 0));
   if (order.some((o) => o < 0)) return false;
   if (order.some((o, i) => i > 0 && o <= order[i - 1])) return false;
-  return codes.length > 0 || list.every((e) => e.code !== CF_EXCLUDED[1]);
+  return codes.length > 0 || list.every((e) => e.code !== c.excluded[1]);
 };
 
 /** stats_linalg::cholesky_within(Φ, 0) (stats_linalg/mod.rs:173-195), its operations in its
@@ -2089,13 +2123,13 @@ function cfIndicators(sp: O): number[][] | null {
 /** An estimate with its S.E., C.R. and two-tailed P, as `tested` writes them (:1299-1302): the
  *  estimate a value, the S.E. `stat` of a square root, C.R. exactly estimate / S.E., and P a
  *  value in [0, 1], or too_small where C.R. is not a number. */
-function cfTested(t: O): boolean {
-  if (!isValue(t.estimate) || !cfStat(t.se, [CF_SMALL, CF_OVERFLOW]) || !cfStat(t.cr, [CF_SMALL, CF_OVERFLOW]) || !cfStat(t.p, [CF_SMALL])) return false;
-  const se = isValue(t.se) ? cfVal(t.se) : ncCode(t.se) === CF_SMALL ? Number.NaN : Number.POSITIVE_INFINITY;
+function cfTested(t: O, sc: SharedCodes): boolean {
+  if (!isValue(t.estimate) || !cfStat(t.se, [sc.small, sc.overflow]) || !cfStat(t.cr, [sc.small, sc.overflow]) || !cfStat(t.p, [sc.small])) return false;
+  const se = isValue(t.se) ? cfVal(t.se) : ncCode(t.se) === sc.small ? Number.NaN : Number.POSITIVE_INFINITY;
   if (isValue(t.se) && !(se >= 0)) return false;
   const cr = cfVal(t.estimate) / se;
-  if (!cfIs(t.cr, cfStatOf(cr))) return false;
-  if (Number.isNaN(cr)) return ncCode(t.p) === CF_SMALL || (isValue(t.p) && cfVal(t.p) >= 0 && cfVal(t.p) <= 1);
+  if (!cfIs(t.cr, cfStatOf(cr, sc))) return false;
+  if (Number.isNaN(cr)) return ncCode(t.p) === sc.small || (isValue(t.p) && cfVal(t.p) >= 0 && cfVal(t.p) <= 1);
   return isValue(t.p) && cfVal(t.p) >= 0 && cfVal(t.p) <= 1;
 }
 
@@ -2104,7 +2138,10 @@ function cfTested(t: O): boolean {
  *  CMIN, DF, NPAR, GFI and N with + − × ÷ and √, exactly; the intervals from the stored NCP
  *  interval; BIC and CAIC within a band; P, PCLOSE, the NCP interval and HOELTER, which take a
  *  distribution, by their ranges and codes. */
-function cfRow(f: O, q: number, d: number, cb: number, db: number, p: number, bigN: number): boolean {
+function cfRow(f: O, q: number, d: number, cb: number, db: number, p: number, bigN: number, sc: SharedCodes): boolean {
+  const st = (x: number) => cfStatOf(x, sc);
+  const against = (x: number, b: number) => againstOf(x, b, sc);
+  const unless = (dd: number, e: () => Expected) => unlessDfZero(dd, e, sc);
   if (!hasExactly(f, CF_MEASURES)) return false;
   if (f.npar !== q || f.df !== d) return false;
   // CMIN `stat(c)`, C = (N − 1) F at a converged F ≥ 0 (fit:183-184): a value at least 0.
@@ -2114,9 +2151,9 @@ function cfRow(f: O, q: number, d: number, cb: number, db: number, p: number, bi
   // residuals with no guard (fit:221-243; the review of 9C-3, finding 4). A GFI that is not a
   // number gives AGFI and PGFI too_small, an infinite one overflow (1 − (p*/d)(1 − ±∞) and
   // (d/p*)(±∞) are both infinite at d above 0).
-  if (!cfStat(f.rmr, [CF_SMALL, CF_OVERFLOW]) || (isValue(f.rmr) && !(cfVal(f.rmr) >= 0)) || !cfStat(f.gfi, [CF_SMALL, CF_OVERFLOW])) return false;
+  if (!cfStat(f.rmr, [sc.small, sc.overflow]) || (isValue(f.rmr) && !(cfVal(f.rmr) >= 0)) || !cfStat(f.gfi, [sc.small, sc.overflow])) return false;
   const c = cfVal(f.cmin);
-  const gfi = isValue(f.gfi) ? cfVal(f.gfi) : ncCode(f.gfi) === CF_SMALL ? Number.NaN : Number.POSITIVE_INFINITY;
+  const gfi = isValue(f.gfi) ? cfVal(f.gfi) : ncCode(f.gfi) === sc.small ? Number.NaN : Number.POSITIVE_INFINITY;
   const n = bigN - 1;
   const pf = p;
   const qf = q;
@@ -2128,27 +2165,27 @@ function cfRow(f: O, q: number, d: number, cb: number, db: number, p: number, bi
   const cfiDenominator = Math.max(Math.max(cb - dbf, c - df), 0);
   const cfi = cfiDenominator === 0 ? 1 : 1 - ncp / cfiDenominator;
   const pratio = df / dbf;
-  const bcc: Expected = bigN <= pf + 2 ? { code: CF_BCC } : cfStatOf(c + (2 * qf * (bigN - 1)) / (bigN - pf - 2));
+  const bcc: Expected = bigN <= pf + 2 ? { code: sc.bcc } : st(c + (2 * qf * (bigN - 1)) / (bigN - pf - 2));
   const exact: Array<[string, Expected]> = [
-    ['cminDf', unlessDfZero(d, () => cfStatOf(c / df))],
-    ['agfi', unlessDfZero(d, () => cfStatOf(1 - (pstar / df) * (1 - gfi)))],
-    ['pgfi', unlessDfZero(d, () => cfStatOf((df / pstar) * gfi))],
-    ['nfi', againstOf(nfi, cb)],
-    ['rfi', unlessDfZero(d, () => againstOf(1 - c / df / (cb / dbf), cb))],
-    ['ifi', againstOf((cb - c) / (cb - df), cb)],
-    ['tli', unlessDfZero(d, () => againstOf((cb / dbf - c / df) / (cb / dbf - 1), cb))],
-    ['cfi', againstOf(cfi, cb)],
-    ['pratio', unlessDfZero(d, () => cfStatOf(pratio))],
-    ['pnfi', unlessDfZero(d, () => againstOf(nfi * pratio, cb))],
-    ['pcfi', unlessDfZero(d, () => againstOf(cfi * pratio, cb))],
-    ['ncp', cfStatOf(ncp)],
-    ['fmin', cfStatOf(c / n)],
-    ['f0', cfStatOf(ncp / n)],
-    ['rmsea', unlessDfZero(d, () => cfStatOf(Math.sqrt(ncp / n / df)))],
-    ['aic', cfStatOf(c + 2 * qf)],
+    ['cminDf', unless(d, () => st(c / df))],
+    ['agfi', unless(d, () => st(1 - (pstar / df) * (1 - gfi)))],
+    ['pgfi', unless(d, () => st((df / pstar) * gfi))],
+    ['nfi', against(nfi, cb)],
+    ['rfi', unless(d, () => against(1 - c / df / (cb / dbf), cb))],
+    ['ifi', against((cb - c) / (cb - df), cb)],
+    ['tli', unless(d, () => against((cb / dbf - c / df) / (cb / dbf - 1), cb))],
+    ['cfi', against(cfi, cb)],
+    ['pratio', unless(d, () => st(pratio))],
+    ['pnfi', unless(d, () => against(nfi * pratio, cb))],
+    ['pcfi', unless(d, () => against(cfi * pratio, cb))],
+    ['ncp', st(ncp)],
+    ['fmin', st(c / n)],
+    ['f0', st(ncp / n)],
+    ['rmsea', unless(d, () => st(Math.sqrt(ncp / n / df)))],
+    ['aic', st(c + 2 * qf)],
     ['bcc', bcc],
-    ['ecvi', cfStatOf((c + 2 * qf) / n)],
-    ['mecvi', 'value' in bcc ? cfStatOf(bcc.value / n) : bcc],
+    ['ecvi', st((c + 2 * qf) / n)],
+    ['mecvi', 'value' in bcc ? st(bcc.value / n) : bcc],
   ];
   for (const [k, e] of exact) if (!cfIs(f[k], e)) return false;
   // BIC and CAIC (fit:360-361), within a band of ln N's rounding.
@@ -2164,7 +2201,7 @@ function cfRow(f: O, q: number, d: number, cb: number, db: number, p: number, bi
   // P and PCLOSE (fit:331, fit:355-357): df_zero at 0 degrees of freedom; else a probability, or
   // distribution_out_of_range where the distribution gives none.
   for (const k of ['p', 'pclose']) {
-    if (d === 0 ? ncCode(f[k]) !== CF_DF_ZERO : !(cfStat(f[k], [CF_RANGE]) && (!isValue(f[k]) || (cfVal(f[k]) >= 0 && cfVal(f[k]) <= 1)))) return false;
+    if (d === 0 ? ncCode(f[k]) !== sc.dfZero : !(cfStat(f[k], [sc.range]) && (!isValue(f[k]) || (cfVal(f[k]) >= 0 && cfVal(f[k]) <= 1)))) return false;
   }
   // The NCP interval (fit:303-305, fit:346-347) and what Rust builds from it (fit:350-354,
   // fit:363-364): at 0 degrees of freedom df_zero; else each end a value at least 0 or
@@ -2174,17 +2211,17 @@ function cfRow(f: O, q: number, d: number, cb: number, db: number, p: number, bi
     ['ncpHi90', 'f0Hi90', 'rmseaHi90', 'ecviHi90'],
   ]) {
     if (d === 0) {
-      if ([end, f0k, rk, ek].some((k) => ncCode(f[k]) !== CF_DF_ZERO)) return false;
+      if ([end, f0k, rk, ek].some((k) => ncCode(f[k]) !== sc.dfZero)) return false;
       continue;
     }
-    if (!cfStat(f[end], [CF_RANGE])) return false;
+    if (!cfStat(f[end], [sc.range])) return false;
     if (!isValue(f[end])) {
-      if ([f0k, rk, ek].some((k) => ncCode(f[k]) !== CF_RANGE)) return false;
+      if ([f0k, rk, ek].some((k) => ncCode(f[k]) !== sc.range)) return false;
       continue;
     }
     const x = cfVal(f[end]);
     if (!(x >= 0)) return false;
-    if (!cfIs(f[f0k], cfStatOf(x / n)) || !cfIs(f[rk], cfStatOf(Math.sqrt(x / (n * df)))) || !cfIs(f[ek], cfStatOf((x + df + 2 * qf) / n))) return false;
+    if (!cfIs(f[f0k], st(x / n)) || !cfIs(f[rk], st(Math.sqrt(x / (n * df)))) || !cfIs(f[ek], st((x + df + 2 * qf) / n))) return false;
   }
   if (d !== 0 && isValue(f.ncpLo90) && isValue(f.ncpHi90) && !(cfVal(f.ncpLo90) <= cfVal(f.ncpHi90))) return false;
   // HOELTER (fit:315-326): df_zero at 0 degrees of freedom, cmin_zero at a CMIN of 0, else a
@@ -2192,10 +2229,10 @@ function cfRow(f: O, q: number, d: number, cb: number, db: number, p: number, bi
   for (const k of ['hoelter05', 'hoelter01']) {
     const h = f[k];
     if (d === 0) {
-      if (ncCode(h) !== CF_DF_ZERO) return false;
+      if (ncCode(h) !== sc.dfZero) return false;
     } else if (c === 0) {
-      if (ncCode(h) !== CF_CMIN_ZERO) return false;
-    } else if (!cfStat(h, [CF_OVERFLOW, CF_RANGE]) || (isValue(h) && !(Number.isInteger(cfVal(h)) && cfVal(h) >= 1))) {
+      if (ncCode(h) !== sc.cminZero) return false;
+    } else if (!cfStat(h, [sc.overflow, sc.range]) || (isValue(h) && !(Number.isInteger(cfVal(h)) && cfVal(h) >= 1))) {
       return false;
     }
   }
@@ -2237,7 +2274,7 @@ function cfaBundle(v: O, spec: O): CfaResultView | null {
     if (marker[i]) {
       if (statValue(l.estimate) !== 1 || !hasExactly(l.estimate as O, ['value'])) return null;
       if ([l.se, l.cr, l.p].some((s) => ncCode(s) !== CF_FIXED || !hasExactly(s as O, ['not_computable']))) return null;
-    } else if (!cfTested(l)) {
+    } else if (!cfTested(l, CF_SHARED)) {
       return null;
     }
     lambda.push(cfVal(l.estimate));
@@ -2247,7 +2284,7 @@ function cfaBundle(v: O, spec: O): CfaResultView | null {
   const phi = Array.from({ length: k }, () => Array.from({ length: k }, () => 0));
   for (let f = 0; f < k; f += 1) {
     const x = r.factorVariances[f];
-    if (!isObject(x) || !hasExactly(x, CF_VARIANCE_KEYS) || x.factor !== f + 1 || !cfTested(x)) return null;
+    if (!isObject(x) || !hasExactly(x, CF_VARIANCE_KEYS) || x.factor !== f + 1 || !cfTested(x, CF_SHARED)) return null;
     phi[f][f] = cfVal(x.estimate);
   }
   // The covariances: every pair f < g in Rust's order when the factors covary and there are
@@ -2258,7 +2295,7 @@ function cfaBundle(v: O, spec: O): CfaResultView | null {
   for (let t = 0; t < pairs.length; t += 1) {
     const x = r.factorCovariances[t];
     const [f, g] = pairs[t];
-    if (!isObject(x) || !hasExactly(x, CF_COVARIANCE_KEYS) || JSON.stringify(x.factors) !== JSON.stringify([f + 1, g + 1]) || !cfTested(x)) return null;
+    if (!isObject(x) || !hasExactly(x, CF_COVARIANCE_KEYS) || JSON.stringify(x.factors) !== JSON.stringify([f + 1, g + 1]) || !cfTested(x, CF_SHARED)) return null;
     phi[f][g] = cfVal(x.estimate);
     phi[g][f] = cfVal(x.estimate);
   }
@@ -2267,7 +2304,7 @@ function cfaBundle(v: O, spec: O): CfaResultView | null {
   const theta: number[] = [];
   for (let i = 0; i < p; i += 1) {
     const x = r.errorVariances[i];
-    if (!isObject(x) || !hasExactly(x, CF_ERROR_KEYS) || x.item !== items[i] || !cfTested(x)) return null;
+    if (!isObject(x) || !hasExactly(x, CF_ERROR_KEYS) || x.item !== items[i] || !cfTested(x, CF_SHARED)) return null;
     theta.push(cfVal(x.estimate));
   }
   // Σ's diagonal, λ_i λ_i φ_ff + θ_i (Model::sigma, :850-864), and from it the standardized
@@ -2278,16 +2315,16 @@ function cfaBundle(v: O, spec: O): CfaResultView | null {
     const f = factorOf[i] - 1;
     const sii = lambda[i] * lambda[i] * phi[f][f] + theta[i];
     const l = r.loadings[i] as O;
-    const standardized = phi[f][f] > 0 && sii > 0 ? cfStatOf((lambda[i] * Math.sqrt(phi[f][f])) / Math.sqrt(sii)) : negative;
+    const standardized = phi[f][f] > 0 && sii > 0 ? cfStatOf((lambda[i] * Math.sqrt(phi[f][f])) / Math.sqrt(sii), CF_SHARED) : negative;
     if (!cfIs(l.standardized, standardized)) return null;
     const s = r.smc[i];
     if (!isObject(s) || !hasExactly(s, CF_SMC_KEYS) || s.item !== items[i]) return null;
-    if (!cfIs(s.value, sii > 0 ? cfStatOf(1 - theta[i] / sii) : negative)) return null;
+    if (!cfIs(s.value, sii > 0 ? cfStatOf(1 - theta[i] / sii, CF_SHARED) : negative)) return null;
   }
   for (let t = 0; t < pairs.length; t += 1) {
     const [f, g] = pairs[t];
     const x = r.factorCovariances[t] as O;
-    const e = phi[f][f] > 0 && phi[g][g] > 0 ? cfStatOf(phi[f][g] / Math.sqrt(phi[f][f] * phi[g][g])) : negative;
+    const e = phi[f][f] > 0 && phi[g][g] > 0 ? cfStatOf(phi[f][g] / Math.sqrt(phi[f][f] * phi[g][g]), CF_SHARED) : negative;
     if (!cfIs(x.correlation, e)) return null;
   }
 
@@ -2309,14 +2346,14 @@ function cfaBundle(v: O, spec: O): CfaResultView | null {
   // The written cells are checked as written; the rest of the row by model_fit's rules
   // (cfRowExcept).
   if (!written(ind, { nfi: 0, rfi: 0, ifi: 0, tli: 0, cfi: 0, pratio: 1, pnfi: 0, pcfi: 0 })) return null;
-  if (!cfRowExcept(ind, p, db, cb, db, p, bigN, ['nfi', 'rfi', 'ifi', 'tli', 'cfi', 'pratio', 'pnfi', 'pcfi'])) return null;
+  if (!cfRowExcept(ind, p, db, cb, db, p, bigN, ['nfi', 'rfi', 'ifi', 'tli', 'cfi', 'pratio', 'pnfi', 'pcfi'], CF_SHARED)) return null;
   // The saturated row (saturated_fit, fit:259-268): q = p*, d = 0, C = 0, RMR 0 and GFI 1
   // written, and NFI and IFI written 1.
   const sat = fit.saturated as O;
   if (!written(sat, { cmin: 0, rmr: 0, gfi: 1, nfi: 1, ifi: 1 })) return null;
-  if (!cfRowExcept(sat, moments, 0, cb, db, p, bigN, ['nfi', 'ifi'])) return null;
+  if (!cfRowExcept(sat, moments, 0, cb, db, p, bigN, ['nfi', 'ifi'], CF_SHARED)) return null;
   // The default row (fit:194).
-  if (!cfRow(fit.model as O, q, d, cb, db, p, bigN)) return null;
+  if (!cfRow(fit.model as O, q, d, cb, db, p, bigN, CF_SHARED)) return null;
 
   // The notes (:1382-1392): a subset of the three in order; negative_variance exactly when a
   // factor variance or an error variance is below 0; the factors' covariance note exactly when
@@ -2333,7 +2370,7 @@ function cfaBundle(v: O, spec: O): CfaResultView | null {
   if (!Array.isArray(r.limitations) || JSON.stringify(r.limitations) !== JSON.stringify(CFA_LIMITATIONS)) return null;
 
   // Exclusions and the manifest, as the factor analysis's, the model's columns as its items.
-  if (!arrayOf(r.exclusions, cfExclusion) || !cfExclusionsAgree(r.exclusions as O[], numbers, codes)) return null;
+  if (!arrayOf(r.exclusions, cfExcluded) || !cfExclusionsAgree(r.exclusions as O[], numbers, codes, CF_SHARED)) return null;
   if (!arrayOf(v.diagnostics, cfDiagnostic) || !arrayOf(v.limitations, cfDiagnostic)) return null;
   // A succeeded run's diagnostics are validate's warnings, each a suspect code of a column of
   // the model (:705-722); its limitations the module's ten, as notes, in order.
@@ -2342,7 +2379,7 @@ function cfaBundle(v: O, spec: O): CfaResultView | null {
   }
   const lims = v.limitations as O[];
   if (lims.length !== CFA_LIMITATIONS.length || lims.some((x, i) => x.code !== CFA_LIMITATIONS[i] || x.severity !== 'note' || Object.keys(x.params as O).length !== 0)) return null;
-  if (!manifest(v.manifest, CFA_CAPABILITY, cfExclusion)) return null;
+  if (!manifest(v.manifest, CFA_CAPABILITY, cfExcluded)) return null;
   const mf = v.manifest as O;
   if (mf.rowsUsed !== bigN) return null;
   if (mf.rowsRead !== bigN + (r.exclusions as Array<{ count: number }>).reduce((s, x) => s + x.count, 0)) return null;
@@ -2358,7 +2395,10 @@ function cfaBundle(v: O, spec: O): CfaResultView | null {
 
 /** cfRow with the named cells, written by fit_measures over model_fit's, replaced by what
  *  model_fit computes before the rules run, so every other cell is held to its rule. */
-function cfRowExcept(row: O, q: number, d: number, cb: number, db: number, p: number, bigN: number, writtenKeys: string[]): boolean {
+function cfRowExcept(row: O, q: number, d: number, cb: number, db: number, p: number, bigN: number, writtenKeys: string[], sc: SharedCodes): boolean {
+  const st = (x: number) => cfStatOf(x, sc);
+  const against = (x: number, b: number) => againstOf(x, b, sc);
+  const unless = (dd: number, e: () => Expected) => unlessDfZero(dd, e, sc);
   if (!hasExactly(row, CF_MEASURES) || !isValue(row.cmin)) return false;
   const c = cfVal(row.cmin);
   const df = d;
@@ -2368,21 +2408,21 @@ function cfRowExcept(row: O, q: number, d: number, cb: number, db: number, p: nu
   const cfi = cfiDenominator === 0 ? 1 : 1 - ncp / cfiDenominator;
   const pratio = df / db;
   const computed: Record<string, Expected> = {
-    nfi: againstOf(nfi, cb),
-    rfi: unlessDfZero(d, () => againstOf(1 - c / df / (cb / db), cb)),
-    ifi: againstOf((cb - c) / (cb - df), cb),
-    tli: unlessDfZero(d, () => againstOf((cb / db - c / df) / (cb / db - 1), cb)),
-    cfi: againstOf(cfi, cb),
-    pratio: unlessDfZero(d, () => cfStatOf(pratio)),
-    pnfi: unlessDfZero(d, () => againstOf(nfi * pratio, cb)),
-    pcfi: unlessDfZero(d, () => againstOf(cfi * pratio, cb)),
+    nfi: against(nfi, cb),
+    rfi: unless(d, () => against(1 - c / df / (cb / db), cb)),
+    ifi: against((cb - c) / (cb - df), cb),
+    tli: unless(d, () => against((cb / db - c / df) / (cb / db - 1), cb)),
+    cfi: against(cfi, cb),
+    pratio: unless(d, () => st(pratio)),
+    pnfi: unless(d, () => against(nfi * pratio, cb)),
+    pcfi: unless(d, () => against(cfi * pratio, cb)),
   };
   const asComputed: O = { ...row };
   for (const key of writtenKeys) {
     const e = computed[key];
     asComputed[key] = 'value' in e ? { value: e.value } : { not_computable: e.code };
   }
-  return cfRow(asComputed, q, d, cb, db, p, bigN);
+  return cfRow(asComputed, q, d, cb, db, p, bigN, sc);
 }
 
 /** A failed run's diagnostic (decision 786): one of the run's four refusals, which only the run
@@ -2408,6 +2448,669 @@ function cfaFailure(failure: unknown, spec: O): boolean {
       return JSON.stringify(keys) === JSON.stringify(['count', 'limit']) && pr.limit === CF_MAX_ITERATIONS && isCount(pr.count) && pr.count <= CF_MAX_ITERATIONS;
     case cfCode('model_not_identified'):
       return keys.length === 0 || (JSON.stringify(keys) === JSON.stringify(['count']) && isCount(pr.count) && pr.count >= 1);
+    default:
+      return false;
+  }
+}
+
+/* ---- the structural equation model (Research OS, Phase 9C-5d, decisions 818 and 834) ---------
+ * Accepts what stats_sem writes and nothing else. It is not in STORED_CHECKERS, and nothing in
+ * SavedResult calls it, until 9C-5e registers it with its renderer, its stored fixtures and its
+ * methods row (decision 836); semBundle and semFailure are exported for their tests. Each rule
+ * names the line of gaply-core/src/stats_sem/mod.rs it mirrors, as at 735ec94c, and fit:N for
+ * stats_fit. Equality is as doubles in Rust's order. The CFA's helpers are shared, never copied,
+ * each given the SEM's codes (SEM_SHARED): the tested-value rule (cfTested), the fit rows
+ * (cfRow, cfRowExcept, with the CFA's lnN band, CFA_BANDS.lnN), the exclusions (cfExclusion,
+ * cfExclusionsAgree), the manifest and choleskyAtZero. What Rust computes from Ω, which the
+ * checker computes again from the stored estimates, is held to a band (SEM_BANDS). */
+
+/** stats_sem::CAPABILITY_ID (:76), by its literal: methods.ts has no sem kind until 9C-5e, so
+ *  capabilityOfKind cannot give it (decision 834). */
+export const SEM_CAPABILITY = 'stats.analyze.sem';
+const smCode = (c: string) => `stats.sem.${c}`;
+const SM_CODES = (SEM_CODES as string[]).filter((c) => c.indexOf('stats.sem.') === 0);
+/** ParamKey's words a SEM diagnostic can carry (semTypes.ts's SemParamKey). */
+const SM_PARAM_KEYS = ['column', 'count', 'index', 'value', 'limit', 'expected', 'found'];
+/** The SEM's codes for the shared rules (of_fit, :2289-2301, maps stats_fit's to these). */
+const SEM_SHARED: SharedCodes = {
+  small: smCode('too_small'),
+  overflow: smCode('overflow'),
+  range: smCode('distribution_out_of_range'),
+  dfZero: smCode('df_zero'),
+  cminZero: smCode('cmin_zero'),
+  baselineZero: smCode('independence_cmin_zero'),
+  bcc: smCode('too_few_rows_for_bcc'),
+  excluded: [smCode('missing_value'), smCode('missing_code')],
+};
+const SM_FIXED = smCode('fixed_parameter');
+const SM_NEGATIVE = smCode('negative_variance');
+/** stats_sem::MAX_ITERATIONS (:99): each attempt's cap, and sem_not_converged's limit. */
+const SM_MAX_ITERATIONS = 500;
+
+/** The bands of decision 818 for what Rust computes from Ω = B Φ Bᵀ, which the checker computes
+ *  again from the stored estimates: |stored − computed| / max(|computed|, 1) ≤ band · k · a, with
+ *  k = 1 and a = 1 for a model without a loop, and for one with a loop k = κ(I − A) and a the
+ *  amplification of 1/ω (SmScale, the review of 9C-5d, finding 1). Set by 9C-5d's hunt (decision
+ *  835) to each worst case's next power of ten above, measured with the band lifted over the 273
+ *  succeeded runs of 304 stored (seed 20261116; 16 Nov 2026, ~/gaply-corpus/os/phase9/9c5d/hunt/,
+ *  30 of them loops of gain near 1 with columns on scales 1e-3 to 1e3) and the two wire results.
+ *  Every worst case is a model with a loop; without a loop every value matched exactly (worst 0),
+ *  the checker's substitution being Rust's. */
+export const SEM_BANDS = {
+  /** A standardized weight, x √ω_ss / √ω_tt (:2157): worst 9.640e-18 (loop009), so 1e-17. */
+  standardizedWeight: 1e-17,
+  /** A squared multiple correlation, 1 − φ_vv / ω_vv (:2176-2183): worst 2.136e-17 (loop009),
+   *  so 1e-16. */
+  smc: 1e-16,
+  /** An effect's total, B[to][from] (:2193): worst 4.329e-17 (loop032), so 1e-16. */
+  total: 1e-16,
+  /** An effect's standardized total and indirect, each x √ω_ff / √ω_tt (:2203-2205): worst
+   *  8.204e-18 (loop019), so 1e-17. */
+  standardizedEffect: 1e-17,
+};
+export type SemBand = keyof typeof SEM_BANDS;
+let semBandWatcher: ((band: SemBand, value: number) => void) | null = null;
+/** Whoever measures the bands (decision 835's hunt): none in the app. */
+export function measureSemBands(watch: ((band: SemBand, value: number) => void) | null): void {
+  semBandWatcher = watch;
+}
+const smMeasure = (k: SemBand, v: number) => {
+  if (semBandWatcher) semBandWatcher(k, v);
+  return v;
+};
+
+/** SemOutcome's keys and each object's, every one always written (:548-583, :432-500). */
+const SM_RESULT_KEYS = ['columns', 'rowsUsed', 'indicators', 'weights', 'covariances', 'variances', 'smc', 'effects', 'fit', 'iterations', 'attempt', 'exclusions', 'notes', 'limitations'];
+const SM_WEIGHT_KEYS = ['to', 'from', 'kind', 'estimate', 'se', 'cr', 'p', 'standardized'];
+const SM_COVARIANCE_KEYS = ['a', 'b', 'estimate', 'se', 'cr', 'p', 'correlation'];
+const SM_VARIANCE_KEYS = ['variable', 'error', 'estimate', 'se', 'cr', 'p'];
+const SM_SMC_KEYS = ['variable', 'value'];
+const SM_EFFECT_KEYS = ['to', 'from', 'total', 'direct', 'indirect', 'totalStandardized', 'directStandardized', 'indirectStandardized'];
+/** LIMITATIONS (:584-600), in decision 799's order. */
+const SEM_LIMITATIONS = [
+  'ml_only',
+  'no_means',
+  'one_group_only',
+  'indicators_measure_one_factor',
+  'equal_one_kind',
+  'marker_identification_only',
+  'no_fixed_values',
+  'effects_structural_only',
+  'no_indirect_effect_tests',
+  'no_stability_index',
+  'no_modification_indices',
+  'normal_theory_standard_errors',
+  'no_srmr',
+  'listwise_only',
+  'no_weights',
+].map(smCode);
+/** The notes in Rust's order (:2236-2255). */
+const SEM_NOTES = ['negative_variance', 'covariance_not_positive_definite', 'nonrecursive', 'df_zero'].map(smCode);
+
+/** A SemVariable as serde writes it (:317): exactly {factor: n} or {column: "Cn"}. Its
+ *  order key: factors before columns, factors by number, columns by alias (derived Ord). */
+type SemVar = { factor: number } | { column: number };
+function semVar(v: unknown): SemVar | null {
+  if (!isObject(v) || Object.keys(v).length !== 1) return null;
+  if ('factor' in v) return isCount(v.factor) ? { factor: v.factor } : null;
+  const a = aliasNumber(v.column);
+  return a === null ? null : { column: a };
+}
+const varKey = (x: SemVar): number[] => ('factor' in x ? [0, x.factor] : [1, x.column]);
+const keyCompare = (a: number[], b: number[]) => {
+  for (let i = 0; i < Math.max(a.length, b.length); i += 1) {
+    const d = (a[i] ?? -1) - (b[i] ?? -1);
+    if (d !== 0) return d;
+  }
+  return 0;
+};
+/** A SemParameter (:356-375) as {kind, key, ...}: kind loading 0, path 1, covariance 2, variance
+ *  3, then its fields in derived Ord's order. */
+type SemPar = { kind: number; key: number[]; ends: SemVar[]; factor?: number; column?: number };
+function semPar(v: unknown): SemPar | null {
+  if (!isObject(v) || Object.keys(v).length !== 1) return null;
+  if ('loading' in v) {
+    const l = v.loading;
+    if (!isObject(l) || !hasExactly(l, ['factor', 'column']) || !isCount(l.factor)) return null;
+    const c = aliasNumber(l.column);
+    return c === null ? null : { kind: 0, key: [0, l.factor, c], ends: [], factor: l.factor, column: c };
+  }
+  if ('path' in v || 'covariance' in v) {
+    const kind = 'path' in v ? 1 : 2;
+    const x = 'path' in v ? v.path : v.covariance;
+    const names = kind === 1 ? ['to', 'from'] : ['a', 'b'];
+    if (!isObject(x) || !hasExactly(x, names)) return null;
+    const ends = names.map((n) => semVar(x[n]));
+    if (ends.some((e) => e === null)) return null;
+    const e = ends as SemVar[];
+    return { kind, key: [kind, ...varKey(e[0]), ...varKey(e[1])], ends: e };
+  }
+  if ('variance' in v) {
+    const x = v.variance;
+    if (!isObject(x) || !hasExactly(x, ['variable'])) return null;
+    const e = semVar(x.variable);
+    return e === null ? null : { kind: 3, key: [3, ...varKey(e)], ends: [e] };
+  }
+  return null;
+}
+
+/** The model of a spec check_spec and check accept (:1223-1438), in Model::of's layout
+ *  (:739-866): variables 0..k the factors, then the model's columns in alias order. */
+interface SemModel {
+  k: number;
+  columns: number[];
+  m: number;
+  /** Each factor's columns as variable indices, in the spec's order. */
+  factors: number[][];
+  /** The paths as [to, from] variable indices, in the spec's order. */
+  paths: Array<[number, number]>;
+  covs: Array<[number, number]>;
+  endogenous: boolean[];
+  indicator: boolean[];
+  sources: number[][];
+  order: number[] | null;
+  groups: SemPar[][];
+  q: number;
+}
+
+/** The spec's parameters as check requires them, or null. */
+function semModel(sp: O): SemModel | null {
+  if (!hasExactly(sp, ['indicators', 'paths', 'covariances', 'equal', 'missingCodes'])) return null;
+  // The codes finite, ascending and once each (:1411-1418).
+  const codes = sp.missingCodes;
+  if (!Array.isArray(codes) || !codes.every(isNum) || codes.some((c, i) => i > 0 && !((c as number) > (codes[i - 1] as number)))) return null;
+  // 0 to 16 factors, each of at least 2 columns, ascending; the factors ordered by first column;
+  // no column twice (:1228-1267).
+  if (!Array.isArray(sp.indicators) || sp.indicators.length > SEM_LIMITS.maxFactors) return null;
+  const ind: number[][] = [];
+  for (const cols of sp.indicators as unknown[]) {
+    if (!Array.isArray(cols) || cols.length < SEM_LIMITS.minFactorItems) return null;
+    const ns = cols.map(aliasNumber);
+    if (ns.some((x) => x === null)) return null;
+    const n = ns as number[];
+    if (n.some((x, i) => i > 0 && !(x > n[i - 1]))) return null;
+    ind.push(n);
+  }
+  if (ind.some((x, i) => i > 0 && !(x[0] > ind[i - 1][0]))) return null;
+  const held = ind.flat();
+  if (new Set(held).size !== held.length) return null;
+  const k = ind.length;
+  const known = (x: SemVar) => !('factor' in x) || (x.factor >= 1 && x.factor <= k);
+  const isIndicator = (x: SemVar) => 'column' in x && held.indexOf(x.column) >= 0;
+  // The paths: at most 64; each end known (Factor(0) is unknown_factor, :1268), never a variable
+  // to itself, never a factor's own column at either end, ascending by (to, from), none repeated
+  // (:1271-1300).
+  if (!Array.isArray(sp.paths) || sp.paths.length > SEM_LIMITS.maxPaths) return null;
+  const paths: Array<[SemVar, SemVar]> = [];
+  for (const p of sp.paths as unknown[]) {
+    if (!isObject(p) || !hasExactly(p, ['to', 'from'])) return null;
+    const to = semVar(p.to);
+    const from = semVar(p.from);
+    if (to === null || from === null || !known(to) || !known(from) || isIndicator(to) || isIndicator(from)) return null;
+    if (keyCompare(varKey(to), varKey(from)) === 0) return null;
+    paths.push([to, from]);
+  }
+  const pathKey = (x: [SemVar, SemVar]) => [...varKey(x[0]), ...varKey(x[1])];
+  if (paths.some((x, i) => i > 0 && !(keyCompare(pathKey(x), pathKey(paths[i - 1])) > 0))) return null;
+  // The covariances: at most 256; each end known, a before b, ascending by (a, b), none repeated;
+  // a factor's column may be one (:1302-1324).
+  if (!Array.isArray(sp.covariances) || sp.covariances.length > SEM_LIMITS.maxCovariances) return null;
+  const covs: Array<[SemVar, SemVar]> = [];
+  for (const c of sp.covariances as unknown[]) {
+    if (!isObject(c) || !hasExactly(c, ['a', 'b'])) return null;
+    const a = semVar(c.a);
+    const b = semVar(c.b);
+    if (a === null || b === null || !known(a) || !known(b) || !(keyCompare(varKey(a), varKey(b)) < 0)) return null;
+    covs.push([a, b]);
+  }
+  if (covs.some((x, i) => i > 0 && !(keyCompare(pathKey(x), pathKey(covs[i - 1])) > 0))) return null;
+  // At least one factor, path or covariance (:1226-1228).
+  if (k === 0 && paths.length === 0 && covs.length === 0) return null;
+  // The model's columns, SemParams::columns (:392-405): 2 to 128 (:1424-1437).
+  const set = new Set(held);
+  for (const [x, y] of [...paths, ...covs]) for (const e of [x, y]) if ('column' in e) set.add(e.column);
+  const columns = Array.from(set).sort((a, b) => a - b);
+  if (columns.length < SEM_LIMITS.minColumns || columns.length > SEM_LIMITS.maxColumns) return null;
+  const m = k + columns.length;
+  const index = (x: SemVar) => ('factor' in x ? x.factor - 1 : k + columns.indexOf(x.column));
+  // The groups held equal (:1326-1400): at most 128 members in all; each of at least 2 members of
+  // one kind, each a free parameter (a loading not its factor's first, a listed path or
+  // covariance, a variable of the model), ascending, the groups ordered by first member, no
+  // parameter in two groups.
+  if (!Array.isArray(sp.equal)) return null;
+  const groups: SemPar[][] = [];
+  let members = 0;
+  const seen = new Set<string>();
+  for (const g of sp.equal as unknown[]) {
+    if (!Array.isArray(g) || g.length < 2) return null;
+    members += g.length;
+    const ps = g.map(semPar);
+    if (ps.some((x) => x === null)) return null;
+    const pars = ps as SemPar[];
+    if (pars.some((x) => x.kind !== pars[0].kind)) return null;
+    for (const x of pars) {
+      const free =
+        x.kind === 0
+          ? (x.factor as number) >= 1 && (x.factor as number) <= k && ind[(x.factor as number) - 1].indexOf(x.column as number) >= 1
+          : x.kind === 1
+            ? paths.some((p) => keyCompare(pathKey(p), x.key.slice(1)) === 0)
+            : x.kind === 2
+              ? covs.some((p) => keyCompare(pathKey(p), x.key.slice(1)) === 0)
+              : known(x.ends[0]) && ('factor' in x.ends[0] || columns.indexOf(x.ends[0].column) >= 0);
+      if (!free) return null;
+      const id = x.key.join(',');
+      if (seen.has(id)) return null;
+      seen.add(id);
+    }
+    if (pars.some((x, i) => i > 0 && !(keyCompare(x.key, pars[i - 1].key) > 0))) return null;
+    if (groups.length > 0 && !(keyCompare(pars[0].key, groups[groups.length - 1][0].key) > 0)) return null;
+    groups.push(pars);
+  }
+  if (members > SEM_LIMITS.maxEqualMembers) return null;
+  // Model::of (:739-866): the loadings, the paths, endogenous, sources and the order.
+  const endogenous = Array.from({ length: m }, () => false);
+  const indicator = Array.from({ length: m }, () => false);
+  const sources: number[][] = Array.from({ length: m }, () => []);
+  const factors = ind.map((cols, f) =>
+    cols.map((c) => {
+      const v = k + columns.indexOf(c);
+      endogenous[v] = true;
+      indicator[v] = true;
+      sources[v].push(f);
+      return v;
+    })
+  );
+  const pathIx = paths.map(([t, s]) => [index(t), index(s)] as [number, number]);
+  for (const [t, s] of pathIx) {
+    endogenous[t] = true;
+    sources[t].push(s);
+  }
+  for (const list of sources) {
+    list.sort((a, b) => a - b);
+    for (let i = list.length - 1; i > 0; i -= 1) if (list[i] === list[i - 1]) list.splice(i, 1);
+  }
+  // Model::q (:871): the free loadings, the paths, the covariances and one variance per variable,
+  // less each group's members less one.
+  const q = ind.reduce((s, cols) => s + cols.length - 1, 0) + paths.length + covs.length + m - groups.reduce((s, g) => s + g.length - 1, 0);
+  return { k, columns, m, factors, paths: pathIx, covs: covs.map(([a, b]) => [index(a), index(b)]), endogenous, indicator, sources, order: smTopological(sources), groups, q };
+}
+
+/** topological (:961-978): Kahn's, the lowest index first; null on a loop. */
+function smTopological(sources: number[][]): number[] | null {
+  const m = sources.length;
+  const waiting = sources.map((s) => s.length);
+  const placed = sources.map(() => false);
+  const order: number[] = [];
+  while (order.length < m) {
+    let next = -1;
+    for (let v = 0; v < m; v += 1) {
+      if (!placed[v] && waiting[v] === 0) {
+        next = v;
+        break;
+      }
+    }
+    if (next < 0) return null;
+    placed[next] = true;
+    order.push(next);
+    sources.forEach((list, t) => {
+      waiting[t] -= list.filter((s) => s === next).length;
+    });
+  }
+  return order;
+}
+
+/** stats_linalg::multiply: each sum left to right. */
+const smMultiply = (a: number[][], b: number[][]) =>
+  a.map((row) =>
+    b[0].map((_, j) => {
+      let s = 0;
+      for (let t = 0; t < b.length; t += 1) s += row[t] * b[t][j];
+      return s;
+    })
+  );
+
+/** (I − A)⁻¹ by Gauss–Jordan with partial pivoting, or null where a pivot is 0 or not finite. */
+function smInverseOfIMinus(a: number[][]): number[][] | null {
+  const n = a.length;
+  const w = a.map((row, i) => [...row.map((x, j) => (i === j ? 1 : 0) - x), ...row.map((_, j) => (i === j ? 1 : 0))]);
+  for (let c = 0; c < n; c += 1) {
+    let best = c;
+    for (let r = c + 1; r < n; r += 1) if (Math.abs(w[r][c]) > Math.abs(w[best][c])) best = r;
+    if (!(Math.abs(w[best][c]) > 0) || !Number.isFinite(w[best][c])) return null;
+    [w[c], w[best]] = [w[best], w[c]];
+    const pivot = w[c][c];
+    for (let j = 0; j < 2 * n; j += 1) w[c][j] /= pivot;
+    for (let r = 0; r < n; r += 1) {
+      if (r === c) continue;
+      const f = w[r][c];
+      if (f !== 0) for (let j = 0; j < 2 * n; j += 1) w[r][j] -= f * w[c][j];
+    }
+  }
+  return w.map((row) => row.slice(n));
+}
+
+/** B = (I − A)⁻¹ and Ω = B Φ Bᵀ from the stored A and Φ (implied, :925-951): without a loop by
+ *  substitution in the topological order, as Rust does; with one by Gauss–Jordan, where Rust
+ *  inverts in natural units (decision 818); the checker does too, from the stored variances. */
+/** What the checker's Ω may differ from Rust's by, for a model with a loop (the review of 9C-5d,
+ *  finding 1): both invert I − A in natural units, but from different units (Rust's from S, the
+ *  checker's from the stored variances), so their B and Ω differ by up to about κ ε, κ the
+ *  natural-unit ‖I − A‖∞ ‖(I − A)⁻¹‖∞, each ω_vv by that times its terms' size (|B| |Φ| |B|ᵀ)_vv. Without a loop the checker's arithmetic is Rust's: k = 1 and the
+ *  comparisons are exact up to the band. */
+interface SmScale {
+  k: number;
+  mag: number[];
+  loop: boolean;
+}
+let smScale: SmScale = { k: 1, mag: [], loop: false };
+/** The loop's I − A and its inverse in natural units, for κ. */
+let smNatural: { a: number[][]; b: number[][] } = { a: [], b: [] };
+
+function smImplied(model: SemModel, a: number[][], phi: number[][]): { b: number[][]; omega: number[][] } | null {
+  const m = model.m;
+  let b: number[][];
+  if (model.order) {
+    b = Array.from({ length: m }, () => Array.from({ length: m }, () => 0));
+    for (const t of model.order) {
+      const row = Array.from({ length: m }, () => 0);
+      row[t] = 1;
+      for (const from of model.sources[t]) for (let x = 0; x < m; x += 1) row[x] += a[t][from] * b[from][x];
+      b[t] = row;
+    }
+  } else {
+    // Natural units, as implied's loop branch (:938-946): each variable's power of two at or below
+    // √|φ_vv| (Rust takes its representative column's √s, which the stored result does not hold),
+    // so scaling by it and back is exact. I − D⁻¹ A D is inverted, and B is D (that inverse) D⁻¹.
+    const d = phi.map((row, v) => {
+      const x = Math.sqrt(Math.abs(row[v]));
+      return Number.isFinite(x) && x > 0 ? 2 ** Math.floor(Math.log2(x)) : 1;
+    });
+    const scaled = a.map((row, i) => row.map((y, j) => (y * d[j]) / d[i]));
+    const inv = smInverseOfIMinus(scaled);
+    if (inv === null) return null;
+    b = inv.map((row, i) => row.map((y, j) => (y * d[i]) / d[j]));
+    smNatural = { a: scaled, b: inv };
+  }
+  const bt = b[0].map((_, j) => b.map((row) => row[j]));
+  const omega = smMultiply(smMultiply(b, phi), bt);
+  if (model.order) {
+    smScale = { k: 1, mag: omega.map(() => 1), loop: false };
+  } else {
+    const rowSum = (x: number[][], i: number) => x[i].reduce((t, y) => t + Math.abs(y), 0);
+    const iMinusA = smNatural.a.map((row, i) => row.map((y, j) => (i === j ? 1 : 0) - y));
+    let n1 = 0;
+    let n2 = 0;
+    for (let i = 0; i < m; i += 1) {
+      n1 = Math.max(n1, rowSum(iMinusA, i));
+      n2 = Math.max(n2, rowSum(smNatural.b, i));
+    }
+    const ab = b.map((row) => row.map(Math.abs));
+    const aphi = phi.map((row) => row.map(Math.abs));
+    const mag = smMultiply(smMultiply(ab, aphi), ab[0].map((_, j) => ab.map((row) => row[j]))).map((row, v) => row[v]);
+    smScale = { k: Math.max(1, n1 * n2), mag, loop: true };
+  }
+  return { b, omega };
+}
+
+/** A value Rust computes from Ω, within its band of the checker's: a value within the band, or,
+ *  where the checker's is not finite, `stat`'s code for it exactly. */
+function smNear(band: SemBand, stored: unknown, computed: number, amplification = 1): boolean {
+  if (!Number.isFinite(computed)) return cfIs(stored, cfStatOf(computed, SEM_SHARED));
+  if (!isValue(stored)) return false;
+  return smMeasure(band, Math.abs(cfVal(stored) - computed) / Math.max(Math.abs(computed), 1) / (smScale.k * amplification)) <= SEM_BANDS[band];
+}
+/** How much a quantity divided by ω_vv amplifies ω_vv's error: its terms' size over |ω_vv|, for a
+ *  model with a loop; 1 without one. */
+const smAmp = (w: number, v: number) => (smScale.loop ? Math.max(1, Math.max(smScale.mag[v], 1) / Math.max(Math.abs(w), Number.MIN_VALUE)) : 1);
+/** Rust's test `> 0.0` on the checker's ω: 1 where it holds beyond the band, −1 where it fails
+ *  beyond it, 0 where ω is within the band of 0 and either answer is accepted (decision 818). */
+const smSign = (band: SemBand, w: number, v: number) => {
+  const zone = SEM_BANDS[band] * smScale.k * Math.max(smScale.mag[v] ?? 1, 1);
+  return w > zone ? 1 : w <= -zone || Number.isNaN(w) ? -1 : 0;
+};
+/** `standardized(x, a, b)` (:2086-2093) on the checker's a and b: x √a / √b within the band, or
+ *  negative_variance, or either where a or b is within the band of 0. */
+function smStandardized(band: SemBand, stored: unknown, x: number, wa: number, wb: number, va: number, vb: number): boolean {
+  const sa = smSign(band, wa, va);
+  const sb = smSign(band, wb, vb);
+  if (sa < 0 || sb < 0) return ncCode(stored) === SM_NEGATIVE && hasExactly(stored as O, ['not_computable']);
+  if (sa === 0 || sb === 0) return (ncCode(stored) === SM_NEGATIVE && hasExactly(stored as O, ['not_computable'])) || cfStat(stored, [SEM_SHARED.small, SEM_SHARED.overflow]);
+  return smNear(band, stored, (x * Math.sqrt(wa)) / Math.sqrt(wb), Math.max(smAmp(wa, va), smAmp(wb, vb)));
+}
+/** Two stats bit for bit the same: values by Object.is, codes by their word. */
+const sameStat = (x: unknown, y: unknown) =>
+  isObject(x) && isObject(y) && ('value' in x ? 'value' in y && Object.is(x.value, y.value) && hasExactly(x, ['value']) && hasExactly(y, ['value']) : ncCode(x) === ncCode(y) && ncCode(x) !== undefined);
+
+const smDiagnostic = (v: unknown) =>
+  diagnostic(SM_CODES, SM_PARAM_KEYS, false)(v) &&
+  isObject(v) &&
+  (v.code !== smCode('suspect_missing_code') || (isObject(v.params) && ['column', 'value', 'count'].every((k) => isNum((v.params as O)[k]))));
+const smExcluded = (e: unknown) => cfExclusion(e, SEM_SHARED);
+
+/** A stored structural equation model's bundle, or null (decisions 818 and 834). */
+export function semBundle(v: O, spec: O): SemResultView | null {
+  const sp = spec.parameters;
+  const r = v.primaryOutputs;
+  if (!isObject(sp)) return null;
+  const model = semModel(sp);
+  if (model === null) return null;
+  if (!isObject(r) || !hasExactly(r, SM_RESULT_KEYS)) return null;
+  if (!isCount(v.runId) || v.status !== 'succeeded') return null;
+  const { k, m, columns } = model;
+  const p = columns.length;
+  const name = (x: number): O => (x < k ? { factor: x + 1 } : { column: `C${columns[x - k]}` });
+  const sameVar = (stored: unknown, x: number) => isObject(stored) && JSON.stringify(stored) === JSON.stringify(name(x)) && Object.keys(stored).length === 1;
+
+  // Shape: the columns, SemParams::columns (:2271), and the indicators as the spec (:2273).
+  if (JSON.stringify(r.columns) !== JSON.stringify(columns.map((c) => `C${c}`)) || JSON.stringify(r.indicators) !== JSON.stringify(sp.indicators)) return null;
+  // At least p + 1 complete rows (:1481-1488); 0 to 500 iterations; attempt 1, 2 or 3 (:2030-2060).
+  if (!isCount(r.rowsUsed) || r.rowsUsed < p + 1) return null;
+  if (!isCount(r.iterations) || r.iterations > SM_MAX_ITERATIONS || [1, 2, 3].indexOf(r.attempt as number) < 0) return null;
+  const bigN = r.rowsUsed;
+
+  // The weights (:2141-2160, Model::of's rows :815-833): the loadings factor by factor, each
+  // factor's columns in its order, the first exactly 1 with S.E., C.R. and P fixed_parameter; then
+  // the paths in the spec's order. A from the stored estimates.
+  const rows: Array<[number, number, string, boolean]> = [];
+  model.factors.forEach((vars, f) => vars.forEach((v0, t) => rows.push([v0, f, 'loading', t === 0])));
+  for (const [t, s] of model.paths) rows.push([t, s, 'path', false]);
+  if (!Array.isArray(r.weights) || r.weights.length !== rows.length) return null;
+  const a = Array.from({ length: m }, () => Array.from({ length: m }, () => 0));
+  for (let i = 0; i < rows.length; i += 1) {
+    const w = r.weights[i];
+    const [t, s, kind, fixed] = rows[i];
+    if (!isObject(w) || !hasExactly(w, SM_WEIGHT_KEYS) || !sameVar(w.to, t) || !sameVar(w.from, s) || w.kind !== kind) return null;
+    if (fixed) {
+      if (statValue(w.estimate) !== 1 || !hasExactly(w.estimate as O, ['value'])) return null;
+      if ([w.se, w.cr, w.p].some((x) => ncCode(x) !== SM_FIXED || !hasExactly(x as O, ['not_computable']))) return null;
+    } else if (!cfTested(w, SEM_SHARED)) {
+      return null;
+    }
+    a[t][s] = cfVal(w.estimate);
+  }
+  // The covariances, one per spec covariance in its order (:2161-2169); Φ's off-diagonal.
+  const phi = Array.from({ length: m }, () => Array.from({ length: m }, () => 0));
+  if (!Array.isArray(r.covariances) || r.covariances.length !== model.covs.length) return null;
+  for (let i = 0; i < model.covs.length; i += 1) {
+    const c = r.covariances[i];
+    const [x, y] = model.covs[i];
+    if (!isObject(c) || !hasExactly(c, SM_COVARIANCE_KEYS) || !sameVar(c.a, x) || !sameVar(c.b, y) || !cfTested(c, SEM_SHARED)) return null;
+    phi[x][y] = cfVal(c.estimate);
+    phi[y][x] = cfVal(c.estimate);
+  }
+  // The variances, one per variable in the model's order, error exactly when endogenous
+  // (:2170-2175); Φ's diagonal.
+  if (!Array.isArray(r.variances) || r.variances.length !== m) return null;
+  for (let x = 0; x < m; x += 1) {
+    const s = r.variances[x];
+    if (!isObject(s) || !hasExactly(s, SM_VARIANCE_KEYS) || !sameVar(s.variable, x) || s.error !== model.endogenous[x] || !cfTested(s, SEM_SHARED)) return null;
+    phi[x][x] = cfVal(s.estimate);
+  }
+  // Each correlation exactly, from the stored covariance and variances (:2166).
+  for (let i = 0; i < model.covs.length; i += 1) {
+    const [x, y] = model.covs[i];
+    const e: Expected = phi[x][x] > 0 && phi[y][y] > 0 ? cfStatOf(phi[x][y] / Math.sqrt(phi[x][x] * phi[y][y]), SEM_SHARED) : { code: SM_NEGATIVE };
+    if (!cfIs((r.covariances[i] as O).correlation, e)) return null;
+  }
+  // The groups held equal: each member's estimate, S.E., C.R. and P bit for bit its group's
+  // first's, since a group's members read one entry of θ and of H⁻¹ (Model::of, :792-811;
+  // outcome's se, :2137).
+  const rowOf = (x: SemPar): O | undefined => {
+    if (x.kind === 0) return (r.weights as O[]).find((w, i) => rows[i][2] === 'loading' && rows[i][1] === (x.factor as number) - 1 && rows[i][0] === k + columns.indexOf(x.column as number));
+    if (x.kind === 1 || x.kind === 2) {
+      const list = x.kind === 1 ? model.paths : model.covs;
+      const ix = (e: SemVar) => ('factor' in e ? e.factor - 1 : k + columns.indexOf(e.column));
+      const at = list.findIndex(([t, s]) => t === ix(x.ends[0]) && s === ix(x.ends[1]));
+      return x.kind === 1 ? (r.weights as O[])[rows.length - model.paths.length + at] : (r.covariances as O[])[at];
+    }
+    const e = x.ends[0];
+    return (r.variances as O[])['factor' in e ? e.factor - 1 : k + columns.indexOf(e.column)];
+  };
+  for (const g of model.groups) {
+    const first = rowOf(g[0]);
+    for (const x of g.slice(1)) {
+      const row = rowOf(x);
+      if (!first || !row || !['estimate', 'se', 'cr', 'p'].every((key) => sameStat(row[key], first[key]))) return null;
+    }
+  }
+
+  // Ω from the stored estimates; each standardized weight within its band (:2157).
+  const implied = smImplied(model, a, phi);
+  if (implied === null) return null;
+  const { b, omega } = implied;
+  for (let i = 0; i < rows.length; i += 1) {
+    const [t, s] = rows[i];
+    if (!smStandardized('standardizedWeight', (r.weights[i] as O).standardized, a[t][s], omega[s][s], omega[t][t], s, t)) return null;
+  }
+  // The SMCs, one per endogenous variable in the model's order (:2176-2183).
+  const endo = Array.from({ length: m }, (_, x) => x).filter((x) => model.endogenous[x]);
+  if (!Array.isArray(r.smc) || r.smc.length !== endo.length) return null;
+  for (let i = 0; i < endo.length; i += 1) {
+    const x = endo[i];
+    const s = r.smc[i];
+    if (!isObject(s) || !hasExactly(s, SM_SMC_KEYS) || !sameVar(s.variable, x)) return null;
+    const sign = smSign('smc', omega[x][x], x);
+    const negative = ncCode(s.value) === SM_NEGATIVE && hasExactly(s.value as O, ['not_computable']);
+    if (sign < 0 ? !negative : sign === 0 ? !(negative || cfStat(s.value, [SEM_SHARED.small, SEM_SHARED.overflow])) : !smNear('smc', s.value, 1 - phi[x][x] / omega[x][x], smAmp(omega[x][x], x) * Math.max(1, Math.abs(phi[x][x] / omega[x][x])))) return null;
+  }
+  // The effects (:2184-2207): among the structural variables (the factors and the columns no
+  // factor holds), each pair (to, from), to ≠ from, where from reaches to along the arrows, by to
+  // and then from in the model's order.
+  const reach = Array.from({ length: m }, () => Array.from({ length: m }, () => false));
+  for (const [t, s] of rows) reach[s][t] = true;
+  for (let via = 0; via < m; via += 1) for (let from = 0; from < m; from += 1) if (reach[from][via]) for (let to = 0; to < m; to += 1) if (reach[via][to]) reach[from][to] = true;
+  const structural = Array.from({ length: m }, (_, x) => x).filter((x) => x < k || !model.indicator[x]);
+  const pairs: Array<[number, number]> = [];
+  for (const to of structural) for (const from of structural) if (to !== from && reach[from][to]) pairs.push([to, from]);
+  if (!Array.isArray(r.effects) || r.effects.length !== pairs.length) return null;
+  for (let i = 0; i < pairs.length; i += 1) {
+    const [to, from] = pairs[i];
+    const e = r.effects[i];
+    if (!isObject(e) || !hasExactly(e, SM_EFFECT_KEYS) || !sameVar(e.to, to) || !sameVar(e.from, from)) return null;
+    // Direct: the path's estimate where the spec has the path, exactly 0 where it has not.
+    const pathAt = model.paths.findIndex(([t, s]) => t === to && s === from);
+    const direct = a[to][from];
+    if (!cfIs(e.direct, { value: direct })) return null;
+    // Total within its band of B; indirect exactly total less direct (:2193-2195).
+    if (!smNear('total', e.total, b[to][from])) return null;
+    const total = isValue(e.total) ? cfVal(e.total) : ncCode(e.total) === SEM_SHARED.small ? Number.NaN : Number.POSITIVE_INFINITY;
+    if (!cfIs(e.indirect, cfStatOf(total - direct, SEM_SHARED))) return null;
+    const indirect = isValue(e.indirect) ? cfVal(e.indirect) : total - direct;
+    // The standardized values: all three negative_variance or none; direct the path's
+    // standardized weight bit for bit (both standardized() of the same three numbers), or exactly
+    // 0 without a path; total and indirect within their band.
+    const neg = [e.totalStandardized, e.directStandardized, e.indirectStandardized].map((x) => ncCode(x) === SM_NEGATIVE);
+    if (neg.some((x) => x !== neg[0])) return null;
+    if (pathAt >= 0 ? !sameStat(e.directStandardized, (r.weights[rows.length - model.paths.length + pathAt] as O).standardized) : !neg[0] && !(statValue(e.directStandardized) === 0 && hasExactly(e.directStandardized as O, ['value']))) return null;
+    const [wf, wt] = [omega[from][from], omega[to][to]];
+    if (!smStandardized('standardizedEffect', e.totalStandardized, total, wf, wt, from, to)) return null;
+    if (!smStandardized('standardizedEffect', e.indirectStandardized, indirect, wf, wt, from, to)) return null;
+  }
+
+  // The three rows (fit_rows, decision 796): NPAR and DF from the spec, by the shared rules.
+  const fit = r.fit;
+  if (!isObject(fit) || !hasExactly(fit, CF_FIT_KEYS) || !isObject(fit.model) || !isObject(fit.saturated) || !isObject(fit.independence)) return null;
+  const moments = (p * (p + 1)) / 2;
+  const q = model.q;
+  if (q > moments) return null; // model_df refuses it (:2216).
+  const d = moments - q;
+  const db = (p * (p - 1)) / 2;
+  const ind = fit.independence as O;
+  if (!isValue(ind.cmin)) return null;
+  const cb = cfVal(ind.cmin);
+  const written = (row: O, cells: Record<string, number>) => Object.keys(cells).every((key) => statValue(row[key]) === cells[key] && hasExactly(row[key] as O, ['value']));
+  if (!written(ind, { nfi: 0, rfi: 0, ifi: 0, tli: 0, cfi: 0, pratio: 1, pnfi: 0, pcfi: 0 })) return null;
+  if (!cfRowExcept(ind, p, db, cb, db, p, bigN, ['nfi', 'rfi', 'ifi', 'tli', 'cfi', 'pratio', 'pnfi', 'pcfi'], SEM_SHARED)) return null;
+  const sat = fit.saturated as O;
+  if (!written(sat, { cmin: 0, rmr: 0, gfi: 1, nfi: 1, ifi: 1 })) return null;
+  if (!cfRowExcept(sat, moments, 0, cb, db, p, bigN, ['nfi', 'ifi'], SEM_SHARED)) return null;
+  if (!cfRow(fit.model as O, q, d, cb, db, p, bigN, SEM_SHARED)) return null;
+
+  // The notes (:2236-2255): a subset of the four in order; negative_variance exactly when a stored
+  // variance is below 0; covariance_not_positive_definite exactly when choleskyAtZero refuses the
+  // block of the factors and every variable a covariance names (Φ's stored entries, 0 elsewhere);
+  // nonrecursive exactly when the paths hold a loop; df_zero exactly at 0 degrees of freedom.
+  const notes = r.notes;
+  if (!Array.isArray(notes) || notes.some((x) => !oneOf(x, SEM_NOTES))) return null;
+  const at = notes.map((x) => SEM_NOTES.indexOf(x as string));
+  if (at.some((x, i) => i > 0 && x <= at[i - 1])) return null;
+  const noted = (c: string) => notes.indexOf(smCode(c)) >= 0;
+  if (noted('negative_variance') !== phi.some((row, x) => row[x] < 0)) return null;
+  const block = Array.from(new Set([...Array.from({ length: k }, (_, f) => f), ...model.covs.flat()])).sort((x, y) => x - y);
+  if (noted('covariance_not_positive_definite') !== (block.length > 0 && !choleskyAtZero(block.map((x) => block.map((y) => phi[x][y]))))) return null;
+  if (noted('nonrecursive') !== (model.order === null)) return null;
+  if (noted('df_zero') !== (d === 0)) return null;
+
+  if (!Array.isArray(r.limitations) || JSON.stringify(r.limitations) !== JSON.stringify(SEM_LIMITATIONS)) return null;
+
+  // Exclusions and the manifest, as the CFA's, the model's columns as its columns.
+  const codes = sp.missingCodes as unknown[];
+  if (!arrayOf(r.exclusions, smExcluded) || !cfExclusionsAgree(r.exclusions as O[], columns, codes, SEM_SHARED)) return null;
+  if (!arrayOf(v.diagnostics, smDiagnostic) || !arrayOf(v.limitations, smDiagnostic)) return null;
+  // A succeeded run's diagnostics are validate's warnings, each a suspect code of a column of the
+  // model (:1520-1544); its limitations the module's fifteen, as notes, in order.
+  for (const x of v.diagnostics as O[]) {
+    if (x.severity !== 'warning' || x.code !== smCode('suspect_missing_code') || columns.indexOf((x.params as O).column as number) < 0) return null;
+  }
+  const lims = v.limitations as O[];
+  if (lims.length !== SEM_LIMITATIONS.length || lims.some((x, i) => x.code !== SEM_LIMITATIONS[i] || x.severity !== 'note' || Object.keys(x.params as O).length !== 0)) return null;
+  if (!manifest(v.manifest, SEM_CAPABILITY, smExcluded)) return null;
+  const mf = v.manifest as O;
+  if (mf.rowsUsed !== bigN) return null;
+  if (mf.rowsRead !== bigN + (r.exclusions as Array<{ count: number }>).reduce((s, x) => s + x.count, 0)) return null;
+  if (JSON.stringify(mf.exclusions) !== JSON.stringify(r.exclusions)) return null;
+  return {
+    runId: v.runId as number,
+    status: 'succeeded',
+    result: r as unknown as SemResultView['result'],
+    diagnostics: v.diagnostics as SemDiagnostic[],
+    manifest: v.manifest as SemResultView['manifest'],
+  };
+}
+
+/** A failed run's diagnostic (decision 818): one of the run's four refusals (run_with_caps,
+ *  :1948-1986; sample_covariance, :1989-2028). sample_covariance_singular and overflow name a
+ *  column of the model; sem_not_converged's count at most its limit, and its limit 500;
+ *  solution_not_identified with no params. outcome's model_not_identified (:2216) is never
+ *  reached, since identification refuses such a spec first (decision 812), so it is refused. The
+ *  spec is held to the bundle's spec rules. Called directly, it checks the codes, the keys and the
+ *  severity itself, as check() does for every method first. */
+export function semFailure(failure: unknown, spec: O): boolean {
+  if (!diagnostic(SM_CODES, SM_PARAM_KEYS, false)(failure)) return false;
+  if (!isObject(failure) || failure.severity !== 'error' || !isObject(failure.params)) return false;
+  const sp = spec.parameters;
+  const model = isObject(sp) ? semModel(sp) : null;
+  if (model === null) return false;
+  const keys = Object.keys(failure.params).sort();
+  const pr = failure.params as O;
+  switch (failure.code) {
+    case smCode('sample_covariance_singular'):
+    case smCode('overflow'):
+      return keys.length === 1 && keys[0] === 'column' && isCount(pr.column) && model.columns.indexOf(pr.column) >= 0;
+    case smCode('sem_not_converged'):
+      return JSON.stringify(keys) === JSON.stringify(['count', 'limit']) && pr.limit === SM_MAX_ITERATIONS && isCount(pr.count) && pr.count <= SM_MAX_ITERATIONS;
+    case smCode('solution_not_identified'):
+      return keys.length === 0;
     default:
       return false;
   }

@@ -518,6 +518,34 @@ fn the_walsh_columns_refuse_as_not_converged() {
 /// (logs/p2_sem_targets_1794724810.log), standing still to it.
 const WALSH_COUNT: i64 = 9;
 
+/// Decision 833 (R1; decision 832's finding 1): a model every attempt refuses
+/// now ends as sem_not_converged with its count, where before Z1 Newton's
+/// attempt stood still until the 30 s stop. 256 rows r = 0 to 255 and 128
+/// columns c = 1 to 128, the cell (−1)^popcount(r & c), so S = I exactly; 16
+/// factors of 8 columns in order; the paths factor k → factor k + 1 for k = 1
+/// to 15 (q = 271). Newton's attempt alone, capped at 10: it ends at 7, of
+/// limit 10 (in release, 0.72 s; the whole run refuses at 7 of 500 in 0.74 s,
+/// 9c5d/r1_runs_1794824308.log). With Z1's check removed it runs to its cap,
+/// 10. One call only: it costs seconds in a debug build.
+#[test]
+fn a_model_every_attempt_refuses_ends_at_newtons_count_not_its_cap() {
+    let headers: Vec<String> = (1..=128).map(|j| format!("w{j}")).collect();
+    let rows: Vec<Vec<String>> = (0..256u32).map(|r| (1..=128u32).map(|c| if (r & c).count_ones() % 2 == 1 { "-1" } else { "1" }.to_string()).collect()).collect();
+    let d = dataset(&headers, &rows);
+    let indicators: Vec<String> = (0..16).map(|f| format!("[{}]", (1..=8).map(|i| format!("\"C{}\"", 8 * f + i)).collect::<Vec<_>>().join(","))).collect();
+    let paths: Vec<String> = (1..=15).map(|k| format!(r#"{{"to":{{"factor":{}}},"from":{{"factor":{}}}}}"#, k + 1, k)).collect();
+    let s = sem(&format!(r#"{{"indicators":[{}],"paths":[{}],"covariances":[],"equal":[],"missingCodes":[]}}"#, indicators.join(","), paths.join(",")));
+    // The premises: S = I exactly, since every mask m from 1 to 255 sums to 0
+    // over the rows: so each column's mean is 0, and columns a ≠ b, whose product
+    // is mask a ^ b, are orthogonal; and q = 112 free loadings + 15 paths + 144
+    // variances.
+    assert!((1..=255u32).all(|m| (0..256u32).map(|r| if (r & m).count_ones() % 2 == 1 { -1i32 } else { 1 }).sum::<i32>() == 0));
+    assert_eq!(16 * 7 + 15 + (16 + 128), 271);
+    let e = compute_with_caps(&d, &s, [0, 10, 0]).unwrap_err();
+    println!("the review's model, caps [0, 10, 0]: {} with {:?}", e.code.wire(), e.params);
+    assert_eq!((e.code, int(&e, ParamKey::Count), int(&e, ParamKey::Limit)), (C::SemNotConverged, Some(7), Some(10)));
+}
+
 /// The R golden's newton_relaxed spec (Research OS, Phase 9C-5, decision 812):
 /// the review of 9C-4's id384 shape on data/id384.csv, seed 17.
 const NEWTON_RELAXED: &str = r#"{"indicators":[["C1","C2","C3","C4"],["C5","C6"],["C7","C8","C9","C10"]],"paths":[{"to":{"column":"C11"},"from":{"factor":3}},{"to":{"column":"C13"},"from":{"column":"C11"}}],"covariances":[{"a":{"factor":2},"b":{"column":"C4"}},{"a":{"column":"C1"},"b":{"column":"C13"}}],"equal":[],"missingCodes":[]}"#;

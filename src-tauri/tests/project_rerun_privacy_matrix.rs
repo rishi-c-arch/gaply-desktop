@@ -1114,6 +1114,10 @@ fn a_rerun_puts_no_sentinel_anywhere_but_the_projects_artifacts_and_its_title() 
             "run 31's outcome"
         );
         assert_eq!(pc::run_result(&app, &w.ws, &id, 32).unwrap().state, RunState::Succeeded, "run 32 succeeded");
+        // Decision 833 (R4; decision 832's finding 4): run 32 is run 31 again, Identical, as
+        // decision 816 said.
+        let comparison = pc::runs(&app, &w.ws, &id).unwrap().into_iter().find(|r| r.stored_run_id == 32).expect("run 32").comparison;
+        assert_eq!(comparison, Some(gaply_core::research_project::RerunComparison::Identical), "run 32 against run 31");
     }
 
     let runs_response = serde_json::to_string(&pc::runs(&app, &w.ws, &id).unwrap()).unwrap();

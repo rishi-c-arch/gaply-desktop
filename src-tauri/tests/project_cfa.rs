@@ -18,10 +18,12 @@ mod project_support;
 use std::time::{Duration, Instant};
 
 use app_lib::project_commands::{self as pc, RerunProgress, RerunView, SaveTarget};
+use app_lib::project_store::{ArtifactInput, ProjectRoot, RunToSave, SaveRequest};
 use app_lib::runs::RunKind;
-use gaply_core::contracts::RunState;
-use gaply_core::research_project::RerunComparison;
-use serde_json::Value;
+use gaply_core::contracts::{CapabilityId, ContentHash, OperationSpec, RunState};
+use gaply_core::research_project::{ArtifactHash, ArtifactKind, DataFormat, RerunComparison, UsedRole};
+use gaply_core::stats_cfa::{self, CfaParams};
+use serde_json::{json, Value};
 
 use project_support::*;
 
@@ -171,4 +173,80 @@ fn confirmatory_factor_analyses_are_saved_read_back_run_again_identical_and_repo
     for text in ["sum", "x1"] {
         assert!(!r.contains(&format!(" {text}\n")) && !r.contains(&format!(": {text}")), "{text} in the report");
     }
+}
+
+fn artifact(kind: ArtifactKind, format: DataFormat, bytes: &[u8]) -> ArtifactInput {
+    ArtifactInput {
+        kind,
+        format,
+        schema_version: 1,
+        expected: ArtifactHash::parse(ContentHash::of_bytes(bytes).as_hex()).unwrap(),
+        bytes: bytes.to_vec(),
+    }
+}
+
+/// Saves a Succeeded CFA row through the store, on a second handle, as `project_rerun.rs`'s
+/// `store_a_row` does (that helper is its file's own): the CSV `data` and the spec's bytes, with
+/// a test bundle and manifest. Its stored id.
+fn store_a_row(w: &World, id: &str, data: &[u8], spec: &[u8]) -> u64 {
+    let hash = |b: &[u8]| ArtifactHash::parse(ContentHash::of_bytes(b).as_hex()).unwrap();
+    let store = ProjectRoot::open_root_with(&w.root(), SMALL).unwrap();
+    let mut h = store.open(id).unwrap();
+    let (bundle, manifest) = (b"{\"test\":\"bundle\"}", b"{\"test\":\"manifest\"}");
+    let req = SaveRequest {
+        run: RunToSave {
+            capability_id: CapabilityId::parse(stats_cfa::CAPABILITY_ID).unwrap(),
+            capability_version: stats_cfa::CAPABILITY_VERSION,
+            state: RunState::Succeeded,
+            started_at: 1_792_396_340,
+            ended_at: 1_792_396_341,
+            used: vec![(hash(data), UsedRole::Data), (hash(spec), UsedRole::Spec)],
+            generated: vec![hash(bundle), hash(manifest)],
+            derived: Vec::new(),
+        },
+        artifacts: vec![
+            artifact(ArtifactKind::DataFile, DataFormat::Csv, data),
+            artifact(ArtifactKind::OperationSpec, DataFormat::Json, spec),
+            artifact(ArtifactKind::ResultBundle, DataFormat::Json, bundle),
+            artifact(ArtifactKind::RunManifest, DataFormat::Json, manifest),
+        ],
+    };
+    h.save(req).expect("a test row").0
+}
+
+/// Decision 833 (R2; decision 832's finding 2): a rerun refuses a spec its data file no longer
+/// fits. The two-factor run is saved; then two rows on the same data file: its own spec
+/// unchanged (the control, which reruns), and the same spec with its first factor's last item
+/// moved from C7 to C11, a column the ten-column file does not have, refused
+/// `project.rerun_refused` by the CFA's `valid_on`. Made to pass every spec, `valid_on` lets the
+/// second start.
+#[test]
+fn a_rerun_refuses_a_spec_whose_item_the_data_file_does_not_have() {
+    let w = World::new("9c5d-cfa-refused");
+    let bytes = data();
+    let slot = w.open("cfa.csv", &bytes);
+    let two = w.cfa(slot, &[&[1, 4, 7], &[2, 5, 8]], true, vec![-99.0]);
+    assert_eq!(w.wait_new_kind(two), RunState::Succeeded);
+    let id = pc::save_run(&w.root(), &w.ws, two, new_project("CFA")).expect("the run saves").project_id;
+    let spec_json = pc::run_result(&w.root(), &w.ws, &id, 1).unwrap().spec_json;
+    let spec: OperationSpec<CfaParams> = serde_json::from_str(&spec_json).unwrap();
+    let canonical = serde_json::to_vec(&spec).unwrap();
+    assert_eq!(canonical, spec_json.as_bytes(), "the premise: a Save stores canonical bytes");
+    let header = String::from_utf8(bytes.clone()).unwrap().lines().next().unwrap().split(',').count();
+    assert_eq!(header, 10, "the premise: the file has ten columns, so no C11");
+    let mut moved = serde_json::to_value(&spec).unwrap();
+    assert_eq!(moved["parameters"]["indicators"][0], json!(["C1", "C4", "C7"]), "the premise: the first factor");
+    moved["parameters"]["indicators"][0][2] = json!("C11");
+    let moved: OperationSpec<CfaParams> = serde_json::from_value(moved).unwrap();
+    let moved = serde_json::to_vec(&moved).unwrap();
+
+    // The control: the unchanged spec on a row stored the same way reruns.
+    let control = store_a_row(&w, &id, &bytes, &canonical);
+    pc::rerun(&w.root(), &w.ws, control).expect("the control reruns");
+    assert_eq!(settled(&w).status, RerunProgress::Saved, "the control's rerun");
+
+    let refused = store_a_row(&w, &id, &bytes, &moved);
+    let e = pc::rerun(&w.root(), &w.ws, refused).expect_err("an item the file does not have");
+    assert_eq!(code(&e), "project.rerun_refused");
+    assert_eq!(w.ws.projects().rerun_going(), None, "nothing is going");
 }
