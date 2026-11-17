@@ -2455,14 +2455,15 @@ function cfaFailure(failure: unknown, spec: O): boolean {
 
 /* ---- the structural equation model (Research OS, Phase 9C-5d, decisions 818 and 834) ---------
  * Accepts what stats_sem writes and nothing else. It is not in STORED_CHECKERS, and nothing in
- * SavedResult calls it, until 9C-5e registers it with its renderer, its stored fixtures and its
- * methods row (decision 836); semBundle and semFailure are exported for their tests. Each rule
- * names the line of gaply-core/src/stats_sem/mod.rs it mirrors, as at 735ec94c, and fit:N for
- * stats_fit. Equality is as doubles in Rust's order. The CFA's helpers are shared, never copied,
+ * SavedResult calls it, until 9C-5f's Part 2 registers it with its renderer, its stored fixtures
+ * and its methods row (decision 849); semBundle and semFailure are exported for their tests. Each
+ * rule names the line of gaply-core/src/stats_sem/mod.rs it mirrors, as at 735ec94c (those of
+ * decision 846's C3 as at 9C-5f), and fit:N for stats_fit. Equality is as doubles in Rust's order. The CFA's helpers are shared, never copied,
  * each given the SEM's codes (SEM_SHARED): the tested-value rule (cfTested), the fit rows
  * (cfRow, cfRowExcept, with the CFA's lnN band, CFA_BANDS.lnN), the exclusions (cfExclusion,
- * cfExclusionsAgree), the manifest and choleskyAtZero. What Rust computes from Ω, which the
- * checker computes again from the stored estimates, is held to a band (SEM_BANDS). */
+ * cfExclusionsAgree), the manifest and choleskyAtZero. What Rust computes from Ω or B, which the
+ * checker computes again from the stored estimates, it holds exactly, with or without a loop, a
+ * loop in the units Rust wrote (decision 846, C3). */
 
 /** stats_sem::CAPABILITY_ID (:76), by its literal: methods.ts has no sem kind until 9C-5e, so
  *  capabilityOfKind cannot give it (decision 834). */
@@ -2487,56 +2488,57 @@ const SM_NEGATIVE = smCode('negative_variance');
 /** stats_sem::MAX_ITERATIONS (:99): each attempt's cap, and sem_not_converged's limit. */
 const SM_MAX_ITERATIONS = 500;
 
-/** The bands of decision 840 for what Rust computes from Ω = B Φ Bᵀ or from B, which the checker
- *  computes again from the stored estimates. Without a loop none is read: the checker's arithmetic
- *  is Rust's, and every such value is held exactly (C2). With a loop a value is accepted where
- *  |stored − computed| ≤ (8ε + band · κ · a) · s (C1; smNear), κ = κ(I − A) in natural units and
- *  s and a by the value's kind, a total where it is ≤ 8ε |B_ij| + band · (|B| |I − A| |B|)_ij and
- *  its standardized values with that term too, scaled as they are (decision 843); and ω_vv's sign
- *  is read with a zone of (8ε + zone · κ) · mag[v] around 0 (C2; smSign). Set by 9C-5e's hunt
- *  (decisions 841 and 843) to the next power of ten above each worst case, measured with every
- *  band lifted by 1e3 over 6,023 succeeded runs (5,214 with a loop: seed 20261117's 3,142, two
- *  families whose routes nearly cancel, 2,633, and loops in models of 28 to 60 variables, 248;
- *  16 Nov 2026, ~/gaply-corpus/os/phase9/9c5e/hunt/c3_bands_measure.json) and the two wire
- *  results. Every one of the 29,168 values without a loop measured exactly 0. */
-export const SEM_BANDS = {
-  /** A standardized weight, x √ω_ss / √ω_tt (:2157): worst 5.530e-18 (loopmix0376), so 1e-17. */
-  standardizedWeight: 1e-17,
-  /** A squared multiple correlation, 1 − φ_vv / ω_vv (:2176-2183): worst 0 here, 8ε carrying all.
-   *  Its error per κ · a has the standardized weight's first-order bound (δω / ω), so it takes
-   *  that band, 1e-17 (the review of 9C-5e, finding 3). */
-  smc: 1e-17,
-  /** An effect's total, B[to][from] (:2193), in units of its parts, (|B| |I − A| |B|)_ij
-   *  (decision 843): worst max(0, d − 8ε |B_ij|) / parts 1.947e-13 (loopbig0206, 42 columns), so
-   *  1e-12. Up to 16 columns no loop record measured above 1.52e-16; above that the measure has a
-   *  long tail (12 of 273 above 1e-15), which the parts' term alone does not follow. Relative to the
-   *  total itself, as decision 840 had it, the deepest cancelling case measured 3.509e-13. */
-  total: 1e-12,
-  /** An effect's standardized total and indirect, each x √ω_ff / √ω_tt (:2203-2205): worst
-   *  5.817e-18 (loopmix0376), so 1e-17. */
-  standardizedEffect: 1e-17,
-  /** The zone around ω_vv = 0 in which Rust's `> 0.0` may read either way, in units of κ ·
-   *  mag[v]: the largest of the four, as decision 841 sets it (here the total's). The smallest
-   *  |ω_vv| / (κ · mag[v]) over the hunt's 5,214 loops is 3.55e-7 (loopfac0513). */
-  zone: 1e-12,
+/** For a model with a loop the checker repeats Rust's arithmetic exactly, in the units Rust wrote
+ *  (Research OS, Phase 9C-5f, decision 846, C3): it reads each variable's unit from the result's
+ *  unitExponents (U1), builds I − D⁻¹ A D as implied does (stats_sem/mod.rs:957-959, as at
+ *  9C-5f), inverts it by Rust's inverse (stats_linalg/mod.rs:323-365), takes B = D (that inverse)
+ *  D⁻¹ (:961) and Ω = B Φ Bᵀ (:964-965), and holds every value from Ω or B exactly, as it does without a loop (decision 840,
+ *  C2). No tolerance is read anywhere: decision 843's bands, κ and the zone are gone with the
+ *  units the checker used to guess from the stored variances (decision 845, findings 1 and 2).
+ *
+ *  unitExponents itself is held only to its shape (smUnits), since no stored field fixes Rust's
+ *  units (the fit rows reduce S to a few scalars): a change to it that changes no value is
+ *  accepted, and one that does must match the checker's arithmetic exactly in the units it names.
+ *  So that no forged unit can make a path or a route vanish or round, smImplied refuses unless
+ *  every nonzero a_ij scales and back exactly, every nonzero value Gauss–Jordan forms is a finite
+ *  normal double, and every nonzero entry of the inverse scales to B_ij and back exactly. These
+ *  rules do not bound what forged units can move: powers of two leave Gauss–Jordan's arithmetic
+ *  unchanged for a fixed pivot order, but forged units can choose another pivot order. The review
+ *  of 9C-5f found one by search that moved a total by 6.36e-10 of (|B| |I − A| |B|)_ij, and the
+ *  checker accepted it (review/my_check_c435.txt). Decision 847's hunt moved units by fixed steps
+ *  and at random, and saw at most 4.08e-11. A bound is an open question for 9C-5g. */
+
+/** stats_sem's range of a unit's exponent (in_units_of, :907-914): √s with its mantissa's bits
+ *  cleared, for a positive finite s, subnormal included, is 2^−537 (√2^−1074) to 2^511 (√ of the largest double
+ *  is below 2^512). */
+const SM_UNIT_MIN = -537;
+const SM_UNIT_MAX = 511;
+/** The smallest positive normal double, 2^−1022, as a literal. */
+const SM_NORMAL = 2.2250738585072014e-308;
+/** stats_linalg::INVERSE_PIVOT_TOLERANCE (:311). */
+const SM_PIVOT_TOLERANCE = 1e-12;
+
+/** 2^e from its bits, e + 1023 in the exponent field and the mantissa 0 (never Math.pow, ** or
+ *  Math.log2, whose rounding near a power of two is not Rust's: decision 845). e is an integer in
+ *  [SM_UNIT_MIN, SM_UNIT_MAX], so the double is normal. */
+const smTwoTo = (e: number): number => {
+  const v = new DataView(new ArrayBuffer(8));
+  v.setUint32(0, (e + 1023) * 0x100000);
+  return v.getFloat64(0);
 };
-export type SemBand = keyof typeof SEM_BANDS;
-/** What the hunt measures: a band, the value it reads (decision 841), and where. `zoneMargin` is
- *  |ω_vv| / (κ · mag[v]) for each variable of a model with a loop, whose smallest the hunt states.
- *  `at` names the value: a weight i, 10000 + an SMC's index, 20000 + 3 · an effect's index + 0
- *  (total), 1 (standardized total) or 2 (standardized indirect); `tolerance` is the largest
- *  |stored − computed| the checker accepts there, and `computed` the checker's value. */
-export type SemMeasure = SemBand | 'zoneMargin';
-let semBandWatcher: ((band: SemMeasure, value: number, at?: number, tolerance?: number, computed?: number) => void) | null = null;
-/** Whoever measures the bands (decisions 835 and 841's hunts): none in the app. */
-export function measureSemBands(watch: ((band: SemMeasure, value: number, at?: number, tolerance?: number, computed?: number) => void) | null): void {
-  semBandWatcher = watch;
+
+/** The result's units (U1), or null: an array of the model's m variables' exponents, each an
+ *  integer in [−537, 511], each factor's equal to its first column's (in_units_of's representative
+ *  column, :911). Read for every result; only a model with a loop uses them. */
+function smUnits(v: unknown, model: SemModel): number[] | null {
+  if (!Array.isArray(v) || v.length !== model.m) return null;
+  if (!v.every((e) => Number.isInteger(e) && (e as number) >= SM_UNIT_MIN && (e as number) <= SM_UNIT_MAX)) return null;
+  if (model.factors.some((cols, f) => v[f] !== v[cols[0]])) return null;
+  return (v as number[]).map(smTwoTo);
 }
-/** 8ε: what rounding alone may move a value by, relative to it (decision 840, C1). */
-const SM_EPS8 = 8 * Number.EPSILON;
 
 /** SemOutcome's keys and each object's, every one always written (:548-583, :432-500). */
-const SM_RESULT_KEYS = ['columns', 'rowsUsed', 'indicators', 'weights', 'covariances', 'variances', 'smc', 'effects', 'fit', 'iterations', 'attempt', 'exclusions', 'notes', 'limitations'];
+const SM_RESULT_KEYS = ['columns', 'rowsUsed', 'indicators', 'weights', 'covariances', 'variances', 'smc', 'effects', 'fit', 'iterations', 'attempt', 'exclusions', 'notes', 'limitations', 'unitExponents'];
 const SM_WEIGHT_KEYS = ['to', 'from', 'kind', 'estimate', 'se', 'cr', 'p', 'standardized'];
 const SM_COVARIANCE_KEYS = ['a', 'b', 'estimate', 'se', 'cr', 'p', 'correlation'];
 const SM_VARIANCE_KEYS = ['variable', 'error', 'estimate', 'se', 'cr', 'p'];
@@ -2775,7 +2777,9 @@ function smTopological(sources: number[][]): number[] | null {
   return order;
 }
 
-/** stats_linalg::multiply: each sum left to right. */
+/** stats_linalg::multiply (:235-239): each sum left to right. Rust's sums start at −0.0 and these
+ *  at +0, which changes only the sign of a zero; every use is through === or > 0, where −0 and 0
+ *  are alike. */
 const smMultiply = (a: number[][], b: number[][]) =>
   a.map((row) =>
     b[0].map((_, j) => {
@@ -2785,49 +2789,66 @@ const smMultiply = (a: number[][], b: number[][]) =>
     })
   );
 
-/** (I − A)⁻¹ by Gauss–Jordan with partial pivoting, or null where a pivot is 0 or not finite. */
-function smInverseOfIMinus(a: number[][]): number[][] | null {
+/** A nonzero value that is not a finite normal double: what a forged unit can make of a path or a
+ *  route by pushing it below 2^−1022, or past the largest double (decision 846, C3). */
+const smAbnormal = (x: number) => x !== 0 && !(Math.abs(x) >= SM_NORMAL && Math.abs(x) < Number.POSITIVE_INFINITY);
+
+/** stats_linalg::inverse (:313-365), line for line: refused where a value is not finite (:325-327)
+ *  or where the pivot chosen in a column, the largest absolute value at or below the diagonal and
+ *  the lowest row on a tie (:332-339), is at most INVERSE_PIVOT_TOLERANCE times the largest
+ *  absolute entry, or is not a number (:340-342), since Rust could not have written such a result;
+ *  the pivot row swapped in (:343-344), divided by the pivot (:345-349), and each other row with a
+ *  nonzero multiple of it subtracted (:350-362). And refused, so that a forged unit shows, where a
+ *  nonzero value it forms after a division or a subtraction is not a finite normal double (C3). */
+function smInverse(a: number[][]): number[][] | null {
   const n = a.length;
-  const w = a.map((row, i) => [...row.map((x, j) => (i === j ? 1 : 0) - x), ...row.map((_, j) => (i === j ? 1 : 0))]);
-  for (let c = 0; c < n; c += 1) {
-    let best = c;
-    for (let r = c + 1; r < n; r += 1) if (Math.abs(w[r][c]) > Math.abs(w[best][c])) best = r;
-    if (!(Math.abs(w[best][c]) > 0) || !Number.isFinite(w[best][c])) return null;
-    [w[c], w[best]] = [w[best], w[c]];
-    const pivot = w[c][c];
-    for (let j = 0; j < 2 * n; j += 1) w[c][j] /= pivot;
-    for (let r = 0; r < n; r += 1) {
-      if (r === c) continue;
-      const f = w[r][c];
-      if (f !== 0) for (let j = 0; j < 2 * n; j += 1) w[r][j] -= f * w[c][j];
+  if (a.some((row) => row.length !== n || row.some((v) => !Number.isFinite(v)))) return null;
+  let scale = 0;
+  for (const row of a) for (const x of row) scale = Math.max(scale, Math.abs(x));
+  const m = a.map((row) => row.slice());
+  const inv = a.map((_, i) => a.map((__, j) => (i === j ? 1 : 0)));
+  for (let j = 0; j < n; j += 1) {
+    let pivotRow = j;
+    let largest = Math.abs(m[j][j]);
+    for (let i = j + 1; i < n; i += 1) {
+      if (Math.abs(m[i][j]) > largest) {
+        largest = Math.abs(m[i][j]);
+        pivotRow = i;
+      }
+    }
+    if (!(largest > SM_PIVOT_TOLERANCE * scale)) return null;
+    [m[j], m[pivotRow]] = [m[pivotRow], m[j]];
+    [inv[j], inv[pivotRow]] = [inv[pivotRow], inv[j]];
+    const pivot = m[j][j];
+    for (let k = 0; k < n; k += 1) {
+      m[j][k] /= pivot;
+      inv[j][k] /= pivot;
+      if (smAbnormal(m[j][k]) || smAbnormal(inv[j][k])) return null;
+    }
+    for (let i = 0; i < n; i += 1) {
+      if (i === j) continue;
+      const factor = m[i][j];
+      if (factor === 0) continue;
+      for (let k = 0; k < n; k += 1) {
+        m[i][k] -= factor * m[j][k];
+        inv[i][k] -= factor * inv[j][k];
+        if (smAbnormal(m[i][k]) || smAbnormal(inv[i][k])) return null;
+      }
     }
   }
-  return w.map((row) => row.slice(n));
+  return inv;
 }
 
-/** B = (I − A)⁻¹ and Ω = B Φ Bᵀ from the stored A and Φ (implied, :925-951): without a loop by
- *  substitution in the topological order, as Rust does; with one by Gauss–Jordan, where Rust
- *  inverts in natural units (decision 818); the checker does too, from the stored variances. */
-/** What the checker's Ω may differ from Rust's by, for a model with a loop (decision 838, finding
- *  1): both invert I − A in natural units, but from different units (Rust's from S, which the
- *  stored result does not hold; the checker's from the stored variances), so partial pivoting may
- *  take other rows and their B and Ω differ by up to about κ ε, κ the natural-unit ‖I − A‖∞
- *  ‖(I − A)⁻¹‖∞, each ω_vv by that times its terms' size mag[v] = (|B| |Φ| |B|ᵀ)_vv. C1's
- *  tolerance makes the pivot order harmless. Without a loop the checker's arithmetic is Rust's:
- *  k = 1, and every value is held exactly (C2). */
-interface SmScale {
-  k: number;
-  mag: number[];
-  loop: boolean;
-  /** |B| |I − A| |B|, for a model with a loop: the size of the parts each B_ij is made from, which
-   *  Gauss–Jordan's error scales with (decision 843). The same in any diagonal units. */
-  parts: number[][];
-}
-let smScale: SmScale = { k: 1, mag: [], loop: false, parts: [] };
-/** The loop's I − A and its inverse in natural units, for κ. */
-let smNatural: { a: number[][]; b: number[][] } = { a: [], b: [] };
-
-function smImplied(model: SemModel, a: number[][], phi: number[][]): { b: number[][]; omega: number[][] } | null {
+/** B = (I − A)⁻¹ and Ω = B Φ Bᵀ from the stored A and Φ, as implied computes them (:938-968).
+ *  Without a loop, B by substitution in the topological order (:941-953), units unread. With one,
+ *  in the units d = 2^unitExponents (C3), each step in implied's order: I − D⁻¹ A D, its entry
+ *  δ_ij − a_ij d_j / d_i (:957-959); its inverse X by Rust's (smInverse, :960); B_ij = X_ij d_i / d_j
+ *  (:961); then Ω (:964-965). null, the result refused, where Rust's inverse refuses, where a
+ *  nonzero a_ij does not come back exactly when scaled and scaled back, where a nonzero entry of
+ *  I − D⁻¹ A D or a nonzero value Gauss–Jordan forms is not a finite normal double, or where a
+ *  nonzero X_ij, scaled to B_ij and back, does not return X_ij: so that no forged unit can make a
+ *  path or a route vanish or round (decision 846). */
+function smImplied(model: SemModel, a: number[][], phi: number[][], d: number[]): { b: number[][]; omega: number[][] } | null {
   const m = model.m;
   let b: number[][];
   if (model.order) {
@@ -2839,87 +2860,30 @@ function smImplied(model: SemModel, a: number[][], phi: number[][]): { b: number
       b[t] = row;
     }
   } else {
-    // Natural units, as implied's loop branch (:938-946): each variable's power of two at or below
-    // √|φ_vv| (Rust takes its representative column's √s, which the stored result does not hold),
-    // so scaling by it and back is exact. I − D⁻¹ A D is inverted, and B is D (that inverse) D⁻¹.
-    const d = phi.map((row, v) => {
-      const x = Math.sqrt(Math.abs(row[v]));
-      return Number.isFinite(x) && x > 0 ? 2 ** Math.floor(Math.log2(x)) : 1;
-    });
-    const scaled = a.map((row, i) => row.map((y, j) => (y * d[j]) / d[i]));
-    const inv = smInverseOfIMinus(scaled);
-    if (inv === null) return null;
-    b = inv.map((row, i) => row.map((y, j) => (y * d[i]) / d[j]));
-    smNatural = { a: scaled, b: inv };
+    const iMinus: number[][] = [];
+    for (let i = 0; i < m; i += 1) {
+      iMinus.push([]);
+      for (let j = 0; j < m; j += 1) {
+        const scaled = (a[i][j] * d[j]) / d[i];
+        if (a[i][j] !== 0 && (scaled * d[i]) / d[j] !== a[i][j]) return null;
+        const x = (i === j ? 1 : 0) - scaled;
+        if (smAbnormal(x)) return null;
+        iMinus[i].push(x);
+      }
+    }
+    const x = smInverse(iMinus);
+    if (x === null) return null;
+    b = x.map((row, i) => row.map((y, j) => (y * d[i]) / d[j]));
+    for (let i = 0; i < m; i += 1) for (let j = 0; j < m; j += 1) if (x[i][j] !== 0 && (b[i][j] * d[j]) / d[i] !== x[i][j]) return null;
   }
   const bt = b[0].map((_, j) => b.map((row) => row[j]));
-  const omega = smMultiply(smMultiply(b, phi), bt);
-  if (model.order) {
-    smScale = { k: 1, mag: omega.map(() => 1), loop: false, parts: [] };
-  } else {
-    const rowSum = (x: number[][], i: number) => x[i].reduce((t, y) => t + Math.abs(y), 0);
-    const iMinusA = smNatural.a.map((row, i) => row.map((y, j) => (i === j ? 1 : 0) - y));
-    let n1 = 0;
-    let n2 = 0;
-    for (let i = 0; i < m; i += 1) {
-      n1 = Math.max(n1, rowSum(iMinusA, i));
-      n2 = Math.max(n2, rowSum(smNatural.b, i));
-    }
-    const ab = b.map((row) => row.map(Math.abs));
-    const aphi = phi.map((row) => row.map(Math.abs));
-    const mag = smMultiply(smMultiply(ab, aphi), ab[0].map((_, j) => ab.map((row) => row[j]))).map((row, v) => row[v]);
-    const aIMinusA = a.map((row, i) => row.map((y, j) => Math.abs((i === j ? 1 : 0) - y)));
-    const parts = smMultiply(smMultiply(ab, aIMinusA), ab);
-    smScale = { k: Math.max(1, n1 * n2), mag, loop: true, parts };
-    if (semBandWatcher) for (let v = 0; v < m; v += 1) semBandWatcher('zoneMargin', Math.abs(omega[v][v]) / (smScale.k * mag[v]));
-  }
-  return { b, omega };
+  return { b, omega: smMultiply(smMultiply(b, phi), bt) };
 }
 
-/** A value Rust computes from Ω or B against the checker's (decision 840): where the checker's is
- *  not finite, `stat`'s code for it exactly; without a loop, exactly, by === so that −0 and 0 are
- *  equal (C2: the checker's arithmetic is Rust's); with a loop, within
- *  (8ε + band · κ · a) · s + total band · parts of it (C1 and decision 843), with s, a and parts
- *  given by the value's kind (the callers): parts is 0 but for a total, (|B| |I − A| |B|)_ij, and
- *  its standardized values, that times √|ω_jj| / √|ω_ii|. A total passes a = 0, so its tolerance
- *  is 8ε |B_ij| + band · parts, and its watcher reads max(0, d − 8ε s) / parts. `at` names the
- *  value for the hunt's watcher. */
-function smNear(band: SemBand, stored: unknown, computed: number, a: number, s: number, at: number, parts = 0): boolean {
-  if (!Number.isFinite(computed)) return cfIs(stored, cfStatOf(computed, SEM_SHARED));
-  if (!isValue(stored)) return false;
-  const d = Math.abs(cfVal(stored) - computed);
-  // A parts term that overflowed (or is NaN) would make the tolerance infinite or refuse every
-  // value; it is left out, and the value is held to the rest (the review of decision 843).
-  const p = Number.isFinite(parts) ? parts : 0;
-  const tolerance = smScale.loop ? (SM_EPS8 + SEM_BANDS[band] * smScale.k * a) * s + SEM_BANDS.total * p : 0;
-  if (semBandWatcher) {
-    const measured = d === 0 ? 0 : !smScale.loop ? d : a === 0 ? Math.max(0, d - SM_EPS8 * s) / p : Math.max(0, d / s - SM_EPS8) / (smScale.k * a);
-    semBandWatcher(band, measured, at, tolerance, computed);
-  }
-  return smScale.loop ? d <= tolerance : d === 0;
-}
-/** Rust's test `> 0.0` on the checker's ω_vv (decision 840, C2): without a loop exactly that, 1 or
- *  −1; with one, 1 where it holds beyond v's zone, (8ε + zone · κ) · mag[v], −1 where it fails
- *  beyond it, 0 where ω_vv is within the zone of 0 and either answer is accepted. One zone per
- *  variable, read by its weights, its SMC and its effects alike. */
-const smSign = (w: number, v: number) => {
-  if (!smScale.loop) return w > 0 ? 1 : -1;
-  const zone = (SM_EPS8 + SEM_BANDS.zone * smScale.k) * smScale.mag[v];
-  return w > zone ? 1 : w <= -zone || Number.isNaN(w) ? -1 : 0;
-};
-/** `standardized(x, a, b)` (:2086-2093) on the checker's a and b, from variable va to vb: x √a /
- *  √b by smNear, s = |x √a / √b| and a = the larger of mag[va] / |a| and mag[vb] / |b| (C1), with
- *  a total's parts, if any, scaled as the value is, by √|a| / √|b| (decision 843); or
- *  negative_variance; or either where a or b is within its zone of 0. */
-function smStandardized(band: SemBand, stored: unknown, x: number, wa: number, wb: number, va: number, vb: number, at: number, parts = 0): boolean {
-  const sa = smSign(wa, va);
-  const sb = smSign(wb, vb);
-  if (sa < 0 || sb < 0) return ncCode(stored) === SM_NEGATIVE && hasExactly(stored as O, ['not_computable']);
-  if (sa === 0 || sb === 0) return (ncCode(stored) === SM_NEGATIVE && hasExactly(stored as O, ['not_computable'])) || cfStat(stored, [SEM_SHARED.small, SEM_SHARED.overflow]);
-  const computed = (x * Math.sqrt(wa)) / Math.sqrt(wb);
-  const a = smScale.loop ? Math.max(smScale.mag[va] / Math.abs(wa), smScale.mag[vb] / Math.abs(wb)) : 1;
-  return smNear(band, stored, computed, a, Math.abs(computed), at, smScale.loop ? (parts * Math.sqrt(Math.abs(wa))) / Math.sqrt(Math.abs(wb)) : 0);
-}
+/** `standardized(x, a, b)` (:2109-2115) exactly, on the checker's ω's: x √a / √b by `stat` where
+ *  Rust's a > 0.0 and b > 0.0 hold, else negative_variance. */
+const smStandardized = (stored: unknown, x: number, wa: number, wb: number): boolean =>
+  wa > 0 && wb > 0 ? cfIs(stored, cfStatOf((x * Math.sqrt(wa)) / Math.sqrt(wb), SEM_SHARED)) : ncCode(stored) === SM_NEGATIVE && hasExactly(stored as O, ['not_computable']);
 /** Two stats bit for bit the same: values by Object.is, codes by their word. */
 const sameStat = (x: unknown, y: unknown) =>
   isObject(x) && isObject(y) && ('value' in x ? 'value' in y && Object.is(x.value, y.value) && hasExactly(x, ['value']) && hasExactly(y, ['value']) : ncCode(x) === ncCode(y) && ncCode(x) !== undefined);
@@ -3017,15 +2981,19 @@ export function semBundle(v: O, spec: O): SemResultView | null {
     }
   }
 
-  // Ω from the stored estimates; each standardized weight within its band (:2157).
-  const implied = smImplied(model, a, phi);
+  // The units, from unitExponents alone, for every result (C3); then Ω from the stored estimates,
+  // as Rust computes it, and each standardized weight exactly (:2180).
+  const units = smUnits(r.unitExponents, model);
+  if (units === null) return null;
+  const implied = smImplied(model, a, phi, units);
   if (implied === null) return null;
   const { b, omega } = implied;
   for (let i = 0; i < rows.length; i += 1) {
     const [t, s] = rows[i];
-    if (!smStandardized('standardizedWeight', (r.weights[i] as O).standardized, a[t][s], omega[s][s], omega[t][t], s, t, i)) return null;
+    if (!smStandardized((r.weights[i] as O).standardized, a[t][s], omega[s][s], omega[t][t])) return null;
   }
-  // The SMCs, one per endogenous variable in the model's order (:2176-2183).
+  // The SMCs, one per endogenous variable in the model's order, each exactly 1 − φ_vv / ω_vv where
+  // Rust's ω_vv > 0.0 holds, else negative_variance (:2199-2205).
   const endo = Array.from({ length: m }, (_, x) => x).filter((x) => model.endogenous[x]);
   if (!Array.isArray(r.smc) || r.smc.length !== endo.length) return null;
   for (let i = 0; i < endo.length; i += 1) {
@@ -3033,9 +3001,7 @@ export function semBundle(v: O, spec: O): SemResultView | null {
     const s = r.smc[i];
     if (!isObject(s) || !hasExactly(s, SM_SMC_KEYS) || !sameVar(s.variable, x)) return null;
     const w = omega[x][x];
-    const sign = smSign(w, x);
-    const negative = ncCode(s.value) === SM_NEGATIVE && hasExactly(s.value as O, ['not_computable']);
-    if (sign < 0 ? !negative : sign === 0 ? !(negative || cfStat(s.value, [SEM_SHARED.small, SEM_SHARED.overflow])) : !smNear('smc', s.value, 1 - phi[x][x] / w, smScale.loop ? smScale.mag[x] / Math.abs(w) : 1, Math.max(1, Math.abs(phi[x][x] / w)), 10000 + i)) return null;
+    if (!(w > 0 ? cfIs(s.value, cfStatOf(1 - phi[x][x] / w, SEM_SHARED)) : ncCode(s.value) === SM_NEGATIVE && hasExactly(s.value as O, ['not_computable']))) return null;
   }
   // The effects (:2184-2207): among the structural variables (the factors and the columns no
   // factor holds), each pair (to, from), to ≠ from, where from reaches to along the arrows, by to
@@ -3055,21 +3021,20 @@ export function semBundle(v: O, spec: O): SemResultView | null {
     const pathAt = model.paths.findIndex(([t, s]) => t === to && s === from);
     const direct = a[to][from];
     if (!cfIs(e.direct, { value: direct })) return null;
-    // Total within its band of B; indirect exactly total less direct (:2193-2195).
-    const parts = smScale.loop ? smScale.parts[to][from] : 0;
-    if (!smNear('total', e.total, b[to][from], 0, Math.abs(b[to][from]), 20000 + 3 * i, parts)) return null;
+    // Total exactly B's entry; indirect exactly total less direct (:2216-2218).
+    if (!cfIs(e.total, cfStatOf(b[to][from], SEM_SHARED))) return null;
     const total = isValue(e.total) ? cfVal(e.total) : ncCode(e.total) === SEM_SHARED.small ? Number.NaN : Number.POSITIVE_INFINITY;
     if (!cfIs(e.indirect, cfStatOf(total - direct, SEM_SHARED))) return null;
     const indirect = isValue(e.indirect) ? cfVal(e.indirect) : total - direct;
     // The standardized values: all three negative_variance or none; direct the path's
     // standardized weight bit for bit (both standardized() of the same three numbers), or exactly
-    // 0 without a path; total and indirect within their band.
+    // 0 without a path; total and indirect exactly, from the stored total (:2220-2228).
     const neg = [e.totalStandardized, e.directStandardized, e.indirectStandardized].map((x) => ncCode(x) === SM_NEGATIVE);
     if (neg.some((x) => x !== neg[0])) return null;
     if (pathAt >= 0 ? !sameStat(e.directStandardized, (r.weights[rows.length - model.paths.length + pathAt] as O).standardized) : !neg[0] && !(statValue(e.directStandardized) === 0 && hasExactly(e.directStandardized as O, ['value']))) return null;
     const [wf, wt] = [omega[from][from], omega[to][to]];
-    if (!smStandardized('standardizedEffect', e.totalStandardized, total, wf, wt, from, to, 20000 + 3 * i + 1, parts)) return null;
-    if (!smStandardized('standardizedEffect', e.indirectStandardized, indirect, wf, wt, from, to, 20000 + 3 * i + 2, parts)) return null;
+    if (!smStandardized(e.totalStandardized, total, wf, wt)) return null;
+    if (!smStandardized(e.indirectStandardized, indirect, wf, wt)) return null;
   }
 
   // The three rows (fit_rows, decision 796): NPAR and DF from the spec, by the shared rules.

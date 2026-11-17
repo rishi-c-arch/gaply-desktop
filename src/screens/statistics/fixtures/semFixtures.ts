@@ -888,6 +888,16 @@ export const semResultView = {
       "stats.sem.no_srmr",
       "stats.sem.listwise_only",
       "stats.sem.no_weights"
+    ],
+    "unitExponents": [
+      10,
+      10,
+      10,
+      10,
+      9,
+      10,
+      10,
+      9
     ]
   },
   "diagnostics": [
@@ -2097,6 +2107,20 @@ export const semResultViewOther = {
       "stats.sem.no_srmr",
       "stats.sem.listwise_only",
       "stats.sem.no_weights"
+    ],
+    "unitExponents": [
+      8,
+      8,
+      8,
+      7,
+      8,
+      8,
+      8,
+      8,
+      8,
+      8,
+      8,
+      8
     ]
   },
   "diagnostics": [

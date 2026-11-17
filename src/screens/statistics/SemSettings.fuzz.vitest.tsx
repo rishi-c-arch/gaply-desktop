@@ -37,10 +37,25 @@ describe('the SEM settings at the real limits, fuzzed', () => {
     expect(five.ready).toBeGreaterThan(0);
   });
 
-  it('holds every rule over 26 numeric columns, past the covariances the pairs would make (seed 20261117, 5 sequences of 60 actions)', () => {
-    const ran = fuzzSemSettings(20261117, 5, 60, 26, SEM_LIMITS);
-    console.log(`fuzz real 26: ${ran.actions} actions, ${ran.applied} applied, ${ran.ready} ready states; not ready: ${JSON.stringify(ran.missing)}`);
-    expect(ran.actions).toBe(300);
-    expect(ran.ready).toBeGreaterThan(0);
+  // Decision 848's E2: each sequence starts with 24 columns on their own, by one bulk action through
+  // the settings' handle, so states where adding every pair would pass the most covariances (276
+  // pairs of 24, past 256) are reached; their tally must be above 0. One sequence per it: with 24
+  // columns drawn at every step, an it of all five took more than 20 s under load. Each it has its own
+  // timeout of 90 s: at default workers in the whole suite one sequence took 39.4 s (17 Nov 2026,
+  // 9c5f/logs/final_vitest_default_1794890571.log), past the config's 20 s.
+  const wide = { actions: 0, ready: 0, pairsPast: 0 };
+  for (let first = 0; first < 5; first += 1) {
+    it(`holds every rule over 26 numeric columns, past the covariances the pairs would make (seed 20261117, sequence ${first} of 5, 60 actions)`, () => {
+      const ran = fuzzSemSettings(20261117, 1, 60, 26, SEM_LIMITS, first, { startOwn: 24 });
+      wide.actions += ran.actions;
+      wide.ready += ran.ready;
+      wide.pairsPast += ran.pairsPast;
+      console.log(`fuzz real 26 from ${first}: ${ran.actions} actions, ${ran.applied} applied, ${ran.ready} ready states, ${ran.pairsPast} past the pairs' cap; not ready: ${JSON.stringify(ran.missing)}`);
+    }, 90000);
+  }
+  it('ran 5 sequences of 60 actions over 26 columns, reached ready states, and reached states past the pairs\' cap', () => {
+    expect(wide.actions).toBe(300);
+    expect(wide.ready).toBeGreaterThan(0);
+    expect(wide.pairsPast).toBeGreaterThan(0);
   });
 });

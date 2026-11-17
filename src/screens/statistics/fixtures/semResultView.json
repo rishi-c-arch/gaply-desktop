@@ -792,6 +792,16 @@
       "stats.sem.no_srmr",
       "stats.sem.listwise_only",
       "stats.sem.no_weights"
+    ],
+    "unitExponents": [
+      10,
+      10,
+      10,
+      10,
+      9,
+      10,
+      10,
+      9
     ]
   },
   "diagnostics": [

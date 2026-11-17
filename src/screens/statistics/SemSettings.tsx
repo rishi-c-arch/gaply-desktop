@@ -72,6 +72,7 @@ import {
   semFactorOption,
   semFactorTooFew,
   semCovarianceEndLabel,
+  semPathEndLabel,
   semGroupHeading,
   semGroupKindLabel,
   semGroupShort,
@@ -383,9 +384,10 @@ function exogenousPairs(model: Model, shown: string[]): Array<[string, string]> 
 }
 
 /** Readiness (decision 814), a pure function of the model and the view: the first thing missing,
- *  one sentence, or null when the dialog may run. 9C-5b (decision 823's N4) adds, after the column
- *  count's line, a line for each cap a model can pass: the screen never builds such a model, and
- *  this says what to do if one is given. */
+ *  one sentence, or null when the dialog may run. After the column count's line comes a line for
+ *  each of the five caps a model can pass: the columns and the factors (9C-5b, decision 823's N4),
+ *  then the paths, the covariances and the parameters held equal (9C-5f, decision 848's E3). The
+ *  screen never builds such a model, and this says what to do if one is given. */
 export function semStillMissing(model: SemModel, view: DatasetView | null): string | null {
   const shown = view ? numeric(view).map((c) => c.alias) : [];
   const column = columnNames(view);
@@ -402,6 +404,10 @@ export function semStillMissing(model: SemModel, view: DatasetView | null): stri
   if (columns.length < MIN_COLUMNS) return SM_MISSING.columns;
   if (columns.length > MAX_COLUMNS) return SM_MISSING.tooManyColumns(columns.length);
   if (factors.length > MAX_FACTORS) return SM_MISSING.tooManyFactors(factors.length);
+  if (model.paths.length > MAX_PATHS) return SM_MISSING.tooManyPaths(model.paths.length);
+  if (model.covariances.length > MAX_COVARIANCES) return SM_MISSING.tooManyCovariances(model.covariances.length);
+  const members = model.groups.reduce((n, g) => n + g.members.length, 0);
+  if (members > MAX_EQUAL_MEMBERS) return SM_MISSING.tooManyMembers(members);
   if (short) return SM_MISSING.factorShort(short.number);
   if (unused.length > 0) return SM_MISSING.alone(column(aliasNumber(unused[0])));
   let i = paths.findIndex((p) => !p.complete);
@@ -624,7 +630,9 @@ const valueOf = (t: 'none' | 'own' | number) => (t === 'none' ? 'none' : t === '
 const targetOf = (v: string): SemTarget => (v === 'none' ? 'none' : v === 'own' ? 'own' : v === 'new' ? 'new' : Number(v.slice(1)));
 
 /** A row's end's select: "Choose a variable" and the variables offered; a path's ends are
- *  labelled "From" and "To", a covariance's are not. */
+ *  labelled "From" and "To", a covariance's are not. Each is named by its aria-label, with no
+ *  column's name in it: "Path i, from" and "Path i, to" (decision 848's E5), "Covariance i, first
+ *  end" and "Covariance i, second end". */
 const EndSelect: React.FC<{ value: string; options: Array<{ key: string; name: string }>; testId: string; label?: string; ariaLabel?: string; onChange: (key: string) => void }> = ({
   value,
   options,
@@ -744,8 +752,8 @@ export const SemSettings: React.FC<{ view: DatasetView; settings: SemSettingsSta
             )}
             {s.paths.map((p, i) => (
               <div key={p.id} data-testid={`sm-path-${p.id}`}>
-                <EndSelect value={p.from} options={pathOptions} testId={`sm-path-from-${p.id}`} label={SM_FROM} onChange={(k) => s.setPathEnd(p.id, 'from', k)} /> →{' '}
-                <EndSelect value={p.to} options={pathOptions} testId={`sm-path-to-${p.id}`} label={SM_TO} onChange={(k) => s.setPathEnd(p.id, 'to', k)} />{' '}
+                <EndSelect value={p.from} options={pathOptions} testId={`sm-path-from-${p.id}`} label={SM_FROM} ariaLabel={semPathEndLabel(i + 1, 'from')} onChange={(k) => s.setPathEnd(p.id, 'from', k)} /> →{' '}
+                <EndSelect value={p.to} options={pathOptions} testId={`sm-path-to-${p.id}`} label={SM_TO} ariaLabel={semPathEndLabel(i + 1, 'to')} onChange={(k) => s.setPathEnd(p.id, 'to', k)} />{' '}
                 <Button variant="ghost" aria-label={`${ALPHA_REMOVE_ITEM} path ${i + 1}`} onClick={() => s.removePath(p.id)} data-testid={`sm-path-remove-${p.id}`}>
                   {ALPHA_REMOVE_ITEM}
                 </Button>

@@ -759,6 +759,91 @@ describe("the review of 365b638's findings in the editor (9C-5b, decision 823)",
     expect(semStillMissing(own(2), wide(2))).toBeNull();
   });
 
+  it('E3: a model past the paths\', the covariances\' or the members\' cap is not ready, and says what to do (decision 848)', () => {
+    // n columns on their own, `paths` and `covariances` as rows of distinct pairs, `groups` as given.
+    const pairsOf = (n: number) => {
+      const out: Array<[string, string]> = [];
+      for (let i = 1; i <= n; i++) for (let j = 1; j <= n; j++) if (i !== j) out.push([`C${i}`, `C${j}`]);
+      return out;
+    };
+    const model = (n: number, paths: number, covariances: number, groups: SemModel['groups'] = []): SemModel => ({
+      assigned: Object.fromEntries(Array.from({ length: n }, (_, i) => [`C${i + 1}`, 'own' as const])),
+      paths: pairsOf(n).slice(0, paths).map(([a, b], i) => ({ id: i + 1, first: { column: a }, second: { column: b } })),
+      covariances: pairsOf(n).filter(([a, b]) => Number(a.slice(1)) < Number(b.slice(1))).slice(0, covariances).map(([a, b], i) => ({ id: 1000 + i, first: { column: a }, second: { column: b } })),
+      groups,
+      next: 5000,
+    });
+    const P = SEM_LIMITS.maxPaths;
+    const K = SEM_LIMITS.maxCovariances;
+    const M = SEM_LIMITS.maxEqualMembers;
+    expect(semStillMissing(model(12, P + 1, 0), wide(12))).toBe(`The model has ${P + 1} paths, more than the ${P} Gaply fits. Take out 1 of them.`);
+    expect(semStillMissing(model(12, P + 3, 0), wide(12))).toBe(`The model has ${P + 3} paths, more than the ${P} Gaply fits. Take out 3 of them.`);
+    expect(semStillMissing(model(24, 0, K + 1), wide(24))).toBe(`The model has ${K + 1} covariances, more than the ${K} Gaply fits. Take out 1 of them.`);
+    expect(semStillMissing(model(24, 0, K + 2), wide(24))).toBe(`The model has ${K + 2} covariances, more than the ${K} Gaply fits. Take out 2 of them.`);
+    // 20 columns: their 20 variances and 109 of their 190 covariances held equal, 129 members.
+    const held = (extra: number): SemModel['groups'] => [
+      { id: 1, kind: 'covariance', members: Array.from({ length: M - 19 + extra }, (_, i) => `C:${1000 + i}`) },
+      { id: 2, kind: 'variance', members: Array.from({ length: 20 }, (_, i) => `V:C${i + 1}`) },
+    ];
+    expect(semStillMissing(model(20, 0, 190, held(0)), wide(20))).toBe(`The groups hold ${M + 1} parameters, more than the ${M} Gaply holds equal. Untick 1 of them.`);
+    expect(semStillMissing(model(20, 0, 190, held(2)), wide(20))).toBe(`The groups hold ${M + 3} parameters, more than the ${M} Gaply holds equal. Untick 3 of them.`);
+    expect([SM_MISSING.tooManyPaths(P + 1), SM_MISSING.tooManyCovariances(K + 1), SM_MISSING.tooManyMembers(M + 1)]).toEqual([
+      `The model has ${P + 1} paths, more than the ${P} Gaply fits. Take out 1 of them.`,
+      `The model has ${K + 1} covariances, more than the ${K} Gaply fits. Take out 1 of them.`,
+      `The groups hold ${M + 1} parameters, more than the ${M} Gaply holds equal. Untick 1 of them.`,
+    ]);
+    // At each cap exactly, none of the three is said.
+    expect(semStillMissing(model(12, P, 0), wide(12))).toBeNull();
+    expect(semStillMissing(model(24, 0, K), wide(24))).toBeNull();
+  });
+
+  it('E6: a path held in a group and then taken out leaves its group, so the group is short and the model not ready (decision 848)', () => {
+    // The fuzz reaches this fault at 1 of 20 fresh seeds at most (9c5f/rates/table.txt), so it is
+    // pinned here by its own sequence: two paths held equal, the first taken out, its freed column
+    // put "Not in the model".
+    render(<Harness v={wide(5)} />);
+    act(() => {
+      for (const a of ['C1', 'C2', 'C3']) s().assign(a, 'own');
+    });
+    act(() => {
+      s().addPath();
+      s().addPath();
+    });
+    const [p1, p2] = s().paths.map((p) => p.id);
+    act(() => {
+      s().setPathEnd(p1, 'from', 'C1');
+      s().setPathEnd(p1, 'to', 'C2');
+      s().setPathEnd(p2, 'from', 'C1');
+      s().setPathEnd(p2, 'to', 'C3');
+    });
+    act(() => s().addGroup());
+    const g = s().groups[0].id;
+    act(() => s().setGroupKind(g, 'path'));
+    for (const p of s().groups[0].offered) act(() => s().tick(g, p.key, true));
+    expect(s().groups[0].ticked).toHaveLength(2);
+    expect(s().stillMissing).toBeNull();
+    act(() => s().removePath(p1));
+    act(() => s().assign('C2', 'none'));
+    expect(s().groups[0].ticked).toEqual([`P:${p2}`]);
+    expect(s().stillMissing).toBe(SM_MISSING.groupShort(1));
+  });
+
+  it('E5: a path row\'s two selects are named "Path i, from" and "Path i, to", and still read "From" and "To" (decision 848)', () => {
+    render(<Harness />);
+    for (const a of ['C5', 'C6']) put(a, 'On its own');
+    act(() => {
+      s().addPath();
+      s().addPath();
+    });
+    for (const i of [1, 2]) {
+      for (const end of ['from', 'to'] as const) {
+        const el = screen.getByRole('combobox', { name: `Path ${i}, ${end}` });
+        expect(el.getAttribute('aria-label')).toBe(`Path ${i}, ${end}`);
+        expect((el.closest('label') as HTMLElement).textContent?.startsWith(end === 'from' ? 'From' : 'To')).toBe(true);
+      }
+    }
+  });
+
   it('N5: "Add every pair of exogenous variables" is enabled at exactly the most covariances, and disabled one row past', () => {
     render(<Harness v={wide(23)} />);
     act(() => {
@@ -774,6 +859,14 @@ describe("the review of 365b638's findings in the editor (9C-5b, decision 823)",
     act(() => s().addCovariance());
     expect((byId('sm-cov-exogenous') as HTMLButtonElement).disabled).toBe(true);
     expect(byId('sm-cov-exogenous-cap').textContent).toBe(SM_CAPS.exogenous(SEM_LIMITS.maxCovariances + 1));
+    // E1 (decision 848): back at exactly the most, clicking it adds every pair, 256 rows in all,
+    // and leaves it disabled, with nothing left to add.
+    act(() => s().removeCovariance(s().covariances[s().covariances.length - 1].id));
+    expect([s().exogenousToAdd, s().exogenousTotal]).toEqual([253, SEM_LIMITS.maxCovariances]);
+    fireEvent.click(byId('sm-cov-exogenous'));
+    expect(screen.getAllByTestId(/^sm-cov-\d+$/)).toHaveLength(SEM_LIMITS.maxCovariances);
+    expect(s().covariances).toHaveLength(SEM_LIMITS.maxCovariances);
+    expect((byId('sm-cov-exogenous') as HTMLButtonElement).disabled).toBe(true);
   });
 
   it('N5: a group with members is numbered before an empty one made earlier', () => {

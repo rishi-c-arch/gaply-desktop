@@ -287,6 +287,10 @@ export interface SemResult {
   exclusions: SemExclusion[];
   notes: SemCode[];
   limitations: SemCode[];
+  /** Each variable's natural unit as the exponent e of its power of two, 2^e, in the model's
+   *  order (the factors, then the columns): integers from −537 to 511, a factor's its first
+   *  column's. The stored checker repeats Rust's arithmetic for a loop in these units. */
+  unitExponents: number[];
 }
 
 /** Hashes, versions and counts: no header, label, cell, name or path. */

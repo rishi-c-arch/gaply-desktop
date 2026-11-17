@@ -13,7 +13,8 @@
 //! is taken with `Runs::copy_for_save` without saving it, and the three byte strings a save
 //! stores are measured. The result is measured as run, and as an upper bound: its JSON with
 //! every `Stat` at the longest form a `Stat` takes (measured over every `SemCode` and the
-//! widest double), every count at its widest, every exclusion line there can be and every note.
+//! widest double), every count at its widest, every exclusion line there can be, every note,
+//! and each variable's unit exponent at its longest, −537 (decision 846).
 //!
 //! The pinned lengths have the manifest's elapsed time, platform and run id set to fixed
 //! values first, since those differ run to run and machine to machine; the result as run is
@@ -30,17 +31,17 @@ use gaply_core::stats_sem::{SemCode as C, SemOutcome, SemParams, Stat, MAX_COLUM
 
 use project_support::*;
 
-/// The pinned lengths, measured on macOS aarch64, 16 Nov 2026, in a run with every pin at 0
-/// (~/gaply-corpus/os/phase9/9c5c/p2_size_pins0_1794808418.log): the run's result 1,330,981
-/// bytes (9C-4's figure), attempt 1 in 19 iterations, and its saved bytes 1,348,222; the
-/// upper bound with the run's spec, rest and manifest 2,383,784 (15,130 + 479 + 1,632 +
-/// 2,366,543); with the wide spec, rest and manifest 2,558,614 (48,085 + 22,973 + 121,013 +
-/// 2,366,543), 1,635,690 under the read limit (remeasured after the review's finding 3,
-/// 9c5c/fix_app_1794810079.log).
+/// The pinned lengths, measured on macOS aarch64, 17 Nov 2026, with the result's unitExponents
+/// (Research OS, Phase 9C-5f, decision 846; ~/gaply-corpus/os/phase9/9c5f/logs/
+/// size_measure_1794867650.log): the run's result 1,331,290 bytes, and its saved bytes 1,348,531;
+/// the upper bound, each unit widened to −537, with the run's spec, rest and manifest 2,384,522
+/// (15,130 + 479 + 1,632 + 2,367,281); with the wide spec, rest and manifest 2,559,352 (48,085 +
+/// 22,973 + 121,013 + 2,367,281), 1,634,952 under the read limit. Before the units (16 Nov 2026,
+/// 9c5c/fix_app_1794810079.log) the widest result was 2,366,543 and the margin 1,635,690.
 const SPEC_BYTES: usize = 15130;
 const MANIFEST_BYTES: usize = 479;
 const BUNDLE_REST_BYTES: usize = 1632;
-const WIDEST_BYTES: usize = 2366543;
+const WIDEST_BYTES: usize = 2367281;
 const WIDE_SPEC_BYTES: usize = 48085;
 const WIDE_MANIFEST_BYTES: usize = 22973;
 const WIDE_BUNDLE_REST_BYTES: usize = 121013;
@@ -161,6 +162,11 @@ fn widest(result: &SemOutcome) -> (usize, usize) {
     walk(&mut v, &widest_stat(), &mut n);
     v["exclusions"] = serde_json::to_value(exclusions()).unwrap();
     v["notes"] = serde_json::to_value([C::NegativeVariance, C::CovarianceNotPositiveDefinite, C::Nonrecursive, C::DfZero]).unwrap();
+    // Each variable's unit at its longest form: −537, the widest exponent in [−537, 511]
+    // (Research OS, Phase 9C-5f, decision 846).
+    let units = v["unitExponents"].as_array().expect("the result's units").len();
+    assert_eq!(units, result.variances.len(), "one unit per variable");
+    v["unitExponents"] = json!(vec![-537; units]);
     (serde_json::to_vec(&v).unwrap().len(), n)
 }
 

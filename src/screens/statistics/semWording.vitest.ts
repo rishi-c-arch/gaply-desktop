@@ -87,6 +87,8 @@ function everySentence(): string[] {
   out.push(words.SM_MISSING.covarianceEnds(1), words.SM_MISSING.covarianceItself(1), words.SM_MISSING.covarianceRepeats(2, 1), words.SM_MISSING.groupShort(1), words.SM_CAPS.exogenous(276));
   // 9C-5b (decision 823's N4 and N7).
   out.push(words.SM_MISSING.tooManyColumns(129), words.SM_MISSING.tooManyFactors(17), words.semCovarianceEndLabel(1, 'first'), words.semCovarianceEndLabel(1, 'second'), words.semGroupKindLabel(2));
+  // 9C-5f (decision 848's E3 and E5).
+  out.push(words.SM_MISSING.tooManyPaths(65), words.SM_MISSING.tooManyCovariances(257), words.SM_MISSING.tooManyMembers(129), words.semPathEndLabel(1, 'from'), words.semPathEndLabel(1, 'to'));
   out.push(words.semMissingCodeQuestion(-99, [{ header: 'a', cells: 2 }]));
   out.push(
     SEM_DIALOG_TITLE,

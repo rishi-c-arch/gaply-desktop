@@ -645,7 +645,7 @@ fn repeated_runs_give_the_same_bits_and_the_result_has_its_exact_keys() {
     assert_eq!(a.canonical_bytes(), b.canonical_bytes());
     let v: serde_json::Value = serde_json::to_value(&a).unwrap();
     let keys: Vec<&str> = v.as_object().unwrap().keys().map(String::as_str).collect();
-    let mut want = vec!["columns", "rowsUsed", "indicators", "weights", "covariances", "variances", "smc", "effects", "fit", "iterations", "attempt", "exclusions", "notes", "limitations"];
+    let mut want = vec!["columns", "rowsUsed", "indicators", "weights", "covariances", "variances", "smc", "effects", "fit", "iterations", "attempt", "exclusions", "notes", "limitations", "unitExponents"];
     let mut got = keys.clone();
     got.sort_unstable();
     want.sort_unstable();

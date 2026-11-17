@@ -84,6 +84,18 @@ describe('the structural equation model view fixtures', () => {
     }
   });
 
+  it("give each variable's unit as an integer exponent from −537 to 511, a factor's its first column's, in both typed copies (decision 846)", () => {
+    for (const [j, t] of [[resultJson, typed.semResultView], [otherJson, typed.semResultViewOther]] as const) {
+      const units = j.result.unitExponents;
+      expect(t.result.unitExponents).toEqual(units);
+      expect(units).toHaveLength(j.result.variances.length);
+      for (const e of units) expect(Number.isInteger(e) && e >= -537 && e <= 511).toBe(true);
+      const k = j.result.indicators.length;
+      j.result.indicators.forEach((cols, f) => expect(units[f]).toBe(units[k + j.result.columns.indexOf(cols[0])]));
+      expect(Object.keys(j.result).pop()).toBe('unitExponents');
+    }
+  });
+
   it('share one manifest, so no test treats the Other fixture as a stored result', () => {
     expect(otherJson.manifest).toEqual(resultJson.manifest);
   });

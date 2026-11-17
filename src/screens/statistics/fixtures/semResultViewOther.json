@@ -1158,6 +1158,20 @@
       "stats.sem.no_srmr",
       "stats.sem.listwise_only",
       "stats.sem.no_weights"
+    ],
+    "unitExponents": [
+      8,
+      8,
+      8,
+      7,
+      8,
+      8,
+      8,
+      8,
+      8,
+      8,
+      8,
+      8
     ]
   },
   "diagnostics": [

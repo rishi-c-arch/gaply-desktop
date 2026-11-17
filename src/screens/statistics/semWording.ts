@@ -298,6 +298,9 @@ export const semGroupHeading = (n: number): string => `Group ${n}`;
 /** 9C-5b (decision 823's N7): the accessible names of a covariance row's two selects and a group's
  *  kind select, by number only, never a column's name. */
 export const semCovarianceEndLabel = (i: number, end: 'first' | 'second'): string => `Covariance ${i}, ${end} end`;
+/** A path row's select's accessible name, with no column's name in it; its visible words stay
+ *  "From" and "To" (9C-5f, decision 848's E5). */
+export const semPathEndLabel = (i: number, end: 'from' | 'to'): string => `Path ${i}, ${end}`;
 export const semGroupKindLabel = (n: number): string => `Group ${n}, kind`;
 export const SM_FROM = 'From';
 export const SM_TO = 'To';
@@ -346,6 +349,12 @@ export const SM_MISSING = {
     `The model has ${count} columns, more than the ${MAX_COLUMNS} Gaply fits. Choose "Not in the model" for ${count - MAX_COLUMNS} of them.`,
   tooManyFactors: (count: number): string =>
     `The model has ${count} factors, more than the ${MAX_FACTORS} Gaply fits. Move every column of ${count - MAX_FACTORS} of them to another factor or out of the model.`,
+  // 9C-5f (decision 848's E3): the other three caps, said after the factors' line.
+  tooManyPaths: (count: number): string => `The model has ${count} paths, more than the ${MAX_PATHS} Gaply fits. Take out ${count - MAX_PATHS} of them.`,
+  tooManyCovariances: (count: number): string =>
+    `The model has ${count} covariances, more than the ${MAX_COVARIANCES} Gaply fits. Take out ${count - MAX_COVARIANCES} of them.`,
+  tooManyMembers: (count: number): string =>
+    `The groups hold ${count} parameters, more than the ${MAX_EQUAL_MEMBERS} Gaply holds equal. Untick ${count - MAX_EQUAL_MEMBERS} of them.`,
   factorShort: (n: number): string => `Factor ${n} has 1 column; each factor needs at least ${MIN_FACTOR_ITEMS}.`,
   alone: (column: string): string => `${column} is on its own with no path or covariance. Add one, or choose "Not in the model" for it.`,
   pathEnds: (i: number): string => `Choose both ends of path ${i}.`,

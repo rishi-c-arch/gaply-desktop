@@ -4,14 +4,18 @@
 //! project in a folder the test creates and removes, and read back as a stored result through
 //! `pc::run_result`, as `project_sem.rs` does. `storedSem.vitest.ts` reads the committed bytes
 //! and holds the checker to them: loopPivot.json for C1 (a loop whose natural units differ from
-//! Rust's), small.json and smallLoop.json for C2 (data scaled by 1e-10, without and with a loop).
+//! Rust's), small.json and smallLoop.json for C2 (data scaled by 1e-10, without and with a loop),
+//! cancel.json for decision 843, and sink.json for 9C-5f's forged units (decision 846: a loop with
+//! a structural sink, whose units a forger can push to the ends of their range).
 //!
 //! With `GAPLY_WRITE_SEM_CHECKER_RECORDS` set, each record is written to
 //! `CARGO_MANIFEST_DIR/../src/screens/statistics/projects/fixtures/semChecker/`. With it unset,
-//! each is compared with the committed file as `project_commands.rs`'s assert_stored_fixture
-//! does: the layout after `steady`'s normalisation, not the bytes, since a value's last digit may
-//! differ by platform. `layout`, `stored_layout`, `steady` and `fixtures` are copied from
-//! `project_commands.rs` (private to that test file); `fixtures` names this folder instead.
+//! each is compared with the committed file: byte for byte on macOS aarch64 and Linux x86_64
+//! (`record_check`, decision 846), and everywhere as `project_commands.rs`'s
+//! assert_stored_fixture does, the layout after `steady`'s normalisation, since elsewhere a
+//! value's last digit may differ by platform. `layout`, `stored_layout`, `steady` and `fixtures`
+//! are copied from `project_commands.rs` (private to that test file); `fixtures` names this
+//! folder instead.
 //!
 //! Data come from a seeded xorshift64* with normals as the sum of twelve uniforms less 6, so no
 //! platform function is used; every cell is written in exponent notation with every digit
@@ -112,6 +116,13 @@ fn loop_spec() -> Value {
 /// different powers of two; each column then scaled by 10^e times a mantissa in [1, 2), e from −3
 /// to 3, or by `scale` times a mantissa when `scale` is given.
 fn loop_data(seed: u64, n: usize, scale: Option<f64>) -> Vec<u8> {
+    csv(&loop_rows(seed, n, scale, false))
+}
+
+/// `loop_data`'s rows; with `sink`, a seventh column C7 = g C2 + e7 (sink.json, decision 846),
+/// its gain, error SD and scale drawn after the six columns' scales and its error after each
+/// row's six, so the six columns' draws are `loop_data`'s exactly.
+fn loop_rows(seed: u64, n: usize, scale: Option<f64>, sink: bool) -> Vec<Vec<f64>> {
     let mut r = Draws(20_261_116 + seed);
     let (b12, b21) = loop {
         let (x, y) = (r.sign() * r.between(0.3, 1.3), r.sign() * r.between(0.3, 1.3));
@@ -137,8 +148,9 @@ fn loop_data(seed: u64, n: usize, scale: Option<f64>) -> Vec<u8> {
             }
         })
         .collect();
+    let (g7, s7, scale7) = if sink { (r.sign() * r.between(0.5, 2.0), r.between(0.05, 1.0), r.scale(-3, 3)) } else { (0.0, 0.0, 1.0) };
     let det = 1.0 - b12 * b21;
-    let rows: Vec<Vec<f64>> = (0..n)
+    (0..n)
         .map(|_| {
             let z5 = r.normal();
             let x3 = 0.5 * z5 + r.normal();
@@ -149,10 +161,21 @@ fn loop_data(seed: u64, n: usize, scale: Option<f64>) -> Vec<u8> {
             let (a, b) = (b13 * x3 + e1, b24 * x4 + e2);
             let y1 = (a + b12 * b) / det;
             let y2 = (b + b21 * a) / det;
-            [y1, y2, x3, x4, z5, x6].iter().zip(&scales).map(|(x, s)| x * s).collect()
+            let mut row: Vec<f64> = [y1, y2, x3, x4, z5, x6].iter().zip(&scales).map(|(x, s)| x * s).collect();
+            if sink {
+                let e7 = s7 * r.normal();
+                row.push((g7 * y2 + e7) * scale7);
+            }
+            row
         })
-        .collect();
-    csv(&rows)
+        .collect()
+}
+
+/// sink.json's spec (decision 846): `loop_spec`'s, with C7 a structural sink, the path C2 → C7.
+fn sink_spec() -> Value {
+    let mut spec = loop_spec();
+    spec["paths"].as_array_mut().unwrap().push(json!({ "to": col(7), "from": col(2) }));
+    spec
 }
 
 /// The first seed at which 2480982e's checker refuses loopPivot.json's record (decision 840's
@@ -366,21 +389,62 @@ fn steady(text: &str) -> String {
     out
 }
 
-/// Writes the record with `GAPLY_WRITE_SEM_CHECKER_RECORDS` set; compares its layout with the
-/// committed file either way (assert_stored_fixture, project_commands.rs:1207-1228).
-fn assert_record(name: &str, view: &RunResultView) {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RecordCheck {
+    Exact,
+    Layout,
+}
+
+/// Exact on macOS aarch64, where the records were written, and on Linux x86_64 for a record a
+/// Linux run has written and found equal: the four records of c3601d78, which the review of
+/// c3601d78 wrote again on Linux and found byte for byte the committed Mac files (decision 845,
+/// finding 6); the layout check everywhere else, as sem_export.rs's pin_check (Research OS, Phase
+/// 9C-5f, decision 846). sink.json has been written only on the Mac, so Linux checks its layout
+/// until a Linux run writes it and finds it equal (the review of 9C-5f, finding 6).
+fn record_check(os: &str, arch: &str, equal_on_linux: bool) -> RecordCheck {
+    match (os, arch) {
+        ("macos", "aarch64") => RecordCheck::Exact,
+        ("linux", "x86_64") if equal_on_linux => RecordCheck::Exact,
+        _ => RecordCheck::Layout,
+    }
+}
+
+#[test]
+fn the_records_are_checked_exactly_on_macos_aarch64_and_linux_x86_64() {
+    for (os, arch, linux, want) in [
+        ("macos", "aarch64", true, RecordCheck::Exact),
+        ("macos", "aarch64", false, RecordCheck::Exact),
+        ("linux", "x86_64", true, RecordCheck::Exact),
+        ("linux", "x86_64", false, RecordCheck::Layout),
+        ("windows", "x86_64", true, RecordCheck::Layout),
+        ("macos", "x86_64", true, RecordCheck::Layout),
+        ("linux", "aarch64", true, RecordCheck::Layout),
+    ] {
+        assert_eq!(record_check(os, arch, linux), want, "{os}, {arch}, equal on Linux {linux}");
+    }
+}
+
+/// Writes the record with `GAPLY_WRITE_SEM_CHECKER_RECORDS` set; compares it with the committed
+/// file either way: byte for byte where `record_check` says so, else its layout
+/// (assert_stored_fixture, project_commands.rs:1207-1228).
+fn assert_record(name: &str, view: &RunResultView, equal_on_linux: bool) {
     let mut got = serde_json::to_value(view).unwrap();
     for k in ["specJson", "bundleJson", "manifestJson", "failureJson"] {
         if let Some(text) = got[k].as_str() {
             got[k] = Value::String(steady(text));
         }
     }
+    let text = serde_json::to_string_pretty(&got).unwrap() + "\n";
     let p = fixtures().join(name);
     if std::env::var_os("GAPLY_WRITE_SEM_CHECKER_RECORDS").is_some() {
         std::fs::create_dir_all(p.parent().unwrap()).unwrap();
-        std::fs::write(&p, serde_json::to_string_pretty(&got).unwrap() + "\n").unwrap();
+        std::fs::write(&p, &text).unwrap();
     }
-    let want: Value = serde_json::from_str(&std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("{name}: {e}"))).unwrap();
+    let committed = std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("{name}: {e}"));
+    if record_check(std::env::consts::OS, std::env::consts::ARCH, equal_on_linux) == RecordCheck::Exact {
+        assert!(text == committed, "{name}: the stored result and its record differ in their bytes");
+    }
+    let want: Value = serde_json::from_str(&committed).unwrap();
     assert_eq!(stored_layout(got), stored_layout(want), "{name}: the stored result and its record differ in layout");
 }
 
@@ -397,7 +461,7 @@ fn the_loop_pivot_record_is_a_stored_loop_of_decision_838s_shape() {
     assert_eq!(o["rowsUsed"], json!(2000));
     assert_eq!(o["columns"], json!(["C1", "C2", "C3", "C4", "C5", "C6"]));
     assert_eq!(o["weights"].as_array().unwrap().len(), 4);
-    assert_record("loopPivot.json", &view);
+    assert_record("loopPivot.json", &view, true);
 }
 
 /// C2's record without a loop: the review's sem0028 spec on data scaled by 1e-10, no notes,
@@ -411,7 +475,7 @@ fn the_small_record_has_no_loop_and_every_variance_below_2480982es_zone() {
     assert_eq!(variances.len(), 6, "the factor and five columns");
     assert!(variances.iter().all(|v| *v > 0.0 && *v < 1e-17), "the premise: every variance in (0, 1e-17): {} of 6", variances.iter().filter(|v| **v > 0.0 && **v < 1e-17).count());
     assert!(o["smc"].as_array().unwrap().iter().all(|s| s["value"].is_object() && s["value"].get("value").is_some()), "every SMC a value");
-    assert_record("small.json", &view);
+    assert_record("small.json", &view, true);
 }
 
 /// Decision 843's record: the hunt's cancel1506, a loop whose two routes from C3 to C2 nearly
@@ -429,7 +493,34 @@ fn the_cancel_record_is_the_hunts_cancel1506() {
     // And the cancelling: C3's total on C2 is small beside its direct path.
     let e = o["effects"].as_array().unwrap().iter().find(|e| e["to"] == col(2) && e["from"] == col(3)).expect("C3 on C2");
     assert!(value(&e["total"]).abs() < 0.1 * value(&e["direct"]).abs(), "the premise: C3's routes to C2 nearly cancel");
-    assert_record("cancel.json", &view);
+    assert_record("cancel.json", &view, true);
+}
+
+/// The first seed at which sink.json's forged units (C3's exponent −537, C7's 511) move some
+/// total or standardized value by more than 1e-9 of its scale, Rust's arithmetic recomputed in
+/// those units (decision 846's search, 17 Nov 2026, macOS aarch64,
+/// ~/gaply-corpus/os/phase9/9c5f/search/verdicts.tsv): seeds 1 to 20 all succeeded with the note
+/// nonrecursive alone; 1 to 3 moved nothing by more than 4.5e-13 of its scale, and seed 4 moved a
+/// standardized weight by 1.82e-9 of itself.
+const SINK_SEED: u64 = 4;
+
+/// Decision 846's fifth record: loopPivot.json's shape with a seventh column, C7, and the path
+/// C2 → C7, 2,000 rows. C7 is a structural sink and C3 a source, so a forger can put their units
+/// at the ends of the range, 2^511 and 2^−537, and push C3's natural route to C7 below the normal
+/// doubles; storedSem.vitest.ts holds that forgery refused.
+#[test]
+fn the_sink_record_is_a_loop_with_a_structural_sink() {
+    let view = stored("sink", &csv(&loop_rows(SINK_SEED, 2000, None, true)), sink_spec());
+    let o = outputs(&view);
+    assert_eq!(o["notes"], json!(["stats.sem.nonrecursive"]), "the loop and nothing else");
+    assert_eq!(o["rowsUsed"], json!(2000));
+    assert_eq!(o["columns"], json!(["C1", "C2", "C3", "C4", "C5", "C6", "C7"]));
+    let paths: Vec<(Value, Value)> = o["weights"].as_array().unwrap().iter().map(|w| (w["to"].clone(), w["from"].clone())).collect();
+    assert_eq!(paths.last(), Some(&(col(7), col(2))), "the path C2 → C7, the last in the spec's order");
+    assert_eq!(paths.len(), 5);
+    // C7 a sink: no path leaves it; C3 a source: no path enters it.
+    assert!(paths.iter().all(|(_, from)| *from != col(7)) && paths.iter().all(|(to, _)| *to != col(3)));
+    assert_record("sink.json", &view, false);
 }
 
 /// C2's record with a loop: decision 838's shape on data scaled by 1e-10.
@@ -440,5 +531,5 @@ fn the_small_loop_record_is_a_loop_with_every_variance_below_2480982es_zone() {
     assert_eq!(o["notes"], json!(["stats.sem.nonrecursive"]), "the loop and nothing else");
     let variances: Vec<f64> = o["variances"].as_array().unwrap().iter().map(|v| value(&v["estimate"])).collect();
     assert!(variances.iter().all(|v| *v > 0.0 && *v < 1e-17), "the premise: every variance in (0, 1e-17): {} of {}", variances.iter().filter(|v| **v > 0.0 && **v < 1e-17).count(), variances.len());
-    assert_record("smallLoop.json", &view);
+    assert_record("smallLoop.json", &view, true);
 }

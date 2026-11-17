@@ -87,6 +87,22 @@ describe("the Statistics window's files", () => {
     expect(offenders).toEqual([]);
   });
 
+  // Research OS, Phase 9C-5f (decision 848's E4): semSpecRules.ts is a test oracle and the fuzz's
+  // driver, and imports the testing library; no file under src/ but a test may import it. Every
+  // .ts and .tsx file under src/ is read, so a file added tomorrow is scanned.
+  it('let no file under src/ import semSpecRules.ts but a test', () => {
+    const SRC = path.join(HERE, '../../..');
+    const walk = (dir: string): string[] =>
+      fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(dir, e.name)) : /\.(ts|tsx)$/.test(e.name) ? [path.join(dir, e.name)] : []));
+    // A named import, a dynamic import, a require, or an import for its side effects alone (the
+    // review of 9C-5f, finding 11).
+    const imports = /(?:from\s+|import\s*\(\s*|require\s*\(\s*|\bimport\s+)['"][^'"]*\/semSpecRules(?:\.ts)?['"]/;
+    const importers = walk(SRC).filter((f) => imports.test(code(fs.readFileSync(f, 'utf8'))));
+    // Not inert: the three tests that use it are found.
+    expect(importers.map((f) => path.basename(f)).sort()).toEqual(expect.arrayContaining(['SemSettings.fuzz.vitest.tsx', 'SemSettings.fuzzSmall.vitest.tsx', 'SemSettings.vitest.tsx']));
+    expect(importers.filter((f) => !isTest(f)).map((f) => path.relative(SRC, f))).toEqual([]);
+  });
+
   it('the scan sees a name in code, and not in a comment', () => {
     expect(FORBIDDEN[0][1].test(code('localStorage.setItem("a", "b");'))).toBe(true);
     expect(FORBIDDEN[0][1].test(code('// never localStorage'))).toBe(false);

@@ -571,6 +571,13 @@ pub struct SemOutcome {
     pub exclusions: Vec<Exclusion<SemCode>>,
     pub notes: Vec<SemCode>,
     pub limitations: Vec<SemCode>,
+    /// Each variable's natural unit, in the model's order (the factors, then the columns, the
+    /// variances' order): the integer e for which 2^e is the unit `in_units_of` set, a factor's
+    /// its first column's (Research OS, Phase 9C-5f, decision 846, U1). Read from the unit's
+    /// bits, so the same on every platform; from [−537, 511], since S's diagonal is positive and
+    /// finite. Written for every result; only a model with a loop uses it, since `implied`
+    /// inverts I − A in these units, and the stored checker repeats that arithmetic exactly.
+    pub unit_exponents: Vec<i32>,
 }
 
 impl SemOutcome {
@@ -905,6 +912,12 @@ impl Model {
                 f64::from_bits(s[r][r].sqrt().to_bits() & 0x7FF0_0000_0000_0000)
             })
             .collect();
+    }
+
+    /// Each variable's unit as the exponent of its power of two, read from `scale`'s bits
+    /// (decision 846, U1): `scale[v]` is exactly 2^e, its mantissa's bits clear.
+    fn unit_exponents(&self) -> Vec<i32> {
+        self.scale.iter().map(|x| ((x.to_bits() >> 52) & 0x7FF) as i32 - 1023).collect()
     }
 
     /// B = (I − A)⁻¹, Ω = B Φ Bᵀ and Σ, Ω's block over the columns; `None`
@@ -2292,6 +2305,7 @@ fn outcome<B>(
         exclusions,
         notes,
         limitations: LIMITATIONS.to_vec(),
+        unit_exponents: model.unit_exponents(),
     })
 }
 
@@ -2945,5 +2959,72 @@ mod tests {
         // The SMCs are given wherever Ω_vv > 0, below 0 here for factor 1's columns.
         assert!(matches!(r.smc[0].value, Stat::Value(x) if x < 0.0));
         assert!(r.effects.is_empty(), "no paths, no effects");
+    }
+
+    /// Decision 846, U1: the result holds each variable's unit as the exponent e of its power of
+    /// two, 2^e equal to `scale[v]` bit for bit and a factor's e its first column's. Three models
+    /// this module already builds: the observed-information test's (a loop between its two
+    /// factors, through C7 and C8), at its S; Wheaton's Model B (factors, no loop), solved; and the
+    /// negative factor variance test's (two factors and their covariance), at its Σ.
+    #[test]
+    fn the_result_holds_each_variables_unit_as_the_exponent_of_its_power_of_two() {
+        let two_to = |e: i32| f64::from_bits(((e + 1023) as u64) << 52);
+        let check = |model: &Model, r: &SemOutcome, what: &str| {
+            assert_eq!(r.unit_exponents.len(), model.m, "{what}: one per variable");
+            for (v, e) in r.unit_exponents.iter().enumerate() {
+                assert!((-537..=511).contains(e), "{what}: variable {v}'s exponent {e}");
+                assert_eq!(two_to(*e).to_bits(), model.scale[v].to_bits(), "{what}: variable {v}'s unit");
+            }
+            for f in 0..model.k {
+                assert_eq!(r.unit_exponents[f], r.unit_exponents[model.factor_columns[f][0]], "{what}: factor {f}'s unit is its first column's");
+            }
+            // The premise: the units are not all one, so a unit read from elsewhere would show.
+            assert!(model.scale.iter().any(|x| *x != 1.0), "{what}: every unit is 1");
+        };
+        let identity = |q: usize| (0..q).map(|i| (0..q).map(|j| if i == j { 1.0 } else { 0.0 }).collect()).collect();
+        let at_point = |spec: &SemParams, theta: Vec<f64>, raise: f64| -> (Model, SemOutcome) {
+            let mut model = Model::of(spec);
+            let mut s = model.implied(&theta).unwrap().sigma;
+            for (i, row) in s.iter_mut().enumerate() {
+                row[i] += raise;
+            }
+            let l = cholesky_within(&s, 0.0).expect("S is positive definite");
+            model.in_units_of(&s);
+            let rows = Rows { values: vec![vec![0.0; 40]; model.p], excluded: vec![[0, 0]; model.p] };
+            let solved = Solved { theta, f: 0.0, h_inverse: identity(model.q()), iterations: 0 };
+            let r = outcome(spec, &model, &rows, &s, log_det(&l), &solved, 1, &mut |_| Ok::<(), Halt<Infallible>>(())).unwrap();
+            (model, r)
+        };
+
+        let looped = params(
+            r#"{"indicators":[["C1","C2","C3"],["C4","C5","C6"]],
+                "paths":[{"to":{"factor":1},"from":{"factor":2}},{"to":{"factor":1},"from":{"column":"C7"}},
+                         {"to":{"factor":2},"from":{"factor":1}},{"to":{"factor":2},"from":{"column":"C8"}}],
+                "covariances":[{"a":{"column":"C3"},"b":{"column":"C6"}},{"a":{"column":"C7"},"b":{"column":"C8"}}],
+                "equal":[[{"loading":{"factor":1,"column":"C2"}},{"loading":{"factor":2,"column":"C5"}}]],
+                "missingCodes":[]}"#,
+        );
+        let probe = Model::of(&looped);
+        let mut g = SplitMix(7);
+        let theta: Vec<f64> = probe.kinds.iter().map(|k| match k { Kind::Loading => 0.6 + g.unit(), Kind::Path => 0.4 * (g.unit() - 0.5), Kind::Covariance => 0.1, Kind::Variance => 1.0 + 7.0 * g.unit() }).collect();
+        let (model, r) = at_point(&looped, theta, 0.3);
+        assert!(model.order.is_none(), "the premise: a loop");
+        check(&model, &r, "a loop");
+
+        let data = table(WHEATON);
+        let wheaton_b = params(
+            r#"{"indicators":[["C1","C2"],["C3","C4"],["C5","C6"]],
+                "paths":[{"to":{"factor":1},"from":{"factor":3}},{"to":{"factor":2},"from":{"factor":1}},{"to":{"factor":2},"from":{"factor":3}}],
+                "covariances":[{"a":{"column":"C1"},"b":{"column":"C3"}}],"equal":[],"missingCodes":[]}"#,
+        );
+        let (model, s, log_det_s, n, found, attempt) = solved(&data, &wheaton_b);
+        assert!(model.order.is_some(), "the premise: no loop");
+        let rows = Rows { values: vec![vec![0.0; n]; model.p], excluded: vec![[0, 0]; model.p] };
+        let r = outcome(&wheaton_b, &model, &rows, &s, log_det_s, &found, attempt, &mut |_| Ok::<(), Halt<Infallible>>(())).unwrap();
+        check(&model, &r, "Wheaton's Model B");
+
+        let factors = params(r#"{"indicators":[["C1","C2","C3"],["C4","C5","C6"]],"paths":[],"covariances":[{"a":{"factor":1},"b":{"factor":2}}],"equal":[],"missingCodes":[]}"#);
+        let (model, r) = at_point(&factors, vec![0.8, 0.9, 1.1, 0.7, 0.1, 3.0, 1.0, 4.0, 9.0, 4.0, 0.5, 4.0, 4.0], 0.0);
+        check(&model, &r, "two factors");
     }
 }
